@@ -1,8 +1,8 @@
 {
  "source": {
   "project": "ccusage",
-  "commit": "736df38828b6c2dec53eb8af01e6e45f5dbc4b69",
-  "committedAt": "2026-11-15T11:29:41Z",
+  "commit": "9304e261aadb89a57fc2d75d6c44cfe74ea19881",
+  "committedAt": "2026-11-16T13:19:10+01:00",
   "license": "MIT"
  },
  "models": {
@@ -1556,6 +1556,12 @@
    "cacheRead": 0.1625,
    "cacheWrite": 0.365625
   },
+  "qwen-4-max": {
+   "input": 1.875,
+   "output": 5.625,
+   "cacheRead": 0.09375,
+   "cacheWrite": 2.34375
+  },
   "qwen-deep-research": {
    "input": 7.742,
    "output": 23.367,
@@ -2241,6 +2247,12 @@
    "output": 0.3,
    "cacheRead": 0.0075,
    "cacheWrite": 0.09375
+  },
+  "qwen4-max": {
+   "input": 1.5,
+   "output": 4.5,
+   "cacheRead": 0.075,
+   "cacheWrite": 1.875
   }
  }
 }
