@@ -199,6 +199,18 @@ _ = folding.submit(["set-collapse","false"]);folding.finish(PresentationPreferen
 expect(expanded(folding)==Set(["claude"]),"Saved expansions are kept while folding is off")
 _ = folding.submit(["set-collapse","true"])
 expect(folding.displayed()?.dashboard?.allowCollapse==true && expanded(folding).isEmpty,"Enabling folding collapses every card immediately")
+// Light, dark or system: the radio moves at once, and a saved choice survives an older data render.
+let themed=try JSONDecoder().decode(Snapshot.self,from:Data(fixture.replacingOccurrences(of:#""moduleOptions":["#,with:#""moduleOptions":[{"label":"跟随系统","checked":true,"radio":true,"action":["set-theme","system"],"children":[]},{"label":"深色","checked":false,"radio":true,"action":["set-theme","dark"],"children":[]},"#).utf8))
+var theming=PanelInteraction(source:themed)
+expect(themed.theme==nil && PanelInteraction.keepsPanelOpen(["set-theme","dark"]),"Old snapshots carry no theme; choosing one keeps the panel open")
+expect(theming.submit(["set-theme","dark"]) == .start,"Choosing dark starts")
+func themeChecks(_ s:PanelInteraction)->[Bool]{(s.displayed()?.moduleOptions ?? []).filter{$0.action?.first=="set-theme"}.map{$0.checked ?? false}}
+expect(theming.displayed()?.theme=="dark" && themeChecks(theming)==[false,true],"Dark is shown and checked immediately")
+var darkSaved=saved(50,[]);darkSaved.theme="dark";theming.finish(darkSaved)
+expect(theming.displayed()?.theme=="dark" && themeChecks(theming)==[false,true],"A stale render keeps the saved theme")
+var systemSaved=saved(51,[]);systemSaved.theme=nil
+_ = theming.submit(["set-theme","system"]);theming.finish(systemSaved)
+expect(theming.displayed()?.theme=="system" && themeChecks(theming)==[true,false],"A receipt without a theme means the system one")
 // The legend justifies its columns across the full width, three or four per row.
 let legendLabels=["总量","OpenCodex","Claude","OpenCode","DeepSeek","WorkBuddy","Gemini CLI"]
 let legendRows=DashboardView.legendLayout(legendLabels,width:320)

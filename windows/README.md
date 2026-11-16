@@ -26,7 +26,7 @@
 - **已有记录**：扫描 Codex 活动及归档会话、Claude App 与 Claude Code 会话、Magpie、OpenCode、
   DeepSeek Harness 等受支持的本机日志。便携版 Magpie 或 WSL 里的日志可以手选目录；
   Windows 不会自动扫描所有 WSL 发行版。Summary 仍会对本机和网关日志去重。
-- **平台差异**：Windows 面板跟随系统深浅色，提供柔和背景和实色背景。分享按钮可复制图片（直接粘贴到
+- **平台差异**：Windows 面板默认跟随系统深浅色，也可在“外观与设置”固定为浅色或深色；提供柔和背景和实色背景。分享按钮可复制图片（直接粘贴到
   聊天）或保存 PNG，图里不含订阅和余额。Claude 订阅支持本机 App 快照或明确授权后读 Claude Code 本机登录文件；不使用
   桌面 Cookie，也不会代替 CLI 续期。Claude 和 ChatGPT 桌面应用在各自客户端内检查更新；
   CLI 更新在独立窗口显示输出和日志。Token Monitor 的新版从发布页下载：安装版运行新

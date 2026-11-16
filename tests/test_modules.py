@@ -29,6 +29,26 @@ class ModuleTests(unittest.TestCase):
         self.assertEqual((Path(self.m.STATE_DIR)/'preferences.json').stat().st_mode & 0o777,0o600)
         preferences.update(self.m.STATE_DIR,'reset')
         self.assertIn('komari',preferences.read(self.m.STATE_DIR)['visible'])
+    def test_light_dark_or_system_is_one_choice_in_appearance_settings(self):
+        self.assertEqual(preferences.read(self.m.STATE_DIR)['theme'],'system')
+        def choices():
+            settings=next(o for o in self.m.module_options() if o['label']=='外观与设置')['children']
+            return [(r['label'],r['checked']) for r in settings if (r.get('action') or [''])[0]=='set-theme'],settings
+        rows,settings=choices()
+        self.assertEqual(rows,[('跟随系统',True),('浅色',False),('深色',False)])
+        self.assertTrue(settings[3]['separator'],'Colour scheme and background are separate radio groups')
+        with patch.object(self.m,'schedule_background_refresh'):self.m.run_action('set-theme',['dark'])
+        self.assertEqual(preferences.read(self.m.STATE_DIR)['theme'],'dark')
+        self.assertEqual(self.m.presentation_settings()['theme'],'dark')
+        self.assertEqual(choices()[0],[('跟随系统',False),('浅色',False),('深色',True)])
+        self.assertRaises(ValueError,preferences.update,self.m.STATE_DIR,'theme','sepia')
+        preferences.update(self.m.STATE_DIR,'appearance','solid')
+        self.assertEqual(preferences.read(self.m.STATE_DIR)['theme'],'dark','Background and colour scheme are saved apart')
+        preferences.update(self.m.STATE_DIR,'reset')
+        self.assertEqual(preferences.read(self.m.STATE_DIR)['theme'],'system')
+        target=Path(self.m.STATE_DIR)/'preferences.json';saved=json.loads(target.read_text())
+        target.write_text(json.dumps(dict(saved,theme='sepia')))
+        self.assertEqual(preferences.read(self.m.STATE_DIR)['theme'],'system','An unknown saved value follows the system')
     def test_the_usage_heatmap_shows_once_beside_summary(self):
         root=Path(self.m.STATE_DIR);root.mkdir(parents=True,exist_ok=True)
         (root/'preferences.json').write_text(json.dumps({'schema':1,'visible':['summary','komari']}))
@@ -344,6 +364,16 @@ class ModuleTests(unittest.TestCase):
             self.assertGreater(receipt['preferences']['revision'],last_revision);last_revision=receipt['preferences']['revision']
             self.assertNotIn('paths',receipt['preferences'])
         self.assertEqual(saved['expandedProviders'],['claude'])
+    def test_panel_can_choose_a_theme_shown_in_settings_and_gets_it_back_in_the_receipt(self):
+        self.m.write_json_cache(self.m.cache_path('panel-view'),{'schema':1,'entries':[],'moduleOptions':self.m.module_options()})
+        for i,action in enumerate((['set-theme','light'],['set-theme','sepia'])):
+            self.m.write_json_cache(self.m.cache_path('panel-action'),{'id':str(i),'action':action,'createdAt':self.m.time.time()})
+            with patch.object(self.m,'schedule_background_refresh'):self.m.consume_panel_action()
+        self.assertEqual(preferences.read(self.m.STATE_DIR)['theme'],'light','Only a choice the menu offers is applied')
+        self.m.write_json_cache(self.m.cache_path('panel-action'),{'id':'2','action':['set-theme','dark'],'createdAt':self.m.time.time()})
+        with patch.object(self.m,'schedule_background_refresh'):self.m.consume_panel_action()
+        receipt=self.m.read_cache('panel-action-receipt')
+        self.assertEqual((receipt['status'],receipt['preferences']['theme']),('done','dark'))
     def test_invalid_expansion_values_cannot_change_selection(self):
         preferences.update(self.m.STATE_DIR,'expanded','claude','true')
         p=Path(self.m.STATE_DIR)/'preferences.json';before=p.read_bytes()

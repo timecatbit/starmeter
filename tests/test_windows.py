@@ -137,6 +137,23 @@ class WindowsUiTests(unittest.TestCase):
                                    ['set-module','codex','false']])
         self.assertTrue(panel.isVisible())
 
+    def test_light_or_dark_choice_overrides_the_windows_scheme_and_system_hands_it_back(self):
+        from PySide6.QtCore import QPoint
+        from PySide6.QtWidgets import QApplication
+        import panel as ui
+        tray=ui.TrayPanel();self.addCleanup(tray.close);self.addCleanup(ui.use_theme,'system')
+        def shown(theme):
+            tray.snapshot={'theme':theme,'appearance':'solid','preferences':{'visible':[]},'moduleOptions':[]}
+            tray.show_at(QPoint(800,780),manager=True);QApplication.processEvents()
+            return ui.dark(),tray.styleSheet()
+        night,sheet=shown('dark')
+        self.assertTrue(night);self.assertIn('#202124',sheet);self.assertEqual(ui.ink().name(),'#edf0f7')
+        night,sheet=shown('light')
+        self.assertFalse(night);self.assertIn('#ffffff',sheet);self.assertEqual(ui.window_color().lightness()>=128,True)
+        shown('system')
+        palette=QApplication.palette().color(ui.QPalette.Window).lightness()<128
+        self.assertEqual(ui.dark(),palette,'跟随系统 reads the Windows palette again')
+
     def test_nested_sidebar_action_dispatches_without_closing_main_panel(self):
         from PySide6.QtCore import QPoint
         from PySide6.QtWidgets import QToolButton

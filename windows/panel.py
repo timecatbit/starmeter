@@ -53,10 +53,38 @@ def small_font():
     font=QFont(QApplication.font());font.setPointSizeF(8);return font
 
 
+THEME={'value':'system'}
+
+
+def use_theme(theme):
+    """浅色/深色 from 外观与设置 pin the panel; 跟随系统 hands it back to Windows. Native popups
+    follow too where Qt's style can draw both; the panel's own colours come from dark() either way."""
+    theme=theme if theme in ('light','dark') else 'system'
+    if THEME['value']==theme:return
+    THEME['value']=theme
+    hints=QApplication.styleHints()
+    if hasattr(hints,'setColorScheme'):
+        hints.setColorScheme({'light':Qt.ColorScheme.Light,'dark':Qt.ColorScheme.Dark}.get(theme,Qt.ColorScheme.Unknown))
+
+
+def dark():
+    if THEME['value']!='system':return THEME['value']=='dark'
+    return QApplication.palette().color(QPalette.Window).lightness()<128
+
+
+def ink():
+    return QColor('#edf0f7' if dark() else '#222835')
+
+
+def window_color():
+    """What shows behind rounded corners: the Windows palette, unless 浅色/深色 says otherwise."""
+    color=QApplication.palette().color(QPalette.Window)
+    return color if (color.lightness()<128)==dark() else QColor('#202020' if dark() else '#f3f3f3')
+
+
 def tone(alpha=1.0):
     """Secondary text in the panel's own palette, so painted labels match the styled ones."""
-    dark=QApplication.palette().color(QPalette.Window).lightness()<128
-    color=QColor('#a5aebd' if dark else '#596477');color.setAlphaF(alpha);return color
+    color=QColor('#a5aebd' if dark() else '#596477');color.setAlphaF(alpha);return color
 
 
 def heat_active(h):
@@ -157,7 +185,7 @@ def icon(entry):
         p=QPainter(pix);renderer.render(p);p.end()
     if entry.get('template'):
         p=QPainter(pix);p.setCompositionMode(QPainter.CompositionMode_SourceIn)
-        p.fillRect(pix.rect(),QApplication.palette().color(QPalette.WindowText));p.end()
+        p.fillRect(pix.rect(),ink());p.end()
     return QIcon(pix)
 
 
@@ -245,8 +273,8 @@ class Heatmap(QWidget):
     def paintEvent(self,_):
         p=QPainter(self);p.setRenderHint(QPainter.Antialiasing);font=small_font();p.setFont(font)
         size,_,row,gap=self.geometry_for(self.width())
-        dark=QApplication.palette().color(QPalette.Window).lightness()<128
-        empty=QColor('#ffffff' if dark else '#000000');empty.setAlphaF(.075 if dark else .06)
+        night=dark()
+        empty=QColor('#ffffff' if night else '#000000');empty.setAlphaF(.075 if night else .06)
         shades=[empty]+[QColor(TOTAL) for _ in range(4)]
         for shade,alpha in zip(shades[1:],(.3,.52,.76,1)):shade.setAlphaF(alpha)
         p.setPen(tone())
@@ -258,7 +286,7 @@ class Heatmap(QWidget):
                 p.setPen(QPen(shades[0],.8));p.setBrush(Qt.NoBrush);p.drawRoundedRect(box.adjusted(.4,.4,-.4,-.4),1.6,1.6);continue
             p.setPen(Qt.NoPen);p.setBrush(shades[self.levels[i]]);p.drawRoundedRect(box,1.6,1.6)
             if i==self.pointed:
-                ring=QColor(self.palette().color(QPalette.WindowText));ring.setAlphaF(.6)
+                ring=ink();ring.setAlphaF(.6)
                 p.setPen(QPen(ring,1.2));p.setBrush(Qt.NoBrush);p.drawRoundedRect(box.adjusted(-1,-1,1,1),2.2,2.2)
         line=self.TOP+self.rows*row-gap+3
         hint=QFont(font);hint.setPointSizeF(7.5);p.setFont(hint);p.setPen(tone(.7))
@@ -364,12 +392,12 @@ class TrayPanel(QWidget):
         if event.key()==Qt.Key_Escape:self.hide()
         else:super().keyPressEvent(event)
 
-    def style(self,appearance):
-        pal=QApplication.palette();dark=pal.color(QPalette.Window).lightness()<128
+    def style(self,appearance,theme='system'):
+        use_theme(theme);night=dark()
         # Both backgrounds keep the same contrast with system light and dark text.
-        surface=('#242830' if dark else '#f8f9fc') if appearance=='glass' else ('#202124' if dark else '#ffffff');border='#444953' if dark else '#d3dae6'
-        text='#edf0f7' if dark else '#222835';muted='#a5aebd' if dark else '#596477'
-        hover='#353e4c' if dark else '#e8effb'; divider='#404750' if dark else '#dce3ed'
+        surface=('#242830' if night else '#f8f9fc') if appearance=='glass' else ('#202124' if night else '#ffffff');border='#444953' if night else '#d3dae6'
+        text=ink().name();muted='#a5aebd' if night else '#596477'
+        hover='#353e4c' if night else '#e8effb'; divider='#404750' if night else '#dce3ed'
         self.setStyleSheet(f'''
             #surface {{background:{surface};border:1px solid {border};border-radius:13px;}}
             QLabel,QToolButton,QCheckBox,QComboBox {{color:{text};}}
@@ -377,7 +405,8 @@ class TrayPanel(QWidget):
             QScrollArea > QWidget > QWidget {{background:transparent;}}
             QToolButton {{padding:3px;border-radius:5px;background:transparent;}}
             QToolButton:hover,QCheckBox:hover {{background:{hover};}}
-            QComboBox {{border:1px solid {border};border-radius:5px;padding:4px 8px;min-height:18px;}}
+            QComboBox {{border:1px solid {border};border-radius:5px;padding:4px 8px;min-height:18px;background:{surface};}}
+            QComboBox QAbstractItemView {{background:{surface};color:{text};selection-background-color:{hover};selection-color:{text};}}
             #muted {{color:{muted};font-size:11px;}} #divider {{background:{divider};}}
             #title {{font-weight:700;font-size:19px;}} #metric {{font-weight:650;font-size:21px;}}
             #cardTitle,#cardMetric {{font-weight:650;font-size:15px;}} #row {{border-radius:6px;}}
@@ -392,7 +421,7 @@ class TrayPanel(QWidget):
         if not force and snapshot==self.snapshot:return
         self.snapshot=snapshot;self.pending=None;self.cancel_hover()
         offset=self.scroll.verticalScrollBar().value()
-        self.style(snapshot.get('appearance','glass'))
+        self.style(snapshot.get('appearance','glass'),snapshot.get('theme','system'))
         content=QWidget();content.setObjectName('content')
         box=QVBoxLayout(content);box.setContentsMargins(16,13,16,13);box.setSpacing(8)
         if self.manager:self.modules(box,snapshot)

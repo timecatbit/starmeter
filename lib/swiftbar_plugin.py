@@ -2882,7 +2882,9 @@ def remove_api_key(provider,key_id):
 
 def module_options(data=None):
     settings=view_settings();connections=module_connections(data)
-    settings_rows=[{'label':label,'checked':settings['appearance']==key,'radio':True,'action':['set-appearance',key],'children':[]} for key,label in [('glass','玻璃材质'),('solid','实色背景')]]
+    settings_rows=[{'label':label,'checked':settings['theme']==key,'radio':True,'action':['set-theme',key],'children':[]} for key,label in [('system','跟随系统'),('light','浅色'),('dark','深色')]]
+    settings_rows.append({'label':'','separator':True,'children':[]})
+    settings_rows.extend({'label':label,'checked':settings['appearance']==key,'radio':True,'action':['set-appearance',key],'children':[]} for key,label in [('glass','玻璃材质'),('solid','实色背景')])
     alert_rows=[{'label':'用到 %d%% 时'%level if level else '关闭','checked':settings['usageAlert']==level,'radio':True,'action':['set-usage-alert',str(level)],'children':[]}
                 for level in preferences.ALERT_LEVELS[1:]+(0,)]
     alert_rows.extend([{'label':'','separator':True,'children':[]},
@@ -3465,7 +3467,7 @@ def resource_panel_entries(data):
 
 def presentation_settings():
     settings=view_settings()
-    return {key:settings[key] for key in ('revision','visible','appearance','allowCollapse','expandedProviders')}
+    return {key:settings[key] for key in ('revision','visible','appearance','theme','allowCollapse','expandedProviders')}
 
 
 def panel_snapshot(data,dashboard=None,options=None):
@@ -3478,7 +3480,7 @@ def panel_snapshot(data,dashboard=None,options=None):
     return {"schema":1,"project":{"name":PRODUCT,"url":REPOSITORY},"dashboard":dashboard,
             "entries":resource_panel_entries(data),"rangeOptions":range_options(dashboard['rangeKey']),
             "moduleOptions":options if options is not None else module_options(data),
-            "appearance":view_settings()['appearance'],"preferences":presentation_settings(),
+            "appearance":view_settings()['appearance'],"theme":view_settings()['theme'],"preferences":presentation_settings(),
             "updateCount":update_attention_count(update_rows(data))}
 
 
@@ -3616,9 +3618,10 @@ def run_action(name, extra):
             subprocess.run(["/usr/bin/open", "-a", PANEL_APP, "--args",
                             "--plugin", os.path.abspath(PLUGIN), "--snapshot", cache_path("panel-view")],
                            capture_output=True, timeout=5)
-    elif name in ('set-module','set-appearance','reset-modules'):
+    elif name in ('set-module','set-appearance','set-theme','reset-modules'):
         if name=='set-module':preferences.update(STATE_DIR,'module',extra[0] if extra else '',extra[1] if len(extra)>1 else '')
         elif name=='set-appearance':preferences.update(STATE_DIR,'appearance',extra[0] if extra else '')
+        elif name=='set-theme':preferences.update(STATE_DIR,'theme',extra[0] if extra else '')
         else:preferences.update(STATE_DIR,'reset')
         if name=='set-module' and len(extra)==2 and extra[1]=='true' and extra[0] in RESOURCE_CACHES:
             invalidate_caches(resource_cache_names(extra[0],external_loaders()))
@@ -3927,7 +3930,7 @@ def consume_panel_action():
         if isinstance(request_id, str):
             write_json_cache(cache_path("panel-action-receipt"), {
                 "schema": 1, "id": request_id, "status": status, "reason": reason, "finishedAt": time.time(),
-                "preferences": presentation_settings() if status=="done" and action and action[0] in ("set-module","set-appearance","reset-modules","set-collapse","set-expanded","detect-modules") else None})
+                "preferences": presentation_settings() if status=="done" and action and action[0] in ("set-module","set-appearance","set-theme","reset-modules","set-collapse","set-expanded","detect-modules") else None})
 
 
 def main():

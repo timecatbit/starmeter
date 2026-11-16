@@ -11,13 +11,13 @@ import tempfile
 import threading
 
 from PySide6.QtCore import QLockFile, QPoint, QTimer, QUrl, Signal, QObject
-from PySide6.QtGui import QCursor, QDesktopServices, QImage, QPalette
+from PySide6.QtGui import QCursor, QDesktopServices, QImage
 from PySide6.QtWidgets import (QApplication, QFileDialog, QInputDialog, QLineEdit, QMenu,
                                QMessageBox, QSystemTrayIcon)
 from tzlocal import get_localzone
 
 import host
-from panel import TrayPanel, star
+from panel import TrayPanel, star, window_color
 
 
 class Desktop(QObject):
@@ -295,11 +295,11 @@ class Desktop(QObject):
     def share_image(self):
         # A separate view captures the full scrollable content, not the screen behind the panel.
         if not self.panel.snapshot.get('dashboard'):return None
-        clone=TrayPanel();clone.snapshot=self.panel.snapshot;clone.style(clone.snapshot.get('appearance','glass'))
+        clone=TrayPanel();clone.snapshot=self.panel.snapshot;clone.style(clone.snapshot.get('appearance','glass'),clone.snapshot.get('theme','system'))
         content=clone.share_content()
         ratio=max(1,self.panel.devicePixelRatio())
         pic=QImage(round(content.width()*ratio),round(content.height()*ratio),QImage.Format_RGB32)
-        pic.setDevicePixelRatio(ratio);pic.fill(content.palette().color(QPalette.Window))
+        pic.setDevicePixelRatio(ratio);pic.fill(window_color())
         content.render(pic);clone.deleteLater()
         return pic
 

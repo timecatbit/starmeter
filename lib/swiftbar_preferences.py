@@ -24,6 +24,7 @@ MODULES = (
     ('updates', 'Harness 更新', '其他'),
 )
 ALERT_LEVELS = (0, 70, 80, 90)  # Usage alert: 0 is off.
+THEMES = ('system', 'light', 'dark')  # The panel follows macOS/Windows, or stays light or dark.
 DEFAULT_VISIBLE = ['summary', 'heatmap', 'opencodex', 'claude', 'deepseek', 'chatgpt', 'komari', 'updates']
 KNOWN = {row[0] for row in MODULES}
 # Modules added after release show once for people who keep Summary on; a saved file lists the modules
@@ -47,7 +48,7 @@ def balance_key(key):
 
 
 def read(directory):
-    defaults = {'schema': 1, 'visible': list(DEFAULT_VISIBLE), 'appearance': 'glass', 'paths': {}, 'allowCollapse': False, 'expandedProviders': [], 'revision': 0, 'configuredSubscriptions': [], 'claudeLiveUsage': False, 'claudeOAuthUsage': False,
+    defaults = {'schema': 1, 'visible': list(DEFAULT_VISIBLE), 'appearance': 'glass', 'theme': 'system', 'paths': {}, 'allowCollapse': False, 'expandedProviders': [], 'revision': 0, 'configuredSubscriptions': [], 'claudeLiveUsage': False, 'claudeOAuthUsage': False,
                 'usageAlert': 90, 'resetReminder': False, 'balanceAlerts': {}}
     try:
         value = json.loads((Path(directory) / 'preferences.json').read_text(encoding='utf-8'))
@@ -67,6 +68,7 @@ def read(directory):
             defaults['configuredSubscriptions'] = [k for k in catalog.MANUAL_SUBSCRIPTIONS if k in subscriptions]
         if value.get('appearance') in ('glass', 'solid'):
             defaults['appearance'] = value['appearance']
+        if value.get('theme') in THEMES:defaults['theme']=value['theme']
         if isinstance(value.get('allowCollapse'),bool):defaults['allowCollapse']=value['allowCollapse']
         if isinstance(value.get('claudeLiveUsage'),bool):defaults['claudeLiveUsage']=value['claudeLiveUsage']
         if isinstance(value.get('claudeOAuthUsage'),bool):defaults['claudeOAuthUsage']=value['claudeOAuthUsage']
@@ -143,6 +145,9 @@ def update(directory, kind, key=None, value=None):
         if key not in ('glass', 'solid'):
             raise ValueError('invalid appearance')
         current['appearance'] = key
+    elif kind == 'theme':
+        if key not in THEMES:raise ValueError('invalid theme')
+        current['theme']=key
     elif kind == 'collapse':
         if key not in ('true','false'):raise ValueError('invalid collapse setting')
         current['allowCollapse']=key=='true'
@@ -155,7 +160,7 @@ def update(directory, kind, key=None, value=None):
         current['expandedProviders']=[k for k in USAGE if k in expanded]
     elif kind == 'reset':
         current['visible'] = list(DEFAULT_VISIBLE)
-        current['appearance'] = 'glass'
+        current['appearance'] = 'glass';current['theme']='system'
         current['allowCollapse']=False;current['expandedProviders']=[]
     elif kind == 'auto-path':
         if key not in USAGE:raise ValueError('invalid data source')

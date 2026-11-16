@@ -90,7 +90,7 @@ struct HeatmapLayout {
 }
 struct Dashboard:Decodable {var date:String;var dates:[String];var providers:[ProviderUsage];var rangeKey:String;var rangeLabel:String;var chartUnit:String;var chartSpan:String;var period:[String]?;var chartStatus:String;var updated:String?;var chartPositions:[Double]?;var heatmap:UsageHeatmap?;var showSummary:Bool?;var allowCollapse:Bool?;var expandedProviders:[String]?}
 struct Project:Decodable {var name:String;var url:String}
-struct Snapshot:Decodable {var project:Project?;var dashboard:Dashboard?;var entries:[Entry];var rangeOptions:[Entry]?;var updateCount:Int?;var moduleOptions:[Entry]?;var appearance:String?;var preferences:PresentationPreferences?}
+struct Snapshot:Decodable {var project:Project?;var dashboard:Dashboard?;var entries:[Entry];var rangeOptions:[Entry]?;var updateCount:Int?;var moduleOptions:[Entry]?;var appearance:String?;var theme:String?;var preferences:PresentationPreferences?}
 func dark(_ view:NSView)->Bool {view.effectiveAppearance.bestMatch(from:[.darkAqua,.aqua]) == .darkAqua}
 func background(_ view:NSView)->NSColor {dark(view) ? NSColor(calibratedWhite:0.115,alpha:1) : NSColor(calibratedWhite:0.992,alpha:1)}
 func accent(_ id:String,_ view:NSView)->NSColor {
@@ -1376,7 +1376,7 @@ final class Row:NSButton {
 struct Flyout {var panel:Panel;var key:String;weak var row:Row?}
 // Presentation is optimistic, but a saved preference revision wins over an older data refresh.
 struct PresentationPreferences:Decodable {
-    var revision:Int64;var visible:[String];var appearance:String;var allowCollapse:Bool;var expandedProviders:[String]
+    var revision:Int64;var visible:[String];var appearance:String;var theme:String?;var allowCollapse:Bool;var expandedProviders:[String]
 }
 struct ActionReceipt:Decodable {var id:String;var status:String;var preferences:PresentationPreferences?}
 struct PanelInteraction {
@@ -1384,7 +1384,7 @@ struct PanelInteraction {
     var source:Snapshot?;var confirmed:PresentationPreferences?;var active:[String]?;var queued:[[String]]=[]
     static func isPreference(_ action:[String])->Bool {
         guard let name=action.first else{return false}
-        return ["set-module","set-appearance","reset-modules","set-collapse","set-expanded"].contains(name)
+        return ["set-module","set-appearance","set-theme","reset-modules","set-collapse","set-expanded"].contains(name)
     }
     // Actions without a dialog keep the panel open so their result appears in place.
     static func keepsPanelOpen(_ action:[String])->Bool {
@@ -1442,6 +1442,7 @@ struct PanelInteraction {
         }
         syncCollapseOption(settings.allowCollapse,to:&value)
         applyPreference(["set-appearance",settings.appearance],to:&value)
+        applyPreference(["set-theme",settings.theme ?? "system"],to:&value)
     }
     static func syncCollapseOption(_ enabled:Bool,to value:inout Snapshot){
         value.dashboard?.allowCollapse=enabled
@@ -1468,11 +1469,11 @@ struct PanelInteraction {
             if action[2]=="true"{expanded.insert(action[1])}else{expanded.remove(action[1])}
             value.dashboard?.expandedProviders=expanded.sorted()
         }
-        if kind=="set-appearance",action.count==2 {
-            value.appearance=action[1]
+        if ["set-appearance","set-theme"].contains(kind),action.count==2 {
+            if kind=="set-appearance"{value.appearance=action[1]}else{value.theme=action[1]}
             func update(_ entries:inout [Entry]){
                 for i in entries.indices {
-                    if entries[i].action?.first=="set-appearance" {entries[i].checked=entries[i].action?.last==action[1]}
+                    if entries[i].action?.first==kind {entries[i].checked=entries[i].action?.last==action[1]}
                     update(&entries[i].children)
                 }
             }
@@ -1841,8 +1842,14 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
             y+=h
         };return y
     }
+    // 浅色/深色 pins every window of the app (panel, sidebars, share pictures); 跟随系统 hands it back to macOS.
+    private func applyTheme(_ theme:String?){
+        let name:NSAppearance.Name?=["light":NSAppearance.Name.aqua,"dark":.darkAqua][theme ?? ""]
+        guard NSApp.appearance?.name != name else{return}
+        NSApp.appearance=name.flatMap{NSAppearance(named:$0)}
+    }
     private func layout(){
-        guard !anchoredMenuOpen,let snapshot else{return};if panel.isVisible,let old=(panel.contentView as? Surface)?.content.subviews.first as? NSScrollView {scrollOffset=old.contentView.bounds.origin.y};let opened=flyouts.map{$0.key};closeFlyouts(from:0);rows=[]
+        guard !anchoredMenuOpen,let snapshot else{return};applyTheme(snapshot.theme);if panel.isVisible,let old=(panel.contentView as? Surface)?.content.subviews.first as? NSScrollView {scrollOffset=old.contentView.bounds.origin.y};let opened=flyouts.map{$0.key};closeFlyouts(from:0);rows=[]
         let screen=NSScreen.screens.first(where:{$0.frame.contains(anchor)}) ?? NSScreen.main!,width:CGFloat=managerOnly ? 280 : 360,inner=width-16
         let entries=managerOnly ? snapshot.moduleOptions ?? [] : snapshot.entries
         let top:CGFloat=managerOnly ? 49 : (snapshot.dashboard.map{DashboardView.height($0)+8} ?? 36)
