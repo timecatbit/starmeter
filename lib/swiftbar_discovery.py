@@ -40,7 +40,8 @@ def detect(paths, home=None, configured_proxy=False, komari_url='', which=shutil
     if which('qodercn') or any((Path(r)/name).is_dir() for r in app_roots for name in ('Qoder CN.app','QoderCN.app')) or has_records(root/'projects'):found.add('qoder')
     if qoder.snapshot(home):found.add('qoder-subscription')
     claude_root=Path(paths.get('claude') or claude_desktop.default_root(home))
-    if any((Path(root)/'Claude.app').is_dir() for root in app_roots) or claude_desktop.registry_files(claude_root):found.add('claude')
+    if (any((Path(root)/'Claude.app').is_dir() for root in app_roots) or claude_desktop.registry_files(claude_root) or which('claude')
+            or any(has_records(folder) for folder in claude_desktop.project_roots(home))):found.add('claude')
     if claude_desktop.subscription(claude_root).get('windows'):found.add('claude-subscription')
     for source in ('codex',):
         root=Path(paths.get(source) or home/'.codex')

@@ -31,34 +31,37 @@ class DesktopTests(unittest.TestCase):
   p=p/session/'subagents'/'agent-1.jsonl' if subagent else p/(session+'.jsonl');p.parent.mkdir(parents=True,exist_ok=True)
   row={'type':'assistant','timestamp':'2026-11-05T01:00:00Z','sessionId':session,'requestId':'sub' if subagent else session,'message':{'id':'msg-'+('sub' if subagent else session),'model':'claude-opus-5-5','usage':{'input_tokens':100,'output_tokens':20}}}
   p.write_text(json.dumps(row)+'\n');return p
- def test_registry_allowlist_excludes_standalone_cli_and_includes_app_subagents(self):
-  self.register();main=self.transcript(SESSION);sub=self.transcript(SESSION,True);self.transcript(OTHER)
+ def test_app_vscode_and_terminal_sessions_all_count_with_their_subagents(self):
+  self.register();main=self.transcript(SESSION);sub=self.transcript(SESSION,True);cli=self.transcript(OTHER)
   files,ids=desktop.transcript_files(self.root,self.home)
-  self.assertEqual(set(files),{main,sub});self.assertEqual(ids,{SESSION})
+  self.assertEqual(set(files),{main,sub,cli});self.assertEqual(ids,{SESSION})
   data,error=self.m.claude_usage_live(self.root,now=self.now)
-  self.assertIsNone(error);self.assertEqual(data['summary']['requests'],2)
- def test_account_switch_and_removed_registration_exclude_indexed_old_sessions(self):
-  self.register();self.register(OTHER);self.transcript(SESSION);self.transcript(OTHER)
-  data,_=self.m.claude_usage_live(self.root,now=self.now);self.assertEqual(data['summary']['requests'],2)
-  (self.registry/(OTHER+'.json')).unlink()
-  data,_=self.m.claude_usage_live(self.root,now=self.now);self.assertEqual(data['summary']['requests'],1)
-  (self.root/'config.json').write_text(json.dumps({'lastKnownAccountUuid':OTHER}))
-  self.assertEqual(desktop.registered_ids(self.root),set())
- def test_cli_only_is_not_mislabeled_as_desktop_usage(self):
+  self.assertIsNone(error);self.assertEqual(data['summary']['requests'],3);self.assertEqual(data['summary']['sessions'],2)
+ def test_claude_code_without_the_desktop_app_still_counts(self):
   self.transcript(OTHER)
-  data,_=self.m.claude_usage_live(self.root,now=self.now)
-  # Claude Code from a terminal writes the same transcripts; the card says why they are left out.
-  self.assertEqual(data,{'error':'只统计桌面 App，未找到会话'})
- def test_multiple_config_roots_keep_only_app_registered_sessions(self):
+  missing=self.home/'no-claude-app'
+  data,error=self.m.claude_usage_live(missing,now=self.now)
+  self.assertIsNone(error);self.assertEqual(data['summary']['requests'],1)
+  (self.home/'.claude/projects/project'/(OTHER+'.jsonl')).unlink()
+  self.assertEqual(self.m.claude_usage_live(missing,now=self.now),({'error':'未找到 Claude 用量记录'},None))
+ def test_app_folder_adds_only_sessions_the_app_registered(self):
+  self.register()
+  for session in (SESSION,OTHER):
+   path=self.root/'claude-code-sessions'/ACCOUNT/ORG/session/'transcript.jsonl';path.parent.mkdir(parents=True)
+   path.write_text(json.dumps({'type':'assistant','timestamp':'2026-11-05T01:00:00Z','sessionId':session,'requestId':'app-'+session,
+                               'message':{'id':'msg-app-'+session,'model':'claude-opus-5-5','usage':{'input_tokens':10,'output_tokens':2}}})+'\n')
+  files,_=desktop.transcript_files(self.root,self.home)
+  self.assertEqual([f.parent.name for f in files],[SESSION])
+ def test_copies_in_several_config_roots_count_once(self):
   self.register();owned=self.transcript(SESSION);cli=self.transcript(OTHER)
   xdg=self.home/'.config/claude/projects';xdg.mkdir(parents=True)
   (xdg/owned.name).write_bytes(owned.read_bytes());(xdg/cli.name).write_bytes(cli.read_bytes())
   files,_=desktop.transcript_files(self.root,self.home)
-  self.assertEqual(len(files),2)
-  with patch.dict(os.environ,{'CLAUDE_CONFIG_DIR':str(xdg)+','+str(xdg.parent)}):
-   files,_=desktop.transcript_files(self.root,self.home);self.assertEqual(files,[xdg/owned.name])
+  self.assertEqual(len(files),4)
   data,_=self.m.claude_usage_live(self.root,now=self.now)
-  self.assertEqual(data['summary']['requests'],1)
+  self.assertEqual(data['summary']['requests'],2)
+  with patch.dict(os.environ,{'CLAUDE_CONFIG_DIR':str(xdg)}):
+   files,_=desktop.transcript_files(self.root,self.home);self.assertEqual(files,sorted([xdg/cli.name,xdg/owned.name]))
  def test_legacy_cli_path_does_not_override_app_path(self):
   prefs=preferences.read(self.m.STATE_DIR);prefs['paths']['claude']=str(self.home/'.claude/projects');preferences.write(self.m.STATE_DIR,prefs)
   self.assertEqual(self.m.source_path('claude'),str(self.root))

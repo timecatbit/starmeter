@@ -63,7 +63,7 @@ def registered_ids(root):
 
 
 def project_roots(home):
-    """ccusage-compatible paths, still restricted to App-registered sessions."""
+    """ccusage-compatible paths, where every Claude Code client keeps its transcripts."""
     home=Path(home);configured=os.environ.get('CLAUDE_CONFIG_DIR','').strip()
     if configured:
         roots=[Path(raw.strip()).expanduser() for raw in configured.split(',') if raw.strip()]
@@ -75,15 +75,17 @@ def project_roots(home):
 
 
 def transcript_files(root, home):
-    """The app uses shared transcript storage; only its registered sessions qualify."""
-    root=Path(root);ids=registered_ids(root);paths=[]
-    if not ids:return paths,ids
-    for base in [*project_roots(home),root/'claude-code-sessions']:
-        if not base.is_dir():continue
-        for path in base.rglob('*.jsonl'):
-            if path.is_file() and (path.stem in ids or any(part in ids for part in path.relative_to(base).parts[:-1])):
-                paths.append(path)
-    return sorted(set(paths)),ids
+    """Every Claude Code session counts: the desktop App, VS Code, JetBrains and the terminal all keep
+    their transcripts in the shared project folders. The App's own folder adds only sessions it registered."""
+    root=Path(root);ids=registered_ids(root);paths=set()
+    for base in project_roots(home):
+        if base.is_dir():paths.update(path for path in base.rglob('*.jsonl') if path.is_file())
+    app=root/'claude-code-sessions'
+    if ids and app.is_dir():
+        for path in app.rglob('*.jsonl'):
+            if path.is_file() and (path.stem in ids or any(part in ids for part in path.relative_to(app).parts[:-1])):
+                paths.add(path)
+    return sorted(paths),ids
 
 
 def subscription(root, now=None):

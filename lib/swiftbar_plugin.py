@@ -5,7 +5,7 @@ token-monitor 的 SwiftBar 插件主体，由入口 token-monitor.30s.sh 加载�
   1. 无参数运行      输出菜单（首行是菜单栏标题，之后是下拉菜单）
   2. --action <名称> 执行一个操作（重启、停止、同步、切换账号……）
 
-OpenCodex 数据走本机管理接口；Claude 只索引桌面 App 登记会话的本机用量。
+OpenCodex 数据走本机管理接口；Claude 索引桌面 App 与各处 Claude Code 会话的本机用量。
 OpenCodex 鉴权用 ~/.opencodex/admin-api-token。
 需要权限提升的动作（重启 / 重装服务）交给 ocx 命令行处理。
 """
@@ -165,7 +165,7 @@ def range_cache_name(key=None):
     settings = view_settings()
     # A new price table changes every estimate, so its snapshot commit is part of the cache key.
     pricing = sources.pricing('model-pricing.json').get('source', {}).get('commit')
-    scope = [('collector','ccusage-v1'), ('pricing', pricing)] + [(k, source_path(k)) for k in preferences.USAGE if k in settings['visible']]
+    scope = [('collector','ccusage-v2'), ('pricing', pricing)] + [(k, source_path(k)) for k in preferences.USAGE if k in settings['visible']]
     if 'claude' in settings['visible']:scope.append(('claude-projects',[str(p) for p in claude_desktop.project_roots(HOME)]))
     fingerprint = hashlib.sha256(json.dumps(scope).encode()).hexdigest()[:12]
     return 'range_usage_' + (key or selected_range()) + '_' + fingerprint
@@ -922,18 +922,17 @@ def claude_price(model, metrics, speed='standard', geo='global', tier='standard'
 
 def claude_usage_live(root=None, db_path=None, now=None, range_key="today", carriers=None):
     root=root or source_path('claude')
-    paths,ids=claude_desktop.transcript_files(root,HOME)
-    # Only the desktop App's own sessions count; say so when there are none, since Claude Code
-    # sessions from a terminal sit in the same folders and are left out on purpose.
-    if not ids:return {'error':'只统计桌面 App，未找到会话'},None
-    if not paths:return {'error':'Claude App 暂无可读取用量'},None
-    return claude_usage_records(root,db_path,now,range_key,paths,ids,carriers)
+    # The desktop App, VS Code, JetBrains and terminal sessions share these transcripts; all of them count.
+    paths,_=claude_desktop.transcript_files(root,HOME)
+    if not paths:return {'error':'未找到 Claude 用量记录'},None
+    return claude_usage_records(root,db_path,now,range_key,paths,None,carriers)
 
 
 def claude_usage_records(root, db_path=None, now=None, range_key="today", files=None, allowed_sessions=None, carriers=None):
     from pathlib import Path
     root=Path(root)
-    if not root.is_dir():return None,(0,'未找到 Claude App 用量记录',None)
+    # Claude Code alone needs no desktop App folder: the transcripts are passed in.
+    if files is None and not root.is_dir():return None,(0,'未找到 Claude 用量记录',None)
     now=now or datetime.now(local_zone());zone=now.tzinfo
     start,end=range_bounds(range_key,now)
     db_path=db_path or os.path.join(CACHE_DIR,'claude-app-usage-v3-'+hashlib.sha256(str(root.resolve()).encode()).hexdigest()[:12]+'.sqlite3')
@@ -962,7 +961,7 @@ def claude_usage_records(root, db_path=None, now=None, range_key="today", files=
                 'days':[dict(v,date=k) for k,v in sorted(days.items())],
                 'hours':[dict(v,timestamp=k) for k,v in sorted(hours.items())],
                 'firstActivityAt':first_activity}
-    result=dict(tally(events),source='Claude App · 已登记会话',pricingDate='2026-11-10',day=now.date().isoformat())
+    result=dict(tally(events),source='Claude App 与 Claude Code',pricingDate='2026-11-10',day=now.date().isoformat())
     if carriers:
         # Requests a gateway such as Magpie also logged count once in Summary, from the gateway.
         view=lambda row:{'input':row['metrics'][0],'output':row['metrics'][1],'writes':row['metrics'][2]+row['metrics'][3],'cached':row['metrics'][4],'timestamp':row['ts']}
@@ -1876,7 +1875,7 @@ def range_usage_cached(key=None):
                 carriers=gateway_carriers(source,logs)
                 if source=='claude':
                     value,error=claude_usage_live(range_key=key,now=now,carriers=carriers)
-                    return value or {'error':'未找到 Claude App 记录'}
+                    return value or {'error':'未找到 Claude 用量记录'}
                 root=source_path(source)
                 if not root:return {'error':'请选择记录目录'}
                 if source=='magpie':return sources.jsonl_usage(source,root,CACHE_DIR,start,end,now.tzinfo,carriers=carriers,price=magpie_price)
@@ -2622,8 +2621,8 @@ def module_connections(data=None):
                 children[0]['label']='来源 · 编程客户端的本机记录'
                 children.insert(1,{'label':'仅编程会话，不含普通聊天','children':[]})
             if key=='claude':
-                children[0]['label']='来源 · Claude 桌面 App'
-                children.insert(1,{'label':'仅 App 登记的会话','children':[]})
+                children[0]['label']='来源 · Claude 桌面 App 与 Claude Code'
+                children.insert(1,{'label':'含 VS Code、JetBrains 与终端里的会话','children':[]})
                 for child in children:
                     if child.get('action')==['choose-source','claude']:child['label']='选择 Claude 数据目录…'
                 children.append({'label':'打开 Claude','symbol':'macwindow','action':['open-claude'],'children':[]})
