@@ -1,5 +1,11 @@
 # 更新记录
 
+## 5.21.0
+
+- Claude Harness 现在统计所有 Claude Code 会话：除了桌面 App，也包括 VS Code、JetBrains 插件和终端里跑的任务及其子代理。
+- 只用 Claude Code、没装桌面 App 的电脑也能统计 Claude 用量，自动检测会勾选 Claude。
+- 同一会话在多个配置目录里的副本只算一次；经过 Magpie 的请求照常去重。
+
 ## 5.20.1
 
 - 发布页只留 5 个下载，按系统和芯片用英文标明（Mac · Apple Silicon、Mac · Intel、Windows · Installer、Windows · Portable、Mac · SwiftBar plugin），上方表格写明各自适合谁。
