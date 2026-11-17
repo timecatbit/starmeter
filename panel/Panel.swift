@@ -314,7 +314,7 @@ class ShareCard:FlippedView {
         return lines+[current]
     }
     static func title(_ d:Dashboard)->String {
-        ["today":"今日","24h":"近 24 小时","7d":"近 7 天","30d":"近 30 天","week":"本周","month":"本月","all":"累计"][d.rangeKey].map{$0+" AI 用量"} ?? d.rangeLabel+" AI 用量"
+        ["today":"今日","yesterday":"昨日","24h":"近 24 小时","7d":"近 7 天","30d":"近 30 天","week":"本周","month":"本月","all":"累计"][d.rangeKey].map{$0+" AI 用量"} ?? d.rangeLabel+" AI 用量"
     }
     func measure(_ value:String,_ font:NSFont)->CGFloat {ceil((value as NSString).size(withAttributes:[.font:font]).width)}
     func draw(_ value:String,_ rect:NSRect,_ font:NSFont,_ color:NSColor,_ align:NSTextAlignment = .left){
@@ -373,7 +373,7 @@ final class CardShareCard:ShareCard {
         let parts=iso.split(separator:"-").compactMap{Int($0)}
         return parts.count==3 ? "\(parts[0]) 年 \(parts[1]) 月 \(parts[2]) 日" : iso
     }
-    // What the picture covers: today's date, a 24-hour window with its times, or first to last day.
+    // What the picture covers: today's or yesterday's date, a 24-hour window with its times, or first to last day.
     static func period(_ d:Dashboard)->String {
         func numbers(_ value:String)->[Int] {value.split(whereSeparator:{"-T:".contains($0)}).compactMap{Int($0)}}
         guard d.rangeKey != "today",let bounds=d.period,bounds.count==2 else{return day(d.date)}

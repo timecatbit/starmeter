@@ -211,6 +211,10 @@ expect(theming.displayed()?.theme=="dark" && themeChecks(theming)==[false,true],
 var systemSaved=saved(51,[]);systemSaved.theme=nil
 _ = theming.submit(["set-theme","system"]);theming.finish(systemSaved)
 expect(theming.displayed()?.theme=="system" && themeChecks(theming)==[true,false],"A receipt without a theme means the system one")
+// A picture of yesterday is titled and dated as that one day.
+let yesterday=try JSONDecoder().decode(Dashboard.self,from:Data(#"{"date":"2026-11-04","dates":[],"providers":[],"rangeKey":"yesterday","rangeLabel":"昨日","chartUnit":"每小时","chartSpan":"11/03","period":["2026-11-03","2026-11-03"],"chartStatus":""}"#.utf8))
+expect(ShareCard.title(yesterday)=="昨日 AI 用量","Yesterday's picture says so")
+expect(CardShareCard.period(yesterday)=="2026 年 11 月 3 日" && TerminalShareCard.span(yesterday)=="2026-11-03","Yesterday is dated as one day, not today")
 // The legend justifies its columns across the full width, three or four per row.
 let legendLabels=["总量","OpenCodex","Claude","OpenCode","DeepSeek","WorkBuddy","Gemini CLI"]
 let legendRows=DashboardView.legendLayout(legendLabels,width:320)

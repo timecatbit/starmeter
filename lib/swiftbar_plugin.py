@@ -1735,7 +1735,7 @@ def qoder_subscription_lines(data):
     return rows
 
 
-RANGES={'today':'当天','24h':'近 24 小时','7d':'近 7 天','30d':'近 30 天','week':'本周','month':'本月','all':'全部'}
+RANGES={'today':'当天','yesterday':'昨日','24h':'近 24 小时','7d':'近 7 天','30d':'近 30 天','week':'本周','month':'本月','all':'全部'}
 # For 全部, the heatmap shows up to the last 180 days: six rows of 30, the same width as 近 30 天.
 HEATMAP_DAYS=180
 HEATMAP_ROW=30
@@ -1750,6 +1750,8 @@ def selected_range():
 
 def range_bounds(key,now=None):
     now=now or usage_now();day=now.replace(hour=0,minute=0,second=0,microsecond=0)
+    # Yesterday ends just before midnight: every reader counts both ends, and midnight belongs to today.
+    if key=='yesterday':return (day-timedelta(days=1)).timestamp(),day.timestamp()-0.001
     start={'today':day,'24h':now-timedelta(hours=24),'7d':day-timedelta(days=6),
            '30d':day-timedelta(days=29),'week':day-timedelta(days=day.weekday()),
            'month':day.replace(day=1),'all':None}[key]
@@ -1768,9 +1770,10 @@ def usage_window(start,end):
 def ocx_range_usage(key,now):
     start,end=range_bounds(key,now)
     payload=usage_window(start,end)
-    if key in ('today','24h'):
+    if key in SHORT_RANGES:
         minutes=1 if key=='today' else 60
-        timeline,error=request('/api/usage/timeline?hours=24&bucketMinutes=%d&metric=total&aggregation=sum'%minutes,timeout=12)
+        # The timeline counts back from now, so 48 hours always reach yesterday's midnight.
+        timeline,error=request('/api/usage/timeline?hours=%d&bucketMinutes=%d&metric=total&aggregation=sum'%(48 if key=='yesterday' else 24,minutes),timeout=12)
         if error or not isinstance(timeline,dict) or timeline.get('truncated'):payload['chartUnavailable']=True;return payload
         begin=int(start//3600)*3600;last=int(end//3600)*3600
         buckets={begin+i*3600:0 for i in range(int((last-begin)//3600)+1)}
@@ -3247,14 +3250,16 @@ def summary_usage(selected):
     return result
 
 
+# Ranges whose chart goes by the hour.
+SHORT_RANGES=('today','yesterday','24h')
 # Ranges whose heatmap goes by the hour; the rest go by the day.
-HOURLY_RANGES=('today','24h','7d','week')
+HOURLY_RANGES=('today','yesterday','24h','7d','week')
 WEEKDAYS=('Mon','Tue','Wed','Thu','Fri','Sat','Sun')
 
 def heatmap_cells(key, now, used):
     """The heatmap's squares for a range, in reading order, as (key into the figures, label, still to come),
     with the number of columns and a short name for each row, set beside it like the chart's axis labels.
-    Today and 24 hours are a row of hours, 7 days and this week a row of hours per day (this week only up to
+    Today, yesterday and 24 hours are a row of hours, 7 days and this week a row of hours per day (this week only up to
     today), 30 days and this month a row of days, and 全部 rows of 30 days, as many as reach back to the first day used."""
     zone=now.tzinfo;day=now.replace(hour=0,minute=0,second=0,microsecond=0)
     def name(d):return '%d月%d日 %s'%(d.month,d.day,WEEKDAYS[d.weekday()])
@@ -3263,11 +3268,11 @@ def heatmap_cells(key, now, used):
             base=int(now.timestamp())//3600*3600-23*3600
             moments=[datetime.fromtimestamp(base+3600*i,zone) for i in range(24)];names=['24小时']
         else:
-            first=day-timedelta(days={'today':0,'7d':6,'week':day.weekday()}[key])
+            first=day-timedelta(days={'today':0,'yesterday':1,'7d':6,'week':day.weekday()}[key])
             # Each row is one local day of wall-clock hours.
-            rows={'today':1,'7d':7,'week':day.weekday()+1}[key]
+            rows={'today':1,'yesterday':1,'7d':7,'week':day.weekday()+1}[key]
             moments=[(first+timedelta(days=d)).replace(hour=h) for d in range(rows) for h in range(24)]
-            names=['今天'] if key=='today' else [WEEKDAYS[(first+timedelta(days=d)).weekday()] for d in range(rows)]
+            names={'today':['今天'],'yesterday':['昨天']}.get(key) or [WEEKDAYS[(first+timedelta(days=d)).weekday()] for d in range(rows)]
         return [(int(m.timestamp())//3600*3600,name(m)+' %02d:00'%m.hour,m>now) for m in moments],24,names
     if key=='30d':first,count=day-timedelta(days=29),30
     elif key=='month':first,count=day.replace(day=1),calendar.monthrange(day.year,day.month)[1]
@@ -3320,7 +3325,7 @@ def dashboard_payload(data):
     selected=[(k,label,bundle.get(k) or {}) for k,label,category in preferences.MODULES if k in preferences.USAGE and module_enabled(k)]
     usage_sources=[u for k,_,u in selected]
     oc=bundle.get('opencodex') or {};cc=bundle.get('claude') or {}
-    short=key in ('today','24h')
+    short=key in SHORT_RANGES
     if short:
         first=int(start//3600)*3600;last=int(end//3600)*3600
         slots=list(range(first,last+1,3600))
@@ -3328,6 +3333,10 @@ def dashboard_payload(data):
         if labels:labels[0]=datetime.fromtimestamp(start,now.tzinfo).strftime('%H:%M');labels[-1]=datetime.fromtimestamp(end,now.tzinfo).strftime('%H:%M')
         span=datetime.fromtimestamp(start,now.tzinfo).strftime('%m/%d %H:%M')+'–'+datetime.fromtimestamp(end,now.tzinfo).strftime('%H:%M' if key=='today' else '%m/%d %H:%M')
         period=[datetime.fromtimestamp(stamp,now.tzinfo).strftime('%Y-%m-%dT%H:%M') for stamp in (start,end)]
+        if key=='yesterday':
+            # A whole day: it ends at 24:00 and is written as its date.
+            if labels:labels[-1]='24:00'
+            day=datetime.fromtimestamp(start,now.tzinfo).date();span=day.strftime('%m/%d');period=[day.isoformat()]*2
     else:
         last=datetime.fromtimestamp(end,now.tzinfo).date()
         earliest=[str(day.get('date',''))[:10] for payload in usage_sources for day in payload.get('days',[]) if day.get('date') and (number(day.get('requests'))>0 or number(day.get('totalTokens'))>0)]

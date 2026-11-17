@@ -32,6 +32,28 @@ class RangeTests(unittest.TestCase):
   p=self.m.claude_usage_records(self.root,self.db,self.now,'24h')[0]
   self.assertEqual(p['summary']['requests'],2)
   self.assertEqual(sum(h['totalTokens'] for h in p['hours']),p['summary']['totalTokens'])
+ def test_yesterday_is_the_whole_previous_local_day_by_the_hour(self):
+  self.assertEqual([r['label'] for r in self.m.range_options('yesterday')][:3],['当天','昨日','近 24 小时'])
+  self.assertTrue(self.m.range_options('yesterday')[1]['checked'])
+  # Taipei is UTC+8: yesterday runs from 11-02 16:00Z up to, not including, 11-03 16:00Z.
+  self.write('a.jsonl',[self.row('before','2026-11-02T15:59:59Z'),self.row('start','2026-11-02T16:00:00Z'),
+                        self.row('last','2026-11-03T15:59:59Z'),self.row('midnight','2026-11-03T16:00:00Z')])
+  p=self.m.claude_usage_records(self.root,self.db,self.now,'yesterday')[0]
+  self.assertEqual(p['summary']['requests'],2,'The midnight request belongs to today')
+  self.assertEqual(sum(h['totalTokens'] for h in p['hours']),p['summary']['totalTokens'])
+  self.assertEqual(self.m.claude_usage_records(self.root,self.db,self.now,'today')[0]['summary']['requests'],1)
+  hour=lambda h:int(datetime(2026,11,3,h,tzinfo=self.now.tzinfo).timestamp())
+  usage={'summary':{'requests':2,'totalTokens':300},'hours':[{'timestamp':hour(0),'totalTokens':100,'requests':1},{'timestamp':hour(23),'totalTokens':200,'requests':1}],
+         'days':[{'date':'2026-11-03','totalTokens':300,'requests':2}]}
+  self.m.preferences.write(self.m.STATE_DIR,dict(self.m.view_settings(),visible=['summary','heatmap','claude']))
+  with patch.object(self.m,'usage_now',return_value=self.now):
+   d=self.m.dashboard_payload({'displayed_range':'yesterday','range_usage':{'range':'yesterday','claude':usage}})
+  self.assertEqual((d['rangeLabel'],d['period'],d['chartUnit'],d['chartPositions']),('昨日',['2026-11-03','2026-11-03'],'每小时',None))
+  self.assertEqual((len(d['dates']),d['dates'][0],d['dates'][-1]),(24,'00:00','24:00'))
+  history=d['providers'][0]['history'];self.assertEqual((history[0],history[-1],sum(history)),(100,200,300))
+  h=d['heatmap']
+  self.assertEqual((h['columns'],len(h['tokens']),h['future'],h['rowLabels'],h['hint']),(24,24,0,['昨天'],'每格 1 小时'))
+  self.assertEqual((h['labels'][0],h['labels'][-1],h['tokens'][0],h['tokens'][-1]),('11月3日 Tue 00:00','11月3日 Tue 23:00',100,200))
  def test_old_range_is_not_relabelled_after_selection_changes(self):
   self.m.write_json_cache(self.m.cache_path('view-range'),{'schema':1,'range':'30d'})
   d=self.m.dashboard_payload({'range_usage':{'range':'today','claude':{'summary':{'requests':100,'totalTokens':1000}}}})
@@ -207,6 +229,18 @@ class RangeTests(unittest.TestCase):
   with patch.object(self.m,'usage_window',return_value={'summary':{}}),patch.object(self.m,'request',return_value=(None,(500,'x',None))):
    p=self.m.ocx_range_usage('week',self.now)
   self.assertNotIn('hours',p);self.assertNotIn('chartUnavailable',p)
+
+ def test_opencodex_reads_two_days_of_hours_for_yesterday(self):
+  # The timeline counts back from now; only yesterday's 24 hours are kept.
+  begin=int(self.now.timestamp())//3600*3600-48*3600
+  points=[0]*48;points[11]=1;points[12]=5;points[36]=9
+  timeline={'start':begin,'bucketSeconds':3600,'series':[{'points':points}]}
+  with patch.object(self.m,'usage_window',return_value={'summary':{'requests':2,'totalTokens':12}}),patch.object(self.m,'request',return_value=(timeline,None)) as read:
+   p=self.m.ocx_range_usage('yesterday',self.now)
+  self.assertIn('hours=48&bucketMinutes=60',read.call_args.args[0])
+  self.assertEqual(len(p['hours']),24);self.assertEqual(p['hours'][0]['totalTokens'],5)
+  self.assertEqual(datetime.fromtimestamp(p['hours'][0]['timestamp'],self.now.tzinfo).isoformat(),'2026-11-03T00:00:00+08:00')
+  self.assertEqual(sum(h['totalTokens'] for h in p['hours'][1:-1]),0);self.assertNotIn('firstActivityAt',p)
 
  def codex_record(self,when,total):
   usage=lambda n:{'input_tokens':n-10,'cached_input_tokens':40,'output_tokens':10,'total_tokens':n}
