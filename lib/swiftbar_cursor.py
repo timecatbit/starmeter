@@ -20,6 +20,7 @@ import urllib.request
 
 ORIGIN = 'https://cursor.com'
 EVENTS_URL = ORIGIN + '/api/dashboard/get-filtered-usage-events'
+SUMMARY_URL = ORIGIN + '/api/usage-summary'
 PAGE_SIZE = 1000
 MAX_PAGES = 50
 ENCRYPTED = 'cursor-safe-storage:'
@@ -100,10 +101,12 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs):return None
 
 
-def post(body, user, token, opener=None):
-    request = urllib.request.Request(EVENTS_URL, data=json.dumps(body).encode(), method='POST', headers={
-        'Content-Type': 'application/json', 'Accept': 'application/json', 'Origin': ORIGIN,
-        'Cookie': 'WorkosCursorSessionToken=%s%%3A%%3A%s' % (user, token)})
+def post(body, user, token, opener=None, url=EVENTS_URL):
+    """POST the body to a cursor.com endpoint (GET when there is none), signed in with the session cookie."""
+    headers = {'Accept': 'application/json', 'Origin': ORIGIN, 'Cookie': 'WorkosCursorSessionToken=%s%%3A%%3A%s' % (user, token)}
+    if body is not None:headers['Content-Type'] = 'application/json'
+    request = urllib.request.Request(url, data=None if body is None else json.dumps(body).encode(),
+                                     method='GET' if body is None else 'POST', headers=headers)
     opener = opener or urllib.request.build_opener(NoRedirect)
     try:
         with opener.open(request, timeout=20) as response:raw = response.read(32 * 1024 * 1024 + 1)
@@ -159,6 +162,32 @@ def normalize(row):
     return {'timestamp': stamp, 'model': str(row.get('model') or 'default'), 'session': row.get('conversationId') or None,
             'input': number(usage.get('inputTokens')), 'output': number(usage.get('outputTokens')),
             'cached': number(usage.get('cacheReadTokens')), 'writes': number(usage.get('cacheWriteTokens')), 'cost': cost}
+
+
+def plan(home, now=None, opener=None):
+    """This billing cycle's included plan usage, as Cursor's dashboard shows it. Cursor's own words ("You've used 1%
+    of your included total usage") follow used ÷ limit, so that is the share; its percent fields only stand in
+    when there is no limit. Amounts are in cents."""
+    from swiftbar_time import parse_iso
+    user, token, where = session(home, now)
+    value = post(None, user, token, opener, SUMMARY_URL)
+    usage = value.get('individualUsage') if isinstance(value.get('individualUsage'), dict) else {}
+    part = lambda name: usage.get(name) if isinstance(usage.get(name), dict) else {}
+    plan, overall, extra = part('plan'), part('overall'), part('onDemand')
+    used = limit = percent = None
+    for block in (plan, overall):
+        if number(block.get('limit')) > 0:
+            used, limit = number(block.get('used')), number(block.get('limit'));percent = 100 * used / limit;break
+    if percent is None and isinstance(plan.get('totalPercentUsed'), (int, float)) and not isinstance(plan['totalPercentUsed'], bool):
+        percent = number(plan['totalPercentUsed'])
+    def stamp(key):
+        try:return parse_iso(value[key]).timestamp()
+        except (KeyError, TypeError, ValueError, OverflowError, AttributeError):return None
+    return {'membership': str(value.get('membershipType') or ''), 'unlimited': value.get('isUnlimited') is True,
+            'percent': percent, 'usedCents': used, 'limitCents': limit, 'cycleStart': stamp('billingCycleStart'),
+            'cycleEnd': stamp('billingCycleEnd'), 'login': where,
+            'onDemand': {'enabled': extra.get('enabled') is True, 'usedCents': number(extra.get('used')),
+                         'limitCents': number(extra.get('limit')) if number(extra.get('limit')) > 0 else None}}
 
 
 def usage(home, start, end, zone, now=None, opener=None):

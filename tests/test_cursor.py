@@ -121,6 +121,19 @@ class CursorTests(unittest.TestCase):
         self.assertEqual(summary['sessions'], 2);self.assertEqual(result['login'], 'Cursor 桌面版')
         self.assertEqual([h['timestamp'] for h in result['hours']], [noon // 1000 // 3600 * 3600])
 
+    def test_plan_share_follows_used_over_limit_as_cursor_words_it(self):
+        self.app(jwt())
+        summary={'billingCycleStart':'2026-11-03T08:50:27.000Z','billingCycleEnd':'2026-12-03T08:50:27.000Z','membershipType':'enterprise',
+                 'isUnlimited':False,'individualUsage':{'plan':{'used':20,'limit':2000,'totalPercentUsed':0.08},'onDemand':{'enabled':False,'used':0,'limit':None}}}
+        opener=Opener([summary])
+        plan=cursor.plan(self.home,opener=opener)
+        self.assertEqual(opener.sent[0].get_method(),'GET');self.assertEqual(opener.sent[0].full_url,'https://cursor.com/api/usage-summary')
+        self.assertEqual((plan['percent'],plan['usedCents'],plan['limitCents'],plan['membership']),(1.0,20,2000,'enterprise'))
+        self.assertEqual(plan['cycleEnd']-plan['cycleStart'],30*86400);self.assertFalse(plan['onDemand']['enabled'])
+        # Without a limit, Cursor's own percentage stands in.
+        plan=cursor.plan(self.home,opener=Opener([{'individualUsage':{'plan':{'totalPercentUsed':12.5}}}]))
+        self.assertEqual((plan['percent'],plan['limitCents'],plan['cycleEnd']),(12.5,None,None))
+
     def test_detection_offers_cursor_when_the_app_or_cli_is_installed(self):
         apps = self.home / 'Applications';(apps / 'Cursor.app').mkdir(parents=True)
         found = discovery.detect({}, self.home, which=lambda name: None, app_roots=[apps])
@@ -166,6 +179,23 @@ class CursorPluginTests(unittest.TestCase):
         with patch.object(self.m.cursor, 'usage', side_effect=self.m.cursor.CursorError('Cursor 登录已失效，请打开 Cursor 重新登录')):
             later = self.now.replace(day=19);start, end = self.m.range_bounds('today', later)
             self.assertEqual(self.m.cursor_range_usage('today', start, end, later), {'error': 'Cursor 登录已失效，请打开 Cursor 重新登录'})
+
+    def test_the_subscription_row_waits_for_consent_then_shows_the_cycle(self):
+        lines=lambda data:self.m.panel_entries(self.m.cursor_subscription_lines(data))[0]
+        row=lines({});self.assertEqual(row['value'],'未开启读取')
+        self.assertIn(['set-cursor-usage','true'],[c.get('action') for c in row['children']])
+        self.assertNotIn('cursor_subscription',self.m.external_loaders())
+        preferences.update(self.m.STATE_DIR,'cursor-usage','true');preferences.update(self.m.STATE_DIR,'module','cursor-subscription','true')
+        self.assertIn('cursor_subscription',self.m.external_loaders())
+        start=self.now.timestamp()-15*86400
+        payload={'percent':92.0,'usedCents':1840,'limitCents':2000,'cycleStart':start,'cycleEnd':start+30*86400,'onDemand':{'enabled':True,'usedCents':350,'limitCents':5000},'_fetchedAt':self.now.timestamp()}
+        with patch.object(self.m.time,'time',return_value=self.now.timestamp()):
+            row=lines({'cursor_subscription':payload,'cursor_subscription_error':None})
+        self.assertEqual((row['value'],row['usageLevel']),('已用 92%','critical'))
+        cycle=next(c for c in row['children'] if c['label']=='本周期')
+        self.assertTrue(cycle['detail'].startswith('重置于 '));self.assertIn('比匀速多用 42%',cycle['detail'])
+        self.assertEqual(next(c['value'] for c in row['children'] if c['label']=='套餐额度'),'$18.40 / $20.00')
+        self.assertEqual(next(c['value'] for c in row['children'] if c['label']=='按需用量'),'$3.50 / $50.00')
 
     def test_every_module_has_its_icon_in_the_list_and_on_its_card(self):
         rows = {row['action'][1]: row for row in self.m.module_options() if (row.get('action') or [''])[0] == 'set-module'}

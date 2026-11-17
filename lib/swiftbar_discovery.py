@@ -37,7 +37,7 @@ def detect(paths, home=None, configured_proxy=False, komari_url='', which=shutil
         found.add('magpie')
     if any((Path(root)/'WorkBuddy.app').is_dir() for root in app_roots):found.add('workbuddy')
     # Cursor keeps no usage on disk; the module only offers to read the account's records once turned on.
-    if which('cursor-agent') or any((Path(root)/'Cursor.app').is_dir() for root in app_roots) or (Path(paths.get('cursor') or home)/'state.vscdb').is_file():found.add('cursor')
+    if which('cursor-agent') or any((Path(root)/'Cursor.app').is_dir() for root in app_roots) or (Path(paths.get('cursor') or home)/'state.vscdb').is_file():found.update(('cursor','cursor-subscription'))
     root=Path(paths.get('qoder') or os.environ.get('QODERCN_CONFIG_DIR') or home/'.qoder-cn')
     if which('qodercn') or any((Path(r)/name).is_dir() for r in app_roots for name in ('Qoder CN.app','QoderCN.app')) or has_records(root/'projects'):found.add('qoder')
     if qoder.snapshot(home):found.add('qoder-subscription')

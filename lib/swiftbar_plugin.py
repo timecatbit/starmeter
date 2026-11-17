@@ -67,7 +67,7 @@ LOGO_DIR = os.path.join(ASSET_DIR, "logos")
 # Monochrome logos are template images so they follow light and dark menus.
 BRAND_LOGOS = {'ChatGPT': ('openai.svg', True), 'Claude': ('claude.svg', False), 'MiniMax': ('minimax.svg', False),
                'Gemini': ('gemini.svg', False), 'Grok': ('grok.svg', True), 'Kimi': ('kimi.svg', True),
-               'Qoder CN': ('qoder.svg', True)}
+               'Qoder CN': ('qoder.svg', True), 'Cursor': ('cursor.svg', True)}
 # Every module's mark in the module list and on its homepage card: the tool's logo where LobeHub has one,
 # a system symbol for the rest (the Windows panel shows only the logos).
 MODULE_LOGOS = {'magpie': ('magpie.svg', True), 'claude': ('claude.svg', False), 'codex': ('openai.svg', True),
@@ -195,7 +195,7 @@ UPDATE_STATUS_CACHE = os.path.join(CACHE_DIR, "badge.json")
 # OpenCodex management endpoints are polled in the background; the health check gates the rest.
 OPENCODEX_ENDPOINTS = {"healthz": ("/healthz", False), "ready": ("/readyz", False), "quota": ("/api/codex-auth/quota", True),
                        "accounts": ("/api/codex-auth/accounts", True), "active": ("/api/codex-auth/active", True)}
-EXTERNAL_TTLS = {"provider_quotas": 300, "badge": 3600, "komari": 30, "app_updates": 21600, "self_update": 21600, "chatgpt": 300, "grok": 300, "minimax": 300, "kimi-api": 300, "qoder-api": 300, "claude-api": 1800, "claude_subscription":60, "qoder_subscription":60}
+EXTERNAL_TTLS = {"provider_quotas": 300, "badge": 3600, "komari": 30, "app_updates": 21600, "self_update": 21600, "chatgpt": 300, "grok": 300, "minimax": 300, "kimi-api": 300, "qoder-api": 300, "claude-api": 1800, "claude_subscription":60, "qoder_subscription":60, "cursor_subscription":300}
 # Provider accounts read with the user's own key: Grok/Kimi balances, the MiniMax plan and Claude API spend.
 ACCOUNT_SOURCES = ('grok', 'minimax', 'kimi-api', 'qoder-api', 'claude-api')
 # APIs whose named extra keys are queried one by one, each in its own cache.
@@ -233,6 +233,7 @@ def connection_ready(key):
 def default_ready(key):
     if key=='claude-subscription':return view_settings()['claudeOAuthUsage'] or claude_local.enabled(STATE_DIR) or bool(claude_desktop.subscription(source_path('claude')).get('windows'))
     if key=='qoder-subscription':return any(root.is_dir() for root in qoder.log_roots(HOME))
+    if key=='cursor-subscription':return view_settings()['cursorUsage']
     if key in catalog.MANUAL_SUBSCRIPTIONS:return key in view_settings()['configuredSubscriptions']
     if key in catalog.PORTAL_APIS:return any(accounts.credential(name) for name in catalog.credential_names(key))
     if key=='chatgpt':return ocx_configured() if chatgpt_source()=='proxy' else chatgpt_configured()
@@ -281,7 +282,7 @@ def refresh_cadence():
     return False,bool(power.get('battery'))
 
 
-CONNECTION_KEYS={'app_updates':[], 'claude_subscription':[], 'qoder_subscription':[], 'chatgpt':['OCX_CHATGPT_HOME'], 'komari':['KOMARI_BASE_URL'], 'provider_quotas':['DEEPSEEK_API_KEY','DEEPSEEK_API_KEY_FILE'],
+CONNECTION_KEYS={'app_updates':[], 'claude_subscription':[], 'qoder_subscription':[], 'cursor_subscription':[], 'chatgpt':['OCX_CHATGPT_HOME'], 'komari':['KOMARI_BASE_URL'], 'provider_quotas':['DEEPSEEK_API_KEY','DEEPSEEK_API_KEY_FILE'],
                  'grok':['XAI_MANAGEMENT_API_KEY','XAI_MANAGEMENT_API_KEY_FILE','XAI_TEAM_ID'],
                  'minimax':['MINIMAX_API_KEY','MINIMAX_API_KEY_FILE','MINIMAX_REGION'],
                  'kimi-api':['MOONSHOT_API_KEY','MOONSHOT_API_KEY_FILE','MOONSHOT_REGION'],
@@ -1576,6 +1577,7 @@ def resource_lines(data):
         if key=='chatgpt':lines.extend(chatgpt_lines(data))
         elif key=='claude-subscription':lines.extend(claude_subscription_lines(data))
         elif key=='qoder-subscription':lines.extend(qoder_subscription_lines(data))
+        elif key=='cursor-subscription':lines.extend(cursor_subscription_lines(data))
         elif service.category=='API':lines.extend(api_lines(key,data))
         elif key in ACCOUNT_SOURCES:lines.extend(provider_account_lines(key,data))
         else:lines.extend(portal_service_lines(key))
@@ -1756,6 +1758,33 @@ def qoder_subscription_lines(data):
     app=update_app_path('qoder')
     if app:rows.append(item('打开 Qoder CN',level=1,sfimage='macwindow',href='file://'+urllib.parse.quote(app)))
     rows.append(item('打开订阅用量',level=1,sfimage='arrow.up.right',href=service.url))
+    return rows
+
+
+def cursor_subscription_lines(data):
+    """This billing cycle's included usage from the Cursor account, once the user lets the plugin read it."""
+    service=catalog.BY_KEY['cursor-subscription'];enabled=view_settings()['cursorUsage']
+    payload=(data.get('cursor_subscription') or {}) if enabled else {};error=data.get('cursor_subscription_error') if enabled else None
+    failed=refresh_failed(error);percent=payload.get('percent');end=payload.get('cycleEnd');start=payload.get('cycleStart')
+    if not enabled:badge='未开启读取'
+    elif payload.get('unlimited'):badge='不限量'
+    elif percent is not None:badge=used_text(percent)
+    else:badge='暂无套餐用量' if payload else '待同步'
+    rows=[item(service.label,badge=with_failure(badge,percent is not None,failed),**brand_icon('cursor-subscription'),
+               panelusagelevel=usage_level(percent,failed) if percent is not None else None),
+          item('来源 · Cursor 账户（cursor.com）',level=1,color=MUTED,size=10)]
+    if percent is not None:
+        # Like every window: the share, then 重置于 … · pace on its second line; the dollars get their own row.
+        rows.append(item('本周期',badge=used_text(percent),paneldetail=window_detail(percent,end,end-start if end and start else None,payload.get('_fetchedAt'),failed),
+                         level=1,panelusagelevel=usage_level(percent,failed)))
+        if payload.get('limitCents'):rows.append(item('套餐额度',badge='$%.2f / $%.2f'%(payload['usedCents']/100,payload['limitCents']/100),level=1))
+    extra=payload.get('onDemand') or {}
+    if payload:rows.append(item('按需用量',badge=('$%.2f'%(extra.get('usedCents',0)/100)+(' / $%.2f'%(extra['limitCents']/100) if extra.get('limitCents') else '')) if extra.get('enabled') else '未开启',level=1))
+    if enabled:rows.append(refresh_row(payload,error))
+    else:rows.append(item('读取 Cursor 用量记录…',level=1,sfimage='arrow.triangle.2.circlepath',paneldetail='用本机 Cursor 登录查询 cursor.com，令牌只在内存中使用',**act('set-cursor-usage','true')))
+    app=update_app_path('cursor')
+    if app:rows.append(item('打开 Cursor',level=1,sfimage='macwindow',href='file://'+urllib.parse.quote(app)))
+    rows.append(item('打开用量与账单',level=1,sfimage='arrow.up.right',href=service.url))
     return rows
 
 
@@ -1983,6 +2012,11 @@ def external_loaders():
     if module_enabled('updates') and live_app_update_ids():loaders['app_updates']=app_updates_cached
     if os.environ.get('OCX_SELF_UPDATES')!='0':loaders['self_update']=lambda:cached_fetch('self_update',self_update_load,EXTERNAL_TTLS['self_update'])
     if module_enabled('claude-subscription'):loaders['claude_subscription']=claude_subscription_cached
+    if module_enabled('cursor-subscription') and view_settings()['cursorUsage']:
+        def load_cursor_plan():
+            try:return cursor.plan(HOME),None
+            except cursor.CursorError as exc:return None,(0,str(exc),None)
+        loaders['cursor_subscription']=lambda:cached_fetch('cursor_subscription',load_cursor_plan,refresh_ttl(EXTERNAL_TTLS['cursor_subscription']))
     if module_enabled('qoder-subscription'):loaders['qoder_subscription']=lambda:cached_fetch('qoder_subscription',lambda:(qoder.snapshot(HOME) or {'empty':True},None),EXTERNAL_TTLS['qoder_subscription'])
     # Each read starts the ChatGPT client's app-server, so a failing client waits its normal interval, not a minute.
     if module_enabled('chatgpt') and chatgpt_source()=='client' and chatgpt_configured():loaders['chatgpt']=lambda:cached_fetch('chatgpt',lambda:(sources.chatgpt_account(home=chatgpt_home()),None),EXTERNAL_TTLS['chatgpt'],retry=EXTERNAL_TTLS['chatgpt'])
@@ -2004,7 +2038,7 @@ def named_key_loaders():
 
 
 # Only these visible resources can request an immediate read from a flyout.
-RESOURCE_CACHES={'deepseek':'provider_quotas','chatgpt':'chatgpt','grok':'grok','minimax':'minimax','kimi-api':'kimi-api','qoder-api':'qoder-api','claude-api':'claude-api','komari':'komari','updates':'app_updates','claude-subscription':'claude_subscription','qoder-subscription':'qoder_subscription','opencodex':'opencodex'}
+RESOURCE_CACHES={'deepseek':'provider_quotas','chatgpt':'chatgpt','grok':'grok','minimax':'minimax','kimi-api':'kimi-api','qoder-api':'qoder-api','claude-api':'claude-api','komari':'komari','updates':'app_updates','claude-subscription':'claude_subscription','qoder-subscription':'qoder_subscription','cursor-subscription':'cursor_subscription','opencodex':'opencodex'}
 
 def resource_cache_names(source,loaders):
     if source=='opencodex':
@@ -2100,6 +2134,11 @@ def alert_windows(data):
             part=payload.get(field)
             if isinstance(part,dict) and part.get('total'):
                 add('qoder-subscription','Qoder CN 订阅',window,100*part['used']/part['total'],payload.get('resetsAt') if field=='plan' else None,None,current)
+    if module_enabled('cursor-subscription') and view_settings()['cursorUsage']:
+        payload=data.get('cursor_subscription') or {}
+        if payload.get('percent') is not None:
+            end,start=payload.get('cycleEnd'),payload.get('cycleStart')
+            add('cursor-subscription','Cursor 订阅','本周期',payload['percent'],end,end-start if end and start else None,reading_current(payload,data.get('cursor_subscription_error')))
     return out
 
 
@@ -2672,6 +2711,7 @@ def module_connections(data=None):
                 children.append({'label':'打开 Claude','symbol':'macwindow','action':['open-claude'],'children':[]})
     for service in catalog.SERVICES:
         if service.key=='chatgpt':row=client_connection_entry('chatgpt')
+        elif service.key=='cursor-subscription':row=dict(cursor_connection_entry(True),label=service.label)
         else:row=service_connection_entry(service.key,data)
         connections[service.key]=row
     connections['opencodex']=client_connection_entry('opencodex')
@@ -3765,10 +3805,10 @@ def run_action(name, extra):
         preferences.update(STATE_DIR,'cursor-usage',value)
         if value=='true':preferences.update(STATE_DIR,'module','cursor','true')
         else:
-            for name in [n for n in os.listdir(CACHE_DIR) if n.startswith('cursor_usage_')]:
+            for name in [n for n in os.listdir(CACHE_DIR) if n.startswith(('cursor_usage_','cursor_subscription'))]:
                 try:os.unlink(os.path.join(CACHE_DIR,name))
                 except OSError:pass
-        invalidate_caches([range_cache_name()])
+        invalidate_caches([range_cache_name(),'cursor_subscription'])
         schedule_background_refresh()
     elif name == 'retry-claude-usage':
         if extra or not view_settings()['claudeOAuthUsage']:raise ValueError('invalid Claude refresh action')
