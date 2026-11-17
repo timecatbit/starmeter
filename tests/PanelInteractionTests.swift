@@ -224,7 +224,15 @@ expect(cursorCard.template==true && cursorCard.image != nil,"A card carries its 
 let listing=try JSONDecoder().decode([Entry].self,from:Data(#"[{"label":"允许折叠","detail":"各模块独立展开","checked":false,"action":["set-collapse","true"],"children":[]},{"label":"外观与设置","symbol":"slider.horizontal.3","children":[]},{"label":"","separator":true,"children":[]},{"label":"概览","section":true,"children":[]},{"label":"Summary","checked":true,"symbol":"chart.xyaxis.line","action":["set-module","summary","false"],"children":[]},{"label":"Harness","section":true,"children":[]},{"label":"Cursor","checked":true,"value":"已配置","image":"PHN2Zy8+","template":true,"action":["set-module","cursor","false"],"children":[]},{"label":"Claude","checked":false,"value":"未配置","image":"PHN2Zy8+","action":["set-module","claude","true"],"children":[]}]"#.utf8))
 let cards=ModuleCards.groups(listing)
 expect(cards.map{$0.caption ?? "-"}==["-","概览","Harness"] && cards.map{$0.rows.count}==[2,1,2],"Each section becomes one card under its caption")
-expect(ModuleCards.height(listing)==(46+34+10)+(26+34+10)+(26+34+34+10),"A noted row is taller; captions and gaps add up")
+expect(ModuleCards.height(listing)==(42+30+8)+(22+30+8)+(22+30+30+8),"A noted row is taller; captions and gaps add up")
+// Modules nothing is set on fold away at the end of their card behind one row, but never a lone one.
+let gemini=try JSONDecoder().decode(Entry.self,from:Data(#"{"label":"Gemini CLI","checked":false,"value":"未配置","image":"PHN2Zy8+","action":["set-module","gemini","true"],"children":[]}"#.utf8))
+let packed=listing+[gemini],folded=Set(packed.filter(ModuleCards.foldable).map{$0.key})
+expect(folded==Set([listing[7].key,gemini.key]),"Only modules neither shown nor configured fold")
+let shut=ModuleCards.groups(packed,folded:folded)[2],unfolded=ModuleCards.groups(packed,folded:folded,open:["Harness"])[2]
+expect(shut.rows.map{$0.label}==["Cursor"] && shut.folded==2 && !shut.open,"Two unset modules fold behind one row")
+expect(unfolded.rows.map{$0.label}==["Cursor","Claude","Gemini CLI"] && unfolded.open,"Unfolded, they follow the others")
+expect(ModuleCards.height(shut)==22+30+28 && ModuleCards.groups(listing,folded:Set([listing[7].key]))[2].folded==0,"The fold row has its own height; one unset module stays in place")
 // The legend justifies its columns across the full width, three or four per row.
 let legendLabels=["总量","OpenCodex","Claude","OpenCode","DeepSeek","WorkBuddy","Gemini CLI"]
 let legendRows=DashboardView.legendLayout(legendLabels,width:320)
