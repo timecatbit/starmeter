@@ -2422,7 +2422,7 @@ def komari_lines(data):
         detail = "%s · CPU %s · 内存 %s · 到期 %s" % (label, cpu, ram, expiry)
         expiry_text = expiry
         if days is not None and days <= 7:
-            expiry_text += " 已到期" if days < 0 else (" 今日到期" if days == 0 else " · %d天后" % days)
+            expiry_text += " 已到期" if days < 0 else (" 今天到期" if days == 0 else " · %d天后" % days)
         color = KOMARI_ONLINE if state is True else BAD if state is False else MUTED
         url = KOMARI_BASE_URL + "/instance/" + urllib.parse.quote(str(row.get("uuid") or ""), safe="")
         lines.append(item("%s %s  %s · %s" % (mark, pad_display(name, 18), label, expiry_text),
@@ -3050,7 +3050,7 @@ def key_lines(provider,entry,data,level):
     symbol=lambda amount:money_text(amount,payload.get('currency','USD'))
     for field,name in (('cash','现金'),('voucher','代金券')):
         if isinstance(payload.get(field),(int,float)):rows.append(item(name,level=level,badge=symbol(payload[field])))
-    if isinstance(payload.get('todayCost'),(int,float)):rows.append(item('今日已用（UTC）',level=level,badge=money_text(payload['todayCost'],'USD')))
+    if isinstance(payload.get('todayCost'),(int,float)):rows.append(item('今天已用（UTC）',level=level,badge=money_text(payload['todayCost'],'USD')))
     if isinstance(payload.get('packages'),int):
         # The balance is the organization's shared add-on pool; members' plan Credits are separate.
         rows.append(item('组织共享加购 Credits',level=level,badge='%d 个有效资源包'%payload['packages'],paneldetail='不含成员各自的套餐 Credits'))

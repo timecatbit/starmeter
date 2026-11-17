@@ -195,7 +195,7 @@ class PluginTests(unittest.TestCase):
         data=self.m.gather();data['healthz']={'version':'1.0'}
         lines='\n'.join(self.m.unfiltered_management_lines(data))
         self.assertIn('用量统计 · 今天 | badge="10 分钟前更新',lines)
-        self.assertNotIn('7 日统计',lines);self.assertNotIn('今日用量',lines)
+        self.assertNotIn('7 日统计',lines);self.assertNotIn('今天用量',lines)
 
     def test_refresh_in_progress_keeps_values_and_only_real_failures_are_marked(self):
         window={'name':'codex','minutes':10080,'remaining':40}

@@ -250,7 +250,7 @@ class CatalogTests(unittest.TestCase):
             row=self.entry('Claude API',{'claude-api':{'monthCost':12.345,'todayCost':1.5,'currency':'USD','state':'已同步','_fetchedAt':self.m.time.time()}})
             self.assertEqual(row['value'],'本月已用 $12.35')
             key=row['children'][0];self.assertEqual(key['value'],'本月已用 $12.35')
-            self.assertEqual(next(c['value'] for c in key['children'] if c['label']=='今日已用（UTC）'),'$1.50')
+            self.assertEqual(next(c['value'] for c in key['children'] if c['label']=='今天已用（UTC）'),'$1.50')
             row=self.entry('Claude API',{'claude-api':{'state':'Key 所属账户没有查看花费的权限','permission':False,'reason':'role'}})
             self.assertEqual(row['value'],'无花费权限')
             hint=next(c for c in row['children'][0]['children'] if c['label']=='Key 所属账户没有查看花费的权限');self.assertIn('sk-ant-admin',hint['detail'])
