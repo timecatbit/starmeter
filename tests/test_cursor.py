@@ -168,17 +168,30 @@ class CursorPluginTests(unittest.TestCase):
     def test_figures_are_cached_per_range_and_refetched_on_a_new_day(self):
         preferences.update(self.m.STATE_DIR, 'cursor-usage', 'true')
         start, end = self.m.range_bounds('today', self.now)
-        with patch.object(self.m.cursor, 'usage', return_value={'summary': {'requests': 3, 'totalTokens': 30}}) as read:
+        call = {'timestamp': start + 3600, 'model': 'grok-4.7-high', 'session': 'c1', 'input': 100, 'output': 20, 'cached': 50, 'writes': 0, 'cost': 0.01}
+        with patch.object(self.m.cursor, 'fetch', return_value=([call], True, 'Cursor 桌面版')) as read:
             first = self.m.cursor_range_usage('today', start, end, self.now)
             self.m.cursor_range_usage('today', start, end, self.now)
             self.assertEqual(read.call_count, 1, 'A fresh read is reused for five minutes')
             later = self.now.replace(day=18);start, end = self.m.range_bounds('today', later)
             self.m.cursor_range_usage('today', start, end, later)
             self.assertEqual(read.call_count, 2, 'A new day reads again')
-        self.assertEqual(first['summary']['requests'], 3);self.assertNotIn('_fetchedAt', first)
-        with patch.object(self.m.cursor, 'usage', side_effect=self.m.cursor.CursorError('Cursor 登录已失效，请打开 Cursor 重新登录')):
+        self.assertEqual((first['summary']['requests'], first['summary']['totalTokens'], first['login']), (1, 170, 'Cursor 桌面版'))
+        with patch.object(self.m.cursor, 'fetch', side_effect=self.m.cursor.CursorError('Cursor 登录已失效，请打开 Cursor 重新登录')):
             later = self.now.replace(day=19);start, end = self.m.range_bounds('today', later)
             self.assertEqual(self.m.cursor_range_usage('today', start, end, later), {'error': 'Cursor 登录已失效，请打开 Cursor 重新登录'})
+
+    def test_a_call_cursor_reported_to_magpie_counts_once_from_magpie(self):
+        preferences.update(self.m.STATE_DIR, 'cursor-usage', 'true')
+        start, end = self.m.range_bounds('today', self.now)
+        reported = {'timestamp': start + 3600, 'model': 'grok-4.7-high', 'session': 'c1', 'input': 11535, 'output': 95, 'cached': 5760, 'writes': 0, 'cost': 0.0265}
+        other = dict(reported, timestamp=start + 7200, input=451, output=235, cached=1152, cost=0.0029)
+        # Magpie logs input with cache reads: 11535 + 5760.
+        magpie = [('Magpie', {(17295, 5760, 0, 95): [start + 3610]})]
+        with patch.object(self.m.cursor, 'fetch', return_value=([reported, other], True, 'Cursor 桌面版')):
+            result = self.m.cursor_range_usage('today', start, end, self.now, magpie)
+        self.assertEqual(result['summary']['requests'], 2, 'The card keeps every Cursor call')
+        self.assertEqual(result['carried'], {'Magpie': 1});self.assertEqual(result['counted']['summary']['requests'], 1)
 
     def test_the_subscription_row_waits_for_consent_then_shows_the_cycle(self):
         lines=lambda data:self.m.panel_entries(self.m.cursor_subscription_lines(data))[0]

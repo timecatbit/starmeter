@@ -225,8 +225,11 @@ def magpie_root(home):
 
 
 def magpie_event(row, state):
-    """Read counters from Magpie's own gateway, not imported or internal tool calls."""
-    if row.get('source') or row.get('rejected') or row.get('handed_on'):
+    """Read counters from Magpie's log as Magpie totals them: its gateway's own calls and the calls a client
+    reported to it (source 'reported': made straight to the vendor, which Magpie counts too, such as Cursor's),
+    but not its internal probes or refused and handed-on calls."""
+    source = row.get('source')
+    if (source and source != 'reported') or row.get('rejected') or row.get('handed_on'):
         return None
     if not row.get('provider') or not row.get('model'):
         return None
@@ -241,7 +244,7 @@ def magpie_event(row, state):
     # The tier the upstream reported, else the one Magpie asked for: the local client prices by its request too.
     tier = row.get('tier_served') or row.get('tier_sent')
     # Offsets uniquely identify distinct requests even when a gateway reuses route IDs.
-    event.update(id=identity('magpie', state['offset']), timestamp=timestamp, agent=str(row.get('agent') or ''),
+    event.update(id=identity('magpie', state['offset']), timestamp=timestamp, agent=str(row.get('agent') or ''), reported=source == 'reported',
                  session=identity(row['session']) if row.get('session') else None,
                  write1h=min(event['writes'],number(row.get('cache_write_1h'))),
                  cacheKnown=not row.get('cache_unknown'),
@@ -315,7 +318,7 @@ def _stream(path):
 
 
 # A source's index version rises when what its events hold changes, so old indexes are rebuilt.
-INDEX_VERSIONS = {'magpie': 5}
+INDEX_VERSIONS = {'magpie': 6}
 
 
 def jsonl_usage(source, root, cache, start, end, zone, exclude_proxy=False, carriers=None, price=None):
@@ -427,7 +430,7 @@ def gateway_requests(path, cache, start, end, kind='opencodex'):
     reports are not held against the local records either. Only these counters are kept, never request content."""
     path = Path(path); st = path.stat()
     with path.open('rb') as handle:head = identity(handle.readline(4096).decode('utf-8', 'replace'))
-    db = Path(cache) / ('harness-gateway-v1-' + kind + '-' + identity(str(path.resolve()))[:12] + '.sqlite3')
+    db = Path(cache) / ('harness-gateway-v2-' + kind + '-' + identity(str(path.resolve()))[:12] + '.sqlite3')
     db.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     conn = sqlite3.connect(db, timeout=10); os.chmod(db, 0o600)
     try:

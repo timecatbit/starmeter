@@ -47,7 +47,7 @@ class SourceTests(unittest.TestCase):
         with path.open('a') as out:out.write(partial[30:]+'\n')
         self.assertEqual(self.read()['summary']['requests'],2)
         self.assertEqual(self.read()['summary']['requests'],2)
-    def test_magpie_indexes_gateway_history_without_probes_or_imported_records(self):
+    def test_magpie_counts_gateway_and_reported_calls_but_not_probes_or_tool_calls(self):
         log=self.root/'usage.jsonl'
         base={'agent':'codex','provider':'deepseek','model':'group/daily','served':'deepseek-v4-pro','route_id':7,
               't':'2024-11-05T09:46:40.500000000Z','in':100,'out':20,'reasoning':5,'cache_read':70,'cache_write':10,
@@ -56,15 +56,17 @@ class SourceTests(unittest.TestCase):
         self.write(log,[base,dict(base,handed_on=True),dict(base,source='reported'),dict(base,source='probe'),
                         dict(base,source='mcp'),dict(base,source='search'),dict(base,rejected=True)])
         self.write(self.root/'not-usage.jsonl',[base])
+        # A call a client reported to Magpie counts as Magpie's own total counts it; probes, tool calls,
+        # refused and handed-on calls don't.
         initial=self.read('magpie')
-        self.assertEqual(initial['summary']['requests'],1)
+        self.assertEqual(initial['summary']['requests'],2)
         with log.open('a') as handle:handle.write(json.dumps(later)+'\n')
         result=self.read('magpie')
-        self.assertEqual(result['summary']['totalTokens'],320)
-        self.assertEqual(result['summary']['requests'],2)
+        self.assertEqual(result['summary']['totalTokens'],520)
+        self.assertEqual(result['summary']['requests'],3)
         self.assertEqual(result['summary']['sessions'],1)
-        self.assertEqual(result['summary']['estimatedCostUsd'],1)
-        self.assertEqual(result['summary']['cacheEligibleInputTokens'],180)
+        self.assertEqual(result['summary']['estimatedCostUsd'],1.5)
+        self.assertEqual(result['summary']['cacheEligibleInputTokens'],360)
         self.assertEqual(result['models'][0]['model'],'deepseek-v4-pro')
         self.assertEqual(self.read('magpie',start=1731024000)['summary']['requests'],1)
         for path in self.cache.glob('*.sqlite3'):
@@ -84,7 +86,7 @@ class SourceTests(unittest.TestCase):
         self.write(self.root/'one.jsonl',[self.codex()])
         self.assertNotIn('clients',self.read())
         # The index that predates clients is not reused.
-        self.assertTrue(any(path.name.startswith('harness-v5-magpie-') for path in self.cache.glob('*.sqlite3')))
+        self.assertTrue(any(path.name.startswith('harness-v6-magpie-') for path in self.cache.glob('*.sqlite3')))
     def test_magpie_skips_refusals_and_prices_the_tier_it_asked_for(self):
         base={'agent':'codex','provider':'codex','model':'gpt-6.1-sol','t':'2024-11-05T09:46:40Z','in':100,'out':10,'status':200}
         event=lambda **row:sources.magpie_event(dict(base,**row),{'offset':1})

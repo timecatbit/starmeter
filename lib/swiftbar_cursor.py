@@ -190,11 +190,23 @@ def plan(home, now=None, opener=None):
                          'limitCents': number(extra.get('limit')) if number(extra.get('limit')) > 0 else None}}
 
 
-def usage(home, start, end, zone, now=None, opener=None):
-    import swiftbar_sources as sources
+def fetch(home, start, end, now=None, opener=None):
+    """This range's usage events in the shape the shared tally reads, whether all of them came, and whose login read them."""
     user, token, where = session(home, now)
     rows, complete = events(user, token, start, end, opener)
-    result = sources.aggregate([e for e in map(normalize, rows) if e], start, end, zone, price=sources.model_cost)
+    return [e for e in map(normalize, rows) if e], complete, where
+
+
+def tally(found, start, end, zone, carriers=None):
+    """The card's figures from fetched events. A call Cursor also reported to Magpie is in Magpie's log as well;
+    carriers let Summary count it once, from Magpie, as for every other client a gateway logs."""
+    import swiftbar_sources as sources
+    rows, complete, where = found
+    result = sources.aggregate(rows, start, end, zone, price=sources.model_cost, carriers=carriers)
     result.update(source='Cursor 账户用量记录', login=where)
     if not complete:result.update(partial=True, warning='用量记录过多，只读取了一部分')
     return result
+
+
+def usage(home, start, end, zone, now=None, opener=None, carriers=None):
+    return tally(fetch(home, start, end, now, opener), start, end, zone, carriers)

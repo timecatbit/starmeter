@@ -1874,7 +1874,7 @@ def magpie_price(event):
 # How Magpie's clients read on the card: the homepage's names where the plugin has a card for them.
 MAGPIE_CLIENT_NAMES = {'codex':'ChatGPT', 'claude':'Claude Code', 'claude-code':'Claude Code', 'claude-desktop':'Claude',
                        'opencode':'OpenCode', 'dsh':'DeepSeek Harness', 'gemini':'Gemini CLI', 'gemini-cli':'Gemini CLI',
-                       'agy':'Antigravity', 'antigravity':'Antigravity', 'pi':'Pi', '':'未标注'}
+                       'agy':'Antigravity', 'antigravity':'Antigravity', 'pi':'Pi', 'cursor':'Cursor', '':'未标注'}
 
 def client_rows(clients):
     """A gateway's clients by their share of its tokens, largest first; one name per client."""
@@ -1888,7 +1888,7 @@ def client_rows(clients):
 # The clients Magpie names in its log whose own records the plugin reads as well. Its other clients
 # (pi, Antigravity, Cline…) are not read here, so their requests are counted from Magpie alone.
 MAGPIE_AGENTS = {'codex':('codex',), 'claude':('claude','claude-code','claude-desktop'), 'opencode':('opencode',),
-                 'deepseek-harness':('dsh',), 'gemini':('gemini','gemini-cli')}
+                 'deepseek-harness':('dsh',), 'gemini':('gemini','gemini-cli'), 'cursor':('cursor',)}
 
 def gateway_logs(enabled, start, end):
     """What each selected gateway logged, read once per refresh: None when its log can't be read here."""
@@ -1928,8 +1928,9 @@ def range_usage_cached(key=None):
             try:
                 if source=='opencodex':
                     return ocx_range_usage(key,now) if ocx_configured() else {'error':'未配置 OpenCodex'}
-                if source=='cursor':return cursor_range_usage(key,start,end,now)
                 carriers=gateway_carriers(source,logs)
+                # Cursor's calls never pass a gateway; only the ones it reported to Magpie are in a gateway's log.
+                if source=='cursor':return cursor_range_usage(key,start,end,now,[c for c in carriers if c[0]=='Magpie'])
                 if source=='claude':
                     value,error=claude_usage_live(range_key=key,now=now,carriers=carriers)
                     return value or {'error':'未找到 Claude 用量记录'}
@@ -1956,19 +1957,22 @@ def range_usage_cached(key=None):
     return cached_fetch(name,load,refresh_ttl(60))
 
 
-def cursor_range_usage(key,start,end,now):
+def cursor_range_usage(key,start,end,now,carriers=None):
     """Cursor's records live on cursor.com: read only after the user turns it on, at most every five minutes
     per range, and again when the range's first day changes so yesterday's figures never pass for today's."""
     if not view_settings()['cursorUsage']:return {'error':'未开启用量读取'}
     name='cursor_usage_'+key;anchor=datetime.fromtimestamp(start,now.tzinfo).date().isoformat()
     record=read_cache(name);current=(record.get('payload') or {}).get('anchor')==anchor
+    # The events themselves are kept, so matching them against Magpie's log stays current between reads.
     def load():
-        try:return dict(cursor.usage(HOME,start,end,now.tzinfo),anchor=anchor),None
+        try:
+            rows,complete,where=cursor.fetch(HOME,start,end)
+            return {'events':rows,'complete':complete,'login':where,'anchor':anchor},None
         except cursor.CursorError as exc:return None,(0,str(exc),None)
     payload,error=cached_fetch(name,load,refresh_ttl(300) if current else 0)
     # A failed read reports the reason; the range bundle keeps the last good figures with their own time.
-    if error or not payload or payload.get('anchor')!=anchor:return {'error':str(error[1]) if error else '用量记录暂不可用'}
-    return {k:v for k,v in payload.items() if not k.startswith('_')}
+    if error or not payload or payload.get('anchor')!=anchor or not isinstance(payload.get('events'),list):return {'error':str(error[1]) if error else '用量记录暂不可用'}
+    return cursor.tally((payload['events'],payload.get('complete',True),payload.get('login')),start,end,now.tzinfo,carriers)
 
 
 def opencodex_endpoint(name):
@@ -2246,7 +2250,7 @@ def background_refresh(wait=False):
 
 
 # Index generations in use; older generations, removed snapshots and stray temp files are dropped.
-CURRENT_INDEXES = ('claude-app-usage-v3-', 'harness-v4-', 'harness-v5-magpie-', 'harness-gemini-v2-', 'harness-gateway-v1-')
+CURRENT_INDEXES = ('claude-app-usage-v3-', 'harness-v4-', 'harness-v6-magpie-', 'harness-gemini-v2-', 'harness-gateway-v2-')
 # Indexes a source outgrew, under a prefix the current ones still match.
 RETIRED_INDEXES = ('harness-v4-magpie-',)
 INDEX_FILE = re.compile(r'(?:claude-app-usage|claude-usage|harness)-.+\.sqlite3(?:-journal|-wal|-shm)?')
