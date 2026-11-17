@@ -2,7 +2,7 @@
 var assertions=0
 func expect(_ condition:@autoclosure ()->Bool,_ message:String){assertions+=1;if !condition(){fatalError(message)}}
 let fixture="""
-{"dashboard":{"date":"","dates":[],"providers":[],"note":"","rangeKey":"today","rangeLabel":"当天","chartUnit":"","chartSpan":"","chartStatus":"","allowCollapse":true,"expandedProviders":[]},"entries":[],"moduleOptions":[{"label":"允许折叠","checked":true,"action":["set-collapse","false"],"children":[]}],"preferences":{"revision":1,"visible":["summary","opencodex","claude"],"appearance":"glass","allowCollapse":true,"expandedProviders":[]}}
+{"dashboard":{"date":"","dates":[],"providers":[],"note":"","rangeKey":"today","rangeLabel":"今日","chartUnit":"","chartSpan":"","chartStatus":"","allowCollapse":true,"expandedProviders":[]},"entries":[],"moduleOptions":[{"label":"允许折叠","checked":true,"action":["set-collapse","false"],"children":[]}],"preferences":{"revision":1,"visible":["summary","opencodex","claude"],"appearance":"glass","allowCollapse":true,"expandedProviders":[]}}
 """
 let initial=try JSONDecoder().decode(Snapshot.self,from:Data(fixture.utf8))
 func saved(_ revision:Int64,_ expanded:[String])->PresentationPreferences{PresentationPreferences(revision:revision,visible:["summary","opencodex","claude"],appearance:"glass",allowCollapse:true,expandedProviders:expanded)}

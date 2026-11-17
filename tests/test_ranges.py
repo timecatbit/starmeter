@@ -33,7 +33,7 @@ class RangeTests(unittest.TestCase):
   self.assertEqual(p['summary']['requests'],2)
   self.assertEqual(sum(h['totalTokens'] for h in p['hours']),p['summary']['totalTokens'])
  def test_yesterday_is_the_whole_previous_local_day_by_the_hour(self):
-  self.assertEqual([r['label'] for r in self.m.range_options('yesterday')][:3],['当天','昨日','近 24 小时'])
+  self.assertEqual([r['label'] for r in self.m.range_options('yesterday')][:3],['今日','昨日','近 24 小时'])
   self.assertTrue(self.m.range_options('yesterday')[1]['checked'])
   # Taipei is UTC+8: yesterday runs from 11-02 16:00Z up to, not including, 11-03 16:00Z.
   self.write('a.jsonl',[self.row('before','2026-11-02T15:59:59Z'),self.row('start','2026-11-02T16:00:00Z'),

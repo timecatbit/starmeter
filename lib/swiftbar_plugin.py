@@ -1735,7 +1735,7 @@ def qoder_subscription_lines(data):
     return rows
 
 
-RANGES={'today':'当天','yesterday':'昨日','24h':'近 24 小时','7d':'近 7 天','30d':'近 30 天','week':'本周','month':'本月','all':'全部'}
+RANGES={'today':'今日','yesterday':'昨日','24h':'近 24 小时','7d':'近 7 天','30d':'近 30 天','week':'本周','month':'本月','all':'全部'}
 # For 全部, the heatmap shows up to the last 180 days: six rows of 30, the same width as 近 30 天.
 HEATMAP_DAYS=180
 HEATMAP_ROW=30

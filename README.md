@@ -8,7 +8,7 @@ macOS 菜单栏与 Windows 托盘应用：在一个面板里查看各 AI 编程�
 
 ## 能看什么
 
-- **Harness 用量**：Claude（桌面 App 和 VS Code、JetBrains、终端里的 Claude Code）、ChatGPT（Codex）、OpenCodex、Magpie、OpenCode、DeepSeek Harness、WorkBuddy、Qoder CN、Gemini CLI。显示 Token、请求、缓存命中、模型分布和趋势图，并按模型官方价估算 API 等值费用；Qoder CN 套餐请求在本机只记 Credits、不记 Token，卡片按 Credits 显示。范围可选当天、昨日、近 24 小时、近 7/30 天、本周、本月或全部。
+- **Harness 用量**：Claude（桌面 App 和 VS Code、JetBrains、终端里的 Claude Code）、ChatGPT（Codex）、OpenCodex、Magpie、OpenCode、DeepSeek Harness、WorkBuddy、Qoder CN、Gemini CLI。显示 Token、请求、缓存命中、模型分布和趋势图，并按模型官方价估算 API 等值费用；Qoder CN 套餐请求在本机只记 Credits、不记 Token，卡片按 Credits 显示。范围可选今日、昨日、近 24 小时、近 7/30 天、本周、本月或全部。
 - **订阅**：ChatGPT、Claude、MiniMax 显示已用百分比和重置时间，70% 起变橙、90% 起变红，侧栏还会写出比匀速多用还是少用；Qoder CN 读取 Qoder CN App 本机记录的 Credits 用量（在 App 右下角打开 Credits 用量时更新）；Gemini、Grok、Kimi 可以手动标记。
 - **API**：DeepSeek、Kimi、Grok 显示余额；Qoder CN 用组织 API Key（团队版/企业版）显示组织共享的加购 Credits 余额；Claude 显示本月花费（需要管理员 Key）；ChatGPT、Gemini 可以测试 Key 是否可用。每个 API 可以保存多把 Key（同一把不能重复添加），主页显示合计和 Key 数量，如“余额 ¥12.00 (3)”；同一组织或 Team 的多把 Key 只算一次。
 - **提醒**：订阅窗口用到 90%（可改为 70%、80% 或关闭）时发通知；余额类 API 可以按币种设置余额低于多少时提醒；可选在每周额度快重置却还没怎么用时提醒。
@@ -57,7 +57,7 @@ python3 install.py
 
 ## 使用
 
-- **统计范围**默认显示当天。首次安装会在后台读取这台电脑已有的用量记录；选「全部」可以查看仍保存在本机的记录，不需要发起新调用。每个 Harness 统计同一家工具的所有客户端：Claude 包含桌面 App 和各处 Claude Code 的会话（含子代理），ChatGPT 包含本机 Codex 的活动和归档会话。已经删除、从未同步到本机或没有记录 Token 的对话无法补算。
+- **统计范围**默认显示今日。首次安装会在后台读取这台电脑已有的用量记录；选「全部」可以查看仍保存在本机的记录，不需要发起新调用。每个 Harness 统计同一家工具的所有客户端：Claude 包含桌面 App 和各处 Claude Code 的会话（含子代理），ChatGPT 包含本机 Codex 的活动和归档会话。已经删除、从未同步到本机或没有记录 Token 的对话无法补算。
 - **左键星星**打开主页。Summary 旁边依次是自动检测（放大镜图标）、分享和刷新按钮，鼠标停上去会显示名称；把鼠标停在一行上，会在旁边展开详情和操作。
 - **Magpie**：读取本机网关的 `usage.jsonl`（默认 `~/.config/magpie`，也支持 `XDG_CONFIG_HOME` 或手选目录），只统计网关最终有用量的请求，不读 Key，也不要求 Magpie 正在运行。同时勾选 Magpie 和经过它的 Harness（如 ChatGPT、Claude）时，经过 Magpie 的请求只按 Magpie 计入 Summary，Harness 卡片照常显示自己的记录并注明“N 次已由 Magpie 计入”；没经过 Magpie 的请求仍由 Harness 计入。OpenCodex 同理。Magpie 卡片还会写出各客户端的占比（如“客户端 · ChatGPT 62% · Claude Code 30%”）；只想看网关总账时，主页只勾 Magpie 即可。费用是按已知价格的估算。
 - **DeepSeek Harness**：默认读取 `~/.dsh/sessions`。如果设置了 `DSH_HOME`，读取其 `sessions` 子目录；也可手选记录目录。通过 Magpie 调用 DeepSeek 模型的用量在 Magpie 卡片中查看。
