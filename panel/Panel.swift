@@ -105,10 +105,13 @@ func accent(_ id:String,_ view:NSView)->NSColor {
     if id=="cursor" {return dark(view) ? NSColor(srgbRed:0.70,green:0.74,blue:0.80,alpha:1) : NSColor(srgbRed:0.33,green:0.37,blue:0.43,alpha:1)}
     return dark(view) ? NSColor(srgbRed:0.55,green:0.71,blue:0.94,alpha:1) : NSColor(srgbRed:0.32,green:0.51,blue:0.78,alpha:1)
 }
-// A tool's mark on its card: monochrome logos and symbols take the tool's chart colour, so the card still
-// matches its line in the chart; colour logos (Claude, Gemini, DeepSeek) keep their own colours.
+// A tool's mark on its card, in the logo's own colours: monochrome logos and symbols in the text colour,
+// colour logos (Claude, Gemini, DeepSeek) as they are. Without one, the tool's chart-coloured dot.
 enum ToolMark {
     private static var cache:[String:NSImage]=[:]
+    // Where a line of text drawn from `top` looks centred: halfway up its capitals, which is where a
+    // square logo beside the text sits level with it.
+    static func middle(of font:NSFont,top:CGFloat)->CGFloat {top+font.ascender-font.capHeight/2}
     static func image(_ p:ProviderUsage)->NSImage? {
         let key=p.id+"|"+(p.image.map{String($0.count)+String($0.suffix(16))} ?? p.symbol ?? "")
         if let cached=cache[key]{return cached}
@@ -122,7 +125,7 @@ enum ToolMark {
         guard let glyph=image(p) else{color.setFill();NSBezierPath(ovalIn:NSRect(x:rect.midX-2.5,y:rect.midY-2.5,width:5,height:5)).fill();return}
         if glyph.isTemplate {
             let tinted=NSImage(size:rect.size);tinted.lockFocus()
-            glyph.draw(in:NSRect(origin:.zero,size:rect.size));color.setFill();NSRect(origin:.zero,size:rect.size).fill(using:.sourceIn)
+            glyph.draw(in:NSRect(origin:.zero,size:rect.size));NSColor.labelColor.setFill();NSRect(origin:.zero,size:rect.size).fill(using:.sourceIn)
             tinted.unlockFocus()
             tinted.draw(in:rect,from:.zero,operation:.sourceOver,fraction:1,respectFlipped:true,hints:nil)
         } else {glyph.draw(in:rect,from:.zero,operation:.sourceOver,fraction:1,respectFlipped:true,hints:nil)}
@@ -1095,7 +1098,8 @@ final class DashboardView:FlippedView {
     private func drawCollapsibleProvider(_ p:ProviderUsage,y:CGFloat,left:CGFloat,right:CGFloat){
         let width=right-left,c=accent(p.id,self),expanded=(data.expandedProviders ?? []).contains(p.id)
         if hoveredProvider==p.id {NSColor.controlAccentColor.withAlphaComponent(dark(self) ? 0.08 : 0.045).setFill();NSBezierPath(roundedRect:NSRect(x:4,y:y+2,width:bounds.width-8,height:46),xRadius:7,yRadius:7).fill()}
-        ToolMark.draw(p,in:NSRect(x:left-1,y:y+7.5,width:14,height:14),color:c)
+        let mid=ToolMark.middle(of:.systemFont(ofSize:12,weight:.semibold),top:y+6)
+        ToolMark.draw(p,in:NSRect(x:left-1,y:mid-7,width:14,height:14),color:c)
         text(p.name,x:left+19,y:y+6,w:width-177,size:12,weight:.semibold)
         drawNote(p,y:y+8,right:right)
         let arrow=NSBezierPath(),x=right-5,cy=y+14
@@ -1111,7 +1115,8 @@ final class DashboardView:FlippedView {
     }
     private func drawProvider(_ p:ProviderUsage,y:CGFloat,left:CGFloat,right:CGFloat){
         let width=right-left,c=accent(p.id,self)
-        ToolMark.draw(p,in:NSRect(x:left-1,y:y+9.5,width:14,height:14),color:c)
+        let mid=ToolMark.middle(of:.systemFont(ofSize:12,weight:.semibold),top:y+8)
+        ToolMark.draw(p,in:NSRect(x:left-1,y:mid-7,width:14,height:14),color:c)
         text(p.name,x:left+19,y:y+8,w:width-177,size:12,weight:.semibold)
         drawNote(p,y:y+10,right:right+17)
         text(p.available ? headline(p) : "—",x:left,y:y+26,w:width*0.43,size:19,weight:.medium,numeric:true)
@@ -1240,6 +1245,40 @@ final class DashboardView:FlippedView {
     }
 
 }
+// The module list, laid out the way magpie lays out its lists: each section a rounded card under a small
+// caption, rows parted by hairlines, and the checkbox, icon and name in fixed columns on every row.
+// The checkbox stays on the left: a sidebar opening to the left is reached across that column, where
+// hovering opens nothing.
+enum ModuleCards {
+    static let caption:CGFloat=26,gap:CGFloat=10,row:CGFloat=34,noted:CGFloat=46,text:CGFloat=58
+    struct Group {var caption:String?;var rows:[Entry]}
+    static func groups(_ entries:[Entry])->[Group] {
+        var result:[Group]=[];var current=Group(caption:nil,rows:[])
+        func close(){if !current.rows.isEmpty{result.append(current)};current=Group(caption:nil,rows:[])}
+        for e in entries {
+            if e.separator==true{close()}
+            else if e.section==true{close();current.caption=e.label}
+            else{current.rows.append(e)}
+        }
+        close();return result
+    }
+    static func height(_ e:Entry)->CGFloat {e.detail==nil ? row : noted}
+    static func height(_ entries:[Entry])->CGFloat {
+        groups(entries).reduce(0){$0+($1.caption==nil ? 0 : caption)+$1.rows.reduce(0){$0+height($1)}+gap}
+    }
+}
+// A group's card: magpie's card fill and edge, and hairlines between its rows from the text column on.
+final class CardBackground:FlippedView {
+    var lines:[CGFloat]=[]
+    override func draw(_ dirtyRect:NSRect){
+        let shape=NSBezierPath(roundedRect:bounds.insetBy(dx:0.5,dy:0.5),xRadius:10,yRadius:10)
+        (dark(self) ? NSColor(calibratedWhite:1,alpha:0.06) : NSColor(calibratedWhite:1,alpha:0.78)).setFill();shape.fill()
+        NSColor.separatorColor.withAlphaComponent(dark(self) ? 0.9 : 0.55).setStroke();shape.lineWidth=0.5;shape.stroke()
+        NSColor.separatorColor.withAlphaComponent(dark(self) ? 0.7 : 0.45).setFill()
+        for y in lines {NSRect(x:ModuleCards.text,y:y-0.25,width:bounds.width-ModuleCards.text,height:0.5).fill()}
+    }
+    override func viewDidChangeEffectiveAppearance(){super.viewDidChangeEffectiveAppearance();needsDisplay=true}
+}
 enum MenuLayout {
     static func configurationClick(_ e:Entry,x:CGFloat,width:CGFloat)->Bool {
         e.isModule && !e.children.isEmpty && x>=width-32 && x<=width
@@ -1327,6 +1366,7 @@ final class Row:NSButton {
     // The pointer is on a sibling row, so this row's open flyout no longer owns the highlight.
     var yielded=false {didSet{if yielded != oldValue{needsDisplay=true}}}
     var columnInset:CGFloat=12
+    var carded=false {didSet{needsDisplay=true}}
     private(set) var configurationClick=false
     private var hovering=false;private var tracking:NSTrackingArea?;private var glyph:NSImage?
     init(_ entry:Entry,frame:NSRect){
@@ -1338,11 +1378,35 @@ final class Row:NSButton {
         else if let symbol=entry.symbol{glyph=NSImage(systemSymbolName:symbol,accessibilityDescription:nil)}
     }
     required init?(coder:NSCoder){fatalError()}
-    private func drawGlyph(_ glyph:NSImage,x:CGFloat){
-        let rect=NSRect(x:x,y:(bounds.height-14)/2,width:14,height:14)
+    private func drawGlyph(_ glyph:NSImage,x:CGFloat){drawGlyph(glyph,in:NSRect(x:x,y:(bounds.height-14)/2,width:14,height:14))}
+    private func drawGlyph(_ glyph:NSImage,in rect:NSRect){
         if glyph.isTemplate {
-            let image=NSImage(size:NSSize(width:14,height:14));image.lockFocus();glyph.draw(in:NSRect(x:0,y:0,width:14,height:14));(dark(self) ? NSColor(calibratedWhite:0.9,alpha:1) : NSColor(calibratedWhite:0.18,alpha:1)).setFill();NSRect(x:0,y:0,width:14,height:14).fill(using:.sourceIn);image.unlockFocus();image.draw(in:rect)
+            let image=NSImage(size:rect.size);image.lockFocus();glyph.draw(in:NSRect(origin:.zero,size:rect.size));(dark(self) ? NSColor(calibratedWhite:0.9,alpha:1) : NSColor(calibratedWhite:0.18,alpha:1)).setFill();NSRect(origin:.zero,size:rect.size).fill(using:.sourceIn);image.unlockFocus();image.draw(in:rect)
         } else {glyph.draw(in:rect)}
+    }
+    // One line per row (two with a note): checkbox, icon, name, a green dot when configured, the arrow.
+    private func drawCarded(highlighted:Bool){
+        if highlighted && isEnabled {NSColor.labelColor.withAlphaComponent(dark(self) ? 0.07 : 0.05).setFill();NSBezierPath(roundedRect:bounds.insetBy(dx:3,dy:2),xRadius:7,yRadius:7).fill()}
+        let line:CGFloat=entry.detail==nil ? bounds.midY : 17
+        if let checked=entry.checked {
+            let box=NSRect(x:12,y:line-6.5,width:13,height:13),outline=NSBezierPath(roundedRect:box,xRadius:3.5,yRadius:3.5)
+            if checked {
+                NSColor.controlAccentColor.setFill();outline.fill();NSColor.white.setStroke()
+                let tick=NSBezierPath();tick.move(to:NSPoint(x:box.minX+3,y:box.midY));tick.line(to:NSPoint(x:box.minX+5.5,y:box.maxY-3.5));tick.line(to:NSPoint(x:box.maxX-3,y:box.minY+3.5))
+                tick.lineWidth=1.6;tick.lineCapStyle = .round;tick.lineJoinStyle = .round;tick.stroke()
+            } else {NSColor.secondaryLabelColor.withAlphaComponent(0.55).setStroke();outline.lineWidth=1;outline.stroke()}
+        }
+        if let glyph{drawGlyph(glyph,in:NSRect(x:34,y:line-8,width:16,height:16))}
+        let font=NSFont.systemFont(ofSize:12.5,weight:.medium),left=ModuleCards.text,trailing:CGFloat=entry.children.isEmpty ? 12 : 30
+        let room=bounds.width-left-trailing-14,name=min(room,MenuLayout.width(entry.label,font:font))
+        let top=line-(ToolMark.middle(of:font,top:0))
+        MenuLayout.draw(entry.label,in:NSRect(x:left,y:top,width:name,height:ceil(font.ascender-font.descender)+2),font:font,color:.labelColor)
+        if entry.value=="已配置" {statusGreen(self).setFill();NSBezierPath(ovalIn:NSRect(x:left+name+6,y:line-3,width:6,height:6)).fill()}
+        if let detail=entry.detail {MenuLayout.draw(detail,in:NSRect(x:left,y:line+9,width:bounds.width-left-trailing,height:14),font:MenuLayout.detailFont,color:.secondaryLabelColor)}
+        if !entry.children.isEmpty {
+            let p=NSBezierPath();p.move(to:NSPoint(x:bounds.width-19,y:line-4));p.line(to:NSPoint(x:bounds.width-15,y:line));p.line(to:NSPoint(x:bounds.width-19,y:line+4))
+            p.lineWidth=1.2;p.lineJoinStyle = .round;p.lineCapStyle = .round;NSColor.tertiaryLabelColor.setStroke();p.stroke()
+        }
     }
     @objc private func activate(){invoke?(entry,self)}
     override func viewDidChangeEffectiveAppearance(){super.viewDidChangeEffectiveAppearance();needsDisplay=true}
@@ -1357,6 +1421,7 @@ final class Row:NSButton {
     override func mouseExited(with event:NSEvent){hovering=false;needsDisplay=true}
     override func draw(_ dirtyRect:NSRect){
         let pointerInside=(pointerAllowed?() ?? true) && (window.map{$0.isVisible && $0.convertToScreen(convert(bounds,to:nil)).contains(NSEvent.mouseLocation)} ?? false)
+        if carded {drawCarded(highlighted:MenuLayout.highlighted(pointerInside:pointerInside,expanded:expanded,yielded:yielded));return}
         if MenuLayout.highlighted(pointerInside:pointerInside,expanded:expanded,yielded:yielded) && isEnabled {NSColor.controlAccentColor.withAlphaComponent(dark(self) ? 0.12 : 0.09).setFill();NSBezierPath(roundedRect:bounds,xRadius:7,yRadius:7).fill()}
         let left=columnInset
         if let checked=entry.checked {
@@ -1863,12 +1928,36 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
         guard let data=try? Data(contentsOf:URL(fileURLWithPath:snapshotPath)),let value=try? JSONDecoder().decode(Snapshot.self,from:data) else{return}
         modified=date;interaction.source=value;updatePresentation()
     }
+    private func fillCards(_ entries:[Entry],in content:NSView,y start:CGFloat,width:CGFloat)->CGFloat {
+        rows=[[:]];var y=start
+        for group in ModuleCards.groups(entries) {
+            if let caption=group.caption {
+                let label=NSTextField(labelWithString:caption);label.font = .systemFont(ofSize:11,weight:.medium);label.textColor = .secondaryLabelColor
+                label.frame=NSRect(x:16,y:y+8,width:width-32,height:15);content.addSubview(label);y+=ModuleCards.caption
+            }
+            let card=CardBackground(frame:NSRect(x:4,y:y,width:width-8,height:group.rows.reduce(0){$0+ModuleCards.height($1)}))
+            content.addSubview(card);var top=y
+            for (i,original) in group.rows.enumerated() {
+                var entry=original;if let label=PanelInteraction.runningLabel(entry,active:interaction.active){entry.label=label}
+                let row=Row(entry,frame:NSRect(x:4,y:top,width:width-8,height:ModuleCards.height(entry)));row.carded=true;row.columnInset=ModuleCards.text
+                wire(row,depth:0);content.addSubview(row);rows[0][entry.key]=row
+                if i>0{card.lines.append(top-y)}
+                top+=row.frame.height
+            }
+            y=top+ModuleCards.gap
+        }
+        return y
+    }
+    private func wire(_ row:Row,depth:Int){
+        row.pointerAllowed={[weak self,weak row] in guard let self,let row else{return false};return self.pointerHits(row)}
+        row.invoke={[weak self] e,r in self?.activate(e,row:r,depth:depth)};row.hover={[weak self] e,r in self?.hover(e,row:r,depth:depth)}
+    }
     private func fillRows(_ entries:[Entry],in content:NSView,y start:CGFloat,width:CGFloat,depth:Int)->CGFloat {
         while rows.count<=depth{rows.append([:])};rows[depth]=[:];var y=start
         for original in entries {var entry=original;if let label=PanelInteraction.runningLabel(entry,active:interaction.active){entry.label=label}
             let left=MenuLayout.left(entry,entries);entry=MenuLayout.fitted(entry,width:width,left:left);let h=MenuLayout.rowHeight(entry,width:width,left:left)
             if entry.separator==true {content.addSubview(depth==0 ? Divider(frame:NSRect(x:8,y:y+5,width:width-16,height:2)) : {let line=NSBox(frame:NSRect(x:8,y:y+5,width:width-16,height:1));line.boxType = .separator;return line}())}
-            else {let row=Row(entry,frame:NSRect(x:0,y:y,width:width,height:h));row.columnInset=entry.section==true ? 12 : left;row.pointerAllowed={[weak self,weak row] in guard let self,let row else{return false};return self.pointerHits(row)};row.invoke={[weak self] e,r in self?.activate(e,row:r,depth:depth)};row.hover={[weak self] e,r in self?.hover(e,row:r,depth:depth)};content.addSubview(row);rows[depth][entry.key]=row}
+            else {let row=Row(entry,frame:NSRect(x:0,y:y,width:width,height:h));row.columnInset=entry.section==true ? 12 : left;wire(row,depth:depth);content.addSubview(row);rows[depth][entry.key]=row}
             y+=h
         };return y
     }
@@ -1883,7 +1972,7 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
         let screen=NSScreen.screens.first(where:{$0.frame.contains(anchor)}) ?? NSScreen.main!,width:CGFloat=managerOnly ? 280 : 360,inner=width-16
         let entries=managerOnly ? snapshot.moduleOptions ?? [] : snapshot.entries
         let top:CGFloat=managerOnly ? 49 : (snapshot.dashboard.map{DashboardView.height($0)+8} ?? 36)
-        let body=entries.reduce(CGFloat(0)){$0+MenuLayout.rowHeight($1,width:inner,left:MenuLayout.left($1,entries))},contentHeight=top+body
+        let body=managerOnly ? ModuleCards.height(entries) : entries.reduce(CGFloat(0)){$0+MenuLayout.rowHeight($1,width:inner,left:MenuLayout.left($1,entries))},contentHeight=top+body
         let height=min(contentHeight+16,screen.visibleFrame.height-16)
         let surface=Surface(frame:NSRect(x:0,y:0,width:width,height:height),glass:self.snapshot?.appearance != "solid")
         let scroll=ContentScrollView(frame:NSRect(x:8,y:8,width:inner,height:height-16));scroll.drawsBackground=false;scroll.hasVerticalScroller=contentHeight>scroll.frame.height;scroll.scrollerStyle = .overlay
@@ -1894,8 +1983,8 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
             let hint=NSTextField(labelWithString:"已启用 \(count) 项");hint.font = .systemFont(ofSize:10);hint.textColor = .secondaryLabelColor;hint.frame=NSRect(x:12,y:29,width:inner-24,height:15);content.addSubview(hint)
             let done=NSButton(title:"完成",target:self,action:#selector(finishModules));done.bezelStyle = .rounded;done.controlSize = .small;done.frame=NSRect(x:inner-65,y:8,width:53,height:25);content.addSubview(done)
         } else if let dashboard=snapshot.dashboard{let view=DashboardView(dashboard,width:inner);view.toggleProvider={[weak self] id,expanded in self?.performAction(["set-expanded",id,expanded ? "true" : "false"])};content.addSubview(view)}else{let label=NSTextField(labelWithString:"AI 用量面板");label.frame=NSRect(x:12,y:10,width:300,height:20);content.addSubview(label)}
-        content.addSubview(Divider(frame:NSRect(x:8,y:top-6,width:inner-16,height:2)))
-        _=fillRows(entries,in:content,y:top,width:inner,depth:0)
+        if managerOnly {_=fillCards(entries,in:content,y:top,width:inner)}
+        else {content.addSubview(Divider(frame:NSRect(x:8,y:top-6,width:inner-16,height:2)));_=fillRows(entries,in:content,y:top,width:inner,depth:0)}
         if !managerOnly,let dashboard=snapshot.dashboard,let choices=snapshot.rangeOptions {
             let picker=NSPopUpButton(frame:NSRect(x:inner-113,y:7.5,width:101,height:25),pullsDown:true)
             picker.controlSize = .small;picker.font = .systemFont(ofSize:11);picker.bezelStyle = .rounded

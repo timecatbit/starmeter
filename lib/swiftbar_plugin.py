@@ -2948,7 +2948,7 @@ def module_options(data=None):
                         'action':['set-reset-reminder','false' if settings['resetReminder'] else 'true'],'children':[]}])
     settings_rows.extend([{'label':'','separator':True,'children':[]},
                           {'label':'用量提醒','symbol':'bell','value':'%d%%'%settings['usageAlert'] if settings['usageAlert'] else '关闭','children':alert_rows},{'label':'高级配置文件…','symbol':'doc.text','action':['open-settings'],'children':[]},{'label':'自动检测','symbol':'sparkle.magnifyingglass','children':detection_help_entries()},{'label':'恢复默认模块','action':['reset-modules'],'children':[]}])
-    options=[{'label':'允许折叠','detail':'各模块独立展开，自动记住状态','checked':settings['allowCollapse'],'action':['set-collapse','false' if settings['allowCollapse'] else 'true'],'children':[]},
+    options=[{'label':'允许折叠','detail':'各模块独立展开，自动记住状态','symbol':'rectangle.compress.vertical','checked':settings['allowCollapse'],'action':['set-collapse','false' if settings['allowCollapse'] else 'true'],'children':[]},
              {'label':'外观与设置','symbol':'slider.horizontal.3','children':settings_rows},
              {'label':'','separator':True,'children':[]}];group=None
     for key,label,category in preferences.MODULES:

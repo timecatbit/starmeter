@@ -166,14 +166,10 @@ def star():
 
 
 def mark(data):
-    """A tool's logo on its card, in the tool's chart colour when the logo is monochrome; a dot without one."""
-    color=COLORS.get(data.get('id'),'#437fc4')
+    """A tool's logo on its card in its own colours (monochrome ones in the text colour); a dot without one."""
     if not data.get('image'):
-        dot=label('●');dot.setStyleSheet('color:'+color);return dot
-    pix=icon(dict(data,template=False)).pixmap(16,16)
-    if data.get('template'):
-        p=QPainter(pix);p.setCompositionMode(QPainter.CompositionMode_SourceIn);p.fillRect(pix.rect(),QColor(color));p.end()
-    view=QLabel();view.setPixmap(pix);view.setFixedSize(18,18);return view
+        dot=label('●');dot.setStyleSheet('color:'+COLORS.get(data.get('id'),'#437fc4'));return dot
+    view=QLabel();view.setPixmap(icon(data).pixmap(16,16));view.setFixedSize(18,18);return view
 
 
 def icon(entry):
@@ -409,6 +405,7 @@ class TrayPanel(QWidget):
         surface=('#242830' if night else '#f8f9fc') if appearance=='glass' else ('#202124' if night else '#ffffff');border='#444953' if night else '#d3dae6'
         text=ink().name();muted='#a5aebd' if night else '#596477'
         hover='#353e4c' if night else '#e8effb'; divider='#404750' if night else '#dce3ed'
+        card='#2b2f37' if night else '#ffffff'
         self.setStyleSheet(f'''
             #surface {{background:{surface};border:1px solid {border};border-radius:13px;}}
             QLabel,QToolButton,QCheckBox,QComboBox {{color:{text};}}
@@ -422,6 +419,9 @@ class TrayPanel(QWidget):
             #title {{font-weight:700;font-size:19px;}} #metric {{font-weight:650;font-size:21px;}}
             #cardTitle,#cardMetric {{font-weight:650;font-size:15px;}} #row {{border-radius:6px;}}
             #row:hover {{background:{hover};}}
+            #card {{background:{card};border:1px solid {border};border-radius:10px;}}
+            #hairline {{background:{divider};}}
+            #caption {{color:{muted};font-size:11px;font-weight:600;padding:8px 0 0 6px;}}
         ''')
 
     def render(self,snapshot,force=False):
@@ -525,28 +525,43 @@ class TrayPanel(QWidget):
         header.addWidget(tool('完成','返回主页',self.back));box.addLayout(header)
         visible=snapshot.get('preferences',{}).get('visible',[])
         box.addWidget(label(f'已启用 {len(visible)} 项','muted'))
-        for e in snapshot.get('moduleOptions',[]):self.row(box,e)
+        # Grouped like magpie's lists: each section a rounded card under a small caption, rows parted by hairlines.
+        card=None
+        for e in snapshot.get('moduleOptions',[]):
+            if e.get('separator'):card=None;continue
+            if e.get('section'):box.addWidget(label(e['label'],'caption'));card=None;continue
+            if card is None:
+                frame=QFrame();frame.setObjectName('card');card=QVBoxLayout(frame)
+                card.setContentsMargins(2,2,2,2);card.setSpacing(0);box.addWidget(frame)
+            elif card.count():
+                line=QFrame();line.setObjectName('hairline');line.setFixedHeight(1);card.addWidget(line)
+            self.row(card,e,carded=True)
 
     def back(self):
         self.manager=False;self.render(self.snapshot,force=True)
 
-    def row(self,box,e):
+    def row(self,box,e,carded=False):
         if e.get('separator'):box.addWidget(separator());return
         if e.get('section'):box.addWidget(label(e['label'],'muted'));return
         row=QFrame();row.setObjectName('row');line=QHBoxLayout(row);line.setContentsMargins(4,0,4,0);line.setSpacing(6)
         if 'checked' in e and e.get('action'):
             check=QCheckBox(e['label']);check.setChecked(e['checked'])
             if e.get('image'):check.setIcon(icon(e))
+            if carded:check.setMinimumHeight(28)
             args=list(e['action'])
             if args[0]=='set-module':check.clicked.connect(lambda enabled:self.action.emit([*args[:2],str(enabled).lower()]))
             else:check.clicked.connect(lambda:self.action.emit(args))
-            line.addWidget(check,1)
+            line.addWidget(check,0 if carded else 1)
+            if carded:
+                # A configured module carries a green dot after its name, as magpie marks connected ones.
+                if e.get('value')=='已配置':dot=label('●');dot.setStyleSheet('color:#2b9263;font-size:9px;');line.addWidget(dot)
+                line.addStretch(1)
             hover_target=check
         else:
             button=tool(e['label'],e['label'],lambda:self.activate(e,row));button.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Fixed)
             button.setStyleSheet('text-align:left;');button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
             button.setIcon(icon(e));line.addWidget(button,1);hover_target=button
-        if value:=e.get('value'):
+        if (value:=e.get('value')) and not (carded and value in ('已配置','未配置')):
             readout=label(('● ' if value=='已配置' else '○ ' if value=='未配置' else '')+value,'muted')
             if e.get('attention'):readout.setStyleSheet('font-weight:600;color:#477bcc')
             if e.get('usageLevel') in ('warning','critical'):
