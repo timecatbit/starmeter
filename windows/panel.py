@@ -10,7 +10,7 @@ from PySide6.QtGui import (QColor, QFont, QFontMetrics, QIcon, QPainter, QPainte
                            QPalette, QPen, QPixmap)
 from PySide6.QtSvg import QSvgRenderer
 from shiboken6 import isValid
-from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel,
+from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel,
                                QMenu, QScrollArea, QSizePolicy, QToolButton, QVBoxLayout, QWidget)
 
 from host import summary_parts
@@ -377,6 +377,8 @@ class TrayPanel(QWidget):
         self.copied=None;self.share_button=None;self.share_note=None
 
     def show_at(self,anchor,manager=False):
+        # The ticked modules lead their sections until the list opens again, so ticking never moves cells.
+        self.leading=None
         self.anchor=anchor;self.manager=manager;self.render(self.snapshot,force=True)
         self.show();self.raise_();self.activateWindow();self.shown.emit(True)
 
@@ -405,7 +407,6 @@ class TrayPanel(QWidget):
         surface=('#242830' if night else '#f8f9fc') if appearance=='glass' else ('#202124' if night else '#ffffff');border='#444953' if night else '#d3dae6'
         text=ink().name();muted='#a5aebd' if night else '#596477'
         hover='#353e4c' if night else '#e8effb'; divider='#404750' if night else '#dce3ed'
-        card='#2b2f37' if night else '#ffffff'
         self.setStyleSheet(f'''
             #surface {{background:{surface};border:1px solid {border};border-radius:13px;}}
             QLabel,QToolButton,QCheckBox,QComboBox {{color:{text};}}
@@ -419,9 +420,7 @@ class TrayPanel(QWidget):
             #title {{font-weight:700;font-size:19px;}} #metric {{font-weight:650;font-size:21px;}}
             #cardTitle,#cardMetric {{font-weight:650;font-size:15px;}} #row {{border-radius:6px;}}
             #row:hover {{background:{hover};}}
-            #card {{background:{card};border:1px solid {border};border-radius:10px;}}
-            #hairline {{background:{divider};}}
-            #caption {{color:{muted};font-size:11px;font-weight:600;padding:8px 0 0 6px;}}
+            #section {{font-weight:650;font-size:13px;padding:10px 0 2px 4px;}}
         ''')
 
     def render(self,snapshot,force=False):
@@ -442,7 +441,7 @@ class TrayPanel(QWidget):
         if self.anchor is not None:
             screen=QApplication.screenAt(self.anchor) or QApplication.primaryScreen()
             geo=screen.availableGeometry()
-            self.setFixedWidth(min(380,geo.width()-12))
+            self.setFixedWidth(min(620 if self.manager else 380,geo.width()-12))
             # Wrapped text and the heatmap are as tall as the width makes them.
             natural=content.heightForWidth(self.width()-2) if content.hasHeightForWidth() else -1
             self.setFixedHeight(min(max(natural,content.sizeHint().height())+6,geo.height()-14))
@@ -525,17 +524,25 @@ class TrayPanel(QWidget):
         header.addWidget(tool('完成','返回主页',self.back));box.addLayout(header)
         visible=snapshot.get('preferences',{}).get('visible',[])
         box.addWidget(label(f'已启用 {len(visible)} 项','muted'))
-        # Grouped like magpie's lists: each section a rounded card under a small caption, rows parted by hairlines.
-        card=None
-        for e in snapshot.get('moduleOptions',[]):
-            if e.get('separator'):card=None;continue
-            if e.get('section'):box.addWidget(label(e['label'],'caption'));card=None;continue
-            if card is None:
-                frame=QFrame();frame.setObjectName('card');card=QVBoxLayout(frame)
-                card.setContentsMargins(2,2,2,2);card.setSpacing(0);box.addWidget(frame)
-            elif card.count():
-                line=QFrame();line.setObjectName('hairline');line.setFixedHeight(1);card.addWidget(line)
-            self.row(card,e,carded=True)
+        # A flat grid like magpie's provider page: plain section titles, every module in view, ticked ones first.
+        options=snapshot.get('moduleOptions',[])
+        module=lambda e:(e.get('action') or [''])[0]=='set-module'
+        if getattr(self,'leading',None) is None:self.leading={tuple(e['action'][:2]) for e in options if module(e) and e.get('checked')}
+        sections=[];current=None
+        for e in options:
+            if e.get('separator'):current=None;continue
+            if e.get('section'):current=(e['label'],[]);sections.append(current);continue
+            if current is None:current=(None,[]);sections.append(current)
+            current[1].append(e)
+        for title,cells in sections:
+            cells=sorted(cells,key=lambda e:not (module(e) and tuple(e['action'][:2]) in self.leading))
+            if title:box.addWidget(label(title,'section'))
+            grid=QGridLayout();grid.setHorizontalSpacing(4);grid.setVerticalSpacing(0)
+            for i,e in enumerate(cells):
+                cell=QWidget();holder=QVBoxLayout(cell);holder.setContentsMargins(0,0,0,0)
+                self.row(holder,e,carded=True);grid.addWidget(cell,i//3,i%3)
+            for column in range(3):grid.setColumnStretch(column,1)
+            box.addLayout(grid)
 
     def back(self):
         self.manager=False;self.render(self.snapshot,force=True)

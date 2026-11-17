@@ -220,19 +220,18 @@ let moduleRows=try JSONDecoder().decode([Entry].self,from:Data(#"[{"label":"允�
 expect(moduleRows.map{MenuLayout.left($0,moduleRows)}==[36,56,36],"Only module rows with an icon move their names past it")
 let cursorCard=try JSONDecoder().decode(ProviderUsage.self,from:Data(#"{"id":"cursor","name":"Cursor","image":"PHN2Zy8+","template":true,"subtitle":"","status":"","available":true,"tokens":0,"requests":0,"output":0,"sessions":0,"unpriced":0,"models":[],"history":[]}"#.utf8))
 expect(cursorCard.template==true && cursorCard.image != nil,"A card carries its tool's logo")
-// The module list groups into cards: one without a caption on top, then one per section; separators only part them.
+// The module list is a flat grid: the top settings, then one section per title, ticked modules first.
 let listing=try JSONDecoder().decode([Entry].self,from:Data(#"[{"label":"允许折叠","detail":"各模块独立展开","checked":false,"action":["set-collapse","true"],"children":[]},{"label":"外观与设置","symbol":"slider.horizontal.3","children":[]},{"label":"","separator":true,"children":[]},{"label":"概览","section":true,"children":[]},{"label":"Summary","checked":true,"symbol":"chart.xyaxis.line","action":["set-module","summary","false"],"children":[]},{"label":"Harness","section":true,"children":[]},{"label":"Cursor","checked":true,"value":"已配置","image":"PHN2Zy8+","template":true,"action":["set-module","cursor","false"],"children":[]},{"label":"Claude","checked":false,"value":"未配置","image":"PHN2Zy8+","action":["set-module","claude","true"],"children":[]}]"#.utf8))
-let cards=ModuleCards.groups(listing)
-expect(cards.map{$0.caption ?? "-"}==["-","概览","Harness"] && cards.map{$0.rows.count}==[2,1,2],"Each section becomes one card under its caption")
-expect(ModuleCards.height(listing)==(42+30+8)+(22+30+8)+(22+30+30+8),"A noted row is taller; captions and gaps add up")
-// Modules nothing is set on fold away at the end of their card behind one row, but never a lone one.
 let gemini=try JSONDecoder().decode(Entry.self,from:Data(#"{"label":"Gemini CLI","checked":false,"value":"未配置","image":"PHN2Zy8+","action":["set-module","gemini","true"],"children":[]}"#.utf8))
-let packed=listing+[gemini],folded=Set(packed.filter(ModuleCards.foldable).map{$0.key})
-expect(folded==Set([listing[7].key,gemini.key]),"Only modules neither shown nor configured fold")
-let shut=ModuleCards.groups(packed,folded:folded)[2],unfolded=ModuleCards.groups(packed,folded:folded,open:["Harness"])[2]
-expect(shut.rows.map{$0.label}==["Cursor"] && shut.folded==2 && !shut.open,"Two unset modules fold behind one row")
-expect(unfolded.rows.map{$0.label}==["Cursor","Claude","Gemini CLI"] && unfolded.open,"Unfolded, they follow the others")
-expect(ModuleCards.height(shut)==22+30+28 && ModuleCards.groups(listing,folded:Set([listing[7].key]))[2].folded==0,"The fold row has its own height; one unset module stays in place")
+let grid=ModuleGrid.sections(listing+[gemini])
+expect(grid.map{$0.title ?? "-"}==["-","概览","Harness"],"Each title starts a section; separators only part them")
+expect(grid[2].cells.map{$0.label}==["Cursor","Claude","Gemini CLI"],"Ticked modules lead their section, the rest keep their order")
+let kept=ModuleGrid.sections(listing+[gemini],leading:[gemini.key])[2]
+expect(kept.cells.map{$0.label}==["Gemini CLI","Cursor","Claude"],"While the list is open the order it opened with holds")
+expect(ModuleGrid.rows(grid[2]).map{$0.count}==[3] && ModuleGrid.rows(ModuleGrid.Section(title:nil,cells:Array(repeating:gemini,count:4))).map{$0.count}==[3,1],"Three to a row")
+let expectedHeight:CGFloat=50+72+72
+expect(ModuleGrid.height(listing)==expectedHeight,"A row with a note is taller; titles and gaps add up")
+expect(ModuleGrid.cellWidth(ModuleGrid.width-16)==188,"Three cells fill the wide list")
 // The legend justifies its columns across the full width, three or four per row.
 let legendLabels=["总量","OpenCodex","Claude","OpenCode","DeepSeek","WorkBuddy","Gemini CLI"]
 let legendRows=DashboardView.legendLayout(legendLabels,width:320)

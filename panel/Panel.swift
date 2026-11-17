@@ -1259,74 +1259,33 @@ final class DashboardView:FlippedView {
     }
 
 }
-// The module list, laid out the way magpie lays out its lists: each section a rounded card under a small
-// caption, rows parted by hairlines, and the checkbox, icon and name in fixed columns on every row.
-// The checkbox stays on the left: a sidebar opening to the left is reached across that column, where
-// hovering opens nothing.
-enum ModuleCards {
-    static let caption:CGFloat=22,gap:CGFloat=8,row:CGFloat=30,noted:CGFloat=42,fold:CGFloat=28,text:CGFloat=58
-    struct Group {var caption:String?;var rows:[Entry];var folded=0;var open=false;var key:String {caption ?? ""}}
-    // Like magpie's agent list, the modules nothing is set on (not on the homepage, not configured) fold away
-    // at the end of their card behind one row; a card with only one of them just shows it.
-    static func foldable(_ e:Entry)->Bool {e.isModule && e.checked != true && e.value != "已配置"}
-    static func groups(_ entries:[Entry],folded:Set<String> = [],open:Set<String> = [])->[Group] {
-        var result:[Group]=[];var current=Group(caption:nil,rows:[])
+// The module list as magpie lays out its provider page: a wide, flat grid under plain section titles, every
+// module in view at once, no frames. Ticked modules come first in each section; the order is fixed when the
+// list opens, so ticking one never moves cells under the pointer.
+enum ModuleGrid {
+    static let columns=3,cell:CGFloat=32,noted:CGFloat=44,title:CGFloat=34,gap:CGFloat=6,text:CGFloat=54,spacing:CGFloat=4,width:CGFloat=588
+    struct Section {var title:String?;var cells:[Entry]}
+    static func sections(_ entries:[Entry],leading:Set<String>? = nil)->[Section] {
+        var result:[Section]=[];var current=Section(title:nil,cells:[])
         func close(){
-            defer{current=Group(caption:nil,rows:[])}
-            guard !current.rows.isEmpty else{return}
-            let hidden=current.rows.filter{folded.contains($0.key)}
-            if hidden.count>=2 {
-                current.folded=hidden.count;current.open=open.contains(current.key)
-                current.rows=current.rows.filter{!folded.contains($0.key)}+(current.open ? hidden : [])
-            }
+            defer{current=Section(title:nil,cells:[])}
+            guard !current.cells.isEmpty else{return}
+            let first={(e:Entry)->Bool in e.isModule && (leading.map{$0.contains(e.key)} ?? (e.checked==true))}
+            current.cells=current.cells.filter(first)+current.cells.filter{!first($0)}
             result.append(current)
         }
         for e in entries {
             if e.separator==true{close()}
-            else if e.section==true{close();current.caption=e.label}
-            else{current.rows.append(e)}
+            else if e.section==true{close();current.title=e.label}
+            else{current.cells.append(e)}
         }
         close();return result
     }
-    static func height(_ e:Entry)->CGFloat {e.detail==nil ? row : noted}
-    static func height(_ g:Group)->CGFloat {(g.caption==nil ? 0 : caption)+g.rows.reduce(0){$0+height($1)}+(g.folded>0 ? fold : 0)}
-    static func height(_ entries:[Entry],folded:Set<String> = [],open:Set<String> = [])->CGFloat {
-        groups(entries,folded:folded,open:open).reduce(0){$0+height($1)+gap}
-    }
-}
-// The last row of a card with folded modules: how many are folded away, or 收起 once they are shown.
-final class FoldRow:NSButton {
-    var toggle:(()->Void)?;let count:Int;let open:Bool;private var hovering=false;private var area:NSTrackingArea?
-    init(count:Int,open:Bool,frame:NSRect){
-        self.count=count;self.open=open;super.init(frame:frame);isBordered=false;title="";target=self;action=#selector(fire)
-        setAccessibilityLabel(open ? "收起未配置的模块" : "显示另外 \(count) 项未配置的模块")
-    }
-    required init?(coder:NSCoder){fatalError()}
-    @objc private func fire(){toggle?()}
-    override func updateTrackingAreas(){super.updateTrackingAreas();if let area{removeTrackingArea(area)};area=NSTrackingArea(rect:bounds,options:[.mouseEnteredAndExited,.activeAlways,.inVisibleRect],owner:self,userInfo:nil);addTrackingArea(area!)}
-    override func mouseEntered(with event:NSEvent){hovering=true;needsDisplay=true}
-    override func mouseExited(with event:NSEvent){hovering=false;needsDisplay=true}
-    override func draw(_ dirtyRect:NSRect){
-        if hovering {NSColor.labelColor.withAlphaComponent(dark(self) ? 0.07 : 0.05).setFill();NSBezierPath(roundedRect:bounds.insetBy(dx:3,dy:2),xRadius:7,yRadius:7).fill()}
-        let label=open ? "收起" : "另外 \(count) 项未配置",font=NSFont.systemFont(ofSize:11.5),color:NSColor=hovering ? .labelColor : .secondaryLabelColor
-        let width=MenuLayout.width(label,font:font),x=(bounds.width-width-14)/2,mid=bounds.midY
-        MenuLayout.draw(label,in:NSRect(x:x,y:mid-ToolMark.middle(of:font,top:0),width:width+2,height:ceil(font.ascender-font.descender)+2),font:font,color:color)
-        let chevron=NSBezierPath(),cx=x+width+9
-        chevron.move(to:NSPoint(x:cx-3,y:mid+(open ? 1.5 : -1.5)));chevron.line(to:NSPoint(x:cx,y:mid+(open ? -1.5 : 1.5)));chevron.line(to:NSPoint(x:cx+3,y:mid+(open ? 1.5 : -1.5)))
-        chevron.lineWidth=1.2;chevron.lineCapStyle = .round;chevron.lineJoinStyle = .round;color.setStroke();chevron.stroke()
-    }
-}
-// A group's card: magpie's card fill and edge, and hairlines between its rows from the text column on.
-final class CardBackground:FlippedView {
-    var lines:[CGFloat]=[]
-    override func draw(_ dirtyRect:NSRect){
-        let shape=NSBezierPath(roundedRect:bounds.insetBy(dx:0.5,dy:0.5),xRadius:10,yRadius:10)
-        (dark(self) ? NSColor(calibratedWhite:1,alpha:0.06) : NSColor(calibratedWhite:1,alpha:0.78)).setFill();shape.fill()
-        NSColor.separatorColor.withAlphaComponent(dark(self) ? 0.9 : 0.55).setStroke();shape.lineWidth=0.5;shape.stroke()
-        NSColor.separatorColor.withAlphaComponent(dark(self) ? 0.7 : 0.45).setFill()
-        for y in lines {NSRect(x:ModuleCards.text,y:y-0.25,width:bounds.width-ModuleCards.text,height:0.5).fill()}
-    }
-    override func viewDidChangeEffectiveAppearance(){super.viewDidChangeEffectiveAppearance();needsDisplay=true}
+    static func rows(_ s:Section)->[[Entry]] {stride(from:0,to:s.cells.count,by:columns).map{Array(s.cells[$0..<min($0+columns,s.cells.count)])}}
+    static func rowHeight(_ row:[Entry])->CGFloat {row.contains{$0.detail != nil} ? noted : cell}
+    static func height(_ s:Section)->CGFloat {(s.title==nil ? 0 : title)+rows(s).reduce(0){$0+rowHeight($1)}}
+    static func height(_ entries:[Entry],leading:Set<String>? = nil)->CGFloat {sections(entries,leading:leading).reduce(0){$0+height($1)+gap}}
+    static func cellWidth(_ inner:CGFloat)->CGFloat {floor((inner-spacing*CGFloat(columns-1))/CGFloat(columns))}
 }
 enum MenuLayout {
     static func configurationClick(_ e:Entry,x:CGFloat,width:CGFloat)->Bool {
@@ -1433,28 +1392,30 @@ final class Row:NSButton {
             let image=NSImage(size:rect.size);image.lockFocus();glyph.draw(in:NSRect(origin:.zero,size:rect.size));(dark(self) ? NSColor(calibratedWhite:0.9,alpha:1) : NSColor(calibratedWhite:0.18,alpha:1)).setFill();NSRect(origin:.zero,size:rect.size).fill(using:.sourceIn);image.unlockFocus();image.draw(in:rect)
         } else {glyph.draw(in:rect)}
     }
-    // One line per row (two with a note): checkbox, icon, name, a green dot when configured, the arrow.
+    // A grid cell, flat as magpie's: checkbox, icon, name and a green dot when configured; the arrow to the
+    // module's settings shows only under the pointer.
     private func drawCarded(highlighted:Bool){
-        if highlighted && isEnabled {NSColor.labelColor.withAlphaComponent(dark(self) ? 0.07 : 0.05).setFill();NSBezierPath(roundedRect:bounds.insetBy(dx:3,dy:2),xRadius:7,yRadius:7).fill()}
+        if highlighted && isEnabled {NSColor.labelColor.withAlphaComponent(dark(self) ? 0.08 : 0.05).setFill();NSBezierPath(roundedRect:bounds.insetBy(dx:0,dy:1),xRadius:7,yRadius:7).fill()}
         let line:CGFloat=entry.detail==nil ? bounds.midY : 15
         if let checked=entry.checked {
-            let box=NSRect(x:12,y:line-6.5,width:13,height:13),outline=NSBezierPath(roundedRect:box,xRadius:3.5,yRadius:3.5)
+            let box=NSRect(x:8,y:line-6.5,width:13,height:13),outline=NSBezierPath(roundedRect:box,xRadius:3.5,yRadius:3.5)
             if checked {
                 NSColor.controlAccentColor.setFill();outline.fill();NSColor.white.setStroke()
                 let tick=NSBezierPath();tick.move(to:NSPoint(x:box.minX+3,y:box.midY));tick.line(to:NSPoint(x:box.minX+5.5,y:box.maxY-3.5));tick.line(to:NSPoint(x:box.maxX-3,y:box.minY+3.5))
                 tick.lineWidth=1.6;tick.lineCapStyle = .round;tick.lineJoinStyle = .round;tick.stroke()
             } else {NSColor.secondaryLabelColor.withAlphaComponent(0.55).setStroke();outline.lineWidth=1;outline.stroke()}
         }
-        if let glyph{drawGlyph(glyph,in:NSRect(x:34,y:line-8,width:16,height:16))}
-        let font=NSFont.systemFont(ofSize:12.5,weight:.medium),left=ModuleCards.text,trailing:CGFloat=entry.children.isEmpty ? 12 : 30
-        let room=bounds.width-left-trailing-14,name=min(room,MenuLayout.width(entry.label,font:font))
-        let top=line-(ToolMark.middle(of:font,top:0))
-        MenuLayout.draw(entry.label,in:NSRect(x:left,y:top,width:name,height:ceil(font.ascender-font.descender)+2),font:font,color:.labelColor)
+        if let glyph{drawGlyph(glyph,in:NSRect(x:29,y:line-8,width:16,height:16))}
+        let font=NSFont.systemFont(ofSize:12.5,weight:.medium),left=ModuleGrid.text,trailing:CGFloat=entry.children.isEmpty ? 8 : 22
+        // The name keeps one line: it may use the arrow's place when there is no arrow, and ends in … if still too long.
+        let room=bounds.width-left-(entry.children.isEmpty ? 6 : 18)-(entry.value=="已配置" ? 12 : 0),name=min(room,MenuLayout.width(entry.label,font:font))
+        let top=line-(ToolMark.middle(of:font,top:0)),style=NSMutableParagraphStyle();style.lineBreakMode = .byTruncatingTail
+        (entry.label as NSString).draw(in:NSRect(x:left,y:top,width:name,height:ceil(font.ascender-font.descender)+2),withAttributes:[.font:font,.foregroundColor:NSColor.labelColor,.paragraphStyle:style])
         if entry.value=="已配置" {statusGreen(self).setFill();NSBezierPath(ovalIn:NSRect(x:left+name+6,y:line-3,width:6,height:6)).fill()}
         if let detail=entry.detail {MenuLayout.draw(detail,in:NSRect(x:left,y:line+9,width:bounds.width-left-trailing,height:14),font:MenuLayout.detailFont,color:.secondaryLabelColor)}
-        if !entry.children.isEmpty {
-            let p=NSBezierPath();p.move(to:NSPoint(x:bounds.width-19,y:line-4));p.line(to:NSPoint(x:bounds.width-15,y:line));p.line(to:NSPoint(x:bounds.width-19,y:line+4))
-            p.lineWidth=1.2;p.lineJoinStyle = .round;p.lineCapStyle = .round;NSColor.tertiaryLabelColor.setStroke();p.stroke()
+        if !entry.children.isEmpty && (highlighted || expanded) {
+            let p=NSBezierPath();p.move(to:NSPoint(x:bounds.width-14,y:line-4));p.line(to:NSPoint(x:bounds.width-10,y:line));p.line(to:NSPoint(x:bounds.width-14,y:line+4))
+            p.lineWidth=1.2;p.lineJoinStyle = .round;p.lineCapStyle = .round;NSColor.secondaryLabelColor.setStroke();p.stroke()
         }
     }
     @objc private func activate(){invoke?(entry,self)}
@@ -1462,7 +1423,8 @@ final class Row:NSButton {
     override func updateTrackingAreas(){super.updateTrackingAreas();if let tracking{removeTrackingArea(tracking)};tracking=NSTrackingArea(rect:bounds,options:[.mouseEnteredAndExited,.activeAlways,.inVisibleRect],owner:self,userInfo:nil);addTrackingArea(tracking!)}
     override func mouseDown(with event:NSEvent){
         guard pointerAllowed?() ?? true else{return}
-        configurationClick=MenuLayout.configurationClick(entry,x:convert(event.locationInWindow,from:nil).x,width:bounds.width)
+        let x=convert(event.locationInWindow,from:nil).x
+        configurationClick=carded ? entry.isModule && !entry.children.isEmpty && x>=26 : MenuLayout.configurationClick(entry,x:x,width:bounds.width)
         defer{configurationClick=false}
         super.mouseDown(with:event)
     }
@@ -1752,10 +1714,9 @@ final class MacHost {
 
 final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePickerDelegate {
     private let panel=Panel(contentRect:.zero,styleMask:[.borderless,.nonactivatingPanel],backing:.buffered,defer:false)
-    private var rangePicker:NSPopUpButton?;private var anchoredMenuOpen=false;private var toast:(text:String,until:Date,ok:Bool)?;private var toastView:NSView?;private weak var shareButton:NSButton?;private weak var detectButton:NSButton?;private var hintTask:DispatchWorkItem?;private var hintView:NSView?;private var userApp:NSRunningApplication?;private var firstActivation=true;private var managerOnly=false {didSet{if managerOnly && !oldValue{foldedModules=nil}}}
-    // Which modules fold away is decided when the list opens and kept while it stays open, so ticking one
-    // never moves rows under the pointer; which cards are unfolded is remembered while the panel runs.
-    private var foldedModules:Set<String>?;private var openFolds:Set<String>=[]
+    private var rangePicker:NSPopUpButton?;private var anchoredMenuOpen=false;private var toast:(text:String,until:Date,ok:Bool)?;private var toastView:NSView?;private weak var shareButton:NSButton?;private weak var detectButton:NSButton?;private var hintTask:DispatchWorkItem?;private var hintView:NSView?;private var userApp:NSRunningApplication?;private var firstActivation=true;private var managerOnly=false {didSet{if managerOnly && !oldValue{leadingModules=nil}}}
+    // The ticked modules when the list opened: they lead their sections until it opens again.
+    private var leadingModules:Set<String>?
     private var snapshot:Snapshot?;private var snapshotPath="";private var pluginPath="";private var modified:Date?
     private var anchor:NSPoint = .zero;private var anchorRect:NSRect = .zero;private var scrollOffset:CGFloat=0
     private var fallbackTimer:Timer?;private let observer=SnapshotObserver();private var actionTimeout:DispatchWorkItem?;private var reloadTask:DispatchWorkItem?;private var monitors:[Any]=[];private var pendingAction:String?
@@ -1939,7 +1900,7 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
     }
     private func show(){
         if macHost==nil,let requested=requestedMode(){managerOnly=requested}
-        foldedModules=nil
+        leadingModules=nil
         guard !nativeMenuVisible() else{hide();return}
         scrollOffset=0
         if let button=statusItem?.button,let window=button.window {
@@ -1981,28 +1942,23 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
         guard let data=try? Data(contentsOf:URL(fileURLWithPath:snapshotPath)),let value=try? JSONDecoder().decode(Snapshot.self,from:data) else{return}
         modified=date;interaction.source=value;updatePresentation()
     }
-    private func fillCards(_ entries:[Entry],in content:NSView,y start:CGFloat,width:CGFloat)->CGFloat {
-        rows=[[:]];var y=start
-        for group in ModuleCards.groups(entries,folded:foldedModules ?? [],open:openFolds) {
-            if let caption=group.caption {
-                let label=NSTextField(labelWithString:caption);label.font = .systemFont(ofSize:11,weight:.medium);label.textColor = .secondaryLabelColor
-                label.frame=NSRect(x:16,y:y+8,width:width-32,height:15);content.addSubview(label);y+=ModuleCards.caption
+    private func fillGrid(_ entries:[Entry],in content:NSView,y start:CGFloat,width:CGFloat)->CGFloat {
+        rows=[[:]];var y=start;let cell=ModuleGrid.cellWidth(width)
+        for section in ModuleGrid.sections(entries,leading:leadingModules) {
+            if let title=section.title {
+                let label=NSTextField(labelWithString:title);label.font = .systemFont(ofSize:12.5,weight:.semibold);label.textColor = .labelColor
+                label.frame=NSRect(x:8,y:y+12,width:width-16,height:17);content.addSubview(label);y+=ModuleGrid.title
             }
-            let card=CardBackground(frame:NSRect(x:4,y:y,width:width-8,height:ModuleCards.height(group)-(group.caption==nil ? 0 : ModuleCards.caption)))
-            content.addSubview(card);var top=y
-            for (i,original) in group.rows.enumerated() {
-                var entry=original;if let label=PanelInteraction.runningLabel(entry,active:interaction.active){entry.label=label}
-                let row=Row(entry,frame:NSRect(x:4,y:top,width:width-8,height:ModuleCards.height(entry)));row.carded=true;row.columnInset=ModuleCards.text
-                wire(row,depth:0);content.addSubview(row);rows[0][entry.key]=row
-                if i>0{card.lines.append(top-y)}
-                top+=row.frame.height
+            for line in ModuleGrid.rows(section) {
+                let height=ModuleGrid.rowHeight(line)
+                for (column,original) in line.enumerated() {
+                    var entry=original;if let label=PanelInteraction.runningLabel(entry,active:interaction.active){entry.label=label}
+                    let row=Row(entry,frame:NSRect(x:CGFloat(column)*(cell+ModuleGrid.spacing),y:y,width:cell,height:height));row.carded=true;row.columnInset=ModuleGrid.text
+                    wire(row,depth:0);content.addSubview(row);rows[0][entry.key]=row
+                }
+                y+=height
             }
-            if group.folded>0 {
-                let fold=FoldRow(count:group.folded,open:group.open,frame:NSRect(x:4,y:top,width:width-8,height:ModuleCards.fold))
-                let key=group.key;fold.toggle={[weak self] in guard let self else{return};if self.openFolds.contains(key){self.openFolds.remove(key)}else{self.openFolds.insert(key)};self.layout()}
-                if !group.rows.isEmpty{card.lines.append(top-y)};content.addSubview(fold);top+=ModuleCards.fold
-            }
-            y=top+ModuleCards.gap
+            y+=ModuleGrid.gap
         }
         return y
     }
@@ -2027,11 +1983,11 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
     }
     private func layout(){
         guard !anchoredMenuOpen,let snapshot else{return};applyTheme(snapshot.theme);if panel.isVisible,let old=(panel.contentView as? Surface)?.content.subviews.first as? NSScrollView {scrollOffset=old.contentView.bounds.origin.y};let opened=flyouts.map{$0.key};closeFlyouts(from:0);rows=[]
-        let screen=NSScreen.screens.first(where:{$0.frame.contains(anchor)}) ?? NSScreen.main!,width:CGFloat=managerOnly ? 280 : 360,inner=width-16
+        let screen=NSScreen.screens.first(where:{$0.frame.contains(anchor)}) ?? NSScreen.main!,width:CGFloat=managerOnly ? ModuleGrid.width : 360,inner=width-16
         let entries=managerOnly ? snapshot.moduleOptions ?? [] : snapshot.entries
         let top:CGFloat=managerOnly ? 49 : (snapshot.dashboard.map{DashboardView.height($0)+8} ?? 36)
-        if managerOnly && foldedModules==nil {foldedModules=Set(entries.filter(ModuleCards.foldable).map{$0.key})}
-        let body=managerOnly ? ModuleCards.height(entries,folded:foldedModules ?? [],open:openFolds) : entries.reduce(CGFloat(0)){$0+MenuLayout.rowHeight($1,width:inner,left:MenuLayout.left($1,entries))},contentHeight=top+body
+        if managerOnly && leadingModules==nil {leadingModules=Set(entries.filter{$0.isModule && $0.checked==true}.map{$0.key})}
+        let body=managerOnly ? ModuleGrid.height(entries,leading:leadingModules) : entries.reduce(CGFloat(0)){$0+MenuLayout.rowHeight($1,width:inner,left:MenuLayout.left($1,entries))},contentHeight=top+body
         let height=min(contentHeight+16,screen.visibleFrame.height-16)
         let surface=Surface(frame:NSRect(x:0,y:0,width:width,height:height),glass:self.snapshot?.appearance != "solid")
         let scroll=ContentScrollView(frame:NSRect(x:8,y:8,width:inner,height:height-16));scroll.drawsBackground=false;scroll.hasVerticalScroller=contentHeight>scroll.frame.height;scroll.scrollerStyle = .overlay
@@ -2042,7 +1998,7 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
             let hint=NSTextField(labelWithString:"已启用 \(count) 项");hint.font = .systemFont(ofSize:10);hint.textColor = .secondaryLabelColor;hint.frame=NSRect(x:12,y:29,width:inner-24,height:15);content.addSubview(hint)
             let done=NSButton(title:"完成",target:self,action:#selector(finishModules));done.bezelStyle = .rounded;done.controlSize = .small;done.frame=NSRect(x:inner-65,y:8,width:53,height:25);content.addSubview(done)
         } else if let dashboard=snapshot.dashboard{let view=DashboardView(dashboard,width:inner);view.toggleProvider={[weak self] id,expanded in self?.performAction(["set-expanded",id,expanded ? "true" : "false"])};content.addSubview(view)}else{let label=NSTextField(labelWithString:"AI 用量面板");label.frame=NSRect(x:12,y:10,width:300,height:20);content.addSubview(label)}
-        if managerOnly {_=fillCards(entries,in:content,y:top,width:inner)}
+        if managerOnly {_=fillGrid(entries,in:content,y:top,width:inner)}
         else {content.addSubview(Divider(frame:NSRect(x:8,y:top-6,width:inner-16,height:2)));_=fillRows(entries,in:content,y:top,width:inner,depth:0)}
         if !managerOnly,let dashboard=snapshot.dashboard,let choices=snapshot.rangeOptions {
             let picker=NSPopUpButton(frame:NSRect(x:inner-113,y:7.5,width:101,height:25),pullsDown:true)
@@ -2095,6 +2051,8 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
     private func pointerHits(_ row:Row)->Bool {topPanel(at:NSEvent.mouseLocation) === row.window && rowRect(row).contains(NSEvent.mouseLocation)}
     private func allowsConfigurationHover(_ row:Row)->Bool {
         guard let window=row.window else{return false}
+        // In the module grid the way to a sidebar crosses other modules, so settings open on a click instead.
+        if managerOnly && window === panel {return false}
         return MenuLayout.configurationHover(row.entry,x:row.convert(window.convertPoint(fromScreen:NSEvent.mouseLocation),from:nil).x)
     }
     private func hover(_ entry:Entry,row:Row,depth:Int){
@@ -2175,7 +2133,8 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
         // close shortly, unless the pointer is heading into them. Outside every panel, all of them close.
         guard let top else{scheduleClose(from:0,after:0.15);return}
         let level=top === panel ? 0 : (flyouts.firstIndex{$0.panel === top}.map{$0+1} ?? 0)
-        if flyouts.count<=level || aimingAtFlyout(level){closeTask?.cancel();return}
+        // A module's settings, opened by a click, stay open while the pointer crosses the grid to them.
+        if flyouts.count<=level || aimingAtFlyout(level) || (managerOnly && level==0){closeTask?.cancel();return}
         scheduleClose(from:level,after:0.12)
     }
     private func scheduleClose(from level:Int,after delay:TimeInterval){
