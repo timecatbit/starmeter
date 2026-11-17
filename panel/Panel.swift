@@ -186,10 +186,40 @@ func text(_ value:String,x:CGFloat,y:CGFloat,w:CGFloat,size:CGFloat=11,color:NSC
     if numeric {let measured=(value as NSString).size(withAttributes:[.font:font]).width;if measured>w {font=NSFont.monospacedDigitSystemFont(ofSize:max(9,size*w/measured),weight:weight)}}
     (value as NSString).draw(in:NSRect(x:x,y:y,width:w,height:size+6),withAttributes:[.font:font,.foregroundColor:color,.paragraphStyle:style])
 }
+// A figure reads as one number: rounded, even-width digits, with the $ and the K/M/B unit smaller and lighter
+// so the digits carry it. Too wide for its slot, it shrinks rather than cuts.
+enum Figure {
+    static func font(_ size:CGFloat,_ weight:NSFont.Weight)->NSFont {
+        let base=NSFont.monospacedDigitSystemFont(ofSize:size,weight:weight)
+        return base.fontDescriptor.withDesign(.rounded).flatMap{NSFont(descriptor:$0,size:size)} ?? base
+    }
+    static func string(_ value:String,size:CGFloat,weight:NSFont.Weight = .semibold,color:NSColor = .labelColor,align:NSTextAlignment = .left)->NSAttributedString {
+        let style=NSMutableParagraphStyle();style.alignment=align;style.lineBreakMode = .byClipping
+        let out=NSMutableAttributedString();var body=Substring(value)
+        let small:[NSAttributedString.Key:Any]=[.font:font(size*0.62,.medium),.foregroundColor:NSColor.secondaryLabelColor,.paragraphStyle:style]
+        if body.hasPrefix("$"){out.append(NSAttributedString(string:"$",attributes:small.merging([.baselineOffset:size*0.3]){$1}));body=body.dropFirst()}
+        var unit=""
+        if let last=body.last,"KMB".contains(last),body.dropLast().last?.isNumber==true{unit=String(last);body=body.dropLast()}
+        out.append(NSAttributedString(string:String(body),attributes:[.font:font(size,weight),.foregroundColor:color,.paragraphStyle:style]))
+        if !unit.isEmpty{out.append(NSAttributedString(string:unit,attributes:[.font:font(size*0.74,weight),.foregroundColor:color,.paragraphStyle:style]))}
+        return out
+    }
+    static func width(_ value:String,size:CGFloat,weight:NSFont.Weight = .semibold)->CGFloat {ceil(string(value,size:size,weight:weight).size().width)}
+    static func draw(_ value:String,x:CGFloat,y:CGFloat,w:CGFloat,size:CGFloat,weight:NSFont.Weight = .semibold,color:NSColor = .labelColor,align:NSTextAlignment = .left){
+        let fitted=width(value,size:size,weight:weight)>w ? max(9,size*w/width(value,size:size,weight:weight)) : size
+        string(value,size:fitted,weight:weight,color:color,align:align).draw(in:NSRect(x:x,y:y+(size-fitted)*0.7,width:w,height:size+8))
+    }
+}
 func line(_ a:NSPoint,_ b:NSPoint,color:NSColor = .separatorColor,width:CGFloat=0.5) {
     let p=NSBezierPath();p.move(to:a);p.line(to:b);p.lineWidth=width;color.setStroke();p.stroke()
 }
 class FlippedView:NSView {override var isFlipped:Bool {true}}
+// The module grid's backdrop: a click on its blank space, between and around the cells, closes an open sidebar.
+final class BlankClickView:FlippedView {
+    var clicked:(()->Void)?
+    override func acceptsFirstMouse(for event:NSEvent?)->Bool{true}
+    override func mouseDown(with event:NSEvent){clicked?()}
+}
 final class Surface:FlippedView {
     let content:FlippedView
     private let translucent:Bool
@@ -922,7 +952,7 @@ final class DashboardView:FlippedView {
     // Worked out once: measuring the shared column means scaling the chart, far too slow to do per square.
     private let heatmapGeometry:HeatmapLayout?,heatmapColumn:CGFloat,heatmapLevels:[Int]
     private var summaryProviders:[ProviderUsage] {data.providers.compactMap{$0.summaryPart}}
-    static func sectionHeight(_ p:ProviderUsage)->CGFloat {78+clientHeight(p)+CGFloat(max(1,p.models.count))*18}
+    static func sectionHeight(_ p:ProviderUsage)->CGFloat {52+clientHeight(p)+CGFloat(max(1,p.models.count))*18+14}
     // A gateway's clients in one line, by their share of its tokens: "客户端 · ChatGPT 62% · Claude Code 30%".
     static func clientLine(_ p:ProviderUsage)->String? {
         guard p.available,let clients=p.clients,!clients.isEmpty else{return nil}
@@ -931,7 +961,7 @@ final class DashboardView:FlippedView {
     static func clientHeight(_ p:ProviderUsage)->CGFloat {clientLine(p)==nil ? 0 : 16}
     static func providerHeight(_ p:ProviderUsage,_ d:Dashboard)->CGFloat {
         guard d.allowCollapse==true else{return sectionHeight(p)}
-        return (d.expandedProviders ?? []).contains(p.id) ? 74+clientHeight(p)+CGFloat(max(1,p.models.count))*18 : 52
+        return (d.expandedProviders ?? []).contains(p.id) ? 52+clientHeight(p)+CGFloat(max(1,p.models.count))*18+14 : 52
     }
     // Legend names drop suffixes the cards below already show, so four fit on a row.
     static func legendLabels(_ d:Dashboard)->[String] {["总量"]+d.providers.compactMap{$0.summaryPart}.map(legendName)}
@@ -1035,7 +1065,7 @@ final class DashboardView:FlippedView {
         // Justified like the legend: left, centre and right thirds, each label above its value.
         // Each cell keeps 4pt clear of its neighbours: the first hugs the left edge, the last the right.
         let third=width/3,alignments:[NSTextAlignment]=[.left,.center,.right]
-        for i in 0..<3 {let x=left+third*CGFloat(i)+2*CGFloat(i);text(labels[i],x:x,y:40,w:third-4,size:10,color:.secondaryLabelColor,align:alignments[i]);text(values[i],x:x,y:56,w:third-4,size:i==2 ? 20 : 21,weight:.medium,align:alignments[i],numeric:true)}
+        for i in 0..<3 {let x=left+third*CGFloat(i)+2*CGFloat(i);text(labels[i],x:x,y:40,w:third-4,size:10,color:.secondaryLabelColor,align:alignments[i]);Figure.draw(values[i],x:x,y:55,w:third-4,size:22,align:alignments[i])}
         drawSummaryChart(left:left,right:right)
         }
         }
@@ -1093,51 +1123,58 @@ final class DashboardView:FlippedView {
         if p.cost != nil,let credits=p.credits {parts.append(creditsText(credits))}
         return parts.joined(separator:" · ")
     }
-    private func drawNote(_ p:ProviderUsage,y:CGFloat,right:CGFloat){
-        guard let (note,warning)=Self.note(p) else{return}
-        text(note,x:right-150,y:y,w:133,size:9,color:warning ? .systemOrange : .secondaryLabelColor,align:.right)
+    // A card's first line: the tool's mark and name, a note right after the name when there is one, the cost on the
+    // right. The second line leads with its tokens, then the counts in grey.
+    private func drawHeader(_ p:ProviderUsage,y:CGFloat,left:CGFloat,right:CGFloat){
+        let nameFont=NSFont.systemFont(ofSize:13,weight:.semibold),mid=ToolMark.middle(of:nameFont,top:y+8)
+        ToolMark.draw(p,in:NSRect(x:left,y:mid-7,width:14,height:14),color:accent(p.id,self))
+        let cost=p.available ? headline(p) : "—",costWidth=min(130,Figure.width(cost,size:16))
+        let nameX=left+21,nameWidth=min(right-costWidth-14-nameX,ceil((p.name as NSString).size(withAttributes:[.font:nameFont]).width)+1)
+        text(p.name,x:nameX,y:y+8,w:nameWidth,size:13,weight:.semibold)
+        if let (note,warning)=Self.note(p) {
+            let noteX=nameX+nameWidth+7;text(note,x:noteX,y:y+10.5,w:max(0,right-costWidth-10-noteX),size:9.5,color:warning ? .systemOrange : .secondaryLabelColor)
+        }
+        Figure.draw(cost,x:right-costWidth-2,y:y+5,w:costWidth+2,size:16,align:.right)
+    }
+    private func drawFigures(_ p:ProviderUsage,y:CGFloat,left:CGFloat,right:CGFloat,stats:Bool){
+        guard p.available else{text(Self.stats(p),x:left,y:y,w:right-left,size:10.5,color:.secondaryLabelColor);return}
+        let lead=tokenLine(p),font=NSFont.systemFont(ofSize:11,weight:.semibold),leadWidth=ceil((lead as NSString).size(withAttributes:[.font:font]).width)+1
+        text(lead,x:left,y:y,w:leadWidth,size:11,weight:.semibold)
+        if stats{text("· "+Self.stats(p),x:left+leadWidth+4,y:y+1,w:max(0,right-left-leadWidth-4),size:10,color:.secondaryLabelColor)}
     }
     private func drawModels(_ p:ProviderUsage,y:CGFloat,left:CGFloat,right:CGFloat,color c:NSColor){
         let width=right-left
         if p.models.isEmpty{text(p.available ? "此时段暂无模型调用" : "模型明细暂不可用",x:left,y:y,w:width,size:10,color:.secondaryLabelColor)}
+        // Each model's share is a short rounded bar of its own beside the figures, not a rule across the card.
+        let shareX=right-34,amountX=shareX-62,barX=amountX-48,mid=ToolMark.middle(of:.systemFont(ofSize:10.5),top:0)
         for (i,m) in p.models.enumerated(){
             let top=y+CGFloat(i)*18
-            text(modelName(m.name),x:left,y:top,w:width-120,size:10.5)
-            text(modelAmount(m),x:right-115,y:top,w:72,size:10.5,align:.right,numeric:true)
-            text(share(m.share),x:right-38,y:top,w:38,size:10,color:.secondaryLabelColor,align:.right,numeric:true)
-            NSColor.quaternaryLabelColor.withAlphaComponent(0.12).setFill();NSRect(x:left,y:top+14,width:width,height:1.5).fill()
-            c.withAlphaComponent(0.55).setFill();NSRect(x:left,y:top+14,width:width*CGFloat(m.share),height:1.5).fill()
+            text(modelName(m.name),x:left,y:top,w:barX-left-10,size:10.5)
+            let track=NSRect(x:barX,y:top+mid-2,width:44,height:4)
+            NSColor.labelColor.withAlphaComponent(dark(self) ? 0.10 : 0.07).setFill();NSBezierPath(roundedRect:track,xRadius:2,yRadius:2).fill()
+            c.withAlphaComponent(0.85).setFill();NSBezierPath(roundedRect:NSRect(x:barX,y:track.minY,width:max(4,44*CGFloat(min(1,m.share))),height:4),xRadius:2,yRadius:2).fill()
+            text(modelAmount(m),x:amountX,y:top,w:58,size:10.5,align:.right,numeric:true)
+            text(share(m.share),x:shareX,y:top,w:34,size:10,color:.secondaryLabelColor,align:.right,numeric:true)
         }
     }
     private func drawCollapsibleProvider(_ p:ProviderUsage,y:CGFloat,left:CGFloat,right:CGFloat){
-        let width=right-left,c=accent(p.id,self),expanded=(data.expandedProviders ?? []).contains(p.id)
-        if hoveredProvider==p.id {NSColor.controlAccentColor.withAlphaComponent(dark(self) ? 0.08 : 0.045).setFill();NSBezierPath(roundedRect:NSRect(x:4,y:y+2,width:bounds.width-8,height:46),xRadius:7,yRadius:7).fill()}
-        let mid=ToolMark.middle(of:.systemFont(ofSize:12,weight:.semibold),top:y+6)
-        ToolMark.draw(p,in:NSRect(x:left-1,y:mid-7,width:14,height:14),color:c)
-        text(p.name,x:left+19,y:y+6,w:width-177,size:12,weight:.semibold)
-        drawNote(p,y:y+8,right:right)
-        let arrow=NSBezierPath(),x=right-5,cy=y+14
+        let expanded=(data.expandedProviders ?? []).contains(p.id)
+        if hoveredProvider==p.id {NSColor.labelColor.withAlphaComponent(dark(self) ? 0.07 : 0.045).setFill();NSBezierPath(roundedRect:NSRect(x:4,y:y+2,width:bounds.width-8,height:46),xRadius:8,yRadius:8).fill()}
+        drawHeader(p,y:y,left:left,right:right-16)
+        let arrow=NSBezierPath(),x=right-5,cy=ToolMark.middle(of:.systemFont(ofSize:13,weight:.semibold),top:y+8)
         arrow.move(to:NSPoint(x:x-3,y:cy-3));arrow.line(to:NSPoint(x:expanded ? x : x+0.5,y:cy));arrow.line(to:NSPoint(x:expanded ? x+3 : x-3,y:expanded ? cy-3 : cy+3))
-        arrow.lineWidth=1.2;arrow.lineCapStyle = .round;arrow.lineJoinStyle = .round;NSColor.secondaryLabelColor.setStroke();arrow.stroke()
-        text(p.available ? headline(p) : "—",x:left+19,y:y+26,w:100,size:14,weight:.medium,numeric:true)
-        text(p.available ? tokenLine(p) : "—",x:left+127,y:y+27,w:width-127,size:12,weight:.medium,align:.right,numeric:true)
+        arrow.lineWidth=1.2;arrow.lineCapStyle = .round;arrow.lineJoinStyle = .round;NSColor.tertiaryLabelColor.setStroke();arrow.stroke()
+        drawFigures(p,y:y+29,left:left+21,right:right,stats:expanded)
         if expanded {
-            text(Self.stats(p),x:left+19,y:y+50,w:width-19,size:10,color:.secondaryLabelColor)
-            if let clients=Self.clientLine(p){text(clients,x:left+19,y:y+66,w:width-19,size:10,color:.secondaryLabelColor)}
-            drawModels(p,y:y+70+Self.clientHeight(p),left:left+19,right:right,color:c)
+            if let clients=Self.clientLine(p){text(clients,x:left+21,y:y+45,w:right-left-21,size:10,color:.secondaryLabelColor)}
+            drawModels(p,y:y+52+Self.clientHeight(p),left:left+21,right:right,color:accent(p.id,self))
         }
     }
     private func drawProvider(_ p:ProviderUsage,y:CGFloat,left:CGFloat,right:CGFloat){
-        let width=right-left,c=accent(p.id,self)
-        let mid=ToolMark.middle(of:.systemFont(ofSize:12,weight:.semibold),top:y+8)
-        ToolMark.draw(p,in:NSRect(x:left-1,y:mid-7,width:14,height:14),color:c)
-        text(p.name,x:left+19,y:y+8,w:width-177,size:12,weight:.semibold)
-        drawNote(p,y:y+10,right:right+17)
-        text(p.available ? headline(p) : "—",x:left,y:y+26,w:width*0.43,size:19,weight:.medium,numeric:true)
-        text(p.available ? tokenLine(p) : "—",x:left+width*0.43,y:y+28,w:width*0.57,size:16,weight:.medium,align:.right,numeric:true)
-        text(Self.stats(p),x:left,y:y+54,w:width,size:10,color:.secondaryLabelColor)
-        if let clients=Self.clientLine(p){text(clients,x:left,y:y+70,w:width,size:10,color:.secondaryLabelColor)}
-        drawModels(p,y:y+74+Self.clientHeight(p),left:left,right:right,color:c)
+        drawHeader(p,y:y,left:left,right:right)
+        drawFigures(p,y:y+29,left:left+21,right:right,stats:true)
+        if let clients=Self.clientLine(p){text(clients,x:left+21,y:y+45,w:right-left-21,size:10,color:.secondaryLabelColor)}
+        drawModels(p,y:y+52+Self.clientHeight(p),left:left+21,right:right,color:accent(p.id,self))
     }
     // Legend columns are justified: the first starts at the left edge, the last column's longest
     // label ends at the right edge, and column starts are evenly spaced. Four per row when they
@@ -1234,7 +1271,7 @@ final class DashboardView:FlippedView {
         for (f,label) in zip([CGFloat(0),0.5,1],axis){
             let yy=plot.maxY-f*plot.height
             text(label,x:left,y:yy-5,w:column-4,size:8,color:.secondaryLabelColor,numeric:true)
-            line(NSPoint(x:plot.minX,y:yy),NSPoint(x:plot.maxX,y:yy),color:NSColor.separatorColor.withAlphaComponent(0.22),width:0.5)
+            line(NSPoint(x:plot.minX,y:yy),NSPoint(x:plot.maxX,y:yy),color:NSColor.separatorColor.withAlphaComponent(f==0 ? 0.3 : 0.14),width:0.5)
         }
         // Partial data and when the figures were read share a faint note just above the card, clear of its edge.
         let note=[data.chartStatus,data.updated ?? ""].filter{!$0.isEmpty}.joined(separator:" · ")
@@ -1247,12 +1284,15 @@ final class DashboardView:FlippedView {
         let positions=Self.chartPositions(data)
         let paths=Self.smoothCurves(series,positions:positions,plot:plot,ceiling:ceiling),totalPath=paths.last!
         let area=totalPath.copy() as! NSBezierPath;area.line(to:NSPoint(x:plot.maxX,y:plot.maxY));area.line(to:NSPoint(x:plot.minX,y:plot.maxY));area.close()
-        NSGraphicsContext.saveGraphicsState();area.addClip();NSGradient(starting:totalColor.withAlphaComponent(dark(self) ? 0.10 : 0.07),ending:totalColor.withAlphaComponent(0.005))?.draw(from:NSPoint(x:plot.midX,y:plot.minY),to:NSPoint(x:plot.midX,y:plot.maxY),options:[]);NSGraphicsContext.restoreGraphicsState()
+        NSGraphicsContext.saveGraphicsState();area.addClip();NSGradient(starting:totalColor.withAlphaComponent(dark(self) ? 0.16 : 0.11),ending:totalColor.withAlphaComponent(0))?.draw(from:NSPoint(x:plot.midX,y:plot.minY),to:NSPoint(x:plot.midX,y:plot.maxY),options:[]);NSGraphicsContext.restoreGraphicsState()
         for (i,curve) in paths.enumerated(){
             let total=i==paths.count-1
-            curve.lineWidth=total ? 2.0 : 1.45;curve.lineCapStyle = .round;curve.lineJoinStyle = .round
-            (total ? totalColor : accent(summaryProviders[i].id,self)).setStroke();curve.stroke()
+            curve.lineWidth=total ? 1.8 : 1.2;curve.lineCapStyle = .round;curve.lineJoinStyle = .round
+            (total ? totalColor : accent(summaryProviders[i].id,self).withAlphaComponent(0.8)).setStroke();curve.stroke()
         }
+        let end=NSPoint(x:plot.minX+CGFloat(positions[n-1])*plot.width,y:plot.maxY-CGFloat(totals[n-1]/ceiling)*plot.height)
+        totalColor.withAlphaComponent(0.18).setFill();NSBezierPath(ovalIn:NSRect(x:end.x-5,y:end.y-5,width:10,height:10)).fill()
+        totalColor.setFill();NSBezierPath(ovalIn:NSRect(x:end.x-2.5,y:end.y-2.5,width:5,height:5)).fill()
         let middle=(1..<n-1).filter{positions[$0]>=0.25 && positions[$0]<=0.75}.min{abs(positions[$0]-0.5)<abs(positions[$1]-0.5)}
         let labelIndices=[0]+(middle.map{[$0]} ?? [])+[n-1]
         for i in labelIndices{let label=data.dates[i];let x=plot.minX+CGFloat(positions[i])*plot.width;text(label,x:i==0 ? x : (i==n-1 ? right-48 : x-25),y:212,w:i==n-1 ? 48 : 50,size:8.5,color:.secondaryLabelColor,align:i==0 ? .left : (i==n-1 ? .right : .center))}
@@ -1991,7 +2031,8 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
         let height=min(contentHeight+16,screen.visibleFrame.height-16)
         let surface=Surface(frame:NSRect(x:0,y:0,width:width,height:height),glass:self.snapshot?.appearance != "solid")
         let scroll=ContentScrollView(frame:NSRect(x:8,y:8,width:inner,height:height-16));scroll.drawsBackground=false;scroll.hasVerticalScroller=contentHeight>scroll.frame.height;scroll.scrollerStyle = .overlay
-        let content=FlippedView(frame:NSRect(x:0,y:0,width:inner,height:contentHeight))
+        let content=managerOnly ? BlankClickView(frame:NSRect(x:0,y:0,width:inner,height:contentHeight)) : FlippedView(frame:NSRect(x:0,y:0,width:inner,height:contentHeight))
+        (content as? BlankClickView)?.clicked={[weak self] in self?.closeFlyouts(from:0)}
         if managerOnly {
             let heading=NSTextField(labelWithString:"主页模块");heading.font = .systemFont(ofSize:14,weight:.semibold);heading.frame=NSRect(x:12,y:7,width:inner-85,height:20);content.addSubview(heading)
             let count=entries.filter{$0.action?.first=="set-module" && $0.checked==true}.count
@@ -2162,6 +2203,8 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
     }
     private func activate(_ entry:Entry,row:Row,depth:Int){
         if entry.isModule,!row.configurationClick,let action=entry.action{performAction(action);return}
+        // In the module grid a second click on the open module closes its settings again.
+        if managerOnly,depth==0,row.carded,flyouts.first?.key==entry.key{closeFlyouts(from:0);return}
         if !entry.children.isEmpty{openFlyout(entry,row:row,depth:depth);return}
         // Desktop app update rows link to the installed .app, which opens the app to update itself.
         if let href=entry.href,let url=URL(string:href),url.isFileURL,url.pathExtension=="app"{
