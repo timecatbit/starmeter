@@ -15,7 +15,7 @@ struct Entry: Decodable {
 struct ModelUsage:Decodable {var name:String;var tokens:Double;var share:Double;var credits:Double?}
 struct CountedUsage:Decodable {var cost:Double?;var tokens:Double;var requests:Int;var unpriced:Int;var cache:Double?;var history:[Double]}
 struct ProviderUsage:Decodable {
-    var id:String;var name:String;var subtitle:String;var status:String;var available:Bool
+    var id:String;var name:String;var image:String?;var template:Bool?;var symbol:String?;var subtitle:String;var status:String;var available:Bool
     var cost:Double?;var credits:Double?;var tokens:Double;var requests:Int;var output:Double;var cache:Double?;var coverage:Double?
     var sessions:Int;var unpriced:Int;var summaryIncluded:Bool?;var counted:CountedUsage?;var models:[ModelUsage];var clients:[ModelUsage]?;var history:[Double]
     // What Summary adds for this source: nothing when it isn't counted, and only the requests no gateway
@@ -102,7 +102,31 @@ func accent(_ id:String,_ view:NSView)->NSColor {
     if id=="gemini" {return .systemTeal}
     if id=="deepseek-harness" {return .systemIndigo}
     if id=="magpie" {return .systemYellow}
+    if id=="cursor" {return dark(view) ? NSColor(srgbRed:0.70,green:0.74,blue:0.80,alpha:1) : NSColor(srgbRed:0.33,green:0.37,blue:0.43,alpha:1)}
     return dark(view) ? NSColor(srgbRed:0.55,green:0.71,blue:0.94,alpha:1) : NSColor(srgbRed:0.32,green:0.51,blue:0.78,alpha:1)
+}
+// A tool's mark on its card: monochrome logos and symbols take the tool's chart colour, so the card still
+// matches its line in the chart; colour logos (Claude, Gemini, DeepSeek) keep their own colours.
+enum ToolMark {
+    private static var cache:[String:NSImage]=[:]
+    static func image(_ p:ProviderUsage)->NSImage? {
+        let key=p.id+"|"+(p.image.map{String($0.count)+String($0.suffix(16))} ?? p.symbol ?? "")
+        if let cached=cache[key]{return cached}
+        var glyph:NSImage?
+        if let raw=p.image,let data=Data(base64Encoded:raw),let img=NSImage(data:data){glyph=img;img.isTemplate=p.template ?? false}
+        else if let symbol=p.symbol{glyph=NSImage(systemSymbolName:symbol,accessibilityDescription:nil)}
+        if let glyph{cache[key]=glyph}
+        return glyph
+    }
+    static func draw(_ p:ProviderUsage,in rect:NSRect,color:NSColor){
+        guard let glyph=image(p) else{color.setFill();NSBezierPath(ovalIn:NSRect(x:rect.midX-2.5,y:rect.midY-2.5,width:5,height:5)).fill();return}
+        if glyph.isTemplate {
+            let tinted=NSImage(size:rect.size);tinted.lockFocus()
+            glyph.draw(in:NSRect(origin:.zero,size:rect.size));color.setFill();NSRect(origin:.zero,size:rect.size).fill(using:.sourceIn)
+            tinted.unlockFocus()
+            tinted.draw(in:rect,from:.zero,operation:.sourceOver,fraction:1,respectFlipped:true,hints:nil)
+        } else {glyph.draw(in:rect,from:.zero,operation:.sourceOver,fraction:1,respectFlipped:true,hints:nil)}
+    }
 }
 func statusGreen(_ view:NSView)->NSColor {dark(view) ? NSColor(srgbRed:0.49,green:0.79,blue:0.61,alpha:1) : NSColor(srgbRed:0.18,green:0.49,blue:0.31,alpha:1)}
 // One status light for every row: new (accent), ok (green), issue (orange), anything else a hollow grey ring.
@@ -1071,24 +1095,24 @@ final class DashboardView:FlippedView {
     private func drawCollapsibleProvider(_ p:ProviderUsage,y:CGFloat,left:CGFloat,right:CGFloat){
         let width=right-left,c=accent(p.id,self),expanded=(data.expandedProviders ?? []).contains(p.id)
         if hoveredProvider==p.id {NSColor.controlAccentColor.withAlphaComponent(dark(self) ? 0.08 : 0.045).setFill();NSBezierPath(roundedRect:NSRect(x:4,y:y+2,width:bounds.width-8,height:46),xRadius:7,yRadius:7).fill()}
-        c.setFill();NSBezierPath(ovalIn:NSRect(x:left,y:y+12,width:5,height:5)).fill()
-        text(p.name,x:left+12,y:y+6,w:width-170,size:12,weight:.semibold)
+        ToolMark.draw(p,in:NSRect(x:left-1,y:y+7.5,width:14,height:14),color:c)
+        text(p.name,x:left+19,y:y+6,w:width-177,size:12,weight:.semibold)
         drawNote(p,y:y+8,right:right)
         let arrow=NSBezierPath(),x=right-5,cy=y+14
         arrow.move(to:NSPoint(x:x-3,y:cy-3));arrow.line(to:NSPoint(x:expanded ? x : x+0.5,y:cy));arrow.line(to:NSPoint(x:expanded ? x+3 : x-3,y:expanded ? cy-3 : cy+3))
         arrow.lineWidth=1.2;arrow.lineCapStyle = .round;arrow.lineJoinStyle = .round;NSColor.secondaryLabelColor.setStroke();arrow.stroke()
-        text(p.available ? headline(p) : "—",x:left+12,y:y+26,w:100,size:14,weight:.medium,numeric:true)
-        text(p.available ? tokenLine(p) : "—",x:left+120,y:y+27,w:width-120,size:12,weight:.medium,align:.right,numeric:true)
+        text(p.available ? headline(p) : "—",x:left+19,y:y+26,w:100,size:14,weight:.medium,numeric:true)
+        text(p.available ? tokenLine(p) : "—",x:left+127,y:y+27,w:width-127,size:12,weight:.medium,align:.right,numeric:true)
         if expanded {
-            text(Self.stats(p),x:left+12,y:y+50,w:width-12,size:10,color:.secondaryLabelColor)
-            if let clients=Self.clientLine(p){text(clients,x:left+12,y:y+66,w:width-12,size:10,color:.secondaryLabelColor)}
-            drawModels(p,y:y+70+Self.clientHeight(p),left:left+12,right:right,color:c)
+            text(Self.stats(p),x:left+19,y:y+50,w:width-19,size:10,color:.secondaryLabelColor)
+            if let clients=Self.clientLine(p){text(clients,x:left+19,y:y+66,w:width-19,size:10,color:.secondaryLabelColor)}
+            drawModels(p,y:y+70+Self.clientHeight(p),left:left+19,right:right,color:c)
         }
     }
     private func drawProvider(_ p:ProviderUsage,y:CGFloat,left:CGFloat,right:CGFloat){
         let width=right-left,c=accent(p.id,self)
-        c.setFill();NSBezierPath(ovalIn:NSRect(x:left,y:y+14,width:5,height:5)).fill()
-        text(p.name,x:left+12,y:y+8,w:width-170,size:12,weight:.semibold)
+        ToolMark.draw(p,in:NSRect(x:left-1,y:y+9.5,width:14,height:14),color:c)
+        text(p.name,x:left+19,y:y+8,w:width-177,size:12,weight:.semibold)
         drawNote(p,y:y+10,right:right+17)
         text(p.available ? headline(p) : "—",x:left,y:y+26,w:width*0.43,size:19,weight:.medium,numeric:true)
         text(p.available ? tokenLine(p) : "—",x:left+width*0.43,y:y+28,w:width*0.57,size:16,weight:.medium,align:.right,numeric:true)
@@ -1223,6 +1247,9 @@ enum MenuLayout {
     static func configurationHover(_ e:Entry,x:CGFloat)->Bool { !e.isModule || x>=36 }
     static func hasIcon(_ e:Entry)->Bool {e.image != nil || e.symbol != nil || e.checked != nil || e.statusLight != nil}
     static func column(_ entries:[Entry])->CGFloat {entries.contains(where:hasIcon) ? 36 : 12}
+    // A checkbox row with its own icon (a module) shows both, so its name starts one icon further in.
+    static func marked(_ e:Entry)->Bool {e.checked != nil && (e.image != nil || e.symbol != nil)}
+    static func left(_ e:Entry,_ entries:[Entry])->CGFloat {column(entries)+(marked(e) ? 20 : 0)}
     static func labelFont(_ e:Entry)->NSFont {.systemFont(ofSize:e.section==true ? 10.5 : (e.actionable ? 12 : 10.5),weight:e.section==true ? .medium : .regular)}
     static let valueFont=NSFont.monospacedDigitSystemFont(ofSize:11,weight:.regular)
     static let detailFont=NSFont.systemFont(ofSize:10)
@@ -1259,7 +1286,7 @@ enum MenuLayout {
         for e in entry.children where e.separator != true {
             let title=width(e.label,font:labelFont(e))+valueWidth(e)+(e.value == nil ? 0 : 10)
             let detail=e.detail.map{min(216,width($0,font:detailFont))} ?? 0
-            needed=max(needed,max(title,detail)+left+trailing(e)+16)
+            needed=max(needed,max(title,detail)+left+(marked(e) ? 20 : 0)+trailing(e)+16)
         }
         return min(296,max(224,ceil(needed/8)*8))
     }
@@ -1311,6 +1338,12 @@ final class Row:NSButton {
         else if let symbol=entry.symbol{glyph=NSImage(systemSymbolName:symbol,accessibilityDescription:nil)}
     }
     required init?(coder:NSCoder){fatalError()}
+    private func drawGlyph(_ glyph:NSImage,x:CGFloat){
+        let rect=NSRect(x:x,y:(bounds.height-14)/2,width:14,height:14)
+        if glyph.isTemplate {
+            let image=NSImage(size:NSSize(width:14,height:14));image.lockFocus();glyph.draw(in:NSRect(x:0,y:0,width:14,height:14));(dark(self) ? NSColor(calibratedWhite:0.9,alpha:1) : NSColor(calibratedWhite:0.18,alpha:1)).setFill();NSRect(x:0,y:0,width:14,height:14).fill(using:.sourceIn);image.unlockFocus();image.draw(in:rect)
+        } else {glyph.draw(in:rect)}
+    }
     @objc private func activate(){invoke?(entry,self)}
     override func viewDidChangeEffectiveAppearance(){super.viewDidChangeEffectiveAppearance();needsDisplay=true}
     override func updateTrackingAreas(){super.updateTrackingAreas();if let tracking{removeTrackingArea(tracking)};tracking=NSTrackingArea(rect:bounds,options:[.mouseEnteredAndExited,.activeAlways,.inVisibleRect],owner:self,userInfo:nil);addTrackingArea(tracking!)}
@@ -1336,12 +1369,9 @@ final class Row:NSButton {
                 if radio {NSBezierPath(ovalIn:box.insetBy(dx:4,dy:4)).fill()}
                 else {let tick=NSBezierPath();tick.move(to:NSPoint(x:box.minX+2.5,y:box.midY));tick.line(to:NSPoint(x:box.minX+5,y:box.maxY-3));tick.line(to:NSPoint(x:box.maxX-2.5,y:box.minY+3));tick.lineWidth=1.5;tick.lineCapStyle = .round;tick.lineJoinStyle = .round;tick.stroke()}
             } else {NSColor.secondaryLabelColor.withAlphaComponent(0.5).setStroke();outline.lineWidth=1;outline.stroke()}
+            if let glyph{drawGlyph(glyph,x:33)}
+        } else if let glyph {drawGlyph(glyph,x:12)}
 
-        } else if let glyph {
-            if glyph.isTemplate {
-                let image=NSImage(size:NSSize(width:14,height:14));image.lockFocus();glyph.draw(in:NSRect(x:0,y:0,width:14,height:14));(dark(self) ? NSColor(calibratedWhite:0.9,alpha:1) : NSColor(calibratedWhite:0.18,alpha:1)).setFill();NSRect(x:0,y:0,width:14,height:14).fill(using:.sourceIn);image.unlockFocus();image.draw(in:NSRect(x:12,y:(bounds.height-14)/2,width:14,height:14))
-            } else {glyph.draw(in:NSRect(x:12,y:(bounds.height-14)/2,width:14,height:14))}
-        }
         let trailing=MenuLayout.trailing(entry),font=MenuLayout.labelFont(entry)
         let color:NSColor=entry.action?.first=="stop" ? .systemRed : (entry.actionable || entry.usageLevel != nil || entry.checked==true ? .labelColor : .secondaryLabelColor)
         let labelWidth=MenuLayout.labelWidth(entry,width:bounds.width,left:left)
@@ -1836,7 +1866,7 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
     private func fillRows(_ entries:[Entry],in content:NSView,y start:CGFloat,width:CGFloat,depth:Int)->CGFloat {
         while rows.count<=depth{rows.append([:])};rows[depth]=[:];var y=start
         for original in entries {var entry=original;if let label=PanelInteraction.runningLabel(entry,active:interaction.active){entry.label=label}
-            let left=MenuLayout.column(entries);entry=MenuLayout.fitted(entry,width:width,left:left);let h=MenuLayout.rowHeight(entry,width:width,left:left)
+            let left=MenuLayout.left(entry,entries);entry=MenuLayout.fitted(entry,width:width,left:left);let h=MenuLayout.rowHeight(entry,width:width,left:left)
             if entry.separator==true {content.addSubview(depth==0 ? Divider(frame:NSRect(x:8,y:y+5,width:width-16,height:2)) : {let line=NSBox(frame:NSRect(x:8,y:y+5,width:width-16,height:1));line.boxType = .separator;return line}())}
             else {let row=Row(entry,frame:NSRect(x:0,y:y,width:width,height:h));row.columnInset=entry.section==true ? 12 : left;row.pointerAllowed={[weak self,weak row] in guard let self,let row else{return false};return self.pointerHits(row)};row.invoke={[weak self] e,r in self?.activate(e,row:r,depth:depth)};row.hover={[weak self] e,r in self?.hover(e,row:r,depth:depth)};content.addSubview(row);rows[depth][entry.key]=row}
             y+=h
@@ -1853,7 +1883,7 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
         let screen=NSScreen.screens.first(where:{$0.frame.contains(anchor)}) ?? NSScreen.main!,width:CGFloat=managerOnly ? 280 : 360,inner=width-16
         let entries=managerOnly ? snapshot.moduleOptions ?? [] : snapshot.entries
         let top:CGFloat=managerOnly ? 49 : (snapshot.dashboard.map{DashboardView.height($0)+8} ?? 36)
-        let body=entries.reduce(CGFloat(0)){$0+MenuLayout.rowHeight($1,width:inner,left:MenuLayout.column(entries))},contentHeight=top+body
+        let body=entries.reduce(CGFloat(0)){$0+MenuLayout.rowHeight($1,width:inner,left:MenuLayout.left($1,entries))},contentHeight=top+body
         let height=min(contentHeight+16,screen.visibleFrame.height-16)
         let surface=Surface(frame:NSRect(x:0,y:0,width:width,height:height),glass:self.snapshot?.appearance != "solid")
         let scroll=ContentScrollView(frame:NSRect(x:8,y:8,width:inner,height:height-16));scroll.drawsBackground=false;scroll.hasVerticalScroller=contentHeight>scroll.frame.height;scroll.scrollerStyle = .overlay
@@ -1953,7 +1983,7 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
         if flyouts.indices.contains(depth),flyouts[depth].key==entry.key{return}
         closeFlyouts(from:depth);row.expanded=true;row.yielded=false
         let window=Panel(contentRect:.zero,styleMask:[.borderless,.nonactivatingPanel],backing:.buffered,defer:false);setup(window);window.setAccessibilityLabel(entry.label)
-        let screen=parent.screen ?? NSScreen.main!,width=MenuLayout.flyoutWidth(entry),body=entry.children.reduce(CGFloat(0)){$0+MenuLayout.rowHeight($1,width:MenuLayout.flyoutWidth(entry)-16,left:MenuLayout.column(entry.children))}
+        let screen=parent.screen ?? NSScreen.main!,width=MenuLayout.flyoutWidth(entry),body=entry.children.reduce(CGFloat(0)){$0+MenuLayout.rowHeight($1,width:MenuLayout.flyoutWidth(entry)-16,left:MenuLayout.left($1,entry.children))}
         let height=min(body+40,screen.visibleFrame.height-16),surface=Surface(frame:NSRect(x:0,y:0,width:width,height:height),glass:self.snapshot?.appearance != "solid")
         let heading=NSTextField(labelWithString:entry.label);heading.font = .systemFont(ofSize:11,weight:.medium);heading.textColor = .secondaryLabelColor;let headingLeft=MenuLayout.column(entry.children)+8;heading.frame=NSRect(x:headingLeft,y:10,width:width-headingLeft-20,height:18);surface.content.addSubview(heading)
         let scroll=ContentScrollView(frame:NSRect(x:8,y:32,width:width-16,height:height-40));scroll.drawsBackground=false;scroll.hasVerticalScroller=body>scroll.frame.height;scroll.scrollerStyle = .overlay

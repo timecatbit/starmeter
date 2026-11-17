@@ -8,7 +8,7 @@ macOS 菜单栏与 Windows 托盘应用：在一个面板里查看各 AI 编程�
 
 ## 能看什么
 
-- **Harness 用量**：Claude（桌面 App 和 VS Code、JetBrains、终端里的 Claude Code）、ChatGPT（Codex）、OpenCodex、Magpie、OpenCode、DeepSeek Harness、WorkBuddy、Qoder CN、Gemini CLI。显示 Token、请求、缓存命中、模型分布和趋势图，并按模型官方价估算 API 等值费用；Qoder CN 套餐请求在本机只记 Credits、不记 Token，卡片按 Credits 显示。范围可选今天、昨天、近 24 小时、近 7/30 天、本周、本月或全部。
+- **Harness 用量**：Claude（桌面 App 和 VS Code、JetBrains、终端里的 Claude Code）、ChatGPT（Codex）、OpenCodex、Magpie、OpenCode、DeepSeek Harness、WorkBuddy、Qoder CN、Gemini CLI、Cursor（桌面版和 Cursor CLI）。显示 Token、请求、缓存命中、模型分布和趋势图，并按模型官方价估算 API 等值费用；Qoder CN 套餐请求在本机只记 Credits、不记 Token，卡片按 Credits 显示。Cursor 不在本机记录 Token，要在它的侧栏勾选“读取 Cursor 用量记录”后，才用本机的 Cursor 登录向 cursor.com 查询本账户的用量记录。范围可选今天、昨天、近 24 小时、近 7/30 天、本周、本月或全部。
 - **订阅**：ChatGPT、Claude、MiniMax 显示已用百分比和重置时间，70% 起变橙、90% 起变红，侧栏还会写出比匀速多用还是少用；Qoder CN 读取 Qoder CN App 本机记录的 Credits 用量（在 App 右下角打开 Credits 用量时更新）；Gemini、Grok、Kimi 可以手动标记。
 - **API**：DeepSeek、Kimi、Grok 显示余额；Qoder CN 用组织 API Key（团队版/企业版）显示组织共享的加购 Credits 余额；Claude 显示本月花费（需要管理员 Key）；ChatGPT、Gemini 可以测试 Key 是否可用。每个 API 可以保存多把 Key（同一把不能重复添加），主页显示合计和 Key 数量，如“余额 ¥12.00 (3)”；同一组织或 Team 的多把 Key 只算一次。
 - **提醒**：订阅窗口用到 90%（可改为 70%、80% 或关闭）时发通知；余额类 API 可以按币种设置余额低于多少时提醒；可选在每周额度快重置却还没怎么用时提醒。
@@ -70,6 +70,7 @@ python3 install.py
 
 - 本机日志只读取，只记录用量数字，不保存对话内容。
 - Key 只保存在本机，文件只有你自己能读，界面上不显示 Key 内容。
+- Cursor 的用量读取默认关闭。开启后只读取本机已保存的 Cursor 登录，令牌只在内存里、只发往 cursor.com 查询本账户的用量记录，不保存、不刷新、不改写。
 - 只向你启用的服务的官方接口查询。另外每天从 GitHub 检查一次价格表和插件新版本，请求不带 Cookie 或任何标识；不需要的话，在 `config.local.sh` 加 `export OCX_PRICING_UPDATES=0` 或 `export OCX_SELF_UPDATES=0` 即可关闭。
 - 费用是按官方 API 价格算出的等值估算，不是你的订阅账单；没有价格的模型只统计 Token，不会凭空填个零。
 

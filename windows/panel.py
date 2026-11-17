@@ -17,7 +17,7 @@ from host import summary_parts
 
 COLORS={'magpie':'#bc860a','opencodex':'#437fc4','claude':'#bd653f','codex':'#a84bca',
         'opencode':'#d4568a','deepseek-harness':'#6555cd','workbuddy':'#ce791c','gemini':'#16979e',
-        'qoder':'#329562'}
+        'qoder':'#329562','cursor':'#56606d'}
 TOTAL='#278980'
 
 
@@ -163,6 +163,17 @@ def star_pixmap(size=64):
 
 def star():
     return QIcon(star_pixmap())
+
+
+def mark(data):
+    """A tool's logo on its card, in the tool's chart colour when the logo is monochrome; a dot without one."""
+    color=COLORS.get(data.get('id'),'#437fc4')
+    if not data.get('image'):
+        dot=label('●');dot.setStyleSheet('color:'+color);return dot
+    pix=icon(dict(data,template=False)).pixmap(16,16)
+    if data.get('template'):
+        p=QPainter(pix);p.setCompositionMode(QPainter.CompositionMode_SourceIn);p.fillRect(pix.rect(),QColor(color));p.end()
+    view=QLabel();view.setPixmap(pix);view.setFixedSize(18,18);return view
 
 
 def icon(entry):
@@ -311,7 +322,7 @@ class Provider(QWidget):
     def __init__(self, data, foldable, expanded, act):
         super().__init__();self.setSizePolicy(QSizePolicy.Preferred,QSizePolicy.Maximum)
         box=QVBoxLayout(self);box.setContentsMargins(0,4,0,4);box.setSpacing(5)
-        line=QHBoxLayout();dot=label('●');dot.setStyleSheet('color:'+COLORS.get(data['id'],'#437fc4'));line.addWidget(dot)
+        line=QHBoxLayout();line.addWidget(mark(data))
         if foldable:
             name=tool(('▾  ' if expanded else '▸  ')+data['name'],data['name'],
                       lambda:act(['set-expanded',data['id'],'false' if expanded else 'true']))
@@ -525,6 +536,7 @@ class TrayPanel(QWidget):
         row=QFrame();row.setObjectName('row');line=QHBoxLayout(row);line.setContentsMargins(4,0,4,0);line.setSpacing(6)
         if 'checked' in e and e.get('action'):
             check=QCheckBox(e['label']);check.setChecked(e['checked'])
+            if e.get('image'):check.setIcon(icon(e))
             args=list(e['action'])
             if args[0]=='set-module':check.clicked.connect(lambda enabled:self.action.emit([*args[:2],str(enabled).lower()]))
             else:check.clicked.connect(lambda:self.action.emit(args))

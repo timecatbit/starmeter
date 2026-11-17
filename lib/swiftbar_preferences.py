@@ -19,6 +19,7 @@ MODULES = (
     ('workbuddy', 'WorkBuddy', 'Harness'),
     ('qoder', 'Qoder CN', 'Harness'),
     ('gemini', 'Gemini CLI', 'Harness'),
+    ('cursor', 'Cursor', 'Harness'),
 ) + tuple((s.key, s.label, s.category) for s in catalog.SERVICES) + (
     ('komari', 'Komari 监控', '其他'),
     ('updates', 'Harness 更新', '其他'),
@@ -30,7 +31,7 @@ KNOWN = {row[0] for row in MODULES}
 # Modules added after release show once for people who keep Summary on; a saved file lists the modules
 # it already knew, so hiding one of these afterwards sticks.
 INTRODUCED = ('heatmap',)
-USAGE = ('opencodex', 'magpie', 'claude', 'codex', 'opencode', 'deepseek-harness', 'workbuddy', 'qoder', 'gemini')
+USAGE = ('opencodex', 'magpie', 'claude', 'codex', 'opencode', 'deepseek-harness', 'workbuddy', 'qoder', 'gemini', 'cursor')
 
 
 def balance_line(value):
@@ -48,7 +49,7 @@ def balance_key(key):
 
 
 def read(directory):
-    defaults = {'schema': 1, 'visible': list(DEFAULT_VISIBLE), 'appearance': 'glass', 'theme': 'system', 'paths': {}, 'allowCollapse': False, 'expandedProviders': [], 'revision': 0, 'configuredSubscriptions': [], 'claudeLiveUsage': False, 'claudeOAuthUsage': False,
+    defaults = {'schema': 1, 'visible': list(DEFAULT_VISIBLE), 'appearance': 'glass', 'theme': 'system', 'paths': {}, 'allowCollapse': False, 'expandedProviders': [], 'revision': 0, 'configuredSubscriptions': [], 'claudeLiveUsage': False, 'claudeOAuthUsage': False, 'cursorUsage': False,
                 'usageAlert': 90, 'resetReminder': False, 'balanceAlerts': {}}
     try:
         value = json.loads((Path(directory) / 'preferences.json').read_text(encoding='utf-8'))
@@ -72,6 +73,7 @@ def read(directory):
         if isinstance(value.get('allowCollapse'),bool):defaults['allowCollapse']=value['allowCollapse']
         if isinstance(value.get('claudeLiveUsage'),bool):defaults['claudeLiveUsage']=value['claudeLiveUsage']
         if isinstance(value.get('claudeOAuthUsage'),bool):defaults['claudeOAuthUsage']=value['claudeOAuthUsage']
+        if isinstance(value.get('cursorUsage'),bool):defaults['cursorUsage']=value['cursorUsage']
         if value.get('usageAlert') in ALERT_LEVELS and not isinstance(value['usageAlert'],bool):defaults['usageAlert']=value['usageAlert']
         if isinstance(value.get('resetReminder'),bool):defaults['resetReminder']=value['resetReminder']
         lines=value.get('balanceAlerts')
@@ -125,6 +127,9 @@ def update(directory, kind, key=None, value=None):
     elif kind == 'claude-oauth':
         if key not in ('true','false'):raise ValueError('invalid Claude OAuth setting')
         current['claudeOAuthUsage']=key=='true'
+    elif kind == 'cursor-usage':
+        if key not in ('true','false'):raise ValueError('invalid Cursor usage setting')
+        current['cursorUsage']=key=='true'
     elif kind == 'usage-alert':
         if key not in [str(level) for level in ALERT_LEVELS]:raise ValueError('invalid usage alert')
         current['usageAlert']=int(key)

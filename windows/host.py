@@ -27,7 +27,7 @@ PORTABLE_ACTIONS = frozenset('''
     set-reset-reminder set-balance-alert set-expanded detect-modules refresh-view refresh-source
     choose-client-home reset-client-connection reveal-client-home set-proxy-address choose-admin-token
     configure-connection clear-connection add-api-key rename-api-key remove-api-key test-api-key
-    auto-source open-settings open-claude set-claude-oauth reauthorize-claude-oauth retry-claude-usage
+    auto-source open-settings open-claude set-claude-oauth set-cursor-usage reauthorize-claude-oauth retry-claude-usage
     update-cli open-cli-update-log reveal-source choose-source set-range refresh check-app-updates
     refresh-monitor check-update update sync account-use account-pause pool-strategy auto-switch
     failover copy-url copy-token open-home logs panel-modules

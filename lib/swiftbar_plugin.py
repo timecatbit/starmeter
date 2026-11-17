@@ -68,6 +68,13 @@ LOGO_DIR = os.path.join(ASSET_DIR, "logos")
 BRAND_LOGOS = {'ChatGPT': ('openai.svg', True), 'Claude': ('claude.svg', False), 'MiniMax': ('minimax.svg', False),
                'Gemini': ('gemini.svg', False), 'Grok': ('grok.svg', True), 'Kimi': ('kimi.svg', True),
                'Qoder CN': ('qoder.svg', True)}
+# Every module's mark in the module list and on its homepage card: the tool's logo where LobeHub has one,
+# a system symbol for the rest (the Windows panel shows only the logos).
+MODULE_LOGOS = {'magpie': ('magpie.svg', True), 'claude': ('claude.svg', False), 'codex': ('openai.svg', True),
+                'opencode': ('opencode.svg', True), 'workbuddy': ('workbuddy.svg', True), 'qoder': ('qoder.svg', True),
+                'gemini': ('gemini.svg', False), 'cursor': ('cursor.svg', True)}
+MODULE_SYMBOLS = {'summary': 'chart.xyaxis.line', 'heatmap': 'square.grid.3x3.fill', 'opencodex': 'network',
+                  'komari': 'server.rack', 'updates': 'arrow.down.circle'}
 
 HOME = os.path.expanduser("~")
 OCX_HOME = os.path.expanduser(os.environ.get("OCX_HOME") or os.path.join(HOME, ".opencodex"))
@@ -108,6 +115,7 @@ import swiftbar_update_channels as update_channels
 import swiftbar_desktop_updates as desktop_updates
 import swiftbar_keys as keystore
 import swiftbar_qoder as qoder
+import swiftbar_cursor as cursor
 import swiftbar_alerts as alerts
 import swiftbar_runtime
 from swiftbar_time import parse_iso
@@ -147,6 +155,7 @@ def source_path(key):
         'qoder': os.environ.get('QODERCN_CONFIG_DIR') or os.path.join(HOME,'.qoder-cn'),
         'gemini': os.environ.get('GEMINI_USAGE_DIR') or os.path.join(HOME,'.gemini'),
         'magpie': str(sources.magpie_root(HOME)),
+        'cursor': str(cursor.app_root(HOME)),
     }
     return os.path.expanduser(custom or defaults.get(key) or '')
 
@@ -522,6 +531,20 @@ def brand_icon(key):
         raw=memoized(('logo',name),lambda:read_logo(os.path.join(LOGO_DIR,name)))
     if raw:return {('templateimage' if template else 'image'):raw,'width':MENU_ICON_SIZE,'height':MENU_ICON_SIZE}
     return {'sfimage':'person.crop.circle' if service.category=='订阅' else 'creditcard'}
+
+
+def module_icon(key):
+    """Panel fields for a module's icon: an image (template when monochrome) or a system symbol."""
+    if key in catalog.BY_KEY:
+        options=brand_icon(key)
+        if 'sfimage' in options:return {'symbol':options['sfimage']}
+        return {'image':options.get('templateimage') or options['image'],'template':'templateimage' in options}
+    raw=None;template=False
+    if key=='deepseek-harness':raw=deepseek_logo_image()
+    elif key in MODULE_LOGOS:
+        name,template=MODULE_LOGOS[key]
+        raw=memoized(('logo',name),lambda:read_logo(os.path.join(LOGO_DIR,name)))
+    return {'image':raw,'template':template} if raw else {'symbol':MODULE_SYMBOLS.get(key,'square.grid.2x2')}
 
 
 def read_logo(path):
@@ -979,17 +1002,18 @@ UPDATE_NAMES = {'opencodex':'OpenCodex', 'claude':'Claude', 'chatgpt':'ChatGPT',
 # Harness choices expand into related app/CLI checks. A configured OpenCodex
 # also includes ChatGPT and Codex without changing homepage selections.
 HARNESS_UPDATES = {'opencodex':'opencodex', 'magpie':'magpie', 'claude':'claude', 'codex':'chatgpt',
-                   'opencode':'opencode', 'deepseek-harness':'deepseek-harness', 'workbuddy':'workbuddy', 'qoder':'qoder', 'gemini':'gemini'}
+                   'opencode':'opencode', 'deepseek-harness':'deepseek-harness', 'workbuddy':'workbuddy', 'qoder':'qoder', 'gemini':'gemini', 'cursor':'cursor'}
 MANUAL_UPDATES = {'magpie':('Magpie','https://github.com/yetone/magpie/releases/latest'),
                   'opencode':('OpenCode','https://opencode.ai'),
                   'deepseek-harness':('DeepSeek Harness','https://github.com/deepseek-ai/deepseek-harness/releases'),
                   'workbuddy':('WorkBuddy','https://cloud.tencent.com/product/workbuddy'),
                   'qoder':('Qoder CN','https://qoder.cn/download'),
-                  'gemini':('Gemini CLI','https://github.com/google-gemini/gemini-cli/releases')}
+                  'gemini':('Gemini CLI','https://github.com/google-gemini/gemini-cli/releases'),
+                  'cursor':('Cursor','https://cursor.com/downloads')}
 UPDATE_NAMES.update({key:value[0] for key,value in MANUAL_UPDATES.items()})
 UPDATE_LINKS.update({key:value[1] for key,value in MANUAL_UPDATES.items()})
 # Desktop apps update themselves: when installed, their rows open the app instead of a download page.
-UPDATE_APPS = {'magpie':('magpie','Magpie'), 'claude':('Claude',), 'chatgpt':('ChatGPT',), 'workbuddy':('WorkBuddy',), 'qoder':('Qoder CN','QoderCN')}
+UPDATE_APPS = {'magpie':('magpie','Magpie'), 'claude':('Claude',), 'chatgpt':('ChatGPT',), 'workbuddy':('WorkBuddy',), 'qoder':('Qoder CN','QoderCN'), 'cursor':('Cursor',)}
 
 def selected_update_ids():
     visible=set(view_settings()['visible'])
@@ -1875,6 +1899,7 @@ def range_usage_cached(key=None):
             try:
                 if source=='opencodex':
                     return ocx_range_usage(key,now) if ocx_configured() else {'error':'未配置 OpenCodex'}
+                if source=='cursor':return cursor_range_usage(key,start,end,now)
                 carriers=gateway_carriers(source,logs)
                 if source=='claude':
                     value,error=claude_usage_live(range_key=key,now=now,carriers=carriers)
@@ -1900,6 +1925,21 @@ def range_usage_cached(key=None):
                 else:bundle[source]=result if result.get('error') else dict(result,readAt=time.time())
         return bundle,None
     return cached_fetch(name,load,refresh_ttl(60))
+
+
+def cursor_range_usage(key,start,end,now):
+    """Cursor's records live on cursor.com: read only after the user turns it on, at most every five minutes
+    per range, and again when the range's first day changes so yesterday's figures never pass for today's."""
+    if not view_settings()['cursorUsage']:return {'error':'未开启用量读取'}
+    name='cursor_usage_'+key;anchor=datetime.fromtimestamp(start,now.tzinfo).date().isoformat()
+    record=read_cache(name);current=(record.get('payload') or {}).get('anchor')==anchor
+    def load():
+        try:return dict(cursor.usage(HOME,start,end,now.tzinfo),anchor=anchor),None
+        except cursor.CursorError as exc:return None,(0,str(exc),None)
+    payload,error=cached_fetch(name,load,refresh_ttl(300) if current else 0)
+    # A failed read reports the reason; the range bundle keeps the last good figures with their own time.
+    if error or not payload or payload.get('anchor')!=anchor:return {'error':str(error[1]) if error else '用量记录暂不可用'}
+    return {k:v for k,v in payload.items() if not k.startswith('_')}
 
 
 def opencodex_endpoint(name):
@@ -2603,6 +2643,7 @@ def module_connections(data=None):
     detected,_=cached_fetch('configured-sources-'+scope,lambda:({'modules':detected_modules()},None),300)
     found=set((detected or {}).get('modules',[]));connections={}
     for key,label,_ in preferences.MODULES:
+        if key=='cursor':connections[key]=cursor_connection_entry(key in found);continue
         if key in preferences.USAGE and key!='opencodex':
             custom=bool(view_settings()['paths'].get('claude-app' if key=='claude' else key))
             configured=key in found or bool(custom and os.path.exists(source_path(key)))
@@ -2636,6 +2677,18 @@ def module_connections(data=None):
     connections['opencodex']=client_connection_entry('opencodex')
     connections['komari']=service_connection_entry('komari')
     return connections
+
+
+def cursor_connection_entry(installed):
+    enabled=view_settings()['cursorUsage']
+    children=[{'label':'读取 Cursor 用量记录','detail':'用本机 Cursor 登录查询 cursor.com，令牌只在内存中使用','checked':enabled,
+               'action':['set-cursor-usage','false' if enabled else 'true'],'children':[]},
+              {'label':'来源 · Cursor 桌面版与 Cursor CLI','children':[]},
+              {'label':'两者同一账户，用量都在账户记录里','children':[]},
+              location_entry('登录来源',[os.path.join(source_path('cursor'),'state.vscdb'),str(cursor.cli_auth(HOME))])]
+    app=update_app_path('cursor')
+    if app:children.append({'label':'打开 Cursor','symbol':'macwindow','href':'file://'+urllib.parse.quote(app),'children':[]})
+    return {'label':'Cursor','value':'已配置' if enabled else '未配置','symbol':'key','children':children}
 
 
 def service_connection_entry(key,data=None):
@@ -2903,7 +2956,7 @@ def module_options(data=None):
             options.append({'label':catalog.GROUP_LABELS.get(category,category),'section':True,'children':[]});group=category
         enabled=key in settings['visible']
         connection=connections.get(key,{})
-        row={'label':label,'checked':enabled,'action':['set-module',key,'false' if enabled else 'true'],'children':connection.get('children',[])}
+        row=dict({'label':label,'checked':enabled,'action':['set-module',key,'false' if enabled else 'true'],'children':connection.get('children',[])},**module_icon(key))
         if connection.get('value'):row['value']=connection['value']
         options.append(row)
     return options
@@ -3368,7 +3421,7 @@ def dashboard_payload(data):
         elif usage.get('refreshError'):status='刷新失败 · 保留原数据'
         elif usage.get('partial'):status='部分记录未读取'
         elif unpriced>=requests and requests and not credits:status='费用待定价'
-        return {'id':pid,'name':label,'subtitle':subtitle,'status':status,'available':available,'credits':credits or None,'clients':client_rows(usage.get('clients')) or None,
+        return {'id':pid,'name':label,**module_icon(pid),'subtitle':subtitle,'status':status,'available':available,'credits':credits or None,'clients':client_rows(usage.get('clients')) or None,
                 'cost':cost,'tokens':total,'requests':requests,'output':number(summary.get('outputTokens')),
                 'cache':min(1,cache/inputs) if inputs else None,'coverage':number(summary.get('coverageRatio')) if summary.get('coverageRatio') is not None else None,
                 'sessions':int(number(summary.get('sessions'))),'unpriced':unpriced,'models':model_rows,'history':history}
@@ -3704,6 +3757,19 @@ def run_action(name, extra):
         invalidate_caches(['claude_subscription'])
         if value=='true':launch_background('--background-refresh-wait')
         else:schedule_background_refresh()
+    elif name == 'set-cursor-usage':
+        value=extra[0] if len(extra)==1 else ''
+        if value not in ('true','false'):raise ValueError('invalid Cursor usage preference')
+        if value=='true' and not view_settings()['cursorUsage']:
+            if not confirm('读取 Cursor 用量记录？','Cursor 不在本机记录 Token。开启后，插件读取 Cursor 桌面版或 Cursor CLI 已保存的登录，只用它向 cursor.com 查询本账户的用量记录（模型、Token 与费用），桌面版和 CLI 的用量都包括在内。\n令牌只在内存中使用，不保存、不刷新、不改写，也不发往其他地址。',accept='开启'):return
+        preferences.update(STATE_DIR,'cursor-usage',value)
+        if value=='true':preferences.update(STATE_DIR,'module','cursor','true')
+        else:
+            for name in [n for n in os.listdir(CACHE_DIR) if n.startswith('cursor_usage_')]:
+                try:os.unlink(os.path.join(CACHE_DIR,name))
+                except OSError:pass
+        invalidate_caches([range_cache_name()])
+        schedule_background_refresh()
     elif name == 'retry-claude-usage':
         if extra or not view_settings()['claudeOAuthUsage']:raise ValueError('invalid Claude refresh action')
         now=time.time()
@@ -3919,7 +3985,7 @@ def consume_panel_action():
                 allowed.append(node["action"])
                 # A persistent picker may queue another click before the previous refresh.
                 candidate=node['action']
-                if len(candidate)==2 and candidate[0] in ('set-collapse','set-reset-reminder'):allowed.extend([[candidate[0],v] for v in ('true','false')])
+                if len(candidate)==2 and candidate[0] in ('set-collapse','set-reset-reminder','set-cursor-usage'):allowed.extend([[candidate[0],v] for v in ('true','false')])
                 if len(candidate)==3 and candidate[0]=='set-module' and candidate[1] in preferences.KNOWN:
                     allowed.extend([['set-module',candidate[1],value] for value in ('true','false')])
             nodes.extend(node.get("children") or [])
