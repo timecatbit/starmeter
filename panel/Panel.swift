@@ -314,7 +314,7 @@ class ShareCard:FlippedView {
         return lines+[current]
     }
     static func title(_ d:Dashboard)->String {
-        ["today":"今日","yesterday":"昨日","24h":"近 24 小时","7d":"近 7 天","30d":"近 30 天","week":"本周","month":"本月","all":"累计"][d.rangeKey].map{$0+" AI 用量"} ?? d.rangeLabel+" AI 用量"
+        ["today":"今天","yesterday":"昨天","24h":"近 24 小时","7d":"近 7 天","30d":"近 30 天","week":"本周","month":"本月","all":"累计"][d.rangeKey].map{$0+" AI 用量"} ?? d.rangeLabel+" AI 用量"
     }
     func measure(_ value:String,_ font:NSFont)->CGFloat {ceil((value as NSString).size(withAttributes:[.font:font]).width)}
     func draw(_ value:String,_ rect:NSRect,_ font:NSFont,_ color:NSColor,_ align:NSTextAlignment = .left){

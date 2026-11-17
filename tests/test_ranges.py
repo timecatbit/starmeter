@@ -33,7 +33,7 @@ class RangeTests(unittest.TestCase):
   self.assertEqual(p['summary']['requests'],2)
   self.assertEqual(sum(h['totalTokens'] for h in p['hours']),p['summary']['totalTokens'])
  def test_yesterday_is_the_whole_previous_local_day_by_the_hour(self):
-  self.assertEqual([r['label'] for r in self.m.range_options('yesterday')][:3],['今日','昨日','近 24 小时'])
+  self.assertEqual([r['label'] for r in self.m.range_options('yesterday')][:3],['今天','昨天','近 24 小时'])
   self.assertTrue(self.m.range_options('yesterday')[1]['checked'])
   # Taipei is UTC+8: yesterday runs from 11-02 16:00Z up to, not including, 11-03 16:00Z.
   self.write('a.jsonl',[self.row('before','2026-11-02T15:59:59Z'),self.row('start','2026-11-02T16:00:00Z'),
@@ -48,7 +48,7 @@ class RangeTests(unittest.TestCase):
   self.m.preferences.write(self.m.STATE_DIR,dict(self.m.view_settings(),visible=['summary','heatmap','claude']))
   with patch.object(self.m,'usage_now',return_value=self.now):
    d=self.m.dashboard_payload({'displayed_range':'yesterday','range_usage':{'range':'yesterday','claude':usage}})
-  self.assertEqual((d['rangeLabel'],d['period'],d['chartUnit'],d['chartPositions']),('昨日',['2026-11-03','2026-11-03'],'每小时',None))
+  self.assertEqual((d['rangeLabel'],d['period'],d['chartUnit'],d['chartPositions']),('昨天',['2026-11-03','2026-11-03'],'每小时',None))
   self.assertEqual((len(d['dates']),d['dates'][0],d['dates'][-1]),(24,'00:00','24:00'))
   history=d['providers'][0]['history'];self.assertEqual((history[0],history[-1],sum(history)),(100,200,300))
   h=d['heatmap']
