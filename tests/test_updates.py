@@ -122,7 +122,7 @@ class UpdateTests(unittest.TestCase):
   sys.path.insert(0,scripts);self.addCleanup(sys.path.remove,scripts)
   spec=importlib.util.spec_from_file_location('package_script',SOURCE.parent/'scripts/package.py')
   package=importlib.util.module_from_spec(spec);spec.loader.exec_module(package)
-  published={name for name,_,_ in package.downloads('99.0.0')}
+  published={name for name,_ in package.downloads('99.0.0')}
   self.assertEqual(len(published),5)
   self.assertIn(self.m.update_asset_name('99.0.0'),published)
   with patch.object(self.m,'DESKTOP',object()):self.assertIn(self.m.update_asset_name('99.0.0'),published)

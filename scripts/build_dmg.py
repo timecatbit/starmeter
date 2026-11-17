@@ -65,7 +65,7 @@ def dmg(output, python, identity, notary):
     arch=platform.machine()
     suffix,chip,volume_name=ARCHES[arch];release=version()
     output.mkdir(parents=True,exist_ok=True)
-    artifact=output/next(file for file,_,_ in downloads(release) if file.endswith(suffix))
+    artifact=output/next(file for file,_ in downloads(release) if file.endswith(suffix))
     with tempfile.TemporaryDirectory(prefix='token-monitor-dmg-') as temp:
         root=Path(temp);volume=root/'volume';volume.mkdir()
         app=build(volume/'Token Monitor.app')

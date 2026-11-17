@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+from urllib.parse import quote
 
 from build import build
 
@@ -27,37 +28,31 @@ def version():
 
 
 def downloads(number):
-    """What a release offers, in the order GitHub lists it (by file name): file, the English label the page
-    shows instead of the name, and one line on who it is for. In-app updates look these names up, and the
-    SwiftBar plugin keeps the short name every installed copy still fetches."""
+    """What a release offers, in the order GitHub lists it (by file name): file and the English label the page
+    shows instead of the name. In-app updates look these names up, and the SwiftBar plugin keeps the short
+    name every installed copy still fetches."""
     name = 'token-monitor-' + number
     return [
-        (name + '-macos-apple-silicon.dmg', 'Mac · Apple Silicon', 'Apple 芯片（M 系列）的 Mac，独立版预览，拖进「应用程序」即可'),
-        (name + '-macos-intel.dmg', 'Mac · Intel', 'Intel 处理器的 Mac，独立版预览，拖进「应用程序」即可'),
-        (name + '-windows-x64-setup.exe', 'Windows · Installer', 'Windows 10/11 推荐，双击安装，不需要管理员权限'),
-        (name + '-windows-x64.zip', 'Windows · Portable', 'Windows 免安装版，完整解压后运行文件夹里的 Token Monitor.exe'),
-        (name + '.zip', 'Mac · SwiftBar plugin', '已经在用 SwiftBar 的 Mac，不分芯片'),
+        (name + '-macos-apple-silicon.dmg', 'Mac · Apple Silicon'),
+        (name + '-macos-intel.dmg', 'Mac · Intel'),
+        (name + '-windows-x64-setup.exe', 'Windows · Installer'),
+        (name + '-windows-x64.zip', 'Windows · Portable'),
+        (name + '.zip', 'Mac · SwiftBar plugin'),
     ]
 
 
 def release_notes(number):
-    """This version's CHANGELOG section, below a short guide to the downloads for the release page."""
-    changes = re.search(r'^## %s\n(.*?)(?=^## |\Z)' % re.escape(number), (ROOT / 'CHANGELOG.md').read_text(), re.M | re.S)
-    if not changes:
+    """Only what someone downloading needs. The changes live in CHANGELOG.md and the full download guide in
+    the README; the release links to both, pinned to this tag, instead of repeating them."""
+    if not re.search(r'^## %s$' % re.escape(number), (ROOT / 'CHANGELOG.md').read_text(), re.M):
         raise SystemExit('CHANGELOG.md has no section for ' + number)
-    base = '%s/releases/download/v%s/' % (REPOSITORY, number)
-    # The link reads as the asset list below does, so each row points at a name the reader can find there.
-    rows = ''.join('| [%s](%s) | %s |\n' % (label, base + file, note) for file, label, note in downloads(number))
-    guide = ('## 该下载哪个？\n\n'
-             '| 下载 | 适合 |\n| --- | --- |\n' + rows + '\n'
-             '**Mac 选哪个芯片**：点屏幕左上角的苹果菜单 → 关于本机，显示「芯片：Apple M…」选 Apple Silicon，显示「处理器：Intel…」选 Intel。只下载一个。\n\n'
-             '**SwiftBar 插件**：解压后进入目录运行 `python3 install.py`。已经装了插件的，在面板「Harness 更新」下点'
-             '「更新到 %s」即可。\n\n'
-             '**Mac 独立版预览未做 Apple 公证**。首次打开被拦时，确认文件来自本发布页，再到「系统设置 → 隐私与安全性 → 仍要打开」。'
-             '公司管理的 Mac 可能不允许放行。\n\n'
-             '下方附件列表里，每个文件旁的 `sha256:` 就是它的校验值，不用另外下载。\n\n'
-             '## 本版变化\n\n' % number)
-    return guide + changes.group(1).strip() + '\n'
+    tree = '%s/blob/v%s/' % (REPOSITORY, number)
+    # GitHub drops the dots from a heading's anchor: "## 5.23.0" becomes #5230.
+    return ('在下方附件中选一个文件：Mac 按芯片选 **Mac · Apple Silicon** 或 **Mac · Intel**，Windows 推荐 **Windows · Installer**，'
+            '已经在用 SwiftBar 的选 **Mac · SwiftBar plugin**。怎么选、怎么安装见 [下载与安装](%sREADME.md#%s)。\n\n'
+            'Mac 独立版预览未做 Apple 公证，首次打开被拦时到「系统设置 → 隐私与安全性 → 仍要打开」。\n\n'
+            '本版改动见 [更新记录](%sCHANGELOG.md#%s)。\n'
+            % (tree, quote('下载与安装'), tree, number.replace('.', '')))
 
 
 def verify(archive, name):
@@ -108,7 +103,7 @@ def main():
     verify(archive, name)
     (output / 'release-notes.md').write_text(notes)
     # What the publish step uploads, as gh's file#label arguments.
-    (output / 'release-assets.txt').write_text(''.join('%s#%s\n' % (file, label) for file, label, _ in downloads(number)))
+    (output / 'release-assets.txt').write_text(''.join('%s#%s\n' % (file, label) for file, label in downloads(number)))
     print(archive)
 
 

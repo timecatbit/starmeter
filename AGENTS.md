@@ -59,7 +59,7 @@
 - 动作通过 `panel-action.json` → SwiftBar 刷新 → 白名单执行 → 回执传递。不要从原生面板直接运行插件脚本，以免触发 Documents/TCC 访问问题。
 - 保存回执携带不含目录/凭据的显示偏好及版本号，旧数据刷新不能覆盖已保存的选择；连续点击按顺序应用，后台检查期间不能静默丢弃用户动作。
 - 菜单展开期间不得重建范围下拉控件。只在跟踪结束后更新布局。
-- CHANGELOG 每个版本只写用户能感知的关键变化，一条一句、最多约 8 条；它就是 GitHub Release 的说明，实现细节留在提交记录里。
+- CHANGELOG 每个版本只写用户能感知的关键变化，一条一句、最多约 8 条，实现细节留在提交记录里。更新内容只写在 CHANGELOG：GitHub Release 说明由 `scripts/package.py` 的 `release_notes` 生成，只有三行关键信息（选哪个附件、未公证时如何放行、本版改动见更新记录），链接到该标签下 README 的“下载与安装”和 CHANGELOG 的该版本，不重复更新内容和下载表。
 - 发布前另用较新的 Python（如 Homebrew 的 3.14）再跑一遍 `scripts/check.py`：GitHub 发布机用最新 Python，3.11 起关闭连接不再重置未读完的 SQLite 游标，出错路径必须显式关闭游标或回滚。
 - 使用 `python3 scripts/check.py` 验证，它同时扫描 `lib/`、`scripts/` 中未被引用的函数与导入。改动 Swift 代码时运行 `scripts/build.py`。
 - 插件主体在 `lib/swiftbar_plugin.py`，`token-monitor.30s.sh`（SwiftBar 中名为 token-monitor，元数据作者 minicoke、GitHub 指向本仓库）只加载配置并启动；不要把 Python 重新内嵌进入口脚本。菜单渲染只读缓存，网络请求与日志索引放在后台进程；一次渲染内的偏好与本机元数据使用同一份快照。
@@ -81,4 +81,4 @@
 
 
 - macOS 独立版使用同一 AppKit 面板和 Python 数据后端；宿主自己提供星星、登录项和通知，不能触发 SwiftBar URL；首次启动请求一次通知权限（用户答复后系统不再询问），右键菜单在未授权时写“开启系统通知…”、已授权时写“通知设置…”，答复过的情况打开系统的通知设置。两版可复用用户配置和 Key，但快照、锁和动作回执必须在不同缓存目录。独立版已有的 Claude 本机回传可读或关闭；不要新写指向可移走 App bundle 的状态栏命令。
-- macOS 独立版分别构建 Apple 芯片 arm64 和 Intel x64 DMG，每包内置对应架构的可移植 Python。发布页顶部使用按系统与芯片排列的下载表，DMG 内写明机型、拖拽安装和公证状态。附件的文件名、页面标签（GitHub 显示标签而不是文件名，按文件名排序）和下载表都来自 `scripts/package.py` 的 `downloads`：文件名统一为 `token-monitor-<版本>-macos-apple-silicon.dmg`、`-macos-intel.dmg`、`-windows-x64-setup.exe`、`-windows-x64.zip`，标签只用英文、写“系统 · 芯片/形式”（如 `Mac · Apple Silicon`、`Windows · Installer`），仓库与 DMG 里的文件名也不用中文；SwiftBar 插件永远是 `token-monitor-<版本>.zip`（所有已安装的插件按这个名字自更新）。改名必须同步 `update_asset_name`，旧版本按旧名找更新。构建只在确认签名身份和公证资料时做 Developer ID 公证，未公证包不得宣称已公证。
+- macOS 独立版分别构建 Apple 芯片 arm64 和 Intel x64 DMG，每包内置对应架构的可移植 Python。按系统与芯片排列的下载表放在 README 的“下载与安装”，DMG 内写明机型、拖拽安装和公证状态。附件的文件名和页面标签（GitHub 显示标签而不是文件名，按文件名排序）都来自 `scripts/package.py` 的 `downloads`：文件名统一为 `token-monitor-<版本>-macos-apple-silicon.dmg`、`-macos-intel.dmg`、`-windows-x64-setup.exe`、`-windows-x64.zip`，标签只用英文、写“系统 · 芯片/形式”（如 `Mac · Apple Silicon`、`Windows · Installer`），仓库与 DMG 里的文件名也不用中文；SwiftBar 插件永远是 `token-monitor-<版本>.zip`（所有已安装的插件按这个名字自更新）。改名必须同步 `update_asset_name`，旧版本按旧名找更新。构建只在确认签名身份和公证资料时做 Developer ID 公证，未公证包不得宣称已公证。
