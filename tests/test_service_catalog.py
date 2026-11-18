@@ -33,11 +33,12 @@ class CatalogTests(unittest.TestCase):
         target=path/'preferences.json';target.write_text(json.dumps(original));before=target.read_bytes()
         value=preferences.read(path)
         # The usage heatmap is new, so it shows once next to Summary.
-        self.assertEqual(value['visible'],['summary','heatmap','chatgpt','claude']);self.assertNotIn('chatgptSource',value)
+        # Active sessions appear once for someone who shows Claude.
+        self.assertEqual(value['visible'],['summary','heatmap','sessions','chatgpt','claude']);self.assertNotIn('chatgptSource',value)
         self.assertEqual(value['paths'],original['paths']);self.assertEqual(value['expandedProviders'],['claude'])
         self.assertEqual(target.read_bytes(),before) # Reading migration never rewrites user files.
         preferences.update(path,'module','kimi-api','true')
-        self.assertEqual(set(preferences.read(path)['visible']),{'summary','heatmap','chatgpt','claude','kimi-api'})
+        self.assertEqual(set(preferences.read(path)['visible']),{'summary','heatmap','sessions','chatgpt','claude','kimi-api'})
     def test_both_legacy_quotas_merge_once(self):
         path=Path(self.m.STATE_DIR);path.mkdir()
         (path/'preferences.json').write_text(json.dumps({'schema':1,'visible':['codex-quota','chatgpt']}))

@@ -21,6 +21,7 @@ MODULES = (
     ('gemini', 'Gemini CLI', 'Harness'),
     ('cursor', 'Cursor', 'Harness'),
 ) + tuple((s.key, s.label, s.category) for s in catalog.SERVICES) + (
+    ('sessions', '活跃会话', '其他'),
     ('komari', 'Komari 监控', '其他'),
     ('updates', 'Harness 更新', '其他'),
 )
@@ -30,11 +31,13 @@ THEMES = ('system', 'light', 'dark')  # The panel follows macOS/Windows, or stay
 GROUPINGS = ('tool', 'model', 'project')
 # Beside the menu bar star: nothing (the default), today's API-equivalent estimate, or the tightest subscription window.
 MENU_BAR = ('none', 'cost', 'quota')
-DEFAULT_VISIBLE = ['summary', 'heatmap', 'opencodex', 'claude', 'deepseek', 'chatgpt', 'komari', 'updates']
+DEFAULT_VISIBLE = ['summary', 'heatmap', 'opencodex', 'claude', 'deepseek', 'chatgpt', 'sessions', 'komari', 'updates']
 KNOWN = {row[0] for row in MODULES}
 # Modules added after release show once for people who keep Summary on; a saved file lists the modules
 # it already knew, so hiding one of these afterwards sticks.
-INTRODUCED = ('heatmap',)
+INTRODUCED = ('heatmap', 'sessions')
+# A new module that only means something beside these is introduced only to those who show one of them.
+INTRODUCED_WITH = {'sessions': ('claude', 'codex')}
 USAGE = ('opencodex', 'magpie', 'claude', 'codex', 'opencode', 'deepseek-harness', 'workbuddy', 'qoder', 'gemini', 'cursor')
 
 
@@ -62,7 +65,7 @@ def balance_key(key):
 
 def read(directory):
     defaults = {'schema': 1, 'visible': list(DEFAULT_VISIBLE), 'appearance': 'glass', 'theme': 'system', 'paths': {}, 'allowCollapse': False, 'expandedProviders': [], 'revision': 0, 'configuredSubscriptions': [], 'claudeLiveUsage': False, 'claudeOAuthUsage': False, 'cursorUsage': False,
-                'usageAlert': 90, 'resetReminder': False, 'balanceAlerts': {}, 'keepCleanedUsage': True, 'subscriptionPrices': {}, 'groupBy': 'tool', 'menuBar': 'none'}
+                'usageAlert': 90, 'resetReminder': False, 'balanceAlerts': {}, 'keepCleanedUsage': True, 'subscriptionPrices': {}, 'groupBy': 'tool', 'menuBar': 'none', 'sessionAlerts': False}
     try:
         value = json.loads((Path(directory) / 'preferences.json').read_text(encoding='utf-8'))
         if not isinstance(value, dict) or value.get('schema') != 1:
@@ -72,7 +75,8 @@ def read(directory):
             # The ChatGPT subscription source now follows the OpenCodex selection; no separate choice.
             defaults['visible'] = list(dict.fromkeys('chatgpt' if v == 'codex-quota' else v for v in visible if v in KNOWN or v == 'codex-quota'))
             known = value.get('modules') if isinstance(value.get('modules'), list) else []
-            new = [k for k in INTRODUCED if k not in known and k not in defaults['visible'] and 'summary' in defaults['visible']]
+            new = [k for k in INTRODUCED if k not in known and k not in defaults['visible'] and 'summary' in defaults['visible']
+                   and any(v in defaults['visible'] for v in INTRODUCED_WITH.get(k, defaults['visible']))]
             if new:
                 at = defaults['visible'].index('summary') + 1
                 defaults['visible'][at:at] = new
@@ -91,6 +95,7 @@ def read(directory):
         if isinstance(value.get('keepCleanedUsage'),bool):defaults['keepCleanedUsage']=value['keepCleanedUsage']
         if value.get('groupBy') in GROUPINGS:defaults['groupBy']=value['groupBy']
         if value.get('menuBar') in MENU_BAR:defaults['menuBar']=value['menuBar']
+        if isinstance(value.get('sessionAlerts'),bool):defaults['sessionAlerts']=value['sessionAlerts']
         prices=value.get('subscriptionPrices')
         if isinstance(prices,dict):
             defaults['subscriptionPrices']={k:v for k,v in prices.items() if k in catalog.SUBSCRIPTION_USAGE and monthly_price(v)}
@@ -157,6 +162,9 @@ def update(directory, kind, key=None, value=None):
     elif kind == 'keep-usage':
         if key not in ('true','false'):raise ValueError('invalid keep usage setting')
         current['keepCleanedUsage']=key=='true'
+    elif kind == 'session-alerts':
+        if key not in ('true','false'):raise ValueError('invalid session alert setting')
+        current['sessionAlerts']=key=='true'
     elif kind == 'menu-bar':
         if key not in MENU_BAR:raise ValueError('invalid menu bar value')
         current['menuBar']=key

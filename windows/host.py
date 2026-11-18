@@ -24,7 +24,7 @@ OVERRIDE_NAMES = frozenset(
 )
 PORTABLE_ACTIONS = frozenset('''
     set-module set-appearance set-theme reset-modules set-subscription set-collapse set-usage-alert
-    set-reset-reminder set-keep-usage set-balance-alert set-subscription-price set-expanded detect-modules refresh-view refresh-source
+    set-reset-reminder set-keep-usage set-session-alerts set-balance-alert set-subscription-price set-expanded detect-modules refresh-view refresh-source
     choose-client-home reset-client-connection reveal-client-home set-proxy-address choose-admin-token
     configure-connection clear-connection add-api-key rename-api-key remove-api-key test-api-key
     auto-source open-settings open-claude set-claude-oauth set-cursor-usage reauthorize-claude-oauth retry-claude-usage

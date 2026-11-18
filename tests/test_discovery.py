@@ -97,6 +97,12 @@ class DiscoveryTests(unittest.TestCase):
         state=self.home/'state';self.assertTrue(discovery.initialize(state,['summary','workbuddy','updates']))
         self.assertEqual(preferences.read(state)['visible'],['summary','heatmap','workbuddy','updates'])
         self.assertEqual((state/'preferences.json').stat().st_mode&0o777,0o600)
+    def test_active_sessions_come_with_claude_or_chatgpt_only(self):
+        state=self.home/'state';self.assertTrue(discovery.initialize(state,['summary','claude','updates']))
+        self.assertIn('sessions',preferences.read(state)['visible'])
+        (self.home/'.claude/projects/p').mkdir(parents=True);(self.home/'.claude/projects/p/a.jsonl').write_text('{}\n')
+        self.assertIn('sessions',discovery.detect({},self.home,which=lambda name:None,app_roots=[]))
+        self.assertNotIn('sessions',discovery.detect({},self.home/'empty',which=lambda name:None,app_roots=[]))
     def test_installed_client_can_be_selected_before_first_session(self):
         app=self.home/'Applications/WorkBuddy.app';app.mkdir(parents=True)
         found=discovery.detect({},self.home,which=lambda name:'/test/gemini' if name=='gemini' else None,app_roots=[app.parent])

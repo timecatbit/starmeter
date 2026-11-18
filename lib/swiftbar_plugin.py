@@ -121,6 +121,7 @@ import swiftbar_cursor as cursor
 import swiftbar_alerts as alerts
 import swiftbar_archive as usage_archive_store
 import swiftbar_export as usage_export
+import swiftbar_sessions as live_sessions
 import swiftbar_runtime
 from swiftbar_time import parse_iso
 
@@ -200,7 +201,7 @@ UPDATE_STATUS_CACHE = os.path.join(CACHE_DIR, "badge.json")
 # OpenCodex management endpoints are polled in the background; the health check gates the rest.
 OPENCODEX_ENDPOINTS = {"healthz": ("/healthz", False), "ready": ("/readyz", False), "quota": ("/api/codex-auth/quota", True),
                        "accounts": ("/api/codex-auth/accounts", True), "active": ("/api/codex-auth/active", True)}
-EXTERNAL_TTLS = {"provider_quotas": 300, "badge": 3600, "komari": 30, "app_updates": 21600, "self_update": 21600, "chatgpt": 300, "grok": 300, "minimax": 300, "kimi-api": 300, "qoder-api": 300, "claude-api": 1800, "claude_subscription":60, "qoder_subscription":60, "cursor_subscription":300}
+EXTERNAL_TTLS = {"provider_quotas": 300, "badge": 3600, "komari": 30, "app_updates": 21600, "self_update": 21600, "chatgpt": 300, "grok": 300, "minimax": 300, "kimi-api": 300, "qoder-api": 300, "claude-api": 1800, "claude_subscription":60, "qoder_subscription":60, "cursor_subscription":300, "sessions":30}
 # Provider accounts read with the user's own key: Grok/Kimi balances, the MiniMax plan and Claude API spend.
 ACCOUNT_SOURCES = ('grok', 'minimax', 'kimi-api', 'qoder-api', 'claude-api')
 # APIs whose named extra keys are queried one by one, each in its own cache.
@@ -2076,6 +2077,7 @@ def external_loaders():
     if module_enabled('updates') and live_app_update_ids():loaders['app_updates']=app_updates_cached
     if os.environ.get('OCX_SELF_UPDATES')!='0':loaders['self_update']=lambda:cached_fetch('self_update',self_update_load,EXTERNAL_TTLS['self_update'])
     if module_enabled('claude-subscription'):loaders['claude_subscription']=claude_subscription_cached
+    if module_enabled('sessions'):loaders['sessions']=sessions_cached
     if module_enabled('cursor-subscription') and view_settings()['cursorUsage']:
         def load_cursor_plan():
             try:return cursor.plan(HOME),None
@@ -2102,7 +2104,7 @@ def named_key_loaders():
 
 
 # Only these visible resources can request an immediate read from a flyout.
-RESOURCE_CACHES={'deepseek':'provider_quotas','chatgpt':'chatgpt','grok':'grok','minimax':'minimax','kimi-api':'kimi-api','qoder-api':'qoder-api','claude-api':'claude-api','komari':'komari','updates':'app_updates','claude-subscription':'claude_subscription','qoder-subscription':'qoder_subscription','cursor-subscription':'cursor_subscription','opencodex':'opencodex'}
+RESOURCE_CACHES={'deepseek':'provider_quotas','chatgpt':'chatgpt','grok':'grok','minimax':'minimax','kimi-api':'kimi-api','qoder-api':'qoder-api','claude-api':'claude-api','komari':'komari','updates':'app_updates','claude-subscription':'claude_subscription','qoder-subscription':'qoder_subscription','cursor-subscription':'cursor_subscription','opencodex':'opencodex','sessions':'sessions'}
 
 def resource_cache_names(source,loaders):
     if source=='opencodex':
@@ -2553,6 +2555,42 @@ def komari_expiry(row):
         return "未设置", None
 
 
+def sessions_cached():
+    """Claude Code and Codex sessions running or waiting now; with the alert on, one that has just finished its turn is told of."""
+    previous=(read_cache('sessions').get('payload') or {}).get('sessions')
+    def load():
+        now=time.time()
+        found=live_sessions.active(claude_desktop.project_roots(HOME),chatgpt_home(),now)
+        if view_settings()['sessionAlerts']:
+            for s in live_sessions.newly_waiting(previous,found,now)[:3]:
+                post_notice('会话等待输入','%s · %s 这一轮已完成'%(s['tool'],s['project'] or '未知项目'))
+        return {'sessions':found},None
+    return cached_fetch('sessions',load,refresh_ttl(EXTERNAL_TTLS['sessions']))
+
+
+def sessions_lines(data):
+    """活跃会话: how many Claude Code and Codex sessions are running or waiting for input, each in the sidebar."""
+    payload=data.get('sessions') or {};found=payload.get('sessions');error=data.get('sessions_error')
+    if found is None:badge='读取失败' if refresh_failed(error) else '待同步'
+    else:
+        running=sum(s['state']=='running' for s in found);waiting=len(found)-running
+        badge=' · '.join(part for part in (('%d 运行中'%running) if running else '',('%d 等待输入'%waiting) if waiting else '') if part) or '没有活跃会话'
+    lines=[item('活跃会话',badge=badge,sfimage='terminal')]
+    for s in found or []:
+        ago=max(0,int(time.time()-s['at']))
+        detail=' · '.join(part for part in (model_title(model_key(s['model'])) if s.get('model') else '',
+                                              '上下文已用 %d%%'%round(100*s['context']) if s.get('context') is not None else '',
+                                              '刚刚' if ago<60 else '%d 分钟前'%(ago//60)) if part)
+        lines.append(item('%s · %s'%(s['project'] or '未知项目',s['tool']),level=1,badge='运行中' if s['state']=='running' else '等待输入',
+                          paneldetail=detail,panelstatus='new' if s['state']=='running' else 'ok'))
+    if found is not None and not found:lines.append(item('最近半小时没有 Claude Code 或 Codex 会话',level=1,color=MUTED,size=11))
+    lines.append('-----')
+    alerts_on=view_settings()['sessionAlerts']
+    lines.append(item('等待输入时提醒',level=1,sfimage='bell',checked=alerts_on,paneldetail='运行中的会话这一轮完成时发通知',
+                      **act('set-session-alerts','false' if alerts_on else 'true')))
+    return lines
+
+
 def komari_lines(data):
     if not KOMARI_BASE_URL:
         return [item("Komari 监控",badge="未配置",sfimage="server.rack"),
@@ -2640,7 +2678,9 @@ def unfiltered_management_lines(data):
             if error and (not isinstance(error,(list,tuple)) or refresh_failed(error)):
                 status=status+' · 本次读取失败' if payload.get('_fetchedAt') else '读取失败'
             children.append(item(label,badge=status,color=MUTED,size=11))
-    lines.extend(nest(children));lines.extend(komari_lines(data));lines.extend(app_update_lines(data));lines.extend(self_update_lines(data));lines.append('---')
+    lines.extend(nest(children))
+    if module_enabled('sessions'):lines.extend(sessions_lines(data))
+    lines.extend(komari_lines(data));lines.extend(app_update_lines(data));lines.extend(self_update_lines(data));lines.append('---')
     lines.append(item('刷新数据',sfimage='arrow.clockwise',**act('refresh')))
     return lines
 
@@ -3758,7 +3798,7 @@ def resource_panel_entries(data):
         if entry.get('separator'):continue
         label=entry['label'];service=services.get(label)
         source=service.key if service else ('komari' if label.startswith('Komari 监控') else 'updates' if label=='Harness 更新'
-            else 'opencodex' if label.startswith('OpenCodex 管理') else None)
+            else 'sessions' if label=='活跃会话' else 'opencodex' if label.startswith('OpenCodex 管理') else None)
         if entry.get('children') and resource_cache_names(source,loaders):
             entry['onOpenAction']=['refresh-source',source]
         # Refresh sits beside Summary; SwiftBar's own submenu covers its housekeeping.
@@ -4115,6 +4155,9 @@ def run_action(name, extra):
     elif name == "export-usage":
         if len(extra)!=1:raise ValueError('invalid export')
         export_usage(extra[0])
+    elif name == "set-session-alerts":
+        if len(extra)!=1:raise ValueError('invalid session alert setting')
+        preferences.update(STATE_DIR,'session-alerts',extra[0])
     elif name == "set-menu-bar":
         key=extra[0] if len(extra)==1 else ''
         if key not in preferences.MENU_BAR:raise ValueError('invalid menu bar value')
@@ -4275,7 +4318,7 @@ def consume_panel_action():
                 allowed.append(node["action"])
                 # A persistent picker may queue another click before the previous refresh.
                 candidate=node['action']
-                if len(candidate)==2 and candidate[0] in ('set-collapse','set-reset-reminder','set-cursor-usage','set-keep-usage'):allowed.extend([[candidate[0],v] for v in ('true','false')])
+                if len(candidate)==2 and candidate[0] in ('set-collapse','set-reset-reminder','set-cursor-usage','set-keep-usage','set-session-alerts'):allowed.extend([[candidate[0],v] for v in ('true','false')])
                 if len(candidate)==3 and candidate[0]=='set-module' and candidate[1] in preferences.KNOWN:
                     allowed.extend([['set-module',candidate[1],value] for value in ('true','false')])
             nodes.extend(node.get("children") or [])
