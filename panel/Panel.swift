@@ -1677,7 +1677,6 @@ final class Row:NSButton {
     var yielded=false {didSet{if yielded != oldValue{needsDisplay=true}}}
     var columnInset:CGFloat=12
     var carded=false {didSet{needsDisplay=true}}
-    var divider=false {didSet{needsDisplay=true}}
     private(set) var configurationClick=false
     private var hovering=false;private var tracking:NSTrackingArea?;private var glyph:NSImage?
     init(_ entry:Entry,frame:NSRect){
@@ -1789,7 +1788,6 @@ final class Row:NSButton {
         }
         if let detail=entry.detail {MenuLayout.draw(detail,in:NSRect(x:left,y:top+titleHeight+(gauge ? 8 : 0)+3,width:bounds.width-left-trailing,height:detailHeight),font:MenuLayout.detailFont,color:.secondaryLabelColor)}
 
-        if divider {CardView.hairline(in:self,from:left)}
         if !entry.children.isEmpty{let p=NSBezierPath();p.move(to:NSPoint(x:bounds.width-19,y:line-4));p.line(to:NSPoint(x:bounds.width-15,y:line));p.line(to:NSPoint(x:bounds.width-19,y:line+4));p.lineWidth=1.2;p.lineJoinStyle = .round;p.lineCapStyle = .round;NSColor.labelColor.setStroke();p.stroke()}
     }
 }
@@ -1989,7 +1987,6 @@ final class DetailRow:NSButton {
     var invoke:((DetailRow)->Void)?
     // The row's action is running: a spinner stands in its figure until the result arrives.
     var busy=false {didSet{if busy != oldValue{showBusy()}}}
-    var divider=false {didSet{if divider != oldValue{needsDisplay=true}}}
     private var spinner:NSProgressIndicator?
     // A switch's knob, 0 off to 1 on; it slides as soon as the switch is clicked.
     private var knob:CGFloat=0;private var knobTimer:Timer?
@@ -2126,31 +2123,11 @@ final class DetailRow:NSButton {
             }
         }
         if let rect=layout.detail,let text=e.detail {MenuLayout.draw(text,in:rect,font:DetailStyle.detailFont,color:.secondaryLabelColor)}
-        if divider {CardView.hairline(in:self,from:layout.title.minX)}
         if e.children.isEmpty,e.href != nil,let arrow=NSImage(systemSymbolName:"arrow.up.right",accessibilityDescription:nil)?.withSymbolConfiguration(.init(pointSize:9,weight:.semibold)) {
             let rect=NSRect(x:bounds.width-DetailStyle.inset-10,y:mid-5,width:10,height:10)
             let tinted=NSImage(size:rect.size);tinted.lockFocus();arrow.draw(in:NSRect(origin:.zero,size:rect.size));NSColor.tertiaryLabelColor.set();NSRect(origin:.zero,size:rect.size).fill(using:.sourceIn);tinted.unlockFocus()
             tinted.draw(in:rect)
         }
-    }
-}
-
-// A group of rows on a card of its own, as magpie lays out its panel: a faintly lighter rounded block, rows inside
-// divided by hairlines, groups apart by a gap instead of a rule.
-final class CardView:NSView {
-    override var isFlipped:Bool{true}
-    override init(frame:NSRect){super.init(frame:frame);wantsLayer=true;layerContentsRedrawPolicy = .duringViewResize}
-    required init?(coder:NSCoder){fatalError()}
-    override func viewDidChangeEffectiveAppearance(){super.viewDidChangeEffectiveAppearance();needsDisplay=true}
-    override func draw(_ dirtyRect:NSRect){
-        let night=dark(self),shape=NSBezierPath(roundedRect:bounds.insetBy(dx:0.5,dy:0.5),xRadius:10,yRadius:10)
-        (night ? NSColor.white.withAlphaComponent(0.05) : NSColor.white.withAlphaComponent(0.7)).setFill();shape.fill()
-        NSColor.separatorColor.withAlphaComponent(night ? 0.55 : 0.4).setStroke();shape.lineWidth=0.5;shape.stroke()
-    }
-    // A hairline between two rows of a card, from the text column to the right edge.
-    static func hairline(in view:NSView,from x:CGFloat){
-        NSColor.separatorColor.withAlphaComponent(dark(view) ? 0.7 : 0.55).setFill()
-        NSRect(x:x,y:view.bounds.height-0.5,width:view.bounds.width-x-8,height:0.5).fill()
     }
 }
 
@@ -2226,7 +2203,7 @@ final class DetailView:FlippedView {
     var chose:((Entry)->Void)?
     var resized:((CGFloat,Bool)->Void)?
     var toggled:((Set<String>)->Void)?
-    private var views:[String:NSView]=[:],cards:[CardView]=[]
+    private var views:[String:NSView]=[:]
     init(_ entries:[Entry],width:CGFloat,open:Set<String>,busy:[String]?=nil){
         self.entries=entries;self.open=open;self.busy=busy
         super.init(frame:NSRect(x:0,y:0,width:width,height:0))
@@ -2270,7 +2247,7 @@ final class DetailView:FlippedView {
         switch item {
         case .row(let e,let depth,let aligned):return DetailStyle.layout(e,depth:depth,width:bounds.width,aligned:aligned).height
         case .section:return 28
-        case .rule(let depth):return depth==0 ? 10 : 13
+        case .rule:return 13
         case .segments:return DetailSegments.height+12
         }
     }
@@ -2285,7 +2262,6 @@ final class DetailView:FlippedView {
             let label=NSTextField(labelWithString:e.label);label.font=DetailStyle.sectionFont;label.textColor = .secondaryLabelColor
             label.frame=frame.insetBy(dx:0,dy:0);label.frame.origin.x=DetailStyle.left(depth:depth);label.frame.origin.y=frame.minY+11;label.frame.size.height=15
             let box=FlippedView(frame:frame);label.frame.origin.y=11;box.addSubview(label);return box
-        case .rule(let depth) where depth==0:return FlippedView(frame:frame)
         case .rule(let depth):
             let box=FlippedView(frame:frame),line=NSBox(frame:NSRect(x:DetailStyle.left(depth:depth),y:6,width:frame.width-DetailStyle.left(depth:depth)-DetailStyle.inset,height:1));line.boxType = .separator;box.addSubview(line);return box
         case .segments(let list,let depth):
@@ -2315,31 +2291,12 @@ final class DetailView:FlippedView {
         let gone=views.filter{!keep.contains($0.key)}
         for key in gone.keys {views[key]=nil}
         let height=ceil(y)
-        // Cards: runs of items between top-level gaps and section titles; hairlines between their top-level rows.
-        // A segmented control on its own stands on the page, as a tab bar does, without a card around it.
-        var groups:[NSRect]=[],current:NSRect?,previousRow:DetailRow?,bare=true
-        var placed=0.0 as CGFloat
-        func close(){if let c=current,!bare{groups.append(c)};current=nil;previousRow=nil;bare=true}
-        for (id,item) in list {
-            let h=size(item),frame=NSRect(x:0,y:placed,width:bounds.width,height:h);placed+=h
-            let gap:Bool={switch item {case .rule(let d):return d==0;case .section(_,let d):return d==0;default:return false}}()
-            if gap {close();continue}
-            if case .segments(_,0)=item {} else {bare=false}
-            current=current.map{$0.union(frame)} ?? frame
-            if case .row(_,let depth,_)=item,let row=views[id] as? DetailRow {
-                if depth==0 {previousRow?.divider=true;row.divider=false;previousRow=row} else {previousRow?.divider=false;previousRow=nil}
-            } else {previousRow?.divider=false;previousRow=nil}
-        }
-        close()
-        while cards.count<groups.count {let card=CardView(frame:groups[cards.count]);addSubview(card,positioned:.below,relativeTo:nil);cards.append(card)}
-        while cards.count>groups.count {cards.removeLast().removeFromSuperview()}
         if motion {
             if height>frame.height {setFrameSize(NSSize(width:bounds.width,height:height))}
             resized?(height,true)
             NSAnimationContext.runAnimationGroup({context in
                 context.duration=0.26;context.timingFunction=CAMediaTimingFunction(controlPoints:0.22,1,0.36,1);context.allowsImplicitAnimation=true
                 for (view,frame) in moves {view.animator().frame=frame}
-                for (card,frame) in zip(self.cards,groups) {card.animator().frame=frame}
                 for view in fresh {view.animator().alphaValue=1}
                 for view in gone.values {view.animator().alphaValue=0}
             },completionHandler:{[weak self] in
@@ -2348,7 +2305,6 @@ final class DetailView:FlippedView {
             })
         } else {
             for (view,frame) in moves {view.frame=frame}
-            for (card,frame) in zip(cards,groups) {card.frame=frame}
             for view in gone.values {view.removeFromSuperview()}
             setFrameSize(NSSize(width:bounds.width,height:height))
             resized?(height,false)
@@ -2941,23 +2897,12 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
     }
     private func fillRows(_ entries:[Entry],in content:NSView,y start:CGFloat,width:CGFloat,depth:Int)->CGFloat {
         while rows.count<=depth{rows.append([:])};rows[depth]=[:];var y=start
-        // The homepage's groups sit on cards, as magpie's panel; a separator becomes the gap between two cards.
-        let carded=depth==0 && !managerOnly
-        var cardTop:CGFloat?,previous:Row?
-        func closeCard(){if let top=cardTop,y>top{let card=CardView(frame:NSRect(x:0,y:top,width:width,height:y-top));content.addSubview(card,positioned:.below,relativeTo:nil)};cardTop=nil;previous=nil}
         for original in entries {var entry=original;if let label=PanelInteraction.runningLabel(entry,active:interaction.active){entry.label=label}
             let left=MenuLayout.left(entry,entries);entry=MenuLayout.fitted(entry,width:width,left:left);let h=MenuLayout.rowHeight(entry,width:width,left:left)
-            if entry.separator==true {
-                if carded {closeCard()}
-                else {content.addSubview(depth==0 ? Divider(frame:NSRect(x:8,y:y+5,width:width-16,height:2)) : {let line=NSBox(frame:NSRect(x:8,y:y+5,width:width-16,height:1));line.boxType = .separator;return line}())}
-            }
-            else {
-                let row=Row(entry,frame:NSRect(x:0,y:y,width:width,height:h));row.columnInset=entry.section==true ? 12 : left;wire(row,depth:depth);content.addSubview(row);rows[depth][entry.key]=row
-                if carded {if cardTop==nil{cardTop=y};previous?.divider=true;previous=row}
-            }
+            if entry.separator==true {content.addSubview(depth==0 ? Divider(frame:NSRect(x:8,y:y+5,width:width-16,height:2)) : {let line=NSBox(frame:NSRect(x:8,y:y+5,width:width-16,height:1));line.boxType = .separator;return line}())}
+            else {let row=Row(entry,frame:NSRect(x:0,y:y,width:width,height:h));row.columnInset=entry.section==true ? 12 : left;wire(row,depth:depth);content.addSubview(row);rows[depth][entry.key]=row}
             y+=h
         }
-        if carded {closeCard()}
         return y
     }
     // 浅色/深色 pins every window of the app (panel, sidebars, share pictures); 跟随系统 hands it back to macOS.
@@ -2997,7 +2942,7 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
             if pinned,let stamp=modified {let clock=DateFormatter();clock.dateFormat="HH:mm:ss";view.liveStamp="实时 "+clock.string(from:stamp)}
             if let previous=shownDashboard{view.animate(from:previous)};shownDashboard=dashboard;view.live=liveChart;view.toggleProvider={[weak self] id,expanded in self?.performAction(["set-expanded",id,expanded ? "true" : "false"])};view.chooseGroup={[weak self] key in self?.performAction(["set-group",key])};content.addSubview(view)}else{let label=NSTextField(labelWithString:"AI 用量面板");label.frame=NSRect(x:12,y:10,width:300,height:20);content.addSubview(label)}
         if managerOnly {_=fillGrid(entries,in:content,y:top,width:inner)}
-        else {_=fillRows(entries,in:content,y:top,width:inner,depth:0)}
+        else {content.addSubview(Divider(frame:NSRect(x:8,y:top-6,width:inner-16,height:2)));_=fillRows(entries,in:content,y:top,width:inner,depth:0)}
         if !managerOnly,let dashboard=snapshot.dashboard,let choices=snapshot.rangeOptions {
             let picker=NSPopUpButton(frame:NSRect(x:inner-113,y:7.5,width:101,height:25),pullsDown:true)
             picker.controlSize = .small;picker.font = .systemFont(ofSize:11);picker.bezelStyle = .rounded
