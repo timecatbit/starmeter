@@ -72,7 +72,7 @@ public enum Preferences {
             "paths": .object([:]), "allowCollapse": false, "expandedProviders": [], "revision": 0, "configuredSubscriptions": [],
             "claudeLiveUsage": false, "claudeOAuthUsage": false, "cursorUsage": false, "usageAlert": 90, "resetReminder": false,
             "balanceAlerts": .object([:]), "keepCleanedUsage": true, "subscriptionPrices": .object([:]), "groupBy": "tool",
-            "menuBar": "none", "sessionAlerts": false, "serviceStatus": false, "currency": "USD", "cnyRate": nil, "pinInterval": 2,
+            "menuBar": "none", "sessionAlerts": false, "serviceStatus": false, "currency": "USD", "cnyRate": .null, "pinInterval": 2,
         ]
     }
 

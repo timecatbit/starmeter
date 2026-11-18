@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -14,9 +15,11 @@ from datetime import timezone
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'lib'))
 import swiftbar_catalog as catalog
+import swiftbar_claude_usage as claude_usage
 import swiftbar_files as files
 import swiftbar_preferences as preferences
 from swiftbar_time import parse_iso
+import hashlib
 
 try:
     from zoneinfo import ZoneInfo
@@ -232,6 +235,138 @@ class EngineParityTests(unittest.TestCase):
         self.assertEqual(got['labels'], [s.label for s in catalog.SERVICES])
         self.assertEqual(got['modules'], [list(m) for m in preferences.MODULES])
         self.assertEqual(got['credentials'], [list(catalog.credential_names(s.key)) for s in catalog.SERVICES])
+
+
+def reply(message='msg_1', request='req_1', session='s1', ts='2026-11-18T10:00:00.000Z', model='claude-opus-5-5', usage=None,
+          cost=None, sidechain=None, cwd='/Users/someone/Code/starmeter', **extra):
+    """One assistant line of a Claude transcript."""
+    row = {'type': 'assistant', 'sessionId': session, 'timestamp': ts, 'cwd': cwd,
+           'message': {'model': model, 'usage': usage or {'input_tokens': 10, 'output_tokens': 5, 'cache_read_input_tokens': 100,
+                                                         'cache_creation_input_tokens': 20}}}
+    if message is not None:row['message']['id'] = message
+    if request is not None:row['requestId'] = request
+    if cost is not None:row['costUSD'] = cost
+    if sidechain is not None:row['isSidechain'] = sidechain
+    row.update(extra)
+    return row
+
+
+def dump(database, archive=None):
+    """Every table the reader writes, blobs as hex, in a fixed order."""
+    conn = sqlite3.connect(database)
+    try:
+        if archive:conn.execute('ATTACH DATABASE ? AS kept', (archive,))
+        def rows(sql):
+            return sorted([[v.hex() if isinstance(v, bytes) else v for v in row] for row in conn.execute(sql)], key=repr)
+        found = {'files': rows('SELECT * FROM files'), 'records': rows('SELECT * FROM records'),
+                 'canonical': rows('SELECT * FROM canonical ORDER BY id'), 'metadata': rows('SELECT * FROM metadata')}
+        if archive:found['kept'] = rows('SELECT * FROM kept.records')
+        return found
+    finally:
+        conn.close()
+
+
+@unittest.skipUnless(PROBE, 'Swift toolchain not installed')
+class ClaudeReaderParityTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.logs = self.root / 'projects' / 'p'
+        self.logs.mkdir(parents=True)
+
+    def test_hashes_and_prices_match(self):
+        for text in ['', 'abc', 'a' * 55, 'a' * 56, 'a' * 63, 'a' * 64, 'a' * 65, 'x' * 1000, '中文 😀']:
+            self.assertEqual(swift('sha256', text), hashlib.sha256(text.encode()).hexdigest())
+        for values in (['msg_1', 'req'], ['msg_1', 's', None], ['msg_1:advisor:1', 's', 1794967200.123], ['location', ['ab12', 77], 0],
+                       ['/Users/someone/项目/x.jsonl'], [['b', 'a'], True], [None, False]):
+            self.assertEqual(swift('claude.digest', *values), claude_usage.digest(*values).hex())
+        price = __import__('types').ModuleType('price')
+        exec(compile((ROOT / 'lib/swiftbar_plugin.py').read_text(), 'plugin', 'exec'), price.__dict__)
+        for model in ['claude-opus-5-5', 'claude-opus-5-5-20261101', 'claude-fable-5', 'claude-fable-5-2', 'claude-haiku-5-5', 'claude-sonnet-4-5',
+                      'claude-opus-5-50', 'gpt-5', 'claude-3-opus']:
+            for metrics in ([10, 5, 20, 0, 100], [60000, 10, 30000, 20000, 1], [1, 2, 3, 4, 5]):
+                for speed, geo, tier in (('standard', 'global', 'standard'), ('fast', 'us', 'batch'), ('standard', 'us-only', 'standard')):
+                    with self.subTest(model=model, metrics=metrics, speed=speed):
+                        self.assertEqual(swift('claude.price', model, metrics, speed, geo, tier), price.claude_price(model, metrics, speed, geo, tier))
+
+    def write(self, name, rows, tail=b''):
+        path = self.logs / name
+        path.write_bytes(b''.join((json.dumps(r, ensure_ascii=False).encode() if isinstance(r, dict) else r) + b'\n' for r in rows) + tail)
+        return path
+
+    def compare(self, allowed=None, start=0, end=float('inf'), archive=False, note=''):
+        files = sorted(str(p) for p in self.logs.rglob('*.jsonl'))
+        here, there = str(self.root / 'python.sqlite3'), str(self.root / 'swift.sqlite3')
+        kept = (str(self.root / 'kept-python.sqlite3'), str(self.root / 'kept-swift.sqlite3')) if archive else (None, None)
+        events, failures = claude_usage.read_events(files, here, allowed, start, end, kept[0])
+        got = swift('claude.read_events', files, there, sorted(allowed) if allowed is not None else None, start,
+                    end if end != float('inf') else None, kept[1])
+        expected = [dict(e, session=e['session'].hex() if e['session'] else None) for e in events]
+        key = lambda e: (e['ts'], e['model'], e['metrics'], repr(e['cost']), e['session'] or '')
+        with self.subTest(step=note):
+            self.assertEqual(got['failures'], failures)
+            same(self, sorted(expected, key=key), sorted(got['events'], key=key))
+            self.assertEqual(dump(here, kept[0]), dump(there, kept[1]))
+        return events
+
+    def test_the_index_and_the_events_are_the_same(self):
+        advisor = {'input_tokens': 7, 'output_tokens': 3, 'iterations': [
+            {'type': 'advisor_message', 'model': 'claude-fable-5-2', 'input_tokens': 40, 'output_tokens': 9, 'speed': 'fast'},
+            {'type': 'advisor_message', 'model': '', 'input_tokens': 1}, {'type': 'other', 'model': 'x', 'input_tokens': 1}]}
+        self.write('a.jsonl', [
+            reply(), reply(ts='2026-11-18T10:00:01Z'),                          # the same response streamed twice
+            reply('msg_2', None, ts='2026-11-18T11:00:00+08:00', cost=0.25),       # no request ID
+            reply('msg_2', None, ts='2026-11-18T11:00:00+08:00', sidechain=True),  # a sidechain replay of it
+            reply('gw-7', None, ts='2026-11-18T12:00:00.5Z'), reply('gw-7', None, ts='2026-11-18T12:00:01.5Z'),  # gateway IDs by time
+            reply(None, None, ts='2026-11-18T12:30:00Z'), reply(None, None, ts='2026-11-18T12:30:00Z'),  # no IDs: by place
+            reply('msg_3', 'req_3', usage=advisor, cwd='C:\\\\Users\\\\x\\\\仓库\\\\'),
+            reply('msg_4', 'req_4', usage={'input_tokens': 1, 'cache_creation': {'ephemeral_5m_input_tokens': 5, 'ephemeral_1h_input_tokens': 6},
+                                           'service_tier': 'batch', 'inference_geo': 'us', 'speed': 'fast'}),
+            reply('msg_5', 'req_5', usage={'input_tokens': 0, 'output_tokens': 0}),            # nothing counted
+            reply('msg_6', 'req_6', usage={'input_tokens': 0}, cost=0.0),                      # but a recorded cost counts
+            reply('msg_7', 'req_7', usage={'input_tokens': 1.5}), reply('msg_8', 'req_8', usage={'input_tokens': True}),
+            reply('msg_9', 'req_9', usage={'input_tokens': -1}), reply('msg_10', 'req_10', model='<synthetic>'),
+            reply('msg_11', 'req_11', ts='2026-11-18T10:00:00'), reply('msg_12', 'req_12', ts=1794967200),
+            reply('msg_13', 'req_13', cost=float('nan')), reply('msg_14', 'req_14', cost=True), reply('msg_15', ''), reply('', 'req_16'),
+            reply('msg_17', 'req_17', session=''), reply('msg_18', 'req_18', session=7), reply('msg_19', 'req_19', model=None),
+            {'type': 'user', 'message': {'content': 'usage assistant'}}, b'{"type": "assistant", "usage": broken',
+            reply('msg_20', 'req_20', usage={'input_tokens': 2 ** 64}),
+        ], tail=json.dumps(reply('msg_21', 'req_21')).encode())  # still being written: no newline yet
+        self.write('b.jsonl', [reply(), reply('msg_2', None, ts='2026-11-18T11:00:00+08:00'), reply('msg_30', 'req_30', session='s2')])
+        nested = self.logs / 'session-x' / 'subagents'
+        nested.mkdir(parents=True)
+        (nested / 'agent.jsonl').write_text(json.dumps(reply('msg_40', 'req_40', session=None, sidechain=True)) + '\n')
+        self.compare(note='first read')
+        self.compare(note='nothing changed')
+        with open(self.logs / 'a.jsonl', 'ab') as handle:
+            handle.write(b'\n' + json.dumps(reply('msg_22', 'req_22', ts='2026-11-19T01:00:00Z')).encode() + b'\n')
+        self.compare(note='appended')
+        with open(self.logs / 'b.jsonl', 'ab') as handle:
+            handle.write(json.dumps(reply()).encode() + b'\n')
+        self.compare(note='appended a duplicate')
+        self.write('b.jsonl', [reply('msg_31', 'req_31')])
+        self.compare(note='rewritten')
+        self.compare(start=1794967200.5, end=1794970000, note='a range')
+        self.compare(allowed={'s1', 'session-x'}, note='only some sessions')
+        self.compare(archive=True, note='archive on')
+        (self.logs / 'b.jsonl').unlink()
+        self.compare(archive=True, note='a file vanished into the archive')
+        self.write('b.jsonl', [reply('msg_31', 'req_31')])
+        self.compare(archive=True, note='it came back')
+        self.compare(note='archive off')
+
+    def test_real_transcripts_agree(self):
+        """On this machine's own Claude transcripts, when there are any; nothing from them is printed."""
+        roots = [Path(p) for p in os.environ.get('STARMETER_REAL_CLAUDE', '').split(os.pathsep) if p]
+        files = sorted(str(p) for root in roots if root.is_dir() for p in root.rglob('*.jsonl'))
+        if not files:
+            self.skipTest('set STARMETER_REAL_CLAUDE to a projects folder to compare on real transcripts')
+        here, there = str(self.root / 'python.sqlite3'), str(self.root / 'swift.sqlite3')
+        events, failures = claude_usage.read_events(files, here)
+        got = swift('claude.read_events', files, there, None, 0, None, None)
+        self.assertEqual((len(got['events']), got['failures']), (len(events), failures))
+        self.assertEqual(dump(here)['canonical'], dump(there)['canonical'])
 
 
 if __name__ == '__main__':

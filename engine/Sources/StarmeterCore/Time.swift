@@ -33,10 +33,11 @@ public struct ISOTime: Equatable {
 
     /// Seconds since 1970 as Python's datetime.timestamp() gives them.
     public func timestamp(assuming zone: TimeZone = .current) -> Double {
-        let wall = Double(daysFromCivil(year, month, day)) * 86400 + Double(hour * 3600 + minute * 60 + second)
-        let fraction = Double(microsecond) / 1_000_000
-        if let offset { return wall - Double(offset) + fraction }
-        return localSeconds(wall, zone) + fraction
+        let seconds = Int64(daysFromCivil(year, month, day)) * 86400 + Int64(hour * 3600 + minute * 60 + second)
+        // Python divides whole microseconds once (timedelta.total_seconds), so the float, and any hash of its
+        // text, comes out exactly the same here.
+        if let offset { return Double((seconds - Int64(offset)) * 1_000_000 + Int64(microsecond)) / 1_000_000 }
+        return localSeconds(Double(seconds), zone) + Double(microsecond) / 1e6
     }
 
     /// CPython's datetime._mktime with fold 0: a wall time seen twice when clocks go back is the earlier

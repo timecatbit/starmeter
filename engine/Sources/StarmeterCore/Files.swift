@@ -68,6 +68,13 @@ public enum Files {
                                                 attributes: [.posixPermissions: mode])
     }
 
+    /// Readable and writable by the owner only (0600), as os.chmod; Windows keeps its own ACLs.
+    public static func ownerOnly(_ path: String) {
+        #if !os(Windows)
+        chmod(path, 0o600)
+        #endif
+    }
+
     enum Creation { case created, exists, failed(String) }
 
     /// Creates a new file readable only by its owner, failing if the name is taken.

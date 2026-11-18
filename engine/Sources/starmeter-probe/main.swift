@@ -28,6 +28,25 @@ func answer(_ call: String, _ args: [JSON]) throws -> JSON {
                                         itemSeparator: text(2) ?? ", ", keySeparator: text(3) ?? ": "))
     case "python_repr":
         return .array(args.map { .string(pythonRepr($0.number ?? .nan)) })
+    case "sha256":
+        return .string(SHA256.hex(Array((text(0) ?? "").utf8)))
+    case "claude.digest":
+        return .string(ClaudeUsage.digest(args).hexString)
+    case "claude.price":
+        let metrics = args[1].array?.compactMap { $0.integer } ?? []
+        return ClaudePricing.cost(model: text(0) ?? "", metrics: metrics, speed: text(2) ?? "standard", geo: text(3) ?? "global",
+                                  tier: text(4) ?? "standard").map(JSON.double) ?? .null
+    case "claude.read_events":
+        let files = args[0].array?.compactMap(\.string) ?? []
+        let allowed = args[2].array.map { Set($0.compactMap(\.string)) }
+        let (events, failures) = try ClaudeUsage.readEvents(files: files, database: text(1)!, allowedSessions: allowed,
+                                                            start: args[3].number ?? 0, end: args[4].number ?? .infinity, archive: text(5))
+        return ["failures": .int(Int64(failures)), "events": .array(events.map { event in
+            ["ts": .double(event.ts), "model": .string(event.model), "metrics": .array(event.metrics.map(JSON.int)),
+             "cost": event.cost.map(JSON.double) ?? .null, "speed": event.speed.map(JSON.string) ?? .null,
+             "geo": event.geo.map(JSON.string) ?? .null, "tier": event.tier.map(JSON.string) ?? .null,
+             "session": event.session.map { .string($0.hexString) } ?? .null, "project": event.project.map(JSON.string) ?? .null]
+        })]
     case "catalog":
         return ["manual": .array(Catalog.manualSubscriptions.map(JSON.string)),
                 "portal": .array(Catalog.portalAPIs.map(JSON.string)),

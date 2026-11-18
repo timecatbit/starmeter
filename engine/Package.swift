@@ -10,7 +10,11 @@ let package = Package(
         .library(name: "StarmeterCore", targets: ["StarmeterCore"]),
     ],
     targets: [
-        .target(name: "StarmeterCore"),
+        .systemLibrary(name: "CSQLite", path: "Sources/CSQLite"),
+        .target(name: "StarmeterCore", dependencies: ["CSQLite"], linkerSettings: [
+            .linkedLibrary("sqlite3", .when(platforms: [.macOS, .linux])),
+            .linkedLibrary("winsqlite3", .when(platforms: [.windows])),
+        ]),
         // Answers one call per run on stdin, so the tests can hold the Swift engine against the Python one.
         .executableTarget(name: "starmeter-probe", dependencies: ["StarmeterCore"]),
     ]

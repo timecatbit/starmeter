@@ -82,14 +82,13 @@ extension JSON: Equatable {
 }
 
 extension JSON: ExpressibleByStringLiteral, ExpressibleByIntegerLiteral, ExpressibleByFloatLiteral,
-                ExpressibleByBooleanLiteral, ExpressibleByArrayLiteral, ExpressibleByDictionaryLiteral, ExpressibleByNilLiteral {
+                ExpressibleByBooleanLiteral, ExpressibleByArrayLiteral, ExpressibleByDictionaryLiteral {
     public init(stringLiteral value: String) { self = .string(value) }
     public init(integerLiteral value: Int64) { self = .int(value) }
     public init(floatLiteral value: Double) { self = .double(value) }
     public init(booleanLiteral value: Bool) { self = .bool(value) }
     public init(arrayLiteral elements: JSON...) { self = .array(elements) }
     public init(dictionaryLiteral elements: (String, JSON)...) { self = .object(JSONObject(elements)) }
-    public init(nilLiteral: ()) { self = .null }
 }
 
 extension JSON {
@@ -169,18 +168,33 @@ extension JSON {
     public static func parse(_ text: String) throws -> JSON {
         try parse(Data(text.utf8))
     }
+
+    /// Parses only the parts `keep` names and checks the rest without building it, so a large line whose text
+    /// nobody reads costs a scan, not a copy. Accepts and rejects exactly what a full parse does.
+    public static func parse(_ bytes: UnsafeBufferPointer<UInt8>, keep: JSONSelection) throws -> JSON {
+        var parser = JSONParser(bytes: bytes)
+        parser.selection = keep
+        return try parser.document()
+    }
+}
+
+/// Which parts of a document to build: everything, or only some keys of an object (and what to keep of each).
+public indirect enum JSONSelection {
+    case all
+    case keys([String: JSONSelection])
 }
 
 struct JSONParser {
     let bytes: UnsafeBufferPointer<UInt8>
     var index = 0
+    var selection: JSONSelection = .all
     static let maximumDepth = 512
 
     init(bytes: UnsafeBufferPointer<UInt8>) { self.bytes = bytes }
 
     mutating func document() throws -> JSON {
         skipWhitespace()
-        let value = try parseValue(depth: 0)
+        let value = try parseValue(depth: 0, keep: selection)
         skipWhitespace()
         guard index == bytes.count else { throw fail("Extra data") }
         return value
@@ -206,12 +220,12 @@ struct JSONParser {
         return true
     }
 
-    mutating func parseValue(depth: Int) throws -> JSON {
+    mutating func parseValue(depth: Int, keep: JSONSelection = .all) throws -> JSON {
         guard depth < Self.maximumDepth else { throw fail("Too deeply nested") }
         guard index < bytes.count else { throw fail("Expecting value") }
         switch bytes[index] {
-        case UInt8(ascii: "{"): return try parseObject(depth: depth)
-        case UInt8(ascii: "["): return try parseArray(depth: depth)
+        case UInt8(ascii: "{"): return try parseObject(depth: depth, keep: keep)
+        case UInt8(ascii: "["): return try parseArray(depth: depth, keep: keep)
         case UInt8(ascii: "\""): return .string(try parseString())
         case UInt8(ascii: "t"): if literal("true") { return .bool(true) }
         case UInt8(ascii: "f"): if literal("false") { return .bool(false) }
@@ -227,7 +241,7 @@ struct JSONParser {
         throw fail("Expecting value")
     }
 
-    mutating func parseObject(depth: Int) throws -> JSON {
+    mutating func parseObject(depth: Int, keep: JSONSelection = .all) throws -> JSON {
         index += 1
         var object = JSONObject()
         skipWhitespace()
@@ -242,7 +256,11 @@ struct JSONParser {
             guard index < bytes.count, bytes[index] == UInt8(ascii: ":") else { throw fail("Expecting ':' delimiter") }
             index += 1
             skipWhitespace()
-            object[key] = try parseValue(depth: depth + 1)
+            switch keep {
+            case .all: object[key] = try parseValue(depth: depth + 1)
+            case .keys(let wanted):
+                if let part = wanted[key] { object[key] = try parseValue(depth: depth + 1, keep: part) } else { try skipValue(depth: depth + 1) }
+            }
             skipWhitespace()
             guard index < bytes.count else { throw fail("Expecting ',' delimiter") }
             if bytes[index] == UInt8(ascii: ",") { index += 1; continue }
@@ -251,20 +269,102 @@ struct JSONParser {
         }
     }
 
-    mutating func parseArray(depth: Int) throws -> JSON {
+    mutating func parseArray(depth: Int, keep: JSONSelection = .all) throws -> JSON {
         index += 1
         var items: [JSON] = []
         skipWhitespace()
         if index < bytes.count, bytes[index] == UInt8(ascii: "]") { index += 1; return .array(items) }
         while true {
             skipWhitespace()
-            items.append(try parseValue(depth: depth + 1))
+            items.append(try parseValue(depth: depth + 1, keep: keep))
             skipWhitespace()
             guard index < bytes.count else { throw fail("Expecting ',' delimiter") }
             if bytes[index] == UInt8(ascii: ",") { index += 1; continue }
             if bytes[index] == UInt8(ascii: "]") { index += 1; return .array(items) }
             throw fail("Expecting ',' delimiter")
         }
+    }
+
+    /// Checks one value as parseValue would, building nothing.
+    mutating func skipValue(depth: Int) throws {
+        guard depth < Self.maximumDepth else { throw fail("Too deeply nested") }
+        guard index < bytes.count else { throw fail("Expecting value") }
+        switch bytes[index] {
+        case UInt8(ascii: "{"):
+            index += 1
+            skipWhitespace()
+            if index < bytes.count, bytes[index] == UInt8(ascii: "}") { index += 1; return }
+            while true {
+                skipWhitespace()
+                guard index < bytes.count, bytes[index] == UInt8(ascii: "\"") else { throw fail("Expecting property name enclosed in double quotes") }
+                try skipString()
+                skipWhitespace()
+                guard index < bytes.count, bytes[index] == UInt8(ascii: ":") else { throw fail("Expecting ':' delimiter") }
+                index += 1
+                skipWhitespace()
+                try skipValue(depth: depth + 1)
+                skipWhitespace()
+                guard index < bytes.count else { throw fail("Expecting ',' delimiter") }
+                if bytes[index] == UInt8(ascii: ",") { index += 1; continue }
+                if bytes[index] == UInt8(ascii: "}") { index += 1; return }
+                throw fail("Expecting ',' delimiter")
+            }
+        case UInt8(ascii: "["):
+            index += 1
+            skipWhitespace()
+            if index < bytes.count, bytes[index] == UInt8(ascii: "]") { index += 1; return }
+            while true {
+                skipWhitespace()
+                try skipValue(depth: depth + 1)
+                skipWhitespace()
+                guard index < bytes.count else { throw fail("Expecting ',' delimiter") }
+                if bytes[index] == UInt8(ascii: ",") { index += 1; continue }
+                if bytes[index] == UInt8(ascii: "]") { index += 1; return }
+                throw fail("Expecting ',' delimiter")
+            }
+        case UInt8(ascii: "\""): try skipString()
+        case UInt8(ascii: "-"), UInt8(ascii: "0")...UInt8(ascii: "9"), UInt8(ascii: "t"), UInt8(ascii: "f"), UInt8(ascii: "n"),
+             UInt8(ascii: "N"), UInt8(ascii: "I"):
+            // Scalars are small; parsing them is as cheap as checking them.
+            _ = try parseValue(depth: depth)
+        default: throw fail("Expecting value")
+        }
+    }
+
+    /// Checks a string as parseString would: escapes, no control characters, strict UTF-8.
+    mutating func skipString() throws {
+        index += 1
+        var asciiOnly = true
+        let start = index
+        while index < bytes.count {
+            let byte = bytes[index]
+            if byte == UInt8(ascii: "\"") {
+                if !asciiOnly {
+                    // Escapes are ASCII, so checking the raw bytes between the quotes checks every non-ASCII run.
+                    guard isValidUTF8(UnsafeBufferPointer(rebasing: bytes[start..<index])) else { throw JSONError(message: "Invalid UTF-8", offset: start) }
+                }
+                index += 1
+                return
+            }
+            if byte < 0x20 { throw fail("Invalid control character") }
+            if byte >= 0x80 { asciiOnly = false }
+            if byte == UInt8(ascii: "\\") {
+                index += 1
+                guard index < bytes.count else { break }
+                switch bytes[index] {
+                case UInt8(ascii: "\""), UInt8(ascii: "\\"), UInt8(ascii: "/"), UInt8(ascii: "b"), UInt8(ascii: "f"),
+                     UInt8(ascii: "n"), UInt8(ascii: "r"), UInt8(ascii: "t"):
+                    index += 1
+                case UInt8(ascii: "u"):
+                    index += 1
+                    _ = try hex4()
+                default: throw fail("Invalid \\escape")
+                }
+                continue
+            }
+            index += 1
+        }
+        throw fail("Unterminated string")
     }
 
     mutating func parseNumber() throws -> JSON {
