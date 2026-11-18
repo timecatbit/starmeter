@@ -393,4 +393,15 @@ expect(liveFeed.span(liveNow)==120 && liveFeed.span(liveNow.addingTimeInterval(3
 liveDay.providers[0].tokens=5;liveFeed.add(liveDay,at:liveNow.addingTimeInterval(2))
 expect(liveFeed.samples.count==1,"A fall (a new day) starts the line again")
 expect(LiveChart.nice(27_000_000)==30_000_000 && LiveChart.nice(31_000_000)==40_000_000 && LiveChart.compact(25_000_000)=="25M" && LiveChart.compact(1_500)=="1.5K","The scale tops out at a round value just above the line")
+// Every action on a page carries an icon; a web link's is a globe, its arrow stays on the right.
+let iconJSON=#"[{"label":"打开订阅用量","image":"aGk=","template":true,"href":"https://claude.ai","children":[]},{"label":"选择记录目录…","action":["choose-source","codex"],"children":[]},{"label":"设置面板地址…","action":["configure-connection","komari"],"children":[]},{"label":"选择密钥文件…","action":["configure-connection","kimi-api"],"children":[]},{"label":"来源 · 本机","children":[]},{"label":"cpu05","href":"https://k/1","statusLight":"ok","children":[]}]"#
+let iconRows=try JSONDecoder().decode([Entry].self,from:Data(iconJSON.utf8)).map(DetailStyle.iconed)
+expect(iconRows[0].symbol=="globe" && iconRows[0].image==nil && iconRows[1].symbol=="folder" && iconRows[2].symbol=="link" && iconRows[3].symbol=="key","Actions take an icon from what they do")
+expect(iconRows[4].symbol==nil && iconRows[5].symbol==nil,"Facts and status rows keep no icon")
+// A page with one row to open arrives with it open; with two, the reader chooses.
+let openJSON=#"{"label":"Claude API","children":[{"label":"默认","children":[{"label":"测试 Key","children":[]}]},{"label":"添加 Key…","action":["add-api-key","claude-api"],"children":[]}]}"#
+var openPage=try JSONDecoder().decode(Entry.self,from:Data(openJSON.utf8))
+expect(DetailView.opening(openPage)==["/"+openPage.children[0].key],"The only Key opens with its page")
+openPage.children.append(openPage.children[0]);openPage.children[2].label="lab"
+expect(DetailView.opening(openPage).isEmpty,"Two Keys stay closed")
 print("Native interaction assertions: \(assertions) passed")

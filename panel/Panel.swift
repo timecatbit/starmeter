@@ -1932,6 +1932,27 @@ enum DetailStyle {
     // An on/off setting reads as a switch on the right, not a checkbox.
     static func toggle(_ e:Entry)->Bool {e.checked != nil && e.radio != true && (e.action?.last=="true" || e.action?.last=="false")}
     static func leads(_ e:Entry)->Bool {(e.checked != nil && !toggle(e)) || e.statusLight != nil || e.image != nil || e.symbol != nil}
+    // Every action on a page carries an icon, so a level's text starts in one column whichever rows the engine drew
+    // an icon for (it names only those its SwiftBar menu shows); the rest take one from what they do. A web link keeps
+    // its small arrow on the right, so its icon on the left is a globe rather than a second arrow.
+    static let actionSymbols:[String:String]=[
+        "refresh-monitor":"arrow.clockwise","check-app-updates":"arrow.clockwise","retry-claude-usage":"arrow.clockwise",
+        "choose-source":"folder","choose-client-home":"folder","reveal-source":"folder","reveal-client-home":"folder",
+        "auto-source":"arrow.uturn.backward","reset-client-connection":"arrow.uturn.backward","set-proxy-address":"link",
+        "choose-admin-token":"key","configure-connection":"key","test-api-key":"checkmark.shield","rename-api-key":"pencil",
+        "remove-api-key":"trash","clear-connection":"trash","reset-modules":"arrow.counterclockwise","open-claude":"macwindow",
+        "set-subscription":"checkmark.circle","set-claude-local":"dot.radiowaves.left.and.right","set-claude-live":"xmark.circle",
+        "export-usage":"square.and.arrow.down","set-cny-rate":"arrow.left.arrow.right","detect-modules":"sparkle.magnifyingglass"]
+    static func iconed(_ e:Entry)->Entry {
+        guard e.separator != true,e.section != true,e.statusLight==nil else{return e}
+        var e=e
+        if e.href?.hasPrefix("http")==true,e.children.isEmpty {e.image=nil;e.symbol="globe";return e}
+        guard e.image==nil,e.symbol==nil,e.children.isEmpty,e.checked==nil,e.statusLight==nil else{return e}
+        if let href=e.href {e.symbol=href.hasPrefix("file:") ? "macwindow" : "globe";return e}
+        guard let action=e.action?.first else{return e}
+        e.symbol=action=="configure-connection" && e.label.contains("地址") ? "link" : actionSymbols[action]
+        return e
+    }
     // Something to do rather than something to read: tinted like a link, red when it takes something away.
     static func command(_ e:Entry)->Bool {e.children.isEmpty && (e.action != nil || e.href != nil) && e.value==nil && e.checked==nil && e.statusLight==nil}
     static func destructive(_ e:Entry)->Bool {
@@ -2213,6 +2234,7 @@ final class DetailView:FlippedView {
     private func items()->[(String,Item)] {
         var out:[(String,Item)]=[]
         func walk(_ list:[Entry],_ depth:Int,_ parent:String){
+            let list=list.map(DetailStyle.iconed)
             var seen:[String:Int]=[:];let aligned=list.contains(where:DetailStyle.leads)
             // A run of short choices becomes one segmented control, where the run stood.
             var runs:[Int:Int]=[:],start=0
@@ -2243,6 +2265,11 @@ final class DetailView:FlippedView {
         return out
     }
     static func height(_ entries:[Entry],width:CGFloat,open:Set<String>)->CGFloat {DetailView(entries,width:width,open:open).frame.height}
+    // A page with a single row to open (one Key, one session) arrives with it open: there is nothing to choose between.
+    static func opening(_ page:Entry)->Set<String> {
+        let openable=page.children.filter{!$0.children.isEmpty && $0.separator != true && $0.section != true}
+        return openable.count==1 ? ["/"+openable[0].key] : []
+    }
     private func size(_ item:Item)->CGFloat {
         switch item {
         case .row(let e,let depth,let aligned):return DetailStyle.layout(e,depth:depth,width:bounds.width,aligned:aligned).height
@@ -3044,10 +3071,10 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
             if now.timeIntervalSince(sourceChecks[action[1]] ?? .distantPast)>=5 {sourceChecks[action[1]]=now;DispatchQueue.main.async{[weak self] in self?.performAction(action)}}
         }
         if let scroll=(panel.contentView as? Surface)?.content.subviews.first as? NSScrollView {homeScroll=scroll.contentView.bounds.origin.y}
-        hideHint();pagePath=[entry.key];pageOpen=[];slide=1;layout();slide=0
+        hideHint();pagePath=[entry.key];pageOpen=DetailView.opening(entry);slide=1;layout();slide=0
     }
     private func back(){
-        guard !pagePath.isEmpty else{hide();return}
+        guard !pagePath.isEmpty else{if settingsFromHome && managerOnly {finishModules()} else {hide()};return}
         hideHint();pagePath=[];pageOpen=[];scrollOffset=homeScroll;slide = -1;layout();slide=0
     }
     // The surface as it looks now, to slide away while the next page slides in.
