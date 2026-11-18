@@ -53,6 +53,17 @@ KEY_ONLY_APIS = tuple(s.key for s in SERVICES if s.category == 'API' and s.key n
 API_KEYS = {s.key: s.credential for s in SERVICES if s.credential}
 # These aliases only identify API configuration; they never imply subscription.
 KEY_ALIASES = {'gemini-api': ('GOOGLE_API_KEY',)}
+# What a module shows once it is set up, said on its settings page until it is: some APIs only check the key.
+SETUP_NOTES = {
+    'minimax': '需要 MiniMax Token Plan 的 Key，显示套餐各窗口的用量',
+    'chatgpt-api': 'OpenAI 没有余额接口：保存或测试时校验一次 Key，只表示 Key 可用',
+    'claude-api': '管理员 Key 显示本月花费；个人 Key 只校验是否可用',
+    'deepseek': '显示账户余额',
+    'minimax-api': '保存或测试时校验一次 Key，只表示 Key 可用',
+    'gemini-api': 'Google 没有余额接口：保存或测试时校验一次 Key，只表示 Key 可用',
+    'grok': '需要 xAI 管理 Key 和 Team ID，显示团队余额',
+    'kimi-api': '显示账户余额（国内站与国际站都可以）',
+    'qoder-api': '仅团队版/企业版：组织管理员的 OpenAPI Key 和组织 ID，显示组织共享的加购 Credits；个人账号没有 API'}
 
 def credential_names(key):
     primary = API_KEYS.get(key)

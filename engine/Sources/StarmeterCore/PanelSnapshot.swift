@@ -185,6 +185,7 @@ extension Runtime {
             // The same key list as the homepage, plus pointing the classic connection at a key file.
             var children = Runtime.panelEntries(apiLines(key, data)).first?.object?["children"]?.array ?? []
             children.insert(["label": "选择密钥文件…", "action": ["configure-connection", .string(key)], "children": []], at: Swift.max(0, children.count - 1))
+            if !configured, let note = Catalog.setupNotes[key] { children.insert(["label": .string(note), "children": []], at: 0) }
             return ["label": .string(service.label), "value": value, "symbol": "key", "children": .array(children)]
         }
         let settings = self.settings()
@@ -215,6 +216,7 @@ extension Runtime {
         } else if key == "minimax" {
             let file = environment["MINIMAX_API_KEY_FILE"] ?? ""
             children = configured && !file.isEmpty ? [Runtime.locationEntry("密钥文件", [Runtime.absolute(Paths.expandUser(file))])] : []
+            if !configured, let note = Catalog.setupNotes[key] { children.append(["label": .string(note), "children": []]) }
             children.append(["label": "选择密钥文件…", "action": ["configure-connection", .string(key)], "children": []])
             if configured { children.append(["label": "清除连接设置…", "action": ["clear-connection", .string(key)], "children": []]) }
             children.append(["label": "打开用量与账单", "symbol": "arrow.up.right", "href": .string(service!.url), "children": []])

@@ -85,6 +85,13 @@ class CatalogTests(unittest.TestCase):
                 self.assertNotIn('clear-connection',json.dumps(self.m.service_connection_entry(key)))
         with patch.object(self.m,'connection_ready',return_value=True):
             self.assertIn('clear-connection',json.dumps(self.m.service_connection_entry('minimax')))
+    def test_unset_modules_say_what_they_will_show(self):
+        self.assertEqual(set(catalog.SETUP_NOTES),{s.key for s in catalog.SERVICES if s.category=='API'}|{'minimax'})
+        with patch.object(self.m,'connection_ready',return_value=False):
+            self.assertEqual(self.m.service_connection_entry('qoder-api')['children'][0]['label'],catalog.SETUP_NOTES['qoder-api'])
+            self.assertIn(catalog.SETUP_NOTES['minimax'],json.dumps(self.m.service_connection_entry('minimax'),ensure_ascii=False))
+        with patch.dict(os.environ,{'OPENAI_API_KEY':'sk-test'}):
+            self.assertNotIn(catalog.SETUP_NOTES['chatgpt-api'],json.dumps(self.m.service_connection_entry('chatgpt-api'),ensure_ascii=False))
     def test_key_file_reference_is_private_and_shown_without_contents(self):
         key=self.root/'provider-key';key.write_text('SECRET-NEVER-DISPLAY')
         with patch.dict(os.environ,{'MOONSHOT_API_KEY_FILE':str(key)}):

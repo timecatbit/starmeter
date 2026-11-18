@@ -2977,6 +2977,7 @@ def service_connection_entry(key,data=None):
         # Same key list as the homepage, plus pointing the classic connection at a key file.
         children=panel_entries(api_lines(key,data or {}))[0]['children']
         children.insert(len(children)-1,{'label':'选择密钥文件…','action':['configure-connection',key],'children':[]})
+        if not configured and key in catalog.SETUP_NOTES:children.insert(0,{'label':catalog.SETUP_NOTES[key],'children':[]})
         return {'label':service.label,'value':'已配置' if configured else '未配置','symbol':'key','children':children}
     if key=='claude-subscription':
         if DESKTOP is not None:
@@ -3003,6 +3004,7 @@ def service_connection_entry(key,data=None):
                          {'label':'打开订阅管理','symbol':'arrow.up.right','href':service.url,'children':[]}])
     elif key=='minimax':
         children=[location_entry('密钥文件',[os.path.abspath(os.path.expanduser(os.environ['MINIMAX_API_KEY_FILE']))])] if configured and os.environ.get('MINIMAX_API_KEY_FILE') else []
+        if not configured and key in catalog.SETUP_NOTES:children.append({'label':catalog.SETUP_NOTES[key],'children':[]})
         children.append({'label':'选择密钥文件…','action':['configure-connection',key],'children':[]})
         if configured:children.append({'label':'清除连接设置…','action':['clear-connection',key],'children':[]})
         children.append({'label':'打开用量与账单','symbol':'arrow.up.right','href':service.url,'children':[]})
