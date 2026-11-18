@@ -454,7 +454,8 @@ class ShareCard:FlippedView {
     }
     static let width:CGFloat=420
     let dashboard:Dashboard,project:Project
-    var rows:[ProviderUsage] {dashboard.providers}
+    // Only the tools with something in the range get a block; a tool with nothing yet would be a tile of zeros.
+    var rows:[ProviderUsage] {dashboard.providers.filter{$0.available && ($0.tokens>0 || $0.requests>0 || ($0.credits ?? 0)>0)}}
     // Totals, chart and the share bar use what Summary counts; every source with data is listed.
     var counted:[ProviderUsage] {rows.compactMap{$0.summaryPart}}
     var shared:[ProviderUsage] {counted.filter{$0.tokens>0}}
@@ -777,7 +778,10 @@ final class CardShareCard:ShareCard {
             let il=block.minX+16,ir=block.maxX-16,top=block.minY+16,tl=il+12,tw=ir-tl
             c.withAlphaComponent(inSummary ? 1 : 0.45).setFill();NSBezierPath(roundedRect:NSRect(x:il,y:top+3,width:4,height:15),xRadius:2,yRadius:2).fill()
             let nameFont=font(14.5,.semibold),amount=amount(p),amountFont=font(17,.semibold,rounded:true),amountWidth=measure(amount,amountFont)
-            draw(p.name,NSRect(x:tl,y:top,width:min(tw-amountWidth-12,measure(p.name,nameFont)+2),height:20),nameFont,.labelColor)
+            // The tool's own mark before its name, as on its panel card; the lines below keep to the mark's edge.
+            let mark=ToolMark.image(p) != nil ? CGFloat(22) : 0
+            if mark>0 {ToolMark.draw(p,in:NSRect(x:tl,y:ToolMark.middle(of:nameFont,top:top+1)-8,width:16,height:16),color:c)}
+            draw(p.name,NSRect(x:tl+mark,y:top,width:min(tw-amountWidth-12-mark,measure(p.name,nameFont)+2),height:20),nameFont,.labelColor)
             draw(amount,NSRect(x:ir-amountWidth-2,y:top-1,width:amountWidth+2,height:22),amountFont,.labelColor,.right)
             let part=p.summaryPart?.tokens ?? 0,figures=tokenLine(p)+(part>0 ? " · 占 "+share(part/sum) : ""),figureFont=font(11.5,.medium)
             // A source a gateway partly counts says so, as the panel card does: its share is only the rest.
@@ -1047,8 +1051,11 @@ final class TerminalShareCard:ShareCard {
             dashedRule(top,left,right,c.rule)
             colour.withAlphaComponent(inSummary ? 1 : 0.4).setFill();NSBezierPath(ovalIn:NSRect(x:left,y:top+20,width:8,height:8)).fill()
             let nameFont=ui(14.5,.semibold),cost=amount(p),costFont=mono(14.5,.semibold),costWidth=measure(cost,costFont)
+            // The tool's own mark between its chart-coloured dot and its name, as on its panel card.
+            let mark=ToolMark.image(p) != nil ? CGFloat(21) : 0
+            if mark>0 {ToolMark.draw(p,in:NSRect(x:left+16,y:top+16.5,width:15,height:15),color:colour)}
             let nameWidth=min(width*0.45,measure(p.name,nameFont))
-            draw(p.name,x:left+16,middle:top+24,width:min(nameWidth+2,width-16-costWidth-12),nameFont,c.text)
+            draw(p.name,x:left+16+mark,middle:top+24,width:min(nameWidth+2,width-16-mark-costWidth-12),nameFont,c.text)
             draw(cost,x:right-costWidth-2,middle:top+24,width:costWidth+2,costFont,c.text,.right)
             let part=p.summaryPart?.tokens ?? 0,figures=tokenLine(p)+(part>0 ? " · 占 "+share(part/sum) : ""),lineFont=mono(10.5,.medium)
             // A source a gateway partly counts says so, as the panel card does: its share is only the rest.

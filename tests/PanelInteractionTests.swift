@@ -405,4 +405,7 @@ expect(DetailView.opening(openPage)==["/"+openPage.children[0].key],"The only Ke
 openPage.children.append(openPage.children[0]);openPage.children[2].label="lab"
 expect(DetailView.opening(openPage).isEmpty,"Two Keys stay closed")
 expect(share(0.0003)=="<0.1%" && share(0.004)=="0.4%" && share(0.9996)==">99.9%" && share(0.22)=="22%" && share(0)=="0%","A sliver of a share never reads 0.0%")
+// The share picture lists only the tools with usage in the range.
+var quietDay=liveBase;quietDay.providers[0].tokens=0;quietDay.providers[0].requests=0
+expect(ShareCard.make(.card,quietDay,project:Project(name:"Starmeter",url:"x")).rows.isEmpty && !ShareCard.make(.card,liveBase,project:Project(name:"Starmeter",url:"x")).rows.isEmpty,"A tool with nothing in the range gets no block")
 print("Native interaction assertions: \(assertions) passed")
