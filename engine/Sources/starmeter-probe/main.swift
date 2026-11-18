@@ -122,6 +122,13 @@ func answer(_ call: String, _ args: [JSON]) throws -> JSON {
         for (from, to) in args[2].object ?? JSONObject() { HTTP.routes[from] = to.string }
         do { return .object(try Cursor.plan(home: text(0)!, now: args[1].number!)) }
         catch let failure as Cursor.Failure { return ["failure": .string(failure.description)] }
+    case "sessions.active":
+        // [claude roots, codex root, now, with prices, claude app map]
+        let runtime = Runtime()
+        var app: [String: (title: String?, effort: String?)] = [:]
+        for (key, value) in args[4].object ?? JSONObject() { app[key] = (value["title"]?.string, value["effort"]?.string) }
+        return .array(Sessions.active(claudeRoots: args[0].array?.compactMap(\.string) ?? [], codexRoot: text(1), now: args[2].number!,
+                                      prices: args[3] == .bool(true) ? runtime.sessionPrices() : nil, claudeApp: app))
     case "zstd":
         // The SHA-256 and size of each file's decompressed bytes.
         return .array(args.map { path in

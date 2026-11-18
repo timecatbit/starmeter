@@ -28,6 +28,7 @@ import swiftbar_sources as sources
 import swiftbar_files as files
 import swiftbar_preferences as preferences
 import swiftbar_qoder as qoder
+import swiftbar_sessions as live_sessions
 from swiftbar_time import parse_iso
 import hashlib
 
@@ -62,7 +63,8 @@ class SwiftError(Exception):
 
 
 def swift(call, *args):
-    done = subprocess.run([PROBE], input=json.dumps({'call': call, 'args': list(args)}).encode(), capture_output=True, check=True)
+    environment = dict(os.environ, STARMETER_PRICING=str(ROOT / 'lib'))
+    done = subprocess.run([PROBE], input=json.dumps({'call': call, 'args': list(args)}).encode(), capture_output=True, check=True, env=environment)
     answer = json.loads(done.stdout)
     if 'error' in answer:
         raise SwiftError(answer['error'])
@@ -1274,6 +1276,60 @@ class CursorParityTests(unittest.TestCase):
             with self.subTest(summary=summary):
                 self.summary = summary
                 self.both('plan')
+
+
+@unittest.skipUnless(PROBE, 'Swift toolchain not installed')
+class SessionParityTests(unittest.TestCase):
+    def test_active_sessions_and_their_turns(self):
+        temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        claude, codex = root / 'projects', root / 'codex'
+        now = time.time()
+        def write(path, rows, age=0):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(''.join((r if isinstance(r, str) else json.dumps(r, ensure_ascii=False)) + '\n' for r in rows))
+            os.utime(path, (now - age, now - age))
+        usage = lambda n: {'input_tokens': n, 'cache_read_input_tokens': 10, 'cache_creation_input_tokens': 5, 'output_tokens': 3}
+        talk = [
+            {'type': 'ai-title', 'aiTitle': 'Made up'}, {'type': 'user', 'timestamp': '2026-11-18T10:00:00Z', 'message': {'content': 'hi'}},
+            {'type': 'assistant', 'cwd': '/w/app', 'message': {'id': 'm1', 'model': 'claude-opus-5-5', 'usage': usage(1000),
+             'content': [{'type': 'tool_use', 'name': 'Bash'}, {'type': 'text'}]}},
+            {'type': 'assistant', 'message': {'id': 'm1', 'model': 'claude-opus-5-5', 'usage': usage(1000), 'content': [{'type': 'tool_use', 'name': 'Read'}]}},
+            {'type': 'assistant', 'isSidechain': True, 'message': {'id': 's1', 'model': 'claude-haiku-5-5', 'usage': usage(50), 'stop_reason': 'end_turn'}},
+            {'type': 'user', 'message': {'content': [{'type': 'tool_result'}]}}, {'type': 'user', 'isMeta': True, 'message': {'content': 'meta'}},
+            {'type': 'user', 'timestamp': '2026-11-18T10:05:00.123456Z', 'message': {'content': [{'type': 'text', 'text': 'more'}]}},
+            {'type': 'assistant', 'message': {'id': 'm2', 'model': 'mystery', 'usage': usage(300000), 'stop_reason': 'end_turn'}},
+            {'type': 'custom-title', 'customTitle': ' 维护 '}, 'not json']
+        write(claude / 'p' / '7a5d1c2e-0000-4000-8000-000000000001.jsonl', talk, age=5)
+        write(claude / 'p' / 'busy.jsonl', [{'type': 'user', 'message': {'content': 'go'}}, {'type': 'assistant', 'message': {'model': 'claude-fable-5-2', 'usage': usage(10)}}], age=1)
+        write(claude / 'p' / 'stalled.jsonl', [{'type': 'assistant', 'message': {'stop_reason': 'tool_use'}}], age=live_sessions.STALLED + 5)
+        write(claude / 'p' / 'old.jsonl', [{'type': 'assistant', 'message': {'stop_reason': 'end_turn'}}], age=live_sessions.ACTIVE + 5)
+        write(claude / 'p' / 'subagents' / 'x.jsonl', [{'type': 'assistant'}], age=1)
+        thread = '019a0000-1111-7222-8333-444455556666'
+        write(codex / 'sessions' / '2026' / '11' / '03' / ('rollout-2026-11-03T10-00-00-%s.jsonl' % thread), [
+            {'type': 'session_meta', 'payload': {'id': thread, 'cwd': '/w/ops'}},
+            {'type': 'turn_context', 'payload': {'model': 'gpt-6.2-sol', 'effort': 'ultra'}},
+            {'type': 'event_msg', 'timestamp': '2026-11-18T10:00:00Z', 'payload': {'type': 'task_started'}},
+            {'type': 'response_item', 'payload': {'type': 'function_call', 'name': 'exec'}}, {'type': 'response_item', 'payload': {'type': 'local_shell_call'}},
+            {'type': 'event_msg', 'payload': {'type': 'token_count', 'info': {'model_context_window': 1000, 'total_token_usage': {'t': 1},
+             'last_token_usage': {'input_tokens': 300, 'output_tokens': 50, 'cached_input_tokens': 100}}}},
+            {'type': 'event_msg', 'payload': {'type': 'token_count', 'info': {'total_token_usage': {'t': 1}, 'last_token_usage': {'input_tokens': 300}}}},
+            {'type': 'turn_context', 'payload': {'model': 'codex-auto-review'}},
+            {'type': 'event_msg', 'payload': {'type': 'token_count', 'info': {'model_context_window': 100, 'total_token_usage': {'t': 2},
+             'last_token_usage': {'input_tokens': 300, 'output_tokens': 50}}}}], age=2)
+        write(codex / 'sessions' / '2026' / '11' / '18' / 'rollout-guardian.jsonl', [
+            {'type': 'session_meta', 'payload': {'source': {'subagent': {'other': 'guardian'}}}}, {'type': 'event_msg', 'payload': {'type': 'task_started'}}], age=1)
+        (codex / 'session_index.jsonl').write_text(json.dumps({'id': thread, 'thread_name': '服务器管理'}) + '\n')
+        app = {'7a5d1c2e-0000-4000-8000-000000000001': {'title': 'App 名字', 'effort': 'xhigh'}, 'busy': {'title': 'Busy', 'effort': None}}
+        plugin = __import__('types').ModuleType('plugin_sessions')
+        with unittest.mock.patch.dict(os.environ, {'OCX_PLUGIN_PATH': str(ROOT / 'starmeter.30s.sh')}):
+            exec(compile((ROOT / 'lib/swiftbar_plugin.py').read_text(), 'plugin', 'exec'), plugin.__dict__)
+        for prices in (False, True):
+            with self.subTest(prices=prices):
+                expected = live_sessions.active([claude], codex, now, plugin.session_prices() if prices else None, app)
+                got = swift('sessions.active', [str(claude)], str(codex), now, prices, app)
+                same(self, expected, got)
+                self.assertEqual(len(got), 3)
 
 
 if __name__ == '__main__':
