@@ -2634,20 +2634,26 @@ def sessions_cached(ttl=None):
     previous=(read_cache('sessions').get('payload') or {}).get('sessions')
     def load():
         now=time.time()
-        found=live_sessions.active(claude_desktop.project_roots(HOME),chatgpt_home(),now,session_prices())
+        found=live_sessions.active(claude_desktop.project_roots(HOME),chatgpt_home(),now,session_prices(),
+                                   claude_desktop.session_settings(source_path('claude'),now-live_sessions.ACTIVE))
         if view_settings()['sessionAlerts']:
             for s in live_sessions.newly_waiting(previous,found,now)[:3]:
-                post_notice('会话等待输入','%s · %s 这一轮已完成'%(s['tool'],s['project'] or '未知项目'))
+                post_notice('会话等待输入','%s · %s 这一轮已完成'%(s['tool'],session_name(s)))
         return {'sessions':found},None
     return cached_fetch('sessions',load,refresh_ttl(EXTERNAL_TTLS['sessions']) if ttl is None else ttl)
 
 
-def turn_lines(turns,unit=None):
+def session_name(s):
+    """A session by the title its client gave it, or by its project folder when it has none."""
+    return s.get('title') or s.get('project') or '未知项目'
+
+
+def turn_lines(turns,unit=None,project=None):
     """A session's last turns under it, newest first: when it started, its tokens and estimated cost, then its
-    requests and the tools it called. No prompt or reply text."""
+    requests and the tools it called. No prompt or reply text. The project folder heads the list."""
     if not turns:return []
     unit=unit or {'symbol':'$','rate':1}
-    lines=[item('最近 %d 轮'%len(turns),level=2,color=MUTED,size=11)]
+    lines=[item(' · '.join(part for part in (project,'最近 %d 轮'%len(turns)) if part),level=2,color=MUTED,size=11)]
     for t in turns:
         when=datetime.fromtimestamp(t['at']).strftime('%H:%M') if t.get('at') else '更早开始'
         priced=t['requests']>t['unpriced']
@@ -2668,12 +2674,14 @@ def sessions_lines(data):
     lines=[item('活跃会话',badge=badge,sfimage='terminal')]
     for s in found or []:
         ago=max(0,int(time.time()-s['at']))
-        detail=' · '.join(part for part in (model_title(model_key(s['model'])) if s.get('model') else '',
-                                              '上下文已用 %d%%'%round(100*s['context']) if s.get('context') is not None else '',
+        # The model already says whose it is, so "Claude" goes; the line stays short enough not to wrap.
+        model=model_title(model_key(s['model'])).removeprefix('Claude ') if s.get('model') else ''
+        detail=' · '.join(part for part in (model,s.get('effort') or '',
+                                              '上下文 %d%%'%round(100*s['context']) if s.get('context') is not None else '',
                                               '刚刚' if ago<60 else '%d 分钟前'%(ago//60)) if part)
-        lines.append(item('%s · %s'%(s['project'] or '未知项目',s['tool']),level=1,badge='运行中' if s['state']=='running' else '等待输入',
+        lines.append(item(session_name(s),level=1,badge='运行中' if s['state']=='running' else '等待输入',
                           paneldetail=detail,panelstatus='new' if s['state']=='running' else 'ok'))
-        lines.extend(turn_lines(s.get('turns') or [],currency_unit(data)))
+        lines.extend(turn_lines(s.get('turns') or [],currency_unit(data),s.get('project') if s.get('title') else None))
     if found is not None and not found:lines.append(item('最近半小时没有 Claude Code 或 Codex 会话',level=1,color=MUTED,size=11))
     lines.append('-----')
     alerts_on=view_settings()['sessionAlerts']

@@ -1,14 +1,14 @@
 """Claude Code and Codex sessions that are running or waiting for input now.
 
 Only the end of each transcript changed in the last half hour is read. Of a session, nothing is kept but
-its state, the folder name of its project, its model, how much of its context window the last request
-filled, and when it last changed; never prompts, replies or paths. A session is identified by a hash.
+its state, the title its client gave it (named by the user or by the client), the folder name of its project,
+its model and reasoning effort, how much of its context window the last request filled, and when it last
+changed; never prompts, replies or paths. A session is identified by a hash.
 """
 import hashlib
 import json
 import os
 from pathlib import Path
-import time
 
 ACTIVE = 1800   # A session waiting for input stays listed this long after its last change.
 STALLED = 600   # A running session silent this long has most likely stopped without saying so.
@@ -47,10 +47,17 @@ def number(value):
     return value if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0 else 0
 
 
+def text(value):
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
 def claude(path):
-    """A Claude Code transcript: waiting once the last reply ended its turn, running otherwise."""
-    last = reply = None; folder = None
+    """A Claude Code transcript: waiting once the last reply ended its turn, running otherwise. Its title is the
+    last one the transcript records: the name the user or the App gave it, else the one Claude Code made up."""
+    last = reply = None; folder = None; named = made = None
     for row in rows_at_end(path):
+        if row.get('type') == 'custom-title':named = text(row.get('customTitle')) or named
+        elif row.get('type') == 'ai-title':made = text(row.get('aiTitle')) or made
         if row.get('isSidechain'):continue
         if row.get('cwd'):folder = row['cwd']
         if row.get('type') in ('assistant', 'user'):last = row
@@ -65,18 +72,21 @@ def claude(path):
         used = sum(number(usage.get(k)) for k in ('input_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens', 'output_tokens'))
         window = next((w for w in CLAUDE_WINDOWS if used <= w), CLAUDE_WINDOWS[-1])
         context = min(1.0, used / window) if used else None
-    return {'tool': 'Claude', 'state': 'waiting' if waiting else 'running', 'project': project_name(folder), 'model': model, 'context': context}
+    return {'tool': 'Claude', 'state': 'waiting' if waiting else 'running', 'title': named or made, 'project': project_name(folder),
+            'model': model, 'effort': None, 'context': context}
 
 
 def codex(path):
     """A Codex rollout: running between task_started and task_complete (or an aborted turn)."""
     head = first_row(path); payload = head.get('payload') if isinstance(head.get('payload'), dict) else {}
+    # A subagent's thread (Guardian reviews among them) works for another session, like Claude's sidechains.
+    if isinstance(payload.get('source'), dict) and 'subagent' in payload['source']:return None
     folder = payload.get('cwd') if head.get('type') == 'session_meta' else None
-    state = None; model = None; context = None
+    state = None; model = None; context = None; effort = None
     for row in rows_at_end(path):
         data = row.get('payload') if isinstance(row.get('payload'), dict) else {}
         kind = data.get('type')
-        if row.get('type') == 'turn_context':model = data.get('model') or model
+        if row.get('type') == 'turn_context':model = data.get('model') or model;effort = text(data.get('effort')) or effort
         if row.get('type') == 'session_meta' and data.get('cwd'):folder = data['cwd']
         if kind == 'task_started':state = 'running'
         elif kind in ('task_complete', 'turn_aborted'):state = 'waiting'
@@ -85,7 +95,22 @@ def codex(path):
             used = number(last.get('input_tokens')) + number(last.get('output_tokens'))
             if window and used:context = min(1.0, used / window)
     if state is None:return None
-    return {'tool': 'ChatGPT', 'state': state, 'project': project_name(folder), 'model': model, 'context': context}
+    return {'tool': 'ChatGPT', 'state': state, 'title': None, 'project': project_name(folder), 'model': model, 'effort': effort,
+            'context': context}
+
+
+def codex_titles(codex_root):
+    """Codex's thread names by thread ID, from its session index; the last name given wins."""
+    names = {}
+    try:
+        with open(Path(codex_root) / 'session_index.jsonl', 'rb') as handle:
+            for line in handle:
+                try:row = json.loads(line)
+                except ValueError:continue
+                if isinstance(row, dict) and isinstance(row.get('id'), str) and text(row.get('thread_name')):
+                    names[row['id']] = text(row['thread_name'])
+    except OSError:pass
+    return names
 
 
 # Session detail reads further back than the state does: the last few turns of a long session.
@@ -159,7 +184,7 @@ def detail(session_path, tool, prices):
     """A listed session's last turns; prices maps the tool to its price function."""
     read = claude_turns if tool == 'Claude' else codex_turns
     try:return read(session_path, prices[tool])
-    except (OSError, ValueError, TypeError, AttributeError):return []
+    except (OSError, ValueError, TypeError, AttributeError, KeyError):return []
 
 
 def recent(root, pattern, since):
@@ -167,20 +192,27 @@ def recent(root, pattern, since):
     except OSError:return []
 
 
-def active(claude_roots, codex_root, now, prices=None):
+def active(claude_roots, codex_root, now, prices=None, claude_app=None):
     """Sessions changed in the last half hour, the most recent first. A running one silent for ten minutes is dropped.
-    With prices (tool -> price(model, usage)), each carries its last turns as well."""
-    found = []
+    With prices (tool -> price(model, usage)), each carries its last turns as well. claude_app maps a transcript's
+    session ID to the Claude App's title and effort for it."""
+    found = []; titles = None
     candidates = [(claude, p) for root in claude_roots for p in recent(root, '*/*.jsonl', now - ACTIVE) if 'subagents' not in p.parts]
     if codex_root:
-        # Rollouts are filed by the day they started: today's and yesterday's folders hold every session still going.
-        days = {time.strftime('%Y/%m/%d', time.localtime(now - shift)) for shift in (0, 86400)}
-        candidates += [(codex, p) for day in sorted(days) for p in recent(Path(codex_root) / 'sessions' / day, 'rollout-*.jsonl', now - ACTIVE)]
+        # A rollout is filed under the day its thread started, and a thread can still be going days later.
+        candidates += [(codex, p) for p in recent(Path(codex_root) / 'sessions', '*/*/*/rollout-*.jsonl', now - ACTIVE)]
     for read, path in candidates:
         try:
             changed = path.stat().st_mtime; session = read(path)
         except (OSError, ValueError, TypeError, AttributeError):continue
         if not session or (session['state'] == 'running' and now - changed > STALLED):continue
+        if session['tool'] == 'Claude':
+            app = (claude_app or {}).get(path.stem) or {}
+            session['title'] = session['title'] or app.get('title'); session['effort'] = app.get('effort')
+        else:
+            # rollout-<started>-<thread ID>.jsonl
+            titles = codex_titles(codex_root) if titles is None else titles
+            session['title'] = titles.get(path.stem[-36:])
         entry = dict(session, id=hashlib.sha256(str(path).encode()).hexdigest()[:16], at=changed)
         # The turns are read here, so the path itself never leaves this function.
         if prices:entry['turns'] = detail(path, session['tool'], prices)

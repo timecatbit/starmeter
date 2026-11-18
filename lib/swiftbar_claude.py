@@ -62,6 +62,22 @@ def registered_ids(root):
     return ids
 
 
+def session_settings(root, since):
+    """The Claude App's title and reasoning effort for each session it touched since `since`, by the
+    transcript's session ID. Only those two fields are kept."""
+    found={}
+    for path in registry_files(root):
+        try:
+            if path.stat().st_mtime<since:continue
+        except OSError:continue
+        row=read_object(path);session=row.get('cliSessionId')
+        if not isinstance(session,str) or not UUID.fullmatch(session):continue
+        title=row.get('title');effort=row.get('effort')
+        found[session]={'title':title.strip() if isinstance(title,str) and title.strip() else None,
+                        'effort':effort if isinstance(effort,str) and effort else None}
+    return found
+
+
 def project_roots(home):
     """ccusage-compatible paths, where every Claude Code client keeps its transcripts."""
     home=Path(home);configured=os.environ.get('CLAUDE_CONFIG_DIR','').strip()

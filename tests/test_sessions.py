@@ -40,6 +40,30 @@ class SessionReaderTests(unittest.TestCase):
         self.assertAlmostEqual(found[0]['context'], 0.25); self.assertAlmostEqual(found[1]['context'], 0.3, msg='Past 200K the window is 1M')
         self.assertNotIn('Users', json.dumps(found), 'Only the folder name of a project is kept')
 
+    def test_a_session_goes_by_the_title_its_client_gave_it(self):
+        named = self.write(self.claude / 'p' / 'named.jsonl', [{'type': 'ai-title', 'aiTitle': 'Made up'}, {'type': 'custom-title', 'customTitle': '维护'},
+                                                              assistant('end_turn'), {'type': 'custom-title', 'customTitle': ' token monitor维护 '}])
+        made = self.write(self.claude / 'p' / 'made.jsonl', [{'type': 'ai-title', 'aiTitle': 'Fix the panel'}, assistant('end_turn')], age=1)
+        app = self.write(self.claude / 'p' / '7a5d1c2e-0000-4000-8000-000000000001.jsonl', [assistant('end_turn')], age=2)
+        bare = self.write(self.claude / 'p' / 'bare.jsonl', [assistant('end_turn')], age=3)
+        found = sessions.active([self.claude], None, time.time(), claude_app={app.stem: {'title': 'App 起的名字', 'effort': 'xhigh'}})
+        self.assertEqual([(s['title'], s['effort']) for s in found],
+                         [('token monitor维护', None), ('Fix the panel', None), ('App 起的名字', 'xhigh'), (None, None)])
+        self.assertTrue(named and made and bare)
+
+    def test_codex_threads_from_earlier_days_are_named_and_subagents_left_out(self):
+        thread = '019a0000-1111-7222-8333-444455556666'
+        old = self.codex / 'sessions' / '2026' / '11' / '03'
+        meta = {'type': 'session_meta', 'payload': {'id': thread, 'cwd': '/w/ops', 'source': 'vscode'}}
+        started = {'type': 'event_msg', 'payload': {'type': 'task_started'}}
+        self.write(old / ('rollout-2026-11-03T10-00-00-%s.jsonl' % thread), [meta, {'type': 'turn_context', 'payload': {'model': 'gpt-6.2-sol', 'effort': 'ultra'}}, started])
+        guardian = dict(meta, payload={'id': 'g', 'cwd': '/w/ops', 'source': {'subagent': {'other': 'guardian'}}})
+        self.write(self.codex / 'sessions' / time.strftime('%Y/%m/%d') / 'rollout-guardian.jsonl', [guardian, started])
+        (self.codex / 'session_index.jsonl').write_text(json.dumps({'id': thread, 'thread_name': '旧名字'}) + '\n' + 'not json\n'
+                                                         + json.dumps({'id': thread, 'thread_name': '服务器管理'}) + '\n')
+        found = sessions.active([], self.codex, time.time())
+        self.assertEqual([(s['title'], s['project'], s['effort'], s['state']) for s in found], [('服务器管理', 'ops', 'ultra', 'running')])
+
     def test_quiet_or_old_sessions_drop_out(self):
         self.write(self.claude / 'p' / 'stalled.jsonl', [assistant('tool_use')], age=sessions.STALLED + 5)
         self.write(self.claude / 'p' / 'old.jsonl', [assistant('end_turn')], age=sessions.ACTIVE + 5)
@@ -103,10 +127,21 @@ class SessionPanelTests(unittest.TestCase):
                                           {'tool': 'ChatGPT', 'state': 'waiting', 'project': None, 'model': None, 'context': None, 'at': now - 200, 'id': 'b'}]}}
         lines = self.m.sessions_lines(data)
         self.assertIn('badge="1 运行中 · 1 等待输入"', lines[0])
-        self.assertIn('starmeter · Claude', lines[1]); self.assertIn('Claude Opus 5.5 · 上下文已用 38% · 刚刚', lines[1]); self.assertIn('panelstatus=new', lines[1])
-        self.assertIn('未知项目 · ChatGPT', lines[2]); self.assertIn('3 分钟前', lines[2])
+        self.assertTrue(lines[1].startswith('--starmeter |'), 'Without a title, the project folder names it')
+        self.assertIn('paneldetail="Opus 5.5 · 上下文 38% · 刚刚"', lines[1]); self.assertIn('panelstatus=new', lines[1])
+        self.assertTrue(lines[2].startswith('--未知项目 |')); self.assertIn('3 分钟前', lines[2])
+        titled = [{'tool': 'ChatGPT', 'state': 'running', 'title': '服务器管理', 'project': 'ops', 'model': 'gpt-6.2-sol', 'effort': 'xhigh',
+                   'context': 0.54, 'at': now, 'id': 'c', 'turns': [{'at': None, 'requests': 1, 'tokens': 10, 'cost': 0.0, 'unpriced': 0, 'tools': {}}]}]
+        lines = self.m.sessions_lines({'sessions': {'sessions': titled}})
+        self.assertTrue(lines[1].startswith('--服务器管理 |'), 'A session goes by the title its client gave it')
+        self.assertIn('paneldetail="gpt-6.2-sol · xhigh · 上下文 54% · 刚刚"', lines[1])
+        self.assertTrue(lines[2].startswith('----ops · 最近 1 轮'), 'The project folder heads its turns')
         self.assertIn('badge=没有活跃会话', self.m.sessions_lines({'sessions': {'sessions': []}})[0])
         self.assertIn('badge=待同步', self.m.sessions_lines({})[0])
+
+    def test_a_live_auto_review_request_is_priced_by_today(self):
+        # Codex's reviewer is priced by the day of the request; a session read live has no day of its own.
+        self.assertIsNotNone(self.m.session_prices()['ChatGPT']('codex-auto-review', {'input_tokens': 10, 'output_tokens': 1}))
 
     def test_each_session_lists_its_last_turns(self):
         turns = [{'at': None, 'requests': 3, 'tokens': 1200, 'cost': 0.4, 'unpriced': 1, 'tools': {'Bash': 2, 'Read': 5}}]

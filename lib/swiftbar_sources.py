@@ -105,8 +105,9 @@ def codex_cost(event):
     """API-equivalent estimate with ccusage's Codex rules; unknown models stay unpriced."""
     table = pricing('codex-pricing.json'); model = str(event.get('model') or '')
     if model == 'codex-auto-review':
-        # The reviewer bills as the newest model released by the request's (UTC) day.
-        day = datetime.fromtimestamp(event['timestamp'], timezone.utc).date().isoformat()
+        # The reviewer bills as the newest model released by the request's (UTC) day; a request read live is today's.
+        stamp = event.get('timestamp')
+        day = (datetime.fromtimestamp(stamp, timezone.utc) if isinstance(stamp, (int, float)) else datetime.now(timezone.utc)).date().isoformat()
         model = next((row['model'] for row in table.get('autoReviewFallbacks', []) if day >= row['releasedOn']), 'gpt-5')
     base = re.sub(r'-(?:\d{4}-\d{2}-\d{2}|\d{8})$', '', model)
     resolved = table.get('aliases', {}).get(base, base); models = table.get('models', {})
