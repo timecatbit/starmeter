@@ -10,7 +10,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from datetime import timezone
+from datetime import datetime, timezone
+import time
+import unittest.mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'lib'))
@@ -583,6 +585,90 @@ def table_dump(path):
         return found
     finally:
         conn.close()
+
+
+@unittest.skipUnless(PROBE and ZoneInfo, 'Swift toolchain not installed')
+class RangeParityTests(unittest.TestCase):
+    """The whole range bundle, from preferences to every selected source, read by both engines."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name)
+        self.home = root / 'home'
+        now = time.time()
+        self.at = lambda seconds: datetime.fromtimestamp(now - seconds, timezone.utc).isoformat().replace('+00:00', 'Z')
+        jsonl(self.home / '.claude' / 'projects' / 'p' / 's1.jsonl', [
+            reply('msg_a', 'req_a', ts=self.at(100)), reply('msg_b', 'req_b', ts=self.at(90), model='claude-fable-5-2', cost=0.5),
+            reply('msg_c', None, ts=self.at(80 * 3600), cwd='/w/older')])
+        codex_day = self.home / '.codex' / 'sessions' / '2026' / '11' / '18'
+        rows = codex_rows()
+        for index, row in enumerate(rows):
+            if 'timestamp' in row:row['timestamp'] = self.at(200 - index)
+        jsonl(codex_day / 'rollout-x.jsonl', rows)
+        magpie = self.home / '.config' / 'magpie'
+        jsonl(magpie / 'usage.jsonl', [
+            {'t': self.at(197), 'provider': 'openai', 'model': 'gpt-6.2-sol', 'agent': 'codex', 'in': 1000, 'out': 50, 'cache_read': 200},
+            {'t': self.at(60), 'provider': 'anthropic', 'model': 'claude-opus-5-5', 'agent': 'claude-code', 'in': 10, 'out': 5, 'cache_read': 100,
+             'cache_write': 20}])
+        jsonl(self.home / '.workbuddy' / 'projects' / 'p' / 'w.jsonl', [
+            {'type': 'message', 'timestamp': self.at(50), 'message': {'role': 'assistant', 'id': 'w1', 'model': 'glm-5', 'usage': {'input_tokens': 9, 'output_tokens': 1}}}])
+        self.states = {}
+        for engine in ('python', 'swift'):
+            state = root / engine / 'state'
+            state.mkdir(parents=True)
+            (state / 'preferences.json').write_text(json.dumps({'schema': 1, 'visible': ['summary', 'claude', 'codex', 'magpie', 'workbuddy'], 'modules': [m[0] for m in preferences.MODULES]}))
+            self.states[engine] = {'OCX_STATE_DIR': str(state), 'OCX_CACHE_DIR': str(root / engine / 'cache')}
+        self.common = {'HOME': str(self.home), 'OCX_TIMEZONE': 'Asia/Shanghai', 'OCX_HOME': str(self.home / '.opencodex'),
+                       'OCX_PLUGIN_PATH': str(ROOT / 'starmeter.30s.sh'), 'STARMETER_PRICING': str(ROOT / 'lib')}
+
+    def python(self, key):
+        import types
+        with unittest.mock.patch.dict(os.environ, dict(self.common, **self.states['python'])):
+            for name in ('CLAUDE_CONFIG_DIR', 'XDG_CONFIG_HOME', 'CODEX_HOME', 'OCX_BASE_URL', 'TZ'):os.environ.pop(name, None)
+            plugin = types.ModuleType('plugin_range')
+            exec(compile((ROOT / 'lib/swiftbar_plugin.py').read_text(), 'plugin', 'exec'), plugin.__dict__)
+            payload, error = plugin.range_usage_cached(key, ttl=0)
+            return payload, error, plugin.range_cache_name(key)
+
+    def swift(self, key):
+        environment = {k: v for k, v in os.environ.items() if k not in ('CLAUDE_CONFIG_DIR', 'XDG_CONFIG_HOME', 'CODEX_HOME', 'OCX_BASE_URL', 'TZ')}
+        environment.update(self.common, **self.states['swift'])
+        done = subprocess.run([PROBE], input=json.dumps({'call': 'range.usage', 'args': [key, 0]}).encode(), capture_output=True, check=True, env=environment)
+        answer = json.loads(done.stdout)
+        if 'error' in answer:raise SwiftError(answer['error'])
+        return answer['result']['payload'], answer['result']['error'], answer['result']['cache']
+
+    @staticmethod
+    def steady(value):
+        """Without what depends on the moment of reading: read times and the range's end, which is now."""
+        if isinstance(value, dict):
+            return {k: RangeParityTests.steady(v) for k, v in value.items() if k not in ('readAt', '_fetchedAt', 'end', '_stale')}
+        if isinstance(value, list):
+            return [RangeParityTests.steady(v) for v in value]
+        return value
+
+    def test_every_range_bundle_matches(self):
+        for key in ('today', 'all', '7d', 'yesterday'):
+            with self.subTest(range=key):
+                expected = self.python(key)
+                got = self.swift(key)
+                self.assertEqual(expected[2], got[2], 'the cache name')
+                self.assertEqual(expected[1], got[1])
+                same(self, self.steady(expected[0]), self.steady(got[0]))
+                self.assertTrue(expected[0]['claude']['summary']['requests'] or key == 'yesterday')
+
+    def test_range_bounds_follow_the_wall_clock(self):
+        import types
+        plugin = types.ModuleType('plugin_bounds')
+        with unittest.mock.patch.dict(os.environ, dict(self.common, **self.states['python'])):
+            exec(compile((ROOT / 'lib/swiftbar_plugin.py').read_text(), 'plugin', 'exec'), plugin.__dict__)
+        for zone in ('Asia/Shanghai', 'America/New_York', 'Europe/London', 'UTC'):
+            for moment in (1794996000.25, 1772953200.0, 1772960400.5, 1793512800.0, 1790000000.0, 1796083199.999):
+                now = datetime.fromtimestamp(moment, ZoneInfo(zone))
+                for key in ('today', 'yesterday', '24h', '7d', '30d', 'week', 'month', 'all'):
+                    with self.subTest(zone=zone, moment=moment, key=key):
+                        self.assertEqual(swift('range.bounds', key, moment, zone), list(plugin.range_bounds(key, now)))
 
 
 if __name__ == '__main__':

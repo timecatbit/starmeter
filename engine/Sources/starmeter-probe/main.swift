@@ -61,6 +61,15 @@ func answer(_ call: String, _ args: [JSON]) throws -> JSON {
             return .object(try Harness.jsonlUsage(source: source, root: text(1)!, cache: text(2)!, start: start, end: end, zone: zone, excludeProxy: excludeProxy,
                                                   carriers: carried, price: source == "magpie" ? Harness.magpiePrice : nil, archive: text(7)))
         }
+    case "range.usage":
+        let runtime = Runtime()
+        let (payload, error) = runtime.render { runtime.rangeUsage(text(0), ttl: args.count > 1 ? args[1].number : nil) }
+        return ["payload": payload.map(JSON.object) ?? .null, "error": error.map(JSON.string) ?? .null, "cache": .string(runtime.rangeCacheName(text(0)))]
+    case "range.bounds":
+        let runtime = Runtime()
+        let zone = TimeZone(identifier: text(2) ?? "UTC")!
+        let (start, end) = runtime.rangeBounds(text(0)!, now: args[1].number!, zone: zone)
+        return [.double(start), .double(end)]
     case "zstd":
         // The SHA-256 and size of each file's decompressed bytes.
         return .array(args.map { path in
@@ -103,7 +112,7 @@ func answer(_ call: String, _ args: [JSON]) throws -> JSON {
     }
 }
 
-Pricing.folders = [ProcessInfo.processInfo.environment["STARMETER_PRICING"] ?? "lib"]
+if let folder = ProcessInfo.processInfo.environment["STARMETER_PRICING"] { Pricing.folders = [folder] }
 let input = FileHandle.standardInput.readDataToEndOfFile()
 var output: JSON
 do {
