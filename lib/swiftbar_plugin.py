@@ -1979,7 +1979,7 @@ def gateway_carriers(source, logs):
     return carriers
 
 
-def range_usage_cached(key=None):
+def range_usage_cached(key=None,ttl=None):
     key=key or selected_range();name=range_cache_name(key)
     def load():
         now=usage_now();start,end=range_bounds(key,now)
@@ -2015,7 +2015,7 @@ def range_usage_cached(key=None):
                     bundle[source]=dict(last,refreshError=result['error'],readAt=last.get('readAt') or record.get('fetchedAt'))
                 else:bundle[source]=result if result.get('error') else dict(result,readAt=time.time())
         return bundle,None
-    return cached_fetch(name,load,refresh_ttl(60))
+    return cached_fetch(name,load,refresh_ttl(60) if ttl is None else ttl)
 
 
 def cursor_range_usage(start,end,now,carriers=None):
@@ -2295,6 +2295,18 @@ def refresh_usage_range(wait=False):
         due=usage_ranges_due()
         for key in due:range_usage_cached(key)
         return bool(due)
+
+
+def refresh_live():
+    """A pinned panel's tick: the range on screen re-read from the local logs, and the active sessions, at once.
+    Sources read over the network keep their own intervals. A tick that finds the last one still running is skipped."""
+    os.makedirs(CACHE_DIR, mode=0o700, exist_ok=True)
+    with open(os.path.join(CACHE_DIR, 'range-refresh.lock'), 'a') as lock:
+        try:fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:return False
+        range_usage_cached(selected_range(),ttl=0)
+    if module_enabled('sessions'):sessions_cached(ttl=0)
+    return True
 
 
 def background_refresh(wait=False):
@@ -2617,7 +2629,7 @@ def session_prices():
     return {'Claude':claude,'ChatGPT':chatgpt}
 
 
-def sessions_cached():
+def sessions_cached(ttl=None):
     """Claude Code and Codex sessions running or waiting now; with the alert on, one that has just finished its turn is told of."""
     previous=(read_cache('sessions').get('payload') or {}).get('sessions')
     def load():
@@ -2627,7 +2639,7 @@ def sessions_cached():
             for s in live_sessions.newly_waiting(previous,found,now)[:3]:
                 post_notice('会话等待输入','%s · %s 这一轮已完成'%(s['tool'],s['project'] or '未知项目'))
         return {'sessions':found},None
-    return cached_fetch('sessions',load,refresh_ttl(EXTERNAL_TTLS['sessions']))
+    return cached_fetch('sessions',load,refresh_ttl(EXTERNAL_TTLS['sessions']) if ttl is None else ttl)
 
 
 def turn_lines(turns,unit=None):
@@ -3208,6 +3220,8 @@ def module_options(data=None):
                            'checked':settings['serviceStatus'],'action':['set-service-status','false' if settings['serviceStatus'] else 'true'],'children':[]},
                           {'label':'导出用量','symbol':'square.and.arrow.up','value':RANGES[selected_range()],
                            'children':[{'label':'CSV（每天每个工具一行）…','action':['export-usage','csv'],'children':[]},{'label':'JSON…','action':['export-usage','json'],'children':[]}]},
+                          {'label':'钉住时刷新','symbol':'pin','value':'每 %d 秒'%settings['pinInterval'],
+                           'children':[{'label':'每 %d 秒'%s,'checked':settings['pinInterval']==s,'radio':True,'action':['set-pin-interval',str(s)],'children':[]} for s in preferences.PIN_INTERVALS]},
                           {'label':'菜单栏显示','symbol':'menubar.rectangle','value':MENU_BAR_LABELS[settings['menuBar']],
                            'children':[{'label':label,'checked':settings['menuBar']==key,'radio':True,'action':['set-menu-bar',key],'children':[]} for key,label in MENU_BAR_LABELS.items()]},
                           {'label':'用量提醒','symbol':'bell','value':'%d%%'%settings['usageAlert'] if settings['usageAlert'] else '关闭','children':alert_rows},{'label':'保留已清理记录的用量','detail':'工具删掉旧记录后仍计入“全部”等统计','symbol':'archivebox','checked':settings['keepCleanedUsage'],'action':['set-keep-usage','false' if settings['keepCleanedUsage'] else 'true'],'children':[]},{'label':'高级配置文件…','symbol':'doc.text','action':['open-settings'],'children':[]},{'label':'自动检测','symbol':'sparkle.magnifyingglass','children':detection_help_entries()},{'label':'恢复默认模块','action':['reset-modules'],'children':[]}])
@@ -3930,7 +3944,7 @@ def panel_snapshot(data,dashboard=None,options=None):
             return [dict(entry,children=without_new_bridge(entry.get('children',[]))) for entry in entries
                     if entry.get('action')!=['set-claude-local','true']]
         options=without_new_bridge(options if options is not None else module_options(data))
-    return {"schema":1,"project":{"name":PRODUCT,"url":REPOSITORY},"dashboard":dashboard,"menuBarText":menu_bar_value(data),
+    return {"schema":1,"project":{"name":PRODUCT,"url":REPOSITORY},"dashboard":dashboard,"menuBarText":menu_bar_value(data),"pinInterval":view_settings()["pinInterval"],
             "entries":resource_panel_entries(data),"rangeOptions":range_options(dashboard['rangeKey']),
             "moduleOptions":options if options is not None else module_options(data),
             "appearance":view_settings()['appearance'],"theme":view_settings()['theme'],"preferences":presentation_settings(),
@@ -4282,6 +4296,12 @@ def run_action(name, extra):
     elif name == "set-session-alerts":
         if len(extra)!=1:raise ValueError('invalid session alert setting')
         preferences.update(STATE_DIR,'session-alerts',extra[0])
+    elif name == "refresh-live":
+        if extra:raise ValueError('invalid live refresh')
+        refresh_live()
+    elif name == "set-pin-interval":
+        if len(extra)!=1:raise ValueError('invalid pin interval')
+        preferences.update(STATE_DIR,'pin-interval',extra[0])
     elif name == "set-menu-bar":
         key=extra[0] if len(extra)==1 else ''
         if key not in preferences.MENU_BAR:raise ValueError('invalid menu bar value')
@@ -4430,7 +4450,7 @@ def consume_panel_action():
         snapshot=read_cache("panel-view")
         nodes = list(snapshot.get("entries") or [])+list(snapshot.get("rangeOptions") or [])+list(snapshot.get("moduleOptions") or [])
         # Header buttons beside Summary are always present, so their actions are always allowed.
-        allowed = [["refresh-view"], ["refresh"], ["detect-modules"]] + [["set-group", key] for key in GROUPINGS]
+        allowed = [["refresh-view"], ["refresh"], ["refresh-live"], ["detect-modules"]] + [["set-group", key] for key in GROUPINGS]
         dashboard=snapshot.get('dashboard') or {}
         if dashboard.get('allowCollapse'):
             allowed.extend([['set-expanded',p['id'],value] for p in dashboard.get('providers',[]) if p.get('id') in preferences.USAGE for value in ('true','false')])

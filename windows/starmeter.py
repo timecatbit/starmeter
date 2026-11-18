@@ -162,6 +162,10 @@ class Desktop(QObject):
         background={'check-update','account-pause','pool-strategy','auto-switch','failover','sync',
                     'refresh','refresh-source','refresh-monitor','check-app-updates'}
         if name=='refresh-view':self.request_refresh();return
+        # A pinned panel's tick: dropped while a refresh is still running, so ticks never pile up.
+        if name=='refresh-live':
+            if not self.running:self.run_background(self.m.run_action,name,extra)
+            return
         # These two must confirm on the GUI thread before the network request is sent.
         if name in ('account-use','update'):
             target=extra[0] if extra else 'latest'

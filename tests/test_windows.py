@@ -242,6 +242,20 @@ class WindowsUiTests(unittest.TestCase):
         buttons['工具'].click()
         self.assertEqual(received[-1],['set-group','tool'])
 
+    def test_pinned_panel_stays_open_and_asks_for_live_refreshes(self):
+        from PySide6.QtCore import QPoint
+        from PySide6.QtWidgets import QToolButton
+        from panel import TrayPanel
+        panel=TrayPanel();self.addCleanup(panel.close)
+        panel.snapshot={'pinInterval':1,'dashboard':{'providers':[],'dates':[],'rangeKey':'today'}}
+        received=[];panel.action.connect(received.append);panel.show_at(QPoint(800,780))
+        pin=next(b for b in panel.findChildren(QToolButton) if b.objectName()=='pin')
+        pin.click()
+        self.assertTrue(panel.pinned);self.assertEqual(received,[['refresh-live']]);self.assertEqual(panel.live.interval(),1000)
+        panel.focus_changed();self.assertTrue(panel.isVisible(),'A pinned panel ignores losing focus')
+        panel.live.timeout.emit();self.assertEqual(received[-1],['refresh-live'])
+        panel.hide();self.assertFalse(panel.pinned);self.assertFalse(panel.live.isActive())
+
     def test_estimate_says_known_only_when_part_of_summary_is_missing(self):
         from PySide6.QtCore import QPoint
         from PySide6.QtWidgets import QLabel

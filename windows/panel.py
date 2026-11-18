@@ -519,6 +519,7 @@ class TrayPanel(QWidget):
         self.hover.timeout.connect(self.open_hover)
         self.hovered=None;self.interacting=0;self.menu_refs=[]
         self.dismissed=float('-inf')
+        self.pinned=False;self.live=QTimer(self);self.live.timeout.connect(lambda:self.action.emit(['refresh-live']))
         # A copy result shows for two seconds, across rebuilds, like the Mac panel.
         self.copied=None;self.share_button=None;self.share_note=None
 
@@ -529,13 +530,20 @@ class TrayPanel(QWidget):
         self.show();self.raise_();self.activateWindow();self.shown.emit(True)
 
     def hideEvent(self,event):
-        self.cancel_hover()
+        self.cancel_hover();self.pinned=False;self.live.stop()
         if self.menu:self.menu.close()
         if self.pending is not None:self.snapshot=self.pending;self.pending=None
         self.shown.emit(False);super().hideEvent(event)
 
+    def toggle_pin(self):
+        self.pinned=not self.pinned
+        if self.pinned:
+            self.live.start(int(1000*max(1,(self.snapshot or {}).get('pinInterval',2))));self.action.emit(['refresh-live'])
+        else:self.live.stop()
+        self.render(self.snapshot,force=True)
+
     def focus_changed(self):
-        if self.isVisible() and not self.interacting and not self.menu and not self.isActiveWindow() and not QApplication.activePopupWidget():
+        if self.isVisible() and not self.pinned and not self.interacting and not self.menu and not self.isActiveWindow() and not QApplication.activePopupWidget():
             self.dismissed=time.monotonic();self.hide()
 
     def just_dismissed(self):
@@ -560,6 +568,7 @@ class TrayPanel(QWidget):
             QScrollArea > QWidget > QWidget {{background:transparent;}}
             QToolButton {{padding:3px;border-radius:5px;background:transparent;}}
             QToolButton:hover,QCheckBox:hover {{background:{hover};}}
+            #pin {{color:{muted};}} #pinned {{background:{hover};}}
             #segment {{border:0;border-radius:11px;padding:3px 10px;font-size:12px;color:{muted};background:transparent;}}
             #segment:hover {{background:{hover};}}
             #segment:checked {{background:{hover};color:{text};font-weight:650;}}
@@ -606,7 +615,12 @@ class TrayPanel(QWidget):
         d=snapshot.get('dashboard',{});head=QHBoxLayout()
         unit=d.get('currency') or {}
         CURRENCY.update(symbol=unit.get('symbol') or '$',rate=float(unit.get('rate') or 1))
-        head.addWidget(label('Summary' if d.get('showSummary',True) else 'Harness 用量','title'));head.addStretch()
+        head.addWidget(label('Summary' if d.get('showSummary',True) else 'Harness 用量','title'))
+        if not sharing:
+            # Pinned, the panel stays open when it loses focus and re-reads the range on screen every few seconds.
+            pin=tool('📌','取消钉住' if self.pinned else '钉住，每 %d 秒刷新'%snapshot.get('pinInterval',2),self.toggle_pin)
+            pin.setObjectName('pinned' if self.pinned else 'pin');head.addWidget(pin)
+        head.addStretch()
         if sharing:
             head.addWidget(label(d.get('rangeLabel',''),'muted'))
         else:

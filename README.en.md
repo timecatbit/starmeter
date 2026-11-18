@@ -19,7 +19,7 @@ Formerly Token Monitor. Installed copies keep receiving updates, with their sett
 - **APIs**: DeepSeek, Kimi and Grok balances; Qoder CN's organisation Credits (team and enterprise plans); Claude's spend this month (needs an admin key); key checks for ChatGPT and Gemini. Each API can hold several keys.
 - **Alerts**: a notification when a subscription window reaches 90% (or 70%, 80%, or never), when a balance drops below your line, and optionally when a weekly window is about to reset barely used.
 - **Harness updates**: new versions of the selected clients; Claude Code and Codex CLI update in a terminal with one click.
-- **More**: Komari server monitoring; a share button that turns the current usage into a picture; an optional figure beside the menu bar star (today's estimate or the tightest subscription window); CSV and JSON export of the range on screen; active Claude Code and Codex sessions with their context use and a turn-by-turn breakdown, optionally notifying when a turn finishes; official service status pages (off by default); estimates in yuan at the daily ECB reference rate.
+- **More**: Komari server monitoring; a share button that turns the current usage into a picture; an optional figure beside the menu bar star (today's estimate or the tightest subscription window); CSV and JSON export of the range on screen; active Claude Code and Codex sessions with their context use and a turn-by-turn breakdown, optionally notifying when a turn finishes; official service status pages (off by default); estimates in yuan at the daily ECB reference rate; a pin beside the heading keeps the panel on screen and re-reads the local logs every 1–5 seconds.
 
 ## Download and install
 

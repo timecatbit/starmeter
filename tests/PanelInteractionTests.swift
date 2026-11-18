@@ -318,7 +318,7 @@ let headingFont=NSFont.systemFont(ofSize:14,weight:.semibold)
 for summary in [true,false] {
     var d=withoutHeatmap;d.showSummary=summary
     let w=(DashboardView.heading(d) as NSString).size(withAttributes:[.font:headingFont]).width
-    expect(w<=DashboardView.headingWidth(344) && 12+DashboardView.headingWidth(344)<=344-209-6,"The heading fits beside the buttons: "+DashboardView.heading(d))
+    expect(w<=DashboardView.headingWidth(344) && 12+DashboardView.headingWidth(344)<=344-209-6 && DashboardView.pinX(d)+20<=344-209-6,"The heading fits beside the buttons: "+DashboardView.heading(d))
 }
 expect(!MenuLayout.aiming(from:NSPoint(x:330,y:480),to:NSPoint(x:332,y:479),flyout:openFlyout),"A tiny drift toward the flyout is not aiming")
 // The share picture is opaque, signed, and lists every source that has data.
@@ -335,6 +335,7 @@ let clip=shareCard.png().map{ShareCard.pasteboardItem($0)}
 expect(clip.map{Set($0.types)==Set([NSPasteboard.PasteboardType.png,.tiff])}==true,"Copied picture carries PNG and TIFF, not a file URL")
 expect(PanelInteraction.keepsPanelOpen(["retry-claude-usage"]),"Retrying Claude usage keeps the panel open")
 expect(PanelInteraction.keepsPanelOpen(["set-group","model"]),"Choosing how cards group keeps the panel open")
+expect(PanelInteraction.keepsPanelOpen(["refresh-live"]) && PanelInteraction.automatic(["refresh-live"]),"A pinned panel's tick keeps it open and is dropped while another action runs")
 Currency.unit=MoneyUnit(code:"CNY",symbol:"¥",rate:7,note:nil)
 expect(money(2.5)=="¥17.50" && Figure.string("¥17.50",size:16).string=="¥17.50","Estimates read in yuan at the dashboard's rate, the sign set small like the dollar's")
 Currency.unit=nil

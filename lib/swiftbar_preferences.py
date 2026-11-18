@@ -33,6 +33,8 @@ GROUPINGS = ('tool', 'model', 'project')
 MENU_BAR = ('none', 'cost', 'quota')
 # API-equivalent estimates read in US dollars, or in yuan at the day's reference rate (or one the user fixed).
 CURRENCIES = ('USD', 'CNY')
+# How often a pinned panel re-reads the range on screen, in seconds.
+PIN_INTERVALS = (1, 2, 5)
 DEFAULT_VISIBLE = ['summary', 'heatmap', 'opencodex', 'claude', 'deepseek', 'chatgpt', 'sessions', 'komari', 'updates']
 KNOWN = {row[0] for row in MODULES}
 # Modules added after release show once for people who keep Summary on; a saved file lists the modules
@@ -75,7 +77,7 @@ def balance_key(key):
 
 def read(directory):
     defaults = {'schema': 1, 'visible': list(DEFAULT_VISIBLE), 'appearance': 'glass', 'theme': 'system', 'paths': {}, 'allowCollapse': False, 'expandedProviders': [], 'revision': 0, 'configuredSubscriptions': [], 'claudeLiveUsage': False, 'claudeOAuthUsage': False, 'cursorUsage': False,
-                'usageAlert': 90, 'resetReminder': False, 'balanceAlerts': {}, 'keepCleanedUsage': True, 'subscriptionPrices': {}, 'groupBy': 'tool', 'menuBar': 'none', 'sessionAlerts': False, 'serviceStatus': False, 'currency': 'USD', 'cnyRate': None}
+                'usageAlert': 90, 'resetReminder': False, 'balanceAlerts': {}, 'keepCleanedUsage': True, 'subscriptionPrices': {}, 'groupBy': 'tool', 'menuBar': 'none', 'sessionAlerts': False, 'serviceStatus': False, 'currency': 'USD', 'cnyRate': None, 'pinInterval': 2}
     try:
         value = json.loads((Path(directory) / 'preferences.json').read_text(encoding='utf-8'))
         if not isinstance(value, dict) or value.get('schema') != 1:
@@ -108,6 +110,7 @@ def read(directory):
         if isinstance(value.get('sessionAlerts'),bool):defaults['sessionAlerts']=value['sessionAlerts']
         if isinstance(value.get('serviceStatus'),bool):defaults['serviceStatus']=value['serviceStatus']
         if value.get('currency') in CURRENCIES:defaults['currency']=value['currency']
+        if value.get('pinInterval') in PIN_INTERVALS and not isinstance(value['pinInterval'],bool):defaults['pinInterval']=value['pinInterval']
         if exchange_rate(value.get('cnyRate')):defaults['cnyRate']=float(value['cnyRate'])
         prices=value.get('subscriptionPrices')
         if isinstance(prices,dict):
@@ -175,6 +178,9 @@ def update(directory, kind, key=None, value=None):
     elif kind == 'keep-usage':
         if key not in ('true','false'):raise ValueError('invalid keep usage setting')
         current['keepCleanedUsage']=key=='true'
+    elif kind == 'pin-interval':
+        if key not in [str(s) for s in PIN_INTERVALS]:raise ValueError('invalid pin interval')
+        current['pinInterval']=int(key)
     elif kind == 'currency':
         if key not in CURRENCIES:raise ValueError('invalid currency')
         current['currency']=key

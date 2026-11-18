@@ -112,7 +112,7 @@ struct Dashboard:Decodable {var date:String;var dates:[String];var providers:[Pr
     var collapsible:Bool {allowCollapse==true && cards==nil}
 }
 struct Project:Decodable {var name:String;var url:String}
-struct Snapshot:Decodable {var project:Project?;var menuBarText:String?;var dashboard:Dashboard?;var entries:[Entry];var rangeOptions:[Entry]?;var updateCount:Int?;var moduleOptions:[Entry]?;var appearance:String?;var theme:String?;var preferences:PresentationPreferences?}
+struct Snapshot:Decodable {var project:Project?;var menuBarText:String?;var pinInterval:Double?;var dashboard:Dashboard?;var entries:[Entry];var rangeOptions:[Entry]?;var updateCount:Int?;var moduleOptions:[Entry]?;var appearance:String?;var theme:String?;var preferences:PresentationPreferences?}
 func dark(_ view:NSView)->Bool {view.effectiveAppearance.bestMatch(from:[.darkAqua,.aqua]) == .darkAqua}
 func background(_ view:NSView)->NSColor {dark(view) ? NSColor(calibratedWhite:0.115,alpha:1) : NSColor(calibratedWhite:0.992,alpha:1)}
 func accent(_ id:String,_ view:NSView)->NSColor {
@@ -1097,6 +1097,8 @@ final class DashboardView:FlippedView {
     static func heading(_ d:Dashboard)->String {d.showSummary==false ? "Harness 用量" : "Summary"}
     // The heading ends clear of the buttons beside it; the leftmost one (自动检测) starts 209pt from the right.
     static func headingWidth(_ width:CGFloat)->CGFloat {width-209-18}
+    // The pin sits right after the heading, small and borderless, and still ends before 自动检测.
+    static func pinX(_ d:Dashboard)->CGFloat {12+min(headingWidth(344),ceil((heading(d) as NSString).size(withAttributes:[.font:NSFont.systemFont(ofSize:14,weight:.semibold)]).width))+4}
     init(_ data:Dashboard,width:CGFloat){
         self.data=data;Currency.unit=data.currency
         heatmapGeometry=Self.heatmapLayout(data);heatmapColumn=Self.labelColumn(data);heatmapLevels=data.heatmap?.levels ?? []
@@ -1647,10 +1649,10 @@ struct PanelInteraction {
     }
     // Actions without a dialog keep the panel open so their result appears in place.
     static func keepsPanelOpen(_ action:[String])->Bool {
-        ["refresh-view","refresh-source","refresh","refresh-monitor","check-app-updates","set-subscription","set-range","set-group","test-api-key","retry-claude-usage"].contains(action.first ?? "") || isPreference(action)
+        ["refresh-view","refresh-source","refresh","refresh-live","refresh-monitor","check-app-updates","set-subscription","set-range","set-group","test-api-key","retry-claude-usage"].contains(action.first ?? "") || isPreference(action)
     }
     static func automatic(_ action:[String])->Bool {
-        ["refresh-view","refresh-source"].contains(action.first ?? "")
+        ["refresh-view","refresh-source","refresh-live"].contains(action.first ?? "")
     }
     // SwiftBar's name for a plugin is its file name up to the first dot. SwiftBar 2.1.0/2.1.1
     // match a swiftbar:// link only by that name or the full path, never by the whole file name.
@@ -1995,7 +1997,8 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
         guard monitors.isEmpty else{return}
         if let monitor=NSEvent.addGlobalMonitorForEvents(matching:[.leftMouseDown,.rightMouseDown],handler:{[weak self] event in
             // The system share sheet draws in another process, so its clicks arrive here as outside clicks.
-            guard let self,!self.anchoredMenuOpen else{return}
+            // A pinned panel stays where it is whatever is clicked; the star or Esc closes it.
+            guard let self,!self.anchoredMenuOpen,!self.pinned else{return}
             // SwiftBar routes right-click and Option-click to its native menu.
             // Only an ordinary left-click on the star retains the panel toggle.
             if event.type == .rightMouseDown || event.modifierFlags.contains(.option) || !self.anchorRect.contains(NSEvent.mouseLocation){self.hide(returningFocus:false)}
@@ -2025,6 +2028,30 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
         item.length=text.isEmpty ? NSStatusItem.squareLength : NSStatusItem.variableLength
         button.font=NSFont.monospacedDigitSystemFont(ofSize:NSFont.systemFontSize,weight:.regular)
         button.title=text;button.imagePosition=text.isEmpty ? .imageOnly : .imageLeading
+    }
+    // Pinned: the panel ignores clicks elsewhere, floats above ordinary windows instead of menus, and asks for a
+    // live refresh every few seconds (2 by default, set in 外观与设置). A tick is dropped while any action is running.
+    private var pinned=false;private var liveTimer:Timer?;private weak var pinButton:HintButton?
+    @objc private func togglePin(){hideHint();setPinned(!pinned);if pinned{performAction(["refresh-live"])}}
+    private func setPinned(_ value:Bool){
+        guard value != pinned else{return}
+        pinned=value;panel.level=value ? .floating : .popUpMenu;showPin();scheduleLive()
+    }
+    private func showPin(){
+        guard let pin=pinButton else{return}
+        let interval=Int(snapshot?.pinInterval ?? 2)
+        pin.image=NSImage(systemSymbolName:pinned ? "pin.fill" : "pin",accessibilityDescription:nil)?.withSymbolConfiguration(.init(pointSize:11,weight:.medium))
+        pin.contentTintColor=pinned ? .controlAccentColor : .tertiaryLabelColor
+        pin.hint=pinned ? "取消钉住" : "钉住，每 \(interval) 秒刷新";pin.setAccessibilityLabel(pinned ? "取消钉住面板" : "钉住面板")
+    }
+    private func scheduleLive(){
+        liveTimer?.invalidate();liveTimer=nil
+        guard pinned else{return}
+        let interval=max(1,snapshot?.pinInterval ?? 2)
+        liveTimer=Timer.scheduledTimer(withTimeInterval:interval,repeats:true){[weak self] _ in
+            guard let self,self.pinned,self.panel.isVisible,!self.anchoredMenuOpen else{return}
+            self.performAction(["refresh-live"])
+        };liveTimer?.tolerance=interval*0.2
     }
     private func updateFallback(){
         fallbackTimer?.invalidate();fallbackTimer=nil
@@ -2094,7 +2121,7 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
         guard NSApp.isActive,let app=userApp,!app.isTerminated else{return}
         if #available(macOS 14.0,*){NSApp.yieldActivation(to:app);app.activate()}else{app.activate(options:[])}
     }
-    private func hide(returningFocus:Bool=true){if returningFocus{returnFocus()};hintTask?.cancel();hintView?.removeFromSuperview();hintView=nil;rangePicker?.menu?.cancelTracking();hoverIntent.cancel();closeTask?.cancel();closeFlyouts(from:0);panel.orderOut(nil);removePointerMonitors();reloadTask?.cancel();publishVisibility(false)}
+    private func hide(returningFocus:Bool=true){setPinned(false);if returningFocus{returnFocus()};hintTask?.cancel();hintView?.removeFromSuperview();hintView=nil;rangePicker?.menu?.cancelTracking();hoverIntent.cancel();closeTask?.cancel();closeFlyouts(from:0);panel.orderOut(nil);removePointerMonitors();reloadTask?.cancel();publishVisibility(false)}
     private func updatePresentation(){snapshot=interaction.displayed();layout()}
     private func reload(force:Bool=false){
         // Do not replace a button while the user is pressing it.
@@ -2203,6 +2230,12 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
             detect.contentTintColor = .labelColor;detect.setAccessibilityLabel("自动检测")
             detect.hint="自动检测";detect.hovered={[weak self] in self?.hoverHint($0,$1)}
             detect.target=self;detect.action=#selector(detectModules);content.addSubview(detect);detectButton=detect
+            // Pinned, the panel stays open and re-reads the range on screen every few seconds.
+            let pin=HintButton(frame:NSRect(x:DashboardView.pinX(dashboard),y:9,width:20,height:20))
+            pin.isBordered=false;pin.title="";pin.imagePosition = .imageOnly
+            pin.hovered={[weak self] in self?.hoverHint($0,$1)};pin.target=self;pin.action=#selector(togglePin)
+            content.addSubview(pin);pinButton=pin;showPin()
+            if pinned,liveTimer?.timeInterval != (snapshot.pinInterval ?? 2){scheduleLive()}
         }
         scroll.documentView=content;scroll.configureScrolling();scroll.contentView.scroll(to:NSPoint(x:0,y:min(scrollOffset,max(0,contentHeight-scroll.frame.height))));surface.content.addSubview(scroll);panel.contentView=surface
         let x=min(max(anchor.x-22,screen.visibleFrame.minX+4),screen.visibleFrame.maxX-width-4)
@@ -2466,7 +2499,7 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
         }
     }
     private func dispatchAction(_ action:[String]){
-        let passive=["refresh-source","refresh-view","refresh","refresh-monitor","check-app-updates","set-range","set-group","retry-claude-usage"].contains(action[0])
+        let passive=["refresh-source","refresh-view","refresh","refresh-live","refresh-monitor","check-app-updates","set-range","set-group","retry-claude-usage"].contains(action[0])
         let keepOpen=PanelInteraction.keepsPanelOpen(action)
         if !keepOpen{hide()};if keepOpen && !passive{updatePresentation()}
         let id=UUID().uuidString,request=URL(fileURLWithPath:snapshotPath).deletingLastPathComponent().appendingPathComponent("panel-action.json")
