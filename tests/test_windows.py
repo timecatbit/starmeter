@@ -238,8 +238,8 @@ class WindowsUiTests(unittest.TestCase):
         texts=[l.text() for l in panel.findChildren(QLabel)]
         self.assertIn('Claude Opus 5.5',texts);self.assertFalse(any('会话' in t for t in texts),'A model card has no session count')
         buttons={b.text():b for b in panel.findChildren(QToolButton) if b.objectName()=='segment'}
-        self.assertTrue(buttons['按模型'].isChecked())
-        buttons['按工具'].click()
+        self.assertTrue(buttons['模型'].isChecked())
+        buttons['工具'].click()
         self.assertEqual(received[-1],['set-group','tool'])
 
     def test_estimate_says_known_only_when_part_of_summary_is_missing(self):

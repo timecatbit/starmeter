@@ -324,6 +324,34 @@ final class HintButton:NSButton {
     // A click hides the hint first, so it never sits under the menu the click opens.
     override func mouseDown(with event:NSEvent){hovered?(self,false);super.mouseDown(with:event)}
 }
+// One way to group the Harness cards: plain text, the chosen one bold on a soft pill, a fainter pill under the
+// pointer. No frame or dividers, like the panel's other light controls.
+final class GroupTab:NSButton {
+    override func acceptsFirstMouse(for event:NSEvent?)->Bool{true}
+    var chosen=false{didSet{needsDisplay=true;setAccessibilityValue(chosen ? 1 : 0)}}
+    var invoke:(()->Void)?;private var hovered=false;private var area:NSTrackingArea?
+    static let font=NSFont.systemFont(ofSize:11.5),boldFont=NSFont.systemFont(ofSize:11.5,weight:.semibold),height:CGFloat=22
+    static func width(_ label:String)->CGFloat {ceil((label as NSString).size(withAttributes:[.font:boldFont]).width)+20}
+    init(label:String){
+        super.init(frame:NSRect(x:0,y:0,width:Self.width(label),height:Self.height));title=label;isBordered=false;setButtonType(.momentaryChange)
+        target=self;action=#selector(pressed);setAccessibilityLabel(label);setAccessibilityRole(.radioButton)
+    }
+    required init?(coder:NSCoder){fatalError()}
+    @objc private func pressed(){invoke?()}
+    override func updateTrackingAreas(){super.updateTrackingAreas();if let area{removeTrackingArea(area)};area=NSTrackingArea(rect:bounds,options:[.mouseEnteredAndExited,.activeAlways,.inVisibleRect],owner:self,userInfo:nil);addTrackingArea(area!)}
+    override func mouseEntered(with event:NSEvent){hovered=true;needsDisplay=true}
+    override func mouseExited(with event:NSEvent){hovered=false;needsDisplay=true}
+    override func draw(_ dirtyRect:NSRect){
+        let night=dark(self)
+        if chosen || hovered {
+            NSColor.labelColor.withAlphaComponent(chosen ? (night ? 0.15 : 0.08) : (night ? 0.07 : 0.04)).setFill()
+            NSBezierPath(roundedRect:bounds,xRadius:bounds.height/2,yRadius:bounds.height/2).fill()
+        }
+        let attributes:[NSAttributedString.Key:Any]=[.font:chosen ? Self.boldFont : Self.font,.foregroundColor:chosen ? NSColor.labelColor : NSColor.secondaryLabelColor]
+        let size=(title as NSString).size(withAttributes:attributes)
+        (title as NSString).draw(at:NSPoint(x:(bounds.width-size.width)/2,y:(bounds.height-size.height)/2),withAttributes:attributes)
+    }
+}
 final class DisclosureButton:NSButton {
     override func acceptsFirstMouse(for event:NSEvent?)->Bool{true}
     var invoke:(()->Void)?;var hovered:((Bool)->Void)?;private var area:NSTrackingArea?
@@ -1075,11 +1103,13 @@ final class DashboardView:FlippedView {
         super.init(frame:NSRect(x:0,y:0,width:width,height:Self.height(data)))
         setAccessibilityElement(true);setAccessibilityRole(.group);setAccessibilityLabel("用量概览")
         if let options=data.groupings,Self.groupingHeight(data)>0 {
-            let control=NSSegmentedControl(labels:options.map{"按"+$0.label},trackingMode:.selectOne,target:self,action:#selector(chooseGrouping(_:)))
-            control.controlSize = .small;control.font=NSFont.systemFont(ofSize:NSFont.smallSystemFontSize)
-            control.selectedSegment=options.firstIndex{$0.key==(data.grouping ?? "tool")} ?? 0
-            control.sizeToFit();control.setFrameOrigin(NSPoint(x:12,y:Self.summaryHeight(data)+Self.heatmapHeight(data)+Self.harnessHeaderHeight(data)+4))
-            control.setAccessibilityLabel("Harness 卡片分组");addSubview(control)
+            var x:CGFloat=8;let top=Self.summaryHeight(data)+Self.heatmapHeight(data)+Self.harnessHeaderHeight(data)+4
+            for option in options {
+                let tab=GroupTab(label:option.label);tab.chosen=option.key==(data.grouping ?? "tool")
+                tab.setFrameOrigin(NSPoint(x:x,y:top));x+=tab.frame.width+2
+                tab.invoke={[weak self] in self?.chooseGrouping(option.key)}
+                groupTabs.append((option.key,tab));addSubview(tab)
+            }
         }
         if data.collapsible {
             var y=Self.cardsTop(data)
@@ -1095,10 +1125,10 @@ final class DashboardView:FlippedView {
     }
 
     required init?(coder:NSCoder){fatalError()}
-    var chooseGroup:((String)->Void)?
-    @objc private func chooseGrouping(_ control:NSSegmentedControl){
-        guard let options=data.groupings,options.indices.contains(control.selectedSegment) else{return}
-        let key=options[control.selectedSegment].key
+    var chooseGroup:((String)->Void)?;private var groupTabs:[(String,GroupTab)]=[]
+    // The tab shows as chosen at once; the cards follow when the plugin answers.
+    private func chooseGrouping(_ key:String){
+        for (option,tab) in groupTabs {tab.chosen=option==key}
         if key != (data.grouping ?? "tool"){chooseGroup?(key)}
     }
     override func viewDidChangeEffectiveAppearance(){super.viewDidChangeEffectiveAppearance();needsDisplay=true}

@@ -410,14 +410,19 @@ class ShareBar(QWidget):
 
 class Elided(QLabel):
     """One line that ends in … when it runs out of room, as the Mac panel truncates, rather than wrapping or clipping."""
-    def __init__(self,text,role=''):
-        super().__init__(text);self.full=text;self.setTextFormat(Qt.PlainText)
+    def __init__(self,text,role='',cap=None):
+        super().__init__(text);self.full=text;self.cap=cap;self.setTextFormat(Qt.PlainText)
         if role:self.setObjectName(role)
         self.setMinimumWidth(0);self.setSizePolicy(QSizePolicy.Ignored,QSizePolicy.Preferred)
 
+    def minimumSizeHint(self):
+        # A zero minimum width counts as unset, so QLabel would report its whole text as the least it needs.
+        return QSize(0,super().minimumSizeHint().height())
+
     def sizeHint(self):
         # Asks for the whole text, so a layout with room gives it back after a narrower moment.
-        return QSize(self.fontMetrics().horizontalAdvance(self.full)+2,super().sizeHint().height())
+        width=self.fontMetrics().horizontalAdvance(self.full)+2
+        return QSize(min(width,self.cap) if self.cap else width,super().sizeHint().height())
 
     def resizeEvent(self,event):
         super().resizeEvent(event)
@@ -447,7 +452,9 @@ class Provider(QWidget):
         box=QVBoxLayout(self);box.setContentsMargins(0,2,0,4);box.setSpacing(3)
         toggle=(lambda:act(['set-expanded',data['id'],'false' if expanded else 'true'])) if foldable else None
         head=CardHeader(toggle);line=QHBoxLayout(head);line.setContentsMargins(0,0,0,0);line.setSpacing(7)
-        line.addWidget(mark(data));line.addWidget(label(data['name'],'cardTitle'))
+        # A long name (a project folder, a model) ends in … rather than widening the panel.
+        title=Elided(data['name'],'cardTitle',cap=200);title.setSizePolicy(QSizePolicy.Preferred,QSizePolicy.Preferred);title.setToolTip(data['name'])
+        line.addWidget(mark(data));line.addWidget(title)
         notes=card_notes(data)
         for i,(note,warning) in enumerate(notes):
             # The last note takes what room is left and ends in … if it must; the ones before it stay whole.
@@ -553,8 +560,9 @@ class TrayPanel(QWidget):
             QScrollArea > QWidget > QWidget {{background:transparent;}}
             QToolButton {{padding:3px;border-radius:5px;background:transparent;}}
             QToolButton:hover,QCheckBox:hover {{background:{hover};}}
-            #segment {{border:1px solid {border};border-radius:0;padding:3px 10px;font-size:12px;}}
-            #segment:checked {{background:{hover};font-weight:650;}}
+            #segment {{border:0;border-radius:11px;padding:3px 10px;font-size:12px;color:{muted};background:transparent;}}
+            #segment:hover {{background:{hover};}}
+            #segment:checked {{background:{hover};color:{text};font-weight:650;}}
             QComboBox {{border:1px solid {border};border-radius:5px;padding:4px 8px;min-height:18px;background:{surface};}}
             QComboBox QAbstractItemView {{background:{surface};color:{text};selection-background-color:{hover};selection-color:{text};}}
             #muted {{color:{muted};font-size:11px;}} #divider {{background:{divider};}}
@@ -651,9 +659,9 @@ class TrayPanel(QWidget):
         cards=None if sharing else d.get('cards')
         options=d.get('groupings') or []
         if not sharing and len(options)>1 and d['providers']:
-            row=QHBoxLayout();row.setSpacing(0)
+            row=QHBoxLayout();row.setSpacing(2)
             for option in options:
-                button=QToolButton();button.setText('按'+option['label']);button.setCheckable(True);button.setAutoExclusive(True)
+                button=QToolButton();button.setText(option['label']);button.setCheckable(True);button.setAutoExclusive(True)
                 button.setObjectName('segment');button.setChecked(option['key']==d.get('grouping','tool'))
                 def choose(_=False,key=option['key']):
                     if key!=d.get('grouping','tool'):self.action.emit(['set-group',key]);QTimer.singleShot(0,self.flush_pending)
