@@ -70,16 +70,27 @@ def token_line(p):
 
 def card_stats(p):
     """The grey counts after a card's tokens, in the Mac panel's order."""
-    if not p['available']:return '等待可用数据'
-    if not p['tokens'] and p.get('credits') is not None:return f"{p['requests']} 请求 · {p['sessions']} 会话"
-    parts=[f"{p['requests']} 请求",'缓存 %.1f%%'%(p['cache']*100) if p.get('cache') is not None else '缓存 —',
-           '输出 '+tokens(p['output'])]
+    return card_stats_forms(p)[0]
+
+
+def card_stats_forms(p):
+    """The counts line, longest first, as the Mac panel picks: round the cache share, then drop output, then the
+    sessions, before anything is cut off."""
+    if not p['available']:return ['等待可用数据']
+    if not p['tokens'] and p.get('credits') is not None:return [f"{p['requests']} 请求 · {p['sessions']} 会话",f"{p['requests']} 请求"]
+    requests=f"{p['requests']} 请求";output='输出 '+tokens(p['output'])
+    def cache(digits):return ('缓存 %%.%df%%%%'%digits)%(p['cache']*100) if p.get('cache') is not None else '缓存 —'
+    extras=[]
     if p['id']=='opencodex':
-        if (p.get('coverage') or 1)<1:parts.append('已定价 %.0f%%'%(p['coverage']*100))
+        if (p.get('coverage') or 1)<1:extras.append('已定价 %.0f%%'%(p['coverage']*100))
     # Model and project cards gather several tools, whose sessions don't add up.
-    elif not p['id'].startswith(('model:','project:')):parts.append(f"{p['sessions']} 会话")
-    if p.get('cost') is not None and p.get('credits') is not None:parts.append(credits_text(p['credits']))
-    return ' · '.join(parts)
+    elif not p['id'].startswith(('model:','project:')):extras.append(f"{p['sessions']} 会话")
+    if p.get('cost') is not None and p.get('credits') is not None:extras.append(credits_text(p['credits']))
+    forms=[]
+    for parts in ([requests,cache(1),output]+extras,[requests,cache(0),output]+extras,[requests,cache(0)]+extras,[requests,cache(0)],[requests]):
+        line=' · '.join(parts)
+        if line not in forms:forms.append(line)
+    return forms
 
 
 def card_notes(p):
@@ -413,8 +424,9 @@ class ShareBar(QWidget):
 
 class Elided(QLabel):
     """One line that ends in … when it runs out of room, as the Mac panel truncates, rather than wrapping or clipping."""
-    def __init__(self,text,role='',cap=None):
-        super().__init__(text);self.full=text;self.cap=cap;self.setTextFormat(Qt.PlainText)
+    def __init__(self,text,role='',cap=None,forms=None):
+        # forms: shorter ways to say the same, tried in order before the last one is cut off.
+        super().__init__(text);self.full=text;self.cap=cap;self.forms=forms or [text];self.setTextFormat(Qt.PlainText)
         if role:self.setObjectName(role)
         self.setMinimumWidth(0);self.setSizePolicy(QSizePolicy.Ignored,QSizePolicy.Preferred)
 
@@ -429,7 +441,9 @@ class Elided(QLabel):
 
     def resizeEvent(self,event):
         super().resizeEvent(event)
-        shown=self.fontMetrics().elidedText(self.full,Qt.ElideRight,self.width())
+        metrics=self.fontMetrics()
+        fitting=next((form for form in self.forms if metrics.horizontalAdvance(form)<=self.width()),self.forms[-1])
+        shown=metrics.elidedText(fitting,Qt.ElideRight,self.width())
         if shown!=self.text():self.setText(shown)
         if not self.toolTip() or self.toolTip()==self.full:self.setToolTip(self.full if shown!=self.full else '')
 
@@ -474,7 +488,7 @@ class Provider(QWidget):
         if data['available']:
             stats=QHBoxLayout();stats.setSpacing(4);stats.addWidget(label(token_line(data),'cardTokens'))
             # The counts end in … when they run out of room, as on macOS, rather than wrapping mid-word.
-            if not foldable or expanded:stats.addWidget(Elided('· '+card_stats(data),'muted'),1)
+            if not foldable or expanded:stats.addWidget(Elided('· '+card_stats(data),'muted',forms=['· '+form for form in card_stats_forms(data)]),1)
             else:stats.addStretch(1)
             body.addLayout(stats)
         else:body.addWidget(Elided(card_stats(data),'muted'))

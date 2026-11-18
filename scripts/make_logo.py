@@ -6,7 +6,7 @@ Three SVG files in assets/, all from the same sparkle:
   starmeter-small.svg      the same icon with 9 larger dots, for 32 pixels and below, where 15 dots blur;
   starmeter-mark.svg       one-colour 5-dot mark on a 24 grid for the menu bar and menus, a template image;
                            it samples the middle of a 7-dot grid, where the sparkle is, so it fills the box.
-The mark's dots fall on whole pixels at 20 points on a Retina screen, its menu bar size (an 8-pixel pitch).
+The mark's dots fall on whole pixels at 18 points on a Retina screen, its menu bar size (a 7-pixel pitch).
 """
 import argparse
 import math
@@ -101,7 +101,7 @@ def icon(count, span, largest, smallest, cutoff, light, background):
 
 def mark():
     body = ''.join('<circle cx="%s" cy="%s" r="%s" fill="#000000"/>' % (number(x), number(y), number(radius))
-                   for x, y, radius, _ in dots(5, 19.2, 12, 0.46, 0.16, 0.08, 2 / 3))
+                   for x, y, radius, _ in dots(5, 56 / 3, 12, 0.46, 0.16, 0.08, 2 / 3))
     return svg(24, body)
 
 

@@ -110,6 +110,36 @@ struct Dashboard:Decodable {var date:String;var dates:[String];var providers:[Pr
     var cardList:[ProviderUsage] {cards ?? providers}
     // Regrouped cards always show their rows; folding is per tool.
     var collapsible:Bool {allowCollapse==true && cards==nil}
+    // Part way from an earlier reading to this one: the figures, the chart's history and the model shares move,
+    // the layout (which cards, which rows) is this one's.
+    static func blend(_ a:Dashboard,_ b:Dashboard,_ t:Double)->Dashboard {
+        func mix(_ list:[ProviderUsage],_ old:[ProviderUsage])->[ProviderUsage] {list.map{p in old.first{$0.id==p.id}.map{ProviderUsage.blend($0,p,t)} ?? p}}
+        var out=b;out.providers=mix(b.providers,a.providers)
+        if let cards=b.cards {out.cards=mix(cards,a.cards ?? [])}
+        return out
+    }
+    // The same readings, or only text changed: nothing to animate.
+    static func moved(_ a:Dashboard,_ b:Dashboard)->Bool {
+        func key(_ list:[ProviderUsage])->[Double] {list.flatMap{[$0.tokens,$0.cost ?? 0,Double($0.requests),$0.output]+$0.history}}
+        return key(a.providers) != key(b.providers) || key(a.cards ?? []) != key(b.cards ?? [])
+    }
+}
+extension ProviderUsage {
+    static func blend(_ a:ProviderUsage,_ b:ProviderUsage,_ t:Double)->ProviderUsage {
+        func mix(_ x:Double,_ y:Double)->Double {x+(y-x)*t}
+        func count(_ x:Int,_ y:Int)->Int {Int((Double(x)+Double(y-x)*t).rounded())}
+        func series(_ x:[Double],_ y:[Double])->[Double] {x.count==y.count ? zip(x,y).map{mix($0,$1)} : y}
+        var p=b
+        p.tokens=mix(a.tokens,b.tokens);p.output=mix(a.output,b.output);p.requests=count(a.requests,b.requests);p.history=series(a.history,b.history)
+        if let x=a.cost,let y=b.cost {p.cost=mix(x,y)}
+        if let x=a.credits,let y=b.credits {p.credits=mix(x,y)}
+        if let x=a.counted,var y=b.counted {
+            y.tokens=mix(x.tokens,y.tokens);y.requests=count(x.requests,y.requests);y.history=series(x.history,y.history)
+            if let c=x.cost,let d=y.cost {y.cost=mix(c,d)};p.counted=y
+        }
+        p.models=b.models.map{m in a.models.first{$0.name==m.name}.map{old in var n=m;n.tokens=mix(old.tokens,m.tokens);n.share=mix(old.share,m.share);return n} ?? m}
+        return p
+    }
 }
 struct Project:Decodable {var name:String;var url:String}
 struct Snapshot:Decodable {var project:Project?;var menuBarText:String?;var pinInterval:Double?;var dashboard:Dashboard?;var entries:[Entry];var rangeOptions:[Entry]?;var updateCount:Int?;var moduleOptions:[Entry]?;var appearance:String?;var theme:String?;var preferences:PresentationPreferences?}
@@ -316,13 +346,31 @@ final class ContentScrollView:NSScrollView {
 }
 // The panel never activates the app, and AppKit only shows tooltips for the active app, so header
 // buttons report hovering themselves (activeAlways) and the panel draws a short hint below them.
+// A press you can feel: the control sinks a little while the button is down and springs back on release, as
+// Token Monitor's buttons do. The click itself still fires on release, as AppKit buttons do.
+enum Press {
+    static func set(_ view:NSView,_ down:Bool,scale:CGFloat){
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else{return}
+        view.wantsLayer=true;guard let layer=view.layer else{return}
+        let b=view.bounds;var target=CATransform3DIdentity
+        if down {target=CATransform3DTranslate(target,b.midX,b.midY,0);target=CATransform3DScale(target,scale,scale,1);target=CATransform3DTranslate(target,-b.midX,-b.midY,0)}
+        let animation=CABasicAnimation(keyPath:"transform")
+        animation.fromValue=NSValue(caTransform3D:layer.presentation()?.transform ?? layer.transform);animation.toValue=NSValue(caTransform3D:target)
+        animation.duration=down ? 0.07 : 0.22;animation.timingFunction=CAMediaTimingFunction(controlPoints:0.25,1,0.5,1)
+        layer.transform=target;layer.add(animation,forKey:"press")
+    }
+    /// Runs AppKit's own tracking with the control pressed in for as long as the button is held.
+    static func track(_ view:NSView,scale:CGFloat,_ tracking:()->Void){
+        set(view,true,scale:scale);tracking();set(view,false,scale:scale)
+    }
+}
 final class HintButton:NSButton {
     var hint="";var hovered:((HintButton,Bool)->Void)?;private var area:NSTrackingArea?
     override func updateTrackingAreas(){super.updateTrackingAreas();if let area{removeTrackingArea(area)};area=NSTrackingArea(rect:bounds,options:[.mouseEnteredAndExited,.activeAlways,.inVisibleRect],owner:self,userInfo:nil);addTrackingArea(area!)}
     override func mouseEntered(with event:NSEvent){hovered?(self,true)}
     override func mouseExited(with event:NSEvent){hovered?(self,false)}
     // A click hides the hint first, so it never sits under the menu the click opens.
-    override func mouseDown(with event:NSEvent){hovered?(self,false);super.mouseDown(with:event)}
+    override func mouseDown(with event:NSEvent){hovered?(self,false);Press.track(self,scale:0.88){super.mouseDown(with:event)}}
 }
 // One way to group the Harness cards: plain text, the chosen one bold on a soft pill, a fainter pill under the
 // pointer. No frame or dividers, like the panel's other light controls.
@@ -338,13 +386,14 @@ final class GroupTab:NSButton {
     }
     required init?(coder:NSCoder){fatalError()}
     @objc private func pressed(){invoke?()}
+    override func mouseDown(with event:NSEvent){Press.track(self,scale:0.92){super.mouseDown(with:event)}}
     override func updateTrackingAreas(){super.updateTrackingAreas();if let area{removeTrackingArea(area)};area=NSTrackingArea(rect:bounds,options:[.mouseEnteredAndExited,.activeAlways,.inVisibleRect],owner:self,userInfo:nil);addTrackingArea(area!)}
     override func mouseEntered(with event:NSEvent){hovered=true;needsDisplay=true}
     override func mouseExited(with event:NSEvent){hovered=false;needsDisplay=true}
     override func draw(_ dirtyRect:NSRect){
-        let night=dark(self)
-        if chosen || hovered {
-            NSColor.labelColor.withAlphaComponent(chosen ? (night ? 0.15 : 0.08) : (night ? 0.07 : 0.04)).setFill()
+        let night=dark(self),down=isHighlighted
+        if chosen || hovered || down {
+            NSColor.labelColor.withAlphaComponent(down ? (night ? 0.2 : 0.12) : chosen ? (night ? 0.15 : 0.08) : (night ? 0.07 : 0.04)).setFill()
             NSBezierPath(roundedRect:bounds,xRadius:bounds.height/2,yRadius:bounds.height/2).fill()
         }
         let attributes:[NSAttributedString.Key:Any]=[.font:chosen ? Self.boldFont : Self.font,.foregroundColor:chosen ? NSColor.labelColor : NSColor.secondaryLabelColor]
@@ -354,8 +403,9 @@ final class GroupTab:NSButton {
 }
 final class DisclosureButton:NSButton {
     override func acceptsFirstMouse(for event:NSEvent?)->Bool{true}
-    var invoke:(()->Void)?;var hovered:((Bool)->Void)?;private var area:NSTrackingArea?
+    var invoke:(()->Void)?;var hovered:((Bool)->Void)?;var held:((Bool)->Void)?;private var area:NSTrackingArea?
     init(label:String,frame:NSRect){super.init(frame:frame);title=label;isBordered=false;setButtonType(.momentaryChange);target=self;action=#selector(pressed);setAccessibilityLabel(label)}
+    override func mouseDown(with event:NSEvent){held?(true);super.mouseDown(with:event);held?(false)}
     required init?(coder:NSCoder){fatalError()}
     @objc private func pressed(){invoke?()}
     override func draw(_ dirtyRect:NSRect){}
@@ -1027,7 +1077,7 @@ final class TerminalShareCard:ShareCard {
     }
 }
 final class DashboardView:FlippedView {
-    let data:Dashboard;var toggleProvider:((String,Bool)->Void)?;private var hoveredProvider:String?
+    private(set) var data:Dashboard;var toggleProvider:((String,Bool)->Void)?;private var hoveredProvider:String?;private var heldProvider:String?
     private var hoveredDay:Int?;private var heatmapTracking:NSTrackingArea?
     // Worked out once: measuring the shared column means scaling the chart, far too slow to do per square.
     private let heatmapGeometry:HeatmapLayout?,heatmapColumn:CGFloat,heatmapLevels:[Int]
@@ -1121,6 +1171,7 @@ final class DashboardView:FlippedView {
                 button.setAccessibilityValue(expanded ? "已展开" : "已折叠")
                 button.invoke={[weak self] in self?.toggleProvider?(p.id,!expanded)}
                 button.hovered={[weak self] over in self?.hoveredProvider=over ? p.id : nil;self?.needsDisplay=true}
+                button.held={[weak self] down in self?.heldProvider=down ? p.id : nil;self?.needsDisplay=true}
                 addSubview(button);y+=Self.providerHeight(p,data)
             }
         }
@@ -1154,6 +1205,43 @@ final class DashboardView:FlippedView {
         guard day != hoveredDay else{return}
         hoveredDay=day;setNeedsDisplay(NSRect(x:0,y:Self.summaryHeight(data),width:bounds.width,height:Self.heatmapHeight(data)))
     }
+    // A new reading of the same view rolls its figures from the old values to the new ones, and the cards and
+    // Summary that grew glow in their colour for a moment, so a live (pinned) panel shows what just moved.
+    private var motion:Timer?;private var grew:[String:Date]=[:];private var summaryGrew:Date?
+    // Pinned, the note says when this reading arrived, to the second, in place of the minute it was read.
+    var liveStamp:String?
+    static let rollTime=0.7,glowTime=1.6
+    func animate(from old:Dashboard){
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,old.rangeKey==data.rangeKey,old.grouping==data.grouping else{return}
+        let target=data,now=Date()
+        for p in target.cardList {
+            guard let before=old.cardList.first(where:{$0.id==p.id}) else{continue}
+            if p.tokens>before.tokens || (p.cost ?? 0)>(before.cost ?? 0)+0.0001 || (p.credits ?? 0)>(before.credits ?? 0) {grew[p.id]=now}
+        }
+        func total(_ d:Dashboard)->Double {d.providers.compactMap{$0.summaryPart}.filter{$0.available}.reduce(0){$0+$1.tokens}}
+        if total(target)>total(old) {summaryGrew=now}
+        let rolling=Dashboard.moved(old,target)
+        guard rolling || !grew.isEmpty || summaryGrew != nil else{return}
+        if rolling {data=Dashboard.blend(old,target,0)}
+        let timer=Timer(timeInterval:1.0/60,repeats:true){[weak self] timer in
+            guard let self else{timer.invalidate();return}
+            let elapsed=Date().timeIntervalSince(now),t=min(1,elapsed/Self.rollTime)
+            if rolling {self.data=t>=1 ? target : Dashboard.blend(old,target,1-pow(1-t,3))}
+            self.needsDisplay=true
+            if elapsed>=max(Self.rollTime,Self.glowTime) {self.data=target;self.grew=[:];self.summaryGrew=nil;timer.invalidate();self.motion=nil;self.needsDisplay=true}
+        }
+        motion=timer;RunLoop.main.add(timer,forMode:.common)
+    }
+    override func viewWillMove(toWindow newWindow:NSWindow?){super.viewWillMove(toWindow:newWindow);if newWindow==nil{motion?.invalidate();motion=nil}}
+    // How far a grown figure still glows: 1 just after the reading, 0 once it has settled.
+    private func glow(_ start:Date?)->CGFloat {
+        guard let start else{return 0}
+        let t=Date().timeIntervalSince(start)/Self.glowTime
+        return t>=1 ? 0 : CGFloat(pow(1-t,2))
+    }
+    private func glowing(_ base:NSColor,_ tint:NSColor,_ amount:CGFloat)->NSColor {
+        amount<=0 ? base : (base.usingColorSpace(.sRGB).flatMap{b in tint.usingColorSpace(.sRGB).map{b.blended(withFraction:amount,of:$0) ?? base}} ?? base)
+    }
     override func draw(_ dirtyRect:NSRect){
         let left:CGFloat=12,right=bounds.width-12,width=right-left
         let valid=summaryProviders.filter{$0.available},costs=valid.compactMap{$0.cost}
@@ -1167,7 +1255,8 @@ final class DashboardView:FlippedView {
         // Justified like the legend: left, centre and right thirds, each label above its value.
         // Each cell keeps 4pt clear of its neighbours: the first hugs the left edge, the last the right.
         let third=width/3,alignments:[NSTextAlignment]=[.left,.center,.right]
-        for i in 0..<3 {let x=left+third*CGFloat(i)+2*CGFloat(i);text(labels[i],x:x,y:40,w:third-4,size:10,color:.secondaryLabelColor,align:alignments[i]);Figure.draw(values[i],x:x,y:55,w:third-4,size:22,align:alignments[i])}
+        let lift=glow(summaryGrew),tint=Self.totalColor(self)
+        for i in 0..<3 {let x=left+third*CGFloat(i)+2*CGFloat(i);text(labels[i],x:x,y:40,w:third-4,size:10,color:.secondaryLabelColor,align:alignments[i]);Figure.draw(values[i],x:x,y:55,w:third-4,size:22,color:glowing(.labelColor,tint,lift*0.85),align:alignments[i])}
         drawSummaryChart(left:left,right:right)
         }
         }
@@ -1220,14 +1309,23 @@ final class DashboardView:FlippedView {
         if p.status != "运行正常" && p.status != "已同步" {return [(p.status,true)]}
         return (p.subtitle.isEmpty ? [] : [(p.subtitle,false)])+(p.serviceNote.map{[($0,true)]} ?? [])+(p.priceNote.map{[($0,true)]} ?? [])
     }
-    static func stats(_ p:ProviderUsage)->String {
-        guard p.available else{return "等待可用数据"}
+    static func stats(_ p:ProviderUsage)->String {statsForms(p)[0]}
+    // The counts line, longest first: a card that can't fit it rounds the cache share, then drops output, then the
+    // sessions, before anything would be cut off.
+    static func statsForms(_ p:ProviderUsage)->[String] {
+        guard p.available else{return ["等待可用数据"]}
         // Cache and output say nothing when only Credits were recorded.
-        if p.tokens==0,p.credits != nil {return "\(p.requests) 请求 · \(p.sessions) 会话"}
-        var parts=["\(p.requests) 请求",p.cache.map{String(format:"缓存 %.1f%%",$0*100)} ?? "缓存 —","输出 \(tokens(p.output))"]
-        if p.id=="opencodex"{if let coverage=p.coverage,coverage<1{parts.append(String(format:"已定价 %.0f%%",coverage*100))}}else if !p.grouped{parts.append("\(p.sessions) 会话")}
-        if p.cost != nil,let credits=p.credits {parts.append(creditsText(credits))}
-        return parts.joined(separator:" · ")
+        if p.tokens==0,p.credits != nil {return ["\(p.requests) 请求 · \(p.sessions) 会话","\(p.requests) 请求"]}
+        let requests="\(p.requests) 请求",output="输出 \(tokens(p.output))"
+        func cache(_ digits:Int)->String {p.cache.map{String(format:"缓存 %.\(digits)f%%",$0*100)} ?? "缓存 —"}
+        var extras:[String]=[]
+        if p.id=="opencodex"{if let coverage=p.coverage,coverage<1{extras.append(String(format:"已定价 %.0f%%",coverage*100))}}else if !p.grouped{extras.append("\(p.sessions) 会话")}
+        if p.cost != nil,let credits=p.credits {extras.append(creditsText(credits))}
+        var forms:[String]=[]
+        for parts in [[requests,cache(1),output]+extras,[requests,cache(0),output]+extras,[requests,cache(0)]+extras,[requests,cache(0)],[requests]] {
+            let line=parts.joined(separator:" · ");if !forms.contains(line){forms.append(line)}
+        }
+        return forms
     }
     // A card's first line: the tool's mark and name, a note right after the name when there is one, the cost on the
     // right. The second line leads with its tokens, then the counts in grey.
@@ -1243,13 +1341,17 @@ final class DashboardView:FlippedView {
             guard room>12 else{break}
             text(note,x:noteX,y:y+10.5,w:width,size:9.5,color:warning ? .systemOrange : .secondaryLabelColor);noteX+=width+6
         }
-        Figure.draw(cost,x:right-costWidth-2,y:y+5,w:costWidth+2,size:16,align:.right)
+        Figure.draw(cost,x:right-costWidth-2,y:y+5,w:costWidth+2,size:16,color:glowing(.labelColor,accent(p.colour,self),glow(grew[p.id])*0.9),align:.right)
     }
     private func drawFigures(_ p:ProviderUsage,y:CGFloat,left:CGFloat,right:CGFloat,stats:Bool){
         guard p.available else{text(Self.stats(p),x:left,y:y,w:right-left,size:10.5,color:.secondaryLabelColor);return}
         let lead=tokenLine(p),font=NSFont.systemFont(ofSize:11,weight:.semibold),leadWidth=ceil((lead as NSString).size(withAttributes:[.font:font]).width)+1
-        text(lead,x:left,y:y,w:leadWidth,size:11,weight:.semibold)
-        if stats{text("· "+Self.stats(p),x:left+leadWidth+4,y:y+1,w:max(0,right-left-leadWidth-4),size:10,color:.secondaryLabelColor)}
+        text(lead,x:left,y:y,w:leadWidth,size:11,color:glowing(.labelColor,accent(p.colour,self),glow(grew[p.id])*0.9),weight:.semibold)
+        if stats {
+            let room=max(0,right-left-leadWidth-4),font=NSFont.systemFont(ofSize:10)
+            let forms=Self.statsForms(p),line=forms.first{ceil(("· "+$0 as NSString).size(withAttributes:[.font:font]).width)<=room} ?? forms.last!
+            text("· "+line,x:left+leadWidth+4,y:y+1,w:room,size:10,color:.secondaryLabelColor)
+        }
     }
     private func drawModels(_ p:ProviderUsage,y:CGFloat,left:CGFloat,right:CGFloat,color c:NSColor){
         let width=right-left
@@ -1274,7 +1376,10 @@ final class DashboardView:FlippedView {
     }
     private func drawCollapsibleProvider(_ p:ProviderUsage,y:CGFloat,left:CGFloat,right:CGFloat){
         let expanded=(data.expandedProviders ?? []).contains(p.id)
-        if hoveredProvider==p.id {NSColor.labelColor.withAlphaComponent(dark(self) ? 0.07 : 0.045).setFill();NSBezierPath(roundedRect:NSRect(x:4,y:y+2,width:bounds.width-8,height:46),xRadius:8,yRadius:8).fill()}
+        if hoveredProvider==p.id || heldProvider==p.id {
+            let held=heldProvider==p.id
+            NSColor.labelColor.withAlphaComponent(held ? (dark(self) ? 0.13 : 0.085) : (dark(self) ? 0.07 : 0.045)).setFill();NSBezierPath(roundedRect:NSRect(x:4,y:y+2,width:bounds.width-8,height:46),xRadius:8,yRadius:8).fill()
+        }
         drawHeader(p,y:y,left:left,right:right-16)
         let arrow=NSBezierPath(),x=right-5,cy=ToolMark.middle(of:.systemFont(ofSize:13,weight:.semibold),top:y+8)
         arrow.move(to:NSPoint(x:x-3,y:cy-3));arrow.line(to:NSPoint(x:expanded ? x : x+0.5,y:cy));arrow.line(to:NSPoint(x:expanded ? x+3 : x-3,y:expanded ? cy-3 : cy+3))
@@ -1389,7 +1494,7 @@ final class DashboardView:FlippedView {
             line(NSPoint(x:plot.minX,y:yy),NSPoint(x:plot.maxX,y:yy),color:NSColor.separatorColor.withAlphaComponent(f==0 ? 0.3 : 0.14),width:0.5)
         }
         // Partial data and when the figures were read share a faint note just above the card, clear of its edge.
-        let note=[data.chartStatus,data.updated ?? ""].filter{!$0.isEmpty}.joined(separator:" · ")
+        let note=[data.chartStatus,liveStamp ?? data.updated ?? ""].filter{!$0.isEmpty}.joined(separator:" · ")
         if !note.isEmpty {text(note,x:cardFrame.minX,y:cardFrame.minY-12,w:cardFrame.width,size:7.5,color:.tertiaryLabelColor,align:.right)}
         if n==1 {
             for (i,values) in series.enumerated(){let y=plot.maxY-CGFloat(values[0]/ceiling)*plot.height;accent(summaryProviders[i].id,self).setFill();NSBezierPath(ovalIn:NSRect(x:plot.midX-2.5,y:y-2.5,width:5,height:5)).fill()}
@@ -1550,7 +1655,7 @@ final class Row:NSButton {
     // A grid cell, flat as magpie's: checkbox, icon, name and a green dot when configured; the arrow to the
     // module's settings shows only under the pointer.
     private func drawCarded(highlighted:Bool){
-        if highlighted && isEnabled {NSColor.labelColor.withAlphaComponent(dark(self) ? 0.08 : 0.05).setFill();NSBezierPath(roundedRect:bounds.insetBy(dx:0,dy:1),xRadius:7,yRadius:7).fill()}
+        if (highlighted || isHighlighted) && isEnabled {NSColor.labelColor.withAlphaComponent(isHighlighted ? (dark(self) ? 0.16 : 0.1) : (dark(self) ? 0.08 : 0.05)).setFill();NSBezierPath(roundedRect:bounds.insetBy(dx:0,dy:1),xRadius:7,yRadius:7).fill()}
         let line:CGFloat=entry.detail==nil ? bounds.midY : 15
         if let checked=entry.checked {
             let box=NSRect(x:8,y:line-6.5,width:13,height:13),outline=NSBezierPath(roundedRect:box,xRadius:3.5,yRadius:3.5)
@@ -1581,14 +1686,17 @@ final class Row:NSButton {
         let x=convert(event.locationInWindow,from:nil).x
         configurationClick=carded ? entry.isModule && !entry.children.isEmpty && x>=26 : MenuLayout.configurationClick(entry,x:x,width:bounds.width)
         defer{configurationClick=false}
-        super.mouseDown(with:event)
+        if isEnabled {Press.track(self,scale:carded ? 0.96 : 0.985){super.mouseDown(with:event)}} else {super.mouseDown(with:event)}
     }
     override func mouseEntered(with event:NSEvent){guard pointerAllowed?() ?? true else{return};hovering=true;needsDisplay=true;hover?(entry,self)}
     override func mouseExited(with event:NSEvent){hovering=false;needsDisplay=true}
     override func draw(_ dirtyRect:NSRect){
         let pointerInside=(pointerAllowed?() ?? true) && (window.map{$0.isVisible && $0.convertToScreen(convert(bounds,to:nil)).contains(NSEvent.mouseLocation)} ?? false)
         if carded {drawCarded(highlighted:MenuLayout.highlighted(pointerInside:pointerInside,expanded:expanded,yielded:yielded));return}
-        if MenuLayout.highlighted(pointerInside:pointerInside,expanded:expanded,yielded:yielded) && isEnabled {NSColor.controlAccentColor.withAlphaComponent(dark(self) ? 0.12 : 0.09).setFill();NSBezierPath(roundedRect:bounds,xRadius:7,yRadius:7).fill()}
+        if (MenuLayout.highlighted(pointerInside:pointerInside,expanded:expanded,yielded:yielded) || isHighlighted) && isEnabled {
+            // Held down, the row darkens beyond its hover tint.
+            NSColor.controlAccentColor.withAlphaComponent(isHighlighted ? (dark(self) ? 0.24 : 0.17) : (dark(self) ? 0.12 : 0.09)).setFill();NSBezierPath(roundedRect:bounds,xRadius:7,yRadius:7).fill()
+        }
         let left=columnInset
         if let checked=entry.checked {
             let box=NSRect(x:13,y:(bounds.height-12)/2,width:12,height:12)
@@ -1893,9 +2001,9 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
             let item=NSStatusBar.system.statusItem(withLength:NSStatusItem.squareLength)
             statusItem=item
             if let button=item.button {
-                // The logo's one-colour mark; its dots fall on whole pixels at 20 points.
+                // The logo's one-colour mark; its dots fall on whole pixels at 18 points.
                 let mark=Bundle.main.url(forResource:"starmeter-mark",withExtension:"svg",subdirectory:"assets").flatMap{NSImage(contentsOf:$0)}
-                mark?.size=NSSize(width:20,height:20)
+                mark?.size=NSSize(width:18,height:18)
                 button.image=mark ?? NSImage(systemSymbolName:"sparkles",accessibilityDescription:"Starmeter")
                 button.image?.isTemplate=true;button.image?.accessibilityDescription="Starmeter"
                 button.toolTip="Starmeter"
@@ -1911,7 +2019,8 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
                     return
                 }
                 self.snapshotPath=path;self.observeSnapshot();self.updateStatusTitle();host.checkNotifications(askFirst:true);host.refresh()
-                self.refreshTimer=Timer.scheduledTimer(withTimeInterval:60,repeats:true){[weak host] _ in host?.refresh()}
+                // Pinned, the live tick already re-reads every couple of seconds; this minute's read would only repeat it.
+                self.refreshTimer=Timer.scheduledTimer(withTimeInterval:60,repeats:true){[weak self,weak host] _ in if self?.pinned != true{host?.refresh()}}
                 self.refreshTimer?.tolerance=12
                 if let modules=self.requestedHome{self.requestedHome=nil;self.managerOnly=modules;self.show()}
             }
@@ -2032,6 +2141,8 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
     // Pinned: the panel ignores clicks elsewhere, floats above ordinary windows instead of menus, and asks for a
     // live refresh every few seconds (2 by default, set in 外观与设置). A tick is dropped while any action is running.
     private var pinned=false;private var liveTimer:Timer?;private weak var pinButton:HintButton?
+    // The readings on screen, so the next ones roll from them; and when the last live tick went out.
+    private var shownDashboard:Dashboard?;private var liveTick=Date()
     @objc private func togglePin(){hideHint();setPinned(!pinned);if pinned{performAction(["refresh-live"])}}
     private func setPinned(_ value:Bool){
         guard value != pinned else{return}
@@ -2042,15 +2153,32 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
         let interval=Int(snapshot?.pinInterval ?? 2)
         pin.image=NSImage(systemSymbolName:pinned ? "pin.fill" : "pin",accessibilityDescription:nil)?.withSymbolConfiguration(.init(pointSize:11,weight:.semibold))
         pin.hint=pinned ? "取消钉住" : "钉住，每 \(interval) 秒刷新";pin.setAccessibilityLabel(pinned ? "取消钉住面板" : "钉住面板")
+        showLiveRing(pin)
+    }
+    // Pinned, the pin's outline fills over each interval and starts again as the next reading is asked for:
+    // the one timer a pinned panel runs, made visible.
+    private func showLiveRing(_ pin:NSButton){
+        pin.wantsLayer=true
+        pin.layer?.sublayers?.filter{$0.name=="live-ring"}.forEach{$0.removeFromSuperlayer()}
+        guard pinned,let layer=pin.layer else{return}
+        let interval=max(1,snapshot?.pinInterval ?? 2),ring=CAShapeLayer();ring.name="live-ring";ring.frame=pin.bounds
+        ring.path=CGPath(roundedRect:pin.bounds.insetBy(dx:1.25,dy:1.75),cornerWidth:5.5,cornerHeight:5.5,transform:nil)
+        ring.fillColor=nil;ring.strokeColor=NSColor.controlAccentColor.cgColor;ring.lineWidth=1.5;ring.lineCap = .round
+        layer.addSublayer(ring)
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else{return}
+        let sweep=CABasicAnimation(keyPath:"strokeEnd");sweep.fromValue=0;sweep.toValue=1;sweep.duration=interval;sweep.repeatCount = .infinity
+        sweep.timeOffset=Date().timeIntervalSince(liveTick).truncatingRemainder(dividingBy:interval);ring.add(sweep,forKey:"sweep")
     }
     private func scheduleLive(){
         liveTimer?.invalidate();liveTimer=nil
         guard pinned else{return}
         let interval=max(1,snapshot?.pinInterval ?? 2)
+        liveTick=Date()
         liveTimer=Timer.scheduledTimer(withTimeInterval:interval,repeats:true){[weak self] _ in
             guard let self,self.pinned,self.panel.isVisible,!self.anchoredMenuOpen else{return}
+            self.liveTick=Date();if let pin=self.pinButton{self.showLiveRing(pin)}
             self.performAction(["refresh-live"])
-        };liveTimer?.tolerance=interval*0.2
+        };liveTimer?.tolerance=interval*0.05
     }
     private func updateFallback(){
         fallbackTimer?.invalidate();fallbackTimer=nil
@@ -2120,7 +2248,7 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
         guard NSApp.isActive,let app=userApp,!app.isTerminated else{return}
         if #available(macOS 14.0,*){NSApp.yieldActivation(to:app);app.activate()}else{app.activate(options:[])}
     }
-    private func hide(returningFocus:Bool=true){setPinned(false);if returningFocus{returnFocus()};hintTask?.cancel();hintView?.removeFromSuperview();hintView=nil;rangePicker?.menu?.cancelTracking();hoverIntent.cancel();closeTask?.cancel();closeFlyouts(from:0);panel.orderOut(nil);removePointerMonitors();reloadTask?.cancel();publishVisibility(false)}
+    private func hide(returningFocus:Bool=true){setPinned(false);shownDashboard=nil;if returningFocus{returnFocus()};hintTask?.cancel();hintView?.removeFromSuperview();hintView=nil;rangePicker?.menu?.cancelTracking();hoverIntent.cancel();closeTask?.cancel();closeFlyouts(from:0);panel.orderOut(nil);removePointerMonitors();reloadTask?.cancel();publishVisibility(false)}
     private func updatePresentation(){snapshot=interaction.displayed();layout()}
     private func reload(force:Bool=false){
         // Do not replace a button while the user is pressing it.
@@ -2191,7 +2319,9 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
             let count=entries.filter{$0.action?.first=="set-module" && $0.checked==true}.count
             let hint=NSTextField(labelWithString:"已启用 \(count) 项");hint.font = .systemFont(ofSize:10);hint.textColor = .secondaryLabelColor;hint.frame=NSRect(x:12,y:29,width:inner-24,height:15);content.addSubview(hint)
             let done=NSButton(title:"完成",target:self,action:#selector(finishModules));done.bezelStyle = .rounded;done.controlSize = .small;done.frame=NSRect(x:inner-65,y:8,width:53,height:25);content.addSubview(done)
-        } else if let dashboard=snapshot.dashboard{let view=DashboardView(dashboard,width:inner);view.toggleProvider={[weak self] id,expanded in self?.performAction(["set-expanded",id,expanded ? "true" : "false"])};view.chooseGroup={[weak self] key in self?.performAction(["set-group",key])};content.addSubview(view)}else{let label=NSTextField(labelWithString:"AI 用量面板");label.frame=NSRect(x:12,y:10,width:300,height:20);content.addSubview(label)}
+        } else if let dashboard=snapshot.dashboard{let view=DashboardView(dashboard,width:inner)
+            if pinned,let stamp=modified {let clock=DateFormatter();clock.dateFormat="HH:mm:ss";view.liveStamp="实时 "+clock.string(from:stamp)}
+            if let previous=shownDashboard{view.animate(from:previous)};shownDashboard=dashboard;view.toggleProvider={[weak self] id,expanded in self?.performAction(["set-expanded",id,expanded ? "true" : "false"])};view.chooseGroup={[weak self] key in self?.performAction(["set-group",key])};content.addSubview(view)}else{let label=NSTextField(labelWithString:"AI 用量面板");label.frame=NSRect(x:12,y:10,width:300,height:20);content.addSubview(label)}
         if managerOnly {_=fillGrid(entries,in:content,y:top,width:inner)}
         else {content.addSubview(Divider(frame:NSRect(x:8,y:top-6,width:inner-16,height:2)));_=fillRows(entries,in:content,y:top,width:inner,depth:0)}
         if !managerOnly,let dashboard=snapshot.dashboard,let choices=snapshot.rangeOptions {

@@ -5,9 +5,9 @@ extension Runtime {
 
     /// The star, with the figure the user chose beside it; kept steady while a source reconnects.
     public func title(_ data: JSONObject? = nil) -> String {
-        // 20 points: the mark's dots fall on whole pixels there, and it matches the system icons beside it.
+        // 18 points: the mark's dots fall on whole pixels there, a little under the system icons beside it.
         let value = data.map { menuBarValue($0) } ?? ""
-        return Runtime.item(value, Runtime.merged(["tooltip": "AI 用量面板", "emojize": "false", "size": .null], logoMark(20)))
+        return Runtime.item(value, Runtime.merged(["tooltip": "AI 用量面板", "emojize": "false", "size": .null], logoMark(18)))
     }
 
     func panelTitle(_ line: String) -> String {

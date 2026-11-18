@@ -2479,9 +2479,9 @@ def menu_bar_value(data=None):
 
 def title(data=None):
     """Keep the dashboard entry stable while any individual source reconnects."""
-    # 20 points: the mark's dots fall on whole pixels there, and it matches the system icons beside it.
+    # 18 points: the mark's dots fall on whole pixels there, a little under the system icons beside it.
     value=menu_bar_value(data) if data is not None else ''
-    return item(value, tooltip="AI 用量面板", emojize="false", size=None, **logo_mark(20))
+    return item(value, tooltip="AI 用量面板", emojize="false", size=None, **logo_mark(18))
 
 
 def account_quick_lines(data):
