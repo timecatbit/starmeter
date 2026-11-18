@@ -202,7 +202,14 @@ func drawStatusLight(_ state:String,centre:NSPoint,in view:NSView){
 func usageColor(_ level:String?)->NSColor? {
     switch level {case "normal":return .labelColor;case "warning":return .systemOrange;case "critical":return .systemRed;default:return nil}
 }
-func share(_ ratio:Double)->String {let value=ratio*100;return String(format:(value>0 && value<1)||(value>99 && value<100) ? "%.1f%%" : "%.0f%%",value)}
+// A share as a reader expects it: whole percents, a decimal near 0 and 100, and a sliver that would round to 0.0% or
+// 100.0% said as such, so a tool with millions of tokens never reads 占 0.0%.
+func share(_ ratio:Double)->String {
+    let value=ratio*100
+    if value>0 && value<0.05 {return "<0.1%"}
+    if value>99.95 && value<100 {return ">99.9%"}
+    return String(format:(value>0 && value<1)||(value>99 && value<100) ? "%.1f%%" : "%.0f%%",value)
+}
 func tokens(_ value:Double)->String {
     if value>=1e9{return String(format:"%.2fB",value/1e9)}
     if value>=1e6{return String(format:"%.2fM",value/1e6)}

@@ -404,4 +404,5 @@ var openPage=try JSONDecoder().decode(Entry.self,from:Data(openJSON.utf8))
 expect(DetailView.opening(openPage)==["/"+openPage.children[0].key],"The only Key opens with its page")
 openPage.children.append(openPage.children[0]);openPage.children[2].label="lab"
 expect(DetailView.opening(openPage).isEmpty,"Two Keys stay closed")
+expect(share(0.0003)=="<0.1%" && share(0.004)=="0.4%" && share(0.9996)==">99.9%" && share(0.22)=="22%" && share(0)=="0%","A sliver of a share never reads 0.0%")
 print("Native interaction assertions: \(assertions) passed")

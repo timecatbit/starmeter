@@ -42,7 +42,10 @@ def cash(n):
 
 
 def share(ratio):
+    """Whole percents, a decimal near 0 and 100, and a sliver that would round to 0.0% or 100.0% said as such."""
     value=ratio*100
+    if 0<value<0.05:return '<0.1%'
+    if 99.95<value<100:return '>99.9%'
     return f'{value:.1f}%' if 0<value<1 or 99<value<100 else f'{value:.0f}%'
 
 
