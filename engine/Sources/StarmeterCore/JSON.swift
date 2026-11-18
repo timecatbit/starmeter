@@ -149,6 +149,8 @@ public func parsePythonFloat(_ text: String) -> Double? {
 public struct JSONError: Error, CustomStringConvertible {
     public let message: String
     public let offset: Int
+    /// The bytes were not UTF-8: json.loads raises UnicodeDecodeError then, not JSONDecodeError.
+    public var encoding = false
     public var description: String { "\(message) at byte \(offset)" }
 }
 
@@ -171,9 +173,11 @@ extension JSON {
 
     /// Parses only the parts `keep` names and checks the rest without building it, so a large line whose text
     /// nobody reads costs a scan, not a copy. Accepts and rejects exactly what a full parse does.
-    public static func parse(_ bytes: UnsafeBufferPointer<UInt8>, keep: JSONSelection) throws -> JSON {
+    /// `surrogates` accepts UTF-8-encoded surrogates, as json.loads does for bytes ('surrogatepass').
+    public static func parse(_ bytes: UnsafeBufferPointer<UInt8>, keep: JSONSelection = .all, surrogates: Bool = false) throws -> JSON {
         var parser = JSONParser(bytes: bytes)
         parser.selection = keep
+        parser.surrogates = surrogates
         return try parser.document()
     }
 }
@@ -188,6 +192,7 @@ struct JSONParser {
     let bytes: UnsafeBufferPointer<UInt8>
     var index = 0
     var selection: JSONSelection = .all
+    var surrogates = false
     static let maximumDepth = 512
 
     init(bytes: UnsafeBufferPointer<UInt8>) { self.bytes = bytes }
@@ -341,7 +346,9 @@ struct JSONParser {
             if byte == UInt8(ascii: "\"") {
                 if !asciiOnly {
                     // Escapes are ASCII, so checking the raw bytes between the quotes checks every non-ASCII run.
-                    guard isValidUTF8(UnsafeBufferPointer(rebasing: bytes[start..<index])) else { throw JSONError(message: "Invalid UTF-8", offset: start) }
+                    guard isValidUTF8(UnsafeBufferPointer(rebasing: bytes[start..<index]), surrogates: surrogates) else {
+                        throw JSONError(message: "Invalid UTF-8", offset: start, encoding: true)
+                    }
                 }
                 index += 1
                 return
@@ -483,13 +490,13 @@ struct JSONParser {
     }
 
     func decodeUTF8(_ slice: UnsafeBufferPointer<UInt8>, at offset: Int) throws -> String {
-        guard isValidUTF8(slice) else { throw JSONError(message: "Invalid UTF-8", offset: offset) }
+        guard isValidUTF8(slice, surrogates: surrogates) else { throw JSONError(message: "Invalid UTF-8", offset: offset, encoding: true) }
         return String(decoding: slice, as: UTF8.self)
     }
 }
 
 /// Strict UTF-8, as Python's decoder: no overlong forms, no encoded surrogates, nothing past U+10FFFF.
-func isValidUTF8(_ bytes: UnsafeBufferPointer<UInt8>) -> Bool {
+func isValidUTF8(_ bytes: UnsafeBufferPointer<UInt8>, surrogates: Bool = false) -> Bool {
     var index = 0
     while index < bytes.count {
         let lead = bytes[index]
@@ -500,7 +507,7 @@ func isValidUTF8(_ bytes: UnsafeBufferPointer<UInt8>) -> Bool {
         case 0xC2...0xDF: length = 2
         case 0xE0: length = 3; low = 0xA0
         case 0xE1...0xEC, 0xEE...0xEF: length = 3
-        case 0xED: length = 3; high = 0x9F
+        case 0xED: length = 3; high = surrogates ? 0xBF : 0x9F
         case 0xF0: length = 4; low = 0x90
         case 0xF1...0xF3: length = 4
         case 0xF4: length = 4; high = 0x8F

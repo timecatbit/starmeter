@@ -28,6 +28,49 @@ func answer(_ call: String, _ args: [JSON]) throws -> JSON {
                                         itemSeparator: text(2) ?? ", ", keySeparator: text(3) ?? ": "))
     case "python_repr":
         return .array(args.map { .string(pythonRepr($0.number ?? .nan)) })
+    case "harness.gateway":
+        let log = try Harness.gatewayRequests(path: text(0)!, cache: text(1)!, start: args[2].number ?? 0, end: args[3].number ?? .infinity, kind: text(4)!)
+        return .array(log.items.map { agent, requests in
+            .array([.string(agent), .array(requests.sorted { [$0.key.input, $0.key.cached, $0.key.writes, $0.key.output].lexicographicallyPrecedes([$1.key.input, $1.key.cached, $1.key.writes, $1.key.output]) }.map { split, times in
+                .array([.int(split.input), .int(split.cached), .int(split.writes), .int(split.output), .array(times.map(JSON.double))])
+            })])
+        })
+    case "harness.read":
+        // [source, root, cache, start, end, zone, excludeProxy, archive, carriers]; carriers: [[name, log path or null, kind, agents or null]]
+        let source = text(0)!, zone = TimeZone(identifier: text(5) ?? "UTC")!
+        let start = args[3].number ?? 0, end = args[4].number ?? .infinity
+        var carriers: [Carrier] = []
+        for spec in args[8].array ?? [] {
+            let fields = spec.array ?? []
+            guard let name = fields[0].string else { continue }
+            if let path = fields[1].string {
+                let log = try Harness.gatewayRequests(path: path, cache: text(2)!, start: start, end: end, kind: fields[2].string ?? "opencodex")
+                carriers.append((name, Harness.requestsFrom(log, agents: fields[3].array.map { Set($0.compactMap(\.string)) })))
+            } else {
+                carriers.append((name, nil))
+            }
+        }
+        let excludeProxy = args[6] == .bool(true)
+        let carried = carriers.isEmpty ? nil : carriers
+        switch source {
+        case "gemini":
+            return .object(try Harness.geminiUsage(root: text(1)!, cache: text(2)!, start: start, end: end, zone: zone, excludeProxy: excludeProxy, carriers: carried, archive: text(7)))
+        case "opencode":
+            return .object(try Harness.opencodeUsage(root: text(1)!, start: start, end: end, zone: zone, excludeProxy: excludeProxy, carriers: carried))
+        default:
+            return .object(try Harness.jsonlUsage(source: source, root: text(1)!, cache: text(2)!, start: start, end: end, zone: zone, excludeProxy: excludeProxy,
+                                                  carriers: carried, price: source == "magpie" ? Harness.magpiePrice : nil, archive: text(7)))
+        }
+    case "zstd":
+        // The SHA-256 and size of each file's decompressed bytes.
+        return .array(args.map { path in
+            do {
+                let data = try Zstd.decompress(file: path.string ?? "")
+                return ["sha256": .string(SHA256.hex(data)), "size": .int(Int64(data.count))]
+            } catch {
+                return ["error": .string(String(describing: error))]
+            }
+        })
     case "sha256":
         return .string(SHA256.hex(Array((text(0) ?? "").utf8)))
     case "claude.digest":
@@ -60,6 +103,7 @@ func answer(_ call: String, _ args: [JSON]) throws -> JSON {
     }
 }
 
+Pricing.folders = [ProcessInfo.processInfo.environment["STARMETER_PRICING"] ?? "lib"]
 let input = FileHandle.standardInput.readDataToEndOfFile()
 var output: JSON
 do {

@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'lib'))
 import swiftbar_catalog as catalog
 import swiftbar_claude_usage as claude_usage
+import swiftbar_sources as sources
 import swiftbar_files as files
 import swiftbar_preferences as preferences
 from swiftbar_time import parse_iso
@@ -367,6 +368,221 @@ class ClaudeReaderParityTests(unittest.TestCase):
         got = swift('claude.read_events', files, there, None, 0, None, None)
         self.assertEqual((len(got['events']), got['failures']), (len(events), failures))
         self.assertEqual(dump(here)['canonical'], dump(there)['canonical'])
+
+
+def codex_rows(session='0199-a', cwd='/w/starmeter', provider='openai', start=1794967200, model='gpt-6.2-sol'):
+    """A Codex rollout: metadata, a tier change, and token counts by delta and by running total."""
+    def at(n):return '2026-11-18T%02d:%02d:%02d.%03dZ' % (10 + n // 3600, n // 60 % 60, n % 60, n % 1000)
+    count = lambda n, total, last=None: {'timestamp': at(n), 'type': 'event_msg', 'payload': {'type': 'token_count', 'info': {
+        'total_token_usage': total, 'last_token_usage': last, 'model_context_window': 400000}}}
+    return [
+        {'timestamp': at(0), 'type': 'session_meta', 'payload': {'id': session, 'cwd': cwd, 'model_provider': provider}},
+        {'timestamp': at(1), 'type': 'turn_context', 'payload': {'model': model}},
+        {'timestamp': at(2), 'type': 'event_msg', 'payload': {'type': 'thread_settings_applied', 'thread_settings': {'service_tier': 'priority'}}},
+        count(3, {'input_tokens': 1000, 'cached_input_tokens': 200, 'output_tokens': 50, 'total_tokens': 1050},
+              {'input_tokens': 1000, 'cached_input_tokens': 200, 'output_tokens': 50, 'total_tokens': 1050}),
+        count(4, {'input_tokens': 1000, 'cached_input_tokens': 200, 'output_tokens': 50, 'total_tokens': 1050}),  # the same total again
+        count(5, {'input_tokens': 3000, 'cached_input_tokens': 2500, 'output_tokens': 90, 'total_tokens': 3090}),  # a delta from totals
+        {'timestamp': at(6), 'type': 'event_msg', 'payload': {'type': 'thread_settings_applied', 'thread_settings': {'service_tier': 'odd'}}},
+        count(7, None, {'input_tokens': 400, 'cached_input_tokens': 900, 'output_tokens': 7}),  # cached above input
+        {'timestamp': at(8), 'type': 'turn_context', 'payload': {'model': 'codex-auto-review'}},
+        count(9, {'input_tokens': 5000, 'output_tokens': 100}, {'input_tokens': 120, 'output_tokens': 3}),
+        {'timestamp': at(10), 'type': 'response_item', 'payload': {'type': 'message', 'content': 'token_count is said here but not counted'}},
+        {'type': 'event_msg', 'payload': {'type': 'token_count', 'info': {'last_token_usage': {'input_tokens': 9}}}},  # no time: skipped
+        {'timestamp': at(11), 'type': 'event_msg', 'payload': ['not', 'a', 'dict', 'token_count']},
+    ]
+
+
+def jsonl(path, rows, tail=b''):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b''.join((r if isinstance(r, bytes) else json.dumps(r, ensure_ascii=False).encode()) + b'\n' for r in rows) + tail)
+    return path
+
+
+@unittest.skipUnless(PROBE, 'Swift toolchain not installed')
+class HarnessReaderParityTests(unittest.TestCase):
+    """Every reader other than Claude's: results, and the index files they leave, must match."""
+    zone = 'Asia/Shanghai'
+    start, end = 1794931200.0, 1795017599.999  # 2026-11-18 in Shanghai
+
+    @classmethod
+    def setUpClass(cls):
+        import types
+        cls.plugin = types.ModuleType('plugin_for_parity')
+        exec(compile((ROOT / 'lib/swiftbar_plugin.py').read_text(), 'plugin', 'exec'), cls.plugin.__dict__)
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        os.environ['STARMETER_PRICING'] = str(ROOT / 'lib')
+
+    def carriers(self, specs, cache):
+        found = []
+        for name, path, kind, agents in specs:
+            if path is None:
+                found.append((name, None))
+            else:
+                found.append((name, sources.requests_from(sources.gateway_requests(path, cache, self.start, self.end, kind), agents)))
+        return found
+
+    def compare(self, source, root, note, exclude=False, specs=(), archive=False, start=None, end=None):
+        start = self.start if start is None else start
+        end = self.end if end is None else end
+        here, there = self.root / 'cache-python', self.root / 'cache-swift'
+        kept = (str(self.root / 'kept-python.sqlite3'), str(self.root / 'kept-swift.sqlite3')) if archive else (None, None)
+        zone = ZoneInfo(self.zone)
+        carriers = self.carriers(specs, here) if specs else None
+        if source == 'gemini':
+            expected = sources.gemini_usage(root, here, start, end, zone, exclude, carriers, kept[0])
+        elif source == 'opencode':
+            expected = sources.opencode_usage(root, start, end, zone, exclude, carriers)
+        else:
+            expected = sources.jsonl_usage(source, root, here, start, end, zone, exclude, carriers,
+                                           price=self.plugin.magpie_price if source == 'magpie' else None, archive=kept[0])
+        got = swift('harness.read', source, str(root), str(there), start, end, self.zone, exclude, kept[1],
+                    [[name, str(path) if path else None, kind, sorted(agents) if agents else None] for name, path, kind, agents in specs])
+        with self.subTest(step=note):
+            same(self, expected, got)
+            for python_db in sorted(here.glob('*.sqlite3')):
+                swift_db = there / python_db.name
+                self.assertTrue(swift_db.exists(), python_db.name)
+                self.assertEqual(table_dump(python_db), table_dump(swift_db), python_db.name)
+            if archive and Path(kept[0]).exists():
+                self.assertEqual(table_dump(kept[0]), table_dump(kept[1]))
+        return expected
+
+    def test_codex(self):
+        codex = self.root / 'codex'
+        day = codex / 'sessions' / '2026' / '11' / '18'
+        jsonl(day / 'rollout-2026-11-18T10-00-00-0199-a.jsonl', codex_rows(), tail=b'{"timestamp": "2026-11-18T11:00:00Z"')
+        jsonl(day / 'rollout-2026-11-18T10-30-00-0199-b.jsonl', codex_rows('0199-b', '/w/other', 'opencodex', model='gpt-5'))
+        jsonl(codex / 'archived_sessions' / '2026' / '11' / '18' / 'rollout-2026-11-18T10-00-00-0199-a.jsonl', codex_rows())
+        jsonl(day / 'rollout-bad.jsonl', codex_rows('0199-c')[:3] + [{'timestamp': 'yesterday', 'type': 'event_msg', 'payload': {
+            'type': 'token_count', 'info': {'last_token_usage': {'input_tokens': 5}}}}])
+        self.compare('codex', codex, 'first read')
+        self.compare('codex', codex, 'again, nothing changed')
+        self.compare('codex', codex, 'OpenCodex sessions left out', exclude=True)
+        with open(day / 'rollout-2026-11-18T10-00-00-0199-a.jsonl', 'ab') as handle:
+            handle.write(b', "type": "event_msg", "payload": {"type": "token_count", "info": {"last_token_usage": {"input_tokens": 77, "output_tokens": 1}}}}\n')
+        self.compare('codex', codex, 'the half-written line finished')
+        self.compare('codex', codex, 'archive on', archive=True)
+        (day / 'rollout-2026-11-18T10-30-00-0199-b.jsonl').unlink()
+        self.compare('codex', codex, 'a session cleaned up', archive=True)
+        self.compare('codex', codex, 'a narrower range', archive=True, start=1794996003, end=1794996006)
+
+    def test_gateways_carry_requests(self):
+        codex = self.root / 'codex'
+        jsonl(codex / 'sessions' / '2026' / '11' / '18' / 'rollout-x.jsonl', codex_rows())
+        log = jsonl(self.root / 'opencodex-usage.jsonl', [
+            {'requestId': 'r1', 'timestamp': 1794996003000, 'durationMs': 1500, 'usage': {'inputTokens': 1000, 'cachedInputTokens': 200, 'outputTokens': 50}},
+            {'requestId': 'r2', 'timestamp': 1794996005000, 'usage': {'inputTokens': 2000, 'cachedInputTokens': 2300, 'outputTokens': 40}},
+            {'timestamp': 1794996005000, 'usage': 'none'}, b'not json'])
+        magpie = self.root / 'magpie'
+        jsonl(magpie / 'usage.jsonl', [
+            {'t': '2026-11-18T10:00:05Z', 'ms': 900, 'provider': 'openai', 'model': 'gpt-6.2-sol', 'agent': 'codex', 'in': 1700, 'cache_read': 1300, 'out': 40},
+            {'t': '2026-11-18T10:00:07Z', 'provider': 'openai', 'model': 'gpt-6.2-sol', 'agent': 'claude', 'in': 400, 'cache_read': 900, 'out': 7},
+            {'t': '2026-11-18T10:00:08Z', 'provider': 'anthropic', 'model': 'claude-opus-5-5', 'agent': 'claude-code', 'in': 10, 'out': 5,
+             'cache_write': 30, 'cache_write_1h': 20, 'tier_sent': 'fast', 'session': 's1'},
+            {'t': '2026-11-18T10:00:09Z', 'provider': 'x', 'model': 'deepseek-chat', 'source': 'reported', 'agent': 'cursor', 'in': 5, 'out': 5, 'cost': 0.01},
+            {'t': '2026-11-18T10:00:10Z', 'provider': 'x', 'model': 'm', 'source': 'probe', 'in': 5},
+            {'t': '2026-11-18T10:00:11Z', 'provider': 'x', 'model': 'm', 'rejected': True, 'in': 5},
+            {'t': '2026-11-18T10:00:12Z', 'provider': 'x', 'model': 'm', 'status': 500, 'in': 5},
+            {'t': '2026-11-18T10:00:13Z', 'provider': 'x', 'model': 'routing', 'served': 'kimi-k2', 'cache_unknown': True, 'in': 50, 'out': 5},
+            {'t': 1794996014, 'provider': 'x', 'model': 'gpt-5', 'tier_served': 'priority', 'in': 3, 'out': 3},
+        ])
+        specs = [('OpenCodex', log, 'opencodex', None), ('Magpie', magpie / 'usage.jsonl', 'magpie', {'codex'})]
+        self.compare('codex', codex, 'carried by both gateways', specs=specs)
+        self.compare('codex', codex, 'OpenCodex unreadable', specs=[('OpenCodex', None, 'opencodex', None)])
+        self.compare('magpie', magpie, 'Magpie on its own')
+        for kind, path in (('opencodex', log), ('magpie', magpie / 'usage.jsonl')):
+            expected = sources.gateway_requests(path, self.root / 'g-python', self.start, self.end, kind)
+            got = swift('harness.gateway', str(path), str(self.root / 'g-swift'), self.start, self.end, kind)
+            self.assertEqual([[agent, sorted([*split, times] for split, times in requests.items())] for agent, requests in expected.items()],
+                             [[agent, [[*row[:4], row[4]] for row in requests]] for agent, requests in got])
+
+    def test_deepseek_workbuddy_and_qoder(self):
+        dsh = self.root / 'dsh'
+        session = [{'type': 'session', 'version': 3, 'id': 'd1'},
+                   {'type': 'request/header', 'data': {'header': {'config': {'model': 'deepseek-v4', 'provider': 'deepseek'}}}},
+                   {'type': 'assistant/message', 'seq': 3, 'time': '2026-11-18T10:00:00Z', 'data': {'turn': 1, 'step': 1,
+                    'usage': {'inputTokens': 100, 'outputTokens': 20, 'cacheReadTokens': 50, 'cacheWriteTokens': 5}}},
+                   {'type': 'llm/retry-started'},
+                   {'type': 'assistant/attempt', 'seq': 4, 'time': 1794996100000, 'data': {'turn': 1, 'step': 2, 'message': {'model': 'deepseek-v4-pro'},
+                    'stream': [{'chunk': {'type': 'text'}}, {'type': 'usage', 'usage': {'inputTokens': 9, 'outputTokens': 1}}]}}]
+        jsonl(dsh / 'a' / 'session.jsonl', session)
+        jsonl(dsh / 'a' / 'session.v2.jsonl', session[:3])
+        jsonl(dsh / 'b' / 'session.jsonl', [{'type': 'session', 'version': 9, 'id': 'old'}] + session[1:])  # unsupported: the file fails
+        jsonl(dsh / 'c' / 'session.jsonl', [{'type': 'session', 'version': 4, 'id': 'seeded', 'isSeeded': True, 'seedLength': 2}] + session[1:]
+              + [{'type': 'session/end-seed', 'data': {'inherited': True}}, dict(session[2], seq=9)])
+        self.compare('deepseek-harness', dsh, 'DeepSeek Harness')
+        work = self.root / 'home'
+        jsonl(work / '.workbuddy' / 'projects' / 'p' / 's.jsonl', [
+            {'type': 'message', 'sessionId': 'w1', 'timestamp': '2026-11-18T10:00:00Z', 'message': {'role': 'assistant', 'id': 'm1', 'model': 'glm-5',
+             'usage': {'input_tokens': 100, 'cache_read_input_tokens': 30, 'output_tokens': 10}}},
+            {'type': 'function_call', 'timestamp': '2026-11-18T10:00:01Z', 'providerData': {'messageId': 'm1', 'model': 'glm-5', 'provider': 'zhipu',
+             'usage': {'input_tokens': 100, 'output_tokens': 10}}},
+            {'type': 'message', 'timestamp': '2026-11-18T10:00:02Z', 'message': {'role': 'user', 'usage': {'input_tokens': 1}}},
+            {'type': 'assistant', 'timestamp': '2026-11-18T10:00:03Z', 'id': 'r3', 'message': {'usage': {'input_tokens': 5}}}])
+        self.compare('workbuddy', work, 'WorkBuddy')
+        qoder = self.root / 'qoder'
+        jsonl(qoder / 'projects' / 'p' / 'q.jsonl', [
+            {'type': 'assistant', 'sessionId': 'q1', 'cwd': '/w/app', 'timestamp': '2026-11-18T10:00:00Z',
+             'message': {'id': 'm1', 'model': 'qfmodel', 'usage': {'input_tokens': 0, 'output_tokens': 0, 'credits': 1.5}}},
+            {'type': 'assistant', 'sessionId': 'q1', 'timestamp': '2026-11-18T10:00:01Z',
+             'message': {'id': 'm1', 'model': 'qfmodel', 'usage': {'input_tokens': 0, 'output_tokens': 0, 'credits': 2.5}}},
+            {'type': 'assistant', 'uuid': 'u2', 'timestamp': '2026-11-18T10:00:02Z',
+             'message': {'model': 'qoder-custom-12/claude-opus-5-5', 'usage': {'input_tokens': 10, 'output_tokens': 4, 'cached_tokens': 3}}},
+            {'type': 'assistant', 'timestamp': 'later', 'message': {'id': 'm9', 'usage': {'input_tokens': 10}}}])
+        self.compare('qoder', qoder, 'Qoder CN')
+
+    def test_gemini_and_opencode(self):
+        gemini = self.root / 'gemini'
+        chats = gemini / 'tmp' / 'abc' / 'chats'
+        chats.mkdir(parents=True)
+        message = lambda i, **usage: {'type': 'gemini', 'id': 'g%d' % i, 'model': 'gemini-3-pro', 'timestamp': '2026-11-18T10:00:%02dZ' % i,
+                                      'tokens': dict({'input': 100, 'output': 10, 'cached': 20, 'thoughts': 5, 'tool': 2, 'total': 117}, **usage)}
+        (chats / 'session-1.json').write_text(json.dumps({'sessionId': 'gs1', 'messages': [message(1), message(2, total=0), {'type': 'user'}]}))
+        jsonl(chats / 'session-2.jsonl', [{'sessionId': 'gs2'}, message(3), {'$set': {'messages': [message(3), message(4)]}}, b'not json'])
+        jsonl(chats / 'sub' / '7f3c.jsonl', [message(5)])
+        (chats / 'session-3.json').write_text(json.dumps({'messages': [{'type': 'gemini', 'id': 'g9', 'tokens': {'input': 1}}]}))  # no time
+        self.compare('gemini', gemini, 'Gemini CLI')
+        opencode = self.root / 'opencode'
+        opencode.mkdir()
+        conn = sqlite3.connect(opencode / 'opencode.db')
+        conn.execute('CREATE TABLE message(id TEXT, session_id TEXT, time_created INTEGER, data TEXT)')
+        rows = [('m1', 's1', 1794996000123, {'role': 'assistant', 'modelID': 'deepseek-chat', 'providerID': 'deepseek', 'path': {'cwd': '/w/x/'},
+                                              'tokens': {'input': 100, 'output': 9, 'cache': {'read': 50, 'write': 3}}}),
+                ('m2', 's1', 1794996001000, {'role': 'assistant', 'modelID': 'kimi-k2', 'cost': 0.02, 'tokens': {'input': 1, 'output': 1}}),
+                ('m3', 's2', 1794996002000, {'role': 'user', 'tokens': {'input': 5}}),
+                ('m4', 's2', 1794996003000, {'role': 'assistant', 'tokens': 'none'})]
+        conn.executemany('INSERT INTO message VALUES (?,?,?,?)', [(a, b, c, json.dumps(d)) for a, b, c, d in rows])
+        conn.commit(); conn.close()
+        self.compare('opencode', opencode, 'OpenCode')
+
+    def test_compressed_codex_archives(self):
+        try:
+            from compression import zstd
+        except ImportError:
+            self.skipTest('this Python has no zstd')
+        codex = self.root / 'codex'
+        archived = codex / 'archived_sessions' / '2026' / '11' / '18'
+        archived.mkdir(parents=True)
+        body = b''.join(json.dumps(r).encode() + b'\n' for r in codex_rows('0199-z'))
+        (archived / 'rollout-z.jsonl.zst').write_bytes(zstd.compress(body, level=3))
+        (archived / 'rollout-broken.jsonl.zst').write_bytes(b'\x28\xb5\x2f\xfd' + b'\x00' * 12)
+        self.compare('codex', codex, 'compressed archives')
+
+
+def table_dump(path):
+    conn = sqlite3.connect(str(path))
+    try:
+        found = {}
+        for (name,) in conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"):
+            found[name] = sorted(([v.hex() if isinstance(v, bytes) else v for v in row] for row in conn.execute('SELECT * FROM "%s"' % name)), key=repr)
+        return found
+    finally:
+        conn.close()
 
 
 if __name__ == '__main__':

@@ -29,16 +29,21 @@ public enum ClaudePricing {
 
     /// The API-equivalent cost of one response, or nil for a model without a price.
     public static func cost(model: String, metrics: [Int64], speed: String = "standard", geo: String = "global", tier: String = "standard") -> Double? {
+        cost(model: model, amounts: metrics.map(Double.init), speed: speed, geo: geo, tier: tier)
+    }
+
+    /// The same for counters that may be fractional, as Magpie's log gives them.
+    public static func cost(model: String, amounts metrics: [Double], speed: String = "standard", geo: String = "global", tier: String = "standard") -> Double? {
         guard let (name, rates) = byLength.first(where: { model == $0.0 || model.hasPrefix($0.0 + "-20") }) else { return nil }
         var factor = geo == "us" || geo == "us-only" ? 1.1 : 1
-        if name == "claude-haiku-5-5" && [0, 2, 3, 4].reduce(Int64(0), { $0 + metrics[$1] }) > 100_000 { factor *= 5 }
+        if name == "claude-haiku-5-5" && [0, 2, 3, 4].reduce(0.0, { $0 + metrics[$1] }) > 100_000 { factor *= 5 }
         if tier == "batch" { factor *= 0.5 }
         if speed == "fast" {
             guard fast.contains(name) else { return nil }
             factor *= 2
         }
         var total = 0.0
-        for (count, rate) in zip(metrics, rates) { total += Double(count) * rate }
+        for (count, rate) in zip(metrics, rates) { total += count * rate }
         return total * factor / 1e6
     }
 }

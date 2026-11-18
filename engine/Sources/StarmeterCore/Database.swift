@@ -39,6 +39,8 @@ extension Optional where Wrapped == Double {
     public var sql: SQLValue { map(SQLValue.double) ?? .null }
 }
 
+public enum SQLiteFlags { case readWrite, readOnly }
+
 public struct SQLiteError: Error, CustomStringConvertible {
     public let code: Int32
     public let message: String
@@ -50,9 +52,10 @@ public final class Database {
     let handle: OpaquePointer
 
     /// Opens (creating) the file, waiting up to `timeout` seconds for another process's lock, as sqlite3.connect does.
-    public init(path: String, timeout: Double = 10) throws {
+    public init(path: String, timeout: Double = 10, flags: SQLiteFlags = .readWrite) throws {
         var connection: OpaquePointer?
-        let status = sqlite3_open_v2(path, &connection, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nil)
+        let status = sqlite3_open_v2(path, &connection, flags == .readOnly ? SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX
+                                     : SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nil)
         guard status == SQLITE_OK, let connection else {
             let message = connection.map { String(cString: sqlite3_errmsg($0)) } ?? "cannot open"
             if let connection { sqlite3_close_v2(connection) }

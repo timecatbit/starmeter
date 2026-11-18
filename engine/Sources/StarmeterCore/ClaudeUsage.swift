@@ -305,7 +305,7 @@ public enum ClaudeUsage {
                     if !incremental { try db.run("DELETE FROM records WHERE file=?", [.blob(key)]) }
                     let end = try LineReader.read(path, from: offset) { position, line in
                         guard contains(line, Self.usageWord), contains(line, Self.assistantWord) else { return }
-                        guard let row = try? JSON.parse(withoutByteOrderMark(line), keep: Self.wanted),
+                        guard let row = try? JSON.parse(withoutByteOrderMark(line), keep: Self.wanted, surrogates: true),
                               let found = try? records(row, sessionFallback: fallback, location: (key.hexString, position)) else { return }
                         for var event in found {
                             try insert.run([.blob(key), .int(position), .int(event.slot), .blob(event.key), event.message.sql, event.request.sql,
@@ -432,6 +432,20 @@ enum LineReader {
             let chunk: Data
             do { chunk = try handle.read(upToCount: 4 << 20) ?? Data() } catch { throw Unreadable() }
             if chunk.isEmpty { done = true } else { buffer.append(contentsOf: chunk) }
+        }
+    }
+}
+
+extension LineReader {
+    /// The same lines from bytes already in memory (a decompressed log), starting at `offset`.
+    static func lines(_ bytes: UnsafeBufferPointer<UInt8>, from offset: Int, _ body: (Int64, UnsafeBufferPointer<UInt8>) throws -> Void) throws {
+        var lineStart = offset
+        guard let base = bytes.baseAddress else { return }
+        while lineStart < bytes.count, let hit = memchr(base + lineStart, 0x0A, bytes.count - lineStart) {
+            let newline = base.distance(to: hit.assumingMemoryBound(to: UInt8.self))
+            if newline - lineStart + 1 > limit { return }
+            try body(Int64(lineStart), UnsafeBufferPointer(rebasing: bytes[lineStart...newline]))
+            lineStart = newline + 1
         }
     }
 }
