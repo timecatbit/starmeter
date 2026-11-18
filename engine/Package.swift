@@ -1,0 +1,17 @@
+// swift-tools-version:5.9
+// The Starmeter data engine: one Swift code base for the macOS app, the SwiftBar plugin and the Windows tray.
+// No dependencies to fetch; SQLite comes from the system.
+import PackageDescription
+
+let package = Package(
+    name: "StarmeterEngine",
+    platforms: [.macOS(.v13)],
+    products: [
+        .library(name: "StarmeterCore", targets: ["StarmeterCore"]),
+    ],
+    targets: [
+        .target(name: "StarmeterCore"),
+        // Answers one call per run on stdin, so the tests can hold the Swift engine against the Python one.
+        .executableTarget(name: "starmeter-probe", dependencies: ["StarmeterCore"]),
+    ]
+)

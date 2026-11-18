@@ -5,6 +5,7 @@ import ast
 import os
 import hashlib
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -54,6 +55,13 @@ with tempfile.TemporaryDirectory(prefix='starmeter-tests-') as scratch:
     environment['HOME'] = str(isolated_home)
     environment['SWIFTBAR_PLUGIN_DATA_PATH'] = scratch
     environment['PYTHONDONTWRITEBYTECODE'] = '1'
+    # The Swift engine's test probe, so tests/test_engine.py can hold it against the Python engine.
+    # Built with the real environment: SwiftPM keeps its caches under the real home.
+    swift = shutil.which('swift')
+    if swift:
+        subprocess.run([swift, 'build', '--package-path', str(ROOT / 'engine'), '--scratch-path', str(ROOT / 'build' / 'engine'),
+                        '--product', 'starmeter-probe'], check=True)
+        environment['STARMETER_PROBE'] = str(ROOT / 'build' / 'engine' / 'debug' / 'starmeter-probe')
     subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s',
                     str(ROOT / 'tests'), '-p', 'test_*.py', '-v'],
                    check=True, env=environment)
