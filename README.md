@@ -59,7 +59,7 @@ python3 install.py
 
 - **统计范围**默认显示今天。首次安装会在后台读取这台电脑已有的用量记录；选「全部」可以查看仍保存在本机的记录，不需要发起新调用。每个 Harness 统计同一家工具的所有客户端：Claude 包含桌面 App 和各处 Claude Code 的会话（含子代理），ChatGPT 包含本机 Codex 的活动和归档会话。已经删除、从未同步到本机或没有记录 Token 的对话无法补算。
 - **左键星星**打开主页。Summary 旁边依次是自动检测（放大镜图标）、分享和刷新按钮，鼠标停上去会显示名称；把鼠标停在一行上，会在旁边展开详情和操作。
-- **Magpie**：读取本机网关的 `usage.jsonl`（默认 `~/.config/magpie`，也支持 `XDG_CONFIG_HOME` 或手选目录），只统计网关最终有用量的请求，不读 Key，也不要求 Magpie 正在运行。同时勾选 Magpie 和经过它的 Harness（如 ChatGPT、Claude）时，经过 Magpie 的请求只按 Magpie 计入 Summary，Harness 卡片照常显示自己的记录并注明“N 次已由 Magpie 计入”；没经过 Magpie 的请求仍由 Harness 计入。OpenCodex 同理。Magpie 卡片还会写出各客户端的占比（如“客户端 · ChatGPT 62% · Claude Code 30%”）；只想看网关总账时，主页只勾 Magpie 即可。费用是按已知价格的估算。
+- **Magpie**：读取本机网关的 `usage.jsonl`（默认 `~/.config/magpie`，也支持 `XDG_CONFIG_HOME` 或手选目录），只统计网关最终有用量的请求，不读 Key，也不要求 Magpie 正在运行。同时勾选 Magpie 和经过它的 Harness（如 ChatGPT、Claude）时，经过 Magpie 的请求只按 Magpie 计入 Summary，Harness 卡片照常显示自己的记录并注明“N 次已由 Magpie 计入”；没经过 Magpie 的请求仍由 Harness 计入。OpenCodex 同理。ChatGPT 桌面版的预测消息、情境建议和后台风险评分等附加调用不会写进本机的 Codex 记录，只有经过 Magpie 时才统计得到，所以 Magpie 卡片里 ChatGPT 的请求可能比 ChatGPT 卡片多；Summary 按 Magpie 计入，不会少算。Magpie 卡片还会写出各客户端的占比（如“客户端 · ChatGPT 62% · Claude Code 30%”）；只想看网关总账时，主页只勾 Magpie 即可。费用是按已知价格的估算。
 - **DeepSeek Harness**：默认读取 `~/.dsh/sessions`。如果设置了 `DSH_HOME`，读取其 `sessions` 子目录；也可手选记录目录。通过 Magpie 调用 DeepSeek 模型的用量在 Magpie 卡片中查看。
 - **用量热力图**在 Summary 下方，跟着统计范围变：今天、昨天和近 24 小时每格 1 小时，近 7 天和本周（从周一到今天）每行一天、每格 1 小时，近 30 天、本月和全部每格 1 天；颜色越深用得越多，右下角写着每格多久。鼠标停在某格时左下角显示那段时间的 Token、费用和请求数，分享图里也会带上。不需要时可在主页模块里关闭。
 - **右键星星 → 主页模块…** 选择要显示的模块，并设置记录目录、Key 和连接。
