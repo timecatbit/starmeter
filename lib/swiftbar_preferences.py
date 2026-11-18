@@ -65,7 +65,7 @@ def balance_key(key):
 
 def read(directory):
     defaults = {'schema': 1, 'visible': list(DEFAULT_VISIBLE), 'appearance': 'glass', 'theme': 'system', 'paths': {}, 'allowCollapse': False, 'expandedProviders': [], 'revision': 0, 'configuredSubscriptions': [], 'claudeLiveUsage': False, 'claudeOAuthUsage': False, 'cursorUsage': False,
-                'usageAlert': 90, 'resetReminder': False, 'balanceAlerts': {}, 'keepCleanedUsage': True, 'subscriptionPrices': {}, 'groupBy': 'tool', 'menuBar': 'none', 'sessionAlerts': False}
+                'usageAlert': 90, 'resetReminder': False, 'balanceAlerts': {}, 'keepCleanedUsage': True, 'subscriptionPrices': {}, 'groupBy': 'tool', 'menuBar': 'none', 'sessionAlerts': False, 'serviceStatus': False}
     try:
         value = json.loads((Path(directory) / 'preferences.json').read_text(encoding='utf-8'))
         if not isinstance(value, dict) or value.get('schema') != 1:
@@ -96,6 +96,7 @@ def read(directory):
         if value.get('groupBy') in GROUPINGS:defaults['groupBy']=value['groupBy']
         if value.get('menuBar') in MENU_BAR:defaults['menuBar']=value['menuBar']
         if isinstance(value.get('sessionAlerts'),bool):defaults['sessionAlerts']=value['sessionAlerts']
+        if isinstance(value.get('serviceStatus'),bool):defaults['serviceStatus']=value['serviceStatus']
         prices=value.get('subscriptionPrices')
         if isinstance(prices,dict):
             defaults['subscriptionPrices']={k:v for k,v in prices.items() if k in catalog.SUBSCRIPTION_USAGE and monthly_price(v)}
@@ -162,6 +163,9 @@ def update(directory, kind, key=None, value=None):
     elif kind == 'keep-usage':
         if key not in ('true','false'):raise ValueError('invalid keep usage setting')
         current['keepCleanedUsage']=key=='true'
+    elif kind == 'service-status':
+        if key not in ('true','false'):raise ValueError('invalid service status setting')
+        current['serviceStatus']=key=='true'
     elif kind == 'session-alerts':
         if key not in ('true','false'):raise ValueError('invalid session alert setting')
         current['sessionAlerts']=key=='true'

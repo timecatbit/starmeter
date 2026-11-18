@@ -84,7 +84,8 @@ def card_notes(p):
     status=p.get('status') or ''
     if not p['available']:return [('数据暂不可用' if status in ('运行正常','已同步','') else status,True)]
     if status not in ('运行正常','已同步',''):return [(status,True)]
-    return ([(p['subtitle'],False)] if p.get('subtitle') else [])+([(p['priceNote'],True)] if p.get('priceNote') else [])
+    return ([(p['subtitle'],False)] if p.get('subtitle') else [])+([(p['serviceNote'],True)] if p.get('serviceNote') else [])\
+        +([(p['priceNote'],True)] if p.get('priceNote') else [])
 
 
 def figure(value,size,weight=650):

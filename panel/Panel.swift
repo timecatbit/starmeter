@@ -25,6 +25,8 @@ struct ProviderUsage:Decodable {
     var grouped:Bool {id.hasPrefix("model:") || id.hasPrefix("project:")}
     // "N 次未定价" when some requests have no price yet, so the cost reads as covering only the rest.
     var priceNote:String?
+    // The service's own status page reports trouble right now (服务状态 on).
+    var serviceNote:String?
     // What Summary adds for this source: nothing when it isn't counted, and only the requests no gateway
     // logged when a gateway (OpenCodex, Magpie) counts the rest. The card itself keeps every record.
     var summaryPart:ProviderUsage? {
@@ -1175,7 +1177,7 @@ final class DashboardView:FlippedView {
     static func notes(_ p:ProviderUsage)->[(String,Bool)] {
         if !p.available {return [(p.status=="运行正常" || p.status=="已同步" ? "数据暂不可用" : p.status,true)]}
         if p.status != "运行正常" && p.status != "已同步" {return [(p.status,true)]}
-        return (p.subtitle.isEmpty ? [] : [(p.subtitle,false)])+(p.priceNote.map{[($0,true)]} ?? [])
+        return (p.subtitle.isEmpty ? [] : [(p.subtitle,false)])+(p.serviceNote.map{[($0,true)]} ?? [])+(p.priceNote.map{[($0,true)]} ?? [])
     }
     static func stats(_ p:ProviderUsage)->String {
         guard p.available else{return "等待可用数据"}

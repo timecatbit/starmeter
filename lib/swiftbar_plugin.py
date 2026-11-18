@@ -122,6 +122,7 @@ import swiftbar_alerts as alerts
 import swiftbar_archive as usage_archive_store
 import swiftbar_export as usage_export
 import swiftbar_sessions as live_sessions
+import swiftbar_status as service_status
 import swiftbar_runtime
 from swiftbar_time import parse_iso
 
@@ -201,7 +202,7 @@ UPDATE_STATUS_CACHE = os.path.join(CACHE_DIR, "badge.json")
 # OpenCodex management endpoints are polled in the background; the health check gates the rest.
 OPENCODEX_ENDPOINTS = {"healthz": ("/healthz", False), "ready": ("/readyz", False), "quota": ("/api/codex-auth/quota", True),
                        "accounts": ("/api/codex-auth/accounts", True), "active": ("/api/codex-auth/active", True)}
-EXTERNAL_TTLS = {"provider_quotas": 300, "badge": 3600, "komari": 30, "app_updates": 21600, "self_update": 21600, "chatgpt": 300, "grok": 300, "minimax": 300, "kimi-api": 300, "qoder-api": 300, "claude-api": 1800, "claude_subscription":60, "qoder_subscription":60, "cursor_subscription":300, "sessions":30}
+EXTERNAL_TTLS = {"provider_quotas": 300, "badge": 3600, "komari": 30, "app_updates": 21600, "self_update": 21600, "chatgpt": 300, "grok": 300, "minimax": 300, "kimi-api": 300, "qoder-api": 300, "claude-api": 1800, "claude_subscription":60, "qoder_subscription":60, "cursor_subscription":300, "sessions":30, "service_status":300}
 # Provider accounts read with the user's own key: Grok/Kimi balances, the MiniMax plan and Claude API spend.
 ACCOUNT_SOURCES = ('grok', 'minimax', 'kimi-api', 'qoder-api', 'claude-api')
 # APIs whose named extra keys are queried one by one, each in its own cache.
@@ -1602,6 +1603,7 @@ def resource_lines(data):
         elif key in ACCOUNT_SOURCES:lines.extend(provider_account_lines(key,data))
         else:lines.extend(portal_service_lines(key))
         lines.extend(payback_lines(key))
+        lines.extend(status_lines(key,data))
     return lines+(['---'] if lines else [])
 
 
@@ -2079,6 +2081,8 @@ def external_loaders():
     if os.environ.get('OCX_SELF_UPDATES')!='0':loaders['self_update']=lambda:cached_fetch('self_update',self_update_load,EXTERNAL_TTLS['self_update'])
     if module_enabled('claude-subscription'):loaders['claude_subscription']=claude_subscription_cached
     if module_enabled('sessions'):loaders['sessions']=sessions_cached
+    pages=status_pages()
+    if pages:loaders['service_status']=lambda:cached_fetch('service_status',lambda:(service_status.read_all(pages,VERSION),None),EXTERNAL_TTLS['service_status'])
     if module_enabled('cursor-subscription') and view_settings()['cursorUsage']:
         def load_cursor_plan():
             try:return cursor.plan(HOME),None
@@ -2554,6 +2558,24 @@ def komari_expiry(row):
         return date.isoformat(), days
     except ValueError:
         return "未设置", None
+
+
+def status_pages():
+    """The status pages to read: none unless 服务状态 is on, then only those of the modules shown."""
+    if not view_settings()['serviceStatus']:return []
+    return sorted({page for module,page in service_status.MODULE_PAGES.items() if module_enabled(module)})
+
+
+def status_lines(key,data):
+    """A subscription's or API's sidebar row for its service's status page, while 服务状态 is on."""
+    page=service_status.MODULE_PAGES.get(key)
+    if not page or not view_settings()['serviceStatus']:return []
+    state=((data.get('service_status') or {}).get(page)) or {}
+    name,_,link=service_status.PAGES[page]
+    if not state:badge,light='待同步','unknown'
+    elif state.get('error'):badge,light='读取失败','unknown'
+    else:badge,light=(service_status.INDICATORS[state['indicator']] or '运行正常'),('ok' if state['indicator']=='none' else 'issue')
+    return [item(name+' 服务状态',level=1,badge=badge,href=link,panelstatus=light,paneldetail=state.get('description'))]
 
 
 def sessions_cached():
@@ -3120,6 +3142,8 @@ def module_options(data=None):
                        {'label':'重置前提醒','detail':'每周窗口用了不到 %d%%，重置前 %d 小时提醒'%(alerts.REMINDER_UNDER,alerts.REMINDER_LEAD//3600),'checked':settings['resetReminder'],
                         'action':['set-reset-reminder','false' if settings['resetReminder'] else 'true'],'children':[]}])
     settings_rows.extend([{'label':'','separator':True,'children':[]},
+                          {'label':'服务状态','detail':'每 5 分钟查一次 Claude、OpenAI、Cursor 的官方状态页，出问题时标在卡片上','symbol':'waveform.path.ecg',
+                           'checked':settings['serviceStatus'],'action':['set-service-status','false' if settings['serviceStatus'] else 'true'],'children':[]},
                           {'label':'导出用量','symbol':'square.and.arrow.up','value':RANGES[selected_range()],
                            'children':[{'label':'CSV（每天每个工具一行）…','action':['export-usage','csv'],'children':[]},{'label':'JSON…','action':['export-usage','json'],'children':[]}]},
                           {'label':'菜单栏显示','symbol':'menubar.rectangle','value':MENU_BAR_LABELS[settings['menuBar']],
@@ -3728,6 +3752,8 @@ def dashboard_payload(data):
     for source,label,usage in selected:
         status='运行正常' if source=='opencodex' and data.get('healthz') else '已同步'
         providers.append(provider(source,label,usage,'',status))
+        # A service in trouble right now, from its official status page (服务状态 on).
+        if view_settings()['serviceStatus']:providers[-1]['serviceNote']=service_status.note(data.get('service_status'),source)
     # The client's card still shows all its own records, while Summary adds what summary_usage counts.
     counting=summary_usage(selected)
     for p,(source,label,usage) in zip(providers,selected):
@@ -4174,6 +4200,11 @@ def run_action(name, extra):
     elif name == "export-usage":
         if len(extra)!=1:raise ValueError('invalid export')
         export_usage(extra[0])
+    elif name == "set-service-status":
+        if len(extra)!=1:raise ValueError('invalid service status setting')
+        preferences.update(STATE_DIR,'service-status',extra[0])
+        if extra[0]=='false':invalidate_caches(['service_status'])
+        else:schedule_background_refresh()
     elif name == "set-session-alerts":
         if len(extra)!=1:raise ValueError('invalid session alert setting')
         preferences.update(STATE_DIR,'session-alerts',extra[0])
@@ -4337,7 +4368,7 @@ def consume_panel_action():
                 allowed.append(node["action"])
                 # A persistent picker may queue another click before the previous refresh.
                 candidate=node['action']
-                if len(candidate)==2 and candidate[0] in ('set-collapse','set-reset-reminder','set-cursor-usage','set-keep-usage','set-session-alerts'):allowed.extend([[candidate[0],v] for v in ('true','false')])
+                if len(candidate)==2 and candidate[0] in ('set-collapse','set-reset-reminder','set-cursor-usage','set-keep-usage','set-session-alerts','set-service-status'):allowed.extend([[candidate[0],v] for v in ('true','false')])
                 if len(candidate)==3 and candidate[0]=='set-module' and candidate[1] in preferences.KNOWN:
                     allowed.extend([['set-module',candidate[1],value] for value in ('true','false')])
             nodes.extend(node.get("children") or [])
