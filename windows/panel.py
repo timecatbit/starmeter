@@ -72,12 +72,13 @@ def card_stats(p):
     return ' · '.join(parts)
 
 
-def card_note(p):
-    """Normal states say nothing; a problem, or a note that changes how to read the numbers, follows the name."""
+def card_notes(p):
+    """Normal states say nothing; a problem, or notes that change how to read the numbers, follow the name: what a
+    gateway counted, in grey, then requests the price tables can't price yet, highlighted."""
     status=p.get('status') or ''
-    if not p['available']:return ('数据暂不可用' if status in ('运行正常','已同步','') else status),True
-    if status not in ('运行正常','已同步',''):return status,True
-    return (p['subtitle'],False) if p.get('subtitle') else None
+    if not p['available']:return [('数据暂不可用' if status in ('运行正常','已同步','') else status,True)]
+    if status not in ('运行正常','已同步',''):return [(status,True)]
+    return ([(p['subtitle'],False)] if p.get('subtitle') else [])+([(p['priceNote'],True)] if p.get('priceNote') else [])
 
 
 def figure(value,size,weight=650):
@@ -400,6 +401,10 @@ class Elided(QLabel):
         if role:self.setObjectName(role)
         self.setMinimumWidth(0);self.setSizePolicy(QSizePolicy.Ignored,QSizePolicy.Preferred)
 
+    def sizeHint(self):
+        # Asks for the whole text, so a layout with room gives it back after a narrower moment.
+        return QSize(self.fontMetrics().horizontalAdvance(self.full)+2,super().sizeHint().height())
+
     def resizeEvent(self,event):
         super().resizeEvent(event)
         shown=self.fontMetrics().elidedText(self.full,Qt.ElideRight,self.width())
@@ -429,8 +434,13 @@ class Provider(QWidget):
         toggle=(lambda:act(['set-expanded',data['id'],'false' if expanded else 'true'])) if foldable else None
         head=CardHeader(toggle);line=QHBoxLayout(head);line.setContentsMargins(0,0,0,0);line.setSpacing(7)
         line.addWidget(mark(data));line.addWidget(label(data['name'],'cardTitle'))
-        if note:=card_note(data):line.addWidget(Elided(note[0],'warning' if note[1] else 'muted'),1)
-        else:line.addStretch(1)
+        notes=card_notes(data)
+        for i,(note,warning) in enumerate(notes):
+            # The last note takes what room is left and ends in … if it must; the ones before it stay whole.
+            item=Elided(note,'warning' if warning else 'muted')
+            if i<len(notes)-1:item.setSizePolicy(QSizePolicy.Preferred,QSizePolicy.Preferred)
+            line.addWidget(item,1 if i==len(notes)-1 else 0)
+        if not notes:line.addStretch(1)
         line.addWidget(figure(headline(data) if data['available'] else '—',17))
         if foldable:
             arrow=tool('▾' if expanded else '▸',('收起 ' if expanded else '展开 ')+data['name'],toggle)
@@ -454,6 +464,12 @@ class Provider(QWidget):
         models=QGridLayout();models.setContentsMargins(0,5,0,0);models.setHorizontalSpacing(8);models.setVerticalSpacing(2)
         for i,model in enumerate(data['models']):
             name=Elided(model_name(model['name']));name.setToolTip(model['name'])
+            if model.get('priceNote'):
+                # A model without a price says so after its name, so the card's cost reads as the rest.
+                name.setSizePolicy(QSizePolicy.Maximum,QSizePolicy.Preferred)
+                cell=QHBoxLayout();cell.setSpacing(5);cell.addWidget(name);cell.addWidget(label(model['priceNote'],'warning'));cell.addStretch(1)
+                name=QWidget();name.setLayout(cell);cell.setContentsMargins(0,0,0,0);name.setMinimumWidth(0)
+                name.setSizePolicy(QSizePolicy.Ignored,QSizePolicy.Preferred)
             figure_text=credits_text(model['credits']) if not model['tokens'] and model.get('credits') is not None else tokens(model['tokens'])
             amount=label(figure_text);amount.setAlignment(Qt.AlignRight|Qt.AlignVCenter);amount.setMinimumWidth(58)
             ratio=label(share(model['share']),'muted');ratio.setAlignment(Qt.AlignRight|Qt.AlignVCenter);ratio.setMinimumWidth(36)

@@ -3449,6 +3449,12 @@ def dashboard_payload(data):
         labels=[day[5:].replace('-','/') for day in slots]
         span=labels[0]+'–'+labels[-1]
     # One shared bucket layout for both sources. Never mix a previous selection with the new heading.
+    def price_note(row):
+        """A model the price tables don't know yet says so, or its estimate reads as the whole cost. Credits are
+        Qoder's own unit and never priced, so those rows say nothing."""
+        missing=int(number(row.get('unpricedRequests')))
+        if missing<=0 or number(row.get('credits')):return None
+        return '未定价' if missing>=int(number(row.get('requests'))) else '%d 次未定价'%missing
     def provider(pid,label,usage,subtitle,status):
         summary=usage.get('summary') or {};available=bool(summary) and not usage.get('error')
         total=number(summary.get('totalTokens'));models=usage.get('models') or [];credits=number(summary.get('credits'))
@@ -3456,7 +3462,8 @@ def dashboard_payload(data):
         weight=(lambda r:number(r.get('totalTokens'))) if total or not credits else (lambda r:number(r.get('credits')))
         scale=max(1e-9,sum(weight(r) for r in models)) if not total and credits else max(1,total)
         model_rows=[dict({'name':str(row.get('model') or '未知模型'),'tokens':number(row.get('totalTokens')),
-                          'share':min(1,weight(row)/scale)},**({'credits':number(row.get('credits'))} if number(row.get('credits')) else {}))
+                          'share':min(1,weight(row)/scale)},**({'credits':number(row.get('credits'))} if number(row.get('credits')) else {}),
+                         **({'priceNote':price_note(row)} if price_note(row) else {}))
                     for row in sorted(models,key=weight,reverse=True)[:3]]
         points={int(row.get('timestamp',0)):number(row.get('totalTokens')) for row in usage.get('hours',[])} if short else {str(row.get('date',''))[:10]:number(row.get('totalTokens')) for row in usage.get('days',[])}
         history=[points.get(slot,0) for slot in slots]
@@ -3472,7 +3479,10 @@ def dashboard_payload(data):
         return {'id':pid,'name':label,**module_icon(pid),'subtitle':subtitle,'status':status,'available':available,'credits':credits or None,'clients':client_rows(usage.get('clients')) or None,
                 'cost':cost,'tokens':total,'requests':requests,'output':number(summary.get('outputTokens')),
                 'cache':min(1,cache/inputs) if inputs else None,'coverage':number(summary.get('coverageRatio')) if summary.get('coverageRatio') is not None else None,
-                'sessions':int(number(summary.get('sessions'))),'unpriced':unpriced,'models':model_rows,'history':history}
+                'sessions':int(number(summary.get('sessions'))),'unpriced':unpriced,'models':model_rows,'history':history,
+                # Some requests unpriced: the cost covers only the rest, which the card says beside it. All unpriced
+                # already reads 费用待定价; OpenCodex shows its 已定价 share instead.
+                'priceNote':'%d 次未定价'%unpriced if 0<unpriced<requests and not credits and pid!='opencodex' else None}
     providers=[]
     for source,label,usage in selected:
         status='运行正常' if source=='opencodex' and data.get('healthz') else '已同步'

@@ -182,9 +182,15 @@ expect(PanelInteraction.runningLabel(keyRow("claude-api"),active:nil)==nil,"Idle
 // Provider cards: one stats line, normal states stay quiet, notes that change the reading stay visible.
 var card=ProviderUsage(id:"claude",name:"Claude",subtitle:"",status:"已同步",available:true,cost:1,tokens:1000,requests:731,output:810000,cache:0.992,coverage:1,sessions:2,unpriced:0,summaryIncluded:true,models:[],history:[])
 expect(DashboardView.stats(card)=="731 请求 · 缓存 99.2% · 输出 810.0K · 2 会话","Request, cache, output and session counts share one line")
-expect(DashboardView.note(card)==nil,"A synced provider shows no status text")
-card.subtitle="未计入 Summary";expect(DashboardView.note(card)?.0=="未计入 Summary","A note that changes how to read the totals is shown")
-card.status="部分记录未读取";expect(DashboardView.note(card)?.1==true,"Problems take the slot and are highlighted")
+expect(DashboardView.notes(card).isEmpty,"A synced provider shows no status text")
+// Requests the price tables don't know yet say so beside the cost, after what a gateway counted.
+var priced=card;priced.subtitle="97 次已由 Magpie 计入";priced.priceNote="75 次未定价";priced.counted=CountedUsage(cost:0,tokens:1,requests:1,unpriced:0,cache:nil,history:[])
+expect(DashboardView.notes(priced).map{$0.0}==["97 次已由 Magpie 计入","75 次未定价"] && DashboardView.notes(priced).map{$0.1}==[false,true],"The gateway note stays grey, the price note is highlighted")
+expect(ShareCard.tag(priced)=="97 次已由 Magpie 计入" && ShareCard.priceLine(priced)=="75 次未定价，金额只含已定价的部分","Share pictures tag the gateway and give unpriced requests a line of their own")
+expect(CardShareCard.blockHeight(priced)==CardShareCard.blockHeight(card)+18 && TerminalShareCard.blockHeight(priced)==TerminalShareCard.blockHeight(card)+17,"That line makes room for itself")
+priced.subtitle="";priced.counted=nil;expect(ShareCard.tag(priced)==nil && ShareCard.priceLine(card)==nil,"Nothing to say, nothing drawn")
+card.subtitle="未计入 Summary";expect(DashboardView.notes(card).first?.0=="未计入 Summary","A note that changes how to read the totals is shown")
+card.status="部分记录未读取";expect(DashboardView.notes(card).first?.1==true,"Problems take the slot and are highlighted")
 // Qoder plan requests log Credits only: the card leads with Credits and never shows them as dollars or tokens.
 var qoder=ProviderUsage(id:"qoder",name:"Qoder",subtitle:"",status:"已同步",available:true,cost:nil,credits:2.73,tokens:0,requests:3,output:0,cache:nil,coverage:0,sessions:1,unpriced:3,summaryIncluded:true,models:[ModelUsage(name:"qfmodel",tokens:0,share:1,credits:2.73)],history:[])
 expect(headline(qoder)=="2.7 Credits" && tokenLine(qoder)=="Token 未记录","Credit-only cards lead with Credits")

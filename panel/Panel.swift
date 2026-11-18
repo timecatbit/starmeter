@@ -12,12 +12,14 @@ struct Entry: Decodable {
     var key:String {if isModule,let action{return action.prefix(2).joined(separator:"\u{001F}")}
         return action?.joined(separator:"\u{001F}") ?? href ?? label.components(separatedBy:" · ").first ?? label}
 }
-struct ModelUsage:Decodable {var name:String;var tokens:Double;var share:Double;var credits:Double?}
+struct ModelUsage:Decodable {var name:String;var tokens:Double;var share:Double;var credits:Double?;var priceNote:String?}
 struct CountedUsage:Decodable {var cost:Double?;var tokens:Double;var requests:Int;var unpriced:Int;var cache:Double?;var history:[Double]}
 struct ProviderUsage:Decodable {
     var id:String;var name:String;var image:String?;var template:Bool?;var symbol:String?;var subtitle:String;var status:String;var available:Bool
     var cost:Double?;var credits:Double?;var tokens:Double;var requests:Int;var output:Double;var cache:Double?;var coverage:Double?
     var sessions:Int;var unpriced:Int;var summaryIncluded:Bool?;var counted:CountedUsage?;var models:[ModelUsage];var clients:[ModelUsage]?;var history:[Double]
+    // "N 次未定价" when some requests have no price yet, so the cost reads as covering only the rest.
+    var priceNote:String?
     // What Summary adds for this source: nothing when it isn't counted, and only the requests no gateway
     // logged when a gateway (OpenCodex, Magpie) counts the rest. The card itself keeps every record.
     var summaryPart:ProviderUsage? {
@@ -320,6 +322,13 @@ class ShareCard:FlippedView {
     // Totals, chart and the share bar use what Summary counts; every source with data is listed.
     var counted:[ProviderUsage] {rows.compactMap{$0.summaryPart}}
     var shared:[ProviderUsage] {counted.filter{$0.tokens>0}}
+    // The tag at the right of a tool's token line: what Summary leaves out or a gateway counted.
+    static func tag(_ p:ProviderUsage)->String? {
+        p.summaryIncluded == false ? "未计入 Summary" : (p.counted != nil && !p.subtitle.isEmpty ? p.subtitle : nil)
+    }
+    // Requests the price tables can't price yet get a line of their own under the stats, read whole, saying what
+    // the amount leaves out; the panel card says the same beside its name.
+    static func priceLine(_ p:ProviderUsage)->String? {p.priceNote.map{$0+"，金额只含已定价的部分"}}
     var pictureHeight:CGFloat {0}
     // Every share picture has a band of its style's pattern above the content and another below the signature.
     // The top one is 63pt: a long picture is read on a phone filling the screen's width with its top at the top
@@ -430,7 +439,7 @@ class ShareCard:FlippedView {
 final class CardShareCard:ShareCard {
     static let margin:CGFloat=22,inset:CGFloat=24,chartHeight:CGFloat=150,modelHeight:CGFloat=24,legendRow:CGFloat=20
     static let clientWidth=width-margin*2-inset*2-32-12,clientFont=NSFont.systemFont(ofSize:10.5)
-    static func blockHeight(_ p:ProviderUsage)->CGFloat {92+CGFloat(clientLines(p,width:clientWidth,font:clientFont).count)*18+CGFloat(max(1,p.models.count))*modelHeight}
+    static func blockHeight(_ p:ProviderUsage)->CGFloat {92+(priceLine(p)==nil ? 0 : 18)+CGFloat(clientLines(p,width:clientWidth,font:clientFont).count)*18+CGFloat(max(1,p.models.count))*modelHeight}
     private var cardHeight:CGFloat {
         let header:CGFloat=44,hero:CGFloat=88,tiles:CGFloat=88,chart=dashboard.dates.count>1 ? Self.chartHeight+22 : 0
         let share:CGFloat=shared.isEmpty ? 0 : 60+CGFloat((shared.count+2)/3)*Self.legendRow
@@ -636,8 +645,8 @@ final class CardShareCard:ShareCard {
             // A source a gateway partly counts says so, as the panel card does: its share is only the rest.
             // The note sits at the right of the token line, under the amount, where it has room to be read whole.
             var noteWidth:CGFloat=0
-            if !inSummary || (p.counted != nil && !p.subtitle.isEmpty) {
-                let tag=inSummary ? p.subtitle : "未计入 Summary",tagFont=font(9.5,.medium)
+            if let tag=Self.tag(p) {
+                let tagFont=font(9.5,.medium)
                 noteWidth=min(tw-measure(figures,figureFont)-10,measure(tag,tagFont)+16)
                 let capsule=NSRect(x:ir-noteWidth,y:top+23.5,width:noteWidth,height:17)
                 NSColor.labelColor.withAlphaComponent(isDark ? 0.09 : 0.06).setFill();NSBezierPath(roundedRect:capsule,xRadius:8.5,yRadius:8.5).fill()
@@ -646,10 +655,17 @@ final class CardShareCard:ShareCard {
             draw(figures,NSRect(x:tl,y:top+24,width:tw-noteWidth-(noteWidth>0 ? 10 : 0),height:16),figureFont,.secondaryLabelColor)
             draw(DashboardView.stats(p),NSRect(x:tl,y:top+42,width:tw,height:15),font(10.5,.regular),.secondaryLabelColor)
             var my=top+66
+            if let price=Self.priceLine(p){draw(price,NSRect(x:tl,y:my-6,width:tw,height:15),font(10.5,.medium),.systemOrange);my+=18}
             for line in Self.clientLines(p,width:Self.clientWidth,font:Self.clientFont){draw(line,NSRect(x:tl,y:my-6,width:tw,height:15),Self.clientFont,.secondaryLabelColor);my+=18}
             if p.models.isEmpty{draw("此时段暂无模型调用",NSRect(x:tl,y:my,width:tw,height:15),font(11,.regular),.secondaryLabelColor)}
             for m in p.models{
-                draw(modelName(m.name),NSRect(x:tl,y:my,width:tw-140,height:16),font(11.5,.regular),.labelColor)
+                let modelFont=font(11.5,.regular),noteFont=font(10,.medium)
+                var nameRoom=tw-140
+                if let note=m.priceNote {
+                    let width=min(nameRoom*0.55,measure(note,noteFont)),nameWidth=min(nameRoom-width-6,measure(modelName(m.name),modelFont))
+                    draw(note,NSRect(x:tl+nameWidth+6,y:my+1,width:width+2,height:15),noteFont,.systemOrange);nameRoom=nameWidth
+                }
+                draw(modelName(m.name),NSRect(x:tl,y:my,width:nameRoom+2,height:16),modelFont,.labelColor)
                 draw(modelAmount(m),NSRect(x:ir-134,y:my,width:86,height:16),font(11.5,.medium,rounded:true),.labelColor,.right)
                 draw(share(m.share),NSRect(x:ir-44,y:my,width:44,height:16),font(11,.medium,rounded:true),.secondaryLabelColor,.right)
                 let track=NSRect(x:tl,y:my+17,width:tw,height:3)
@@ -671,7 +687,7 @@ final class CardShareCard:ShareCard {
 final class TerminalShareCard:ShareCard {
     static let margin:CGFloat=22,pad:CGFloat=22,titleBar:CGFloat=34,chartHeight:CGFloat=170,modelHeight:CGFloat=20,legendRow:CGFloat=18
     static let clientWidth=width-margin*2-pad*2-16,clientFont=NSFont.monospacedSystemFont(ofSize:10.5,weight:.regular)
-    static func blockHeight(_ p:ProviderUsage)->CGFloat {90+CGFloat(clientLines(p,width:clientWidth,font:clientFont).count)*17+CGFloat(max(1,p.models.count))*modelHeight}
+    static func blockHeight(_ p:ProviderUsage)->CGFloat {90+(priceLine(p)==nil ? 0 : 17)+CGFloat(clientLines(p,width:clientWidth,font:clientFont).count)*17+CGFloat(max(1,p.models.count))*modelHeight}
     private var windowHeight:CGFloat {
         let chart=dashboard.dates.count>1 ? Self.chartHeight : 0
         let share:CGFloat=shared.isEmpty ? 0 : 56+CGFloat((shared.count+2)/3)*Self.legendRow
@@ -900,8 +916,8 @@ final class TerminalShareCard:ShareCard {
             // A source a gateway partly counts says so, as the panel card does: its share is only the rest.
             // The note sits at the right of the token line, under the cost, where it has room to be read whole.
             var noteWidth:CGFloat=0
-            if !inSummary || (p.counted != nil && !p.subtitle.isEmpty) {
-                let note=inSummary ? p.subtitle : "未计入 Summary",noteFont=mono(9.5,.medium)
+            let noteFont=mono(9.5,.medium)
+            if let note=Self.tag(p) {
                 noteWidth=min(width-16-measure(figures,lineFont)-10,measure(note,noteFont)+14)
                 let box=NSRect(x:right-noteWidth,y:top+39.5,width:noteWidth,height:16)
                 let boxPath=NSBezierPath(roundedRect:box.insetBy(dx:0.5,dy:0.5),xRadius:3.5,yRadius:3.5);c.muted.withAlphaComponent(0.45).setStroke();boxPath.lineWidth=1;boxPath.stroke()
@@ -910,6 +926,7 @@ final class TerminalShareCard:ShareCard {
             draw(figures,NSRect(x:left+16,y:top+40,width:width-16-noteWidth-(noteWidth>0 ? 10 : 0),height:15),lineFont,c.muted)
             draw(DashboardView.stats(p),NSRect(x:left+16,y:top+57,width:width-16,height:15),mono(10.5),c.comment)
             var my=top+80
+            if let price=Self.priceLine(p){draw("! "+price,NSRect(x:left+16,y:my-6,width:width-16,height:15),mono(10.5,.medium),.systemOrange);my+=17}
             for line in Self.clientLines(p,width:Self.clientWidth,font:Self.clientFont){draw(line,NSRect(x:left+16,y:my-6,width:width-16,height:15),Self.clientFont,c.comment);my+=17}
             if p.models.isEmpty{draw("此时段暂无模型调用",NSRect(x:left+16,y:my,width:width-16,height:15),mono(11),c.comment)}
             // Models hang off a drawn tree: one stem, a tick per model.
@@ -920,11 +937,17 @@ final class TerminalShareCard:ShareCard {
             }
             // Columns sized to this tool's longest model name and amount; the cells take what is left.
             let modelFont=mono(11),figureFont=mono(11,.medium)
-            let nameColumn=min(140,(p.models.map{measure(modelName($0.name),modelFont)}.max() ?? 0)+12)
+            let noted={(m:ModelUsage)->CGFloat in self.measure(modelName(m.name),modelFont)+(m.priceNote.map{self.measure($0,noteFont)+6} ?? 0)}
+            let nameColumn=min(170,(p.models.map(noted).max() ?? 0)+12)
             let amountColumn=max(50,(p.models.map{measure(modelAmount($0),figureFont)}.max() ?? 0)+4)
             let barLeft=left+40+nameColumn,barRoom=right-44-amountColumn-10-barLeft,slots=max(4,min(16,Int(barRoom/6.5)))
             for m in p.models{
-                draw(modelName(m.name),x:left+38,middle:my+8,width:nameColumn-8,modelFont,c.text)
+                var nameRoom=nameColumn-8
+                if let note=m.priceNote {
+                    let width=min(nameRoom*0.55,measure(note,noteFont)),nameWidth=min(nameRoom-width-6,measure(modelName(m.name),modelFont))
+                    draw(note,x:left+38+nameWidth+6,middle:my+8,width:width+2,noteFont,NSColor.systemOrange);nameRoom=nameWidth
+                }
+                draw(modelName(m.name),x:left+38,middle:my+8,width:nameRoom+1,modelFont,c.text)
                 let lit=m.share>0 ? max(1,Int((min(1,m.share)*Double(slots)).rounded())) : 0
                 for k in 0..<slots {
                     (k<lit ? colour.withAlphaComponent(inSummary ? 0.95 : 0.5) : c.rule).setFill()
@@ -1108,11 +1131,12 @@ final class DashboardView:FlippedView {
         text(h.hint,x:right-hintWidth-2,y:line+1,w:hintWidth+2,size:7.5,color:.tertiaryLabelColor,align:.right)
         if let caption=Self.heatmapCaption(h,pointed:hoveredDay) {text(caption,x:grid.minX,y:line,w:right-grid.minX-hintWidth-10,size:9,color:.secondaryLabelColor)}
     }
-    // Normal states say nothing; the slot shows a problem, or a note that changes how to read the numbers.
-    static func note(_ p:ProviderUsage)->(String,Bool)? {
-        if !p.available {return (p.status=="运行正常" || p.status=="已同步" ? "数据暂不可用" : p.status,true)}
-        if p.status != "运行正常" && p.status != "已同步" {return (p.status,true)}
-        return p.subtitle.isEmpty ? nil : (p.subtitle,false)
+    // Normal states say nothing; the slot shows a problem, or notes that change how to read the numbers: what a
+    // gateway counted, in grey, then requests the price tables can't price yet, highlighted.
+    static func notes(_ p:ProviderUsage)->[(String,Bool)] {
+        if !p.available {return [(p.status=="运行正常" || p.status=="已同步" ? "数据暂不可用" : p.status,true)]}
+        if p.status != "运行正常" && p.status != "已同步" {return [(p.status,true)]}
+        return (p.subtitle.isEmpty ? [] : [(p.subtitle,false)])+(p.priceNote.map{[($0,true)]} ?? [])
     }
     static func stats(_ p:ProviderUsage)->String {
         guard p.available else{return "等待可用数据"}
@@ -1131,8 +1155,11 @@ final class DashboardView:FlippedView {
         let cost=p.available ? headline(p) : "—",costWidth=min(130,Figure.width(cost,size:16))
         let nameX=left+21,nameWidth=min(right-costWidth-14-nameX,ceil((p.name as NSString).size(withAttributes:[.font:nameFont]).width)+1)
         text(p.name,x:nameX,y:y+8,w:nameWidth,size:13,weight:.semibold)
-        if let (note,warning)=Self.note(p) {
-            let noteX=nameX+nameWidth+7;text(note,x:noteX,y:y+10.5,w:max(0,right-costWidth-10-noteX),size:9.5,color:warning ? .systemOrange : .secondaryLabelColor)
+        var noteX=nameX+nameWidth+7
+        for (note,warning) in Self.notes(p) {
+            let room=right-costWidth-10-noteX,width=min(room,ceil((note as NSString).size(withAttributes:[.font:NSFont.systemFont(ofSize:9.5)]).width)+1)
+            guard room>12 else{break}
+            text(note,x:noteX,y:y+10.5,w:width,size:9.5,color:warning ? .systemOrange : .secondaryLabelColor);noteX+=width+6
         }
         Figure.draw(cost,x:right-costWidth-2,y:y+5,w:costWidth+2,size:16,align:.right)
     }
@@ -1149,7 +1176,13 @@ final class DashboardView:FlippedView {
         let shareX=right-34,amountX=shareX-62,barX=amountX-48,mid=ToolMark.middle(of:.systemFont(ofSize:10.5),top:0)
         for (i,m) in p.models.enumerated(){
             let top=y+CGFloat(i)*18
-            text(modelName(m.name),x:left,y:top,w:barX-left-10,size:10.5)
+            var nameRoom=barX-left-10
+            if let note=m.priceNote {
+                let width=min(nameRoom*0.55,ceil((note as NSString).size(withAttributes:[.font:NSFont.systemFont(ofSize:9)]).width)+1)
+                let nameWidth=min(nameRoom-width-5,ceil((modelName(m.name) as NSString).size(withAttributes:[.font:NSFont.systemFont(ofSize:10.5)]).width)+1)
+                text(note,x:left+nameWidth+5,y:top+1.5,w:width,size:9,color:.systemOrange);nameRoom=nameWidth
+            }
+            text(modelName(m.name),x:left,y:top,w:nameRoom,size:10.5)
             let track=NSRect(x:barX,y:top+mid-2,width:44,height:4)
             NSColor.labelColor.withAlphaComponent(dark(self) ? 0.10 : 0.07).setFill();NSBezierPath(roundedRect:track,xRadius:2,yRadius:2).fill()
             c.withAlphaComponent(0.85).setFill();NSBezierPath(roundedRect:NSRect(x:barX,y:track.minY,width:max(4,44*CGFloat(min(1,m.share))),height:4),xRadius:2,yRadius:2).fill()

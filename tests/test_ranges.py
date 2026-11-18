@@ -292,6 +292,25 @@ class RangeTests(unittest.TestCase):
   self.assertAlmostEqual(card['models'][0]['share'],2/2.73,places=3);self.assertEqual(card['models'][0]['credits'],2.0)
   other=self.m.dashboard_payload({'range_usage':{'range':'today','qoder':{'summary':{'requests':1,'totalTokens':10,'unpricedRequests':1},'models':[{'model':'x','totalTokens':10}]}}})['providers'][0]
   self.assertIsNone(other['credits']);self.assertEqual(other['status'],'费用待定价');self.assertNotIn('credits',other['models'][0])
+  self.assertIsNone(card['priceNote']);self.assertNotIn('priceNote',card['models'][0],'Credits are never priced, so they say nothing')
+
+ def test_cards_say_which_requests_have_no_price_yet(self):
+  settings=self.m.preferences.read(self.m.STATE_DIR);settings['visible']=['summary','codex'];self.m.preferences.write(self.m.STATE_DIR,settings)
+  codex={'summary':{'requests':113,'totalTokens':16_000_000,'estimatedCostUsd':0.11,'unpricedRequests':75},
+         'models':[{'model':'gpt-6.2-sol','totalTokens':14_000_000,'requests':75,'unpricedRequests':75},
+                   {'model':'gpt-6-astra','totalTokens':1_000_000,'requests':10,'unpricedRequests':0},
+                   {'model':'codex-auto-review','totalTokens':1_000_000,'requests':28,'unpricedRequests':0}]}
+  card=self.m.dashboard_payload({'range_usage':{'range':'today','codex':codex}})['providers'][0]
+  self.assertEqual(card['status'],'已同步');self.assertEqual(card['priceNote'],'75 次未定价')
+  self.assertEqual([m.get('priceNote') for m in card['models']],['未定价',None,None])
+  # A model only some of whose requests lack a price (a tier the table doesn't know) says how many.
+  codex['models'][1]['unpricedRequests']=4;codex['summary']['unpricedRequests']=79
+  card=self.m.dashboard_payload({'range_usage':{'range':'today','codex':codex}})['providers'][0]
+  self.assertEqual(card['models'][1]['priceNote'],'4 次未定价');self.assertEqual(card['priceNote'],'79 次未定价')
+  # Nothing priced at all already reads 费用待定价, with no cost to qualify.
+  codex['summary']['unpricedRequests']=113
+  card=self.m.dashboard_payload({'range_usage':{'range':'today','codex':codex}})['providers'][0]
+  self.assertEqual((card['status'],card['priceNote'],card['cost']),('费用待定价',None,None))
 
  def test_single_calendar_day_is_not_duplicated_in_chart(self):
   monday=datetime(2026,11,2,12,tzinfo=self.now.tzinfo)
