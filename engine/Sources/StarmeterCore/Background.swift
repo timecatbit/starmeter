@@ -172,7 +172,7 @@ extension Runtime {
         }
         if moduleEnabled("deepseek") && defaultReady("deepseek") { add("provider_quotas") { _ = self.providerQuotas() } }
         if moduleEnabled("komari") && !komariBaseURL.isEmpty { add("komari") { _ = self.komariSnapshot() } }
-        if moduleEnabled("updates"), let updates = appUpdatesLoader, appUpdatesWanted?() ?? false { add("app_updates", updates) }
+        if moduleEnabled("updates") && !liveAppUpdateIDs().isEmpty { add("app_updates") { _ = self.appUpdatesCached() } }
         if environment["OCX_SELF_UPDATES"] != "0", let check = selfUpdateLoader { add("self_update", check) }
         if moduleEnabled("claude-subscription") { add("claude_subscription") { _ = self.claudeSubscriptionCached() } }
         if moduleEnabled("sessions") { add("sessions") { _ = self.sessionsCached() } }

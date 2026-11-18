@@ -133,6 +133,13 @@ func answer(_ call: String, _ args: [JSON]) throws -> JSON {
         for (key, value) in args[4].object ?? JSONObject() { app[key] = (value["title"]?.string, value["effort"]?.string) }
         return .array(Sessions.active(claudeRoots: args[0].array?.compactMap(\.string) ?? [], codexRoot: text(1), now: args[2].number!,
                                       prices: args[3] == .bool(true) ? runtime.sessionPrices() : nil, claudeApp: app))
+    case "updates.pieces":
+        // Small pure pieces: versions, CLI output, the checker ID, appcasts and Codex's channel.
+        return ["versions": .array(args[0].array!.map { Updates.releaseVersion($0).map { .array($0.map { .int(Int64($0)) }) } ?? .null }),
+                "first": .array(args[1].array!.map { Runtime.firstVersion($0.string!).map(JSON.string) ?? .null }),
+                "uuid": .string(Runtime.uuid5URL("opencodex-swiftbar-update-check")),
+                "sparkle": .array(args[2].array!.map { let (a, b) = Updates.sparkleRelease(Data($0.string!.utf8)); return [a.map(JSON.string) ?? .null, b.map(JSON.string) ?? .null] }),
+                "channels": .array(args[3].array!.map { .object(Updates.codexChannel($0.string!)) })]
     case "zstd":
         // The SHA-256 and size of each file's decompressed bytes.
         return .array(args.map { path in

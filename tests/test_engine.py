@@ -30,6 +30,7 @@ import swiftbar_preferences as preferences
 import swiftbar_qoder as qoder
 import swiftbar_sessions as live_sessions
 import swiftbar_status as service_status
+import swiftbar_update_channels as update_channels
 from swiftbar_time import parse_iso
 import hashlib
 
@@ -1382,6 +1383,46 @@ class BackgroundParityTests(OpenCodexParityTests):
         for answer in (self.ok({'rates': {'CNY': '7.1234'}, 'date': '2026-11-18T00:00'}), self.ok({'rates': {'CNY': 30}, 'date': 'x'}), (503, b'', {})):
             self.answers['/api.frankfurter.dev/'] = answer
             self.assertEqual(self.python('fx'), self.swift('fx'))
+
+
+@unittest.skipUnless(PROBE, 'Swift toolchain not installed')
+class UpdateParityTests(unittest.TestCase):
+    def test_pieces(self):
+        import types, uuid
+        plugin = types.ModuleType('plugin_updates')
+        with unittest.mock.patch.dict(os.environ, {'OCX_PLUGIN_PATH': str(ROOT / 'starmeter.30s.sh')}):
+            exec(compile((ROOT / 'lib/swiftbar_plugin.py').read_text(), 'plugin', 'exec'), plugin.__dict__)
+        versions = ['1.2.3', 'v2.0', '1.2.3.4.5', '1.2.3.4.5.6', '1.2.3-beta.1', '1.2.3+build', '1.2.3-', ' 3 ', '', None, 'x1', '1..2', 7, '1.2.3-bé']
+        outputs = ['2.1.47 (Claude Code)', 'codex-cli 0.130.0-alpha.3\n', 'version: 10', 'v1.2.3', 'a1.2.3', '1.2.3x', 'no version', '1.2.3.4.5.6']
+        temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        def appcast(items):
+            body = '<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel>%s</channel></rss>'
+            return body % ''.join('<item>%s</item>' % item for item in items)
+        casts = [appcast(['<sparkle:shortVersionString>26.1</sparkle:shortVersionString><sparkle:version>2610</sparkle:version>',
+                          '<sparkle:shortVersionString>26.2</sparkle:shortVersionString><sparkle:version>2620</sparkle:version><sparkle:channel>beta</sparkle:channel>',
+                          '<enclosure sparkle:shortVersionString="26.0" sparkle:version="2700"/>',
+                          '<sparkle:shortVersionString>99</sparkle:shortVersionString><sparkle:version>9900</sparkle:version><sparkle:minimumSystemVersion>99.0</sparkle:minimumSystemVersion>']),
+                 appcast([]), 'not xml']
+        cask = root / 'Caskroom' / 'codex' / '0.1' / 'codex'
+        cask.parent.mkdir(parents=True); cask.write_text('')
+        (root / 'Caskroom' / 'codex' / '.metadata').mkdir()
+        (root / 'Caskroom' / 'codex' / '.metadata' / 'INSTALL_RECEIPT.json').write_text(json.dumps({'source': {'tap': 'homebrew/cask'}}))
+        npm = root / 'lib' / 'node_modules' / '@openai' / 'codex' / 'bin' / 'codex.js'
+        npm.parent.mkdir(parents=True); npm.write_text('')
+        (npm.parent.parent / 'package.json').write_text(json.dumps({'name': '@openai/codex'}))
+        loose = root / 'bin' / 'codex'; loose.parent.mkdir(); loose.write_text('')
+        got = swift('updates.pieces', versions, outputs, casts, [str(cask), str(npm), str(loose)])
+        self.assertEqual(got['versions'], [list(plugin.release_version(v)) if plugin.release_version(v) else None for v in versions])
+        import re
+        self.assertEqual(got['first'], [(lambda m: m[1] if m else None)(re.search(r'\b(\d+(?:\.\d+){1,4}(?:[-+][a-zA-Z0-9.-]+)?)\b', o)) for o in outputs])
+        self.assertEqual(got['uuid'], str(uuid.uuid5(uuid.NAMESPACE_URL, 'opencodex-swiftbar-update-check')))
+        expected_casts = []
+        for cast in casts:
+            try:expected_casts.append(list(plugin.sparkle_release(cast.encode())))
+            except Exception:expected_casts.append([None, None])
+        self.assertEqual(got['sparkle'], expected_casts)
+        self.assertEqual(got['channels'], [update_channels.codex_channel(p) for p in (cask, npm, loose)])
 
 
 if __name__ == '__main__':

@@ -18,8 +18,6 @@ public final class Runtime {
     /// Set by an in-process host (the standalone app): whether its panel is open, and on battery.
     public var hostCadence: (() -> (Bool, Bool))?
     /// The update checks and what runs after the background reads (the alerts), set where they are ported.
-    var appUpdatesLoader: (() -> Void)?
-    var appUpdatesWanted: (() -> Bool)?
     var selfUpdateLoader: (() -> Void)?
     var afterBackgroundReads: (() -> Void)?
 
