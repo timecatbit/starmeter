@@ -2,6 +2,7 @@
 import base64
 import bisect
 import math
+import re
 import time
 from html import escape
 
@@ -29,6 +30,68 @@ def tokens(n):
 
 def cash(n):
     return '—' if n is None else f'${n:,.2f}'
+
+
+def share(ratio):
+    value=ratio*100
+    return f'{value:.1f}%' if 0<value<1 or 99<value<100 else f'{value:.0f}%'
+
+
+def credits_text(value):
+    """Qoder CN plan requests log Credits and no tokens; Credits are never shown as dollars or tokens."""
+    return f'{value:.0f} Credits' if value>=100 else f'{value:.1f} Credits'
+
+
+def model_name(name):
+    """Claude's dated IDs read as the family and version, as on macOS: claude-opus-5-5 → Opus 5.5."""
+    if not name.startswith('claude-'):return name
+    parts=re.sub(r'-20[0-9]{6}$','',name)[7:].split('-')
+    if parts[0] not in ('opus','sonnet','haiku','fable'):return name
+    return parts[0].capitalize()+' '+'.'.join(parts[1:])
+
+
+def headline(p):
+    if p.get('cost') is None and p.get('credits') is not None:return credits_text(p['credits'])
+    return cash(p.get('cost'))
+
+
+def token_line(p):
+    return 'Token 未记录' if not p['tokens'] and p.get('credits') is not None else tokens(p['tokens'])+' Token'
+
+
+def card_stats(p):
+    """The grey counts after a card's tokens, in the Mac panel's order."""
+    if not p['available']:return '等待可用数据'
+    if not p['tokens'] and p.get('credits') is not None:return f"{p['requests']} 请求 · {p['sessions']} 会话"
+    parts=[f"{p['requests']} 请求",'缓存 %.1f%%'%(p['cache']*100) if p.get('cache') is not None else '缓存 —',
+           '输出 '+tokens(p['output'])]
+    if p['id']=='opencodex':
+        if (p.get('coverage') or 1)<1:parts.append('已定价 %.0f%%'%(p['coverage']*100))
+    else:parts.append(f"{p['sessions']} 会话")
+    if p.get('cost') is not None and p.get('credits') is not None:parts.append(credits_text(p['credits']))
+    return ' · '.join(parts)
+
+
+def card_note(p):
+    """Normal states say nothing; a problem, or a note that changes how to read the numbers, follows the name."""
+    status=p.get('status') or ''
+    if not p['available']:return ('数据暂不可用' if status in ('运行正常','已同步','') else status),True
+    if status not in ('运行正常','已同步',''):return status,True
+    return (p['subtitle'],False) if p.get('subtitle') else None
+
+
+def figure(value,size,weight=650):
+    """A figure reads as one number, as on macOS: the digits carry it, the $ smaller, lighter and raised,
+    the K/M/B unit smaller."""
+    body=value;head=tail=''
+    # Qt shrinks superscript on its own, so the $ asks for 0.92 to land near the Mac's 0.62.
+    if body.startswith('$'):
+        head=f'<span style="font-size:{size*.92:.1f}px;font-weight:500;color:{tone().name()};vertical-align:super">$</span>';body=body[1:]
+    if len(body)>1 and body[-1] in 'KMB' and body[-2].isdigit():
+        tail=f'<span style="font-size:{size*.74:.1f}px">{body[-1]}</span>';body=body[:-1]
+    item=QLabel(f'<span style="font-size:{size}px;font-weight:{weight}">{head}{escape(body)}{tail}</span>')
+    item.setTextFormat(Qt.RichText);item.setAccessibleName(value)
+    return item
 
 
 def axis_tokens(n):
@@ -168,7 +231,8 @@ def star():
 def mark(data):
     """A tool's logo on its card in its own colours (monochrome ones in the text colour); a dot without one."""
     if not data.get('image'):
-        dot=label('●');dot.setStyleSheet('color:'+COLORS.get(data.get('id'),'#437fc4'));return dot
+        dot=label('●');dot.setStyleSheet('color:'+COLORS.get(data.get('id'),'#437fc4'))
+        dot.setFixedWidth(18);dot.setAlignment(Qt.AlignCenter);return dot
     view=QLabel();view.setPixmap(icon(data).pixmap(16,16));view.setFixedSize(18,18);return view
 
 
@@ -314,43 +378,88 @@ class Heatmap(QWidget):
         self.point(None);super().leaveEvent(event)
 
 
+class ShareBar(QWidget):
+    """A model's share as a short rounded bar of its own beside the figures, as on macOS, not a rule across the card."""
+    WIDTH=44
+
+    def __init__(self,ratio,color):
+        super().__init__();self.ratio=max(0.0,min(1.0,ratio));self.color=QColor(color);self.setFixedSize(self.WIDTH,12)
+
+    def paintEvent(self,_):
+        p=QPainter(self);p.setRenderHint(QPainter.Antialiasing);p.setPen(Qt.NoPen)
+        track=ink();track.setAlphaF(.10 if dark() else .07);p.setBrush(track)
+        p.drawRoundedRect(QRectF(0,4,self.WIDTH,4),2,2)
+        fill=QColor(self.color);fill.setAlphaF(.85);p.setBrush(fill)
+        p.drawRoundedRect(QRectF(0,4,max(4.0,self.WIDTH*self.ratio),4),2,2)
+
+
+class Elided(QLabel):
+    """One line that ends in … when it runs out of room, as the Mac panel truncates, rather than wrapping or clipping."""
+    def __init__(self,text,role=''):
+        super().__init__(text);self.full=text;self.setTextFormat(Qt.PlainText)
+        if role:self.setObjectName(role)
+        self.setMinimumWidth(0);self.setSizePolicy(QSizePolicy.Ignored,QSizePolicy.Preferred)
+
+    def resizeEvent(self,event):
+        super().resizeEvent(event)
+        shown=self.fontMetrics().elidedText(self.full,Qt.ElideRight,self.width())
+        if shown!=self.text():self.setText(shown)
+        if not self.toolTip() or self.toolTip()==self.full:self.setToolTip(self.full if shown!=self.full else '')
+
+
+class CardHeader(QFrame):
+    """A card's first line; with 允许折叠 on, clicking anywhere on it folds or unfolds the card."""
+    def __init__(self,toggle):
+        super().__init__();self.toggle=toggle
+        if toggle:self.setObjectName('row');self.setCursor(Qt.PointingHandCursor)
+
+    def mousePressEvent(self,event):
+        if self.toggle and event.button()==Qt.LeftButton:self.toggle()
+        else:super().mousePressEvent(event)
+
+
 class Provider(QWidget):
+    """A tool's card as on macOS: logo, name, any note and the cost on the first line; its tokens in bold and
+    the counts in grey under the name; each model with a short share bar beside its figures."""
+    INDENT=25
+
     def __init__(self, data, foldable, expanded, act):
         super().__init__();self.setSizePolicy(QSizePolicy.Preferred,QSizePolicy.Maximum)
-        box=QVBoxLayout(self);box.setContentsMargins(0,4,0,4);box.setSpacing(5)
-        line=QHBoxLayout();line.addWidget(mark(data))
+        box=QVBoxLayout(self);box.setContentsMargins(0,2,0,10);box.setSpacing(3)
+        toggle=(lambda:act(['set-expanded',data['id'],'false' if expanded else 'true'])) if foldable else None
+        head=CardHeader(toggle);line=QHBoxLayout(head);line.setContentsMargins(0,0,0,0);line.setSpacing(7)
+        line.addWidget(mark(data));line.addWidget(label(data['name'],'cardTitle'))
+        if note:=card_note(data):line.addWidget(Elided(note[0],'warning' if note[1] else 'muted'),1)
+        else:line.addStretch(1)
+        line.addWidget(figure(headline(data) if data['available'] else '—',17))
         if foldable:
-            name=tool(('▾  ' if expanded else '▸  ')+data['name'],data['name'],
-                      lambda:act(['set-expanded',data['id'],'false' if expanded else 'true']))
-            name.setObjectName('cardTitle');line.addWidget(name)
-        else:line.addWidget(label(data['name'],'cardTitle'))
-        line.addStretch();status=data.get('status')
-        if status and status not in ('运行正常','已同步'):line.addWidget(label(status,'muted'))
-        box.addLayout(line)
-        row=QHBoxLayout();row.addWidget(label(f"{tokens(data['credits'])} Credits" if data.get('credits') and not data['tokens'] else cash(data['cost']) if data['available'] else '—','cardMetric'))
-        row.addStretch();row.addWidget(label(tokens(data['tokens'])+' Token' if data['available'] else '—','cardMetric'));box.addLayout(row)
-        if foldable and not expanded:return
+            arrow=tool('▾' if expanded else '▸',('收起 ' if expanded else '展开 ')+data['name'],toggle)
+            arrow.setObjectName('chevron');line.addWidget(arrow)
+        box.addWidget(head)
+        body=QVBoxLayout();body.setContentsMargins(self.INDENT,0,0,0);body.setSpacing(3);box.addLayout(body)
         if data['available']:
-            cache=' · 缓存 %.1f%%'%(data['cache']*100) if data.get('cache') is not None else ''
-            info=label(f"{data['requests']:,} 请求{cache} · 输出 {tokens(data['output'])} · {data['sessions']} 会话",'muted')
-            box.addWidget(info)
-        if data.get('subtitle'):box.addWidget(label(data['subtitle'],'muted'))
-        if data.get('clients'):
-            clients=label('客户端 · '+' · '.join(f"{c['name']} {c['share']:.0%}" for c in data['clients']),'muted')
-            clients.setWordWrap(True);box.addWidget(clients)
-        for model in data['models']:
-            row=QHBoxLayout();name=label(model['name']);name.setMinimumWidth(0);name.setSizePolicy(QSizePolicy.Ignored,QSizePolicy.Preferred);name.setToolTip(model['name'])
-            row.addWidget(name,1);row.addWidget(label(tokens(model.get('credits') or model['tokens'])))
-            ratio=label(f"{model['share']:.1%}",'muted');ratio.setMinimumWidth(43);ratio.setAlignment(Qt.AlignRight);row.addWidget(ratio)
-            box.addLayout(row)
-            bar=QFrame();bar.setObjectName('divider');bar.setFixedHeight(2)
-            fill=QFrame(bar);fill.setStyleSheet('background:'+COLORS.get(data['id'],'#437fc4'))
-            bar.installEventFilter(self);bar._fill=(fill,model['share']);box.addWidget(bar)
-
-    def eventFilter(self, watched,event):
-        if hasattr(watched,'_fill'):
-            fill,ratio=watched._fill;fill.setGeometry(0,0,round(watched.width()*ratio),2)
-        return super().eventFilter(watched,event)
+            stats=QHBoxLayout();stats.setSpacing(4);stats.addWidget(label(token_line(data),'cardTokens'))
+            # The counts end in … when they run out of room, as on macOS, rather than wrapping mid-word.
+            if not foldable or expanded:stats.addWidget(Elided('· '+card_stats(data),'muted'),1)
+            else:stats.addStretch(1)
+            body.addLayout(stats)
+        else:body.addWidget(Elided(card_stats(data),'muted'))
+        if foldable and not expanded:return
+        if data['available'] and data.get('clients'):
+            clients=label('客户端 · '+' · '.join(f"{c['name']} {share(c['share'])}" for c in data['clients']),'muted')
+            clients.setWordWrap(True);body.addWidget(clients)
+        if not data['models']:
+            body.addWidget(label('此时段暂无模型调用' if data['available'] else '模型明细暂不可用','muted'));return
+        color=COLORS.get(data['id'],'#437fc4')
+        models=QGridLayout();models.setContentsMargins(0,5,0,0);models.setHorizontalSpacing(8);models.setVerticalSpacing(2)
+        for i,model in enumerate(data['models']):
+            name=Elided(model_name(model['name']));name.setToolTip(model['name'])
+            figure_text=credits_text(model['credits']) if not model['tokens'] and model.get('credits') is not None else tokens(model['tokens'])
+            amount=label(figure_text);amount.setAlignment(Qt.AlignRight|Qt.AlignVCenter);amount.setMinimumWidth(58)
+            ratio=label(share(model['share']),'muted');ratio.setAlignment(Qt.AlignRight|Qt.AlignVCenter);ratio.setMinimumWidth(36)
+            models.addWidget(name,i,0);models.addWidget(ShareBar(model['share'],color),i,1)
+            models.addWidget(amount,i,2);models.addWidget(ratio,i,3)
+        models.setColumnStretch(0,1);body.addLayout(models)
 
 
 class TrayPanel(QWidget):
@@ -417,8 +526,10 @@ class TrayPanel(QWidget):
             QComboBox {{border:1px solid {border};border-radius:5px;padding:4px 8px;min-height:18px;background:{surface};}}
             QComboBox QAbstractItemView {{background:{surface};color:{text};selection-background-color:{hover};selection-color:{text};}}
             #muted {{color:{muted};font-size:11px;}} #divider {{background:{divider};}}
-            #title {{font-weight:700;font-size:19px;}} #metric {{font-weight:650;font-size:21px;}}
-            #cardTitle,#cardMetric {{font-weight:650;font-size:15px;}} #row {{border-radius:6px;}}
+            #warning {{color:{'#e8963a' if night else '#c46a12'};font-size:11px;}}
+            #title {{font-weight:700;font-size:19px;}}
+            #cardTitle {{font-weight:650;font-size:14px;}} #cardTokens {{font-weight:650;}} #row {{border-radius:6px;}}
+            #chevron {{color:{muted};padding:0 2px;min-width:16px;min-height:16px;}}
             #row:hover {{background:{hover};}}
             #section {{font-weight:650;font-size:13px;padding:10px 0 2px 4px;}}
         ''')
@@ -488,7 +599,7 @@ class TrayPanel(QWidget):
                                              ('Token 用量',tokens(sum(p['tokens'] for p in parts)) if parts else '—'),
                                              ('请求',f'{requests:,}' if parts else '—')]):
                 col=QVBoxLayout();align=[Qt.AlignLeft,Qt.AlignHCenter,Qt.AlignRight][i]
-                col.addWidget(label(name,'muted'),0,align);col.addWidget(label(value,'metric'),0,align)
+                col.addWidget(label(name,'muted'),0,align);col.addWidget(figure(value,23,700),0,align)
                 stats.addLayout(col,1)
             box.addLayout(stats)
             legends=['<span style="color:'+TOTAL+'">━</span> 总量']
@@ -502,8 +613,8 @@ class TrayPanel(QWidget):
             if note:=[n for n in (d.get('chartStatus'),d.get('updated')) if n]:
                 info=label(' · '.join(note),'muted');info.setAlignment(Qt.AlignRight);box.addWidget(info)
         elif d.get('heatmap'):box.addWidget(Heatmap(d['heatmap'],label_column(d)))
+        # Cards are kept apart by space, as on macOS; only the groups below get a rule.
         for p in d['providers']:
-            box.addWidget(separator())
             box.addWidget(Provider(p,not sharing and d.get('allowCollapse'),p['id'] in d.get('expandedProviders',[]),self.action.emit))
         if sharing:
             box.addWidget(separator())
