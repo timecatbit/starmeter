@@ -47,6 +47,17 @@ def event(ms, model='claude-4.5-sonnet', tokens=(100, 20, 1000, 50), cents=1.5, 
             'usageEventId': key or 'e%d' % ms, 'kind': 'USAGE_EVENT_KIND_INCLUDED_IN_PRO'}
 
 
+class Server:
+    """Cursor's usage records: answers each read with the events in its window and remembers the windows."""
+    def __init__(self, rows):self.rows = list(rows);self.windows = []
+    def events(self, user, token, begin, end, opener=None):
+        self.windows.append((begin, end))
+        return [r for r in self.rows if begin * 1000 <= int(r['timestamp']) <= end * 1000], True
+
+
+LOGIN = ('user_01ABC', 'tok', 'Cursor 桌面版')
+
+
 class CursorTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup);self.home = Path(self.temp.name)
@@ -113,13 +124,36 @@ class CursorTests(unittest.TestCase):
                 event(noon + 2000, tokens=(0, 0, 0, 0), cents=0)]
         opener = Opener([{'usageEventsDisplay': rows, 'totalUsageEventsCount': 3}])
         start = datetime(2026, 11, 17, tzinfo=zone).timestamp()
-        result = cursor.usage(self.home, start, start + 86400, zone, opener=opener)
+        store = cursor.refresh(None, self.home, start, start + 86400, opener=opener)
+        result = cursor.tally((store['events'], store['complete'], store['login']), start, start + 86400, zone)
         summary = result['summary']
         # Cursor's input excludes the cache: 100 input + 1000 read + 50 written + 20 output.
         self.assertEqual((summary['requests'], summary['totalTokens'], summary['inputTokens'], summary['cachedInputTokens']), (2, 2340, 2300, 2000))
         self.assertAlmostEqual(summary['estimatedCostUsd'], 0.015);self.assertEqual(summary['unpricedRequests'], 1)
         self.assertEqual(summary['sessions'], 2);self.assertEqual(result['login'], 'Cursor 桌面版')
         self.assertEqual([h['timestamp'] for h in result['hours']], [noon // 1000 // 3600 * 3600])
+
+    def test_the_store_reads_only_what_it_lacks(self):
+        day = 1_800_000_000;now = day + 12 * 3600
+        server = Server([event((day + 3600) * 1000), event((now - 600) * 1000)])
+        with patch.object(cursor, 'session', return_value=LOGIN), patch.object(cursor, 'events', server.events):
+            store = cursor.refresh(None, self.home, day, now)
+            self.assertEqual(server.windows, [(day, now)]);self.assertEqual((store['from'], store['through']), (day, now))
+            # Ten minutes on, only the time since, with the hour before it, is read; there a record changed.
+            server.rows[1]['tokenUsage']['totalCents'] = 3;server.rows.append(event((now + 300) * 1000))
+            store = cursor.refresh(store, self.home, day, now + 600)
+            self.assertEqual(server.windows[1], (now - 3601, now + 600))
+            self.assertEqual([round(e['cost'] or 0, 3) for e in store['events']], [0.015, 0.03, 0.015])
+            # A range reaching six days back reads only those days, then the minutes since.
+            server.rows.insert(0, event((day - 5 * 86400) * 1000))
+            store = cursor.refresh(store, self.home, day - 6 * 86400, now + 900)
+            self.assertEqual(server.windows[2:], [(day - 6 * 86400, day + 1), (now - 3001, now + 900)])
+            self.assertEqual((len(store['events']), store['from']), (4, day - 6 * 86400))
+            # Another account's store, or one a read could not finish, starts over with one read.
+            for held in (dict(store, account='someone-else'), dict(store, complete=False)):
+                server.windows.clear();cursor.refresh(held, self.home, day, now + 900)
+                self.assertEqual(server.windows, [(day, now + 900)])
+        self.assertNotIn('user_01ABC', json.dumps(store), 'The account ID itself is not kept')
 
     def test_plan_share_follows_used_over_limit_as_cursor_words_it(self):
         self.app(jwt())
@@ -155,8 +189,8 @@ class CursorPluginTests(unittest.TestCase):
 
     def test_nothing_is_read_until_the_user_turns_it_on(self):
         start, end = self.m.range_bounds('today', self.now)
-        with patch.object(self.m.cursor, 'usage') as read:
-            self.assertEqual(self.m.cursor_range_usage('today', start, end, self.now), {'error': '未开启用量读取'})
+        with patch.object(self.m.cursor, 'refresh') as read:
+            self.assertEqual(self.m.cursor_range_usage(start, end, self.now), {'error': '未开启用量读取'})
         read.assert_not_called()
         with patch.object(self.m, 'confirm', return_value=False):self.m.run_action('set-cursor-usage', ['true'])
         self.assertFalse(preferences.read(self.m.STATE_DIR)['cursorUsage'], 'Cancelling writes nothing')
@@ -165,21 +199,31 @@ class CursorPluginTests(unittest.TestCase):
         self.assertIn('只在内存中使用', ask.call_args.args[1])
         saved = preferences.read(self.m.STATE_DIR);self.assertTrue(saved['cursorUsage']);self.assertIn('cursor', saved['visible'])
 
-    def test_figures_are_cached_per_range_and_refetched_on_a_new_day(self):
+    def test_every_range_shares_one_store_and_reads_only_what_it_lacks(self):
         preferences.update(self.m.STATE_DIR, 'cursor-usage', 'true')
         start, end = self.m.range_bounds('today', self.now)
-        call = {'timestamp': start + 3600, 'model': 'grok-4.7-high', 'session': 'c1', 'input': 100, 'output': 20, 'cached': 50, 'writes': 0, 'cost': 0.01}
-        with patch.object(self.m.cursor, 'fetch', return_value=([call], True, 'Cursor 桌面版')) as read:
-            first = self.m.cursor_range_usage('today', start, end, self.now)
-            self.m.cursor_range_usage('today', start, end, self.now)
-            self.assertEqual(read.call_count, 1, 'A fresh read is reused for five minutes')
+        server = Server([event(int(start + 3600) * 1000, model='grok-4.7-high', tokens=(100, 20, 50, 0), cents=1),
+                         event(int(start - 2 * 86400) * 1000)])
+        with patch.object(self.m.cursor, 'session', return_value=LOGIN), patch.object(self.m.cursor, 'events', server.events):
+            first = self.m.cursor_range_usage(start, end, self.now)
+            self.m.cursor_range_usage(start, end, self.now)
+            self.assertEqual(len(server.windows), 1, 'A fresh read is reused for five minutes')
+            week = self.m.cursor_range_usage(*self.m.range_bounds('7d', self.now), self.now)
+            self.assertEqual(server.windows[1][0], self.m.range_bounds('7d', self.now)[0], 'Only the older days are read')
+            self.assertEqual(week['summary']['requests'], 2)
+            reads = len(server.windows)
+            for key in ('today', 'yesterday', '24h'):self.m.cursor_range_usage(*self.m.range_bounds(key, self.now), self.now)
+            self.assertEqual(len(server.windows), reads, 'Ranges inside the store read nothing')
             later = self.now.replace(day=18);start, end = self.m.range_bounds('today', later)
-            self.m.cursor_range_usage('today', start, end, later)
-            self.assertEqual(read.call_count, 2, 'A new day reads again')
+            self.m.cursor_range_usage(start, end, later)
+            self.assertEqual(len(server.windows), reads + 1, 'A store behind the range reads the time since')
+            self.assertEqual(server.windows[-1][1], later.timestamp())
         self.assertEqual((first['summary']['requests'], first['summary']['totalTokens'], first['login']), (1, 170, 'Cursor 桌面版'))
-        with patch.object(self.m.cursor, 'fetch', side_effect=self.m.cursor.CursorError('Cursor 登录已失效，请打开 Cursor 重新登录')):
+        names = [n for n in os.listdir(self.m.CACHE_DIR) if n.startswith('cursor_usage_')]
+        self.assertEqual(names, ['cursor_usage_events.json'])
+        with patch.object(self.m.cursor, 'session', side_effect=self.m.cursor.CursorError('Cursor 登录已失效，请打开 Cursor 重新登录')):
             later = self.now.replace(day=19);start, end = self.m.range_bounds('today', later)
-            self.assertEqual(self.m.cursor_range_usage('today', start, end, later), {'error': 'Cursor 登录已失效，请打开 Cursor 重新登录'})
+            self.assertEqual(self.m.cursor_range_usage(start, end, later), {'error': 'Cursor 登录已失效，请打开 Cursor 重新登录'})
 
     def test_a_call_cursor_reported_to_magpie_counts_once_from_magpie(self):
         preferences.update(self.m.STATE_DIR, 'cursor-usage', 'true')
@@ -188,8 +232,9 @@ class CursorPluginTests(unittest.TestCase):
         other = dict(reported, timestamp=start + 7200, input=451, output=235, cached=1152, cost=0.0029)
         # Magpie logs input with cache reads: 11535 + 5760.
         magpie = [('Magpie', {(17295, 5760, 0, 95): [start + 3610]})]
-        with patch.object(self.m.cursor, 'fetch', return_value=([reported, other], True, 'Cursor 桌面版')):
-            result = self.m.cursor_range_usage('today', start, end, self.now, magpie)
+        store = {'events': [reported, other], 'complete': True, 'login': 'Cursor 桌面版', 'from': start, 'through': end}
+        with patch.object(self.m.cursor, 'session', return_value=LOGIN), patch.object(self.m.cursor, 'refresh', return_value=store):
+            result = self.m.cursor_range_usage(start, end, self.now, magpie)
         self.assertEqual(result['summary']['requests'], 2, 'The card keeps every Cursor call')
         self.assertEqual(result['carried'], {'Magpie': 1});self.assertEqual(result['counted']['summary']['requests'], 1)
 

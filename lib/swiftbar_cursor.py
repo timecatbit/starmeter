@@ -9,6 +9,7 @@ and goes to cursor.com only. Request and cookie shapes follow CodexBar's Cursor 
 CODEXBAR_LICENSE).
 """
 import base64
+import hashlib
 import json
 import math
 import os
@@ -24,6 +25,8 @@ SUMMARY_URL = ORIGIN + '/api/usage-summary'
 PAGE_SIZE = 1000
 MAX_PAGES = 50
 ENCRYPTED = 'cursor-safe-storage:'
+# Read again on every refresh: requests still running and records that land late.
+OVERLAP = 3600
 
 
 class CursorError(Exception):
@@ -190,15 +193,44 @@ def plan(home, now=None, opener=None):
                          'limitCents': number(extra.get('limit')) if number(extra.get('limit')) > 0 else None}}
 
 
-def fetch(home, start, end, now=None, opener=None):
-    """This range's usage events in the shape the shared tally reads, whether all of them came, and whose login read them."""
+def account(user):
+    """Which account a kept history belongs to, without keeping the account ID itself."""
+    return hashlib.sha256(('cursor:' + user).encode()).hexdigest()[:16]
+
+
+def refresh(store, home, start, until, now=None, opener=None):
+    """The account's events from start to until, kept in one store that every range shares. Only what the store
+    lacks is asked for: the days before it when a range reaches further back, and the time since the last read
+    together with the hour before it, where requests still running and late records land. A store for another
+    account, or one a read could not finish, starts over. Returns the new store."""
     user, token, where = session(home, now)
-    rows, complete = events(user, token, start, end, opener)
-    return [e for e in map(normalize, rows) if e], complete, where
+    owner = account(user);held = store if isinstance(store, dict) else {}
+    low, high, kept = held.get('from'), held.get('through'), held.get('events')
+    if held.get('account') != owner or held.get('complete') is not True or not isinstance(kept, list) \
+            or not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in (low, high)) or low > high:
+        low = high = None;kept = []
+    complete = True
+
+    def read(begin, end):
+        nonlocal complete
+        rows, done = events(user, token, begin, end, opener);complete = complete and done
+        return [e for e in map(normalize, rows) if e]
+    if low is None:
+        kept, low = read(start, until), start
+    else:
+        # Each read runs a second past its seam and each side keeps its own events, so whether Cursor counts
+        # the ends of a window in or out never loses or doubles one.
+        if start < low:
+            kept = [e for e in read(start, low + 1) if e['timestamp'] < low] + kept;low = start
+        seam = max(low, high - OVERLAP)
+        if until > seam:
+            kept = [e for e in kept if e['timestamp'] < seam] + [e for e in read(seam - 1, until) if e['timestamp'] >= seam]
+    return {'account': owner, 'events': sorted(kept, key=lambda e: e['timestamp']), 'from': low,
+            'through': max(until, high or until), 'complete': complete, 'login': where}
 
 
 def tally(found, start, end, zone, carriers=None):
-    """The card's figures from fetched events. A call Cursor also reported to Magpie is in Magpie's log as well;
+    """The card's figures from the kept events. A call Cursor also reported to Magpie is in Magpie's log as well;
     carriers let Summary count it once, from Magpie, as for every other client a gateway logs."""
     import swiftbar_sources as sources
     rows, complete, where = found
@@ -206,7 +238,3 @@ def tally(found, start, end, zone, carriers=None):
     result.update(source='Cursor 账户用量记录', login=where)
     if not complete:result.update(partial=True, warning='用量记录过多，只读取了一部分')
     return result
-
-
-def usage(home, start, end, zone, now=None, opener=None, carriers=None):
-    return tally(fetch(home, start, end, now, opener), start, end, zone, carriers)

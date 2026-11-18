@@ -1930,7 +1930,7 @@ def range_usage_cached(key=None):
                     return ocx_range_usage(key,now) if ocx_configured() else {'error':'未配置 OpenCodex'}
                 carriers=gateway_carriers(source,logs)
                 # Cursor's calls never pass a gateway; only the ones it reported to Magpie are in a gateway's log.
-                if source=='cursor':return cursor_range_usage(key,start,end,now,[c for c in carriers if c[0]=='Magpie'])
+                if source=='cursor':return cursor_range_usage(start,end,now,[c for c in carriers if c[0]=='Magpie'])
                 if source=='claude':
                     value,error=claude_usage_live(range_key=key,now=now,carriers=carriers)
                     return value or {'error':'未找到 Claude 用量记录'}
@@ -1957,21 +1957,24 @@ def range_usage_cached(key=None):
     return cached_fetch(name,load,refresh_ttl(60))
 
 
-def cursor_range_usage(key,start,end,now,carriers=None):
-    """Cursor's records live on cursor.com: read only after the user turns it on, at most every five minutes
-    per range, and again when the range's first day changes so yesterday's figures never pass for today's."""
+def cursor_range_usage(start,end,now,carriers=None):
+    """Cursor's records live on cursor.com: read only after the user turns it on. Every range shares one store of
+    the account's events, so switching ranges reads nothing new unless a range reaches further back, and a
+    refresh asks only for the minutes since the last read, at most every five minutes."""
     if not view_settings()['cursorUsage']:return {'error':'未开启用量读取'}
-    name='cursor_usage_'+key;anchor=datetime.fromtimestamp(start,now.tzinfo).date().isoformat()
-    record=read_cache(name);current=(record.get('payload') or {}).get('anchor')==anchor
-    # The events themselves are kept, so matching them against Magpie's log stays current between reads.
+    name='cursor_usage_events';held=read_cache(name).get('payload') or {}
+    number=lambda value:isinstance(value,(int,float)) and not isinstance(value,bool)
+    covered=number(held.get('from')) and held['from']<=start
+    # Due when the store ends more than five minutes before this range does; yesterday's range never is.
+    fresh=covered and number(held.get('through')) and end-held['through']<refresh_ttl(300)
     def load():
-        try:
-            rows,complete,where=cursor.fetch(HOME,start,end)
-            return {'events':rows,'complete':complete,'login':where,'anchor':anchor},None
+        try:return cursor.refresh(held,HOME,start,now.timestamp()),None
         except cursor.CursorError as exc:return None,(0,str(exc),None)
-    payload,error=cached_fetch(name,load,refresh_ttl(300) if current else 0)
+    payload,error=cached_fetch(name,load,refresh_ttl(300) if fresh else 0)
     # A failed read reports the reason; the range bundle keeps the last good figures with their own time.
-    if error or not payload or payload.get('anchor')!=anchor or not isinstance(payload.get('events'),list):return {'error':str(error[1]) if error else '用量记录暂不可用'}
+    if error or not payload or not isinstance(payload.get('events'),list) or not (number(payload.get('from')) and payload['from']<=start):
+        return {'error':str(error[1]) if error else '用量记录暂不可用'}
+    # The events themselves are kept, so matching them against Magpie's log stays current between reads.
     return cursor.tally((payload['events'],payload.get('complete',True),payload.get('login')),start,end,now.tzinfo,carriers)
 
 
@@ -2254,7 +2257,7 @@ CURRENT_INDEXES = ('claude-app-usage-v3-', 'harness-v4-', 'harness-v6-magpie-', 
 # Indexes a source outgrew, under a prefix the current ones still match.
 RETIRED_INDEXES = ('harness-v4-magpie-',)
 INDEX_FILE = re.compile(r'(?:claude-app-usage|claude-usage|harness)-.+\.sqlite3(?:-journal|-wal|-shm)?')
-RETIRED_CACHES = ('startup.json', 'usage_today.json', 'usage_7d.json')
+RETIRED_CACHES = ('startup.json', 'usage_today.json', 'usage_7d.json', *('cursor_usage_%s.json' % key for key in RANGES))
 
 def collect_cache_garbage(now=None):
     """Hourly at most; only touches this plugin's private cache directory."""
