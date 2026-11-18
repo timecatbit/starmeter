@@ -313,7 +313,7 @@ extension Runtime {
             ["label": .string($0.1), "checked": .bool(option("appearance") == .string($0.0)), "radio": true, "action": ["set-appearance", .string($0.0)], "children": []] }
         let level = option("usageAlert")
         var alertRows: [JSON] = (Preferences.alertLevels.dropFirst() + [0]).map { value in
-            ["label": .string(value != 0 ? "用到 \(value)% 时" : "关闭"), "checked": .bool(level == .int(value)), "radio": true, "action": ["set-usage-alert", .string(String(value))], "children": []] }
+            ["label": .string(value != 0 ? "\(value)%" : "关闭"), "checked": .bool(level == .int(value)), "radio": true, "action": ["set-usage-alert", .string(String(value))], "children": []] }
         let reminder = option("resetReminder").isTruthy
         alertRows += [["label": "", "separator": true, "children": []],
                       ["label": "重置前提醒", "detail": .string("每周窗口用了不到 \(Alerts.reminderUnder)%，重置前 \(Int(Alerts.reminderLead) / 3600) 小时提醒"), "checked": .bool(reminder),
@@ -335,7 +335,7 @@ extension Runtime {
                  ["label": "钉住与提醒", "section": true, "children": []],
                  ["label": "钉住时刷新", "symbol": "pin", "value": .string("每 \(pin) 秒"), "children": .array(Preferences.pinIntervals.map { seconds in
                     ["label": .string("每 \(seconds) 秒"), "checked": .bool(option("pinInterval") == .int(seconds)), "radio": true, "action": ["set-pin-interval", .string(String(seconds))], "children": []] })],
-                 ["label": "用量提醒", "symbol": "bell", "value": .string(alert != 0 ? "\(Int(alert))%" : "关闭"), "children": .array(alertRows)],
+                 ["label": "用量提醒", "detail": "订阅窗口用到所选比例时通知一次", "symbol": "bell", "value": .string(alert != 0 ? "\(Int(alert))%" : "关闭"), "children": .array(alertRows)],
                  ["label": "服务状态", "detail": "每 5 分钟查一次 Claude、OpenAI、Cursor 的官方状态页，出问题时标在卡片上", "symbol": "waveform.path.ecg", "checked": .bool(service),
                   "action": ["set-service-status", .string(service ? "false" : "true")], "children": []],
                  ["label": "数据", "section": true, "children": []],

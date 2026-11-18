@@ -183,7 +183,7 @@ class PluginAlertTests(unittest.TestCase):
         settings=next(o for o in self.m.module_options() if o['label']=='外观与设置')['children']
         menu=next(r for r in settings if r['label']=='用量提醒')
         self.assertEqual(menu['value'],'90%')
-        self.assertEqual([r['label'] for r in menu['children'] if r.get('radio')],['用到 70% 时','用到 80% 时','用到 90% 时','关闭'])
+        self.assertEqual([r['label'] for r in menu['children'] if r.get('radio')],['70%','80%','90%','关闭'])
         self.m.run_action('set-usage-alert',['0']);self.m.run_action('set-reset-reminder',['true'])
         value=preferences.read(self.m.STATE_DIR);self.assertEqual((value['usageAlert'],value['resetReminder']),(0,True))
         with self.assertRaises(ValueError):self.m.run_action('set-usage-alert',['55'])

@@ -3229,7 +3229,7 @@ def module_options(data=None):
     settings_rows=[{'label':label,'checked':settings['theme']==key,'radio':True,'action':['set-theme',key],'children':[]} for key,label in [('system','跟随系统'),('light','浅色'),('dark','深色')]]
     settings_rows.append({'label':'','separator':True,'children':[]})
     settings_rows.extend({'label':label,'checked':settings['appearance']==key,'radio':True,'action':['set-appearance',key],'children':[]} for key,label in [('glass','玻璃材质'),('solid','实色背景')])
-    alert_rows=[{'label':'用到 %d%% 时'%level if level else '关闭','checked':settings['usageAlert']==level,'radio':True,'action':['set-usage-alert',str(level)],'children':[]}
+    alert_rows=[{'label':'%d%%'%level if level else '关闭','checked':settings['usageAlert']==level,'radio':True,'action':['set-usage-alert',str(level)],'children':[]}
                 for level in preferences.ALERT_LEVELS[1:]+(0,)]
     alert_rows.extend([{'label':'','separator':True,'children':[]},
                        {'label':'重置前提醒','detail':'每周窗口用了不到 %d%%，重置前 %d 小时提醒'%(alerts.REMINDER_UNDER,alerts.REMINDER_LEAD//3600),'checked':settings['resetReminder'],
@@ -3248,7 +3248,7 @@ def module_options(data=None):
                           {'label':'钉住与提醒','section':True,'children':[]},
                           {'label':'钉住时刷新','symbol':'pin','value':'每 %d 秒'%settings['pinInterval'],
                            'children':[{'label':'每 %d 秒'%s,'checked':settings['pinInterval']==s,'radio':True,'action':['set-pin-interval',str(s)],'children':[]} for s in preferences.PIN_INTERVALS]},
-                          {'label':'用量提醒','symbol':'bell','value':'%d%%'%settings['usageAlert'] if settings['usageAlert'] else '关闭','children':alert_rows},
+                          {'label':'用量提醒','detail':'订阅窗口用到所选比例时通知一次','symbol':'bell','value':'%d%%'%settings['usageAlert'] if settings['usageAlert'] else '关闭','children':alert_rows},
                           {'label':'服务状态','detail':'每 5 分钟查一次 Claude、OpenAI、Cursor 的官方状态页，出问题时标在卡片上','symbol':'waveform.path.ecg',
                            'checked':settings['serviceStatus'],'action':['set-service-status','false' if settings['serviceStatus'] else 'true'],'children':[]},
                           {'label':'数据','section':True,'children':[]},
