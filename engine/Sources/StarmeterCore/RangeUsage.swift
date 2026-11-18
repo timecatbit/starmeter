@@ -262,8 +262,9 @@ extension Runtime {
         let (start, end) = rangeBounds(key, now: now, zone: zone)
         let carriers = gatewayCarriers(source, logs)
         switch source {
-        case "opencodex": return opencodexRangeUsage?(key, now) ?? ["error": "未配置 OpenCodex"]
-        case "cursor": return cursorRangeUsage?(start, end, now, carriers.filter { $0.name == "Magpie" }) ?? ["error": "未开启用量读取"]
+        case "opencodex": return opencodexConfigured() ? opencodexRangeUsageLive(key, now: now) : ["error": "未配置 OpenCodex"]
+        // Cursor's calls never pass a gateway; only the ones it reported to Magpie are in a gateway's log.
+        case "cursor": return cursorRangeUsageLive(start, end, now, carriers.filter { $0.name == "Magpie" })
         case "claude": return claudeUsageLive(rangeKey: key, now: now, zone: zone, carriers: carriers)
         default: break
         }

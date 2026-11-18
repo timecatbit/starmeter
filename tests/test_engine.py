@@ -23,6 +23,7 @@ import swiftbar_claude_live as claude_live
 import swiftbar_claude_local as claude_local
 import swiftbar_claude_oauth as claude_oauth
 import swiftbar_claude_usage as claude_usage
+import swiftbar_cursor as cursor
 import swiftbar_sources as sources
 import swiftbar_files as files
 import swiftbar_preferences as preferences
@@ -734,7 +735,8 @@ class FakeServices:
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.base = 'http://127.0.0.1:%d' % self.server.server_address[1]
         hosts = ['https://api.deepseek.com', 'https://management-api.x.ai', 'https://api.qoder.com.cn', 'https://www.minimax.io', 'https://api.minimaxi.com',
-                 'https://api.moonshot.cn', 'https://api.moonshot.ai', 'https://api.anthropic.com', 'https://api.openai.com', 'https://generativelanguage.googleapis.com']
+                 'https://api.moonshot.cn', 'https://api.moonshot.ai', 'https://api.anthropic.com', 'https://api.openai.com', 'https://generativelanguage.googleapis.com',
+                 'https://cursor.com']
         self.routes = {host: self.base + '/' + host.split('//')[1] for host in hosts}
         original = urllib.request.OpenerDirector.open
         routes = self.routes
@@ -1171,6 +1173,107 @@ for line in sys.stdin:
                 expected = sources.chatgpt_account(binary, self.root / 'home')
                 same(self, expected, swift('chatgpt.account', binary, str(self.root / 'home')))
         self.assertEqual(swift('chatgpt.account', str(self.root / 'missing'), None), {'error': '无法启动 ChatGPT 编程客户端'})
+
+
+@unittest.skipUnless(PROBE, 'Swift toolchain not installed')
+class CursorParityTests(unittest.TestCase):
+    now = 1794996000.0
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.home = Path(self.temp.name) / 'home'
+        self.events = []
+        self.summary = {}
+        self.requests = []
+        def handler(path, headers):
+            if path.startswith('/cursor.com/api/usage-summary'):return 200, json.dumps(self.summary).encode(), {'Content-Type': 'application/json'}
+            if path.startswith('/cursor.com/api/dashboard/get-filtered-usage-events'):
+                body = json.loads(headers.get('X-Body') or '{}')
+                self.requests.append((body.get('page'), body.get('startDate'), body.get('endDate'), headers.get('Cookie')))
+                start, end = int(body['startDate']), int(body['endDate'])
+                def stamp(event):
+                    try:return int(str(event.get('timestamp')))
+                    except ValueError:return start  # an odd one is still sent, as cursor.com might
+                rows = [e for e in self.events if start <= stamp(e) <= end]
+                page, size = body['page'], body['pageSize']
+                chunk = rows[(page - 1) * size: page * size]
+                if chunk and page > 1:chunk = [rows[(page - 1) * size - 1]] + chunk  # a repeated row at the seam
+                return 200, json.dumps({'usageEventsDisplay': chunk, 'totalUsageEventsCount': len(rows)}).encode(), {}
+            return 404, b'', {}
+        self.services = FakeServices(handler)
+        self.addCleanup(self.services.close)
+
+    def login(self, token, where='app'):
+        if where == 'app':
+            root = self.home / 'Library' / 'Application Support' / 'Cursor' / 'User' / 'globalStorage'
+            root.mkdir(parents=True, exist_ok=True)
+            conn = sqlite3.connect(root / 'state.vscdb')
+            conn.execute('CREATE TABLE IF NOT EXISTS ItemTable(key TEXT PRIMARY KEY, value BLOB)')
+            conn.execute("INSERT OR REPLACE INTO ItemTable VALUES ('cursorAuth/accessToken', ?)", (token,))
+            conn.commit(); conn.close()
+        else:
+            (self.home / '.config' / 'cursor').mkdir(parents=True, exist_ok=True)
+            (self.home / '.config' / 'cursor' / 'auth.json').write_text(json.dumps({'accessToken': token}))
+
+    @staticmethod
+    def jwt(**claims):
+        import base64
+        encode = lambda value: base64.urlsafe_b64encode(json.dumps(value).encode()).decode().rstrip('=')
+        return encode({'alg': 'none'}) + '.' + encode(claims) + '.sig'
+
+    def both(self, call, *args):
+        with unittest.mock.patch.dict(os.environ, {'HOME': str(self.home)}):
+            os.environ.pop('XDG_CONFIG_HOME', None)
+            try:
+                expected = cursor.refresh(*args, now=self.now) if call == 'refresh' else cursor.plan(self.home, now=self.now)
+            except cursor.CursorError as error:
+                expected = {'failure': str(error)}
+        env = {k: v for k, v in os.environ.items() if k != 'XDG_CONFIG_HOME'}
+        env['HOME'] = str(self.home)
+        request = [args[0], str(self.home), args[2], args[3], self.now, self.services.routes] if call == 'refresh' else [str(self.home), self.now, self.services.routes]
+        done = subprocess.run([PROBE], input=json.dumps({'call': 'cursor.' + call, 'args': request}).encode(), capture_output=True, check=True, env=env)
+        got = json.loads(done.stdout)
+        self.assertNotIn('error', got)
+        same(self, expected, got['result'])
+        return expected
+
+    def test_logins(self):
+        self.both('refresh', None, self.home, 0, self.now)
+        self.login('cursor-safe-storage:abc')
+        self.both('refresh', None, self.home, 0, self.now)
+        self.login(self.jwt(sub='auth0|user_1', exp=self.now - 5))
+        self.both('refresh', None, self.home, 0, self.now)
+        self.login(self.jwt(exp=self.now + 3600))
+        self.both('refresh', None, self.home, 0, self.now)
+        self.login(self.jwt(sub='google|user_2', exp=self.now + 3600), where='cli')
+        self.assertIn('account', self.both('refresh', None, self.home, self.now - 60, self.now))
+
+    def test_events_are_kept_and_topped_up(self):
+        self.login(self.jwt(sub='auth0|user_1', exp=self.now + 7200))
+        base = int((self.now - 86400 * 3) * 1000)
+        for i in range(2300):
+            self.events.append({'usageEventId': 'e%d' % i, 'timestamp': str(base + i * 100000), 'model': ['claude-opus-5-5', 'gpt-6.2-sol', None][i % 3],
+                                'conversationId': 'c%d' % (i % 7) if i % 5 else None,
+                                'tokenUsage': {'inputTokens': i, 'outputTokens': 2, 'cacheReadTokens': 30, 'cacheWriteTokens': i % 2, 'totalCents': [12.5, -1, True][i % 3]}})
+        self.events.append({'usageEventId': 'odd', 'timestamp': 'later'})
+        start = self.now - 86400 * 2
+        store = self.both('refresh', None, self.home, start, self.now - 3600)
+        self.assertEqual(len(store['events']), len({e['usageEventId'] for e in self.events if start * 1000 <= int(e['timestamp'] if e['timestamp'].isdigit() else 0) <= (self.now - 3600) * 1000}))
+        wider = self.both('refresh', store, self.home, self.now - 86400 * 3, self.now)
+        tallied = cursor.tally((wider['events'], wider['complete'], wider['login']), self.now - 86400, self.now, ZoneInfo('Asia/Shanghai'))
+        self.assertGreater(tallied['summary']['requests'], 0)
+        self.both('refresh', dict(wider, account='someone-else'), self.home, self.now - 3600, self.now)
+
+    def test_plan(self):
+        self.login(self.jwt(sub='auth0|user_1', exp=self.now + 7200))
+        for summary in ({'membershipType': 'pro', 'billingCycleStart': '2026-11-01T00:00:00.000Z', 'billingCycleEnd': '2026-12-01T00:00:00Z',
+                         'individualUsage': {'plan': {'used': 1234, 'limit': 2000, 'totalPercentUsed': 99}, 'onDemand': {'enabled': True, 'used': 50, 'limit': 0}}},
+                        {'isUnlimited': True, 'individualUsage': {'plan': {'totalPercentUsed': 12.5}, 'overall': {'used': 7, 'limit': 0}}},
+                        {'individualUsage': {'overall': {'used': '3', 'limit': '4'}}}, {'individualUsage': 'none', 'billingCycleEnd': 'soon'}):
+            with self.subTest(summary=summary):
+                self.summary = summary
+                self.both('plan')
 
 
 if __name__ == '__main__':

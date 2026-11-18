@@ -17,9 +17,7 @@ public final class Runtime {
     private var memo: [String: Any]?
     /// Set by an in-process host (the standalone app): whether its panel is open, and on battery.
     public var hostCadence: (() -> (Bool, Bool))?
-    /// The network-backed ranges, set as their ports land: OpenCodex's own figures and Cursor's account events.
-    public var opencodexRangeUsage: ((String, Double) -> JSONObject)?
-    public var cursorRangeUsage: ((Double, Double, Double, [Carrier]) -> JSONObject)?
+
     private let lock = NSLock()
 
     public static let version = "5.26.1"
@@ -115,7 +113,7 @@ public final class Runtime {
             "qoder": env("QODERCN_CONFIG_DIR") ?? home + "/.qoder-cn",
             "gemini": env("GEMINI_USAGE_DIR") ?? home + "/.gemini",
             "magpie": magpieRoot(),
-            "cursor": home + "/Library/Application Support/Cursor/User/globalStorage",
+            "cursor": Cursor.appRoot(home: home, environment: environment),
         ]
         return Paths.expandUser(custom.flatMap { $0.isEmpty ? nil : $0 } ?? defaults[key] ?? "")
     }

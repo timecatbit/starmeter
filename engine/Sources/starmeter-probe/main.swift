@@ -113,6 +113,15 @@ func answer(_ call: String, _ args: [JSON]) throws -> JSON {
         return Qoder.snapshot(home: text(0)!, now: args[1].number!).map(JSON.object) ?? .null
     case "chatgpt.account":
         return .object(ChatGPT.account(binary: text(0), home: text(1)))
+    case "cursor.refresh":
+        // [store or null, home, start, until, now, routes]
+        for (from, to) in args[5].object ?? JSONObject() { HTTP.routes[from] = to.string }
+        do { return .object(try Cursor.refresh(args[0].object, home: text(1)!, start: args[2].number!, until: args[3].number!, now: args[4].number!)) }
+        catch let failure as Cursor.Failure { return ["failure": .string(failure.description)] }
+    case "cursor.plan":
+        for (from, to) in args[2].object ?? JSONObject() { HTTP.routes[from] = to.string }
+        do { return .object(try Cursor.plan(home: text(0)!, now: args[1].number!)) }
+        catch let failure as Cursor.Failure { return ["failure": .string(failure.description)] }
     case "zstd":
         // The SHA-256 and size of each file's decompressed bytes.
         return .array(args.map { path in
