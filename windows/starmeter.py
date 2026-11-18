@@ -380,6 +380,8 @@ def self_test(app,state,render_path=None):
     snapshot=engine.run(['range'],answer)
     assert snapshot['dashboard']['rangeKey']=='7d'
     assert snapshot['dashboard']['providers'][0]['tokens']==1010
+    # The engine found its logos and price tables beside it.
+    assert snapshot['dashboard']['providers'][0].get('image'),'the engine shipped without its logos'
     assert snapshot['dashboard']['heatmap'] and sum(snapshot['dashboard']['heatmap']['tokens'])==1010
     view=TrayPanel();view.snapshot=snapshot;view.show_at(QPoint(800,780));app.processEvents()
     assert view.isVisible() and view.scroll.widget().findChild(Trend)

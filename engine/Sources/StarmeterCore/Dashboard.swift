@@ -30,7 +30,7 @@ extension Runtime {
     /// The installed assets: the hidden folder beside the entry, else one beside it.
     var assetDir: String {
         let folder = (Runtime.absolute(plugin) as NSString).deletingLastPathComponent
-        for candidate in [folder + "/.opencodex-panel/assets", folder + "/assets"] where Harness.isDirectory(candidate) { return candidate }
+        return Runtime.installed(folder, "assets", marker: "logos") ?? folder + "/assets"
         return folder + "/assets"
     }
 

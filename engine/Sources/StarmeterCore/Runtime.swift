@@ -70,10 +70,19 @@ public final class Runtime {
     /// The installed lib folder beside the entry, where the price tables ship.
     static func libDirectory(plugin: String) -> String {
         let folder = (absolute(plugin) as NSString).deletingLastPathComponent
-        // Installed beside the entry or the engine; a source checkout's build/ sits next to lib/.
-        for candidate in [folder + "/.opencodex-panel/lib", folder + "/lib", Paths.normalize((folder as NSString).deletingLastPathComponent + "/lib")]
-            where Harness.isDirectory(candidate) && FileManager.default.fileExists(atPath: candidate + "/model-pricing.json") { return candidate }
-        return folder + "/lib"
+        return installed(folder, "lib", marker: "model-pricing.json") ?? folder + "/lib"
+    }
+
+    /// A folder the engine ships with (lib, assets): in the plugin's hidden folder, beside the program, or, run from
+    /// a source checkout's build folder, in the checkout a few levels up.
+    static func installed(_ folder: String, _ name: String, marker: String) -> String? {
+        var level = folder
+        for depth in 0..<4 {
+            let candidates = depth == 0 ? [level + "/.opencodex-panel/" + name, level + "/" + name] : [level + "/" + name]
+            if let found = candidates.first(where: { FileManager.default.fileExists(atPath: $0 + "/" + marker) }) { return Paths.normalize(found) }
+            level = (level as NSString).deletingLastPathComponent
+        }
+        return nil
     }
 
     static func detectBase(_ environment: [String: String], home: String) -> String {

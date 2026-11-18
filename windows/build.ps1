@@ -47,6 +47,8 @@ if (-not $SwiftCore) { throw "The Swift runtime was not found on PATH." }
 $Runtime = Split-Path -Parent $SwiftCore
 Get-ChildItem -LiteralPath $Runtime -Filter "*.dll" | Copy-Item -Destination $EngineDir
 Copy-Item -LiteralPath "lib/model-pricing.json", "lib/codex-pricing.json" -Destination (Join-Path $EngineDir "lib")
+# The brand logos the engine puts in each snapshot.
+Copy-Item -LiteralPath "assets" -Destination (Join-Path $EngineDir "assets") -Recurse
 Copy-Item -LiteralPath "LICENSE", "lib/CCUSAGE_LICENSE", "lib/CODEXBAR_LICENSE", "windows/THIRD_PARTY.md" -Destination $App
 $Site = python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])"
 $Notice = Join-Path $App "licenses"
