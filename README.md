@@ -2,6 +2,8 @@
 
 # Starmeter
 
+**简体中文** · [English](README.en.md)
+
 macOS 菜单栏与 Windows 托盘应用：在一个面板里查看各 AI 编程工具的 Token 用量和 API 等值费用，以及订阅额度、API 余额和客户端更新。
 
 原名 Token Monitor。已安装的旧版照常收到更新，设置和 Key 都会保留。
