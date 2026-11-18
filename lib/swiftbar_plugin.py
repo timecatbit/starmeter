@@ -2809,7 +2809,8 @@ def management_lines(data):
 def chatgpt_window_label(w):
     minutes=w.get('minutes') or 0
     span='本周' if minutes==10080 else ('%g 小时'%(minutes/60)) if minutes>=60 else ('%g 分钟'%minutes)
-    return ('ChatGPT' if str(w['name']).lower()=='codex' else str(w['name']))+' · '+span
+    # The plan's own limit goes by its span alone (the page is already ChatGPT 订阅); another limit keeps its name.
+    return span if str(w['name']).lower() in ('codex','chatgpt') else str(w['name'])+' · '+span
 
 
 def chatgpt_lines(data):

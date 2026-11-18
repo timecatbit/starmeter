@@ -216,8 +216,9 @@ extension Runtime {
     static func chatgptWindowLabel(_ window: JSONObject) -> String {
         let minutes = Py.or(window["minutes"], .int(0)).number ?? 0
         let span = minutes == 10080 ? "本周" : minutes >= 60 ? g(minutes / 60) + " 小时" : g(minutes) + " 分钟"
+        // The plan's own limit goes by its span alone (the page is already ChatGPT 订阅); another limit keeps its name.
         let name = Py.str(window["name"] ?? .null)
-        return (name.lowercased() == "codex" ? "ChatGPT" : name) + " · " + span
+        return ["codex", "chatgpt"].contains(name.lowercased()) ? span : name + " · " + span
     }
 
     /// While OpenCodex is unreachable its account quota isn't being read, whatever that cache says.

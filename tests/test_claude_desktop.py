@@ -200,10 +200,11 @@ class DesktopTests(unittest.TestCase):
   with patch.object(self.m,'connection_ready',return_value=True):
    rows={r['label']:r.get('detail') for r in self.m.panel_entries(self.m.provider_account_lines('minimax',{'minimax':minimax}))[0]['children']}
   self.assertTrue(rows['general · 滚动额度'].endswith('比匀速多用 30%'));self.assertTrue(rows['general · 本周额度'].endswith('比匀速少用 76%'))
-  chatgpt={'_fetchedAt':now,'windows':[{'name':'codex','minutes':300,'remaining':70,'resetsAt':now+9000}]}
+  chatgpt={'_fetchedAt':now,'windows':[{'name':'codex','minutes':300,'remaining':70,'resetsAt':now+9000},{'name':'GPT-6-Codex-Spark','minutes':10080,'remaining':90,'resetsAt':now+86400}]}
   with patch.object(self.m,'chatgpt_source',return_value='client'),patch.object(self.m,'chatgpt_configured',return_value=True):
    rows={r['label']:r.get('detail') for r in self.m.panel_entries(self.m.chatgpt_lines({'chatgpt':chatgpt}))[0]['children']}
-  self.assertTrue(rows['ChatGPT · 5 小时'].endswith('比匀速少用 20%'))
+  self.assertTrue(rows['5 小时'].endswith('比匀速少用 20%'),'The plan\'s own limit goes by its span on ChatGPT 订阅')
+  self.assertIn('GPT-6-Codex-Spark · 本周',rows,'Another limit keeps its name')
  def test_extra_usage_shows_monthly_spend_from_oauth_cents(self):
   limits={'limits':[{'kind':'weekly','percent':12,'resets_at':'2026-11-12T13:59:59Z'}]}
   payload=live.parse_usage(dict(limits,extra_usage={'is_enabled':True,'monthly_limit':100000,'used_credits':1234.0,'utilization':1.2}))
