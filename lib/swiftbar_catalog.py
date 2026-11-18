@@ -46,6 +46,8 @@ BALANCE_APIS = tuple(s.key for s in SERVICES if s.category == 'API' and s.capabi
 # Each balance API's usual currency; Kimi's international site and some DeepSeek accounts report USD.
 BALANCE_CURRENCIES = {'deepseek': 'CNY', 'grok': 'USD', 'kimi-api': 'CNY', 'qoder-api': 'Credits'}
 CURRENCIES = ('CNY', 'USD', 'Credits')
+# The Harness whose API-equivalent cost a subscription is weighed against, for how many times over it has paid off.
+SUBSCRIPTION_USAGE = {'chatgpt': 'codex', 'claude-subscription': 'claude', 'cursor-subscription': 'cursor', 'gemini-subscription': 'gemini'}
 # A key alone configures these; DeepSeek can also come from OpenCodex, Grok needs a Team ID and Qoder CN an organization ID.
 KEY_ONLY_APIS = tuple(s.key for s in SERVICES if s.category == 'API' and s.key not in ('deepseek', 'grok', 'qoder-api'))
 API_KEYS = {s.key: s.credential for s in SERVICES if s.credential}

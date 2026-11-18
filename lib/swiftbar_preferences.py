@@ -42,6 +42,14 @@ def balance_line(value):
     return 0<number<1e9
 
 
+def monthly_price(value):
+    """A subscription's monthly price in US dollars, as the user wrote it down."""
+    if isinstance(value,bool):return False
+    try:number=float(value)
+    except (TypeError,ValueError):return False
+    return 0<number<1e5
+
+
 def balance_key(key):
     """A balance alert is kept per API and currency, as 'kimi-api|USD'."""
     provider,_,currency=str(key).partition('|')
@@ -50,7 +58,7 @@ def balance_key(key):
 
 def read(directory):
     defaults = {'schema': 1, 'visible': list(DEFAULT_VISIBLE), 'appearance': 'glass', 'theme': 'system', 'paths': {}, 'allowCollapse': False, 'expandedProviders': [], 'revision': 0, 'configuredSubscriptions': [], 'claudeLiveUsage': False, 'claudeOAuthUsage': False, 'cursorUsage': False,
-                'usageAlert': 90, 'resetReminder': False, 'balanceAlerts': {}, 'keepCleanedUsage': True}
+                'usageAlert': 90, 'resetReminder': False, 'balanceAlerts': {}, 'keepCleanedUsage': True, 'subscriptionPrices': {}}
     try:
         value = json.loads((Path(directory) / 'preferences.json').read_text(encoding='utf-8'))
         if not isinstance(value, dict) or value.get('schema') != 1:
@@ -77,6 +85,9 @@ def read(directory):
         if value.get('usageAlert') in ALERT_LEVELS and not isinstance(value['usageAlert'],bool):defaults['usageAlert']=value['usageAlert']
         if isinstance(value.get('resetReminder'),bool):defaults['resetReminder']=value['resetReminder']
         if isinstance(value.get('keepCleanedUsage'),bool):defaults['keepCleanedUsage']=value['keepCleanedUsage']
+        prices=value.get('subscriptionPrices')
+        if isinstance(prices,dict):
+            defaults['subscriptionPrices']={k:v for k,v in prices.items() if k in catalog.SUBSCRIPTION_USAGE and monthly_price(v)}
         lines=value.get('balanceAlerts')
         if isinstance(lines,dict):
             # 5.14.0 kept one line per API, asked in the API's usual currency.
@@ -140,6 +151,11 @@ def update(directory, kind, key=None, value=None):
     elif kind == 'keep-usage':
         if key not in ('true','false'):raise ValueError('invalid keep usage setting')
         current['keepCleanedUsage']=key=='true'
+    elif kind == 'subscription-price':
+        if key not in catalog.SUBSCRIPTION_USAGE:raise ValueError('invalid subscription')
+        if value in (None,''):current['subscriptionPrices'].pop(key,None)
+        elif monthly_price(value):current['subscriptionPrices'][key]=float(value)
+        else:raise ValueError('invalid subscription price')
     elif kind == 'balance-alert':
         if not balance_key(key):raise ValueError('invalid balance alert')
         if value in (None,'','0'):current['balanceAlerts'].pop(key,None)

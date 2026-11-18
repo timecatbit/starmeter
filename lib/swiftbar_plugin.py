@@ -1599,7 +1599,44 @@ def resource_lines(data):
         elif service.category=='API':lines.extend(api_lines(key,data))
         elif key in ACCOUNT_SOURCES:lines.extend(provider_account_lines(key,data))
         else:lines.extend(portal_service_lines(key))
+        lines.extend(payback_lines(key))
     return lines+(['---'] if lines else [])
+
+
+def times_over(ratio):
+    return ('%.1f'%ratio if ratio<100 else '%d'%round(ratio))+' 倍'
+
+
+def payback_lines(key):
+    """A subscription weighed against this month's API-equivalent cost of its Harness: how many times over the
+    month has paid for it. The price is what the user wrote down; the cost is the card's own estimate."""
+    source=catalog.SUBSCRIPTION_USAGE.get(key)
+    if not source:return []
+    price=view_settings()['subscriptionPrices'].get(key)
+    rows=[item('订阅月费…',level=1,sfimage='dollarsign.circle',badge=money_text(price,'USD')+'/月' if price else '未填写',**act('set-subscription-price',key))]
+    if not price:return rows
+    name=dict((k,label) for k,label,_ in preferences.MODULES)[source]
+    usage=(read_cache(range_cache_name('month')).get('payload') or {}).get(source) if module_enabled(source) else None
+    if not module_enabled(source):
+        rows.append(item('本月回本',level=1,badge='需勾选 '+name+' Harness',color=MUTED,size=11))
+    elif not isinstance(usage,dict) or not usage.get('summary'):
+        rows.append(item('本月回本',level=1,badge='待同步',color=MUTED,size=11))
+    else:
+        summary=usage['summary'];cost=max(0.0,float(summary.get('estimatedCostUsd') or 0));unpriced=int(summary.get('unpricedRequests') or 0)
+        detail='本月 %s 的 API 等值 %s，订阅 %s/月'%(name,money_text(cost,'USD'),money_text(price,'USD'))+('；其中 %d 次未定价，未计入'%unpriced if unpriced else '')
+        rows.append(item('本月回本',level=1,sfimage='chart.line.uptrend.xyaxis',badge=times_over(cost/price),paneldetail=detail))
+    return rows
+
+
+def set_subscription_price(key):
+    """Ask what a subscription costs a month; an empty answer clears it."""
+    if key not in catalog.SUBSCRIPTION_USAGE:raise ValueError('invalid subscription')
+    price=view_settings()['subscriptionPrices'].get(key)
+    answer=text_dialog('%s 每月多少美元？用来算本月用量是订阅价的几倍。留空清除。'%catalog.BY_KEY[key].label,'%g'%price if price else '',title='订阅月费')
+    if answer is None:return
+    try:preferences.update(STATE_DIR,'subscription-price',key,answer.strip().lstrip('$').replace(',','').removesuffix('/月').strip())
+    except ValueError:dialog_error('金额无效','请填写大于 0 的数字（美元），或留空清除。')
+    schedule_background_refresh()
 
 
 def claude_usage_stale(payload):
@@ -2227,9 +2264,13 @@ def check_usage_alerts():
 
 
 def usage_ranges_due():
-    """The selected range, when its figures are due; the heatmap is drawn from the same figures."""
+    """The selected range, when its figures are due; the heatmap is drawn from the same figures. This month too,
+    every ten minutes, while a subscription's price is written down: its sidebar weighs the month against it."""
     key=selected_range()
-    return [key] if cache_due(read_cache(range_cache_name(key)),refresh_ttl(60)) else []
+    due=[key] if cache_due(read_cache(range_cache_name(key)),refresh_ttl(60)) else []
+    weighed=[k for k in view_settings()['subscriptionPrices'] if module_enabled(k) and module_enabled(catalog.SUBSCRIPTION_USAGE[k])]
+    if weighed and key!='month' and cache_due(read_cache(range_cache_name('month')),refresh_ttl(600)):due.append('month')
+    return due
 
 
 def refresh_usage_range(wait=False):
@@ -3777,6 +3818,9 @@ def run_action(name, extra):
     elif name == 'set-balance-alert':
         if len(extra)!=2:raise ValueError('invalid balance alert')
         set_balance_alert(*extra)
+    elif name == 'set-subscription-price':
+        if len(extra)!=1:raise ValueError('invalid subscription price')
+        set_subscription_price(extra[0])
     elif name == 'set-expanded':
         if len(extra)!=2:raise ValueError('invalid expansion action')
         preferences.update(STATE_DIR,'expanded',extra[0],extra[1])
