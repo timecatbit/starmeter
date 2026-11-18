@@ -191,7 +191,10 @@ public final class Runtime {
         var record = readCache(name)
         if !cacheDue(record, ttl: ttl) { return cacheResult(record, ttl: ttl) }
         var payload: JSONObject?, failure: String?
-        do { (payload, failure) = try loader() } catch let thrown { (payload, failure) = (nil, String(describing: type(of: thrown))) }
+        do { (payload, failure) = try loader() }
+        catch let thrown as Py.FileError { (payload, failure) = (nil, thrown.kind) }
+        catch is Py.LineError { (payload, failure) = (nil, "TypeError") }
+        catch let thrown { (payload, failure) = (nil, String(describing: type(of: thrown))) }
         if failure == nil, let payload, let message = payload["error"], message.isTruthy { failure = Py.str(message) }
         if failure == nil, let payload {
             record = ["schema": 1, "payload": .object(payload), "fetchedAt": .double(Date().timeIntervalSince1970), "day": .string(Runtime.today())]

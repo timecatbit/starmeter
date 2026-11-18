@@ -83,6 +83,21 @@ func answer(_ call: String, _ args: [JSON]) throws -> JSON {
     case "accounts.check":
         for (from, to) in args[2].object ?? JSONObject() { HTTP.routes[from] = to.string }
         return .object(Accounts.checkKey(text(0)!, key: text(1)!))
+    case "runtime":
+        // [what, routes, ...]: a Runtime call against the environment this probe runs in.
+        for (from, to) in args[1].object ?? JSONObject() { HTTP.routes[from] = to.string }
+        let runtime = Runtime()
+        return runtime.render { () -> JSON in
+            switch text(0)! {
+            case "provider_quotas": let (payload, error) = runtime.providerQuotas(); return ["payload": payload.map(JSON.object) ?? .null, "error": error.map(JSON.string) ?? .null]
+            case "komari": let (payload, error) = runtime.komariSnapshot(); return ["payload": payload.map(JSON.object) ?? .null, "error": error.map(JSON.string) ?? .null]
+            case "opencodex_range": return .object(runtime.opencodexRangeUsageLive(text(2)!, now: args[3].number!))
+            case "opencodex_refresh":
+                runtime.opencodexRefresh()
+                return .object(JSONObject(Runtime.opencodexEndpoints.map { ($0.0, .object(runtime.readCache($0.0))) }))
+            default: return "unknown"
+            }
+        }
     case "zstd":
         // The SHA-256 and size of each file's decompressed bytes.
         return .array(args.map { path in

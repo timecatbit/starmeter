@@ -714,6 +714,9 @@ class FakeServices:
         outer = self
         self.handler = handler
         class Handler(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                self.headers['X-Body'] = self.rfile.read(int(self.headers.get('Content-Length') or 0)).decode()
+                self.do_GET()
             def do_GET(self):
                 status, body, headers = outer.handler(self.path, dict(self.headers))
                 self.send_response(status)
@@ -841,6 +844,132 @@ class AccountParityTests(unittest.TestCase):
                     self.answers = {'/': (status, body, {'Location': 'https://example.com/'} if status == 302 else {})}
                     expected = accounts.check_key(source, key)
                     self.assertEqual(swift('accounts.check', source, key, self.services.routes), expected)
+
+
+@unittest.skipUnless(PROBE, 'Swift toolchain not installed')
+class OpenCodexParityTests(unittest.TestCase):
+    """OpenCodex's management API, Komari and DeepSeek's balance, from a local stand-in, read by both engines."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name)
+        self.answers = {}
+        self.seen = []
+        def handler(path, headers):
+            self.seen.append((path, {k.lower(): v for k, v in headers.items()}.get('x-opencodex-api-key')))
+            for prefix, answer in self.answers.items():
+                if path.startswith(prefix):return answer(path, headers) if callable(answer) else answer
+            return 404, b'{"error": "missing"}', {}
+        self.services = FakeServices(handler)
+        self.addCleanup(self.services.close)
+        home = root / 'home'; (home / '.opencodex').mkdir(parents=True)
+        (home / '.opencodex' / 'admin-api-token').write_text('secret-token\n')
+        self.states = {e: {'OCX_STATE_DIR': str(root / e / 'state'), 'OCX_CACHE_DIR': str(root / e / 'cache')} for e in ('python', 'swift')}
+        self.common = {'HOME': str(home), 'OCX_HOME': str(home / '.opencodex'), 'OCX_BASE_URL': self.services.base, 'OCX_TIMEZONE': 'Asia/Shanghai',
+                       'KOMARI_BASE_URL': self.services.base + '/komari', 'OCX_PLUGIN_PATH': str(ROOT / 'starmeter.30s.sh'), 'STARMETER_PRICING': str(ROOT / 'lib')}
+
+    def ok(self, value, status=200):
+        return status, json.dumps(value).encode(), {'Content-Type': 'application/json'}
+
+    def python(self, call, *args, extra=None):
+        import types
+        environment = dict(self.common, **self.states['python'], **(extra or {}))
+        with unittest.mock.patch.dict(os.environ, environment):
+            for name in ('DEEPSEEK_API_KEY', 'DEEPSEEK_API_KEY_FILE', 'TZ'):
+                if name not in environment:os.environ.pop(name, None)
+            plugin = types.ModuleType('plugin_ocx')
+            exec(compile((ROOT / 'lib/swiftbar_plugin.py').read_text(), 'plugin', 'exec'), plugin.__dict__)
+            if call == 'provider_quotas':return list(plugin.provider_quotas_cached())
+            if call == 'komari':return list(plugin.komari_snapshot())
+            if call == 'opencodex_range':
+                # As range_usage_cached's collect() does: a failed read is an error, not an exception.
+                try:return plugin.ocx_range_usage(args[0], datetime.fromtimestamp(args[1], plugin.local_zone()))
+                except Exception:return {'error': '记录暂不可用'}
+            if call == 'opencodex_refresh':
+                plugin.opencodex_refresh()
+                return {name: plugin.read_cache(name) for name in plugin.OPENCODEX_ENDPOINTS}
+
+    def swift(self, call, *args, extra=None):
+        environment = {k: v for k, v in os.environ.items() if k not in ('DEEPSEEK_API_KEY', 'DEEPSEEK_API_KEY_FILE', 'TZ', 'OCX_BASE_URL')}
+        environment.update(self.common, **self.states['swift'], **(extra or {}))
+        done = subprocess.run([PROBE], input=json.dumps({'call': 'runtime', 'args': [call, self.services.routes, *args]}).encode(),
+                              capture_output=True, check=True, env=environment)
+        answer = json.loads(done.stdout)
+        if 'error' in answer:raise SwiftError(answer['error'])
+        result = answer['result']
+        return [result['payload'], result['error']] if call in ('provider_quotas', 'komari') else result
+
+    @staticmethod
+    def steady(value):
+        if isinstance(value, dict):
+            return {k: OpenCodexParityTests.steady(v) for k, v in value.items() if k not in ('generatedAt', 'updatedAt', '_fetchedAt', 'fetchedAt', 'retryAt', '_stale')}
+        if isinstance(value, list):return [OpenCodexParityTests.steady(v) for v in value]
+        return value
+
+    def compare(self, call, *args, extra=None):
+        for engine in self.states.values():shutil.rmtree(engine['OCX_CACHE_DIR'], ignore_errors=True)
+        expected = self.python(call, *args, extra=extra)
+        if isinstance(expected, list) and expected[1]:expected[1] = expected[1][1]
+        got = self.swift(call, *args, extra=extra)
+        same(self, self.steady(expected), self.steady(got))
+        return expected
+
+    def test_provider_quotas(self):
+        balance = lambda total: self.ok({'balance_infos': [{'currency': 'USD', 'total_balance': '0'}, {'currency': 'CNY', 'total_balance': total}]})
+        self.answers = {'/api/provider-quotas': self.ok({'reports': [{'provider': 'DeepSeek', 'label': 'DeepSeek', 'source': 'proxy', 'secret': 'x',
+            'quota': {'customWindows': [{'label': 'API balance (¥0.00)'}]}}, {'provider': 'grok', 'quota': {}}, 'odd']}),
+            '/api.deepseek.com/user/balance': balance('-12.5')}
+        self.compare('provider_quotas')
+        self.answers['/api/provider-quotas'] = self.ok({'reports': [{'provider': 'deepseek', 'quota': {'customWindows': [{'label': 'API balance (€ 1,234.50)'}]}}]})
+        self.compare('provider_quotas')
+        self.answers['/api/provider-quotas'] = (503, b'{"error": {"message": "warming up"}}', {})
+        self.compare('provider_quotas')
+        self.answers['/api.deepseek.com/user/balance'] = (500, b'', {})
+        self.compare('provider_quotas')
+        self.answers['/api.deepseek.com/user/balance'] = balance('88.8')
+        self.compare('provider_quotas', extra={'DEEPSEEK_API_KEY': 'sk-direct'})
+        self.answers['/api.deepseek.com/user/balance'] = self.ok({'balance_infos': [{'currency': 'USD', 'granted_balance': '2', 'topped_up_balance': '5'}]})
+        self.compare('provider_quotas', extra={'DEEPSEEK_API_KEY': 'sk-direct'})
+
+    def test_komari(self):
+        def rpc(path, headers):
+            assert json.loads(headers['X-Body'])['method'] == 'common:getNodesLatestStatus'
+            return self.ok({'result': {'n1': {'online': True, 'cpu': {'usage': 3}, 'ram': 1, 'time': 'now'}, 'n2': {'online': 'yes'}}})
+        self.answers = {'/komari/api/nodes': self.ok({'data': [{'uuid': 'n1', 'name': 'Tokyo', 'weight': 1}, {'uuid': 'n2', 'name': 'HK'},
+                                                              {'uuid': 'n3', 'hidden': True}, {'name': 'no id'}, 'odd']}),
+                        '/komari/api/rpc2': rpc}
+        self.compare('komari')
+        self.answers['/komari/api/rpc2'] = (500, b'', {})
+        self.compare('komari')
+        self.answers['/komari/api/nodes'] = self.ok({'status': 'error'})
+        self.compare('komari')
+        self.compare('komari', extra={'KOMARI_BASE_URL': 'https://your-komari.example'})
+
+    def test_opencodex(self):
+        frozen = 1794996000 + 9 * 3600 + 1234.5  # 2026-11-18 03:20:34 in Shanghai
+        def usage(path, headers):
+            since = int(path.split('since=')[1].split('&')[0])
+            return self.ok({'summary': {'totalTokens': since % 1000 + 1, 'requests': 2, 'estimatedCostUsd': 0.5}, 'models': [], 'days': []})
+        def timeline(path, headers):
+            hours = int(path.split('hours=')[1].split('&')[0])
+            begin = frozen - hours * 3600
+            return self.ok({'start': begin, 'bucketSeconds': 3600 if 'bucketMinutes=60' in path else 60,
+                            'series': [{'points': [i % 3 for i in range(hours if 'bucketMinutes=60' in path else 60)]}], 'missingMeasurements': hours == 24})
+        self.answers = {'/api/usage/timeline': timeline, '/api/usage': usage, '/healthz': self.ok({'ok': True}),
+                        '/readyz': self.ok({'ready': False, 'state': 'starting'}, 503), '/api/codex-auth/quota': self.ok({'windows': []}),
+                        '/api/codex-auth/accounts': self.ok([1, 2]), '/api/codex-auth/active': (401, b'{"message": "bad token"}', {})}
+        for key in ('today', 'yesterday', '24h', '7d', '30d', 'all'):
+            with self.subTest(range=key):
+                self.compare('opencodex_range', key, frozen)
+        self.answers['/api/usage/timeline'] = self.ok({'truncated': True})
+        self.compare('opencodex_range', 'today', frozen)
+        self.answers['/api/usage'] = (500, b'', {})
+        self.compare('opencodex_range', 'today', frozen)
+        self.compare('opencodex_refresh')
+        self.assertTrue(all(token == 'secret-token' for path, token in self.seen if path.startswith('/api/codex-auth')))
+        self.answers['/healthz'] = (503, b'', {})
+        self.compare('opencodex_refresh')
 
 
 if __name__ == '__main__':

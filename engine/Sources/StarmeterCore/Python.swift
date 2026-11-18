@@ -7,7 +7,9 @@ public enum Py {
     /// A failure that fails a whole log file in the Python readers (ValueError, OSError and the like).
     public struct FileError: Error, CustomStringConvertible {
         public let description: String
-        public init(_ description: String) { self.description = description }
+        /// The Python exception this stands for, which is what a failed cache read reports.
+        public let kind: String
+        public init(_ description: String, kind: String = "ValueError") { self.description = description; self.kind = kind }
     }
 
     /// str(value).
