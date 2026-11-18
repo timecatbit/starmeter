@@ -109,6 +109,10 @@ func answer(_ call: String, _ args: [JSON]) throws -> JSON {
         for (from, to) in args[3].object ?? JSONObject() { HTTP.routes[from] = to.string }
         let (payload, error) = ClaudeSubscription.oauthFetch(state: text(0)!, consent: true, force: args[1] == .bool(true), requestedAt: args[2].number ?? 0)
         return ["payload": .object(payload), "error": error.map(JSON.string) ?? .null]
+    case "qoder.snapshot":
+        return Qoder.snapshot(home: text(0)!, now: args[1].number!).map(JSON.object) ?? .null
+    case "chatgpt.account":
+        return .object(ChatGPT.account(binary: text(0), home: text(1)))
     case "zstd":
         // The SHA-256 and size of each file's decompressed bytes.
         return .array(args.map { path in

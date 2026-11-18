@@ -26,6 +26,7 @@ import swiftbar_claude_usage as claude_usage
 import swiftbar_sources as sources
 import swiftbar_files as files
 import swiftbar_preferences as preferences
+import swiftbar_qoder as qoder
 from swiftbar_time import parse_iso
 import hashlib
 
@@ -1104,6 +1105,72 @@ class ClaudeSubscriptionParityTests(unittest.TestCase):
         (config / '.credentials.json').write_text('{"mcpOAuth": {}}')
         for state in ('python', 'swift'):(self.root / ('state-' + state) / 'claude-oauth-usage.json').unlink(missing_ok=True)
         run('an API-key login has no subscription')
+
+
+@unittest.skipUnless(PROBE, 'Swift toolchain not installed')
+class ClientAccountParityTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+
+    def test_qoder_reads_the_newest_summary(self):
+        home = self.root / 'home'
+        logs = home / 'Library' / 'Application Support' / 'com.qodercn.app.stable' / 'logs'
+        now = 1794996000.0
+        def line(stamp, usage, tail=''):
+            return '[%s] [info] account.getQuotaUsage %s%s' % (stamp, json.dumps({'qoderUsage': usage}), tail)
+        (logs / 's1').mkdir(parents=True)
+        (logs / 's1' / 'main.log').write_text('\n'.join([
+            line('2026-11-18T08:00:00.000Z', {'userQuota': {'used': 10, 'total': 100}, 'expiresAt': 1795996000000}),
+            'noise "qoderUsage" without json', line('2026-11-18 09:30:00', {'userQuota': {'used': 30.5, 'total': 100, 'remaining': 70},
+                                                                          'addOnQuota': {'used': 1, 'total': 5}, 'expiresAt': 253402214400, 'isQuotaExceeded': True}),
+        ]) + '\n')
+        (logs / 's2').mkdir()
+        (logs / 's2' / 'main.log').write_text(line('2026-11-17T08:00:00Z', {'userQuota': {'used': 1, 'total': 2}}) + '\r\n' +
+                                              line('bad stamp', {'userQuota': {'used': 1, 'total': 2}}) + '\n' + line('2026-11-18T09:00:00Z', {'nothing': 1}) + '\n')
+        old = home / 'Library' / 'Application Support' / 'QoderCN' / 'logs' / 'x'
+        old.mkdir(parents=True)
+        (old / 'main.log').write_text(line('2026-11-01T00:00:00Z', {'userQuota': {'used': 1, 'total': 2}}))
+        os.utime(old / 'main.log', (now - 30 * 86400, now - 30 * 86400))
+        for zone in ('UTC', 'Asia/Shanghai'):
+            with self.subTest(zone=zone), unittest.mock.patch.dict(os.environ, {'TZ': zone}):
+                time.tzset()
+                expected = qoder.snapshot(home, now)
+                done = subprocess.run([PROBE], input=json.dumps({'call': 'qoder.snapshot', 'args': [str(home), now]}).encode(),
+                                      capture_output=True, check=True, env=dict(os.environ, TZ=zone))
+                same(self, expected, json.loads(done.stdout)['result'])
+        time.tzset()
+
+    def fake_codex(self, account, limits):
+        script = self.root / 'codex'
+        script.write_text('#!%s\n' % sys.executable + r"""
+import json, sys
+answers = %s
+for line in sys.stdin:
+    message = json.loads(line)
+    if 'id' not in message: continue
+    result = answers.get(message['method'])
+    if result == 'hang': continue
+    print(json.dumps({'id': message['id'], 'result': result}), flush=True)
+""" % repr({'initialize': {'ok': True}, 'account/read': account, 'account/rateLimits/read': limits}))
+        script.chmod(0o755)
+        return str(script)
+
+    def test_chatgpt_reads_the_app_server(self):
+        limits = {'rateLimitsByLimitId': {'codex': {'limitName': 'Codex', 'primary': {'usedPercent': 37.5, 'windowDurationMins': 300, 'resetsAt': 1795000000},
+                                                    'secondary': {'usedPercent': 120, 'windowDurationMins': 10080}},
+                                          'sol': {'primary': {'usedPercent': -5}, 'secondary': {'usedPercent': '9'}}, 'odd': 3}}
+        cases = [({'account': {'type': 'chatgpt', 'planType': 'pro'}}, limits),
+                 ({'account': {'type': 'chatgpt'}}, {'rateLimits': {'primary': {'usedPercent': 0, 'resetsAt': None}}}),
+                 ({'account': {'type': 'apiKey'}}, limits), ({'account': None}, limits), ('nope', limits),
+                 ({'account': {'type': 'chatgptAuthTokens'}}, 'nope'), ({'account': {'type': 'chatgpt'}}, {'rateLimitsByLimitId': {}})]
+        for account, result in cases:
+            with self.subTest(account=account, limits=result):
+                binary = self.fake_codex(account, result)
+                expected = sources.chatgpt_account(binary, self.root / 'home')
+                same(self, expected, swift('chatgpt.account', binary, str(self.root / 'home')))
+        self.assertEqual(swift('chatgpt.account', str(self.root / 'missing'), None), {'error': '无法启动 ChatGPT 编程客户端'})
 
 
 if __name__ == '__main__':
