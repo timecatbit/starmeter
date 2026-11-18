@@ -1386,6 +1386,105 @@ class BackgroundParityTests(OpenCodexParityTests):
 
 
 @unittest.skipUnless(PROBE, 'Swift toolchain not installed')
+class PanelParityTests(BackgroundParityTests):
+    """The panel's snapshot (homepage rows, module sidebars, settings) and the usage alerts, from the same caches."""
+
+    CALLS = ('snapshot', 'alert_inputs', 'alert_notices', 'alerts_due')
+
+    def python(self, call, *args, extra=None):
+        if call not in self.CALLS:return super().python(call, *args, extra=extra)
+        import types
+        environment = dict(self.common, **self.states['python'], **(extra or {}))
+        with unittest.mock.patch.dict(os.environ, environment):
+            for name in ('DEEPSEEK_API_KEY', 'DEEPSEEK_API_KEY_FILE', 'TZ'):
+                if name not in environment:os.environ.pop(name, None)
+            plugin = types.ModuleType('plugin_panel')
+            exec(compile((ROOT / 'lib/swiftbar_plugin.py').read_text(), 'plugin', 'exec'), plugin.__dict__)
+            if call == 'snapshot':return json.loads(json.dumps(plugin.panel_snapshot(plugin.cached_data())))
+            if call == 'alert_notices':return [list(plugin.alert_notice(a)) for a in args[0]]
+            if call == 'alerts_due':
+                windows, balances, marks, percent, reminder, now = args
+                due = plugin.alerts.due(windows, balances, marks, percent, reminder, now)
+                return json.loads(json.dumps({'due': due, 'marks': marks}))
+            data = plugin.cached_data()
+            return {'windows': plugin.alert_windows(data), 'balances': plugin.alert_balances(data), 'menuBar': plugin.menu_bar_value(data)}
+
+    def swift(self, call, *args, extra=None):
+        if call not in self.CALLS:return super().swift(call, *args, extra=extra)
+        environment = {k: v for k, v in os.environ.items() if k not in ('DEEPSEEK_API_KEY', 'DEEPSEEK_API_KEY_FILE', 'TZ', 'OCX_BASE_URL')}
+        environment.update(self.common, **self.states['swift'], **(extra or {}))
+        done = subprocess.run([PROBE], input=json.dumps({'call': 'runtime', 'args': [call, self.services.routes, *args]}).encode(),
+                              capture_output=True, check=True, env=environment)
+        answer = json.loads(done.stdout)
+        if 'error' in answer:raise SwiftError(answer['error'])
+        return answer['result']
+
+    def caches(self, now):
+        def iso(at):return datetime.fromtimestamp(at, timezone.utc).isoformat()
+        records = {
+            'claude_subscription': {'windows': [{'label': '5 小时', 'used': 42.5, 'resetsAt': iso(now + 3600)},
+                                                {'label': '本周', 'used': 91, 'resetsAt': iso(now + 5 * 3600), 'span': 604800},
+                                                {'label': 'Opus 本周', 'used': 12, 'resetsAt': iso(now + 4 * 86400 + 60)}],
+                                    'source': 'oauth', 'updatedAt': now - 20,
+                                    'extraUsage': {'enabled': True, 'used': 12.5, 'limit': 50, 'currency': 'USD', 'balance': 7}},
+            'qoder_subscription': {'plan': {'used': 300, 'total': 1000, 'remaining': 700}, 'addOn': {'used': 50.5, 'total': 100, 'remaining': 49.5},
+                                   'observedAt': now - 60, 'resetsAt': now + 86400 * 10},
+            'chatgpt': {'windows': [{'name': 'codex', 'minutes': 300, 'remaining': 30, 'resetsAt': now + 1000},
+                                    {'name': 'Other', 'minutes': 10080, 'remaining': 80.5, 'resetsAt': now + 86400 * 3}], 'plan': 'pro'},
+            'minimax': {'windows': [{'name': '本周额度', 'remaining': 5, 'resetsAt': int(now) + 3600, 'startsAt': int(now) - 6 * 86400}]},
+            'kimi-api': {'balance': 12.5, 'currency': 'CNY', 'state': '已同步'},
+            'grok': {'balance': 3.25, 'currency': 'USD', 'state': '已同步'},
+        }
+        for engine in self.states.values():
+            scope = hashlib.sha256(os.path.abspath(engine['OCX_STATE_DIR']).encode()).hexdigest()[:16]
+            root = Path(engine['OCX_CACHE_DIR']) / ('opencodex-swiftbar-v5-%s-%s' % (os.getuid(), scope)); root.mkdir(parents=True, exist_ok=True)
+            for name, payload in records.items():
+                (root / (name + '.json')).write_text(json.dumps({'schema': 1, 'fetchedAt': now - 30, 'payload': payload}))
+
+    def test_snapshot_and_alerts(self):
+        codex = Path(self.common['HOME']) / '.codex'; codex.mkdir()
+        (codex / 'auth.json').write_text(json.dumps({'auth_mode': 'chatgpt', 'tokens': {'access_token': 'x'}}))
+        everything = [m[0] for m in preferences.MODULES]
+        keys = {'OCX_SELF_UPDATES': '0', 'MOONSHOT_API_KEY': 'k', 'XAI_TEAM_ID': 't', 'XAI_MANAGEMENT_API_KEY': 'k', 'MINIMAX_API_KEY': 'm'}
+        variants = ((dict(visible=everything), {'OCX_SELF_UPDATES': '0'}),
+                    (dict(visible=everything, currency='CNY', cnyRate=7.1234, serviceStatus=True, cursorUsage=True, menuBar='quota', usageAlert=80,
+                          resetReminder=True, balanceAlerts={'kimi-api|CNY': 20, 'grok|USD': 1}, theme='dark', allowCollapse=True, pinInterval=5), keys),
+                    (dict(visible=[k for k in everything if k != 'opencodex'], menuBar='quota', usageAlert=90, balanceAlerts={'kimi-api|CNY': 20}), keys),
+                    (dict(visible=['claude', 'claude-subscription', 'chatgpt', 'sessions', 'kimi-api', 'minimax'], menuBar='cost', usageAlert=0,
+                          keepCleanedUsage=False, appearance='solid'), dict(keys, KOMARI_BASE_URL='')),
+                    (dict(visible=['chatgpt', 'opencodex', 'deepseek', 'summary'], range='7d'), {'OCX_SELF_UPDATES': '0', 'DEEPSEEK_API_KEY': 'sk'}))
+        for values, extra in variants:
+            with self.subTest(settings=values):
+                self.settings(**values)
+                self.caches(time.time())
+                expected, got = self.python('snapshot', extra=extra), self.swift('snapshot', extra=extra)
+                for key in expected:
+                    self.assertEqual(self.steady(expected[key]), self.steady(got.get(key)), key)
+                self.assertEqual(list(expected), list(got))
+                self.assertEqual(self.python('alert_inputs', extra=extra), self.swift('alert_inputs', extra=extra))
+
+    def test_due_alerts_and_notices(self):
+        now = 1795000000.0
+        windows = [{'id': 'a|5h', 'used': 95.0, 'resetsAt': now + 3600, 'span': 18000, 'current': True, 'name': 'Claude 订阅', 'window': '5 小时'},
+                   {'id': 'a|w', 'used': 40.0, 'resetsAt': now + 7200, 'span': 604800, 'current': True, 'name': 'Claude 订阅', 'window': '本周'},
+                   {'id': 'b|w', 'used': 99.0, 'resetsAt': None, 'span': None, 'current': True, 'name': 'ChatGPT 订阅', 'window': 'main'},
+                   {'id': 'c|w', 'used': 99.0, 'resetsAt': now + 100, 'span': 86400, 'current': False, 'name': 'X', 'window': 'y'}]
+        balances = [{'id': 'kimi-api|org', 'amount': 5.0, 'line': 10, 'currency': 'CNY', 'current': True, 'name': 'Kimi API'},
+                    {'id': 'grok|t', 'amount': 50.0, 'line': 10, 'currency': 'USD', 'current': True, 'name': 'Grok API'},
+                    {'id': 'deepseek|k', 'amount': 1.0, 'line': None, 'currency': 'CNY', 'current': True, 'name': 'DeepSeek API'}]
+        marks = {'w|a|5h': {'at': now - 100, 'until': now + 3000}, 'b|grok|t': {'at': now - 50}, 'w|gone': {'at': now - 50 * 86400}, 'w|recent': {'at': now - 86400},
+                 'r|a|w': {'at': now - 10, 'until': now - 4000}}
+        for percent, reminder in ((90, True), (0, False), (50, True)):
+            with self.subTest(percent=percent, reminder=reminder):
+                arguments = (windows, balances, json.loads(json.dumps(marks)), percent, reminder, now)
+                self.assertEqual(self.python('alerts_due', *arguments), self.swift('alerts_due', *arguments))
+        moment = time.time()
+        alerts = [dict(windows[0], kind='usage', resetsAt=moment + 3600), dict(windows[1], kind='renews', resetsAt=moment + 86400 * 3),
+                  dict(windows[2], kind='usage'), dict(windows[0], kind='usage', used=89.5, resetsAt=moment + 86400 * 20),
+                  dict(windows[0], kind='usage', resetsAt=moment + 86400), dict(balances[0], kind='balance')]
+        self.assertEqual(self.python('alert_notices', alerts), self.swift('alert_notices', alerts))
+
+
 class UpdateParityTests(unittest.TestCase):
     def test_pieces(self):
         import types, uuid

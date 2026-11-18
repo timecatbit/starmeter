@@ -96,6 +96,22 @@ func answer(_ call: String, _ args: [JSON]) throws -> JSON {
             case "ready": return .object(JSONObject(Preferences.modules.map { ($0.key, .bool(runtime.defaultReady($0.key))) }))
             case "status": return .object(ServiceStatus.readAll(args[2].array?.compactMap(\.string) ?? [], version: "test"))
             case "fx": let (payload, error) = runtime.exchangeRateLoad(); return ["payload": payload.map(JSON.object) ?? .null, "error": error.map(JSON.string) ?? .null]
+            case "snapshot": return .object(runtime.panelSnapshot(runtime.cachedData()))
+            case "alert_inputs":
+                let data = runtime.cachedData()
+                return ["windows": .array(runtime.alertWindows(data).map(JSON.object)), "balances": .array(runtime.alertBalances(data).map(JSON.object)),
+                        "menuBar": .string(runtime.menuBarValue(data))]
+            case "alert_notices":
+                return .array((args[2].array ?? []).map { alert in
+                    let (subtitle, body) = runtime.alertNotice(alert.object ?? JSONObject())
+                    return [.string(subtitle), .string(body)]
+                })
+            case "alerts_due":
+                // [windows, balances, marks, percent, reminder, now]
+                var marks = args[4].object ?? JSONObject()
+                let due = Alerts.due(windows: (args[2].array ?? []).compactMap(\.object), balances: (args[3].array ?? []).compactMap(\.object), marks: &marks,
+                                     percent: args[5].number ?? 0, reminder: args[6] == .bool(true), now: args[7].number ?? 0)
+                return ["due": .array(due.map(JSON.object)), "marks": .object(marks)]
             case "opencodex_refresh":
                 runtime.opencodexRefresh()
                 return .object(JSONObject(Runtime.opencodexEndpoints.map { ($0.0, .object(runtime.readCache($0.0))) }))

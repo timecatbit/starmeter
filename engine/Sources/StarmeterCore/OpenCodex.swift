@@ -379,7 +379,10 @@ extension Runtime {
     }
 
     /// The balance in a report's label: the first currency sign followed by an amount, as the Python regex finds it.
-    static func reportBalanceValue(_ report: JSONObject?) -> Double? {
+    static func reportBalanceValue(_ report: JSONObject?) -> Double? { reportBalance(report)?.1 }
+
+    /// The first currency sign and amount in a report's labels, as the Python regex finds them.
+    static func reportBalance(_ report: JSONObject?) -> (String, Double)? {
         let quota = Py.dict(report?["quota"]).object ?? JSONObject()
         for window in Py.or(quota["customWindows"], .array([])).array ?? [] {
             let label = Array(Py.str(Py.or(Py.dict(window).object?["label"], .string(""))))
@@ -394,7 +397,7 @@ extension Runtime {
                     text.append("."); at += 1
                     while at < label.count, label[at].isASCII, label[at].isNumber { text.append(label[at]); at += 1 }
                 }
-                if let value = Double(text) { return value }
+                if let value = Double(text) { return (String(character), value) }
             }
         }
         return nil
