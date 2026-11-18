@@ -2606,17 +2606,44 @@ def status_lines(key,data):
     return [item(name+' 服务状态',level=1,badge=badge,href=link,panelstatus=light,paneldetail=state.get('description'))]
 
 
+def session_prices():
+    """A request's estimated cost for session detail, by tool, as the cards price it; None when unpriced."""
+    def claude(model,usage):
+        try:return claude_price(str(model or ''),claude_records.normalize(usage),usage.get('speed') if isinstance(usage.get('speed'),str) else 'standard')
+        except (ValueError,TypeError):return None
+    def chatgpt(model,usage):
+        inputs=sources.number(usage.get('input_tokens'));cached=min(inputs,sources.number(usage.get('cached_input_tokens')))
+        return sources.codex_cost(sources.metrics(model,inputs-cached,usage.get('output_tokens'),cached))
+    return {'Claude':claude,'ChatGPT':chatgpt}
+
+
 def sessions_cached():
     """Claude Code and Codex sessions running or waiting now; with the alert on, one that has just finished its turn is told of."""
     previous=(read_cache('sessions').get('payload') or {}).get('sessions')
     def load():
         now=time.time()
-        found=live_sessions.active(claude_desktop.project_roots(HOME),chatgpt_home(),now)
+        found=live_sessions.active(claude_desktop.project_roots(HOME),chatgpt_home(),now,session_prices())
         if view_settings()['sessionAlerts']:
             for s in live_sessions.newly_waiting(previous,found,now)[:3]:
                 post_notice('会话等待输入','%s · %s 这一轮已完成'%(s['tool'],s['project'] or '未知项目'))
         return {'sessions':found},None
     return cached_fetch('sessions',load,refresh_ttl(EXTERNAL_TTLS['sessions']))
+
+
+def turn_lines(turns,unit=None):
+    """A session's last turns under it, newest first: when it started, its tokens and estimated cost, then its
+    requests and the tools it called. No prompt or reply text."""
+    if not turns:return []
+    unit=unit or {'symbol':'$','rate':1}
+    lines=[item('最近 %d 轮'%len(turns),level=2,color=MUTED,size=11)]
+    for t in turns:
+        when=datetime.fromtimestamp(t['at']).strftime('%H:%M') if t.get('at') else '更早开始'
+        priced=t['requests']>t['unpriced']
+        cost=(('已知 ' if t['unpriced'] else '')+unit['symbol']+'%.2f'%(t['cost']*unit['rate'])) if priced else '费用待定价'
+        tools=' · '.join('%s ×%d'%(name,count) for name,count in sorted(t['tools'].items(),key=lambda item:(-item[1],item[0]))[:4])
+        detail='%d 次请求'%t['requests']+(' · '+tools if tools else ' · 未调用工具')+(' · %d 次未定价'%t['unpriced'] if t['unpriced'] else '')
+        lines.append(item('%s · %s Token · %s'%(when,fmt_tokens(t['tokens']),cost),level=2,paneldetail=detail))
+    return lines
 
 
 def sessions_lines(data):
@@ -2634,6 +2661,7 @@ def sessions_lines(data):
                                               '刚刚' if ago<60 else '%d 分钟前'%(ago//60)) if part)
         lines.append(item('%s · %s'%(s['project'] or '未知项目',s['tool']),level=1,badge='运行中' if s['state']=='running' else '等待输入',
                           paneldetail=detail,panelstatus='new' if s['state']=='running' else 'ok'))
+        lines.extend(turn_lines(s.get('turns') or [],currency_unit(data)))
     if found is not None and not found:lines.append(item('最近半小时没有 Claude Code 或 Codex 会话',level=1,color=MUTED,size=11))
     lines.append('-----')
     alerts_on=view_settings()['sessionAlerts']

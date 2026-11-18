@@ -57,6 +57,30 @@ class SessionReaderTests(unittest.TestCase):
         self.assertEqual([(s['tool'], s['state'], s['project']) for s in found], [('ChatGPT', 'running', 'notes'), ('ChatGPT', 'waiting', 'notes')])
         self.assertEqual((found[0]['model'], found[0]['context']), ('gpt-6.2-sol', 0.4))
 
+    def test_claude_turns_run_from_prompt_to_prompt(self):
+        def reply(id, tools=(), out=10):
+            return {'type': 'assistant', 'timestamp': '2026-11-04T01:00:00Z', 'message': {'id': id, 'model': 'claude-opus-5-5',
+                    'content': [{'type': 'tool_use', 'name': name} for name in tools], 'usage': {'input_tokens': 100, 'output_tokens': out}}}
+        prompt = lambda at: {'type': 'user', 'timestamp': at, 'message': {'content': 'private question'}}
+        rows = [reply('early'), prompt('2026-11-04T01:00:00Z'), reply('a', ['Bash']), dict(reply('a', ['Edit']), uuid='x'),
+                {'type': 'user', 'message': {'content': [{'type': 'tool_result'}]}}, {'type': 'user', 'isMeta': True, 'message': {'content': 'meta'}},
+                dict(reply('side', ['Read']), isSidechain=True), prompt('2026-11-04T02:00:00Z'), reply('b')]
+        path = self.write(self.claude / 'p' / 's.jsonl', rows)
+        turns = sessions.claude_turns(path, lambda model, usage: None if usage['output_tokens'] == 7 else 0.5)
+        self.assertEqual([(t['requests'], t['tokens'], t['tools']) for t in turns],
+                         [(1, 110, {}), (2, 220, {'Bash': 1, 'Edit': 1, 'Read': 1}), (1, 110, {})], 'Newest first; a reply streamed over lines counts once')
+        self.assertIsNone(turns[-1]['at'], 'Work before the first prompt read belongs to a turn begun earlier')
+        self.assertEqual(turns[0]['cost'], 0.5); self.assertNotIn('private question', str(turns))
+
+    def test_codex_turns_run_from_task_started_to_complete(self):
+        def count(total, last):return {'type': 'event_msg', 'payload': {'type': 'token_count', 'info': {'total_token_usage': {'t': total}, 'last_token_usage': {'input_tokens': last, 'output_tokens': 1}}}}
+        rows = [{'type': 'turn_context', 'payload': {'model': 'gpt-6.2-sol'}}, {'type': 'event_msg', 'timestamp': '2026-11-04T01:00:00Z', 'payload': {'type': 'task_started'}},
+                {'type': 'response_item', 'payload': {'type': 'function_call', 'name': 'shell'}}, count(10, 9), count(10, 9), count(20, 9),
+                {'type': 'event_msg', 'payload': {'type': 'task_complete'}}]
+        path = self.write(self.codex / 's.jsonl', rows)
+        turns = sessions.codex_turns(path, lambda model, usage: 0.25 if model == 'gpt-6.2-sol' else None)
+        self.assertEqual([(t['requests'], t['tokens'], t['cost'], t['tools']) for t in turns], [(2, 20, 0.5, {'shell': 1})])
+
     def test_only_a_turn_that_just_finished_is_news(self):
         now = time.time()
         before = [{'id': 'a', 'state': 'running'}, {'id': 'b', 'state': 'waiting'}]
@@ -83,6 +107,14 @@ class SessionPanelTests(unittest.TestCase):
         self.assertIn('未知项目 · ChatGPT', lines[2]); self.assertIn('3 分钟前', lines[2])
         self.assertIn('badge=没有活跃会话', self.m.sessions_lines({'sessions': {'sessions': []}})[0])
         self.assertIn('badge=待同步', self.m.sessions_lines({})[0])
+
+    def test_each_session_lists_its_last_turns(self):
+        turns = [{'at': None, 'requests': 3, 'tokens': 1200, 'cost': 0.4, 'unpriced': 1, 'tools': {'Bash': 2, 'Read': 5}}]
+        lines = self.m.turn_lines(turns)
+        self.assertIn('最近 1 轮', lines[0]); self.assertTrue(lines[1].startswith('----更早开始 · 1.2k Token · 已知 $0.40'))
+        self.assertIn('3 次请求 · Read ×5 · Bash ×2 · 1 次未定价', lines[1])
+        self.assertIn('费用待定价', self.m.turn_lines([dict(turns[0], unpriced=3)])[1])
+        self.assertEqual(self.m.turn_lines([]), [])
 
     def test_the_alert_is_off_by_default_and_tells_of_a_finished_turn(self):
         self.assertTrue('sessions' in preferences.read(self.m.STATE_DIR)['visible'], 'New installs list active sessions')

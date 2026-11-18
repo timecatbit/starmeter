@@ -88,13 +88,88 @@ def codex(path):
     return {'tool': 'ChatGPT', 'state': state, 'project': project_name(folder), 'model': model, 'context': context}
 
 
+# Session detail reads further back than the state does: the last few turns of a long session.
+DETAIL = 2 * 1024 * 1024
+TURNS = 8
+
+
+def stamp(value):
+    """Seconds since the epoch from a transcript's ISO time, or None."""
+    from datetime import datetime
+    try:return datetime.fromisoformat(str(value).replace('Z', '+00:00')).timestamp()
+    except ValueError:return None
+
+
+def turn(at):
+    return {'at': at, 'requests': 0, 'tokens': 0, 'cost': 0.0, 'unpriced': 0, 'tools': {}}
+
+
+def claude_turns(path, price):
+    """The last turns of a Claude Code session, newest first: from one prompt to the next, its requests, tokens,
+    estimated cost and the tools it called. A reply streamed over several lines counts once; a subagent's work
+    (sidechain rows) belongs to the turn that started it. price(model, usage) gives a request's cost or None."""
+    # A turn that began before the part read is counted from where reading starts, and marked so.
+    turns = [turn(None)]; current = turns[0]; seen = set()
+    for row in rows_at_end(path, DETAIL):
+        message = row.get('message') if isinstance(row.get('message'), dict) else {}
+        content = message.get('content')
+        if row.get('type') == 'user' and not row.get('isSidechain') and not row.get('isMeta'):
+            kinds = {item.get('type') for item in content if isinstance(item, dict)} if isinstance(content, list) else set()
+            if (isinstance(content, str) and content.strip()) or (kinds and 'tool_result' not in kinds):
+                current = turn(stamp(row.get('timestamp'))); turns.append(current)
+        elif row.get('type') == 'assistant' and current is not None:
+            for item in content if isinstance(content, list) else []:
+                if isinstance(item, dict) and item.get('type') == 'tool_use' and item.get('name'):
+                    current['tools'][item['name']] = current['tools'].get(item['name'], 0) + 1
+            usage = message.get('usage'); key = message.get('id') or row.get('uuid')
+            if isinstance(usage, dict) and key not in seen:
+                seen.add(key); current['requests'] += 1
+                current['tokens'] += sum(number(usage.get(k)) for k in ('input_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens', 'output_tokens'))
+                cost = price(message.get('model'), usage)
+                if cost is None:current['unpriced'] += 1
+                else:current['cost'] += cost
+    return [t for t in turns if t['at'] is not None or t['requests']][-TURNS:][::-1]
+
+
+def codex_turns(path, price):
+    """The last turns of a Codex session, newest first: from task_started to task_complete, its requests (each
+    change of the running token total), tokens, estimated cost and the tools it called. price(model, usage)."""
+    turns = [turn(None)]; current = turns[0]; model = None; total = None
+    for row in rows_at_end(path, DETAIL):
+        data = row.get('payload') if isinstance(row.get('payload'), dict) else {}
+        kind = data.get('type')
+        if row.get('type') == 'turn_context':model = data.get('model') or model
+        if kind == 'task_started':
+            current = turn(stamp(row.get('timestamp'))); turns.append(current)
+        elif row.get('type') == 'response_item' and kind in ('function_call', 'custom_tool_call', 'local_shell_call', 'web_search_call'):
+            name = data.get('name') or {'local_shell_call': 'shell', 'web_search_call': 'web_search'}.get(kind)
+            if name:current['tools'][name] = current['tools'].get(name, 0) + 1
+        elif kind == 'token_count' and isinstance(data.get('info'), dict):
+            info = data['info']; running = info.get('total_token_usage'); last = info.get('last_token_usage') or {}
+            if not last or running == total:continue
+            total = running; current['requests'] += 1
+            current['tokens'] += number(last.get('input_tokens')) + number(last.get('output_tokens'))
+            cost = price(model, last)
+            if cost is None:current['unpriced'] += 1
+            else:current['cost'] += cost
+    return [t for t in turns if t['at'] is not None or t['requests']][-TURNS:][::-1]
+
+
+def detail(session_path, tool, prices):
+    """A listed session's last turns; prices maps the tool to its price function."""
+    read = claude_turns if tool == 'Claude' else codex_turns
+    try:return read(session_path, prices[tool])
+    except (OSError, ValueError, TypeError, AttributeError):return []
+
+
 def recent(root, pattern, since):
     try:return [p for p in Path(root).glob(pattern) if p.is_file() and p.stat().st_mtime >= since]
     except OSError:return []
 
 
-def active(claude_roots, codex_root, now):
-    """Sessions changed in the last half hour, the most recent first. A running one silent for ten minutes is dropped."""
+def active(claude_roots, codex_root, now, prices=None):
+    """Sessions changed in the last half hour, the most recent first. A running one silent for ten minutes is dropped.
+    With prices (tool -> price(model, usage)), each carries its last turns as well."""
     found = []
     candidates = [(claude, p) for root in claude_roots for p in recent(root, '*/*.jsonl', now - ACTIVE) if 'subagents' not in p.parts]
     if codex_root:
@@ -106,7 +181,10 @@ def active(claude_roots, codex_root, now):
             changed = path.stat().st_mtime; session = read(path)
         except (OSError, ValueError, TypeError, AttributeError):continue
         if not session or (session['state'] == 'running' and now - changed > STALLED):continue
-        found.append(dict(session, id=hashlib.sha256(str(path).encode()).hexdigest()[:16], at=changed))
+        entry = dict(session, id=hashlib.sha256(str(path).encode()).hexdigest()[:16], at=changed)
+        # The turns are read here, so the path itself never leaves this function.
+        if prices:entry['turns'] = detail(path, session['tool'], prices)
+        found.append(entry)
     return sorted(found, key=lambda s: -s['at'])
 
 
