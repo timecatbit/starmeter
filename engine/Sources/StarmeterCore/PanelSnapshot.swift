@@ -321,26 +321,31 @@ extension Runtime {
         let cny = option("currency") == .string("CNY"), rate = option("cnyRate")
         let pin = Int(option("pinInterval").number ?? 2), menuBar = option("menuBar").string ?? "none", alert = option("usageAlert").number ?? 0
         let service = option("serviceStatus").isTruthy, keep = option("keepCleanedUsage").isTruthy
-        rows += [["label": "", "separator": true, "children": []],
+        // Grouped by what they are for, each group under a small title: what the panel shows, pinning and alerts, the
+        // data kept and exported, and the module setup.
+        rows += [["label": "显示", "section": true, "children": []],
                  ["label": "金额显示", "symbol": .string(cny ? "yensign.circle" : "dollarsign.circle"), "value": .string(cny ? "人民币" : "美元"), "children": [
                     ["label": "美元（$）", "checked": .bool(option("currency") == .string("USD")), "radio": true, "action": ["set-currency", "USD"], "children": []],
                     ["label": "人民币（¥）", "checked": .bool(cny), "radio": true, "action": ["set-currency", "CNY"], "children": []],
                     ["label": "", "separator": true, "children": []],
                     ["label": "汇率…", "value": .string(rate.isTruthy ? String(format: "%.4f · 手动", rate.number ?? 0) : "每天自动更新"),
                      "detail": "API 等值估算按这个汇率换成人民币；订阅月费与 API 实际花费仍是美元", "action": ["set-cny-rate"], "children": []]]],
-                 ["label": "服务状态", "detail": "每 5 分钟查一次 Claude、OpenAI、Cursor 的官方状态页，出问题时标在卡片上", "symbol": "waveform.path.ecg", "checked": .bool(service),
-                  "action": ["set-service-status", .string(service ? "false" : "true")], "children": []],
-                 ["label": "导出用量", "symbol": "square.and.arrow.up", "value": .string(Runtime.ranges.first { $0.0 == selectedRange() }!.1), "children": [
-                    ["label": "CSV（每天每个工具一行）…", "action": ["export-usage", "csv"], "children": []], ["label": "JSON…", "action": ["export-usage", "json"], "children": []]]],
-                 ["label": "钉住时刷新", "symbol": "pin", "value": .string("每 \(pin) 秒"), "children": .array(Preferences.pinIntervals.map { seconds in
-                    ["label": .string("每 \(seconds) 秒"), "checked": .bool(option("pinInterval") == .int(seconds)), "radio": true, "action": ["set-pin-interval", .string(String(seconds))], "children": []] })],
                  ["label": "菜单栏显示", "symbol": "menubar.rectangle", "value": .string(Runtime.menuBarLabels.first { $0.0 == menuBar }?.1 ?? ""), "children": .array(Runtime.menuBarLabels.map { key, label in
                     ["label": .string(label), "checked": .bool(menuBar == key), "radio": true, "action": ["set-menu-bar", .string(key)], "children": []] })],
+                 ["label": "钉住与提醒", "section": true, "children": []],
+                 ["label": "钉住时刷新", "symbol": "pin", "value": .string("每 \(pin) 秒"), "children": .array(Preferences.pinIntervals.map { seconds in
+                    ["label": .string("每 \(seconds) 秒"), "checked": .bool(option("pinInterval") == .int(seconds)), "radio": true, "action": ["set-pin-interval", .string(String(seconds))], "children": []] })],
                  ["label": "用量提醒", "symbol": "bell", "value": .string(alert != 0 ? "\(Int(alert))%" : "关闭"), "children": .array(alertRows)],
+                 ["label": "服务状态", "detail": "每 5 分钟查一次 Claude、OpenAI、Cursor 的官方状态页，出问题时标在卡片上", "symbol": "waveform.path.ecg", "checked": .bool(service),
+                  "action": ["set-service-status", .string(service ? "false" : "true")], "children": []],
+                 ["label": "数据", "section": true, "children": []],
                  ["label": "保留已清理记录的用量", "detail": "工具删掉旧记录后仍计入“全部”等统计", "symbol": "archivebox", "checked": .bool(keep),
                   "action": ["set-keep-usage", .string(keep ? "false" : "true")], "children": []],
-                 ["label": "高级配置文件…", "symbol": "doc.text", "action": ["open-settings"], "children": []],
+                 ["label": "导出用量", "symbol": "square.and.arrow.up", "value": .string(Runtime.ranges.first { $0.0 == selectedRange() }!.1), "children": [
+                    ["label": "CSV（每天每个工具一行）…", "action": ["export-usage", "csv"], "children": []], ["label": "JSON…", "action": ["export-usage", "json"], "children": []]]],
+                 ["label": "模块与配置", "section": true, "children": []],
                  ["label": "自动检测", "symbol": "sparkle.magnifyingglass", "children": .array(Runtime.detectionHelpEntries)],
+                 ["label": "高级配置文件…", "symbol": "doc.text", "action": ["open-settings"], "children": []],
                  ["label": "恢复默认模块", "action": ["reset-modules"], "children": []]]
         let collapse = option("allowCollapse").isTruthy
         var options: [JSON] = [["label": "允许折叠", "detail": "各模块独立展开", "symbol": "rectangle.compress.vertical", "checked": .bool(collapse),

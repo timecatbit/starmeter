@@ -60,6 +60,15 @@ class MenuBarTests(unittest.TestCase):
         self.assertEqual([c['action'] for c in row['children']], [['set-menu-bar', 'none'], ['set-menu-bar', 'cost'], ['set-menu-bar', 'quota']])
         with self.assertRaises(ValueError):self.m.run_action('set-menu-bar', ['loud'])
 
+    def test_settings_are_grouped_under_titles(self):
+        rows = next(o for o in self.m.module_options() if o['label'] == '外观与设置')['children']
+        groups, current = {}, None
+        for r in rows:
+            if r.get('section'):current = r['label'];groups[current] = []
+            elif current and not r.get('separator'):groups[current].append(r['label'])
+        self.assertEqual(groups, {'显示': ['金额显示', '菜单栏显示'], '钉住与提醒': ['钉住时刷新', '用量提醒', '服务状态'],
+                                  '数据': ['保留已清理记录的用量', '导出用量'], '模块与配置': ['自动检测', '高级配置文件…', '恢复默认模块']})
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
