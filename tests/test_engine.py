@@ -29,6 +29,7 @@ import swiftbar_files as files
 import swiftbar_preferences as preferences
 import swiftbar_qoder as qoder
 import swiftbar_sessions as live_sessions
+import swiftbar_status as service_status
 from swiftbar_time import parse_iso
 import hashlib
 
@@ -738,7 +739,7 @@ class FakeServices:
         self.base = 'http://127.0.0.1:%d' % self.server.server_address[1]
         hosts = ['https://api.deepseek.com', 'https://management-api.x.ai', 'https://api.qoder.com.cn', 'https://www.minimax.io', 'https://api.minimaxi.com',
                  'https://api.moonshot.cn', 'https://api.moonshot.ai', 'https://api.anthropic.com', 'https://api.openai.com', 'https://generativelanguage.googleapis.com',
-                 'https://cursor.com']
+                 'https://cursor.com', 'https://status.claude.com', 'https://status.openai.com', 'https://status.cursor.com', 'https://api.frankfurter.dev']
         self.routes = {host: self.base + '/' + host.split('//')[1] for host in hosts}
         original = urllib.request.OpenerDirector.open
         routes = self.routes
@@ -1330,6 +1331,57 @@ class SessionParityTests(unittest.TestCase):
                 got = swift('sessions.active', [str(claude)], str(codex), now, prices, app)
                 same(self, expected, got)
                 self.assertEqual(len(got), 3)
+
+
+@unittest.skipUnless(PROBE, 'Swift toolchain not installed')
+class BackgroundParityTests(OpenCodexParityTests):
+    """Which reads the background worker runs, and the small ones it adds: status pages and the yuan rate."""
+
+    def python(self, call, *args, extra=None):
+        if call not in ('loaders', 'ready', 'status', 'fx'):return super().python(call, *args, extra=extra)
+        import types
+        environment = dict(self.common, **self.states['python'], **(extra or {}))
+        with unittest.mock.patch.dict(os.environ, environment):
+            plugin = types.ModuleType('plugin_bg')
+            exec(compile((ROOT / 'lib/swiftbar_plugin.py').read_text(), 'plugin', 'exec'), plugin.__dict__)
+            if call == 'loaders':return list(plugin.external_loaders())
+            if call == 'ready':return {m[0]: bool(plugin.default_ready(m[0])) for m in preferences.MODULES}
+            if call == 'status':return service_status.read_all(args[0], 'test')
+            payload, error = plugin.exchange_rate_load()
+            return {'payload': payload, 'error': error[1] if error else None}
+
+    def swift(self, call, *args, extra=None):
+        if call not in ('loaders', 'ready', 'status', 'fx'):return super().swift(call, *args, extra=extra)
+        environment = {k: v for k, v in os.environ.items() if k not in ('DEEPSEEK_API_KEY', 'DEEPSEEK_API_KEY_FILE', 'TZ', 'OCX_BASE_URL')}
+        environment.update(self.common, **self.states['swift'], **(extra or {}))
+        done = subprocess.run([PROBE], input=json.dumps({'call': 'runtime', 'args': [call, self.services.routes, *args]}).encode(),
+                              capture_output=True, check=True, env=environment)
+        return json.loads(done.stdout)['result']
+
+    def settings(self, **values):
+        for engine in self.states.values():
+            Path(engine['OCX_STATE_DIR']).mkdir(parents=True, exist_ok=True)
+            (Path(engine['OCX_STATE_DIR']) / 'preferences.json').write_text(json.dumps(dict({'schema': 1, 'modules': [m[0] for m in preferences.MODULES]}, **values)))
+
+    def test_loaders_and_readiness(self):
+        everything = [m[0] for m in preferences.MODULES if m[0] != 'updates']
+        for values, extra in ((dict(visible=everything), {'OCX_SELF_UPDATES': '0'}),
+                              (dict(visible=everything, currency='CNY', serviceStatus=True, cursorUsage=True), {'OCX_SELF_UPDATES': '0', 'MOONSHOT_API_KEY': 'k', 'XAI_TEAM_ID': 't', 'XAI_MANAGEMENT_API_KEY': 'k'}),
+                              (dict(visible=['claude', 'sessions', 'kimi-api'], currency='CNY', cnyRate=7), {'OCX_SELF_UPDATES': '0', 'KOMARI_BASE_URL': ''}),
+                              (dict(visible=['chatgpt', 'opencodex', 'deepseek']), {'OCX_SELF_UPDATES': '0', 'DEEPSEEK_API_KEY': 'sk'})):
+            with self.subTest(settings=values, environment=extra):
+                self.settings(**values)
+                self.assertEqual(self.python('loaders', extra=extra), self.swift('loaders', extra=extra))
+                self.assertEqual(self.python('ready', extra=extra), self.swift('ready', extra=extra))
+
+    def test_status_pages_and_rate(self):
+        self.answers = {'/status.claude.com/': self.ok({'status': {'indicator': 'minor', 'description': 'Elevated errors' * 30}}),
+                        '/status.openai.com/': self.ok({'status': {'indicator': 'odd'}}), '/status.cursor.com/': (500, b'', {}),
+                        '/api.frankfurter.dev/': self.ok({'rates': {'CNY': '7.1234'}, 'date': '2026-11-18T00:00'})}
+        self.assertEqual(self.python('status', ['claude', 'openai', 'cursor', 'nowhere']), self.swift('status', ['claude', 'openai', 'cursor', 'nowhere']))
+        for answer in (self.ok({'rates': {'CNY': '7.1234'}, 'date': '2026-11-18T00:00'}), self.ok({'rates': {'CNY': 30}, 'date': 'x'}), (503, b'', {})):
+            self.answers['/api.frankfurter.dev/'] = answer
+            self.assertEqual(self.python('fx'), self.swift('fx'))
 
 
 if __name__ == '__main__':

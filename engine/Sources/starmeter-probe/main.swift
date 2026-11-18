@@ -92,6 +92,10 @@ func answer(_ call: String, _ args: [JSON]) throws -> JSON {
             case "provider_quotas": let (payload, error) = runtime.providerQuotas(); return ["payload": payload.map(JSON.object) ?? .null, "error": error.map(JSON.string) ?? .null]
             case "komari": let (payload, error) = runtime.komariSnapshot(); return ["payload": payload.map(JSON.object) ?? .null, "error": error.map(JSON.string) ?? .null]
             case "opencodex_range": return .object(runtime.opencodexRangeUsageLive(text(2)!, now: args[3].number!))
+            case "loaders": return .array(runtime.externalLoaders().map { .string($0.0) })
+            case "ready": return .object(JSONObject(Preferences.modules.map { ($0.key, .bool(runtime.defaultReady($0.key))) }))
+            case "status": return .object(ServiceStatus.readAll(args[2].array?.compactMap(\.string) ?? [], version: "test"))
+            case "fx": let (payload, error) = runtime.exchangeRateLoad(); return ["payload": payload.map(JSON.object) ?? .null, "error": error.map(JSON.string) ?? .null]
             case "opencodex_refresh":
                 runtime.opencodexRefresh()
                 return .object(JSONObject(Runtime.opencodexEndpoints.map { ($0.0, .object(runtime.readCache($0.0))) }))
