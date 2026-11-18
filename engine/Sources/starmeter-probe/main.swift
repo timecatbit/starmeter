@@ -70,6 +70,10 @@ func answer(_ call: String, _ args: [JSON]) throws -> JSON {
         let zone = TimeZone(identifier: text(2) ?? "UTC")!
         let (start, end) = runtime.rangeBounds(text(0)!, now: args[1].number!, zone: zone)
         return [.double(start), .double(end)]
+    case "dashboard":
+        // [data, now, range error]
+        let runtime = Runtime()
+        return .object(runtime.render { runtime.dashboardPayload(args[0].object ?? JSONObject(), rangeError: text(2), now: args[1].number ?? Date().timeIntervalSince1970) })
     case "zstd":
         // The SHA-256 and size of each file's decompressed bytes.
         return .array(args.map { path in

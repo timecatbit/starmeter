@@ -658,6 +658,40 @@ class RangeParityTests(unittest.TestCase):
                 same(self, self.steady(expected[0]), self.steady(got[0]))
                 self.assertTrue(expected[0]['claude']['summary']['requests'] or key == 'yesterday')
 
+    def test_the_dashboard_matches(self):
+        import types
+        payload, _, _ = self.python('today')
+        week, _, _ = self.python('7d')
+        everything, _, _ = self.python('all')
+        frozen = time.time()
+        variants = [dict(groupBy='tool'), dict(groupBy='model'), dict(groupBy='project'),
+                    dict(currency='CNY', cnyRate=7.1234, serviceStatus=True, allowCollapse=True, expandedProviders=['claude']),
+                    dict(currency='CNY', visible=['claude', 'magpie', 'heatmap']), dict(visible=['summary', 'codex', 'heatmap', 'workbuddy'])]
+        datas = [('today', {'range_usage': payload, 'displayed_range': 'today', 'healthz': {'ok': True},
+                            'exchange_rate': {'rate': 7.2, 'date': '2026-11-17'},
+                            'service_status': {'claude': {'indicator': 'minor', 'description': 'x'}, 'openai': {'error': 'URLError'}}}),
+                 ('7d', {'range_usage': week, 'displayed_range': '7d'}), ('all', {'range_usage': everything, 'displayed_range': 'all'}),
+                 ('today', {'displayed_range': 'today'}), ('30d', {'range_usage': week, 'displayed_range': '30d'})]
+        for variant in variants:
+            for engine in ('python', 'swift'):
+                state = Path(self.states[engine]['OCX_STATE_DIR'])
+                base = {'schema': 1, 'visible': ['summary', 'heatmap', 'claude', 'codex', 'magpie', 'workbuddy'], 'modules': [m[0] for m in preferences.MODULES]}
+                (state / 'preferences.json').write_text(json.dumps(dict(base, **variant)))
+            for key, data in datas:
+                with self.subTest(variant=variant, range=key, data=sorted(data)):
+                    with unittest.mock.patch.dict(os.environ, dict(self.common, **self.states['python'])):
+                        plugin = types.ModuleType('plugin_dash')
+                        exec(compile((ROOT / 'lib/swiftbar_plugin.py').read_text(), 'plugin', 'exec'), plugin.__dict__)
+                        plugin.usage_now = lambda: datetime.fromtimestamp(frozen, plugin.local_zone())
+                        expected = plugin.dashboard_payload(data)
+                    environment = {k: v for k, v in os.environ.items() if k not in ('CLAUDE_CONFIG_DIR', 'XDG_CONFIG_HOME', 'CODEX_HOME', 'OCX_BASE_URL', 'TZ')}
+                    environment.update(self.common, **self.states['swift'])
+                    done = subprocess.run([PROBE], input=json.dumps({'call': 'dashboard', 'args': [data, frozen, None]}).encode(),
+                                          capture_output=True, check=True, env=environment)
+                    answer = json.loads(done.stdout)
+                    self.assertNotIn('error', answer)
+                    same(self, expected, answer['result'])
+
     def test_range_bounds_follow_the_wall_clock(self):
         import types
         plugin = types.ModuleType('plugin_bounds')

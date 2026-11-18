@@ -86,7 +86,8 @@ public final class Runtime {
 
     func memoized<T>(_ key: String, _ compute: () -> T) -> T {
         lock.lock()
-        if let memo, let value = memo[key] as? T { lock.unlock(); return value }
+        // Look the key up first: with an optional T, a cast of a missing entry would succeed as nil.
+        if let memo, let stored = memo[key] { lock.unlock(); return stored as! T }
         lock.unlock()
         let value = compute()
         lock.lock()
