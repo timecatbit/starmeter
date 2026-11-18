@@ -191,7 +191,7 @@ def heat_note(h):
     """Said at the bottom left while no square is pointed at: why there's nothing yet, or what is missing."""
     if h.get('status'):return h['status']
     if not any(heat_active(h)):return '暂无用量'
-    return h.get('notice') or ''
+    return h.get('notice') or h.get('streak') or ''
 
 
 def label_column(dashboard):

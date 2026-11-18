@@ -1846,8 +1846,9 @@ def cursor_subscription_lines(data):
 
 
 RANGES={'today':'今天','yesterday':'昨天','24h':'近 24 小时','7d':'近 7 天','30d':'近 30 天','week':'本周','month':'本月','all':'全部'}
-# For 全部, the heatmap shows up to the last 180 days: six rows of 30, the same width as 近 30 天.
-HEATMAP_DAYS=180
+# For 全部, the heatmap shows up to the last 360 days (twelve rows of 30, the same width as 近 30 天): with the
+# usage archive, a year of history stays even after the tools clean their logs up.
+HEATMAP_DAYS=360
 HEATMAP_ROW=30
 
 def usage_now():
@@ -3613,11 +3614,28 @@ def heatmap_cells(key, now, used):
     return [(d.isoformat(),name(d),d>day.date()) for d in dates],(HEATMAP_ROW if key=='all' else count),names
 
 
+# Ranges long enough for a run of days in a row to mean something.
+STREAK_RANGES=('7d','week','30d','month','all')
+
+def streak_text(days, today):
+    """Days in a row with usage, as Summary counts it: the run up to today (or yesterday, while today is still
+    empty) and the longest in the range. Nothing to say below two days."""
+    used=sorted(datetime.strptime(d,'%Y-%m-%d').date() for d in days)
+    longest=run=0;previous=None
+    for d in used:
+        run=run+1 if previous is not None and (d-previous).days==1 else 1;longest=max(longest,run);previous=d
+    present=set(used);current=0;cursor=today if today in present else today-timedelta(days=1)
+    while cursor in present:current+=1;cursor-=timedelta(days=1)
+    if longest<2:return None
+    return '连续 %d 天 · 最长 %d 天'%(current,longest) if current>=2 else '最长连续 %d 天'%longest
+
+
 def heatmap_payload(bundle, key, now, selected, error=None):
     """The squares under Summary for the selected range, counted as Summary counts them."""
-    hourly=key in HOURLY_RANGES;totals={};partial=False
+    hourly=key in HOURLY_RANGES;totals={};partial=False;days=set()
     for part in summary_usage(selected).values():
         usage=part['usage'] or {}
+        days.update(str(row.get('date',''))[:10] for row in usage.get('days') or [] if float(row.get('totalTokens') or 0)>0 or int(row.get('requests') or 0)>0)
         rows=usage.get('hours' if hourly else 'days') or []
         # A source whose hours couldn't be read (OpenCodex's timeline) leaves the squares short.
         if hourly and not rows and (usage.get('summary') or {}).get('requests'):partial=True
@@ -3632,6 +3650,7 @@ def heatmap_payload(bundle, key, now, selected, error=None):
     status='' if bundle else ('数据暂不可用' if refresh_failed(error) else '待同步')
     return {'columns':columns,'rowLabels':names,'labels':[label for _,label,_ in cells],'tokens':[t[0] for t in values],'requests':[t[1] for t in values],
             'costs':[round(t[2],6) for t in values],'unpriced':[t[3] for t in values],'future':sum(1 for _,_,later in cells if later),
+            'streak':streak_text(days,now.date()) if key in STREAK_RANGES and bundle else None,
             'status':status,'notice':'部分小时数据不可用' if partial else '','hint':'每格 1 小时' if hourly else '每格 1 天'}
 
 

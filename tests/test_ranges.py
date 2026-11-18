@@ -205,9 +205,14 @@ class RangeTests(unittest.TestCase):
   # Thirty days and this month: a row of days.
   h=heat('30d');self.assertEqual((h['columns'],len(h['tokens']),h['labels'][0],h['tokens'][-2:],h['hint'],h['rowLabels']),(30,30,'10月6日 Tue',[100,700],'每格 1 天',['30天']))
   h=heat('month');self.assertEqual((h['columns'],len(h['tokens']),h['future'],h['labels'][0],h['rowLabels']),(30,30,26,'11月1日 Sun',['11月']))
-  # 全部: rows of 30 days back to the first day used within the last 180.
-  h=heat('all');self.assertEqual((h['columns'],len(h['tokens']),h['labels'][0],h['labels'][-1],h['rowLabels']),(30,30,'10月6日 Tue','11月4日 Wed',['10月']))
-  self.assertEqual(sum(h['tokens']),800)
+  # 全部: rows of 30 days back to the first day used within the last 360, named for the month each row starts in.
+  h=heat('all');self.assertEqual((h['columns'],len(h['tokens']),h['labels'][0],h['labels'][-1],h['rowLabels']),(30,210,'4月9日 Thu','11月4日 Wed',['4月','5月','6月','7月','8月','9月','10月']))
+  self.assertEqual(sum(h['tokens']),1799)
+  # Days in a row with usage, as Summary counts: 11-03 and 11-04 (a lone day in May doesn't make a run).
+  self.assertEqual(h['streak'],'连续 2 天 · 最长 2 天');self.assertIsNone(heat('today')['streak'])
+  self.assertEqual(self.m.streak_text(['2026-10-01','2026-10-02','2026-10-03','2026-11-02'],self.now.date()),'最长连续 3 天')
+  self.assertEqual(self.m.streak_text(['2026-11-02','2026-11-03'],self.now.date()),'连续 2 天 · 最长 2 天','An empty today still keeps the run')
+  self.assertIsNone(self.m.streak_text(['2026-11-04'],self.now.date()))
   # A source whose hours couldn't be read leaves the squares short, and says so.
   self.m.preferences.write(self.m.STATE_DIR,dict(self.m.view_settings(),visible=['summary','heatmap','magpie','codex','claude']))
   h=heat('7d',claude={'summary':{'requests':1,'totalTokens':10}});self.assertEqual((h['hint'],h['notice']),('每格 1 小时','部分小时数据不可用'))

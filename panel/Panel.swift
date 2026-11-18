@@ -39,6 +39,8 @@ struct ProviderUsage:Decodable {
 struct UsageHeatmap:Decodable {
     var columns:Int;var rowLabels:[String]?;var labels:[String];var tokens:[Double];var requests:[Int];var costs:[Double];var unpriced:[Int]
     var future:Int;var hint:String;var status:String?;var notice:String?
+    // Days in a row with usage, for ranges of several days: "连续 12 天 · 最长 35 天".
+    var streak:String?
     var rows:Int {max(1,(tokens.count+max(1,columns)-1)/max(1,columns))}
     var past:Int {max(0,tokens.count-future)}
     var active:[Bool] {tokens.indices.map{tokens[$0]>0 || (requests.indices.contains($0) && requests[$0]>0)}}
@@ -70,7 +72,8 @@ struct UsageHeatmap:Decodable {
     var note:String? {
         if let status,!status.isEmpty {return status}
         if !active.contains(true) {return "暂无用量"}
-        return (notice ?? "").isEmpty ? nil : notice
+        if let notice,!notice.isEmpty {return notice}
+        return streak
     }
 }
 // Where each square of a heatmap goes in a given width. Every square is the same size in every range; the space
@@ -615,7 +618,7 @@ final class CardShareCard:ShareCard {
         }
         // The usage heatmap under its heading, the unit at the right.
         if let heatmap {
-            draw("用量热力图",NSRect(x:left,y:y,width:width,height:15),font(11,.semibold),.secondaryLabelColor)
+            draw("用量热力图"+(heatmap.streak.map{" · "+$0} ?? ""),NSRect(x:left,y:y,width:width-90,height:15),font(11,.semibold),.secondaryLabelColor)
             draw(heatmap.hint,NSRect(x:left,y:y+1,width:width,height:14),font(10,.medium),.tertiaryLabelColor,.right)
             drawHeatmap(heatmap,x:left,y:y+24,width:width,shades:DashboardView.heatmapShades(self))
             y+=heatmapHeight
@@ -894,7 +897,7 @@ final class TerminalShareCard:ShareCard {
         }
         // The usage heatmap under its comment, the unit at the right.
         if let heatmap {
-            draw("// 用量热力图",NSRect(x:left,y:y,width:width,height:15),mono(10.5),c.comment)
+            draw("// 用量热力图"+(heatmap.streak.map{" · "+$0} ?? ""),NSRect(x:left,y:y,width:width-90,height:15),mono(10.5),c.comment)
             draw(heatmap.hint,NSRect(x:left,y:y+1,width:width,height:14),mono(9.5),c.comment,.right)
             drawHeatmap(heatmap,x:left,y:y+24,width:width,shades:[c.rule]+[0.3,0.52,0.76,1].map{c.accent.withAlphaComponent($0)})
             y+=heatmapHeight
