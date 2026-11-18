@@ -75,7 +75,7 @@ def dmg(output, python, identity, notary):
                         CFBundleName='Token Monitor',CFBundleShortVersionString=release,CFBundleVersion=release,
                         TokenMonitorStandalone=True,NSAppleEventsUsageDescription='在你点击更新 CLI 时打开终端并显示结果。')
         info.write_bytes(plistlib.dumps(metadata))
-        resources=app/'Contents/Resources';resources.mkdir()
+        resources=app/'Contents/Resources'
         for folder in ('lib','assets'):
             shutil.copytree(ROOT/folder,resources/folder,ignore=shutil.ignore_patterns('__pycache__','*.pyc','.DS_Store'))
         (resources/'macos').mkdir()

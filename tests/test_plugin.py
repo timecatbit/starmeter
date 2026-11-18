@@ -179,7 +179,7 @@ class PluginTests(unittest.TestCase):
     def test_health_and_update_status_stay_inside_the_menu(self):
         data={'healthz':{'version':'1.0'},'ready':{'status':'failed'},
               'badge':{'updateAvailable':True,'latestVersion':'2.0'}}
-        self.assertIn('sfimage=sparkles',self.m.title())
+        self.assertIn('templateimage=',self.m.title())
         self.assertTrue(any('OpenCodex 管理 · 启动失败' in line for line in self.m.unfiltered_management_lines(data)))
         data['healthz']=None
         self.assertTrue(any('OpenCodex 管理 · 未连接' in line for line in self.m.unfiltered_management_lines(data)))

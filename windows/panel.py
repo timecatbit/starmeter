@@ -3,8 +3,10 @@ import base64
 import bisect
 import math
 import re
+import sys
 import time
 from html import escape
+from pathlib import Path
 
 from PySide6.QtCore import QPoint, QPointF, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (QColor, QFont, QFontMetrics, QIcon, QPainter, QPainterPath,
@@ -14,7 +16,10 @@ from shiboken6 import isValid
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel,
                                QMenu, QScrollArea, QSizePolicy, QToolButton, QVBoxLayout, QWidget)
 
-from host import summary_parts
+from host import ROOT, summary_parts
+
+# The logo's drawings (scripts/make_logo.py); in the built app they are bundled under assets.
+ASSETS = Path(getattr(sys, '_MEIPASS', ROOT)) / 'assets'
 
 COLORS={'magpie':'#bc860a','opencodex':'#437fc4','claude':'#bd653f','codex':'#a84bca',
         'opencode':'#d4568a','deepseek-harness':'#6555cd','workbuddy':'#ce791c','gemini':'#16979e',
@@ -214,19 +219,22 @@ def tool(text,hint,callback):
     return button
 
 
-def star_pixmap(size=64):
+LOGO_SIZES=(16,20,24,32,40,48,64,128,256)
+
+
+def logo_pixmap(size):
+    """The app icon at size pixels: its tile without the macOS grid's margin, the 9-dot drawing at 32 and below."""
+    renderer=QSvgRenderer(str(ASSETS/('token-monitor-small.svg' if size<=32 else 'token-monitor.svg')))
+    renderer.setViewBox(QRectF(100,100,824,824))
     pix=QPixmap(size,size);pix.fill(Qt.transparent)
-    p=QPainter(pix);p.setRenderHint(QPainter.Antialiasing);p.scale(size/64,size/64)
-    for x,y,r in [(35,37,20),(15,19,10),(46,13,7)]:
-        path=QPainterPath();path.moveTo(x,y-r)
-        for px,py,ex,ey in [(x+2,y-2,x+r,y),(x+2,y+2,x,y+r),(x-2,y+2,x-r,y),(x-2,y-2,x,y-r)]:
-            path.quadTo(px,py,ex,ey)
-        p.setPen(QPen(QColor('#283747'),2));p.setBrush(QColor('#f6f9fc'));p.drawPath(path)
-    p.end();return pix
+    p=QPainter(pix);p.setRenderHint(QPainter.Antialiasing);renderer.render(p);p.end();return pix
 
 
-def star():
-    return QIcon(star_pixmap())
+def logo():
+    """The tray, the windows and the program icon: one drawing for each size Windows asks for."""
+    icon=QIcon()
+    for size in LOGO_SIZES:icon.addPixmap(logo_pixmap(size))
+    return icon
 
 
 def mark(data):
@@ -634,7 +642,11 @@ class TrayPanel(QWidget):
             box.addWidget(Provider(p,not sharing and d.get('allowCollapse'),p['id'] in d.get('expandedProviders',[]),self.action.emit))
         if sharing:
             box.addWidget(separator())
-            box.addWidget(label('Token Monitor  ·  '+d.get('date',''),'muted'))
+            # Signed like the Mac picture: the logo, then the name.
+            footer=QHBoxLayout();footer.setSpacing(6)
+            mark=QLabel();mark.setPixmap(logo().pixmap(16,16));footer.addWidget(mark)
+            footer.addWidget(label('Token Monitor  ·  '+d.get('date',''),'muted'));footer.addStretch()
+            box.addLayout(footer)
             return
         if d['providers'] and snapshot.get('entries'):box.addWidget(separator())
         for entry in snapshot.get('entries',[]):self.row(box,entry)

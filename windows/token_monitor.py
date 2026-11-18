@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (QApplication, QFileDialog, QInputDialog, QLineEdi
 from tzlocal import get_localzone
 
 import host
-from panel import TrayPanel, star, window_color
+from panel import TrayPanel, logo, window_color
 
 
 class Desktop(QObject):
@@ -42,7 +42,7 @@ class Desktop(QObject):
         self.panel.shown.connect(self.visibility);self.panel.share.connect(self.share)
         self.ready.connect(self.publish);self.message.connect(self.show_notice);self.wake.connect(self.request_refresh)
         self.command_done.connect(self.finish_command)
-        self.tray=QSystemTrayIcon(star(),self);self.tray.setToolTip('Token Monitor')
+        self.tray=QSystemTrayIcon(logo(),self);self.tray.setToolTip('Token Monitor')
         self.tray.activated.connect(self.tray_action)
         self.tray.messageClicked.connect(lambda:self.open_panel())
         self.menu=QMenu()
@@ -393,7 +393,7 @@ def main():
     if os.name=='nt':
         import ctypes
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('timecatbit.TokenMonitor')
-    app=QApplication(sys.argv[:1]);app.setQuitOnLastWindowClosed(False);app.setApplicationName('Token Monitor')
+    app=QApplication(sys.argv[:1]);app.setQuitOnLastWindowClosed(False);app.setApplicationName('Token Monitor');app.setWindowIcon(logo())
     if os.name=='nt':
         # The text is Simplified Chinese. Without a named CJK face, Windows outside a Chinese locale falls
         # back to a Japanese font, which lacks forms like 请 and 时 and draws the rest in Japanese shapes.

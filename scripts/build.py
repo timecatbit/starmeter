@@ -23,6 +23,14 @@ def build(output, universal=False):
         binary = app / 'Contents' / 'MacOS' / 'OpenCodexPanel'
         binary.parent.mkdir(parents=True)
         shutil.copyfile(ROOT / 'panel' / 'Info.plist', app / 'Contents' / 'Info.plist')
+        # The app icon, drawn from the logo's SVG: Finder, notifications, About and the share picture's signature use it.
+        resources = app / 'Contents' / 'Resources'
+        iconset = Path(temporary) / 'TokenMonitor.iconset'
+        subprocess.run(['xcrun', 'swift', '-module-cache-path', str(cache), str(ROOT / 'scripts' / 'make_icon.swift'),
+                        str(ROOT / 'assets' / 'token-monitor.svg'), str(ROOT / 'assets' / 'token-monitor-small.svg'), str(iconset)],
+                       check=True)
+        resources.mkdir()
+        subprocess.run(['iconutil', '-c', 'icns', str(iconset), '-o', str(resources / 'TokenMonitor.icns')], check=True)
         environment = dict(os.environ, MACOSX_DEPLOYMENT_TARGET='13.0')
         command = ['xcrun', 'swiftc', '-O', '-module-cache-path', str(cache), str(ROOT / 'panel' / 'Panel.swift')]
         if universal:

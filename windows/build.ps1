@@ -20,7 +20,7 @@ New-Item -ItemType Directory -Force -Path $Dist, $Build | Out-Null
 # Backslashes throughout: Inno Setup is handed these paths too.
 $Dist = [IO.Path]::GetFullPath($Dist); $Build = [IO.Path]::GetFullPath($Build)
 $env:PYTHONUTF8 = "1"
-# The tray star doubles as the program icon, so the exe, its shortcuts and the uninstall entry show it.
+# The logo is the program icon too, so the exe, its shortcuts, the installer and the uninstall entry show it.
 $Icon = Join-Path $Build "token-monitor.ico"
 python windows/make_icon.py $Icon
 if ($LASTEXITCODE -ne 0) { throw "Could not draw the program icon." }

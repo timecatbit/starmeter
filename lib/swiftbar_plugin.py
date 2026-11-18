@@ -63,6 +63,8 @@ PANEL_APP = os.path.join(PLUGIN_DIR, ".opencodex-panel", "OpenCodexPanel.app")
 ASSET_DIR = next((path for path in (os.path.join(PLUGIN_DIR, ".opencodex-panel", "assets"), os.path.join(PLUGIN_DIR, "assets"), os.path.join(getattr(sys,"_MEIPASS",PLUGIN_DIR), "assets"))
                   if os.path.isdir(path)), os.path.join(PLUGIN_DIR, "assets"))
 DEEPSEEK_LOGO_FILE = os.path.join(ASSET_DIR, "deepseek-logo.svg")
+# Token Monitor's own one-colour mark (scripts/make_logo.py): the menu bar entry and the rows about the plugin.
+LOGO_MARK_FILE = os.path.join(ASSET_DIR, "token-monitor-mark.svg")
 LOGO_DIR = os.path.join(ASSET_DIR, "logos")
 # Monochrome logos are template images so they follow light and dark menus.
 BRAND_LOGOS = {'ChatGPT': ('openai.svg', True), 'Claude': ('claude.svg', False), 'MiniMax': ('minimax.svg', False),
@@ -533,6 +535,12 @@ def brand_icon(key):
         raw=memoized(('logo',name),lambda:read_logo(os.path.join(LOGO_DIR,name)))
     if raw:return {('templateimage' if template else 'image'):raw,'width':MENU_ICON_SIZE,'height':MENU_ICON_SIZE}
     return {'sfimage':'person.crop.circle' if service.category=='订阅' else 'creditcard'}
+
+
+def logo_mark(size):
+    """The logo's mark as a template image, which follows light and dark menus; the old symbol if the file is missing."""
+    raw=memoized(('logo','token-monitor-mark.svg'),lambda:read_logo(LOGO_MARK_FILE))
+    return {'templateimage':raw,'width':size,'height':size} if raw else {'sfimage':'sparkles','sfsize':min(size,18)}
 
 
 def module_icon(key):
@@ -1457,12 +1465,12 @@ def self_update_lines(data):
     if MAC_APP or DESKTOP is not None:
         asset=update_asset_name(release['latest'])
         if not any(a.get('name')==asset for a in release.get('assets',[])):return []
-        return [item(PRODUCT,badge='可更新 '+release['latest'],panelattention=True,sfimage='sparkles'),
+        return [item(PRODUCT,badge='可更新 '+release['latest'],panelattention=True,**logo_mark(MENU_ICON_SIZE)),
                 item('打开 GitHub 发布页',level=1,href=REPOSITORY+'/releases/tag/v'+release['latest'],sfimage='arrow.up.right')]
     latest=release['latest'];running=state.get('status')=='running' and state.get('version')==latest
     failed=state.get('status')=='failed' and state.get('version')==latest
     badge='正在更新' if running else '更新失败' if failed else '可更新 '+latest
-    rows=[item(PRODUCT,badge=badge,panelattention=not failed,sfimage='sparkles'),
+    rows=[item(PRODUCT,badge=badge,panelattention=not failed,**logo_mark(MENU_ICON_SIZE)),
           item('当前 '+VERSION+' → 最新 '+latest,level=1,color=MUTED,size=11)]
     if running:rows.append(item('正在下载并安装，完成后自动刷新',level=1,color=MUTED,size=11))
     else:
@@ -2374,7 +2382,8 @@ def deepseek_balance(data):
 
 def title():
     """Keep the dashboard entry stable while any individual source reconnects."""
-    return item("", tooltip="AI 用量面板", emojize="false", sfimage="sparkles", sfsize=18)
+    # 20 points: the mark's dots fall on whole pixels there, and it matches the system icons beside it.
+    return item("", tooltip="AI 用量面板", emojize="false", **logo_mark(20))
 
 
 def account_quick_lines(data):
@@ -2633,7 +2642,7 @@ def detection_help_entries():
 # SwiftBar greys out right-click rows that have neither an action nor a submenu, so every row here does something.
 def about_menu_lines():
     """SwiftBar's own About popover has a fixed size; this submenu shows the same facts compactly."""
-    return [item('关于 token-monitor',sfimage='info.circle'),
+    return [item('关于 token-monitor',**logo_mark(MENU_ICON_SIZE)),
             item('版本 '+VERSION+' · 更新记录',level=1,sfimage='tag',href=REPOSITORY+'/blob/main/CHANGELOG.md'),
             item('作者 '+AUTHOR+' · GitHub 仓库',level=1,sfimage='person.crop.circle',href=REPOSITORY)]
 

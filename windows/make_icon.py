@@ -1,26 +1,24 @@
 #!/usr/bin/env python3
-"""Write the tray star as the program icon: one ICO with a PNG for each size Windows asks for."""
+"""Write the logo as the program and installer icon: one ICO with a PNG for each size Windows asks for."""
 import struct
 import sys
 
 from PySide6.QtCore import QBuffer, QIODevice
 from PySide6.QtWidgets import QApplication
 
-from panel import star_pixmap
-
-SIZES = (16, 20, 24, 32, 40, 48, 64, 128, 256)
+from panel import LOGO_SIZES, logo_pixmap
 
 
 def png(size):
     buffer=QBuffer();buffer.open(QIODevice.WriteOnly)
-    if not star_pixmap(size).save(buffer,'PNG'):raise OSError('could not draw the icon')
+    if not logo_pixmap(size).save(buffer,'PNG'):raise OSError('could not draw the icon')
     return bytes(buffer.data())
 
 
 def icon_bytes():
-    images=[png(size) for size in SIZES]
+    images=[png(size) for size in LOGO_SIZES]
     head=struct.pack('<HHH',0,1,len(images));offset=len(head)+16*len(images);entries=b''
-    for size,data in zip(SIZES,images):
+    for size,data in zip(LOGO_SIZES,images):
         # 0 in the width and height bytes means 256.
         entries+=struct.pack('<BBBBHHII',size%256,size%256,0,0,1,32,len(data),offset);offset+=len(data)
     return head+entries+b''.join(images)

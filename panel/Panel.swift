@@ -415,11 +415,12 @@ class ShareCard:FlippedView {
     // Dollars with thousands separators: the picture is read at a glance.
     static let dollars:NumberFormatter={let f=NumberFormatter();f.numberStyle = .decimal;f.minimumFractionDigits=2;f.maximumFractionDigits=2;f.locale=Locale(identifier:"en_US");return f}()
     func amount(_ p:ProviderUsage)->String {p.cost.flatMap{Self.dollars.string(from:NSNumber(value:$0))}.map{"$"+$0} ?? headline(p)}
-    // The menu bar's star on a small teal tile: the mark that signs the picture.
+    // The app icon signs the picture: its tile only, without the margin the macOS icon grid leaves around it (100 of 1024).
+    private static let logo=Bundle.main.image(forResource:"TokenMonitor")
     func brandMark(_ rect:NSRect){
-        let tile=NSBezierPath(roundedRect:rect,xRadius:rect.width*0.3,yRadius:rect.width*0.3)
-        NSGradient(starting:NSColor(srgbRed:0.27,green:0.70,blue:0.64,alpha:1),ending:NSColor(srgbRed:0.11,green:0.39,blue:0.45,alpha:1))?.draw(in:tile,angle:-90)
-        symbol("star.fill",centre:NSPoint(x:rect.midX,y:rect.midY),size:rect.width*0.5,color:.white,weight:.bold)
+        guard let logo=Self.logo else{return}
+        let margin=logo.size.width*100/1024
+        logo.draw(in:rect,from:NSRect(origin:.zero,size:logo.size).insetBy(dx:margin,dy:margin),operation:.sourceOver,fraction:1,respectFlipped:true,hints:nil)
     }
     // PNG for apps that take it, TIFF for older ones; no file URL, so chat apps paste a picture.
     static func pasteboardItem(_ png:Data)->NSPasteboardItem {
@@ -1813,8 +1814,11 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
             let item=NSStatusBar.system.statusItem(withLength:NSStatusItem.squareLength)
             statusItem=item
             if let button=item.button {
-                button.image=NSImage(systemSymbolName:"sparkles",accessibilityDescription:"Token Monitor")
-                button.image?.isTemplate=true
+                // The logo's one-colour mark; its dots fall on whole pixels at 20 points.
+                let mark=Bundle.main.url(forResource:"token-monitor-mark",withExtension:"svg",subdirectory:"assets").flatMap{NSImage(contentsOf:$0)}
+                mark?.size=NSSize(width:20,height:20)
+                button.image=mark ?? NSImage(systemSymbolName:"sparkles",accessibilityDescription:"Token Monitor")
+                button.image?.isTemplate=true;button.image?.accessibilityDescription="Token Monitor"
                 button.toolTip="Token Monitor"
                 button.target=self;button.action=#selector(starPressed(_:))
                 button.sendAction(on:[.leftMouseUp,.rightMouseUp])

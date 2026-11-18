@@ -1,3 +1,5 @@
+<img src="assets/token-monitor.svg" width="96" height="96" alt="Token Monitor 标志">
+
 # Token Monitor
 
 macOS 菜单栏与 Windows 托盘应用：在一个面板里查看各 AI 编程工具的 Token 用量和 API 等值费用，以及订阅额度、API 余额和客户端更新。

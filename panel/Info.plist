@@ -6,6 +6,8 @@
 	<string>OpenCodex</string>
 	<key>CFBundleExecutable</key>
 	<string>OpenCodexPanel</string>
+	<key>CFBundleIconFile</key>
+	<string>TokenMonitor</string>
 	<key>CFBundleIdentifier</key>
 	<string>cc.opencodex.swiftbar.panel</string>
 	<key>CFBundleName</key>
