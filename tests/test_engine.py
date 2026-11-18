@@ -18,6 +18,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'lib'))
 import swiftbar_accounts as accounts
 import swiftbar_catalog as catalog
+import swiftbar_claude as claude_desktop
+import swiftbar_claude_live as claude_live
+import swiftbar_claude_local as claude_local
+import swiftbar_claude_oauth as claude_oauth
 import swiftbar_claude_usage as claude_usage
 import swiftbar_sources as sources
 import swiftbar_files as files
@@ -970,6 +974,136 @@ class OpenCodexParityTests(unittest.TestCase):
         self.assertTrue(all(token == 'secret-token' for path, token in self.seen if path.startswith('/api/codex-auth')))
         self.answers['/healthz'] = (503, b'', {})
         self.compare('opencodex_refresh')
+
+
+@unittest.skipUnless(PROBE, 'Swift toolchain not installed')
+class ClaudeSubscriptionParityTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+
+    def test_usage_responses(self):
+        cases = [
+            {'five_hour': {'utilization': 42.5, 'resets_at': '2026-11-18T15:00:00Z'}, 'seven_day': {'utilization': 7, 'resets_at': None},
+             'seven_day_opus': {'utilization': 101}, 'seven_day_sonnet': 'x'},
+            {'limits': [{'group': 'weekly', 'kind': 'all', 'percent': 61, 'resets_at': '2026-11-20T00:00:00Z'},
+                        {'kind': 'five_hour', 'percent': 12.25, 'resets_at': '2026-11-18T15:00:00Z', 'scope': {'model': {'display_name': 'Opus 5.5'}}},
+                        {'kind': 'mystery', 'percent': 3, 'scope': {'surface': {'display_name': 'Cowork'}}},
+                        {'kind': 'five_hour', 'percent': 12.25, 'resets_at': '2026-11-18T15:00:00Z', 'scope': {'model': {'display_name': 'Opus 5.5'}}},
+                        {'kind': 'week', 'percent': True}, {'kind': 'session', 'percent': 5, 'resets_at': 7}, 'odd'],
+             'spend': {'enabled': True, 'used': {'amount_minor': 1234, 'exponent': 2, 'currency': 'USD'},
+                       'limit': {'amount_minor': 5000, 'exponent': 2}, 'balance': {'amount_minor': 99, 'exponent': 0, 'currency': 'eur'}}},
+            {'five_hour': {'utilization': 1}, 'spend': {'enabled': False}},
+            {'five_hour': {'utilization': 1}, 'spend': {'enabled': True, 'used': {'amount_minor': -1, 'exponent': 2}},
+             'extra_usage': {'is_enabled': True, 'used_credits': 250, 'monthly_limit': 0, 'currency': 'JPY', 'decimal_places': 0}},
+            {'five_hour': {'utilization': 1}, 'extra_usage': {'is_enabled': True, 'used_credits': 1234.5, 'monthly_limit': 10000}},
+            {'five_hour': {'utilization': 1}, 'extra_usage': {'is_enabled': True, 'used_credits': -1}},
+            {'nothing': True}, [1, 2], {'limits': []},
+        ]
+        for data in cases:
+            with self.subTest(data=data):
+                try:
+                    expected = claude_live.parse_usage(data, now=1794996000.5)
+                except claude_live.UsageError as error:
+                    with self.assertRaises(SwiftError) as raised:
+                        swift('claude.parse', data, 1794996000.5)
+                    self.assertIn(str(error), str(raised.exception))
+                    continue
+                same(self, expected, swift('claude.parse', data, 1794996000.5))
+
+    def test_desktop_and_statusline_snapshots(self):
+        now = 1794996000.0
+        app = self.root / 'Claude'
+        account = '11111111-2222-4333-8444-555555555555'
+        org = '66666666-7777-4888-9999-000000000000'
+        variants = [
+            {'version': 2, 'samples': [{'t': (now - 60) * 1000, 'org': org, 'u': {'fh': 40, 'sd': 12.5, 'so': 'x', 'oa': 100}},
+                                       {'t': (now - 3600) * 1000, 'org': org, 'u': {'fh': 90}}]},
+            {'version': 1, 'samples': [{'t': (now - 4000) * 1000, 'fh': 5, 'sd': 6, 'cw': 7}]},
+            {'version': 2, 'samples': [{'t': now * 1000, 'org': 'a', 'u': {'fh': 1}}, {'t': now * 1000, 'org': 'b', 'u': {'fh': 2}}]},
+            {'version': 3, 'samples': []}, {'version': 2, 'samples': [{'t': (now + 3600) * 1000, 'u': {'fh': 1}}]},
+            {'version': 2, 'samples': [{'t': now * 1000, 'u': 'none'}]},
+        ]
+        for index, data in enumerate(variants):
+            for owned in (False, True):
+                with self.subTest(variant=index, owned=owned):
+                    shutil.rmtree(app, ignore_errors=True)
+                    app.mkdir()
+                    (app / 'plan-usage-history.json').write_text(json.dumps(data))
+                    if owned:
+                        (app / 'config.json').write_text(json.dumps({'lastKnownAccountUuid': account}))
+                        (app / 'claude-code-sessions' / account / org).mkdir(parents=True)
+                    same(self, claude_desktop.subscription(app, now), swift('claude.desktop', str(app), now))
+        state = self.root / 'state'
+        state.mkdir()
+        for data in [{'schema': 1, 'source': 'claude-code', 'updatedAt': now - 30, 'windows': [
+                          {'label': '5 小时', 'used': 33, 'resetsAt': '2026-11-18T15:00:00+00:00'},
+                          {'label': '本周', 'used': 101, 'resetsAt': '2026-11-20T00:00:00+00:00'}, {'label': '其他', 'used': 1, 'resetsAt': 'x'}]},
+                     {'schema': 1, 'source': 'claude-code', 'updatedAt': now - 900, 'windows': [{'label': '本周', 'used': 3, 'resetsAt': '2026-11-01T00:00:00+00:00'}]},
+                     {'schema': 1, 'source': 'claude-code', 'updatedAt': now + 120, 'windows': []},
+                     {'schema': 1, 'source': 'elsewhere', 'updatedAt': now, 'windows': []}, {'schema': 1, 'source': 'claude-code', 'updatedAt': True, 'windows': []}]:
+            with self.subTest(snapshot=data):
+                (state / 'claude-code-usage.json').write_text(json.dumps(data, ensure_ascii=False))
+                same(self, claude_local.snapshot(state, now), swift('claude.local', str(state), now))
+
+    def test_oauth_reads_from_the_login_file(self):
+        answers = {}
+        def handler(path, headers):
+            return answers.get('usage', (404, b'', {}))
+        services = FakeServices(handler)
+        self.addCleanup(services.close)
+        config = self.root / 'claude-config'
+        config.mkdir()
+        bin_dir = self.root / 'bin'
+        bin_dir.mkdir()
+        environment = {'CLAUDE_CONFIG_DIR': str(config), 'PATH': str(bin_dir), 'HOME': str(self.root / 'home')}
+        def login(**changes):
+            oauth = dict({'accessToken': 'tok_' + 'a' * 30, 'expiresAt': (time.time() + 7200) * 1000, 'scopes': ['user:inference', 'user:profile']}, **changes)
+            (config / '.credentials.json').write_text(json.dumps({'claudeAiOauth': oauth}))
+        good = (200, json.dumps({'five_hour': {'utilization': 20, 'resets_at': '2026-11-18T15:00:00Z'}}).encode(), {'Content-Type': 'application/json'})
+        def run(note, force=False, requested=0):
+            results = []
+            for engine in ('python', 'swift'):
+                state = self.root / ('state-' + engine)
+                if engine == 'python':
+                    with unittest.mock.patch.dict(os.environ, environment):
+                        payload, error = claude_oauth.fetch(state, consent=True, force=force, requested_at=requested)
+                    results.append({'payload': payload, 'error': error[1] if error else None})
+                else:
+                    env = dict(os.environ, **environment)
+                    done = subprocess.run([PROBE], input=json.dumps({'call': 'claude.oauth', 'args': [str(state), force, requested, services.routes]}).encode(),
+                                          capture_output=True, check=True, env=env)
+                    results.append(json.loads(done.stdout)['result'])
+            files = [json.loads((self.root / ('state-' + e) / 'claude-oauth-usage.json').read_text()) for e in ('python', 'swift')]
+            def steady(value):
+                if isinstance(value, dict):return {k: steady(v) for k, v in value.items() if k not in ('checkedAt', 'lastRenewAt', 'updatedAt', 'retryAt')}
+                return value
+            with self.subTest(step=note):
+                same(self, steady(results[0]), steady(results[1]))
+                same(self, steady(files[0]), steady(files[1]))
+                self.assertEqual(bool(files[0].get('lastRenewAt')), bool(files[1].get('lastRenewAt')))
+                self.assertEqual(bool(files[0].get('retryAt')), bool(files[1].get('retryAt')))
+        login(); answers['usage'] = good
+        run('first read')
+        answers['usage'] = (500, b'', {})
+        run('cached within five minutes')
+        run('a forced retry after thirty seconds is still cached', force=True)
+        answers['usage'] = (429, b'', {'Retry-After': '120'})
+        for state in ('python', 'swift'):(self.root / ('state-' + state) / 'claude-oauth-usage.json').unlink()
+        run('rate limited')
+        run('still rate limited', force=True)
+        for state in ('python', 'swift'):(self.root / ('state-' + state) / 'claude-oauth-usage.json').unlink()
+        for name, changes, answer in (('expired, no CLI to renew it', {'expiresAt': (time.time() - 60) * 1000}, good),
+                                      ('signed out', {'accessToken': ''}, good), ('odd token', {'accessToken': 'short'}, good),
+                                      ('no usage scope', {'scopes': ['user:inference']}, good), ('forbidden', {}, (403, b'', {})),
+                                      ('not JSON', {}, (200, b'<html>', {'Content-Type': 'text/html'})), ('server error', {}, (503, b'', {}))):
+            login(**changes); answers['usage'] = answer
+            for state in ('python', 'swift'):(self.root / ('state-' + state) / 'claude-oauth-usage.json').unlink(missing_ok=True)
+            run(name)
+        (config / '.credentials.json').write_text('{"mcpOAuth": {}}')
+        for state in ('python', 'swift'):(self.root / ('state-' + state) / 'claude-oauth-usage.json').unlink(missing_ok=True)
+        run('an API-key login has no subscription')
 
 
 if __name__ == '__main__':

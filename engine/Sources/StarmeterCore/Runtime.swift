@@ -232,7 +232,7 @@ public final class Runtime {
     var connectionExtras: [String: () -> [JSON]] = [:]
 
     func connectionParts(_ name: String) -> [JSON] {
-        var parts: [JSON] = connectionExtras[name]?() ?? []
+        var parts: [JSON] = name == "claude_subscription" ? claudeSubscriptionParts() : connectionExtras[name]?() ?? []
         for key in Runtime.connectionKeys[name] ?? [] {
             let value = environment[key] ?? ""
             parts.append(.string(value))

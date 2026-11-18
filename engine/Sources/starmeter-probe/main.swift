@@ -98,6 +98,17 @@ func answer(_ call: String, _ args: [JSON]) throws -> JSON {
             default: return "unknown"
             }
         }
+    case "claude.parse":
+        return .object(try ClaudeSubscription.parseUsage(args[0], now: args[1].number ?? 0))
+    case "claude.desktop":
+        return .object(ClaudeSubscription.desktop(root: text(0)!, now: args[1].number!))
+    case "claude.local":
+        return ClaudeSubscription.localSnapshot(text(0)!, now: args[1].number!).map(JSON.object) ?? .null
+    case "claude.oauth":
+        // [state, force, requestedAt, routes]
+        for (from, to) in args[3].object ?? JSONObject() { HTTP.routes[from] = to.string }
+        let (payload, error) = ClaudeSubscription.oauthFetch(state: text(0)!, consent: true, force: args[1] == .bool(true), requestedAt: args[2].number ?? 0)
+        return ["payload": .object(payload), "error": error.map(JSON.string) ?? .null]
     case "zstd":
         // The SHA-256 and size of each file's decompressed bytes.
         return .array(args.map { path in
