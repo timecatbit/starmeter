@@ -18,6 +18,11 @@ struct ProviderUsage:Decodable {
     var id:String;var name:String;var image:String?;var template:Bool?;var symbol:String?;var subtitle:String;var status:String;var available:Bool
     var cost:Double?;var credits:Double?;var tokens:Double;var requests:Int;var output:Double;var cache:Double?;var coverage:Double?
     var sessions:Int;var unpriced:Int;var summaryIncluded:Bool?;var counted:CountedUsage?;var models:[ModelUsage];var clients:[ModelUsage]?;var history:[Double]
+    // A card that groups by model or project takes the colour of the tool or brand it belongs to.
+    var accent:String?
+    var colour:String {accent ?? id}
+    // Model and project cards gather several tools, whose sessions don't add up.
+    var grouped:Bool {id.hasPrefix("model:") || id.hasPrefix("project:")}
     // "N 次未定价" when some requests have no price yet, so the cost reads as covering only the rest.
     var priceNote:String?
     // What Summary adds for this source: nothing when it isn't counted, and only the requests no gateway
@@ -90,7 +95,14 @@ struct HeatmapLayout {
         return min(rows-1,max(0,row))*columns+min(columns-1,max(0,column))
     }
 }
-struct Dashboard:Decodable {var date:String;var dates:[String];var providers:[ProviderUsage];var rangeKey:String;var rangeLabel:String;var chartUnit:String;var chartSpan:String;var period:[String]?;var chartStatus:String;var updated:String?;var chartPositions:[Double]?;var heatmap:UsageHeatmap?;var showSummary:Bool?;var allowCollapse:Bool?;var expandedProviders:[String]?}
+struct Grouping:Decodable {var key:String;var label:String}
+struct Dashboard:Decodable {var date:String;var dates:[String];var providers:[ProviderUsage];var rangeKey:String;var rangeLabel:String;var chartUnit:String;var chartSpan:String;var period:[String]?;var chartStatus:String;var updated:String?;var chartPositions:[Double]?;var heatmap:UsageHeatmap?;var showSummary:Bool?;var allowCollapse:Bool?;var expandedProviders:[String]?
+    // The Harness cards: one per tool, or regrouped by model or project. Summary, the chart and the share picture stay per tool.
+    var grouping:String?;var groupings:[Grouping]?;var cards:[ProviderUsage]?
+    var cardList:[ProviderUsage] {cards ?? providers}
+    // Regrouped cards always show their rows; folding is per tool.
+    var collapsible:Bool {allowCollapse==true && cards==nil}
+}
 struct Project:Decodable {var name:String;var url:String}
 struct Snapshot:Decodable {var project:Project?;var dashboard:Dashboard?;var entries:[Entry];var rangeOptions:[Entry]?;var updateCount:Int?;var moduleOptions:[Entry]?;var appearance:String?;var theme:String?;var preferences:PresentationPreferences?}
 func dark(_ view:NSView)->Bool {view.effectiveAppearance.bestMatch(from:[.darkAqua,.aqua]) == .darkAqua}
@@ -986,7 +998,7 @@ final class DashboardView:FlippedView {
     }
     static func clientHeight(_ p:ProviderUsage)->CGFloat {clientLine(p)==nil ? 0 : 16}
     static func providerHeight(_ p:ProviderUsage,_ d:Dashboard)->CGFloat {
-        guard d.allowCollapse==true else{return sectionHeight(p)}
+        guard d.collapsible else{return sectionHeight(p)}
         return (d.expandedProviders ?? []).contains(p.id) ? sectionHeight(p) : 52
     }
     // Legend names drop suffixes the cards below already show, so four fit on a row.
@@ -999,7 +1011,10 @@ final class DashboardView:FlippedView {
     static func summaryHeight(_ d:Dashboard)->CGFloat {d.showSummary==false ? 44 : 230+chartExtra(d)}
     // The heatmap's hint line already keeps the first card clear, so no gap is added after it.
     static func harnessHeaderHeight(_ d:Dashboard)->CGFloat {d.providers.isEmpty || d.showSummary==false || d.heatmap != nil ? 0 : 6}
-    static func height(_ d:Dashboard)->CGFloat {summaryHeight(d)+heatmapHeight(d)+harnessHeaderHeight(d)+d.providers.reduce(0){$0+providerHeight($1,d)}+(d.providers.isEmpty ? 0 : 4)}
+    // The choice of grouping sits above the cards, when there are cards and more than one way to group them.
+    static func groupingHeight(_ d:Dashboard)->CGFloat {d.providers.isEmpty || (d.groupings?.count ?? 0)<2 ? 0 : 30}
+    static func cardsTop(_ d:Dashboard)->CGFloat {summaryHeight(d)+heatmapHeight(d)+harnessHeaderHeight(d)+groupingHeight(d)}
+    static func height(_ d:Dashboard)->CGFloat {cardsTop(d)+max(d.cardList.isEmpty && !d.providers.isEmpty ? 24 : 0,d.cardList.reduce(0){$0+providerHeight($1,d)})+(d.providers.isEmpty ? 0 : 4)}
     static func totalColor(_ view:NSView)->NSColor {dark(view) ? NSColor(srgbRed:0.43,green:0.79,blue:0.75,alpha:1) : NSColor(srgbRed:0.15,green:0.47,blue:0.46,alpha:1)}
     // The chart's scale: a rounded ceiling over the highest total, labelled at zero, half and full.
     static func chartAxis(_ d:Dashboard)->(ceiling:Double,labels:[String]) {
@@ -1043,9 +1058,16 @@ final class DashboardView:FlippedView {
         heatmapGeometry=Self.heatmapLayout(data);heatmapColumn=Self.labelColumn(data);heatmapLevels=data.heatmap?.levels ?? []
         super.init(frame:NSRect(x:0,y:0,width:width,height:Self.height(data)))
         setAccessibilityElement(true);setAccessibilityRole(.group);setAccessibilityLabel("用量概览")
-        if data.allowCollapse==true {
-            var y=Self.summaryHeight(data)+Self.heatmapHeight(data)+Self.harnessHeaderHeight(data)
-            for p in data.providers {
+        if let options=data.groupings,Self.groupingHeight(data)>0 {
+            let control=NSSegmentedControl(labels:options.map{"按"+$0.label},trackingMode:.selectOne,target:self,action:#selector(chooseGrouping(_:)))
+            control.controlSize = .small;control.font=NSFont.systemFont(ofSize:NSFont.smallSystemFontSize)
+            control.selectedSegment=options.firstIndex{$0.key==(data.grouping ?? "tool")} ?? 0
+            control.sizeToFit();control.setFrameOrigin(NSPoint(x:12,y:Self.summaryHeight(data)+Self.heatmapHeight(data)+Self.harnessHeaderHeight(data)+4))
+            control.setAccessibilityLabel("Harness 卡片分组");addSubview(control)
+        }
+        if data.collapsible {
+            var y=Self.cardsTop(data)
+            for p in data.cardList {
                 let expanded=(data.expandedProviders ?? []).contains(p.id)
                 let button=DisclosureButton(label:(expanded ? "收起 " : "展开 ")+p.name+" 明细",frame:NSRect(x:4,y:y+2,width:width-8,height:46))
                 button.setAccessibilityValue(expanded ? "已展开" : "已折叠")
@@ -1057,6 +1079,12 @@ final class DashboardView:FlippedView {
     }
 
     required init?(coder:NSCoder){fatalError()}
+    var chooseGroup:((String)->Void)?
+    @objc private func chooseGrouping(_ control:NSSegmentedControl){
+        guard let options=data.groupings,options.indices.contains(control.selectedSegment) else{return}
+        let key=options[control.selectedSegment].key
+        if key != (data.grouping ?? "tool"){chooseGroup?(key)}
+    }
     override func viewDidChangeEffectiveAppearance(){super.viewDidChangeEffectiveAppearance();needsDisplay=true}
     // Pointing at a square reads it out on the line under the squares.
     override func updateTrackingAreas(){
@@ -1100,10 +1128,11 @@ final class DashboardView:FlippedView {
             if dirtyRect.intersects(NSRect(x:0,y:y,width:bounds.width,height:Self.heatmapHeight(data))){drawHeatmap(heatmap,left:left,right:right)}
             y+=Self.heatmapHeight(data)
         }
-        y+=Self.harnessHeaderHeight(data)
-        for p in data.providers {
+        y+=Self.harnessHeaderHeight(data)+Self.groupingHeight(data)
+        if data.cardList.isEmpty && !data.providers.isEmpty {text("此时段暂无调用",x:left,y:y+4,w:width,size:10.5,color:.secondaryLabelColor)}
+        for p in data.cardList {
             let height=Self.providerHeight(p,data)
-            if dirtyRect.intersects(NSRect(x:0,y:y,width:bounds.width,height:height)){if data.allowCollapse==true{drawCollapsibleProvider(p,y:y,left:left,right:right)}else{drawProvider(p,y:y,left:left,right:right)}}
+            if dirtyRect.intersects(NSRect(x:0,y:y,width:bounds.width,height:height)){if data.collapsible{drawCollapsibleProvider(p,y:y,left:left,right:right)}else{drawProvider(p,y:y,left:left,right:right)}}
             y+=height
         }
     }
@@ -1146,7 +1175,7 @@ final class DashboardView:FlippedView {
         // Cache and output say nothing when only Credits were recorded.
         if p.tokens==0,p.credits != nil {return "\(p.requests) 请求 · \(p.sessions) 会话"}
         var parts=["\(p.requests) 请求",p.cache.map{String(format:"缓存 %.1f%%",$0*100)} ?? "缓存 —","输出 \(tokens(p.output))"]
-        if p.id=="opencodex"{if let coverage=p.coverage,coverage<1{parts.append(String(format:"已定价 %.0f%%",coverage*100))}}else{parts.append("\(p.sessions) 会话")}
+        if p.id=="opencodex"{if let coverage=p.coverage,coverage<1{parts.append(String(format:"已定价 %.0f%%",coverage*100))}}else if !p.grouped{parts.append("\(p.sessions) 会话")}
         if p.cost != nil,let credits=p.credits {parts.append(creditsText(credits))}
         return parts.joined(separator:" · ")
     }
@@ -1154,7 +1183,7 @@ final class DashboardView:FlippedView {
     // right. The second line leads with its tokens, then the counts in grey.
     private func drawHeader(_ p:ProviderUsage,y:CGFloat,left:CGFloat,right:CGFloat){
         let nameFont=NSFont.systemFont(ofSize:13,weight:.semibold),mid=ToolMark.middle(of:nameFont,top:y+8)
-        ToolMark.draw(p,in:NSRect(x:left,y:mid-7,width:14,height:14),color:accent(p.id,self))
+        ToolMark.draw(p,in:NSRect(x:left,y:mid-7,width:14,height:14),color:accent(p.colour,self))
         let cost=p.available ? headline(p) : "—",costWidth=min(130,Figure.width(cost,size:16))
         let nameX=left+21,nameWidth=min(right-costWidth-14-nameX,ceil((p.name as NSString).size(withAttributes:[.font:nameFont]).width)+1)
         text(p.name,x:nameX,y:y+8,w:nameWidth,size:13,weight:.semibold)
@@ -1203,14 +1232,14 @@ final class DashboardView:FlippedView {
         drawFigures(p,y:y+29,left:left+21,right:right,stats:expanded)
         if expanded {
             if let clients=Self.clientLine(p){text(clients,x:left+21,y:y+45,w:right-left-21,size:10,color:.secondaryLabelColor)}
-            drawModels(p,y:y+52+Self.clientHeight(p),left:left+21,right:right,color:accent(p.id,self))
+            drawModels(p,y:y+52+Self.clientHeight(p),left:left+21,right:right,color:accent(p.colour,self))
         }
     }
     private func drawProvider(_ p:ProviderUsage,y:CGFloat,left:CGFloat,right:CGFloat){
         drawHeader(p,y:y,left:left,right:right)
         drawFigures(p,y:y+29,left:left+21,right:right,stats:true)
         if let clients=Self.clientLine(p){text(clients,x:left+21,y:y+45,w:right-left-21,size:10,color:.secondaryLabelColor)}
-        drawModels(p,y:y+52+Self.clientHeight(p),left:left+21,right:right,color:accent(p.id,self))
+        drawModels(p,y:y+52+Self.clientHeight(p),left:left+21,right:right,color:accent(p.colour,self))
     }
     // Legend columns are justified: the first starts at the left edge, the last column's longest
     // label ends at the right edge, and column starts are evenly spaced. Four per row when they
@@ -1570,7 +1599,7 @@ struct PanelInteraction {
     }
     // Actions without a dialog keep the panel open so their result appears in place.
     static func keepsPanelOpen(_ action:[String])->Bool {
-        ["refresh-view","refresh-source","refresh","refresh-monitor","check-app-updates","set-subscription","set-range","test-api-key","retry-claude-usage"].contains(action.first ?? "") || isPreference(action)
+        ["refresh-view","refresh-source","refresh","refresh-monitor","check-app-updates","set-subscription","set-range","set-group","test-api-key","retry-claude-usage"].contains(action.first ?? "") || isPreference(action)
     }
     static func automatic(_ action:[String])->Bool {
         ["refresh-view","refresh-source"].contains(action.first ?? "")
@@ -2077,7 +2106,7 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
             let count=entries.filter{$0.action?.first=="set-module" && $0.checked==true}.count
             let hint=NSTextField(labelWithString:"已启用 \(count) 项");hint.font = .systemFont(ofSize:10);hint.textColor = .secondaryLabelColor;hint.frame=NSRect(x:12,y:29,width:inner-24,height:15);content.addSubview(hint)
             let done=NSButton(title:"完成",target:self,action:#selector(finishModules));done.bezelStyle = .rounded;done.controlSize = .small;done.frame=NSRect(x:inner-65,y:8,width:53,height:25);content.addSubview(done)
-        } else if let dashboard=snapshot.dashboard{let view=DashboardView(dashboard,width:inner);view.toggleProvider={[weak self] id,expanded in self?.performAction(["set-expanded",id,expanded ? "true" : "false"])};content.addSubview(view)}else{let label=NSTextField(labelWithString:"AI 用量面板");label.frame=NSRect(x:12,y:10,width:300,height:20);content.addSubview(label)}
+        } else if let dashboard=snapshot.dashboard{let view=DashboardView(dashboard,width:inner);view.toggleProvider={[weak self] id,expanded in self?.performAction(["set-expanded",id,expanded ? "true" : "false"])};view.chooseGroup={[weak self] key in self?.performAction(["set-group",key])};content.addSubview(view)}else{let label=NSTextField(labelWithString:"AI 用量面板");label.frame=NSRect(x:12,y:10,width:300,height:20);content.addSubview(label)}
         if managerOnly {_=fillGrid(entries,in:content,y:top,width:inner)}
         else {content.addSubview(Divider(frame:NSRect(x:8,y:top-6,width:inner-16,height:2)));_=fillRows(entries,in:content,y:top,width:inner,depth:0)}
         if !managerOnly,let dashboard=snapshot.dashboard,let choices=snapshot.rangeOptions {
@@ -2378,7 +2407,7 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
         }
     }
     private func dispatchAction(_ action:[String]){
-        let passive=["refresh-source","refresh-view","refresh","refresh-monitor","check-app-updates","set-range","retry-claude-usage"].contains(action[0])
+        let passive=["refresh-source","refresh-view","refresh","refresh-monitor","check-app-updates","set-range","set-group","retry-claude-usage"].contains(action[0])
         let keepOpen=PanelInteraction.keepsPanelOpen(action)
         if !keepOpen{hide()};if keepOpen && !passive{updatePresentation()}
         let id=UUID().uuidString,request=URL(fileURLWithPath:snapshotPath).deletingLastPathComponent().appendingPathComponent("panel-action.json")

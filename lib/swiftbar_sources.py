@@ -507,7 +507,7 @@ def summary_parts(counted, carried, tally):
     gateway has nothing to show (its card can't count those requests then)."""
     def part(events):
         result = tally(events)
-        return {key:result[key] for key in ('summary', 'days', 'hours', 'firstActivityAt')}
+        return {key:result[key] for key in ('summary', 'models', 'days', 'hours', 'firstActivityAt')}
     return {'counted':part(counted), 'carried':{name:len(events) for name, events in carried.items()},
             'carriedParts':{name:part(events) for name, events in carried.items()}}
 

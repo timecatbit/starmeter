@@ -223,6 +223,25 @@ class WindowsUiTests(unittest.TestCase):
         self.assertEqual(today.index_at(today.square(13).center()),13)
         self.assertIsNone(today.index_at(today.square(20).center()))
 
+    def test_cards_regroup_by_model_and_the_switch_asks_for_another_grouping(self):
+        from PySide6.QtCore import QPoint
+        from PySide6.QtWidgets import QLabel, QToolButton
+        from panel import TrayPanel
+        def card(id,name,sessions=3):
+            return {'id':id,'name':name,'available':True,'tokens':10,'cost':1.0,'requests':2,'unpriced':0,'history':[10],
+                    'models':[{'name':'Claude','tokens':10,'share':1}],'output':1,'sessions':sessions,'status':'已同步','subtitle':''}
+        panel=TrayPanel();self.addCleanup(panel.close)
+        panel.snapshot={'dashboard':{'providers':[card('claude','Claude')],'dates':['11/13'],'rangeKey':'today','grouping':'model',
+                                     'groupings':[{'key':'tool','label':'工具'},{'key':'model','label':'模型'}],
+                                     'cards':[card('model:claude-opus-5-5','Claude Opus 5.5',0)]}}
+        received=[];panel.action.connect(received.append);panel.show_at(QPoint(800,780))
+        texts=[l.text() for l in panel.findChildren(QLabel)]
+        self.assertIn('Claude Opus 5.5',texts);self.assertFalse(any('会话' in t for t in texts),'A model card has no session count')
+        buttons={b.text():b for b in panel.findChildren(QToolButton) if b.objectName()=='segment'}
+        self.assertTrue(buttons['按模型'].isChecked())
+        buttons['按工具'].click()
+        self.assertEqual(received[-1],['set-group','tool'])
+
     def test_estimate_says_known_only_when_part_of_summary_is_missing(self):
         from PySide6.QtCore import QPoint
         from PySide6.QtWidgets import QLabel

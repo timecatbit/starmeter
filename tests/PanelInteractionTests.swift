@@ -334,4 +334,12 @@ let shareCard=ShareCard.make(.card,shareSource,project:Project(name:"Starmeter",
 let clip=shareCard.png().map{ShareCard.pasteboardItem($0)}
 expect(clip.map{Set($0.types)==Set([NSPasteboard.PasteboardType.png,.tiff])}==true,"Copied picture carries PNG and TIFF, not a file URL")
 expect(PanelInteraction.keepsPanelOpen(["retry-claude-usage"]),"Retrying Claude usage keeps the panel open")
+expect(PanelInteraction.keepsPanelOpen(["set-group","model"]),"Choosing how cards group keeps the panel open")
+let toolCardJSON=#"{"id":"claude","name":"Claude","subtitle":"","status":"已同步","available":true,"cost":1,"tokens":10,"requests":2,"output":1,"sessions":3,"unpriced":0,"models":[],"history":[10]}"#
+let modelCardJSON=#"{"id":"model:claude-opus-5-5","name":"Claude Opus 5.5","accent":"claude","subtitle":"","status":"已同步","available":true,"cost":1,"tokens":10,"requests":2,"output":1,"sessions":0,"unpriced":0,"models":[],"history":[]}"#
+let byModel=try JSONDecoder().decode(Dashboard.self,from:Data(("{\"date\":\"2026-11-04\",\"dates\":[\"11/04\"],\"providers\":["+toolCardJSON+"],\"rangeKey\":\"today\",\"rangeLabel\":\"今天\",\"chartUnit\":\"每小时\",\"chartSpan\":\"\",\"chartStatus\":\"\",\"allowCollapse\":true,\"grouping\":\"model\",\"groupings\":[{\"key\":\"tool\",\"label\":\"工具\"},{\"key\":\"model\",\"label\":\"模型\"}],\"cards\":["+modelCardJSON+"]}").utf8))
+expect(byModel.cardList.map{$0.name}==["Claude Opus 5.5"] && byModel.providers.map{$0.name}==["Claude"],"Model cards replace the tool cards while Summary keeps the tools")
+expect(!byModel.collapsible && byModel.cardList[0].colour=="claude" && byModel.cardList[0].grouped,"Grouped cards never fold and take their maker's colour")
+expect(!DashboardView.stats(byModel.cardList[0]).contains("会话") && DashboardView.stats(byModel.providers[0]).contains("3 会话"),"Only tool cards count sessions")
+expect(DashboardView.groupingHeight(byModel)==30,"The grouping switch sits above the cards")
 print("Native interaction assertions: \(assertions) passed")

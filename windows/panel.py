@@ -72,7 +72,8 @@ def card_stats(p):
            '输出 '+tokens(p['output'])]
     if p['id']=='opencodex':
         if (p.get('coverage') or 1)<1:parts.append('已定价 %.0f%%'%(p['coverage']*100))
-    else:parts.append(f"{p['sessions']} 会话")
+    # Model and project cards gather several tools, whose sessions don't add up.
+    elif not p['id'].startswith(('model:','project:')):parts.append(f"{p['sessions']} 会话")
     if p.get('cost') is not None and p.get('credits') is not None:parts.append(credits_text(p['credits']))
     return ' · '.join(parts)
 
@@ -240,7 +241,7 @@ def logo():
 def mark(data):
     """A tool's logo on its card in its own colours (monochrome ones in the text colour); a dot without one."""
     if not data.get('image'):
-        dot=label('●');dot.setStyleSheet('color:'+COLORS.get(data.get('id'),'#437fc4'))
+        dot=label('●');dot.setStyleSheet('color:'+COLORS.get(data.get('accent') or data.get('id'),'#437fc4'))
         dot.setFixedWidth(18);dot.setAlignment(Qt.AlignCenter);return dot
     view=QLabel();view.setPixmap(icon(data).pixmap(16,16));view.setFixedSize(18,18);return view
 
@@ -468,7 +469,7 @@ class Provider(QWidget):
             clients.setWordWrap(True);body.addWidget(clients)
         if not data['models']:
             body.addWidget(label('此时段暂无模型调用' if data['available'] else '模型明细暂不可用','muted'));return
-        color=COLORS.get(data['id'],'#437fc4')
+        color=COLORS.get(data.get('accent') or data['id'],'#437fc4')
         models=QGridLayout();models.setContentsMargins(0,5,0,0);models.setHorizontalSpacing(8);models.setVerticalSpacing(2)
         for i,model in enumerate(data['models']):
             name=Elided(model_name(model['name']));name.setToolTip(model['name'])
@@ -547,6 +548,8 @@ class TrayPanel(QWidget):
             QScrollArea > QWidget > QWidget {{background:transparent;}}
             QToolButton {{padding:3px;border-radius:5px;background:transparent;}}
             QToolButton:hover,QCheckBox:hover {{background:{hover};}}
+            #segment {{border:1px solid {border};border-radius:0;padding:3px 10px;font-size:12px;}}
+            #segment:checked {{background:{hover};font-weight:650;}}
             QComboBox {{border:1px solid {border};border-radius:5px;padding:4px 8px;min-height:18px;background:{surface};}}
             QComboBox QAbstractItemView {{background:{surface};color:{text};selection-background-color:{hover};selection-color:{text};}}
             #muted {{color:{muted};font-size:11px;}} #divider {{background:{divider};}}
@@ -637,9 +640,22 @@ class TrayPanel(QWidget):
             if note:=[n for n in (d.get('chartStatus'),d.get('updated')) if n]:
                 info=label(' · '.join(note),'muted');info.setAlignment(Qt.AlignRight);box.addWidget(info)
         elif d.get('heatmap'):box.addWidget(Heatmap(d['heatmap'],label_column(d)))
+        # The cards can be regrouped by model or project; Summary, the chart and the share picture stay per tool.
+        cards=None if sharing else d.get('cards')
+        options=d.get('groupings') or []
+        if not sharing and len(options)>1 and d['providers']:
+            row=QHBoxLayout();row.setSpacing(0)
+            for option in options:
+                button=QToolButton();button.setText('按'+option['label']);button.setCheckable(True);button.setAutoExclusive(True)
+                button.setObjectName('segment');button.setChecked(option['key']==d.get('grouping','tool'))
+                def choose(_=False,key=option['key']):
+                    if key!=d.get('grouping','tool'):self.action.emit(['set-group',key]);QTimer.singleShot(0,self.flush_pending)
+                button.clicked.connect(choose);row.addWidget(button)
+            row.addStretch(1);box.addLayout(row)
+        if cards is not None and not cards and d['providers']:box.addWidget(label('此时段暂无调用','muted'))
         # Cards are kept apart by space, as on macOS; only the groups below get a rule.
-        for p in d['providers']:
-            box.addWidget(Provider(p,not sharing and d.get('allowCollapse'),p['id'] in d.get('expandedProviders',[]),self.action.emit))
+        for p in (d['providers'] if cards is None else cards):
+            box.addWidget(Provider(p,not sharing and cards is None and d.get('allowCollapse'),p['id'] in d.get('expandedProviders',[]),self.action.emit))
         if sharing:
             box.addWidget(separator())
             # Signed like the Mac picture: the logo, then the name.

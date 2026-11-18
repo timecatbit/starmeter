@@ -3378,18 +3378,70 @@ def panel_title(line):
 
 
 def add_usage(parts):
-    """Tallies of one source's records added up: summary fields, days and hours."""
-    total={'summary':{},'days':{},'hours':{}};first=[p['firstActivityAt'] for p in parts if p.get('firstActivityAt') is not None]
+    """Tallies of one source's records added up: summary fields, models, days and hours."""
+    total={'summary':{},'models':{},'days':{},'hours':{}};first=[p['firstActivityAt'] for p in parts if p.get('firstActivityAt') is not None]
     def add(target,row,skip=()):
         for k,v in row.items():
             if k not in skip and isinstance(v,(int,float)) and not isinstance(v,bool):target[k]=target.get(k,0)+v
     for part in parts:
         add(total['summary'],part.get('summary') or {},('coverageRatio','sessions'))
-        for field,key in (('days','date'),('hours','timestamp')):
+        for field,key in (('models','model'),('days','date'),('hours','timestamp')):
             for row in part.get(field) or []:add(total[field].setdefault(row.get(key),{key:row.get(key)}),row,(key,))
     summary=total['summary']
     summary['coverageRatio']=(summary.get('requests',0)-summary.get('unpricedRequests',0))/max(1,summary.get('requests',0))
-    return {'summary':summary,'days':list(total['days'].values()),'hours':list(total['hours'].values()),'firstActivityAt':min(first) if first else None}
+    return {'summary':summary,'models':list(total['models'].values()),'days':list(total['days'].values()),'hours':list(total['hours'].values()),'firstActivityAt':min(first) if first else None}
+
+
+# The homepage's Harness cards can be grouped another way than one per tool.
+GROUPINGS={'tool':'工具','model':'模型'}
+# Whose mark and colour a model's card takes: the tool or brand its name starts with.
+MODEL_MAKERS=(('claude','claude'),('gpt','codex'),('chatgpt','codex'),('codex','codex'),('o1','codex'),('o3','codex'),('o4','codex'),
+              ('gemini','gemini'),('deepseek','deepseek-harness'),('kimi','kimi-api'),('moonshot','kimi-api'),('grok','grok'),
+              ('minimax','minimax'),('abab','minimax'),('qwen','qoder'),('qfmodel','qoder'),('qoder','qoder'),('composer','cursor'),('cursor','cursor'))
+
+def model_key(name):
+    """One name per model across tools: lower case, without a provider's path or a date stamp."""
+    name=str(name or '').strip().lower().rsplit('/',1)[-1]
+    return re.sub(r'[-@]20[0-9]{6}$','',name) or '未知模型'
+
+def model_title(key):
+    """A model card's name: Claude's family and version (claude-opus-5-5 → Claude Opus 5.5), other names as they are."""
+    match=re.match(r'claude-(opus|sonnet|haiku|fable)-(.+)$',key)
+    return 'Claude '+match.group(1).capitalize()+' '+match.group(2).replace('-','.') if match else key
+
+def model_cards(selected, counting):
+    """One card per model across every tool, as Summary counts: a request a gateway also logged counts once.
+    Under each card, the tools that used the model by their share of its tokens."""
+    groups={}
+    def num(value):
+        try:return max(0.0,float(value or 0))
+        except (TypeError,ValueError):return 0.0
+    for source,label,_ in selected:
+        usage=counting[source]['usage']
+        if not usage or usage.get('error'):continue
+        for row in usage.get('models') or []:
+            key=model_key(row.get('model'));g=groups.setdefault(key,{'tools':{},'tokens':0.0,'cost':0.0,'requests':0,'unpriced':0,'output':0.0,'credits':0.0,'cached':0.0,'inputs':0.0})
+            tokens=num(row.get('totalTokens'));g['tokens']+=tokens;g['cost']+=num(row.get('estimatedCostUsd'))
+            g['requests']+=int(num(row.get('requests')));g['unpriced']+=int(num(row.get('unpricedRequests')));g['output']+=num(row.get('outputTokens'))
+            g['credits']+=num(row.get('credits'));g['cached']+=num(row.get('cacheReadInputTokens') or row.get('cachedInputTokens'))
+            g['inputs']+=num(row.get('cacheEligibleInputTokens',row.get('inputTokens')))
+            g['tools'][label]=g['tools'].get(label,0.0)+(tokens or num(row.get('credits')))
+    cards=[]
+    for key,g in groups.items():
+        if not g['requests']:continue
+        maker=next((tool for prefix,tool in MODEL_MAKERS if key.startswith(prefix)),None)
+        weight=sum(g['tools'].values()) or 1
+        tools=[{'name':name,'tokens':amount if g['tokens'] else 0,'share':min(1,amount/weight),**({'credits':amount} if not g['tokens'] else {})}
+               for name,amount in sorted(g['tools'].items(),key=lambda item:-item[1])[:3]]
+        priced=g['requests']>g['unpriced']
+        cards.append({'id':'model:'+key,'name':model_title(key),**(module_icon(maker) if maker else {'symbol':'cpu'}),'accent':maker,
+                      'subtitle':'','status':'已同步','available':True,'credits':g['credits'] or None,'clients':None,
+                      'cost':g['cost'] if priced else None,'tokens':g['tokens'],'requests':g['requests'],'output':g['output'],
+                      'cache':min(1,g['cached']/g['inputs']) if g['inputs'] else None,'coverage':None,'sessions':0,'unpriced':g['unpriced'],
+                      'models':tools,'history':[],'summaryIncluded':False,
+                      'priceNote':'%d 次未定价'%g['unpriced'] if 0<g['unpriced']<g['requests'] and not g['credits'] else None,
+                      **({'status':'费用待定价'} if not priced and not g['credits'] else {})})
+    return sorted(cards,key=lambda c:(-(c['cost'] or 0),-c['tokens'],-(c['credits'] or 0)))
 
 
 def summary_usage(selected):
@@ -3607,7 +3659,10 @@ def dashboard_payload(data):
     if reads:
         read=datetime.fromtimestamp(min(reads),now.tzinfo)
         updated='更新时间：'+read.strftime('%H:%M' if read.date()==now.date() else '%m/%d %H:%M')
+    grouping=view_settings()['groupBy'] if view_settings()['groupBy'] in GROUPINGS else 'tool'
+    cards=model_cards(selected,counting) if grouping=='model' and bundle else None
     return {'date':now.date().isoformat(),'dates':labels,'providers':providers,'rangeKey':key,'rangeLabel':RANGES[key],
+            'grouping':grouping,'groupings':[{'key':k,'label':v} for k,v in GROUPINGS.items()],'cards':cards,
             'chartUnit':unit,'chartSpan':span,'period':period,'chartStatus':chart_status,'updated':updated,'chartPositions':chart_positions,
             'heatmap':heatmap_payload(bundle,key,now,selected,data.get('range_usage_error')) if module_enabled('heatmap') and selected else None,
             'showSummary':module_enabled('summary'),'allowCollapse':view_settings()['allowCollapse'],'expandedProviders':view_settings()['expandedProviders']}
@@ -3963,6 +4018,10 @@ def run_action(name, extra):
         chosen=choose_local_path(prompt,folder=True)
         if chosen:
             preferences.update(STATE_DIR,'path',key,chosen);schedule_background_refresh()
+    elif name == "set-group":
+        key=extra[0] if len(extra)==1 else ''
+        if key not in GROUPINGS:raise ValueError('invalid grouping')
+        preferences.update(STATE_DIR,'group',key)
     elif name == "set-range":
         key=extra[0] if extra else "today"
         if key not in RANGES:raise ValueError("invalid range")
@@ -4102,7 +4161,7 @@ def consume_panel_action():
         snapshot=read_cache("panel-view")
         nodes = list(snapshot.get("entries") or [])+list(snapshot.get("rangeOptions") or [])+list(snapshot.get("moduleOptions") or [])
         # Header buttons beside Summary are always present, so their actions are always allowed.
-        allowed = [["refresh-view"], ["refresh"], ["detect-modules"]]
+        allowed = [["refresh-view"], ["refresh"], ["detect-modules"]] + [["set-group", key] for key in GROUPINGS]
         dashboard=snapshot.get('dashboard') or {}
         if dashboard.get('allowCollapse'):
             allowed.extend([['set-expanded',p['id'],value] for p in dashboard.get('providers',[]) if p.get('id') in preferences.USAGE for value in ('true','false')])
