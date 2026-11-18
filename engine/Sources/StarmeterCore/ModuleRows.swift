@@ -52,7 +52,8 @@ extension Runtime {
             : Py.str(payload["state"] ?? .string("暂无本机用量快照"))
         if !windows.isEmpty && stale { value = live ? "用量待更新" : "本机用量待更新" }
         let failed = Runtime.refreshFailed(error)
-        if failed { value = "刷新失败" }
+        // Like every other module: the last good figures stay, marked as a failed refresh.
+        value = Runtime.withFailure(value, !windows.isEmpty && !stale, failed)
         let source = ["claude-oauth": "Code 登录", "live": "App 登录 · 手动查询", "claude-code": "Code 本机回传", "app-snapshot": "App 本机快照"][payload["source"]?.string ?? ""] ?? "Claude App 本机快照"
         let most = windows.map { Py.num($0["used"]) }.max() ?? 0
         var rows = [Runtime.item("Claude 订阅", Runtime.merged(["badge": .string(value)], brandIcon("claude-subscription"),

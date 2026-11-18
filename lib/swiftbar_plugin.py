@@ -1750,7 +1750,8 @@ def claude_subscription_lines(data):
     value='已用 '+' · '.join(w['label']+' %g%%'%w['used'] for w in windows[:2]) if windows and not stale else payload.get('state','暂无本机用量快照')
     if windows and stale:value='用量待更新' if live else '本机用量待更新'
     failed=refresh_failed(error)
-    if failed:value='刷新失败'
+    # Like every other module: the last good figures stay, marked as a failed refresh.
+    value=with_failure(value,bool(windows) and not stale,failed)
     source={'claude-oauth':'Code 登录','live':'App 登录 · 手动查询','claude-code':'Code 本机回传','app-snapshot':'App 本机快照'}.get(payload.get('source'),'Claude App 本机快照')
     rows=[item('Claude 订阅',badge=value,**brand_icon('claude-subscription'),panelusagelevel=usage_level(max((w['used'] for w in windows),default=0),stale or failed or not windows)),
           item('来源 · '+source,level=1,color=MUTED,size=10)]

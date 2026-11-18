@@ -194,6 +194,12 @@ class DesktopTests(unittest.TestCase):
   # Statusline readings carry no length; the label tells it.
   local={'source':'claude-code','updatedAt':now,'stale':False,'windows':[{'label':'5 小时','used':80,'resetsAt':reset(now+5*3600/2)}]}
   self.assertTrue(details(local)['5 小时'].endswith('比匀速多用 30%'))
+ def test_a_failed_read_keeps_the_last_figures(self):
+  now=self.m.time.time()
+  payload={'source':'claude-oauth','updatedAt':now,'_fetchedAt':now,'windows':[{'label':'本周','used':39,'resetsAt':now+86400}]}
+  with patch.object(self.m,'claude_usage_stale',return_value=False):
+   row=self.m.panel_entries(self.m.claude_subscription_lines({'claude_subscription':payload,'claude_subscription_error':'HTTP 503'}))[0]
+  self.assertEqual(row['value'],'已用 本周 39% · 刷新失败')
  def test_chatgpt_and_minimax_windows_show_their_pace(self):
   now=self.m.time.time()
   minimax={'_fetchedAt':now,'windows':[{'name':'general · 滚动额度','remaining':20,'startsAt':now-9000,'resetsAt':now+9000},{'name':'general · 本周额度','remaining':90,'resetsAt':now+86400}]}
