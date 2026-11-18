@@ -152,7 +152,7 @@ extension Runtime {
         var children: [JSON] = []
         if !proxy {
             children.append(["label": .string("当前来源 · " + (chatgptSource() == "proxy" ? "OpenCodex 账户" : "本机 ChatGPT 登录")), "children": []])
-            children.append(["label": "跟随 OpenCodex 勾选", "children": []])
+            children.append(["label": "勾选 OpenCodex 后改用 OpenCodex 账户", "children": []])
             if chatgptSource() == "proxy" { children.append(Runtime.locationEntry("账户管理地址", [base])) }
             children.append(["label": "", "separator": true, "children": []])
         }
@@ -215,13 +215,21 @@ extension Runtime {
         } else if key == "minimax" {
             let file = environment["MINIMAX_API_KEY_FILE"] ?? ""
             children = configured && !file.isEmpty ? [Runtime.locationEntry("密钥文件", [Runtime.absolute(Paths.expandUser(file))])] : []
-            children += [["label": "选择密钥文件…", "action": ["configure-connection", .string(key)], "children": []],
-                         ["label": "清除连接设置…", "action": ["clear-connection", .string(key)], "children": []],
-                         ["label": "打开用量与账单", "symbol": "arrow.up.right", "href": .string(service!.url), "children": []]]
+            children.append(["label": "选择密钥文件…", "action": ["configure-connection", .string(key)], "children": []])
+            if configured { children.append(["label": "清除连接设置…", "action": ["clear-connection", .string(key)], "children": []]) }
+            children.append(["label": "打开用量与账单", "symbol": "arrow.up.right", "href": .string(service!.url), "children": []])
+        } else if key == "qoder-subscription" {
+            // Read from the Qoder CN app's own log, nothing to set up: where it reads, and how to bring it up to date.
+            let roots = Qoder.logRoots(home: home, environment: environment), found = roots.filter(Harness.isDirectory)
+            children = [["label": "来源 · Qoder CN 桌面 App 的本机日志", "children": []],
+                        ["label": "在 Qoder CN 窗口右下角打开 Credits 用量后更新", "children": []],
+                        Runtime.locationEntry("日志目录", found.isEmpty ? [roots[0]] : found)]
+            if let app = updateAppPath("qoder") { children.append(["label": "打开 Qoder CN", "symbol": "macwindow", "href": .string(fileHref(app)), "children": []]) }
+            children.append(["label": "打开订阅用量", "symbol": "arrow.up.right", "href": .string(service!.url), "children": []])
         } else {
             children = configured ? [Runtime.locationEntry("面板地址", [komariBaseURL])] : []
-            children += [["label": "设置面板地址…", "action": ["configure-connection", .string(key)], "children": []],
-                         ["label": "清除连接设置…", "action": ["clear-connection", .string(key)], "children": []]]
+            children.append(["label": "设置面板地址…", "action": ["configure-connection", .string(key)], "children": []])
+            if configured { children.append(["label": "清除连接设置…", "action": ["clear-connection", .string(key)], "children": []]) }
         }
         let symbol = key == "komari" ? "server.rack" : service?.category == "订阅" ? "person.crop.circle" : "key"
         return ["label": .string(service?.label ?? "Komari 监控"), "value": value, "symbol": .string(symbol), "children": .array(children)]

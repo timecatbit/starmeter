@@ -2901,7 +2901,7 @@ def client_connection_entry(key):
     children=[]
     if not proxy:
         children.append({'label':'当前来源 · '+('OpenCodex 账户' if chatgpt_source()=='proxy' else '本机 ChatGPT 登录'),'children':[]})
-        children.append({'label':'跟随 OpenCodex 勾选','children':[]})
+        children.append({'label':'勾选 OpenCodex 后改用 OpenCodex 账户','children':[]})
         if chatgpt_source()=='proxy':children.append(location_entry('账户管理地址',[BASE]))
         children.append({'label':'','separator':True,'children':[]})
     children.append(location_entry('配置目录' if proxy else '本机登录目录',[root]))
@@ -3002,13 +3002,22 @@ def service_connection_entry(key,data=None):
                          {'label':'打开订阅管理','symbol':'arrow.up.right','href':service.url,'children':[]}])
     elif key=='minimax':
         children=[location_entry('密钥文件',[os.path.abspath(os.path.expanduser(os.environ['MINIMAX_API_KEY_FILE']))])] if configured and os.environ.get('MINIMAX_API_KEY_FILE') else []
-        children.extend([{'label':'选择密钥文件…','action':['configure-connection',key],'children':[]},
-                         {'label':'清除连接设置…','action':['clear-connection',key],'children':[]},
-                         {'label':'打开用量与账单','symbol':'arrow.up.right','href':service.url,'children':[]}])
+        children.append({'label':'选择密钥文件…','action':['configure-connection',key],'children':[]})
+        if configured:children.append({'label':'清除连接设置…','action':['clear-connection',key],'children':[]})
+        children.append({'label':'打开用量与账单','symbol':'arrow.up.right','href':service.url,'children':[]})
+    elif key=='qoder-subscription':
+        # Read from the Qoder CN app's own log, nothing to set up: where it reads, and how to bring it up to date.
+        roots=[str(root) for root in qoder.log_roots(HOME)];found=[root for root in roots if os.path.isdir(root)]
+        children=[{'label':'来源 · Qoder CN 桌面 App 的本机日志','children':[]},
+                  {'label':'在 Qoder CN 窗口右下角打开 Credits 用量后更新','children':[]},
+                  location_entry('日志目录',found or roots[:1])]
+        app=update_app_path('qoder')
+        if app:children.append({'label':'打开 Qoder CN','symbol':'macwindow','href':'file://'+urllib.parse.quote(app),'children':[]})
+        children.append({'label':'打开订阅用量','symbol':'arrow.up.right','href':service.url,'children':[]})
     else:
         children=[location_entry('面板地址',[KOMARI_BASE_URL])] if configured else []
-        children.extend([{'label':'设置面板地址…','action':['configure-connection',key],'children':[]},
-                         {'label':'清除连接设置…','action':['clear-connection',key],'children':[]}])
+        children.append({'label':'设置面板地址…','action':['configure-connection',key],'children':[]})
+        if configured:children.append({'label':'清除连接设置…','action':['clear-connection',key],'children':[]})
     return {'label':service.label if service else 'Komari 监控','value':'已配置' if configured else '未配置',
             'symbol':'server.rack' if key=='komari' else 'person.crop.circle' if service.category=='订阅' else 'key','children':children}
 

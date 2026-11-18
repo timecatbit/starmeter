@@ -76,6 +76,15 @@ class CatalogTests(unittest.TestCase):
                 self.assertNotIn('PRIVATE-KEY',json.dumps(self.m.service_connection_entry(key)))
             network.assert_not_called()
         self.assertFalse(any(e.get('section') for e in rows));self.assertEqual(sum(1 for e in rows if e.get('separator')),2)
+    def test_settings_offer_only_what_applies(self):
+        # Qoder CN is read from its app's log: no address to set or clear. Nothing set, nothing to clear.
+        qoder=json.dumps(self.m.service_connection_entry('qoder-subscription'),ensure_ascii=False)
+        self.assertIn('日志目录',qoder);self.assertNotIn('面板地址',qoder);self.assertNotIn('clear-connection',qoder)
+        with patch.object(self.m,'connection_ready',return_value=False):
+            for key in ('minimax','komari'):
+                self.assertNotIn('clear-connection',json.dumps(self.m.service_connection_entry(key)))
+        with patch.object(self.m,'connection_ready',return_value=True):
+            self.assertIn('clear-connection',json.dumps(self.m.service_connection_entry('minimax')))
     def test_key_file_reference_is_private_and_shown_without_contents(self):
         key=self.root/'provider-key';key.write_text('SECRET-NEVER-DISPLAY')
         with patch.dict(os.environ,{'MOONSHOT_API_KEY_FILE':str(key)}):
