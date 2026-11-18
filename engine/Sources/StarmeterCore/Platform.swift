@@ -115,7 +115,7 @@ public enum Platform {
         guard let handle = OpenProcess(DWORD(PROCESS_QUERY_LIMITED_INFORMATION), false, DWORD(pid)) else { return false }
         defer { CloseHandle(handle) }
         var code: DWORD = 0
-        return GetExitCodeProcess(handle, &code) && code == DWORD(STILL_ACTIVE)
+        return GetExitCodeProcess(handle, &code) && code == 259  // STILL_ACTIVE
         #else
         return Darwin_or_Glibc_kill(pid_t(pid), 0) == 0
         #endif

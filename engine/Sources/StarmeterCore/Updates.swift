@@ -81,9 +81,13 @@ public enum Updates {
     }
 
     static var machine: String {
+        #if os(Windows)
+        return "x86_64"
+        #else
         var info = utsname()
         uname(&info)
         return withUnsafeBytes(of: &info.machine) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+        #endif
     }
 
     static var macVersion: String {
