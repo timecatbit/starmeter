@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Standalone Token Monitor tray host. SwiftBar and its scripts aren't involved."""
+"""Standalone Starmeter tray host. SwiftBar and its scripts aren't involved."""
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 import os
@@ -31,7 +31,7 @@ class Desktop(QObject):
         self.app=app;self.m=backend;self.state=state;backend.DESKTOP=self
         self.windows={}
         self.gui_thread=threading.get_ident()
-        self.pool=ThreadPoolExecutor(max_workers=1,thread_name_prefix='token-monitor')
+        self.pool=ThreadPoolExecutor(max_workers=1,thread_name_prefix='starmeter')
         self.visible=False;self.running=False;self.pending=False;self.revision=0
         self.initialized=False;self.updating=set();self.exiting=False;self.reported_failure=False
         try:self.zone=get_localzone()
@@ -42,13 +42,13 @@ class Desktop(QObject):
         self.panel.shown.connect(self.visibility);self.panel.share.connect(self.share)
         self.ready.connect(self.publish);self.message.connect(self.show_notice);self.wake.connect(self.request_refresh)
         self.command_done.connect(self.finish_command)
-        self.tray=QSystemTrayIcon(logo(),self);self.tray.setToolTip('Token Monitor')
+        self.tray=QSystemTrayIcon(logo(),self);self.tray.setToolTip('Starmeter')
         self.tray.activated.connect(self.tray_action)
         self.tray.messageClicked.connect(lambda:self.open_panel())
         self.menu=QMenu()
         self.menu.addAction('主页模块…',lambda:self.open_panel(manager=True))
         self.menu.addAction('自动检测…',lambda:self.action(['detect-modules']))
-        self.menu.addAction('关于 Token Monitor '+backend.VERSION,lambda:self.open_link(backend.REPOSITORY+'/releases'))
+        self.menu.addAction('关于 Starmeter '+backend.VERSION,lambda:self.open_link(backend.REPOSITORY+'/releases'))
         self.menu.addSeparator()
         self.startup=self.menu.addAction('登录 Windows 时启动');self.startup.setCheckable(True)
         self.startup.triggered.connect(self.set_autostart)
@@ -78,7 +78,7 @@ class Desktop(QObject):
     def exit_requested(self):
         if self.updating:
             for key in self.updating:self.windows[key].showNormal()
-            self.error('CLI 正在更新','更新完成后再退出 Token Monitor。')
+            self.error('CLI 正在更新','更新完成后再退出 Starmeter。')
             return
         self.app.quit()
 
@@ -264,7 +264,7 @@ class Desktop(QObject):
         return {first[0]:first[1],second[0]:second[1]}.get(label) if ok else None
 
     def confirm(self,title,detail,accept):
-        box=QMessageBox(QMessageBox.Question,'Token Monitor',title,parent=self.panel)
+        box=QMessageBox(QMessageBox.Question,'Starmeter',title,parent=self.panel)
         from PySide6.QtCore import Qt
         box.setTextFormat(Qt.PlainText)
         box.setInformativeText(detail)
@@ -290,7 +290,7 @@ class Desktop(QObject):
 
     def show_notice(self,subtitle,body):
         if self.tray.isVisible():
-            self.tray.showMessage('Token Monitor'+(' · '+subtitle if subtitle else ''),body,self.tray.icon())
+            self.tray.showMessage('Starmeter'+(' · '+subtitle if subtitle else ''),body,self.tray.icon())
 
     def share_image(self):
         # A separate view captures the full scrollable content, not the screen behind the panel.
@@ -311,7 +311,7 @@ class Desktop(QObject):
             clipboard=self.app.clipboard();clipboard.setImage(pic)
             self.panel.copied_result(clipboard.mimeData().hasImage());return
         self.panel.interacting+=1
-        try:path,_=QFileDialog.getSaveFileName(self.panel,'保存用量图','Token Monitor.png','PNG 图片 (*.png)')
+        try:path,_=QFileDialog.getSaveFileName(self.panel,'保存用量图','Starmeter.png','PNG 图片 (*.png)')
         finally:self.panel.interacting-=1
         self.panel.flush_pending()
         if path:
@@ -381,7 +381,7 @@ def self_test(app,m,state,render_path=None):
     # Opening the panel queued another refresh; let it finish writing into the temporary state before
     # that directory is removed, or the removal races it ("Directory not empty").
     desktop.quit();desktop.pool.shutdown(wait=True);lock.unlock()
-    if sys.stdout is not None:print('Token Monitor smoke test OK',flush=True)
+    if sys.stdout is not None:print('Starmeter smoke test OK',flush=True)
 
 
 def main():
@@ -393,13 +393,13 @@ def main():
     if os.name=='nt':
         import ctypes
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('timecatbit.TokenMonitor')
-    app=QApplication(sys.argv[:1]);app.setQuitOnLastWindowClosed(False);app.setApplicationName('Token Monitor');app.setWindowIcon(logo())
+    app=QApplication(sys.argv[:1]);app.setQuitOnLastWindowClosed(False);app.setApplicationName('Starmeter');app.setWindowIcon(logo())
     if os.name=='nt':
         # The text is Simplified Chinese. Without a named CJK face, Windows outside a Chinese locale falls
         # back to a Japanese font, which lacks forms like 请 and 时 and draws the rest in Japanese shapes.
         font=app.font();font.setFamilies(['Segoe UI','Microsoft YaHei UI','Microsoft YaHei']);app.setFont(font)
     if options.self_test:
-        with tempfile.TemporaryDirectory(prefix='token-monitor-smoke-') as temp:
+        with tempfile.TemporaryDirectory(prefix='starmeter-smoke-') as temp:
             state=Path(temp)
             for key in list(os.environ):
                 if key.startswith(('OCX_','MAGPIE_','KOMARI_','CODEX_','CLAUDE_')):os.environ.pop(key)
@@ -409,17 +409,17 @@ def main():
             self_test(app,m,state,options.preview)
         return 0
     if os.name!='nt':
-        QMessageBox.warning(None,'Token Monitor','这是 Windows 托盘版。macOS 请使用 SwiftBar 版本。');return 2
+        QMessageBox.warning(None,'Starmeter','这是 Windows 托盘版。macOS 请使用 SwiftBar 版本。');return 2
     state=host.state_dir();state.mkdir(parents=True,exist_ok=True);host.prepare_environment(state)
     lock=single_instance(state)
     if lock is None:
-        if not options.background:QMessageBox.information(None,'Token Monitor','已在运行，请点任务栏右下角的星星。')
+        if not options.background:QMessageBox.information(None,'Starmeter','已在运行，请点任务栏右下角的星星。')
         return 0
     # The installer and uninstaller look for this name (AppMutex) and ask to quit the tray first.
     # Windows releases the handle when the process exits.
     ctypes.windll.kernel32.CreateMutexW(None,False,'TokenMonitorTray')
     if not QSystemTrayIcon.isSystemTrayAvailable():
-        QMessageBox.warning(None,'Token Monitor','未找到系统托盘，请登录 Windows 桌面后重试。');return 2
+        QMessageBox.warning(None,'Starmeter','未找到系统托盘，请登录 Windows 桌面后重试。');return 2
     import swiftbar_plugin as m
     desktop=Desktop(app,m,state);desktop.start(options.background)
     return app.exec()

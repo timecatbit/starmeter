@@ -10,9 +10,10 @@ import subprocess
 import sys
 import uuid
 
-ENTRY = 'token-monitor.30s.sh'
-# Earlier releases: the old entry name and a visible assets folder, which SwiftBar ran as plugins.
-LEGACY = [Path('opencodex.30s.sh'), Path('assets/deepseek-logo.svg'), Path('assets/deepseek-logo.png'), Path('assets/logos')]
+ENTRY = 'starmeter.30s.sh'
+# Earlier releases: the old entry names (OpenCodex, then Token Monitor) and a visible assets folder,
+# which SwiftBar ran as plugins.
+LEGACY = [Path('opencodex.30s.sh'), Path('token-monitor.30s.sh'), Path('assets/deepseek-logo.svg'), Path('assets/deepseek-logo.png'), Path('assets/logos')]
 LEGACY_DATA = ('auto-update.json', 'updates-notified.json')
 HERE = Path(__file__).resolve().parent
 BACKUPS = Path.home() / 'Library/Application Support/SwiftBarToken/backups'

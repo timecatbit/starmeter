@@ -9,7 +9,7 @@ on:
       - "windows/**"
       - "lib/**"
       - "assets/**"
-      - "token-monitor.30s.sh"
+      - "starmeter.30s.sh"
       - "tests/test_windows.py"
       - ".github/workflows/windows.yml"
   pull_request:
@@ -17,7 +17,7 @@ on:
       - "windows/**"
       - "lib/**"
       - "assets/**"
-      - "token-monitor.30s.sh"
+      - "starmeter.30s.sh"
       - "tests/test_windows.py"
       - ".github/workflows/windows.yml"
   workflow_dispatch:

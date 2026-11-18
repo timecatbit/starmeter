@@ -128,7 +128,7 @@ def retry_seconds(headers,now=None):
 
 def query_usage(token):
     request=urllib.request.Request(URL,headers={'Authorization':'Bearer '+token,
-        'anthropic-beta':'oauth-2025-04-20','Accept':'application/json','User-Agent':'SwiftBarTokenMonitor/5.10.0'})
+        'anthropic-beta':'oauth-2025-04-20','Accept':'application/json','User-Agent':'Starmeter'})
     try:
         with urllib.request.build_opener(NoRedirect).open(request,timeout=12) as response:
             if 'application/json' not in response.headers.get('Content-Type',''):raise OAuthError('format','用量接口返回格式异常')

@@ -1,11 +1,13 @@
-<img src="assets/token-monitor.svg" width="96" height="96" alt="Token Monitor 标志">
+<img src="assets/starmeter.svg" width="96" height="96" alt="Starmeter 标志">
 
-# Token Monitor
+# Starmeter
 
 macOS 菜单栏与 Windows 托盘应用：在一个面板里查看各 AI 编程工具的 Token 用量和 API 等值费用，以及订阅额度、API 余额和客户端更新。
 
+原名 Token Monitor。已安装的旧版照常收到更新，设置和 Key 都会保留。
+
 <p align="center">
-  <img src="preview.png" width="360" alt="Token Monitor 主页：Summary、用量热力图、各工具用量、订阅、API 余额与更新提醒">
+  <img src="preview.png" width="360" alt="Starmeter 主页：Summary、用量热力图、各工具用量、订阅、API 余额与更新提醒">
 </p>
 
 ## 能看什么
@@ -19,7 +21,7 @@ macOS 菜单栏与 Windows 托盘应用：在一个面板里查看各 AI 编程�
 
 ## 下载与安装
 
-从 [最新发布页](https://github.com/timecatbit/swiftbar-token-monitor/releases/latest) 下载一个文件即可。发布页附件列表显示的是下表第二列的名字，下载后的文件名在第三列（X.Y.Z 是版本号）。
+从 [最新发布页](https://github.com/timecatbit/starmeter/releases/latest) 下载一个文件即可。发布页附件列表显示的是下表第二列的名字，下载后的文件名在第三列（X.Y.Z 是版本号）。
 
 | 你的电脑 | 发布页上的名字 | 文件名 |
 | --- | --- | --- |
@@ -41,7 +43,7 @@ macOS 菜单栏与 Windows 托盘应用：在一个面板里查看各 AI 编程�
 | 取舍 | 预览未公证，首次可能要手动放行；新版需下载 DMG 替换应用 | 需先装 SwiftBar 和 Python 3.9+；安装时要在终端运行一次脚本 |
 | 适合 | 想试用不依赖 SwiftBar 的独立应用 | 已经在用 SwiftBar，并希望保留现有插件管理方式 |
 
-**独立版**：打开 DMG，把 **Token Monitor** 拖到 **应用程序**，推出镜像，再从应用程序打开。**预览未做 Apple 公证**。若首次打开被拦，确认下载自项目发布页后，到「系统设置 → 隐私与安全性 → 仍要打开」。受公司管理的 Mac 可能无法放行。两版共用本机设置和 Key；从插件切换到独立版时，先在 SwiftBar 停用本插件，避免两个星星和重复提醒。见 [Mac 安装说明](macos/README.md)。
+**独立版**：打开 DMG，把 **Starmeter** 拖到 **应用程序**，推出镜像，再从应用程序打开。**预览未做 Apple 公证**。若首次打开被拦，确认下载自项目发布页后，到「系统设置 → 隐私与安全性 → 仍要打开」。受公司管理的 Mac 可能无法放行。两版共用本机设置和 Key；从插件切换到独立版时，先在 SwiftBar 停用本插件，避免两个星星和重复提醒。见 [Mac 安装说明](macos/README.md)。
 
 **插件版**：先安装 [SwiftBar](https://github.com/swiftbar/SwiftBar/releases/latest)（也可用 `brew install --cask swiftbar`），首次打开时选定插件目录。再下载并解压发布页上的 **Mac · SwiftBar plugin**，进入解压后的目录运行：
 
@@ -53,7 +55,7 @@ python3 install.py
 
 ## 更新
 
-- **SwiftBar 插件**：有新版本时，主页“Harness 更新”下方会出现一行 **Token Monitor · 可更新**。点“更新到 X.Y.Z”，确认后插件自动下载、校验并安装，设置、Key 和统计记录都会保留。没有新版本时这一行不显示。
+- **SwiftBar 插件**：有新版本时，主页“Harness 更新”下方会出现一行 **Starmeter · 可更新**。点“更新到 X.Y.Z”，确认后插件自动下载、校验并安装，设置、Key 和统计记录都会保留。没有新版本时这一行不显示。
 - **Mac 独立版**：有适用当前芯片的新版本时，面板会链接到发布页。退出旧版，下载同芯片的新 DMG，再替换「应用程序」里的 App。
 - **价格表**：每天自动更新，新模型的价格不用等插件发版。
 

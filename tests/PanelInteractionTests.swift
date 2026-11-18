@@ -37,7 +37,7 @@ var busy=PanelInteraction(source:initial)
 expect(busy.submit(["refresh-source","komari"]) == .start,"Resource check starts")
 expect(busy.submit(["set-range","7d"]) == .queued,"Range click must not disappear during resource check")
 expect(busy.submit(["refresh-view"]) == .ignored,"An automatic check cannot queue ahead of user actions")
-expect(PanelInteraction.swiftBarName("/Users/a/软件:配置/swiftbar/token-monitor.30s.sh")=="token-monitor","Panel wakes SwiftBar by the plugin name every version matches")
+expect(PanelInteraction.swiftBarName("/Users/a/软件:配置/swiftbar/starmeter.30s.sh")=="starmeter","Panel wakes SwiftBar by the plugin name every version matches")
 expect(PanelInteraction.mayExpire(["refresh-source","komari"],claimed:true),"A lost automatic receipt cannot stall the panel")
 expect(PanelInteraction.mayExpire(["reauthorize-claude-oauth"],claimed:false),"An unclaimed authorization click can time out")
 expect(!PanelInteraction.mayExpire(["reauthorize-claude-oauth"],claimed:true),"A visible authorization prompt can wait for a decision")
@@ -308,7 +308,7 @@ expect(abs(ShareCard.topBand*393/ShareCard.width-59)<0.5 && ShareCard.bottomBand
 let patch=NSRect(x:0,y:0,width:100,height:50)
 expect(ShareCard.fade(.down,x:0,y:0,in:patch)==1 && ShareCard.fade(.up,x:0,y:50,in:patch)==1 && ShareCard.fade(.left,x:100,y:0,in:patch)==1 && ShareCard.fade(.left,x:0,y:0,in:patch)==0,"A pattern is strongest at the edge it grows from and gone at the far one")
 for style in ShareCard.Style.allCases {
-    expect(ShareCard.make(style,heatData,project:Project(name:"Token Monitor",url:"https://example.com")).frame.height>ShareCard.make(style,withoutHeatmap,project:Project(name:"Token Monitor",url:"https://example.com")).frame.height,"The share picture carries the heatmap: "+style.title)
+    expect(ShareCard.make(style,heatData,project:Project(name:"Starmeter",url:"https://example.com")).frame.height>ShareCard.make(style,withoutHeatmap,project:Project(name:"Starmeter",url:"https://example.com")).frame.height,"The share picture carries the heatmap: "+style.title)
 }
 heatData.allowCollapse=true
 let heatFold=DashboardView(heatData,width:344).subviews.compactMap{$0 as? DisclosureButton}.first!
@@ -324,13 +324,13 @@ expect(!MenuLayout.aiming(from:NSPoint(x:330,y:480),to:NSPoint(x:332,y:479),flyo
 // The share picture is opaque, signed, and lists every source that has data.
 var shareSource=grouped;shareSource.providers[0].available=false
 for style in ShareCard.Style.allCases {
-    let card=ShareCard.make(style,shareSource,project:Project(name:"Token Monitor",url:"https://github.com/timecatbit/swiftbar-token-monitor"))
+    let card=ShareCard.make(style,shareSource,project:Project(name:"Starmeter",url:"https://github.com/timecatbit/starmeter"))
     expect(card.dashboard.providers.allSatisfy{$0.available} && card.dashboard.providers.count==shareSource.providers.filter{$0.available}.count,"Share \(style) keeps every source with data, as the panel does")
     let picture=card.png().flatMap{NSBitmapImageRep(data:$0)}
     expect(card.bounds.height>200 && picture?.pixelsWide==Int(card.bounds.width*2) && picture?.hasAlpha==true && picture.map{$0.colorAt(x:2,y:2)?.alphaComponent==1} == true,"Share \(style) picture is a 2x opaque PNG")
 }
 expect(ShareCard.Style.allCases.map{$0.title}==["卡片风格","终端风格"],"People pick the card or the terminal style when they share")
-let shareCard=ShareCard.make(.card,shareSource,project:Project(name:"Token Monitor",url:"https://github.com/timecatbit/swiftbar-token-monitor"))
+let shareCard=ShareCard.make(.card,shareSource,project:Project(name:"Starmeter",url:"https://github.com/timecatbit/starmeter"))
 let clip=shareCard.png().map{ShareCard.pasteboardItem($0)}
 expect(clip.map{Set($0.types)==Set([NSPasteboard.PasteboardType.png,.tiff])}==true,"Copied picture carries PNG and TIFF, not a file URL")
 expect(PanelInteraction.keepsPanelOpen(["retry-claude-usage"]),"Retrying Claude usage keeps the panel open")

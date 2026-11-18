@@ -1,6 +1,6 @@
 # Windows runtime notices
 
-Token Monitor is MIT-licensed. The Windows folder build loads the PySide6,
+Starmeter is MIT-licensed. The Windows folder build loads the PySide6,
 Shiboken and Qt shared libraries separately (LGPL-3.0). You can replace
 those libraries with your own compatible builds. See licenses/ for the
 LGPL-3.0 and GPL-3.0 texts (licenses/LGPL-3.0.txt, licenses/GPL-3.0.txt),

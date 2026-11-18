@@ -416,7 +416,7 @@ class ShareCard:FlippedView {
     static let dollars:NumberFormatter={let f=NumberFormatter();f.numberStyle = .decimal;f.minimumFractionDigits=2;f.maximumFractionDigits=2;f.locale=Locale(identifier:"en_US");return f}()
     func amount(_ p:ProviderUsage)->String {p.cost.flatMap{Self.dollars.string(from:NSNumber(value:$0))}.map{"$"+$0} ?? headline(p)}
     // The app icon signs the picture: its tile only, without the margin the macOS icon grid leaves around it (100 of 1024).
-    private static let logo=Bundle.main.image(forResource:"TokenMonitor")
+    private static let logo=Bundle.main.image(forResource:"Starmeter")
     func brandMark(_ rect:NSRect){
         guard let logo=Self.logo else{return}
         let margin=logo.size.width*100/1024
@@ -787,11 +787,11 @@ final class TerminalShareCard:ShareCard {
         for (i,light) in [Self.rgb(1,0.37,0.34),Self.rgb(1,0.74,0.18),Self.rgb(0.16,0.78,0.25)].enumerated(){
             light.setFill();NSBezierPath(ovalIn:NSRect(x:window.minX+14+CGFloat(i)*18,y:window.minY+Self.titleBar/2-6,width:12,height:12)).fill()
         }
-        draw("token-monitor — usage",x:window.minX,middle:window.minY+Self.titleBar/2,width:window.width,mono(11,.medium),c.muted,.center)
+        draw("starmeter — usage",x:window.minX,middle:window.minY+Self.titleBar/2,width:window.width,mono(11,.medium),c.muted,.center)
         let left=window.minX+Self.pad,width=window.width-Self.pad*2,right=left+width
         var y=window.minY+Self.titleBar+Self.pad
         let flag=["today":"today","24h":"24h","7d":"7d","30d":"30d","week":"week","month":"month","all":"all"][dashboard.rangeKey] ?? dashboard.rangeKey
-        prompt("token-monitor usage --range "+flag,x:left,middle:y+9,cursor:false,c)
+        prompt("starmeter usage --range "+flag,x:left,middle:y+9,cursor:false,c)
         y+=32
         // Title, and the dates it covers in a bracket-like tag.
         let span=Self.span(dashboard),spanFont=mono(10.5,.semibold),tag=NSRect(x:right-min(width*0.62,measure(span,spanFont)+18),y:y,width:min(width*0.62,measure(span,spanFont)+18),height:24)
@@ -1707,13 +1707,13 @@ final class HoverIntent {
 // The standalone app uses the same snapshots and action receipts as the SwiftBar helper.
 final class MacHost {
     private let worker:URL
-    private let refreshQueue=DispatchQueue(label:"token-monitor.refresh",qos:.utility)
-    private let actionQueue=DispatchQueue(label:"token-monitor.actions",qos:.userInitiated)
+    private let refreshQueue=DispatchQueue(label:"starmeter.refresh",qos:.utility)
+    private let actionQueue=DispatchQueue(label:"starmeter.actions",qos:.userInitiated)
     private var running=false
     private var refreshAgain=false
     var snapshotPath:String?
     init?(bundle:Bundle) {
-        guard let url=bundle.url(forResource:"token-monitor-worker",withExtension:"sh") else{return nil}
+        guard let url=bundle.url(forResource:"starmeter-worker",withExtension:"sh") else{return nil}
         worker=url
     }
     @discardableResult private func run(_ job:String, output:Pipe?=nil) -> Bool {
@@ -1782,7 +1782,7 @@ final class MacHost {
             defer{try? FileManager.default.removeItem(at:url)}
             guard let data=try? Data(contentsOf:url),let notice=(try? JSONSerialization.jsonObject(with:data)) as? [String:String],
                   let body=notice["body"] else{continue}
-            let content=UNMutableNotificationContent();content.title="Token Monitor";content.subtitle=notice["subtitle"] ?? "";content.body=body
+            let content=UNMutableNotificationContent();content.title="Starmeter";content.subtitle=notice["subtitle"] ?? "";content.body=body
             UNUserNotificationCenter.current().add(UNNotificationRequest(identifier:UUID().uuidString,content:content,trigger:nil))
         }
     }
@@ -1815,11 +1815,11 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
             statusItem=item
             if let button=item.button {
                 // The logo's one-colour mark; its dots fall on whole pixels at 20 points.
-                let mark=Bundle.main.url(forResource:"token-monitor-mark",withExtension:"svg",subdirectory:"assets").flatMap{NSImage(contentsOf:$0)}
+                let mark=Bundle.main.url(forResource:"starmeter-mark",withExtension:"svg",subdirectory:"assets").flatMap{NSImage(contentsOf:$0)}
                 mark?.size=NSSize(width:20,height:20)
-                button.image=mark ?? NSImage(systemSymbolName:"sparkles",accessibilityDescription:"Token Monitor")
-                button.image?.isTemplate=true;button.image?.accessibilityDescription="Token Monitor"
-                button.toolTip="Token Monitor"
+                button.image=mark ?? NSImage(systemSymbolName:"sparkles",accessibilityDescription:"Starmeter")
+                button.image?.isTemplate=true;button.image?.accessibilityDescription="Starmeter"
+                button.toolTip="Starmeter"
                 button.target=self;button.action=#selector(starPressed(_:))
                 button.sendAction(on:[.leftMouseUp,.rightMouseUp])
             }
@@ -1828,7 +1828,7 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
             host.prepare { [weak self, weak host] path in
                 guard let self,let host else{return};self.preparing=false
                 guard let path else {
-                    if self.requestedHome != nil{self.showActionFailure("无法初始化本机数据，请重新打开 Token Monitor。")}
+                    if self.requestedHome != nil{self.showActionFailure("无法初始化本机数据，请重新打开 Starmeter。")}
                     return
                 }
                 self.snapshotPath=path;self.observeSnapshot();host.checkNotifications(askFirst:true);host.refresh()
@@ -1864,15 +1864,15 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
             menu.addItem(.separator())
             let login=add("登录时启动",#selector(toggleLogin));login.state=SMAppService.mainApp.status == .enabled ? .on : .off
             _=add(macHost?.notificationsAllowed == true ? "通知设置…" : "开启系统通知…",#selector(allowNotices))
-            _=add("关于 Token Monitor",#selector(standaloneAbout))
+            _=add("关于 Starmeter",#selector(standaloneAbout))
             menu.addItem(.separator())
-            _=add("退出 Token Monitor",#selector(quitStandalone))
+            _=add("退出 Starmeter",#selector(quitStandalone))
             menu.popUp(positioning:nil,at:NSPoint(x:0,y:button.bounds.minY),in:button)
         }else if panel.isVisible{hide()}else{openStandalone(modules:false)}
     }
     private func openStandalone(modules:Bool) {
         if snapshotPath.isEmpty {
-            if preparing{requestedHome=modules}else{showActionFailure("无法读取本机数据，请退出后重新打开 Token Monitor。")}
+            if preparing{requestedHome=modules}else{showActionFailure("无法读取本机数据，请退出后重新打开 Starmeter。")}
             return
         }
         managerOnly=modules;macHost?.checkNotifications();show()
@@ -1883,7 +1883,7 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
         do{
             if SMAppService.mainApp.status == .enabled {try SMAppService.mainApp.unregister()}
             else{try SMAppService.mainApp.register()}
-        }catch{showActionFailure("请将 Token Monitor 拖到「应用程序」后重试，或检查系统设置中的登录项。")}
+        }catch{showActionFailure("请将 Starmeter 拖到「应用程序」后重试，或检查系统设置中的登录项。")}
     }
     // Not asked yet: ask. Answered: the system shows no second request, so open this app's notification settings.
     @objc private func allowNotices(){
@@ -1901,10 +1901,10 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
     }
     @objc private func standaloneAbout(){
         let version=Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? ""
-        let alert=NSAlert();alert.messageText="Token Monitor "+version;alert.informativeText="macOS 独立版 · minicoke"
+        let alert=NSAlert();alert.messageText="Starmeter "+version;alert.informativeText="macOS 独立版 · minicoke"
         alert.addButton(withTitle:"好");alert.addButton(withTitle:"发布与更新")
         activateForPanel()
-        if alert.runModal() == NSApplication.ModalResponse.alertSecondButtonReturn,let url=URL(string:"https://github.com/timecatbit/swiftbar-token-monitor/releases"){NSWorkspace.shared.open(url)}else{returnFocus()}
+        if alert.runModal() == NSApplication.ModalResponse.alertSecondButtonReturn,let url=URL(string:"https://github.com/timecatbit/starmeter/releases"){NSWorkspace.shared.open(url)}else{returnFocus()}
     }
     @objc private func quitStandalone(){NSApp.terminate(nil)}
     private func observeSnapshot(){
@@ -2290,7 +2290,7 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
     // The picture covers Summary and the Harness cards only; subscriptions, balances and keys stay private.
     private func sharePicture(_ style:ShareCard.Style)->Data? {
         guard let dashboard=snapshot?.dashboard else{return nil}
-        let card=ShareCard.make(style,dashboard,project:snapshot?.project ?? Project(name:"Token Monitor",url:"https://github.com/timecatbit/swiftbar-token-monitor"))
+        let card=ShareCard.make(style,dashboard,project:snapshot?.project ?? Project(name:"Starmeter",url:"https://github.com/timecatbit/starmeter"))
         card.appearance=panel.effectiveAppearance
         return card.png()
     }
@@ -2324,7 +2324,7 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
     }
     @objc private func openSharePicker(_ item:NSMenuItem){
         guard let sender=item.representedObject as? NSButton,sender.window != nil,let data=sharePicture(ShareCard.Style(rawValue:item.tag) ?? .card),let dashboard=snapshot?.dashboard else{NSSound.beep();return}
-        let url=FileManager.default.temporaryDirectory.appendingPathComponent("Token Monitor "+dashboard.date+".png")
+        let url=FileManager.default.temporaryDirectory.appendingPathComponent("Starmeter "+dashboard.date+".png")
         guard (try? data.write(to:url,options:.atomic)) != nil else{NSSound.beep();return}
         let picker=NSSharingServicePicker(items:[url]);picker.delegate=self
         anchoredMenuOpen=true;hoverIntent.cancel();closeTask?.cancel();closeFlyouts(from:0)

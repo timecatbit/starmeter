@@ -1,7 +1,7 @@
 import json,os,tempfile,time,types,unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-SOURCE=Path(__file__).resolve().parents[1]/'token-monitor.30s.sh'
+SOURCE=Path(__file__).resolve().parents[1]/'starmeter.30s.sh'
 CODE=(SOURCE.parent/'lib/swiftbar_plugin.py').read_text()
 class UpdateTests(unittest.TestCase):
  def setUp(self):
@@ -77,17 +77,17 @@ class UpdateTests(unittest.TestCase):
   with patch.object(self.m,'update_rows',return_value=[]),patch.object(self.m.terminal_jobs,'latest_log',return_value=None):
    entries=self.m.resource_panel_entries({'self_update':newer})
   labels=[e['label'] for e in entries if not e.get('separator')]
-  self.assertEqual(labels[labels.index('Harness 更新')+1],'Token Monitor')
-  row=next(e for e in entries if e['label']=='Token Monitor')
+  self.assertEqual(labels[labels.index('Harness 更新')+1],'Starmeter')
+  row=next(e for e in entries if e['label']=='Starmeter')
   self.assertEqual(row['value'],'可更新 99.0.0');self.assertTrue(row['attention'])
   self.assertTrue(any(c.get('href')==newer['page'] for c in row['children']))
   with patch.dict(os.environ,{'OCX_SELF_UPDATES':'0'}):self.assertNotIn('self_update',self.m.external_loaders())
  def listing(self,version,files):
   """The asset list a release page loads, shaped like GitHub's: a label in place of the name, then the digest."""
-  folder='/timecatbit/swiftbar-token-monitor/releases/download/v%s/'%version
+  folder='/timecatbit/starmeter/releases/download/v%s/'%version
   rows=''.join('<li class="Box-row"><a href="%s%s" rel="nofollow"><span class="text-bold">Label</span></a>'
                '<span class="Truncate-text">sha256:%s</span></li>\n'%(folder,name,digest) for name,digest in files.items())
-  return ('<ul>'+rows+'<li class="Box-row"><a href="/timecatbit/swiftbar-token-monitor/archive/refs/tags/v%s.zip">Source code</a></li></ul>'%version).encode()
+  return ('<ul>'+rows+'<li class="Box-row"><a href="/timecatbit/starmeter/archive/refs/tags/v%s.zip">Source code</a></li></ul>'%version).encode()
  def test_plugin_release_remains_installable_when_github_api_is_rate_limited(self):
   import urllib.error
   repo=self.m.REPOSITORY

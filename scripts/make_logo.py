@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Write the Token Monitor logo: a sparkle in a night sky, drawn in halftone dots like the heat map and the share card's pattern.
+"""Write the Starmeter logo: a sparkle in a night sky, drawn in halftone dots like the heat map and the share card's pattern.
 
 Three SVG files in assets/, all from the same sparkle:
-  token-monitor.svg        the app icon, 15 dots across, on the macOS icon grid (an 824 tile in a 1024 canvas);
-  token-monitor-small.svg  the same icon with 9 larger dots, for 32 pixels and below, where 15 dots blur;
-  token-monitor-mark.svg   one-colour 5-dot mark on a 24 grid for the menu bar and menus, a template image;
+  starmeter.svg            the app icon, 15 dots across, on the macOS icon grid (an 824 tile in a 1024 canvas);
+  starmeter-small.svg      the same icon with 9 larger dots, for 32 pixels and below, where 15 dots blur;
+  starmeter-mark.svg       one-colour 5-dot mark on a 24 grid for the menu bar and menus, a template image;
                            it samples the middle of a 7-dot grid, where the sparkle is, so it fills the box.
 The mark's dots fall on whole pixels at 20 points on a Retina screen, its menu bar size (an 8-pixel pitch).
 """
@@ -106,9 +106,9 @@ def mark():
 
 
 def logos():
-    return {'token-monitor.svg': icon(15, 0.82, 0.46, 0.07, 0.06, 0.7, True),
-            'token-monitor-small.svg': icon(9, 0.7, 0.48, 0.18, 0.12, 0.6, False),
-            'token-monitor-mark.svg': mark()}
+    return {'starmeter.svg': icon(15, 0.82, 0.46, 0.07, 0.06, 0.7, True),
+            'starmeter-small.svg': icon(9, 0.7, 0.48, 0.18, 0.12, 0.6, False),
+            'starmeter-mark.svg': mark()}
 
 
 def main():

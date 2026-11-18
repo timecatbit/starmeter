@@ -11,8 +11,8 @@ from urllib.parse import quote
 from build import build
 
 ROOT = Path(__file__).resolve().parents[1]
-ENTRY = 'token-monitor.30s.sh'
-REPOSITORY = 'https://github.com/timecatbit/swiftbar-token-monitor'
+ENTRY = 'starmeter.30s.sh'
+REPOSITORY = 'https://github.com/timecatbit/starmeter'
 # The installer runs from the package root; the per-interpreter HTTP transport is still prepared on the user's Mac.
 CONTENTS = [ENTRY, 'lib', 'assets', 'config.example.sh', 'README.md', 'CHANGELOG.md', 'LICENSE',
             'scripts/install.py', 'scripts/install_transport.py']
@@ -57,7 +57,7 @@ def release_notes(number):
 
 def verify(archive, name):
     """Unpack like a user would and check the files and signature the installer relies on."""
-    with tempfile.TemporaryDirectory(prefix='token-monitor-verify-') as scratch:
+    with tempfile.TemporaryDirectory(prefix='starmeter-verify-') as scratch:
         subprocess.run(['ditto', '-x', '-k', str(archive), scratch], check=True)
         package = Path(scratch) / name
         for relative in ['install.py', 'install_transport.py', ENTRY, 'lib/swiftbar_plugin.py',
@@ -86,7 +86,7 @@ def main():
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     archive = output / (name + '.zip')
-    with tempfile.TemporaryDirectory(prefix='token-monitor-release-') as scratch:
+    with tempfile.TemporaryDirectory(prefix='starmeter-release-') as scratch:
         package = Path(scratch) / name
         package.mkdir()
         for relative in CONTENTS:

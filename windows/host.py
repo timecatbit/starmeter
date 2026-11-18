@@ -115,7 +115,7 @@ def launch_args():
     if getattr(sys,'frozen',False):return [sys.executable]
     python=Path(sys.executable)
     pythonw=python.with_name('pythonw.exe')
-    return [str(pythonw if os.name=='nt' and pythonw.is_file() else python),str(ROOT/'windows'/'token_monitor.py')]
+    return [str(pythonw if os.name=='nt' and pythonw.is_file() else python),str(ROOT/'windows'/'starmeter.py')]
 
 
 def autostart(enabled=None):

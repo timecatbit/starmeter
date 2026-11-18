@@ -4,7 +4,7 @@
 2. 显示「芯片：Apple M…」：在发布页下载 **Mac · Apple Silicon**（文件名以 `macos-apple-silicon.dmg` 结尾）。
 3. 显示「处理器：Intel…」：下载 **Mac · Intel**（文件名以 `macos-intel.dmg` 结尾）。
 
-打开 DMG，把 **Token Monitor** 拖到 **应用程序**，推出镜像，再从应用程序打开。菜单栏会出现星星；左键看用量，右键管理主页模块、登录启动和通知。独立版自带运行环境，不用先装 SwiftBar 或 Python。
+打开 DMG，把 **Starmeter** 拖到 **应用程序**，推出镜像，再从应用程序打开。菜单栏会出现星星；左键看用量，右键管理主页模块、登录启动和通知。独立版自带运行环境，不用先装 SwiftBar 或 Python。
 
 已经在用 SwiftBar？也可以继续用插件版：下载发布页上的 **Mac · SwiftBar plugin**，它不区分 Apple 芯片和 Intel。两版共用本机设置和 Key，建议同一时间只运行一个，避免重复图标、提醒和请求。换用独立版前，在 SwiftBar 中停用此插件即可，不需要删除 SwiftBar。
 

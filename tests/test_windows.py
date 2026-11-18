@@ -53,9 +53,9 @@ class WindowsHostTests(unittest.TestCase):
 
     def test_installer_names_match_the_app_it_installs(self):
         import re
-        iss=(ROOT/'windows/installer/token-monitor.iss').read_text(encoding='utf-8-sig')
+        iss=(ROOT/'windows/installer/starmeter.iss').read_text(encoding='utf-8-sig')
         build=(ROOT/'windows/build.ps1').read_text(encoding='utf-8')
-        app=(ROOT/'windows/token_monitor.py').read_text(encoding='utf-8')
+        app=(ROOT/'windows/starmeter.py').read_text(encoding='utf-8')
         source=(ROOT/'windows/host.py').read_text(encoding='utf-8')
         # The build's install check looks up the uninstall entry by the same AppId.
         app_id=re.search(r'AppId=\{\{([0-9A-F-]{36})\}',iss)[1]
@@ -178,7 +178,7 @@ class WindowsUiTests(unittest.TestCase):
         from PySide6.QtCore import QPoint
         from PySide6.QtWidgets import QSystemTrayIcon
         from panel import TrayPanel
-        from token_monitor import Desktop
+        from starmeter import Desktop
         panel=TrayPanel();self.addCleanup(panel.close)
         panel.snapshot={'preferences':{'visible':[]},'moduleOptions':[]}
         panel.show_at(QPoint(800,780),manager=True)
@@ -192,7 +192,7 @@ class WindowsUiTests(unittest.TestCase):
         self.assertEqual(opened,[True])
 
     def test_second_copy_finds_the_instance_lock_held(self):
-        from token_monitor import single_instance
+        from starmeter import single_instance
         with tempfile.TemporaryDirectory() as tmp:
             held=single_instance(Path(tmp))
             self.assertIsNotNone(held)
@@ -244,7 +244,7 @@ class WindowsUiTests(unittest.TestCase):
         from PySide6.QtCore import QPoint
         from PySide6.QtGui import QImage
         from panel import TrayPanel
-        from token_monitor import Desktop
+        from starmeter import Desktop
         panel=TrayPanel();self.addCleanup(panel.close)
         panel.snapshot={'dashboard':{'providers':[],'dates':['11/13'],'rangeKey':'today'}}
         panel.show_at(QPoint(800,780))
@@ -269,7 +269,7 @@ class WindowsUiTests(unittest.TestCase):
     def test_self_test_reads_history_via_real_backend_and_can_render(self):
         with tempfile.TemporaryDirectory() as tmp:
             out=Path(tmp)/'preview.png'
-            run=subprocess.run([sys.executable,str(ROOT/'windows/token_monitor.py'),'--self-test','--preview',str(out)],
+            run=subprocess.run([sys.executable,str(ROOT/'windows/starmeter.py'),'--self-test','--preview',str(out)],
                                capture_output=True,timeout=30,text=True,encoding='utf-8',errors='replace')
             self.assertEqual(run.returncode,0,run.stderr)
             self.assertTrue(out.is_file())

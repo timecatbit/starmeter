@@ -1,5 +1,5 @@
 """
-token-monitor 的 SwiftBar 插件主体，由入口 token-monitor.30s.sh 加载。
+Starmeter 的 SwiftBar 插件主体，由入口 starmeter.30s.sh 加载。
 
 入口承担两种角色：
   1. 无参数运行      输出菜单（首行是菜单栏标题，之后是下拉菜单）
@@ -53,7 +53,7 @@ def detect_base():
 
 BASE = detect_base()
 NATIVE_USAGE_URL = BASE + "/#usage"
-PLUGIN = os.environ.get("OCX_PLUGIN_PATH") or (sys.argv[0] if sys.argv else "token-monitor.30s.sh")
+PLUGIN = os.environ.get("OCX_PLUGIN_PATH") or (sys.argv[0] if sys.argv else "starmeter.30s.sh")
 PLUGIN_DIR = os.path.dirname(os.path.abspath(PLUGIN))
 # swiftbar:// links name the plugin as SwiftBar does: the file name up to its first dot.
 # SwiftBar 2.1.0/2.1.1 match only that or the full path, not the whole file name.
@@ -63,8 +63,8 @@ PANEL_APP = os.path.join(PLUGIN_DIR, ".opencodex-panel", "OpenCodexPanel.app")
 ASSET_DIR = next((path for path in (os.path.join(PLUGIN_DIR, ".opencodex-panel", "assets"), os.path.join(PLUGIN_DIR, "assets"), os.path.join(getattr(sys,"_MEIPASS",PLUGIN_DIR), "assets"))
                   if os.path.isdir(path)), os.path.join(PLUGIN_DIR, "assets"))
 DEEPSEEK_LOGO_FILE = os.path.join(ASSET_DIR, "deepseek-logo.svg")
-# Token Monitor's own one-colour mark (scripts/make_logo.py): the menu bar entry and the rows about the plugin.
-LOGO_MARK_FILE = os.path.join(ASSET_DIR, "token-monitor-mark.svg")
+# Starmeter's own one-colour mark (scripts/make_logo.py): the menu bar entry and the rows about the plugin.
+LOGO_MARK_FILE = os.path.join(ASSET_DIR, "starmeter-mark.svg")
 LOGO_DIR = os.path.join(ASSET_DIR, "logos")
 # Monochrome logos are template images so they follow light and dark menus.
 BRAND_LOGOS = {'ChatGPT': ('openai.svg', True), 'Claude': ('claude.svg', False), 'MiniMax': ('minimax.svg', False),
@@ -86,14 +86,14 @@ SERVICE_LOG = os.path.join(OCX_HOME, "service.log")
 RELEASES_URL = "https://github.com/lidge-jun/opencodex/releases/latest"
 KOMARI_BASE_URL = os.environ.get("KOMARI_BASE_URL", "").rstrip("/")
 VERSION = "5.26.1"
-PRODUCT = "Token Monitor"
+PRODUCT = "Starmeter"
 MAC_APP = sys.platform=="darwin" and os.environ.get("OCX_MAC_APP")=="1"
 AUTHOR = "minicoke"
-REPOSITORY = "https://github.com/timecatbit/swiftbar-token-monitor"
+REPOSITORY = "https://github.com/timecatbit/starmeter"
 # The repository regenerates its price tables daily from ccusage; plugins fetch the committed copies.
-PRICING_URL = "https://raw.githubusercontent.com/timecatbit/swiftbar-token-monitor/main/lib/"
+PRICING_URL = "https://raw.githubusercontent.com/timecatbit/starmeter/main/lib/"
 PRICING_TABLES = ("codex-pricing.json", "model-pricing.json")
-RELEASES_API = "https://api.github.com/repos/timecatbit/swiftbar-token-monitor/releases/latest"
+RELEASES_API = "https://api.github.com/repos/timecatbit/starmeter/releases/latest"
 
 
 # Runtime files are installed alongside this script; the source checkout is never needed.
@@ -539,7 +539,7 @@ def brand_icon(key):
 
 def logo_mark(size):
     """The logo's mark as a template image, which follows light and dark menus; the old symbol if the file is missing."""
-    raw=memoized(('logo','token-monitor-mark.svg'),lambda:read_logo(LOGO_MARK_FILE))
+    raw=memoized(('logo','starmeter-mark.svg'),lambda:read_logo(LOGO_MARK_FILE))
     return {'templateimage':raw,'width':size,'height':size} if raw else {'sfimage':'sparkles','sfsize':min(size,18)}
 
 
@@ -1233,7 +1233,7 @@ def auto_update_opencodex():
             def finish(ok,message):
                 save(status='succeeded' if ok else 'failed',message=message,retryAt=0 if ok else now+3600)
                 notice_key=str(state.get('target'))+('::success' if ok else '::failure')
-                # Every notice is titled Token Monitor, so the body names the program it updated.
+                # Every notice is titled Starmeter, so the body names the program it updated.
                 if module_enabled('opencodex') and state.get('noticeKey')!=notice_key:
                     notify('OpenCodex '+message,subtitle='OpenCodex 自动更新');save(noticeKey=notice_key)
                 invalidate_caches(['badge'])
@@ -1393,7 +1393,7 @@ def self_update_web():
     """Discover a release via its public pages when the anonymous API is rate-limited. The asset list
     the release page loads names each file with the SHA-256 GitHub computed, as the API would."""
     try:
-        req=urllib.request.Request(REPOSITORY+'/releases/latest',headers={'User-Agent':'TokenMonitor/'+VERSION})
+        req=urllib.request.Request(REPOSITORY+'/releases/latest',headers={'User-Agent':'Starmeter/'+VERSION})
         with urllib.request.urlopen(req,timeout=8) as response:page=response.geturl()
         match=re.fullmatch(re.escape(REPOSITORY)+r'/releases/tag/v(\d+\.\d+\.\d+)',page)
         if not match:return None
@@ -1415,7 +1415,7 @@ def self_update_web():
 def self_update_load():
     """This plugin's latest GitHub release: a plain GET with no identifiers. No release, a draft
     or a pre-release means there is nothing to offer."""
-    req=urllib.request.Request(RELEASES_API,headers={'User-Agent':'TokenMonitor/'+VERSION,'Accept':'application/vnd.github+json'})
+    req=urllib.request.Request(RELEASES_API,headers={'User-Agent':'Starmeter/'+VERSION,'Accept':'application/vnd.github+json'})
     try:
         with urllib.request.urlopen(req,timeout=8) as response:body=response.read(1024*1024+1)
     except urllib.error.HTTPError as error:
@@ -1459,7 +1459,7 @@ def set_self_update_state(**values):
 
 
 def self_update_lines(data):
-    """A homepage row under Harness 更新, present only while a newer Token Monitor release exists."""
+    """A homepage row under Harness 更新, present only while a newer Starmeter release exists."""
     release=plugin_update(data);state=self_update_state()
     if not release:return []
     if MAC_APP or DESKTOP is not None:
@@ -1485,7 +1485,7 @@ class SelfUpdateError(Exception):
 
 
 def download(url,limit):
-    req=urllib.request.Request(url,headers={'User-Agent':'TokenMonitor/'+VERSION})
+    req=urllib.request.Request(url,headers={'User-Agent':'Starmeter/'+VERSION})
     with urllib.request.urlopen(req,timeout=30) as response:body=response.read(limit+1)
     if len(body)>limit:raise SelfUpdateError('安装包大小异常')
     return body
@@ -1508,7 +1508,7 @@ def install_release(version,log):
     if not re.fullmatch(r'[0-9a-f]{64}',digest):raise SelfUpdateError('校验值格式错误')
     archive=download(expected,50*1024*1024)
     if hashlib.sha256(archive).hexdigest()!=digest:raise SelfUpdateError('安装包校验失败')
-    folder=tempfile.mkdtemp(prefix='token-monitor-update-')
+    folder=tempfile.mkdtemp(prefix='starmeter-update-')
     try:
         path=os.path.join(folder,name)
         with open(path,'wb') as handle:handle.write(archive)
@@ -1522,7 +1522,7 @@ def install_release(version,log):
                               stdin=subprocess.DEVNULL,capture_output=True,text=True,timeout=600)
         os.makedirs(os.path.dirname(log),mode=0o700,exist_ok=True)
         with open(os.open(log,os.O_WRONLY|os.O_CREAT|os.O_TRUNC,0o600),'w') as handle:
-            handle.write('Token Monitor %s → %s\nexit %d\n\n%s\n%s'%(VERSION,version,result.returncode,result.stdout,result.stderr))
+            handle.write('Starmeter %s → %s\nexit %d\n\n%s\n%s'%(VERSION,version,result.returncode,result.stdout,result.stderr))
         if result.returncode:raise SelfUpdateError('安装程序退出码 %d'%result.returncode)
     except (OSError,zipfile.BadZipFile,subprocess.SubprocessError) as error:
         raise SelfUpdateError('安装失败：'+type(error).__name__) from None
@@ -1547,7 +1547,7 @@ def self_update_worker(version):
             # The running panel is the old build; it reopens from the new one on the next click.
             subprocess.run(['osascript','-e','if application id "cc.opencodex.swiftbar.panel" is running then tell application id "cc.opencodex.swiftbar.panel" to quit'],
                            capture_output=True,timeout=8,check=False)
-            notify('插件已更新到 '+version,subtitle='Token Monitor 插件更新')
+            notify('插件已更新到 '+version,subtitle='Starmeter 插件更新')
         refresh_swiftbar()
     return 0
 
@@ -2095,7 +2095,7 @@ def refresh_pricing(now=None):
     write_json_cache(cache_path('pricing-check'),{'schema':1,'checkedAt':time.time() if now is None else now})
     for name in PRICING_TABLES:
         try:
-            req=urllib.request.Request(PRICING_URL+name,headers={'User-Agent':'TokenMonitor/'+VERSION,'Accept':'application/json'})
+            req=urllib.request.Request(PRICING_URL+name,headers={'User-Agent':'Starmeter/'+VERSION,'Accept':'application/json'})
             with urllib.request.urlopen(req,timeout=10) as response:body=response.read(4*1024*1024+1)
             if len(body)>4*1024*1024:continue
             data=json.loads(body.decode('utf-8'))
@@ -2182,7 +2182,7 @@ def alert_clock(at):
 
 
 def alert_notice(alert):
-    """(subtitle, body) of one alert's notification; the title is always Token Monitor."""
+    """(subtitle, body) of one alert's notification; the title is always Starmeter."""
     if alert['kind']=='balance':
         return '余额提醒','%s 余额 %s，已低于提醒线 %s'%(alert['name'],money_text(alert['amount'],alert['currency']),money_text(alert['line'],alert['currency']))
     reset='，%s 重置'%alert_clock(alert['resetsAt']) if alert.get('resetsAt') else ''
@@ -2642,7 +2642,7 @@ def detection_help_entries():
 # SwiftBar greys out right-click rows that have neither an action nor a submenu, so every row here does something.
 def about_menu_lines():
     """SwiftBar's own About popover has a fixed size; this submenu shows the same facts compactly."""
-    return [item('关于 token-monitor',**logo_mark(MENU_ICON_SIZE)),
+    return [item('关于 Starmeter',**logo_mark(MENU_ICON_SIZE)),
             item('版本 '+VERSION+' · 更新记录',level=1,sfimage='tag',href=REPOSITORY+'/blob/main/CHANGELOG.md'),
             item('作者 '+AUTHOR+' · GitHub 仓库',level=1,sfimage='person.crop.circle',href=REPOSITORY)]
 
@@ -3913,9 +3913,9 @@ def run_action(name, extra):
         schedule_background_refresh()
     elif name == "update-self":
         release=plugin_update({'self_update':read_cache('self_update').get('payload') or {}})
-        if not release:notify('Token Monitor 已是最新版本 '+VERSION);return 0
+        if not release:notify('Starmeter 已是最新版本 '+VERSION);return 0
         if self_update_state().get('status')=='running':return 0
-        if confirm('更新 Token Monitor 到 '+release['latest']+'？','当前版本 '+VERSION+'。将从 GitHub 下载该版本的安装包，校验 SHA-256 后安装；原文件先备份，设置、Key 和统计记录都会保留。',accept='更新'):
+        if confirm('更新 Starmeter 到 '+release['latest']+'？','当前版本 '+VERSION+'。将从 GitHub 下载该版本的安装包，校验 SHA-256 后安装；原文件先备份，设置、Key 和统计记录都会保留。',accept='更新'):
             set_self_update_state(status='running',version=release['latest'])
             subprocess.Popen(['/bin/bash','-p',PLUGIN,'--self-update',release['latest']],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL,start_new_session=True,close_fds=True)

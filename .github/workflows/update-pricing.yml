@@ -30,7 +30,7 @@ jobs:
       # not picked up yet come from models.dev itself. A failed download fails the run rather than
       # publishing tables without them.
       - name: Fetch models.dev
-        run: curl -fsSL --max-time 60 --retry 2 -A 'token-monitor-pricing' -o .models-dev.json https://models.dev/api.json
+        run: curl -fsSL --max-time 60 --retry 2 -A 'starmeter-pricing' -o .models-dev.json https://models.dev/api.json
       - name: Regenerate tables
         run: python3 scripts/update_pricing.py .ccusage --models-dev .models-dev.json
       - name: Validate tables

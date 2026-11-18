@@ -630,7 +630,7 @@ def chatgpt_account(binary=None, home=None):
             if isinstance(response,dict) and response.get('id')==request_id:return response.get('result')
         return None
     try:
-        if call('initialize', {'clientInfo': {'name':'swiftbar_token_monitor','title':'SwiftBar Token Monitor','version':'5.0.0'}}) is None:
+        if call('initialize', {'clientInfo': {'name':'starmeter','title':'Starmeter','version':'5.0.0'}}) is None:
             return {'error':'客户端接口不可用'}
         send({'method':'initialized'})
         account = call('account/read', {'refreshToken':False})

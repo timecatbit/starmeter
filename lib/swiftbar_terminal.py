@@ -46,7 +46,7 @@ def launch(command,preferred,state_dir):
     root=Path(state_dir)/'terminal-jobs';root.mkdir(parents=True,exist_ok=True,mode=0o700)
     for old in sorted(root.glob('*.command'),key=lambda p:p.stat().st_mtime,reverse=True)[19:]:
         if not old.is_symlink():old.unlink(missing_ok=True)
-    fd,name=tempfile.mkstemp(prefix='token-monitor-',suffix='.command',dir=root)
+    fd,name=tempfile.mkstemp(prefix='starmeter-',suffix='.command',dir=root)
     with os.fdopen(fd,'w') as handle:handle.write('#!/bin/bash\n'+bootstrap(command))
     os.chmod(name,0o700)
     opened=subprocess.run(['/usr/bin/open','-a',app,name],capture_output=True,timeout=10)

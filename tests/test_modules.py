@@ -14,7 +14,7 @@ import swiftbar_preferences as preferences
 class ModuleTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
-        env=patch.dict(os.environ,{'OCX_CACHE_DIR':self.temp.name,'OCX_STATE_DIR':self.temp.name+'/settings','OCX_PLUGIN_PATH':str(ROOT/'token-monitor.30s.sh'),'OS_APPEARANCE':'Light'})
+        env=patch.dict(os.environ,{'OCX_CACHE_DIR':self.temp.name,'OCX_STATE_DIR':self.temp.name+'/settings','OCX_PLUGIN_PATH':str(ROOT/'starmeter.30s.sh'),'OS_APPEARANCE':'Light'})
         env.start();self.addCleanup(env.stop)
         self.m=types.ModuleType('module_test')
         code=(ROOT/'lib/swiftbar_plugin.py').read_text()

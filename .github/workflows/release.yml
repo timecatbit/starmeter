@@ -42,8 +42,8 @@ jobs:
           ditto -x -k dist/token-monitor-*.zip "$scratch/unpacked"
           # No source checkout, no compiler step: the installer must work from the unpacked zip alone.
           HOME="$scratch/home" python3 "$scratch"/unpacked/token-monitor-*/install.py --plugin-dir "$scratch/plugins" --no-refresh
-          [ "$(ls "$scratch/plugins")" = token-monitor.30s.sh ]
-          test -x "$scratch/plugins/token-monitor.30s.sh"
+          [ "$(ls "$scratch/plugins")" = starmeter.30s.sh ]
+          test -x "$scratch/plugins/starmeter.30s.sh"
           codesign --verify --deep --strict "$scratch/plugins/.opencodex-panel/OpenCodexPanel.app"
           ls "$scratch/plugins/.opencodex-panel/python/"*/curl_cffi > /dev/null
           if matches=$(grep -rlF -e "$GITHUB_WORKSPACE" -e "$scratch/unpacked" "$scratch/plugins"); then
@@ -100,5 +100,5 @@ jobs:
             test -f "dist/${asset%%#*}"
             assets+=("dist/$asset")
           done < dist/release-assets.txt
-          gh release create "$GITHUB_REF_NAME" --verify-tag --title "Token Monitor ${GITHUB_REF_NAME#v}" \
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "Starmeter ${GITHUB_REF_NAME#v}" \
             --notes-file dist/release-notes.md "${assets[@]}"

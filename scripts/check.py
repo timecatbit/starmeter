@@ -41,11 +41,11 @@ def unused_code():
     return problems
 
 
-subprocess.run(['/bin/bash', '-p', '-n', str(ROOT / 'token-monitor.30s.sh')], check=True)
+subprocess.run(['/bin/bash', '-p', '-n', str(ROOT / 'starmeter.30s.sh')], check=True)
 problems = unused_code()
 if problems:
     sys.exit('Unused code:\n' + '\n'.join(problems))
-with tempfile.TemporaryDirectory(prefix='swiftbar-token-tests-') as scratch:
+with tempfile.TemporaryDirectory(prefix='starmeter-tests-') as scratch:
     private_prefixes = ('OCX_', 'KOMARI_', 'DEEPSEEK_', 'XAI_', 'MINIMAX_', 'CLAUDE_',
                         'OPENAI_', 'ANTHROPIC_', 'MOONSHOT_', 'GOOGLE_', 'KIMI_', 'CODEX_', 'GEMINI_', 'WORKBUDDY_', 'QODER_', 'QODERCN_', 'OPENCODE_', 'DSH_', 'MAGPIE_')
     environment = {k:v for k,v in os.environ.items() if not k.startswith(private_prefixes)}

@@ -57,7 +57,7 @@ def smoke(app, root):
     home=root/'home';home.mkdir()
     env={'HOME':str(home),'PATH':'/usr/bin:/bin','OCX_SELF_UPDATES':'0','OCX_PRICING_UPDATES':'0','TOKEN_MONITOR_SMOKE_TEST':'1',
          'OCX_STATE_DIR':str(root/'private-state'),'OCX_MAC_CACHE_DIR':str(root/'private-cache')}
-    worker=app/'Contents/Resources/token-monitor-worker.sh'
+    worker=app/'Contents/Resources/starmeter-worker.sh'
     subprocess.run([str(worker),'smoke-test'],env=env,check=True,timeout=30)
 
 
@@ -66,13 +66,13 @@ def dmg(output, python, identity, notary):
     suffix,chip,volume_name=ARCHES[arch];release=version()
     output.mkdir(parents=True,exist_ok=True)
     artifact=output/next(file for file,_ in downloads(release) if file.endswith(suffix))
-    with tempfile.TemporaryDirectory(prefix='token-monitor-dmg-') as temp:
+    with tempfile.TemporaryDirectory(prefix='starmeter-dmg-') as temp:
         root=Path(temp);volume=root/'volume';volume.mkdir()
-        app=build(volume/'Token Monitor.app')
+        app=build(volume/'Starmeter.app')
         info=app/'Contents/Info.plist'
         metadata=plistlib.loads(info.read_bytes())
-        metadata.update(CFBundleIdentifier='com.timecatbit.token-monitor',CFBundleDisplayName='Token Monitor',
-                        CFBundleName='Token Monitor',CFBundleShortVersionString=release,CFBundleVersion=release,
+        metadata.update(CFBundleIdentifier='com.timecatbit.token-monitor',CFBundleDisplayName='Starmeter',
+                        CFBundleName='Starmeter',CFBundleShortVersionString=release,CFBundleVersion=release,
                         TokenMonitorStandalone=True,NSAppleEventsUsageDescription='在你点击更新 CLI 时打开终端并显示结果。')
         info.write_bytes(plistlib.dumps(metadata))
         resources=app/'Contents/Resources'
@@ -80,7 +80,7 @@ def dmg(output, python, identity, notary):
             shutil.copytree(ROOT/folder,resources/folder,ignore=shutil.ignore_patterns('__pycache__','*.pyc','.DS_Store'))
         (resources/'macos').mkdir()
         shutil.copy2(ROOT/'macos/worker.py',resources/'macos/worker.py')
-        shutil.copy2(ROOT/'macos/token-monitor-worker.sh',resources/'token-monitor-worker.sh')
+        shutil.copy2(ROOT/'macos/starmeter-worker.sh',resources/'starmeter-worker.sh')
         shutil.copy2(ROOT/'LICENSE',resources/'LICENSE')
         bundled_runtime(python,resources/'runtime')
         check_runtime(resources)
@@ -92,12 +92,14 @@ def dmg(output, python, identity, notary):
         sign(app,identity)
         (volume/'Applications').symlink_to('/Applications')
         (volume/'README.txt').write_text(
-            f'Token Monitor {release} · macOS 独立版'+('' if notary else '预览')+'\n\n'
+            f'Starmeter {release} · macOS 独立版'+('' if notary else '预览')+'\n\n'
             f'此镜像适用于：{chip}，macOS 13 或更新版本。\n'
             '不知道机型？苹果菜单  → 关于本机，查看「芯片」或「处理器」。\n\n'
-            '1. 把 Token Monitor 拖到 Applications（应用程序）。\n'
-            '2. 退出镜像，在「应用程序」打开 Token Monitor。菜单栏会出现星星。\n'
+            '1. 把 Starmeter 拖到 Applications（应用程序）。\n'
+            '2. 退出镜像，在「应用程序」打开 Starmeter。菜单栏会出现星星。\n'
             '3. 左键看用量，右键管理模块、登录启动和通知。\n\n'
+            '从 Token Monitor 升级？Starmeter 是它的新名字。先退出旧版并把 Token Monitor 移到废纸篓，再打开 Starmeter，'
+            '需要时在右键菜单重新勾选“登录时启动”。设置和 Key 都会保留。\n\n'
             '已经装过 SwiftBar 插件？设置和 Key 仍在本机，可先停用该插件，再打开独立版。\n'
             '想继续用 SwiftBar？请下载发布页里的 Mac · SwiftBar plugin，不用安装此镜像。\n\n'
             + ('此包由 Developer ID 签名并提交 Apple 公证。\n' if notary else
@@ -105,7 +107,7 @@ def dmg(output, python, identity, notary):
                '到「系统设置 → 隐私与安全性 → 仍要打开」。公司管理的 Mac 可能不允许放行。\n'),
             encoding='utf-8')
         target=root/artifact.name
-        subprocess.run(['hdiutil','create','-ov','-format','UDZO','-volname',f'Token Monitor ({volume_name})',
+        subprocess.run(['hdiutil','create','-ov','-format','UDZO','-volname',f'Starmeter ({volume_name})',
                         '-srcfolder',str(volume),str(target)],check=True)
         if identity!='-':subprocess.run(['codesign','--force','--sign',identity,'--timestamp',str(target)],check=True)
         if notary:
@@ -115,8 +117,8 @@ def dmg(output, python, identity, notary):
         mount=root/'mount';mount.mkdir()
         subprocess.run(['hdiutil','attach','-readonly','-nobrowse','-mountpoint',str(mount),str(target)],check=True)
         try:
-            installed=root/'installed'/'Token Monitor.app';installed.parent.mkdir()
-            subprocess.run(['ditto',str(mount/'Token Monitor.app'),str(installed)],check=True)
+            installed=root/'installed'/'Starmeter.app';installed.parent.mkdir()
+            subprocess.run(['ditto',str(mount/'Starmeter.app'),str(installed)],check=True)
             subprocess.run(['codesign','--verify','--deep','--strict',str(installed)],check=True)
             if not (mount/'README.txt').is_file() or os.readlink(mount/'Applications')!='/Applications':
                 raise RuntimeError('Disk image is missing the installation guide or Applications shortcut')

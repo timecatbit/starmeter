@@ -70,11 +70,11 @@ class InstallTests(unittest.TestCase):
         (root/'20261101-090000-aaaaaa.zip').write_text('a file, not a backup')
         outside=Path(self.temp.name)/'elsewhere';outside.mkdir();(outside/'keep').write_text('kept')
         (root/'20261101-080000-bbbbbb').symlink_to(outside,target_is_directory=True)
-        (self.dest/'token-monitor.30s.sh').write_text('old entry')
+        (self.dest/'starmeter.30s.sh').write_text('old entry')
         with redirect_stdout(io.StringIO()) as said:
-            backup=install.back_up(self.dest,[Path('token-monitor.30s.sh'),Path('.opencodex-panel/lib')],root)
+            backup=install.back_up(self.dest,[Path('starmeter.30s.sh'),Path('.opencodex-panel/lib')],root)
         self.assertEqual(said.getvalue(),'Removed 4 older backups\n')
-        self.assertEqual((backup/'token-monitor.30s.sh').read_text(),'old entry');self.assertEqual((backup/'.opencodex-panel/lib/old.py').read_text(),'old')
+        self.assertEqual((backup/'starmeter.30s.sh').read_text(),'old entry');self.assertEqual((backup/'.opencodex-panel/lib/old.py').read_text(),'old')
         # The new backup stays even when the clock once ran ahead; four others stay with it.
         kept=sorted(p.name for p in root.iterdir() if p.is_dir() and not p.is_symlink() and install.BACKUP_NAME.fullmatch(p.name))
         self.assertEqual(kept,sorted(old[4:]+[backup.name]))

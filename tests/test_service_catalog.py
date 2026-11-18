@@ -16,7 +16,7 @@ class CatalogTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
         self.root=Path(self.temp.name)
-        env=patch.dict(os.environ,{'OCX_STATE_DIR':str(self.root/'state'),'OCX_CACHE_DIR':str(self.root),'OCX_PLUGIN_PATH':str(ROOT/'token-monitor.30s.sh')})
+        env=patch.dict(os.environ,{'OCX_STATE_DIR':str(self.root/'state'),'OCX_CACHE_DIR':str(self.root),'OCX_PLUGIN_PATH':str(ROOT/'starmeter.30s.sh')})
         env.start();self.addCleanup(env.stop)
         self.m=types.ModuleType('catalog_test')
         code=(ROOT/'lib/swiftbar_plugin.py').read_text()

@@ -7,17 +7,18 @@
 [Setup]
 ; Never change the AppId: upgrades and the uninstall entry are found by it.
 AppId={{66818B0F-B59E-45CC-81AA-99315BFB1931}
-AppName=Token Monitor
+AppName=Starmeter
 AppVersion={#AppVersion}
-AppVerName=Token Monitor {#AppVersion}
+AppVerName=Starmeter {#AppVersion}
 AppPublisher=minicoke
-AppPublisherURL=https://github.com/timecatbit/swiftbar-token-monitor
-AppSupportURL=https://github.com/timecatbit/swiftbar-token-monitor/issues
-AppUpdatesURL=https://github.com/timecatbit/swiftbar-token-monitor/releases
+AppPublisherURL=https://github.com/timecatbit/starmeter
+AppSupportURL=https://github.com/timecatbit/starmeter/issues
+AppUpdatesURL=https://github.com/timecatbit/starmeter/releases
 VersionInfoVersion={#AppVersion}
 PrivilegesRequired=lowest
-; With PrivilegesRequired=lowest this is %LOCALAPPDATA%\Programs\Token Monitor.
-DefaultDirName={autopf}\Token Monitor
+; With PrivilegesRequired=lowest this is %LOCALAPPDATA%\Programs\Starmeter. An upgrade keeps the folder it
+; found, so copies installed as Token Monitor stay in %LOCALAPPDATA%\Programs\Token Monitor.
+DefaultDirName={autopf}\Starmeter
 DisableProgramGroupPage=yes
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -27,8 +28,8 @@ MinVersion=10.0
 AppMutex=TokenMonitorTray
 CloseApplications=no
 SetupIconFile={#IconFile}
-UninstallDisplayIcon={app}\Token Monitor.exe
-UninstallDisplayName=Token Monitor
+UninstallDisplayIcon={app}\Starmeter.exe
+UninstallDisplayName=Starmeter
 WizardStyle=modern
 Compression=lzma2/max
 SolidCompression=yes
@@ -45,17 +46,21 @@ Name: "autostart"; Description: "登录 Windows 时启动"; Flags: unchecked
 ; A newer build may drop libraries; the previous runtime must not stay mixed in with this one.
 Type: filesandordirs; Name: "{app}\_internal"
 Type: filesandordirs; Name: "{app}\licenses"
+; Copies installed as Token Monitor gave the program and its shortcuts that name.
+Type: files; Name: "{app}\Token Monitor.exe"
+Type: files; Name: "{autoprograms}\Token Monitor.lnk"
+Type: files; Name: "{autodesktop}\Token Monitor.lnk"
 
 [Files]
 Source: "{#AppDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 ; The same AppUserModelID as the app, so its notifications carry its name and icon.
-Name: "{autoprograms}\Token Monitor"; Filename: "{app}\Token Monitor.exe"; AppUserModelID: "timecatbit.TokenMonitor"
-Name: "{autodesktop}\Token Monitor"; Filename: "{app}\Token Monitor.exe"; Tasks: desktopicon
+Name: "{autoprograms}\Starmeter"; Filename: "{app}\Starmeter.exe"; AppUserModelID: "timecatbit.TokenMonitor"
+Name: "{autodesktop}\Starmeter"; Filename: "{app}\Starmeter.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\Token Monitor.exe"; Description: "{cm:LaunchProgram,Token Monitor}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\Starmeter.exe"; Description: "{cm:LaunchProgram,Starmeter}"; Flags: nowait postinstall skipifsilent
 
 [Code]
 const
@@ -64,7 +69,7 @@ const
 
 function InstalledExe: String;
 begin
-  Result := ExpandConstant('{app}\Token Monitor.exe');
+  Result := ExpandConstant('{app}\Starmeter.exe');
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);

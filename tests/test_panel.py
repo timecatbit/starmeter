@@ -1,7 +1,7 @@
 import json,os,tempfile,time,types,unittest
 from pathlib import Path
 from unittest.mock import patch
-SOURCE=Path(__file__).resolve().parents[1]/'token-monitor.30s.sh'
+SOURCE=Path(__file__).resolve().parents[1]/'starmeter.30s.sh'
 CODE=(SOURCE.parent/'lib/swiftbar_plugin.py').read_text()
 class PanelTests(unittest.TestCase):
  def setUp(self):
@@ -45,8 +45,8 @@ class PanelTests(unittest.TestCase):
   self.assertNotIn('SwiftBar 管理',output);self.assertNotIn('swiftbar-folder',output)
   self.assertFalse(any(e['label']=='刷新数据' for e in snapshot['entries']))
   # A compact About submenu replaces SwiftBar's fixed-size popover, which the entry hides.
-  self.assertIn('关于 token-monitor',output);self.assertIn('--版本 '+self.m.VERSION,output);self.assertIn('--作者 minicoke',output)
-  self.assertIn('href=https://github.com/timecatbit/swiftbar-token-monitor/blob/main/CHANGELOG.md',output)
+  self.assertIn('关于 Starmeter',output);self.assertIn('--版本 '+self.m.VERSION,output);self.assertIn('--作者 minicoke',output)
+  self.assertIn('href=https://github.com/timecatbit/starmeter/blob/main/CHANGELOG.md',output)
   # SwiftBar greys out rows with neither an action nor a submenu, so every right-click row needs one.
   rows=output.split('\n')[2:]
   for i,line in enumerate(rows):
@@ -59,14 +59,14 @@ class PanelTests(unittest.TestCase):
   self.assertRegex(SOURCE.read_text(),r'(?m)^# <swiftbar\.schedule>\* \* \* \* \*</swiftbar\.schedule>$')
  def test_swiftbar_links_use_the_name_every_swiftbar_version_matches(self):
   # SwiftBar 2.1.0/2.1.1 match a plugin by its full path or by its name (file name up to the first
-  # dot), never by token-monitor.30s.sh; links naming the file did nothing there.
+  # dot), never by starmeter.30s.sh; links naming the file did nothing there.
   with patch.object(self.m.subprocess,'run') as run:
    self.m.refresh_swiftbar();self.m.post_notice('用量提醒','Claude 订阅 · 本周 已用 92%')
   refresh,notice=(call.args[0][-1] for call in run.call_args_list)
-  self.assertEqual(refresh,'swiftbar://refreshplugin?name=token-monitor')
+  self.assertEqual(refresh,'swiftbar://refreshplugin?name=starmeter')
   query=self.m.urllib.parse.parse_qs(self.m.urllib.parse.urlsplit(notice).query)
-  self.assertEqual(query['plugin'],['token-monitor'])
-  self.assertEqual(query['href'],['swiftbar://refreshplugin?name=token-monitor'])
+  self.assertEqual(query['plugin'],['starmeter'])
+  self.assertEqual(query['href'],['swiftbar://refreshplugin?name=starmeter'])
  def test_menu_hierarchy_and_callback_spaces(self):
   lines=['账户管理 | sfimage=person.crop.circle','--切换 main | bash=/bin/bash param1="/tmp/path with spaces/plugin.sh" param2=--action param3=account-use param4="account one"','---','服务器监控 · 1/1 在线 | sfimage=server.rack','--● node  在线 · 长期 | href=https://example.test tooltip="在线 · CPU 1% · 内存 20%"']
   nodes=self.m.panel_entries(lines)

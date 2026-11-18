@@ -3,9 +3,9 @@ $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $true
 $Repo = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $Repo
-$Entry = Get-Content -LiteralPath "token-monitor.30s.sh" -Raw
+$Entry = Get-Content -LiteralPath "starmeter.30s.sh" -Raw
 if ($Entry -notmatch '<xbar.version>([0-9]+\.[0-9]+\.[0-9]+)</xbar.version>') {
-    throw "Cannot read the Token Monitor version."
+    throw "Cannot read the Starmeter version."
 }
 $Version = $Matches[1]
 if ($ExpectedTag -and $ExpectedTag -ne "v$Version") { throw "Version does not match the requested tag." }
@@ -21,19 +21,19 @@ New-Item -ItemType Directory -Force -Path $Dist, $Build | Out-Null
 $Dist = [IO.Path]::GetFullPath($Dist); $Build = [IO.Path]::GetFullPath($Build)
 $env:PYTHONUTF8 = "1"
 # The logo is the program icon too, so the exe, its shortcuts, the installer and the uninstall entry show it.
-$Icon = Join-Path $Build "token-monitor.ico"
+$Icon = Join-Path $Build "starmeter.ico"
 python windows/make_icon.py $Icon
 if ($LASTEXITCODE -ne 0) { throw "Could not draw the program icon." }
 $BuildArgs = @(
-    "--noconfirm", "--clean", "--windowed", "--onedir", "--name", "Token Monitor", "--icon", $Icon,
+    "--noconfirm", "--clean", "--windowed", "--onedir", "--name", "Starmeter", "--icon", $Icon,
     "--paths", (Join-Path $Repo "lib"), "--workpath", "$Build/work", "--specpath", "$Build", "--distpath", "$Build/output",
     "--add-data", "$Repo/assets;assets", "--add-data", "$Repo/lib/model-pricing.json;lib",
     "--add-data", "$Repo/lib/codex-pricing.json;lib", "--collect-data", "tzdata",
-    "--hidden-import", "zstandard", (Join-Path $Repo "windows/token_monitor.py")
+    "--hidden-import", "zstandard", (Join-Path $Repo "windows/starmeter.py")
 )
 python -m PyInstaller @BuildArgs
 if ($LASTEXITCODE -ne 0) { throw "Windows build failed." }
-$App = Join-Path $Build "output\Token Monitor"
+$App = Join-Path $Build "output\Starmeter"
 Copy-Item -LiteralPath "LICENSE", "lib/CCUSAGE_LICENSE", "lib/CODEXBAR_LICENSE", "windows/THIRD_PARTY.md" -Destination $App
 $Site = python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])"
 $Notice = Join-Path $App "licenses"
@@ -79,7 +79,7 @@ function Invoke-Bounded([string]$What, [string]$File, [string[]]$Arguments, [int
     }
     if ($Process.ExitCode -ne 0) { throw "$What exited with $($Process.ExitCode)." }
 }
-Invoke-Bounded "Smoke test of the built program" (Join-Path $App "Token Monitor.exe") @("--self-test", "--preview", ('"' + $Preview + '"')) 180
+Invoke-Bounded "Smoke test of the built program" (Join-Path $App "Starmeter.exe") @("--self-test", "--preview", ('"' + $Preview + '"')) 180
 if (-not (Test-Path -LiteralPath $Preview)) { throw "Packaged Windows smoke test drew no preview." }
 
 $Archive = Join-Path $Dist "$Name.zip"
@@ -102,14 +102,14 @@ if (-not $Iscc) {
 }
 $SetupName = "$Name-setup"
 & $Iscc "/DAppVersion=$Version" "/DAppDir=$App" "/DIconFile=$Icon" `
-    "/O$Dist" "/F$SetupName" (Join-Path $Repo "windows/installer/token-monitor.iss")
+    "/O$Dist" "/F$SetupName" (Join-Path $Repo "windows/installer/starmeter.iss")
 if ($LASTEXITCODE -ne 0) { throw "Installer build failed." }
 $Setup = Join-Path $Dist "$SetupName.exe"
 
 # Install into a scratch folder, start the installed copy's smoke test, then uninstall it.
 $Installed = Join-Path $Build "installed"
-$InstalledExe = Join-Path $Installed "Token Monitor.exe"
-$Shortcut = Join-Path ([Environment]::GetFolderPath("Programs")) "Token Monitor.lnk"
+$InstalledExe = Join-Path $Installed "Starmeter.exe"
+$Shortcut = Join-Path ([Environment]::GetFolderPath("Programs")) "Starmeter.lnk"
 $Entry = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{66818B0F-B59E-45CC-81AA-99315BFB1931}_is1"
 $RunKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
 Remove-Item -LiteralPath $Installed -Recurse -Force -ErrorAction SilentlyContinue

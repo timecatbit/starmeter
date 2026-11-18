@@ -56,7 +56,7 @@ class QoderPanelTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
         self.root=Path(self.temp.name)
-        env=patch.dict(os.environ,{'OCX_STATE_DIR':str(self.root/'state'),'OCX_CACHE_DIR':str(self.root),'OCX_PLUGIN_PATH':str(ROOT/'token-monitor.30s.sh')})
+        env=patch.dict(os.environ,{'OCX_STATE_DIR':str(self.root/'state'),'OCX_CACHE_DIR':str(self.root),'OCX_PLUGIN_PATH':str(ROOT/'starmeter.30s.sh')})
         env.start();self.addCleanup(env.stop)
         self.m=types.ModuleType('qoder_test')
         exec(compile((ROOT/'lib/swiftbar_plugin.py').read_text(),'plugin','exec'),self.m.__dict__)
@@ -101,7 +101,7 @@ class QoderApiTests(unittest.TestCase):
             self.assertIn('组织 ID',accounts.account('qoder-api',key='k')['state'])
     def test_balance_reads_in_credits_with_the_shared_pool_explained(self):
         temp=tempfile.TemporaryDirectory();self.addCleanup(temp.cleanup);root=Path(temp.name)
-        env=patch.dict(os.environ,{'OCX_STATE_DIR':str(root/'state'),'OCX_CACHE_DIR':str(root),'OCX_PLUGIN_PATH':str(ROOT/'token-monitor.30s.sh'),'QODER_CN_API_KEY':'secret-key','QODER_CN_ORG_ID':'org1'})
+        env=patch.dict(os.environ,{'OCX_STATE_DIR':str(root/'state'),'OCX_CACHE_DIR':str(root),'OCX_PLUGIN_PATH':str(ROOT/'starmeter.30s.sh'),'QODER_CN_API_KEY':'secret-key','QODER_CN_ORG_ID':'org1'})
         env.start();self.addCleanup(env.stop)
         m=types.ModuleType('qoder_api_test');exec(compile((ROOT/'lib/swiftbar_plugin.py').read_text(),'plugin','exec'),m.__dict__)
         self.assertTrue(m.default_ready('qoder-api'))

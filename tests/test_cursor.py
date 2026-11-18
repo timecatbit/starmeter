@@ -181,7 +181,7 @@ class CursorPluginTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
         env = patch.dict(os.environ, {'OCX_CACHE_DIR': self.temp.name, 'OCX_STATE_DIR': self.temp.name + '/settings',
-                                      'OCX_PLUGIN_PATH': str(ROOT / 'token-monitor.30s.sh')})
+                                      'OCX_PLUGIN_PATH': str(ROOT / 'starmeter.30s.sh')})
         env.start();self.addCleanup(env.stop)
         self.m = types.ModuleType('cursor_plugin_test')
         exec(compile((ROOT / 'lib/swiftbar_plugin.py').read_text(), 'plugin', 'exec'), self.m.__dict__)

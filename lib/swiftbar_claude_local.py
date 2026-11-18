@@ -20,7 +20,7 @@ MAX_AGE=600
 SNAPSHOT='claude-code-usage.json'
 BRIDGE='integrations/claude-statusline.py'
 BACKUP='integrations/claude-statusline-original.json'
-PLUGIN_NAME='token-monitor'  # SwiftBar's name for token-monitor.30s.sh; 2.1.x ignores the file name
+PLUGIN_NAME='starmeter'  # SwiftBar's name for starmeter.30s.sh; 2.1.x ignores the file name
 
 
 def read(path):

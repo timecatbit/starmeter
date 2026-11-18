@@ -224,7 +224,7 @@ LOGO_SIZES=(16,20,24,32,40,48,64,128,256)
 
 def logo_pixmap(size):
     """The app icon at size pixels: its tile without the macOS grid's margin, the 9-dot drawing at 32 and below."""
-    renderer=QSvgRenderer(str(ASSETS/('token-monitor-small.svg' if size<=32 else 'token-monitor.svg')))
+    renderer=QSvgRenderer(str(ASSETS/('starmeter-small.svg' if size<=32 else 'starmeter.svg')))
     renderer.setViewBox(QRectF(100,100,824,824))
     pix=QPixmap(size,size);pix.fill(Qt.transparent)
     p=QPainter(pix);p.setRenderHint(QPainter.Antialiasing);renderer.render(p);p.end();return pix
@@ -493,7 +493,7 @@ class TrayPanel(QWidget):
     share=Signal(str)
     def __init__(self):
         super().__init__(None,Qt.Tool|Qt.FramelessWindowHint|Qt.WindowStaysOnTopHint)
-        self.setWindowTitle('Token Monitor');self.setFixedWidth(380)
+        self.setWindowTitle('Starmeter');self.setFixedWidth(380)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.surface=QFrame(self);self.surface.setObjectName('surface')
         layout=QVBoxLayout(self);layout.setContentsMargins(0,0,0,0);layout.addWidget(self.surface)
@@ -645,7 +645,7 @@ class TrayPanel(QWidget):
             # Signed like the Mac picture: the logo, then the name.
             footer=QHBoxLayout();footer.setSpacing(6)
             mark=QLabel();mark.setPixmap(logo().pixmap(16,16));footer.addWidget(mark)
-            footer.addWidget(label('Token Monitor  ·  '+d.get('date',''),'muted'));footer.addStretch()
+            footer.addWidget(label('Starmeter  ·  '+d.get('date',''),'muted'));footer.addStretch()
             box.addLayout(footer)
             return
         if d['providers'] and snapshot.get('entries'):box.addWidget(separator())

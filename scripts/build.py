@@ -25,12 +25,12 @@ def build(output, universal=False):
         shutil.copyfile(ROOT / 'panel' / 'Info.plist', app / 'Contents' / 'Info.plist')
         # The app icon, drawn from the logo's SVG: Finder, notifications, About and the share picture's signature use it.
         resources = app / 'Contents' / 'Resources'
-        iconset = Path(temporary) / 'TokenMonitor.iconset'
+        iconset = Path(temporary) / 'Starmeter.iconset'
         subprocess.run(['xcrun', 'swift', '-module-cache-path', str(cache), str(ROOT / 'scripts' / 'make_icon.swift'),
-                        str(ROOT / 'assets' / 'token-monitor.svg'), str(ROOT / 'assets' / 'token-monitor-small.svg'), str(iconset)],
+                        str(ROOT / 'assets' / 'starmeter.svg'), str(ROOT / 'assets' / 'starmeter-small.svg'), str(iconset)],
                        check=True)
         resources.mkdir()
-        subprocess.run(['iconutil', '-c', 'icns', str(iconset), '-o', str(resources / 'TokenMonitor.icns')], check=True)
+        subprocess.run(['iconutil', '-c', 'icns', str(iconset), '-o', str(resources / 'Starmeter.icns')], check=True)
         environment = dict(os.environ, MACOSX_DEPLOYMENT_TARGET='13.0')
         command = ['xcrun', 'swiftc', '-O', '-module-cache-path', str(cache), str(ROOT / 'panel' / 'Panel.swift')]
         if universal:
@@ -44,6 +44,9 @@ def build(output, universal=False):
             subprocess.run(command + ['-o', str(binary)], check=True, env=environment)
         subprocess.run(['codesign', '--force', '--sign', '-', str(app)], check=True)
         subprocess.run(['codesign', '--verify', '--deep', '--strict', str(app)], check=True)
+        # ditto merges into an existing bundle, so a file the new build no longer has would stay and break its seal.
+        if output.is_dir() and output.suffix == '.app':
+            shutil.rmtree(output)
         subprocess.run(['ditto', '--norsrc', '--noextattr', str(app), str(output)], check=True)
     print(output)
     return output

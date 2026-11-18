@@ -1,14 +1,15 @@
-# Token Monitor · Windows
+# Starmeter · Windows
 
 独立托盘版，目标为 Windows 10/11 x64，无需 SwiftBar。
 
 - **安装版（推荐）**：从发布页下载 `token-monitor-<版本>-windows-x64-setup.exe` 并运行。
-  只为当前用户安装到 `%LOCALAPPDATA%\Programs\Token Monitor`，不需要管理员权限；
+  只为当前用户安装到 `%LOCALAPPDATA%\Programs\Starmeter`，不需要管理员权限；
   建开始菜单快捷方式，桌面快捷方式和“登录 Windows 时启动”可在安装时勾选（默认不勾）。
-  升级时直接运行新版安装包；Token Monitor 正在运行时，安装程序会请你先从托盘菜单退出。
+  升级时直接运行新版安装包；Starmeter 正在运行时，安装程序会请你先从托盘菜单退出。从 Token Monitor
+  升级时沿用原来的 `Programs\Token Monitor` 文件夹，旧的程序和快捷方式会换成 Starmeter。
   在“设置 → 应用”里卸载；卸载不删除 `%LOCALAPPDATA%\Token Monitor` 里的设置、Key 与缓存。
 - **免安装版**：完整解压 `token-monitor-<版本>-windows-x64.zip`，双击
-  `Token Monitor/Token Monitor.exe`；不要把 EXE 单独移出这个文件夹。
+  `Starmeter/Starmeter.exe`；不要把 EXE 单独移出这个文件夹。
 
 程序没有代码签名，首次运行时 SmartScreen 可能提示“Windows 已保护你的电脑”，点“更多信息 →
 仍要运行”即可。首次打开会扫描本机已存在的日志，不需要发起新的模型调用。找不到星星时，
@@ -29,7 +30,7 @@
 - **平台差异**：Windows 面板默认跟随系统深浅色，也可在“外观与设置”固定为浅色或深色；提供柔和背景和实色背景。分享按钮可复制图片（直接粘贴到
   聊天）或保存 PNG，图里不含订阅和余额。Claude 订阅支持本机 App 快照或明确授权后读 Claude Code 本机登录文件；不使用
   桌面 Cookie，也不会代替 CLI 续期。Claude 和 ChatGPT 桌面应用在各自客户端内检查更新；
-  CLI 更新在独立窗口显示输出和日志。Token Monitor 的新版从发布页下载：安装版运行新
+  CLI 更新在独立窗口显示输出和日志。Starmeter 的新版从发布页下载：安装版运行新
   安装包，免安装版解压替换程序目录；用户数据独立保留。
 
 ## 从源码运行 / 打包

@@ -7,7 +7,7 @@ import types
 import unittest
 from unittest.mock import patch, Mock
 
-SOURCE = Path(__file__).resolve().parents[1]/'token-monitor.30s.sh'
+SOURCE = Path(__file__).resolve().parents[1]/'starmeter.30s.sh'
 CODE = (SOURCE.parent / 'lib/swiftbar_plugin.py').read_text()
 
 
@@ -249,10 +249,10 @@ class PluginTests(unittest.TestCase):
         self.assertEqual(len(sent),1)  # only the unauthenticated health check went out
 
     def test_callback_paths_with_spaces_are_quoted(self):
-        self.m.PLUGIN='/tmp/test path/token-monitor.30s.sh'
+        self.m.PLUGIN='/tmp/test path/starmeter.30s.sh'
         out=self.m.item('刷新',**self.m.act('refresh'))
         self.assertIn('bash=/bin/bash',out)
-        self.assertIn('param1="/tmp/test path/token-monitor.30s.sh"',out)
+        self.assertIn('param1="/tmp/test path/starmeter.30s.sh"',out)
         self.assertIn('param2=--action',out)
         self.assertIn('param3=refresh',out)
         self.assertNotIn('\n',out)

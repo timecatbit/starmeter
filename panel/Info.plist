@@ -7,7 +7,7 @@
 	<key>CFBundleExecutable</key>
 	<string>OpenCodexPanel</string>
 	<key>CFBundleIconFile</key>
-	<string>TokenMonitor</string>
+	<string>Starmeter</string>
 	<key>CFBundleIdentifier</key>
 	<string>cc.opencodex.swiftbar.panel</string>
 	<key>CFBundleName</key>
