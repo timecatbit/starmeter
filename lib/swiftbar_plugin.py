@@ -2648,9 +2648,16 @@ def session_name(s):
     return s.get('title') or s.get('project') or '未知项目'
 
 
+def tool_name(name):
+    """An MCP tool by its own name: mcp__<server>__update_plan reads as update_plan."""
+    return (name.rsplit('__',1)[-1] or name) if name.startswith('mcp__') else name
+
+
 def turn_lines(turns,unit=None,project=None):
     """A session's last turns under it, newest first: when it started, its tokens and estimated cost, then its
-    requests and the tools it called. No prompt or reply text. The project folder heads the list."""
+    requests and the tools it called. No prompt or reply text. The project folder heads the list. A turn that
+    sent no request (stopped before the model answered) is left out."""
+    turns=[t for t in turns or [] if t['requests']]
     if not turns:return []
     unit=unit or {'symbol':'$','rate':1}
     lines=[item(' · '.join(part for part in (project,'最近 %d 轮'%len(turns)) if part),level=2,color=MUTED,size=11)]
@@ -2658,7 +2665,9 @@ def turn_lines(turns,unit=None,project=None):
         when=datetime.fromtimestamp(t['at']).strftime('%H:%M') if t.get('at') else '更早开始'
         priced=t['requests']>t['unpriced']
         cost=(('已知 ' if t['unpriced'] else '')+unit['symbol']+'%.2f'%(t['cost']*unit['rate'])) if priced else '费用待定价'
-        tools=' · '.join('%s ×%d'%(name,count) for name,count in sorted(t['tools'].items(),key=lambda item:(-item[1],item[0]))[:4])
+        named={}
+        for name,count in t['tools'].items():named[tool_name(name)]=named.get(tool_name(name),0)+count
+        tools=' · '.join('%s ×%d'%(name,count) for name,count in sorted(named.items(),key=lambda item:(-item[1],item[0]))[:4])
         detail='%d 次请求'%t['requests']+(' · '+tools if tools else ' · 未调用工具')+(' · %d 次未定价'%t['unpriced'] if t['unpriced'] else '')
         lines.append(item('%s · %s Token · %s'%(when,fmt_tokens(t['tokens']),cost),level=2,paneldetail=detail))
     return lines

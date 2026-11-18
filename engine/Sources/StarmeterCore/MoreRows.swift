@@ -69,7 +69,16 @@ extension Runtime {
         session["title"].flatMap { $0.isTruthy ? Py.str($0) : nil } ?? session["project"].flatMap { $0.isTruthy ? Py.str($0) : nil } ?? "未知项目"
     }
 
-    func turnLines(_ turns: [JSONObject], unit: JSON, project: String?) -> [String] {
+    /// An MCP tool by its own name: mcp__<server>__update_plan reads as update_plan.
+    func toolName(_ name: String) -> String {
+        guard name.hasPrefix("mcp__"), let last = name.range(of: "__", options: .backwards) else { return name }
+        let short = String(name[last.upperBound...])
+        return short.isEmpty ? name : short
+    }
+
+    /// A turn that sent no request (stopped before the model answered) is left out.
+    public func turnLines(_ turns: [JSONObject], unit: JSON, project: String?) -> [String] {
+        let turns = turns.filter { Py.num($0["requests"]) != 0 }
         if turns.isEmpty { return [] }
         let symbol = unit.object?["symbol"]?.string ?? "$", rate = unit.object?["rate"]?.number ?? 1
         var lines = [Runtime.item([project, "最近 \(turns.count) 轮"].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "), level: 2,
@@ -78,7 +87,9 @@ extension Runtime {
             let when = turn["at"].flatMap { $0.isTruthy ? $0.number : nil }.map { Runtime.format($0, .current, "%H:%M") } ?? "更早开始"
             let requests = Py.num(turn["requests"]), unpriced = Py.num(turn["unpriced"])
             let cost = requests > unpriced ? (unpriced != 0 ? "已知 " : "") + symbol + String(format: "%.2f", Py.num(turn["cost"]) * rate) : "费用待定价"
-            let tools = (turn["tools"]?.object ?? JSONObject()).map { ($0.key, Py.num($0.value)) }
+            var named: [String: Double] = [:]
+            for (name, count) in turn["tools"]?.object ?? JSONObject() { named[toolName(name), default: 0] += Py.num(count) }
+            let tools = named.map { ($0.key, $0.value) }
                 .sorted { $0.1 != $1.1 ? $0.1 > $1.1 : ClaudeUsage.pythonLess($0.0, $1.0) }.prefix(4).map { "\($0.0) ×\(Int($0.1))" }.joined(separator: " · ")
             let detail = "\(Int(requests)) 次请求" + (tools.isEmpty ? " · 未调用工具" : " · " + tools) + (unpriced != 0 ? " · \(Int(unpriced)) 次未定价" : "")
             lines.append(Runtime.item("\(when) · \(Runtime.fmtTokens(turn["tokens"])) Token · \(cost)", level: 2, ["paneldetail": .string(detail)]))

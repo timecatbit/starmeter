@@ -1333,6 +1333,14 @@ class SessionParityTests(unittest.TestCase):
                 got = swift('sessions.active', [str(claude)], str(codex), now, prices, app)
                 same(self, expected, got)
                 self.assertEqual(len(got), 3)
+        # The turns as listed: one with no request left out, MCP tools by their own name.
+        turns = [{'at': None, 'requests': 4, 'tokens': 1200, 'cost': 0.4, 'unpriced': 1,
+                  'tools': {'mcp__ccd_turn__update_plan': 2, 'mcp__other__update_plan': 1, 'Bash': 3, 'mcp__a___b': 1, 'mcp__x__': 1}},
+                 {'at': now, 'requests': 0, 'tokens': 0, 'cost': 0, 'unpriced': 0, 'tools': {}}]
+        unit = {'symbol': '¥', 'rate': 7.1}
+        for case in (turns, turns[1:], []):
+            with self.subTest(turns=len(case)):
+                self.assertEqual(swift('sessions.turnLines', case, unit, 'ops'), plugin.turn_lines(case, unit, 'ops'))
 
 
 @unittest.skipUnless(PROBE, 'Swift toolchain not installed')

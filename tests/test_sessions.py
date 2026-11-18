@@ -150,6 +150,10 @@ class SessionPanelTests(unittest.TestCase):
         self.assertIn('3 次请求 · Read ×5 · Bash ×2 · 1 次未定价', lines[1])
         self.assertIn('费用待定价', self.m.turn_lines([dict(turns[0], unpriced=3)])[1])
         self.assertEqual(self.m.turn_lines([]), [])
+        stopped = {'at': None, 'requests': 0, 'tokens': 0, 'cost': 0, 'unpriced': 0, 'tools': {}}
+        self.assertEqual(self.m.turn_lines([stopped]), [], 'A turn that sent no request is left out')
+        mcp = self.m.turn_lines([dict(turns[0], tools={'mcp__ccd_turn__update_plan': 2, 'mcp__x__update_plan': 1, 'Read': 1}), stopped])
+        self.assertIn('最近 1 轮', mcp[0]); self.assertIn('3 次请求 · update_plan ×3 · Read ×1', mcp[1], 'MCP tools go by their own name')
 
     def test_the_alert_is_off_by_default_and_tells_of_a_finished_turn(self):
         self.assertTrue('sessions' in preferences.read(self.m.STATE_DIR)['visible'], 'New installs list active sessions')

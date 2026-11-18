@@ -144,6 +144,9 @@ func answer(_ call: String, _ args: [JSON]) throws -> JSON {
         for (from, to) in args[2].object ?? JSONObject() { HTTP.routes[from] = to.string }
         do { return .object(try Cursor.plan(home: text(0)!, now: args[1].number!)) }
         catch let failure as Cursor.Failure { return ["failure": .string(failure.description)] }
+    case "sessions.turnLines":
+        // [turns, unit, project]: a session's turns as the menu lists them.
+        return .array(Runtime().turnLines((args[0].array ?? []).compactMap(\.object), unit: args[1], project: args[2].string).map(JSON.string))
     case "sessions.active":
         // [claude roots, codex root, now, with prices, claude app map]
         let runtime = Runtime()
