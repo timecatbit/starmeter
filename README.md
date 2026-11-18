@@ -3,7 +3,7 @@
 macOS 菜单栏与 Windows 托盘应用：在一个面板里查看各 AI 编程工具的 Token 用量和 API 等值费用，以及订阅额度、API 余额和客户端更新。
 
 <p align="center">
-  <img src="preview.png" width="360" alt="Token Monitor 主页：Summary、各工具用量、订阅、API 余额与更新提醒">
+  <img src="preview.png" width="360" alt="Token Monitor 主页：Summary、用量热力图、各工具用量、订阅、API 余额与更新提醒">
 </p>
 
 ## 能看什么
