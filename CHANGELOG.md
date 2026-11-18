@@ -1,5 +1,12 @@
 # 更新记录
 
+## 5.25.0
+
+- 有请求还没有价格时，卡片名称后用橙色写“N 次未定价”，没有价格的模型标“未定价”，不再让金额看起来像全部费用；Windows 托盘同样如此。
+- 分享图里这类工具会单独写一行“N 次未定价，金额只含已定价的部分”。
+- ChatGPT 新模型 gpt-6.2-sol、gpt-6.2-astra 有了价格；价格表来源 ccusage 还没收录的 OpenAI 新模型，先按 models.dev 上 OpenAI 的官方价格计算。
+- 说明里补充：ChatGPT 桌面版的预测消息、情境建议等附加调用只在经过 Magpie 时才统计得到，所以 Magpie 里 ChatGPT 的请求可能比 ChatGPT 卡片多。
+
 ## 5.24.0
 
 - 新增 Cursor Harness，统计 Cursor 桌面版和 Cursor CLI 的用量；在 Cursor 侧栏勾选“读取 Cursor 用量记录”后才会用本机登录查询，令牌不保存。

@@ -83,7 +83,7 @@ CONFIG_FILE = os.path.join(OCX_HOME, "config.json")
 SERVICE_LOG = os.path.join(OCX_HOME, "service.log")
 RELEASES_URL = "https://github.com/lidge-jun/opencodex/releases/latest"
 KOMARI_BASE_URL = os.environ.get("KOMARI_BASE_URL", "").rstrip("/")
-VERSION = "5.24.0"
+VERSION = "5.25.0"
 PRODUCT = "Token Monitor"
 MAC_APP = sys.platform=="darwin" and os.environ.get("OCX_MAC_APP")=="1"
 AUTHOR = "minicoke"
