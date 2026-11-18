@@ -408,4 +408,8 @@ expect(share(0.0003)=="<0.1%" && share(0.004)=="0.4%" && share(0.9996)==">99.9%"
 // The share picture lists only the tools with usage in the range.
 var quietDay=liveBase;quietDay.providers[0].tokens=0;quietDay.providers[0].requests=0
 expect(ShareCard.make(.card,quietDay,project:Project(name:"Starmeter",url:"x")).rows.isEmpty && !ShareCard.make(.card,liveBase,project:Project(name:"Starmeter",url:"x")).rows.isEmpty,"A tool with nothing in the range gets no block")
+// A bare header icon is centred by its whole shape, so a tall one (share) lines up with the rest.
+let bareIcon=HintButton(frame:NSRect(x:0,y:0,width:27,height:25));bareIcon.bare=true
+bareIcon.image=NSImage(systemSymbolName:"square.and.arrow.up",accessibilityDescription:nil)?.withSymbolConfiguration(.init(pointSize:11,weight:.semibold))
+expect(bareIcon.image.map{$0.alignmentRect==NSRect(origin:.zero,size:$0.size)} ?? false,"Bare icons are centred by their whole shape")
 print("Native interaction assertions: \(assertions) passed")

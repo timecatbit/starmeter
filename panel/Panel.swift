@@ -390,6 +390,12 @@ final class HintButton:NSButton {
     var hint="";var hovered:((HintButton,Bool)->Void)?;private var area:NSTrackingArea?;private var inside=false
     // Bare icons, as magpie's header: a soft rounded fill appears under the pointer and deepens while pressed.
     var bare=false {didSet{if bare{isBordered=false;bezelStyle = .regularSquare;needsDisplay=true}}}
+    // A symbol is placed by its text band, so a tall one (the share box) sits low and the pin high. A bare icon is
+    // centred by its whole shape instead, so a row of them lines up.
+    override var image:NSImage? {
+        get{super.image}
+        set{if bare,let icon=newValue{icon.alignmentRect=NSRect(origin:.zero,size:icon.size)};super.image=newValue}
+    }
     override func draw(_ dirtyRect:NSRect){
         if bare && (inside || isHighlighted) {
             NSColor.labelColor.withAlphaComponent(isHighlighted ? (dark(self) ? 0.16 : 0.11) : (dark(self) ? 0.09 : 0.06)).setFill()
@@ -3014,7 +3020,9 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
         if managerOnly {_=fillGrid(entries,in:content,y:top,width:inner)}
         else {content.addSubview(Divider(frame:NSRect(x:8,y:top-6,width:inner-16,height:2)));_=fillRows(entries,in:content,y:top,width:inner,depth:0)}
         if !managerOnly,let dashboard=snapshot.dashboard,let choices=snapshot.rangeOptions {
-            let picker=NSPopUpButton(frame:NSRect(x:inner-113,y:7.5,width:101,height:25),pullsDown:true)
+            // As wide as its longest choice (近 24 小时) needs, no wider; the buttons start 6pt to its left.
+            let pickerWidth=ceil(choices.map{MenuLayout.width($0.label,font:.systemFont(ofSize:11))}.max() ?? 52)+34
+            let picker=NSPopUpButton(frame:NSRect(x:inner-12-pickerWidth,y:7.5,width:pickerWidth,height:25),pullsDown:true)
             picker.controlSize = .small;picker.font = .systemFont(ofSize:11);picker.bezelStyle = .rounded
             picker.preferredEdge = .maxY;picker.setAccessibilityLabel("统计范围 · "+dashboard.rangeLabel)
             let menu=NSMenu(title:"统计范围");menu.autoenablesItems=false;menu.delegate=self
@@ -3062,9 +3070,10 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
             // Leftward from the range: refresh, share, auto-detect, the pin, the gear, 2pt apart. A long heading
             // (Summary hidden) keeps its room by leaving auto-detect out; it is still in 外观与设置 and the star's menu.
             let headingRight=12+ceil(MenuLayout.width(DashboardView.heading(dashboard),font:.systemFont(ofSize:14,weight:.semibold)))+6
-            let fitsAll=inner-142-4*29>=headingRight
+            let firstButton=picker.frame.minX-6-27
+            let fitsAll=firstButton-4*29>=headingRight
             for (index,button) in ([refresh,share]+(fitsAll ? [detect] : [])+[pin,settings]).enumerated() {
-                button.frame=NSRect(x:inner-142-CGFloat(index)*29,y:7.5,width:27,height:25);content.addSubview(button)
+                button.frame=NSRect(x:firstButton-CGFloat(index)*29,y:7.5,width:27,height:25);content.addSubview(button)
             }
             detectButton=fitsAll ? detect : nil;settingsButton=settings;showPin()
             if pinned,liveTimer?.timeInterval != (snapshot.pinInterval ?? 2){scheduleLive()}
