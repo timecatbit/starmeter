@@ -17,22 +17,42 @@ public enum Harness {
     /// Guardian review its parent chat) and take the chat's title when a range is read; ChatGPT 对话 until it has one.
     static let chatMark = "\u{1}"
     static let chatFolder = try! NSRegularExpression(pattern: #"/Codex/\d{4}-\d{2}-\d{2}/[^/]+/?$"#)
+    /// A ChatGPT project's own folder, .chatgpt-projects/g-p-<id>, is named by its ID; its name comes from the app.
+    static let projectFolder = try! NSRegularExpression(pattern: #"/\.chatgpt-projects/(g-p-[0-9a-f]+)/?$"#)
 
     static func codexProject(_ data: JSON, session: String) throws -> JSON {
         if let cwd = try Py.get(data, "cwd")?.string {
             let path = cwd.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\\", with: "/")
-            if chatFolder.firstMatch(in: path, range: NSRange(path.startIndex..., in: path)) != nil {
+            let whole = NSRange(path.startIndex..., in: path)
+            if chatFolder.firstMatch(in: path, range: whole) != nil {
                 return .string(chatMark + Py.str(Py.or(try Py.get(data, "parent_thread_id"), .string(session))))
+            }
+            if let found = projectFolder.firstMatch(in: path, range: whole), let id = Range(found.range(at: 1), in: path) {
+                return .string(chatMark + String(path[id]))
             }
         }
         return Py.projectName(try Py.get(data, "cwd"))
     }
 
-    static func chatProjects(_ events: [Event], titles: [String: String]) -> [Event] {
+    /// Chat titles by thread ID, and ChatGPT projects' names by project ID from the app's own state (only those).
+    static func codexNames(_ root: String) -> [String: String] {
+        var names = Sessions.codexTitles(root)
+        if let data = FileManager.default.contents(atPath: root + "/.codex-global-state.json"),
+           let projects = (try? JSON.parse(data))?.object?["local-projects"]?.object {
+            for (key, project) in projects {
+                guard let name = project.object?["name"]?.string?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty, names[key] == nil else { continue }
+                names[key] = name
+            }
+        }
+        return names
+    }
+
+    static func chatProjects(_ events: [Event], names: [String: String]) -> [Event] {
         events.map { event in
             guard let project = event["project"]?.string, project.hasPrefix(chatMark) else { return event }
+            let key = String(project.dropFirst())
             var event = event
-            event["project"] = .string(titles[String(project.dropFirst())] ?? "ChatGPT 对话")
+            event["project"] = .string(names[key] ?? (key.hasPrefix("g-p-") ? "ChatGPT 项目" : "ChatGPT 对话"))
             return event
         }
     }
@@ -481,7 +501,7 @@ public enum Harness {
             throw error
         }
         var events = Archive.merged(try uniqueEvents(db, start, end), archive, start, end)
-        if source == "codex" { events = chatProjects(events, titles: Sessions.codexTitles(root)) }
+        if source == "codex" { events = chatProjects(events, names: codexNames(root)) }
         let defaultPrice: Price = source == "codex" ? Pricing.codexCost : Pricing.modelCost
         var result = aggregate(events, start: start, end: end, zone: zone, excludeProxy: excludeProxy, price: price ?? defaultPrice, carriers: carriers)
         if errors > 0 {

@@ -18,6 +18,7 @@ import threading
 import time
 from datetime import datetime, timezone
 
+from urllib.parse import unquote
 import swiftbar_archive as kept
 import swiftbar_sessions
 from swiftbar_time import parse_iso
@@ -138,31 +139,52 @@ def metrics(model, inputs, output, cached=0, writes=0, cost=None):
 
 
 def project_name(path):
-    """A project's folder name, the last part of its working directory; only the name is kept, never the path."""
+    """A project's folder name, the last part of its working directory; only the name is kept, never the path.
+    A file:// address (the ChatGPT app writes some) is read as the path it stands for, %20 as a space."""
     if not isinstance(path, str) or not path.strip():
         return None
-    return re.split(r'[\\/]', path.strip().rstrip('/\\'))[-1] or None
+    path = path.strip()
+    if path.startswith('file://'):path = unquote(path[7:])
+    return re.split(r'[\\/]', path.rstrip('/\\'))[-1] or None
 
 
 # A ChatGPT app chat with no project folder runs in a folder the app makes for it, Documents/Codex/<day>/<slug>, named
 # after the first words typed ("wo-d", "https-github-com-…"). Its requests keep the chat they belong to (a Guardian
 # review its parent chat) and take the chat's title when a range is read; ChatGPT 对话 until it has one.
+# A ChatGPT project's own folder, .chatgpt-projects/g-p-<id>, is named by its ID; the project's name comes from the app.
 CHAT_MARK = '\x01'
 CHAT_FOLDER = re.compile(r'/Codex/\d{4}-\d{2}-\d{2}/[^/]+/?$')
+PROJECT_FOLDER = re.compile(r'/\.chatgpt-projects/(g-p-[0-9a-f]+)/?$')
 
 
 def codex_project(data, session):
     cwd = data.get('cwd')
-    if isinstance(cwd, str) and CHAT_FOLDER.search(cwd.strip().replace('\\', '/')):
-        return CHAT_MARK + str(data.get('parent_thread_id') or session)
+    if isinstance(cwd, str):
+        path = cwd.strip().replace('\\', '/')
+        if CHAT_FOLDER.search(path):return CHAT_MARK + str(data.get('parent_thread_id') or session)
+        found = PROJECT_FOLDER.search(path)
+        if found:return CHAT_MARK + found.group(1)
     return project_name(cwd)
 
 
-def chat_projects(events, titles):
+def codex_names(root):
+    """Chat titles by thread ID, and ChatGPT projects' names by project ID from the app's own state (only those)."""
+    names = swiftbar_sessions.codex_titles(root)
+    try:
+        with open(Path(root) / '.codex-global-state.json', 'rb') as handle:projects = json.load(handle).get('local-projects')
+    except (OSError, ValueError, AttributeError):projects = None
+    for key, project in (projects or {}).items() if isinstance(projects, dict) else ():
+        if isinstance(key, str) and isinstance(project, dict) and isinstance(project.get('name'), str) and project['name'].strip():
+            names.setdefault(key, project['name'].strip())
+    return names
+
+
+def chat_projects(events, names):
     for event in events:
         project = event.get('project')
         if isinstance(project, str) and project.startswith(CHAT_MARK):
-            event = dict(event, project=titles.get(project[1:]) or 'ChatGPT 对话')
+            key = project[1:]
+            event = dict(event, project=names.get(key) or ('ChatGPT 项目' if key.startswith('g-p-') else 'ChatGPT 对话'))
         yield event
 
 
@@ -425,7 +447,7 @@ def jsonl_usage(source, root, cache, start, end, zone, exclude_proxy=False, carr
                 errors += 1
         conn.commit()
         events = kept.merged(unique_events(conn, start, end), archive, start, end)
-        if source == 'codex':events = chat_projects(events, swiftbar_sessions.codex_titles(root))
+        if source == 'codex':events = chat_projects(events, codex_names(root))
         result = aggregate(events, start, end, zone, exclude_proxy, price or (codex_cost if source == 'codex' else model_cost), carriers)
         if errors:
             result['warning'] = '部分记录无法读取'

@@ -98,8 +98,10 @@ public enum Py {
     }
 
     /// A project's folder name, the last part of its working directory; only the name is kept, never the path.
+    /// A file:// address (the ChatGPT app writes some) is read as the path it stands for, %20 as a space.
     static func projectName(_ value: JSON?) -> JSON {
-        guard let path = value?.string?.trimmingCharacters(in: .whitespacesAndNewlines), !path.isEmpty else { return .null }
+        guard var path = value?.string?.trimmingCharacters(in: .whitespacesAndNewlines), !path.isEmpty else { return .null }
+        if path.hasPrefix("file://") { let rest = String(path.dropFirst(7)); path = rest.removingPercentEncoding ?? rest }
         var trimmed = Substring(path)
         while let last = trimmed.last, last == "/" || last == "\\" { trimmed = trimmed.dropLast() }
         let name = trimmed.split(omittingEmptySubsequences: false, whereSeparator: { $0 == "/" || $0 == "\\" }).last.map(String.init) ?? ""

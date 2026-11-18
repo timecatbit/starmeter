@@ -98,14 +98,14 @@ public enum Sessions {
                 "effort": effort.map(JSON.string) ?? .null, "context": context]
     }
 
-    /// The folder's name; none for the folder the ChatGPT app makes for a chat (Documents/Codex/<day>/<slug>), whose
-    /// title the session already shows.
+    /// The folder's name; none for the folders the ChatGPT app makes for a chat or a project, named by date and ID
+    /// (the session already shows its title).
     static func projectName(_ folder: JSON?) -> JSON {
         if let path = folder?.string {
             var trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
             while let last = trimmed.last, last == "/" || last == "\\" { trimmed.removeLast() }
             trimmed = trimmed.replacingOccurrences(of: "\\", with: "/")
-            if trimmed.range(of: #"/Codex/\d{4}-\d{2}-\d{2}/[^/]+$"#, options: .regularExpression) != nil { return .null }
+            if trimmed.range(of: #"/Codex/\d{4}-\d{2}-\d{2}/[^/]+$|/\.chatgpt-projects/g-p-[0-9a-f]+$"#, options: .regularExpression) != nil { return .null }
         }
         return Py.projectName(folder)
     }

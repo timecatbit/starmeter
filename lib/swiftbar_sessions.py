@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import re
+from urllib.parse import unquote
 from pathlib import Path
 
 ACTIVE = 1800   # A session waiting for input stays listed this long after its last change.
@@ -19,10 +20,12 @@ CLAUDE_WINDOWS = (200_000, 1_000_000)
 
 
 def project_name(path):
-    """The folder's name; none for the folder the ChatGPT app makes for a chat (Documents/Codex/<day>/<slug>)."""
+    """The folder's name; none for the folders the ChatGPT app makes for a chat or a project, named by date and ID."""
     if not isinstance(path, str) or not path.strip():return None
-    path = path.strip().rstrip('/\\').replace('\\', '/')
-    if re.search(r'/Codex/\d{4}-\d{2}-\d{2}/[^/]+$', path):return None
+    path = path.strip()
+    if path.startswith('file://'):path = unquote(path[7:])
+    path = path.rstrip('/\\').replace('\\', '/')
+    if re.search(r'/Codex/\d{4}-\d{2}-\d{2}/[^/]+$|/\.chatgpt-projects/g-p-[0-9a-f]+$', path):return None
     return path.rsplit('/', 1)[-1] or None
 
 

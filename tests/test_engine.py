@@ -496,10 +496,15 @@ class HarnessReaderParityTests(unittest.TestCase):
         jsonl(day / 'rollout-2026-11-18T10-10-00-guard.jsonl', guardian)
         jsonl(day / 'rollout-2026-11-18T10-20-00-new.jsonl', codex_rows('chat-2', 'C:\\Users\\u\\Documents\\Codex\\2026-11-18\\wo-d'))
         jsonl(day / 'rollout-2026-11-18T10-30-00-repo.jsonl', codex_rows('chat-3', chat + '/work/dsh-web-plugins'))
+        jsonl(day / 'rollout-2026-11-18T10-40-00-proj.jsonl', codex_rows('chat-4', 'file:///Users/u/.codex/.chatgpt-projects/g-p-6aab52'))
+        jsonl(day / 'rollout-2026-11-18T10-50-00-gone.jsonl', codex_rows('chat-5', '/Users/u/.codex/.chatgpt-projects/g-p-0bad/'))
+        jsonl(day / 'rollout-2026-11-18T11-00-00-space.jsonl', codex_rows('chat-6', 'file:///Users/u/Documents/SwiftBar%20plugin'))
         (codex / 'session_index.jsonl').write_text(json.dumps({'id': 'chat-1', 'thread_name': '为 Token Monitor 设计 Logo'}) + '\n'
                                                    + json.dumps({'id': 'guard-1', 'thread_name': 'Guardian review'}) + '\n')
+        (codex / '.codex-global-state.json').write_text(json.dumps({'local-projects': {'g-p-6aab52': {'name': ' charles 1 ', 'rootPaths': []}, 'x': {'name': ''}}}))
         result = self.compare('codex', codex, 'chats by title')
-        self.assertEqual({row['project'] for row in result['projects']}, {'为 Token Monitor 设计 Logo', 'ChatGPT 对话', 'dsh-web-plugins'})
+        self.assertEqual({row['project'] for row in result['projects']},
+                         {'为 Token Monitor 设计 Logo', 'ChatGPT 对话', 'dsh-web-plugins', 'charles 1', 'ChatGPT 项目', 'SwiftBar plugin'})
 
     def test_gateways_carry_requests(self):
         codex = self.root / 'codex'
