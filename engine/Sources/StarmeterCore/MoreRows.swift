@@ -58,8 +58,8 @@ extension Runtime {
                 ["color": .string(color), "font": "Menlo", "size": 12, "tooltip": .string(detail), "href": .string(url),
                  "panelstatus": .string(state == true ? "ok" : state == false ? "issue" : "unknown")]))
         }
-        lines += ["-----", Runtime.item("打开 Komari 面板", level: 1, ["href": .string(address)]),
-                  Runtime.item("刷新监控数据", level: 1, act("refresh-monitor")), refreshRow(payload, error)]
+        lines += ["-----", refreshRow(payload, error), Runtime.item("打开 Komari 面板", level: 1, ["href": .string(address)]),
+                  Runtime.item("刷新监控数据", level: 1, act("refresh-monitor"))]
         return lines
     }
 

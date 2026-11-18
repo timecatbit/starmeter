@@ -2745,9 +2745,8 @@ def komari_lines(data):
         lines.append(item("%s %s  %s · %s" % (mark, pad_display(name, 18), label, expiry_text),
                           level=1, color=color, font="Menlo", size=12, tooltip=detail, href=url,
                           panelstatus="ok" if state is True else "issue" if state is False else "unknown"))
-    lines.extend(["-----", item("打开 Komari 面板", level=1, href=KOMARI_BASE_URL),
-                  item("刷新监控数据", level=1, **act("refresh-monitor")),
-                  refresh_row(payload,error)])
+    lines.extend(["-----", refresh_row(payload,error), item("打开 Komari 面板", level=1, href=KOMARI_BASE_URL),
+                  item("刷新监控数据", level=1, **act("refresh-monitor"))])
     return lines
 
 
