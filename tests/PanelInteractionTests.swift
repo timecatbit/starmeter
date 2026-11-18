@@ -366,4 +366,19 @@ if let link=pageView.subviews.compactMap({$0 as? DetailRow}).first(where:{$0.ent
 expect(invoked==["打开用量与账单"],"A row without more runs its action or opens its link")
 let aligned=DetailStyle.layout(pageEntries[2],depth:0,width:344,aligned:true).title.minX,plain=DetailStyle.layout(pageEntries[2],depth:0,width:344,aligned:false).title.minX
 expect(aligned==plain+DetailStyle.lead,"Rows of a level start their text in one column when any of them has an icon")
+// Settings change in place: the panel stays, and the switch or choice shows its new state at once.
+expect(PanelInteraction.keepsPanelOpen(["set-currency","CNY"]) && PanelInteraction.keepsPanelOpen(["set-pin-interval","5"]) && PanelInteraction.keepsPanelOpen(["set-service-status","true"]),"A setting without a question keeps the panel open")
+expect(!PanelInteraction.keepsPanelOpen(["set-cursor-usage","true"]) && PanelInteraction.keepsPanelOpen(["set-cursor-usage","false"]),"Turning Cursor reading on asks in a dialog; turning it off does not")
+expect(!PanelInteraction.keepsPanelOpen(["set-keep-usage","false"]) && PanelInteraction.keepsPanelOpen(["set-keep-usage","true"]),"Dropping kept usage asks first; keeping it does not")
+let settingsJSON=#"{"entries":[],"moduleOptions":[{"label":"外观与设置","children":[{"label":"美元（$）","checked":true,"radio":true,"action":["set-currency","USD"],"children":[]},{"label":"人民币（¥）","checked":false,"radio":true,"action":["set-currency","CNY"],"children":[]},{"label":"服务状态","checked":false,"action":["set-service-status","true"],"children":[]}]}]}"#
+var choosing=PanelInteraction(source:try JSONDecoder().decode(Snapshot.self,from:Data(settingsJSON.utf8)))
+_=choosing.submit(["set-currency","CNY"]);_=choosing.submit(["set-service-status","true"])
+let chosenRows=choosing.displayed()?.moduleOptions?.first?.children ?? []
+expect(chosenRows.map{$0.checked}==[false,true,true],"A chosen currency and a switched-on setting show at once")
+expect(chosenRows[2].action==["set-service-status","false"],"The switch's next click turns it off again")
+expect(DetailStyle.toggle(chosenRows[2]) && !DetailStyle.toggle(chosenRows[0]) && DetailSegments.fits(Array(chosenRows[0...1]),width:320),"On/off settings are switches and short choices a segmented control")
+let paceJSON=#"[{"label":"本周","value":"已用 38%","usageLevel":"normal","detail":"重置于 11/19 22:00 · 比匀速少用 48%","children":[]},{"label":"5 小时","value":"已用 60%","usageLevel":"normal","detail":"比匀速多用 10%","children":[]},{"label":"Claude 订阅","value":"已用 本周 38% · Fable 79%","usageLevel":"warning","children":[{"label":"x","children":[]}]}]"#
+let paceRows=try JSONDecoder().decode([Entry].self,from:Data(paceJSON.utf8))
+expect(abs((DetailStyle.pace(paceRows[0]) ?? 0)-0.86)<0.001 && abs((DetailStyle.pace(paceRows[1]) ?? 0)-0.5)<0.001,"The even-pace mark sits at the share used less how far ahead of pace it is")
+expect(DetailStyle.share(paceRows[2])==0.79 && MenuLayout.gauge(paceRows[2]),"A homepage row's bar shows its tightest window")
 print("Native interaction assertions: \(assertions) passed")

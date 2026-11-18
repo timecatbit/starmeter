@@ -1595,8 +1595,10 @@ enum MenuLayout {
         if e.section==true{return 25}
         let titleHeight=height(e.label,font:labelFont(e),width:labelWidth(e,width:width,left:left))
         let detailHeight=e.detail.map{height($0,font:detailFont,width:width-left-trailing(e))+3} ?? 0
-        return max(e.actionable ? 27 : 21,titleHeight+detailHeight+(e.detail == nil ? 8 : 12))
+        return max(e.actionable ? 27 : 21,titleHeight+detailHeight+(e.detail == nil ? 8 : 12))+(gauge(e) ? 8 : 0)
     }
+    // A homepage row that carries a usage share shows it as a thin bar under its name, as Token Monitor's rows do.
+    static func gauge(_ e:Entry)->Bool {!e.children.isEmpty && DetailStyle.share(e) != nil}
     static func flyoutWidth(_ entry:Entry)->CGFloat {
         let left=column(entry.children)
         var needed=width(entry.label,font:.systemFont(ofSize:11,weight:.medium))+left+28
@@ -1726,12 +1728,19 @@ final class Row:NSButton {
         let labelWidth=MenuLayout.labelWidth(entry,width:bounds.width,left:left)
         let titleHeight=MenuLayout.height(entry.label,font:font,width:labelWidth)
         let detailHeight=entry.detail.map{MenuLayout.height($0,font:MenuLayout.detailFont,width:bounds.width-left-trailing)} ?? 0
-        let blockHeight=titleHeight+(entry.detail == nil ? 0 : detailHeight+3)
+        let gauge=MenuLayout.gauge(entry)
+        let blockHeight=titleHeight+(entry.detail == nil ? 0 : detailHeight+3)+(gauge ? 8 : 0)
         let top=(bounds.height-blockHeight)/2
         if let state=entry.statusLight {drawStatusLight(state,centre:NSPoint(x:19,y:top+titleHeight/2),in:self)}
         MenuLayout.draw(entry.label,in:NSRect(x:left,y:top,width:labelWidth,height:titleHeight),font:font,color:color)
-        // With a detail line below, the value sits on the title line so the two never overlap.
-        let line=entry.detail == nil ? bounds.midY : top+titleHeight/2
+        // With a detail line or a bar below, the value sits on the title line so the two never overlap.
+        let line=entry.detail == nil && !gauge ? bounds.midY : top+titleHeight/2
+        if gauge,let share=DetailStyle.share(entry) {
+            let bar=NSRect(x:left,y:top+titleHeight+4,width:bounds.width-left-trailing,height:3),night=dark(self)
+            NSColor.labelColor.withAlphaComponent(night ? 0.12 : 0.08).setFill();NSBezierPath(roundedRect:bar,xRadius:1.5,yRadius:1.5).fill()
+            DetailStyle.barColor(entry.usageLevel).setFill()
+            NSBezierPath(roundedRect:NSRect(x:bar.minX,y:bar.minY,width:max(3,bar.width*CGFloat(share)),height:bar.height),xRadius:1.5,yRadius:1.5).fill()
+        }
         if let value=entry.value {
             let valueWidth=MenuLayout.valueWidth(entry)
             let valueRect=NSRect(x:bounds.width-trailing-valueWidth,y:line-10,width:valueWidth,height:20)
@@ -1747,7 +1756,7 @@ final class Row:NSButton {
                 MenuLayout.draw(value,in:NSRect(x:valueRect.minX,y:line-textHeight/2,width:valueRect.width,height:textHeight),font:MenuLayout.valueFont,color:usageColor(entry.usageLevel) ?? (entry.actionable ? .labelColor : .secondaryLabelColor),alignment:.right)
             }
         }
-        if let detail=entry.detail {MenuLayout.draw(detail,in:NSRect(x:left,y:top+titleHeight+3,width:bounds.width-left-trailing,height:detailHeight),font:MenuLayout.detailFont,color:.secondaryLabelColor)}
+        if let detail=entry.detail {MenuLayout.draw(detail,in:NSRect(x:left,y:top+titleHeight+(gauge ? 8 : 0)+3,width:bounds.width-left-trailing,height:detailHeight),font:MenuLayout.detailFont,color:.secondaryLabelColor)}
 
         if !entry.children.isEmpty{let p=NSBezierPath();p.move(to:NSPoint(x:bounds.width-19,y:line-4));p.line(to:NSPoint(x:bounds.width-15,y:line));p.line(to:NSPoint(x:bounds.width-19,y:line+4));p.lineWidth=1.2;p.lineJoinStyle = .round;p.lineCapStyle = .round;NSColor.labelColor.setStroke();p.stroke()}
     }
@@ -1766,11 +1775,29 @@ enum DetailStyle {
     static let sectionFont=NSFont.systemFont(ofSize:10,weight:.semibold)
     // A plain fact (where data comes from, a note): quieter than the rows that can be acted on or carry a figure.
     static func info(_ e:Entry)->Bool {!e.actionable && e.value==nil && e.statusLight==nil && e.checked==nil && e.usageLevel==nil}
-    static func leads(_ e:Entry)->Bool {e.checked != nil || e.statusLight != nil || e.image != nil || e.symbol != nil}
-    // "已用 38%", "已用 本周 38% · Fable 39%": the first share, for the bar under a usage row.
+    // An on/off setting reads as a switch on the right, not a checkbox.
+    static func toggle(_ e:Entry)->Bool {e.checked != nil && e.radio != true && (e.action?.last=="true" || e.action?.last=="false")}
+    static func leads(_ e:Entry)->Bool {(e.checked != nil && !toggle(e)) || e.statusLight != nil || e.image != nil || e.symbol != nil}
+    // Something to do rather than something to read: tinted like a link, red when it takes something away.
+    static func command(_ e:Entry)->Bool {e.children.isEmpty && (e.action != nil || e.href != nil) && e.value==nil && e.checked==nil && e.statusLight==nil}
+    static func destructive(_ e:Entry)->Bool {
+        ["remove-api-key","clear-connection","stop","reset-modules"].contains(e.action?.first ?? "") || e.label.hasPrefix("删除") || e.label.hasPrefix("清除")
+    }
+    // "已用 38%", "已用 本周 38% · Fable 39%": the tightest share, for the bar under a usage row.
     static func share(_ e:Entry)->Double? {
-        guard e.usageLevel != nil,let value=e.value,let range=value.range(of:#"\d+(\.\d+)?(?=%)"#,options:.regularExpression) else{return nil}
-        return Double(value[range]).map{min(1,max(0,$0/100))}
+        guard e.usageLevel != nil,let value=e.value else{return nil}
+        let pattern=try! NSRegularExpression(pattern:#"\d+(\.\d+)?(?=%)"#)
+        let shares=pattern.matches(in:value,range:NSRange(value.startIndex...,in:value)).compactMap{Range($0.range,in:value).flatMap{Double(value[$0])}}
+        return shares.max().map{min(1,max(0,$0/100))}
+    }
+    // Where even use would put the bar now: the share used, less how far ahead of even pace the detail says it is.
+    static func pace(_ e:Entry)->Double? {
+        guard let used=share(e),let detail=e.detail else{return nil}
+        if detail.contains("与匀速持平") {return used}
+        guard let range=detail.range(of:#"比匀速(多用|少用) \d+(\.\d+)?%"#,options:.regularExpression) else{return nil}
+        let text=detail[range],ahead=text.contains("多用")
+        guard let number=text.range(of:#"\d+(\.\d+)?"#,options:.regularExpression).flatMap({Double(text[$0])}) else{return nil}
+        return min(1,max(0,used-(ahead ? number : -number)/100))
     }
     static func barColor(_ level:String?)->NSColor {level=="critical" ? .systemRed : level=="warning" ? .systemOrange : .controlAccentColor}
     static func left(depth:Int)->CGFloat {inset+CGFloat(depth)*indent}
@@ -1780,14 +1807,16 @@ enum DetailStyle {
         return e.fallbacks?.last ?? value
     }
     // aligned: a sibling has an icon, so every row of the level starts its text in the same column.
+    static let switchSize=NSSize(width:30,height:18)
     static func layout(_ e:Entry,depth:Int,width:CGFloat,aligned:Bool)->(title:NSRect,value:NSRect?,valueText:String?,bar:NSRect?,detail:NSRect?,height:CGFloat) {
         let left=left(depth:depth)+(aligned || leads(e) ? lead : 0),right=width-inset-(e.children.isEmpty ? (e.href != nil ? 16 : 0) : 18)
-        let valueText=valueText(e,room:(right-left)*0.62),valueWidth=valueText.map{MenuLayout.width($0,font:valueFont)+(e.attention==true ? 14 : 0)} ?? 0
+        let valueText=toggle(e) ? nil : valueText(e,room:(right-left)*0.62)
+        let valueWidth=toggle(e) ? switchSize.width : valueText.map{MenuLayout.width($0,font:valueFont)+(e.attention==true ? 14 : 0)} ?? 0
         let titleWidth=max(40,right-left-(valueWidth>0 ? valueWidth+10 : 0)),font=titleFont(e,depth:depth)
         let titleHeight=MenuLayout.height(e.label,font:font,width:titleWidth)
         var y:CGFloat=info(e) ? 5 : 8
         let title=NSRect(x:left,y:y,width:titleWidth,height:titleHeight);y+=titleHeight
-        let value=valueText.map{_ in NSRect(x:right-valueWidth,y:title.minY,width:valueWidth,height:max(titleHeight,16))}
+        let value=valueWidth>0 ? NSRect(x:right-valueWidth,y:title.minY,width:valueWidth,height:max(titleHeight,16)) : nil
         var bar:NSRect?
         if share(e) != nil {y+=6;bar=NSRect(x:left,y:y,width:right-left,height:4);y+=4}
         var detail:NSRect?
@@ -1802,6 +1831,11 @@ final class DetailRow:NSButton {
     let entry:Entry,depth:Int,aligned:Bool
     var open=false {didSet{if open != oldValue{turnChevron(animated:true)}}}
     var invoke:((DetailRow)->Void)?
+    // The row's action is running: a spinner stands in its figure until the result arrives.
+    var busy=false {didSet{if busy != oldValue{showBusy()}}}
+    private var spinner:NSProgressIndicator?
+    // A switch's knob, 0 off to 1 on; it slides as soon as the switch is clicked.
+    private var knob:CGFloat=0;private var knobTimer:Timer?
     private var hovering=false;private var tracking:NSTrackingArea?;private var glyph:NSImage?;private var chevron:NSImageView?
     init(_ entry:Entry,depth:Int,aligned:Bool,frame:NSRect,open:Bool){
         self.entry=entry;self.depth=depth;self.aligned=aligned;self.open=open;super.init(frame:frame)
@@ -1809,6 +1843,7 @@ final class DetailRow:NSButton {
         setAccessibilityLabel(entry.label+(entry.value.map{", "+$0} ?? "")+(entry.detail.map{", "+$0} ?? ""))
         if let raw=entry.image,let data=Data(base64Encoded:raw),let img=NSImage(data:data){glyph=img;glyph?.isTemplate=entry.template ?? false}
         else if let symbol=entry.symbol{glyph=NSImage(systemSymbolName:symbol,accessibilityDescription:nil)}
+        knob=entry.checked==true ? 1 : 0
         if !entry.children.isEmpty {
             let image=NSImageView(frame:NSRect(x:bounds.width-DetailStyle.inset-12,y:0,width:12,height:12))
             image.image=NSImage(systemSymbolName:"chevron.right",accessibilityDescription:nil)?.withSymbolConfiguration(.init(pointSize:10,weight:.semibold))
@@ -1819,7 +1854,28 @@ final class DetailRow:NSButton {
     }
     required init?(coder:NSCoder){fatalError()}
     override var isFlipped:Bool{true}
-    @objc private func pressed(){invoke?(self)}
+    @objc private func pressed(){
+        if DetailStyle.toggle(entry) {slideKnob(to:knob>0.5 ? 0 : 1)}
+        invoke?(self)
+    }
+    private func slideKnob(to target:CGFloat){
+        knobTimer?.invalidate()
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else{knob=target;needsDisplay=true;return}
+        let start=knob,began=Date()
+        let timer=Timer(timeInterval:1.0/60,repeats:true){[weak self] timer in
+            guard let self else{timer.invalidate();return}
+            let t=min(1,Date().timeIntervalSince(began)/0.18);self.knob=start+(target-start)*CGFloat(1-pow(1-t,3));self.needsDisplay=true
+            if t>=1{timer.invalidate()}
+        }
+        knobTimer=timer;RunLoop.main.add(timer,forMode:.common)
+    }
+    private func showBusy(){
+        spinner?.removeFromSuperview();spinner=nil
+        guard busy else{needsDisplay=true;return}
+        let line=DetailStyle.layout(entry,depth:depth,width:bounds.width,aligned:aligned).title
+        let spin=NSProgressIndicator(frame:NSRect(x:bounds.width-DetailStyle.inset-(entry.href != nil && entry.children.isEmpty ? 30 : 14),y:line.minY+(min(line.height,17)-14)/2,width:14,height:14))
+        spin.style = .spinning;spin.controlSize = .small;spin.isIndeterminate=true;spin.startAnimation(nil);addSubview(spin);spinner=spin;needsDisplay=true
+    }
     override func layout(){super.layout();placeChevron()}
     private func placeChevron(){
         guard let chevron else{return}
@@ -1836,10 +1892,13 @@ final class DetailRow:NSButton {
             NSAnimationContext.runAnimationGroup{context in context.duration=0.22;context.allowsImplicitAnimation=true;chevron.animator().frameCenterRotation=angle}
         } else {chevron.frameCenterRotation=angle}
     }
+    private func tone(_ e:Entry)->NSColor {
+        DetailStyle.destructive(e) ? .systemRed : DetailStyle.command(e) ? .controlAccentColor : e.actionable ? .labelColor : .secondaryLabelColor
+    }
     override func updateTrackingAreas(){super.updateTrackingAreas();if let tracking{removeTrackingArea(tracking)};tracking=NSTrackingArea(rect:bounds,options:[.mouseEnteredAndExited,.activeAlways,.inVisibleRect],owner:self,userInfo:nil);addTrackingArea(tracking!)}
     override func mouseEntered(with event:NSEvent){hovering=true;needsDisplay=true}
     override func mouseExited(with event:NSEvent){hovering=false;needsDisplay=true}
-    override func mouseDown(with event:NSEvent){if isEnabled {Press.track(self,scale:0.985){super.mouseDown(with:event)}} else {super.mouseDown(with:event)}}
+    override func mouseDown(with event:NSEvent){if isEnabled && !busy {Press.track(self,scale:0.985){super.mouseDown(with:event)}} else if !busy {super.mouseDown(with:event)}}
     override func viewDidChangeEffectiveAppearance(){super.viewDidChangeEffectiveAppearance();needsDisplay=true}
     override func draw(_ dirtyRect:NSRect){
         let e=entry,night=dark(self),layout=DetailStyle.layout(e,depth:depth,width:bounds.width,aligned:aligned)
@@ -1854,7 +1913,7 @@ final class DetailRow:NSButton {
         }
         let titleFont=DetailStyle.titleFont(e,depth:depth),mid=layout.title.minY+ceil(titleFont.ascender-titleFont.descender)/2
         let leadX=DetailStyle.left(depth:depth)
-        if let checked=e.checked {
+        if let checked=e.checked,!DetailStyle.toggle(e) {
             let box=NSRect(x:leadX+1,y:mid-6.5,width:13,height:13),radio=e.radio==true
             let outline=NSBezierPath(roundedRect:box,xRadius:radio ? 6.5 : 3.5,yRadius:radio ? 6.5 : 3.5)
             if checked {
@@ -1867,13 +1926,24 @@ final class DetailRow:NSButton {
             let rect=NSRect(x:leadX,y:mid-7.5,width:15,height:15)
             if glyph.isTemplate {
                 let image=NSImage(size:rect.size);image.lockFocus();glyph.draw(in:NSRect(origin:.zero,size:rect.size))
-                (e.actionable ? NSColor.labelColor : NSColor.secondaryLabelColor).set();NSRect(origin:.zero,size:rect.size).fill(using:.sourceIn);image.unlockFocus()
+                tone(e).set();NSRect(origin:.zero,size:rect.size).fill(using:.sourceIn);image.unlockFocus()
                 image.draw(in:rect)
             } else {glyph.draw(in:rect)}
         }
-        let titleColor:NSColor=DetailStyle.info(e) ? .secondaryLabelColor : (e.action?.first=="stop" ? .systemRed : .labelColor)
-        MenuLayout.draw(e.label,in:layout.title,font:titleFont,color:titleColor)
-        if let rect=layout.value,let text=layout.valueText {
+        let titleColor:NSColor=DetailStyle.info(e) ? .secondaryLabelColor : DetailStyle.command(e) ? tone(e) : .labelColor
+        MenuLayout.draw(e.label,in:layout.title,font:titleFont,color:busy ? titleColor.withAlphaComponent(0.55) : titleColor)
+        if DetailStyle.toggle(e),let rect=layout.value {
+            let track=NSRect(x:rect.maxX-DetailStyle.switchSize.width,y:mid-DetailStyle.switchSize.height/2,width:DetailStyle.switchSize.width,height:DetailStyle.switchSize.height)
+            let off=NSColor.labelColor.withAlphaComponent(night ? 0.22 : 0.16),on=NSColor.controlAccentColor
+            (off.usingColorSpace(.sRGB)?.blended(withFraction:knob,of:on.usingColorSpace(.sRGB) ?? on) ?? on).setFill()
+            NSBezierPath(roundedRect:track,xRadius:track.height/2,yRadius:track.height/2).fill()
+            let dot=NSRect(x:track.minX+2+(track.width-track.height)*knob,y:track.minY+2,width:track.height-4,height:track.height-4)
+            NSGraphicsContext.saveGraphicsState()
+            let shadow=NSShadow();shadow.shadowBlurRadius=2;shadow.shadowOffset=NSSize(width:0,height:-0.5);shadow.shadowColor=NSColor.black.withAlphaComponent(0.25);shadow.set()
+            NSColor.white.setFill();NSBezierPath(ovalIn:dot).fill()
+            NSGraphicsContext.restoreGraphicsState()
+        } else if busy {}
+        else if let rect=layout.value,let text=layout.valueText {
             let height=MenuLayout.height(text,font:DetailStyle.valueFont,width:rect.width+2),y=mid-height/2
             if e.attention==true {
                 let pill=NSRect(x:rect.minX,y:mid-9,width:rect.width,height:18)
@@ -1891,6 +1961,12 @@ final class DetailRow:NSButton {
             NSColor.labelColor.withAlphaComponent(night ? 0.12 : 0.08).setFill();NSBezierPath(roundedRect:bar,xRadius:2,yRadius:2).fill()
             DetailStyle.barColor(e.usageLevel).setFill()
             NSBezierPath(roundedRect:NSRect(x:bar.minX,y:bar.minY,width:max(4,bar.width*CGFloat(share)),height:bar.height),xRadius:2,yRadius:2).fill()
+            // Even pace: where the bar would reach by now if the window were used evenly to its reset.
+            if let pace=DetailStyle.pace(e) {
+                let x=min(bar.maxX-1,max(bar.minX+1,bar.minX+bar.width*CGFloat(pace)))
+                NSColor.labelColor.withAlphaComponent(night ? 0.75 : 0.6).setFill()
+                NSBezierPath(roundedRect:NSRect(x:x-1,y:bar.minY-3,width:2,height:bar.height+6),xRadius:1,yRadius:1).fill()
+            }
         }
         if let rect=layout.detail,let text=e.detail {MenuLayout.draw(text,in:rect,font:DetailStyle.detailFont,color:.secondaryLabelColor)}
         if e.children.isEmpty,e.href != nil,let arrow=NSImage(systemSymbolName:"arrow.up.right",accessibilityDescription:nil)?.withSymbolConfiguration(.init(pointSize:9,weight:.semibold)) {
@@ -1901,18 +1977,81 @@ final class DetailRow:NSButton {
     }
 }
 
+// A few short choices side by side, as Token Monitor's DAY · MONTH · TOTAL: the chosen one sits on a raised block that
+// slides to the next choice the moment it is clicked.
+final class DetailSegments:NSView {
+    override func acceptsFirstMouse(for event:NSEvent?)->Bool{true}
+    let entries:[Entry];var invoke:((Entry)->Void)?
+    private var chosen:Int?;private var hovered:Int?;private let block=NSView();private var labels:[NSTextField]=[];private var area:NSTrackingArea?
+    static let height:CGFloat=28,font=NSFont.systemFont(ofSize:11.5),chosenFont=NSFont.systemFont(ofSize:11.5,weight:.semibold)
+    static func fits(_ entries:[Entry],width:CGFloat)->Bool {
+        let each=(width-4)/CGFloat(entries.count)
+        return entries.count<=4 && entries.allSatisfy{MenuLayout.width($0.label,font:chosenFont)+14<=each}
+    }
+    init(_ entries:[Entry],frame:NSRect){
+        self.entries=entries;chosen=entries.firstIndex{$0.checked==true};super.init(frame:frame)
+        wantsLayer=true;block.wantsLayer=true;block.layer?.cornerRadius=6;addSubview(block)
+        for entry in entries {
+            let label=NSTextField(labelWithString:entry.label);label.alignment = .center;label.lineBreakMode = .byTruncatingTail;addSubview(label);labels.append(label)
+        }
+        setAccessibilityElement(true);setAccessibilityRole(.radioGroup)
+        arrange(animated:false)
+    }
+    required init?(coder:NSCoder){fatalError()}
+    override var isFlipped:Bool{true}
+    private func slot(_ index:Int)->NSRect {
+        let each=(bounds.width-4)/CGFloat(entries.count)
+        return NSRect(x:2+each*CGFloat(index),y:2,width:each,height:bounds.height-4)
+    }
+    private func arrange(animated:Bool){
+        for (index,label) in labels.enumerated() {
+            let on=index==chosen;label.font=on ? Self.chosenFont : Self.font;label.textColor=on ? .labelColor : .secondaryLabelColor
+            let height=ceil(label.intrinsicContentSize.height);label.frame=slot(index).insetBy(dx:4,dy:0);label.frame.origin.y=(bounds.height-height)/2;label.frame.size.height=height
+        }
+        block.isHidden=chosen==nil
+        guard let chosen else{return}
+        let target=slot(chosen)
+        if animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            NSAnimationContext.runAnimationGroup{context in context.duration=0.22;context.timingFunction=App.pageCurve;context.allowsImplicitAnimation=true;block.animator().frame=target}
+        } else {block.frame=target}
+    }
+    override func viewDidChangeEffectiveAppearance(){super.viewDidChangeEffectiveAppearance();needsDisplay=true}
+    override func draw(_ dirtyRect:NSRect){
+        let night=dark(self)
+        NSColor.labelColor.withAlphaComponent(night ? 0.07 : 0.05).setFill();NSBezierPath(roundedRect:bounds,xRadius:8,yRadius:8).fill()
+        if let hovered,hovered != chosen {NSColor.labelColor.withAlphaComponent(night ? 0.06 : 0.04).setFill();NSBezierPath(roundedRect:slot(hovered),xRadius:6,yRadius:6).fill()}
+        block.layer?.backgroundColor=(night ? NSColor(calibratedWhite:1,alpha:0.16) : NSColor.white).cgColor
+        block.layer?.shadowColor=NSColor.black.cgColor;block.layer?.shadowOpacity=night ? 0 : 0.12;block.layer?.shadowRadius=1.5;block.layer?.shadowOffset=CGSize(width:0,height:-0.5)
+    }
+    override func updateTrackingAreas(){super.updateTrackingAreas();if let area{removeTrackingArea(area)};area=NSTrackingArea(rect:bounds,options:[.mouseMoved,.mouseEnteredAndExited,.activeAlways,.inVisibleRect],owner:self,userInfo:nil);addTrackingArea(area!)}
+    private func index(_ event:NSEvent)->Int? {let point=convert(event.locationInWindow,from:nil);return entries.indices.first{slot($0).contains(point)}}
+    override func mouseMoved(with event:NSEvent){let next=index(event);if next != hovered{hovered=next;needsDisplay=true}}
+    override func mouseExited(with event:NSEvent){hovered=nil;needsDisplay=true}
+    override func mouseDown(with event:NSEvent){
+        guard let index=index(event) else{return}
+        Press.set(labels[index],true,scale:0.94)
+    }
+    override func mouseUp(with event:NSEvent){
+        for label in labels {Press.set(label,false,scale:0.94)}
+        guard let index=index(event),index != chosen,entries[index].action != nil else{return}
+        chosen=index;arrange(animated:true);needsDisplay=true;invoke?(entries[index])
+    }
+}
+
 // A page's rows. Opening or closing one moves the rows below to their new places, fades the new ones in, and
 // tells the panel its new height.
 final class DetailView:FlippedView {
-    private enum Item {case row(Entry,Int,Bool),section(Entry,Int),rule(Int)}
-    private let entries:[Entry]
+    private enum Item {case row(Entry,Int,Bool),section(Entry,Int),rule(Int),segments([Entry],Int)}
+    private let entries:[Entry],busy:[String]?
     private(set) var open:Set<String>
     var invoke:((Entry)->Void)?
+    // A switch or a choice was set: the page already shows it, so the panel need not redraw at once.
+    var chose:((Entry)->Void)?
     var resized:((CGFloat,Bool)->Void)?
     var toggled:((Set<String>)->Void)?
     private var views:[String:NSView]=[:]
-    init(_ entries:[Entry],width:CGFloat,open:Set<String>){
-        self.entries=entries;self.open=open
+    init(_ entries:[Entry],width:CGFloat,open:Set<String>,busy:[String]?=nil){
+        self.entries=entries;self.open=open;self.busy=busy
         super.init(frame:NSRect(x:0,y:0,width:width,height:0))
         place(animated:false)
     }
@@ -1921,7 +2060,20 @@ final class DetailView:FlippedView {
         var out:[(String,Item)]=[]
         func walk(_ list:[Entry],_ depth:Int,_ parent:String){
             var seen:[String:Int]=[:];let aligned=list.contains(where:DetailStyle.leads)
-            for (index,entry) in list.enumerated() {
+            // A run of short choices becomes one segmented control, where the run stood.
+            var runs:[Int:Int]=[:],start=0
+            while start<list.count {
+                var end=start
+                while end<list.count && list[end].radio==true && list[end].children.isEmpty {end+=1}
+                if end-start>=2 && DetailSegments.fits(Array(list[start..<end]),width:bounds.width-DetailStyle.left(depth:depth)-DetailStyle.inset) {runs[start]=end}
+                start=max(end,start+1)
+            }
+            var skip=Set<Int>()
+            for (index,entry) in list.enumerated() where !skip.contains(index) {
+                if let end=runs[index] {
+                    for i in index..<end {skip.insert(i)}
+                    out.append((parent+"/§\(index)",.segments(Array(list[index..<end]),depth)));continue
+                }
                 if entry.separator==true {
                     // A rule between groups, never at the top or bottom of a level.
                     if index>0 && index<list.count-1 {out.append((parent+"/—\(index)",.rule(depth)))};continue
@@ -1942,22 +2094,31 @@ final class DetailView:FlippedView {
         case .row(let e,let depth,let aligned):return DetailStyle.layout(e,depth:depth,width:bounds.width,aligned:aligned).height
         case .section:return 28
         case .rule:return 13
+        case .segments:return DetailSegments.height+12
         }
     }
     private func make(_ id:String,_ item:Item,_ frame:NSRect)->NSView {
         switch item {
         case .row(let e,let depth,let aligned):
             let row=DetailRow(e,depth:depth,aligned:aligned,frame:frame,open:open.contains(id))
-            row.invoke={[weak self] row in self?.pressed(id,row)};return row
+            row.invoke={[weak self] row in self?.pressed(id,row)}
+            if let busy,e.action==busy,!DetailStyle.toggle(e) {row.busy=true}
+            return row
         case .section(let e,let depth):
             let label=NSTextField(labelWithString:e.label);label.font=DetailStyle.sectionFont;label.textColor = .secondaryLabelColor
             label.frame=frame.insetBy(dx:0,dy:0);label.frame.origin.x=DetailStyle.left(depth:depth);label.frame.origin.y=frame.minY+11;label.frame.size.height=15
             let box=FlippedView(frame:frame);label.frame.origin.y=11;box.addSubview(label);return box
         case .rule(let depth):
             let box=FlippedView(frame:frame),line=NSBox(frame:NSRect(x:DetailStyle.left(depth:depth),y:6,width:frame.width-DetailStyle.left(depth:depth)-DetailStyle.inset,height:1));line.boxType = .separator;box.addSubview(line);return box
+        case .segments(let list,let depth):
+            let box=FlippedView(frame:frame),left=DetailStyle.left(depth:depth)
+            for level in 0..<depth {let guide=NSView(frame:NSRect(x:DetailStyle.left(depth:level)+6,y:0,width:1,height:frame.height));guide.wantsLayer=true;guide.layer?.backgroundColor=NSColor.labelColor.withAlphaComponent(0.2).cgColor;box.addSubview(guide)}
+            let control=DetailSegments(list,frame:NSRect(x:left,y:6,width:frame.width-left-DetailStyle.inset,height:DetailSegments.height))
+            control.invoke={[weak self] entry in self?.chose?(entry)};box.addSubview(control);return box
         }
     }
     private func pressed(_ id:String,_ row:DetailRow){
+        if DetailStyle.toggle(row.entry) {chose?(row.entry);return}
         guard !row.entry.children.isEmpty else{invoke?(row.entry);return}
         if open.contains(id){open=open.filter{$0 != id && !$0.hasPrefix(id+"/")}}else{open.insert(id)}
         row.open=open.contains(id);toggled?(open);place(animated:true)
@@ -2011,7 +2172,31 @@ struct PanelInteraction {
     }
     // Actions without a dialog keep the panel open so their result appears in place.
     static func keepsPanelOpen(_ action:[String])->Bool {
-        ["refresh-view","refresh-source","refresh","refresh-live","refresh-monitor","check-app-updates","set-subscription","set-range","set-group","test-api-key","retry-claude-usage"].contains(action.first ?? "") || isPreference(action)
+        guard let name=action.first else{return false}
+        // A setting that changes without a question stays on screen, so the change is seen where it was made.
+        if quietSettings.contains(name) {return true}
+        // These ask before turning on, in a dialog the panel would cover; turning them off asks nothing.
+        if ["set-cursor-usage","set-claude-oauth","set-claude-local","set-claude-live"].contains(name) && action.last=="false" {return true}
+        if name=="set-keep-usage" && action.last=="true" {return true}
+        return ["refresh-view","refresh-source","refresh","refresh-live","refresh-monitor","check-app-updates","set-subscription","set-range","set-group","test-api-key","retry-claude-usage"].contains(name) || isPreference(action)
+    }
+    static let quietSettings:Set<String>=["set-currency","set-service-status","set-pin-interval","set-menu-bar","set-usage-alert","set-reset-reminder","set-session-alerts"]
+    // A switch or a choice shows its new state the moment it is clicked; the saved state confirms it after.
+    static let choices:Set<String>=quietSettings.union(["set-cursor-usage","set-claude-oauth","set-claude-local","set-claude-live","set-keep-usage","set-subscription"])
+    static func applyChoice(_ action:[String],to value:inout Snapshot){
+        guard let name=action.first,choices.contains(name) else{return}
+        func walk(_ list:inout [Entry])->Bool {
+            if let index=list.firstIndex(where:{$0.action==action}) {
+                if list[index].radio==true {for i in list.indices where list[i].radio==true {list[i].checked = i==index}}
+                else if list[index].checked != nil,let last=action.last,last=="true" || last=="false" {
+                    list[index].checked = last=="true";list[index].action?[action.count-1] = last=="true" ? "false" : "true"
+                }
+                return true
+            }
+            for i in list.indices where walk(&list[i].children) {return true}
+            return false
+        }
+        if !walk(&value.entries),var options=value.moduleOptions {_=walk(&options);value.moduleOptions=options}
     }
     static func automatic(_ action:[String])->Bool {
         ["refresh-view","refresh-source","refresh-live"].contains(action.first ?? "")
@@ -2049,7 +2234,7 @@ struct PanelInteraction {
         var authoritative=value.preferences
         if let confirmed,confirmed.revision > (authoritative?.revision ?? -1){authoritative=confirmed}
         if let authoritative{Self.applySettings(authoritative,to:&value)}
-        for action in (active.map{[$0]} ?? [])+queued{Self.applyPreference(action,to:&value)}
+        for action in (active.map{[$0]} ?? [])+queued{Self.applyPreference(action,to:&value);Self.applyChoice(action,to:&value)}
         return value
     }
     static func applySettings(_ settings:PresentationPreferences,to value:inout Snapshot) {
@@ -2401,6 +2586,8 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
     // that page's rows are open in place. slide is the next layout's direction: 1 in to a page, -1 back, 0 none.
     private var pagePath:[String]=[];private var pageOpen:Set<String>=[];private var slide:CGFloat=0;private var homeScroll:CGFloat=0
     private weak var pageScroll:ContentScrollView?
+    // A switch or segment just moved on the page: the redraw that confirms it waits until its slide has finished.
+    private var quietUntil=Date.distantPast;private var quietLayout:DispatchWorkItem?
     @objc private func togglePin(){hideHint();setPinned(!pinned);if pinned{performAction(["refresh-live"])}}
     private func setPinned(_ value:Bool){
         guard value != pinned else{return}
@@ -2565,6 +2752,10 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
         // A page whose row has gone (a module turned off, a key removed) gives way to the homepage.
         if !pagePath.isEmpty && pageEntry()==nil {pagePath=[];pageOpen=[]}
         let previous=slide != 0 && panel.isVisible ? (panel.contentView as? Surface).flatMap(picture) : nil
+        if slide==0,!pagePath.isEmpty,Date()<quietUntil {
+            quietLayout?.cancel();let task=DispatchWorkItem{[weak self] in self?.layout()};quietLayout=task
+            DispatchQueue.main.asyncAfter(deadline:.now()+quietUntil.timeIntervalSinceNow+0.02,execute:task);return
+        }
         if let page=pageEntry() {layoutPage(page,previous:previous);return}
         if panel.isVisible,slide==0,let old=(panel.contentView as? Surface)?.content.subviews.first as? NSScrollView,old !== pageScroll {scrollOffset=old.contentView.bounds.origin.y}
         let opened=flyouts.map{$0.key};closeFlyouts(from:0);rows=[]
@@ -2694,7 +2885,7 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
         // A refresh redraws the page where the reader left it; arriving on it starts at the top.
         let kept=slide==0 ? (pageScroll?.contentView.bounds.origin.y ?? 0) : 0
         let screen=NSScreen.screens.first(where:{$0.frame.contains(anchor)}) ?? NSScreen.main!,width:CGFloat=360,inner=width-16,header:CGFloat=50
-        let detail=DetailView(page.children,width:inner,open:pageOpen)
+        let detail=DetailView(page.children,width:inner,open:pageOpen,busy:interaction.active)
         let height=min(header+detail.frame.height+20,screen.visibleFrame.height-16)
         let surface=Surface(frame:NSRect(x:0,y:0,width:width,height:height),glass:snapshot?.appearance != "solid")
         let content=surface.content
@@ -2729,7 +2920,16 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
         scroll.documentView=detail;scroll.configureScrolling();content.addSubview(scroll);pageScroll=scroll
         if kept>0 {scroll.contentView.scroll(to:NSPoint(x:0,y:min(kept,max(0,detail.frame.height-scroll.frame.height))));scroll.reflectScrolledClipView(scroll.contentView)}
         scroll.swipedBack={[weak self] in self?.back()}
-        detail.invoke={[weak self] entry in self?.open(entry)}
+        detail.invoke={[weak self] entry in
+            guard let self else{return}
+            self.open(entry)
+            // Still here (the action kept the panel open): show it running.
+            if self.panel.isVisible && self.pageEntry() != nil {self.updatePresentation()}
+        }
+        detail.chose={[weak self] entry in
+            guard let self,let action=entry.action else{return}
+            self.quietUntil=Date().addingTimeInterval(0.3);self.performAction(action)
+        }
         detail.toggled={[weak self] open in self?.pageOpen=open}
         detail.resized={[weak self,weak scroll,weak surface] body,animated in
             guard let self,let scroll,let surface else{return}
