@@ -2570,7 +2570,7 @@ final class MacHost {
 
 final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePickerDelegate {
     private let panel=Panel(contentRect:.zero,styleMask:[.borderless,.nonactivatingPanel],backing:.buffered,defer:false)
-    private var rangePicker:NSPopUpButton?;private var anchoredMenuOpen=false;private var toast:(text:String,until:Date,ok:Bool)?;private var toastView:NSView?;private weak var shareButton:NSButton?;private weak var detectButton:NSButton?;private var hintTask:DispatchWorkItem?;private var hintView:NSView?;private var userApp:NSRunningApplication?;private var firstActivation=true;private var managerOnly=false {didSet{if managerOnly && !oldValue{leadingModules=nil}}}
+    private var rangePicker:NSPopUpButton?;private var anchoredMenuOpen=false;private var toast:(text:String,until:Date,ok:Bool)?;private var toastView:NSView?;private weak var shareButton:NSButton?;private weak var detectButton:NSButton?;private weak var settingsButton:NSButton?;private var settingsFromHome=false;private var settingsReturn:CGFloat=0;private var hintTask:DispatchWorkItem?;private var hintView:NSView?;private var userApp:NSRunningApplication?;private var firstActivation=true;private var managerOnly=false {didSet{if managerOnly && !oldValue{leadingModules=nil}}}
     // The ticked modules when the list opened: they lead their sections until it opens again.
     private var leadingModules:Set<String>?
     private var snapshot:Snapshot?;private var snapshotPath="";private var pluginPath="";private var modified:Date?
@@ -2799,7 +2799,17 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
         rangePicker?.menu?.cancelTracking();anchoredMenuOpen=false;hoverIntent.cancel();closeTask?.cancel();closeFlyouts(from:0)
         managerOnly=true;scrollOffset=0;layout()
     }
-    @objc private func finishModules(){hide()}
+    // The gear on the homepage opens the module list in the same panel; 完成, Esc or a swipe goes back to the homepage.
+    // Opened from the star's right-click menu, the list is the whole panel and 完成 closes it.
+    @objc private func openSettings(){
+        hideHint();closeFlyouts(from:0)
+        if let scroll=(panel.contentView as? Surface)?.content.subviews.first as? NSScrollView {settingsReturn=scroll.contentView.bounds.origin.y}
+        managerOnly=true;settingsFromHome=true;pagePath=[];pageOpen=[];scrollOffset=0;slide=1;layout();slide=0
+    }
+    @objc private func finishModules(){
+        guard settingsFromHome else{hide();return}
+        hideHint();settingsFromHome=false;managerOnly=false;pagePath=[];pageOpen=[];scrollOffset=settingsReturn;slide = -1;layout();slide=0
+    }
     private func requestedMode()->Bool? {
         let request=URL(fileURLWithPath:snapshotPath).deletingLastPathComponent().appendingPathComponent("panel-open.json")
         guard let data=try? Data(contentsOf:request),let value=try? JSONSerialization.jsonObject(with:data) as? [String:Any],let created=value["createdAt"] as? Double,Date().timeIntervalSince1970-created<30 else{return nil}
@@ -2826,6 +2836,7 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
         }
     }
     private func show(){
+        settingsFromHome=false
         if macHost==nil,let requested=requestedMode(){managerOnly=requested}
         leadingModules=nil
         guard !nativeMenuVisible() else{hide();return}
@@ -2854,7 +2865,7 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
         guard NSApp.isActive,let app=userApp,!app.isTerminated else{return}
         if #available(macOS 14.0,*){NSApp.yieldActivation(to:app);app.activate()}else{app.activate(options:[])}
     }
-    private func hide(returningFocus:Bool=true){setPinned(false);shownDashboard=nil;pagePath=[];pageOpen=[];slide=0;if returningFocus{returnFocus()};hintTask?.cancel();hintView?.removeFromSuperview();hintView=nil;rangePicker?.menu?.cancelTracking();hoverIntent.cancel();closeTask?.cancel();closeFlyouts(from:0);panel.orderOut(nil);removePointerMonitors();reloadTask?.cancel();publishVisibility(false)}
+    private func hide(returningFocus:Bool=true){setPinned(false);if settingsFromHome{settingsFromHome=false;managerOnly=false};shownDashboard=nil;pagePath=[];pageOpen=[];slide=0;if returningFocus{returnFocus()};hintTask?.cancel();hintView?.removeFromSuperview();hintView=nil;rangePicker?.menu?.cancelTracking();hoverIntent.cancel();closeTask?.cancel();closeFlyouts(from:0);panel.orderOut(nil);removePointerMonitors();reloadTask?.cancel();publishVisibility(false)}
     private func updatePresentation(){snapshot=interaction.displayed();layout()}
     private func reload(force:Bool=false){
         // Do not replace a button while the user is pressing it.
@@ -2931,13 +2942,24 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
         let height=min(contentHeight+16,screen.visibleFrame.height-16)
         let surface=Surface(frame:NSRect(x:0,y:0,width:width,height:height),glass:self.snapshot?.appearance != "solid")
         let scroll=ContentScrollView(frame:NSRect(x:8,y:8,width:inner,height:height-16));scroll.drawsBackground=false;scroll.hasVerticalScroller=contentHeight>scroll.frame.height;scroll.scrollerStyle = .overlay
+        if managerOnly && settingsFromHome {scroll.swipedBack={[weak self] in self?.finishModules()}}
         let content=managerOnly ? BlankClickView(frame:NSRect(x:0,y:0,width:inner,height:contentHeight)) : FlippedView(frame:NSRect(x:0,y:0,width:inner,height:contentHeight))
         (content as? BlankClickView)?.clicked={[weak self] in self?.closeFlyouts(from:0)}
         if managerOnly {
-            let heading=NSTextField(labelWithString:"主页模块");heading.font = .systemFont(ofSize:14,weight:.semibold);heading.frame=NSRect(x:12,y:7,width:inner-85,height:20);content.addSubview(heading)
+            // From the homepage's gear the list is a page like the others, with the same way back; from the star's
+            // right-click menu it is the whole panel and 完成 closes it.
+            let lead:CGFloat=settingsFromHome ? 36 : 12
+            if settingsFromHome {
+                let back=HintButton(frame:NSRect(x:4,y:9,width:27,height:25))
+                back.bare=true;back.controlSize = .small;back.title="";back.imagePosition = .imageOnly;back.contentTintColor = .labelColor
+                back.image=NSImage(systemSymbolName:"chevron.left",accessibilityDescription:"返回")?.withSymbolConfiguration(.init(pointSize:11,weight:.semibold))
+                back.hint="返回";back.hovered={[weak self] in self?.hoverHint($0,$1)};back.setAccessibilityLabel("返回")
+                back.target=self;back.action=#selector(finishModules);content.addSubview(back)
+            }
+            let heading=NSTextField(labelWithString:"主页模块");heading.font = .systemFont(ofSize:14,weight:.semibold);heading.frame=NSRect(x:lead,y:7,width:inner-85,height:20);content.addSubview(heading)
             let count=entries.filter{$0.action?.first=="set-module" && $0.checked==true}.count
-            let hint=NSTextField(labelWithString:"已启用 \(count) 项");hint.font = .systemFont(ofSize:10);hint.textColor = .secondaryLabelColor;hint.frame=NSRect(x:12,y:29,width:inner-24,height:15);content.addSubview(hint)
-            let done=NSButton(title:"完成",target:self,action:#selector(finishModules));done.bezelStyle = .rounded;done.controlSize = .small;done.frame=NSRect(x:inner-65,y:8,width:53,height:25);content.addSubview(done)
+            let hint=NSTextField(labelWithString:"已启用 \(count) 项");hint.font = .systemFont(ofSize:10);hint.textColor = .secondaryLabelColor;hint.frame=NSRect(x:lead,y:29,width:inner-24,height:15);content.addSubview(hint)
+            if !settingsFromHome {let done=NSButton(title:"完成",target:self,action:#selector(finishModules));done.bezelStyle = .rounded;done.controlSize = .small;done.frame=NSRect(x:inner-65,y:8,width:53,height:25);content.addSubview(done)}
         } else if let dashboard=snapshot.dashboard{let view=DashboardView(dashboard,width:inner)
             if pinned,let stamp=modified {let clock=DateFormatter();clock.dateFormat="HH:mm:ss";view.liveStamp="实时 "+clock.string(from:stamp)}
             if let previous=shownDashboard{view.animate(from:previous)};shownDashboard=dashboard;view.live=liveChart;view.toggleProvider={[weak self] id,expanded in self?.performAction(["set-expanded",id,expanded ? "true" : "false"])};view.chooseGroup={[weak self] key in self?.performAction(["set-group",key])};content.addSubview(view)}else{let label=NSTextField(labelWithString:"AI 用量面板");label.frame=NSRect(x:12,y:10,width:300,height:20);content.addSubview(label)}
@@ -2964,12 +2986,11 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
             refresh.image=NSImage(systemSymbolName:"arrow.clockwise",accessibilityDescription:"刷新数据")?.withSymbolConfiguration(.init(pointSize:11,weight:.semibold));refresh.imagePosition = .imageOnly
             refresh.contentTintColor = .labelColor;refresh.hint="刷新数据";refresh.hovered={[weak self] in self?.hoverHint($0,$1)};refresh.setAccessibilityLabel("刷新数据")
             refresh.target=self;refresh.action=#selector(refreshData)
-            content.addSubview(refresh)
             let share=HintButton(frame:NSRect(x:inner-173,y:7.5,width:27,height:25))
             share.bare=true;share.controlSize = .small;share.title=""
             share.image=NSImage(systemSymbolName:"square.and.arrow.up",accessibilityDescription:"分享用量图")?.withSymbolConfiguration(.init(pointSize:11,weight:.semibold));share.imagePosition = .imageOnly
             share.contentTintColor = .labelColor;share.hint="分享用量图";share.hovered={[weak self] in self?.hoverHint($0,$1)};share.setAccessibilityLabel("分享用量图")
-            share.target=self;share.action=#selector(shareDashboard(_:));content.addSubview(share);shareButton=share
+            share.target=self;share.action=#selector(shareDashboard(_:));shareButton=share
             // Auto-detect is a rarely used setup action, so it is a plain icon like its neighbours; the
             // hover hint and accessibility label name it, and it always asks before changing anything.
             let detect=HintButton(frame:NSRect(x:inner-203,y:7.5,width:27,height:25))
@@ -2977,13 +2998,27 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
             detect.image=NSImage(systemSymbolName:"sparkle.magnifyingglass",accessibilityDescription:"自动检测")?.withSymbolConfiguration(.init(pointSize:11,weight:.semibold));detect.imagePosition = .imageOnly
             detect.contentTintColor = .labelColor;detect.setAccessibilityLabel("自动检测")
             detect.hint="自动检测";detect.hovered={[weak self] in self?.hoverHint($0,$1)}
-            detect.target=self;detect.action=#selector(detectModules);content.addSubview(detect);detectButton=detect
+            detect.target=self;detect.action=#selector(detectModules)
             // Pinned, the panel stays open and re-reads the range on screen every few seconds. Same button as
             // its neighbours; the filled pin alone says it is on.
-            let pin=HintButton(frame:NSRect(x:inner-233,y:7.5,width:27,height:25))
+            let pin=HintButton(frame:.zero)
             pin.bare=true;pin.controlSize = .small;pin.title="";pin.imagePosition = .imageOnly;pin.contentTintColor = .labelColor
             pin.hovered={[weak self] in self?.hoverHint($0,$1)};pin.target=self;pin.action=#selector(togglePin)
-            content.addSubview(pin);pinButton=pin;showPin()
+            pinButton=pin
+            // Settings: the module list and 外观与设置, a click away instead of only behind the star's right-click menu.
+            let settings=HintButton(frame:.zero)
+            settings.bare=true;settings.controlSize = .small;settings.title="";settings.imagePosition = .imageOnly;settings.contentTintColor = .labelColor
+            settings.image=NSImage(systemSymbolName:"gearshape",accessibilityDescription:"主页模块与设置")?.withSymbolConfiguration(.init(pointSize:11,weight:.semibold))
+            settings.hint="主页模块与设置";settings.hovered={[weak self] in self?.hoverHint($0,$1)};settings.setAccessibilityLabel("主页模块与设置")
+            settings.target=self;settings.action=#selector(openSettings)
+            // Leftward from the range: refresh, share, auto-detect, the pin, the gear, 2pt apart. A long heading
+            // (Summary hidden) keeps its room by leaving auto-detect out; it is still in 外观与设置 and the star's menu.
+            let headingRight=12+ceil(MenuLayout.width(DashboardView.heading(dashboard),font:.systemFont(ofSize:14,weight:.semibold)))+6
+            let fitsAll=inner-142-4*29>=headingRight
+            for (index,button) in ([refresh,share]+(fitsAll ? [detect] : [])+[pin,settings]).enumerated() {
+                button.frame=NSRect(x:inner-142-CGFloat(index)*29,y:7.5,width:27,height:25);content.addSubview(button)
+            }
+            detectButton=fitsAll ? detect : nil;settingsButton=settings;showPin()
             if pinned,liveTimer?.timeInterval != (snapshot.pinInterval ?? 2){scheduleLive()}
         }
         scroll.documentView=content;scroll.configureScrolling();scroll.contentView.scroll(to:NSPoint(x:0,y:min(scrollOffset,max(0,contentHeight-scroll.frame.height))));surface.content.addSubview(scroll);panel.contentView=surface
@@ -3329,7 +3364,7 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
                     .withSymbolConfiguration(base.applying(.init(paletteColors:[colour])))
             } else {share.image=NSImage(systemSymbolName:"square.and.arrow.up",accessibilityDescription:"分享用量图")?.withSymbolConfiguration(base)}
         }
-        guard let current,let surface=panel.contentView as? Surface,let detect=pinButton ?? detectButton,let row=detect.superview else{return}
+        guard let current,let surface=panel.contentView as? Surface,let detect=settingsButton ?? pinButton ?? detectButton,let row=detect.superview else{return}
         let label=NSTextField(labelWithString:current.text);label.font = .systemFont(ofSize:11,weight:.medium)
         label.textColor=current.ok ? statusGreen(surface) : .systemOrange
         let size=label.intrinsicContentSize,anchor=surface.convert(detect.bounds,from:detect)
