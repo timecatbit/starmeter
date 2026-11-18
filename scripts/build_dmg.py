@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Package the native menu bar app with a relocatable, architecture-matched runtime."""
+"""Package the native menu bar app with its engine, for one chip."""
 import argparse
 import os
 from pathlib import Path
@@ -9,34 +9,13 @@ import shutil
 import subprocess
 import tempfile
 
-from build import build
-from install_transport import prepare
+from build import build, build_engine
 from package import downloads, version
 
 ROOT=Path(__file__).resolve().parents[1]
 # The file name ends with the chip, as the release lists it; the volume name says the same in plain words.
 ARCHES={'arm64':('-macos-apple-silicon.dmg','Apple 芯片（M 系列）','Apple Silicon'),
         'x86_64':('-macos-intel.dmg','Intel 处理器','Intel')}
-
-
-def bundled_runtime(python, target):
-    prefix=Path(subprocess.check_output([str(python),'-c','import sys; print(sys.base_prefix)'],text=True).strip())
-    binary=prefix/'bin/python3'
-    libraries=sorted((prefix/'lib').glob('python3.*'))
-    if not binary.is_file() or len(libraries)!=1 or not (libraries[0]/'LICENSE.txt').is_file():
-        raise SystemExit('Use an architecture-matched, relocatable python-build-standalone installation.')
-    (target/'bin').mkdir(parents=True)
-    shutil.copy2(binary.resolve(),target/'bin/python3')
-    shutil.copy2(libraries[0]/'LICENSE.txt',target/'PYTHON-LICENSE')
-    shutil.copytree(libraries[0],target/'lib'/libraries[0].name,symlinks=True,
-                    ignore=shutil.ignore_patterns('__pycache__','site-packages','test','tests','tkinter','idlelib',
-                                                   'turtledemo','ensurepip','libpython*.a','config-*','_tkinter.*'))
-
-
-def check_runtime(resources):
-    runtime=resources/'runtime/bin/python3'
-    code="import bz2, ctypes, json, sqlite3, ssl, sys; assert sys.prefix == sys.argv[1], sys.prefix"
-    subprocess.run([str(runtime),'-I','-B','-c',code,str(resources/'runtime')],check=True,env={'PATH':'/usr/bin:/bin'})
 
 
 def sign(app, identity):
@@ -61,7 +40,7 @@ def smoke(app, root):
     subprocess.run([str(worker),'smoke-test'],env=env,check=True,timeout=30)
 
 
-def dmg(output, python, identity, notary):
+def dmg(output, identity, notary):
     arch=platform.machine()
     suffix,chip,volume_name=ARCHES[arch];release=version()
     output.mkdir(parents=True,exist_ok=True)
@@ -76,19 +55,12 @@ def dmg(output, python, identity, notary):
                         TokenMonitorStandalone=True,NSAppleEventsUsageDescription='在你点击更新 CLI 时打开终端并显示结果。')
         info.write_bytes(plistlib.dumps(metadata))
         resources=app/'Contents/Resources'
-        for folder in ('lib','assets'):
-            shutil.copytree(ROOT/folder,resources/folder,ignore=shutil.ignore_patterns('__pycache__','*.pyc','.DS_Store'))
-        (resources/'macos').mkdir()
-        shutil.copy2(ROOT/'macos/worker.py',resources/'macos/worker.py')
+        # lib/ carries what the engine reads: the price tables and their licenses.
+        shutil.copytree(ROOT/'lib',resources/'lib',ignore=lambda folder,names:[n for n in names if not (n.endswith('.json') or n.endswith('LICENSE'))])
+        shutil.copytree(ROOT/'assets',resources/'assets',ignore=shutil.ignore_patterns('.DS_Store'))
+        build_engine(resources/'starmeter-engine')
         shutil.copy2(ROOT/'macos/starmeter-worker.sh',resources/'starmeter-worker.sh')
         shutil.copy2(ROOT/'LICENSE',resources/'LICENSE')
-        bundled_runtime(python,resources/'runtime')
-        check_runtime(resources)
-        dependencies=prepare(ROOT,str(python))
-        (resources/'python').mkdir()
-        shutil.copytree(dependencies,resources/'python'/dependencies.name,symlinks=True)
-        # Runtime module paths never point back at the build machine.
-        (resources/'CLAUDE-HTTP-NOTICE.txt').write_text('Dependencies and their licenses are in python/.\n',encoding='utf-8')
         sign(app,identity)
         (volume/'Applications').symlink_to('/Applications')
         (volume/'README.txt').write_text(
@@ -131,7 +103,6 @@ def dmg(output, python, identity, notary):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--python',required=True,type=Path,help='bin/python3 from a relocatable Python distribution')
     parser.add_argument('--output',type=Path,default=ROOT/'dist')
     parser.add_argument('--tag',default='')
     parser.add_argument('--identity',default=os.environ.get('TOKEN_MONITOR_SIGN_IDENTITY','-'))
@@ -139,7 +110,7 @@ def main():
     args=parser.parse_args()
     if args.tag and args.tag!='v'+version():parser.error('tag and project version do not match')
     if args.notary_profile and args.identity=='-':parser.error('notarization requires a Developer ID signature')
-    dmg(args.output.resolve(),args.python.resolve(),args.identity,args.notary_profile)
+    dmg(args.output.resolve(),args.identity,args.notary_profile)
 
 
 if __name__=='__main__':main()

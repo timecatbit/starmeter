@@ -199,8 +199,7 @@ extension Runtime {
             #else
             children = [oauthRow, Runtime.locationEntry("Code 登录来源", [claudeConfigRoot()]),
                         ["label": .string(local ? "关闭本机回传" : "启用本机用量回传…"), "action": ["set-claude-local", .string(local ? "false" : "true")], "children": []],
-                        local ? Runtime.locationEntry("本机快照", [stateDir + "/" + ClaudeSubscription.snapshotFile]) : appSnapshot,
-                        ["label": "使用 App 登录查询一次…", "action": ["refresh-claude-online"], "children": []]]
+                        local ? Runtime.locationEntry("本机快照", [stateDir + "/" + ClaudeSubscription.snapshotFile]) : appSnapshot]
             if settings["claudeLiveUsage"]?.isTruthy == true { children.append(["label": "清除在线查询授权", "action": ["set-claude-live", "false"], "children": []]) }
             children += [["label": "选择 Claude 数据目录…", "action": ["choose-source", "claude"], "children": []], ["label": "打开 Claude", "action": ["open-claude"], "children": []],
                          ["label": "打开订阅用量", "href": .string(service.url), "children": []]]

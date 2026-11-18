@@ -43,7 +43,7 @@ Not sure which Mac you have? Apple menu â†’ **About This Mac**: "Chip: Apple Mâ€
 python3 install.py
 ```
 
-The installer finds the SwiftBar plugin folder and keeps your settings and a backup. From a source checkout, run `python3 scripts/install.py` (needs the Xcode command line tools).
+The installer finds the SwiftBar plugin folder and keeps your settings and a backup. Only the installer uses `python3`; the plugin itself runs a compiled engine and needs no Python. From a source checkout, run `python3 scripts/install.py` (needs the Xcode command line tools).
 
 ## Updates
 

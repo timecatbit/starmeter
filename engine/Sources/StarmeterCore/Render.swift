@@ -141,11 +141,55 @@ extension Runtime {
             do { return try runAction(name, Array(arguments.dropFirst(2))) } catch { return 1 }
         case "--refresh":
             return 0
+        case "--worker":
+            return worker(Array(arguments.dropFirst()))
+        case "--refresh-claude-bridge":
+            // After an install: a bridge that is on runs from this engine's new copy.
+            if ClaudeBridge.enabled(stateDir) { try? ClaudeBridge.install(stateDir, environment: environment) }
+            return 0
         default:
             consumePanelAction()
             // Actions above may change settings; the render below sees one consistent snapshot.
             print(self.render { render(gather()) })
             return 0
         }
+    }
+
+    /// The standalone app's private worker: the panel's snapshot after setup, an action, or the background reads.
+    func worker(_ arguments: [String]) -> Int32 {
+        func snapshot() { render { writeJSONCache(cachePath("panel-view"), .object(panelSnapshot(cachedData()))) } }
+        switch arguments {
+        case ["paths"]:
+            print(JSON.object(["snapshot": .string(cachePath("panel-view"))]).serialized(ensureASCII: true))
+        case ["smoke-test"]:
+            // The test rewrites the module selection, so it runs only in the build's private home.
+            guard environment["TOKEN_MONITOR_SMOKE_TEST"] == "1" else { return 2 }
+            let root = stateDir + "/smoke-fixture"
+            try? Files.makeDirectory(root)
+            let record: JSON = ["t": .double(Date().timeIntervalSince1970 - 10), "agent": "codex", "provider": "test", "model": "gpt-5.4", "in": 1230, "out": 4]
+            try? Data((record.serialized() + "\n").utf8).write(to: URL(fileURLWithPath: root + "/usage.jsonl"))
+            var settings = Preferences.read(stateDir)
+            settings["visible"] = ["summary", "heatmap", "magpie"]; settings["paths"] = ["magpie": .string(root)]
+            guard (try? Preferences.write(stateDir, settings)) != nil else { return 1 }
+            _ = render { rangeUsage("all") }
+            writeJSONCache(cachePath("view-range"), ["schema": 1, "range": "all"])
+            snapshot()
+            let view = readCache("panel-view")["dashboard"]?.object ?? JSONObject()
+            let tokens = view["providers"]?.array?.first?.object?["tokens"]?.pythonFloat
+            let heat = (view["heatmap"]?.object?["tokens"]?.array ?? []).reduce(0.0) { $0 + ($1.pythonFloat ?? 0) }
+            guard tokens == 1234, heat == 1234, Pricing.table("model-pricing.json")["source"]?.object?["commit"]?.isTruthy == true else { return 1 }
+            guard (try? ClaudeBridge.publish(stateDir, JSONObject())) != nil else { return 1 }
+        case ["prepare"], ["action"], ["refresh"]:
+            if arguments == ["prepare"] && !FileManager.default.fileExists(atPath: stateDir + "/preferences.json") {
+                Discovery.initialize(stateDir, detected: detectedModules())
+            }
+            if arguments == ["action"] { consumePanelAction() }
+            if arguments == ["refresh"] { backgroundRefresh() }
+            // Published before any long read; clicks are acknowledged on their own.
+            snapshot()
+        default:
+            return 2
+        }
+        return 0
     }
 }

@@ -97,6 +97,8 @@ func answer(_ call: String, _ args: [JSON]) throws -> JSON {
             case "status": return .object(ServiceStatus.readAll(args[2].array?.compactMap(\.string) ?? [], version: "test"))
             case "fx": let (payload, error) = runtime.exchangeRateLoad(); return ["payload": payload.map(JSON.object) ?? .null, "error": error.map(JSON.string) ?? .null]
             case "snapshot": return .object(runtime.panelSnapshot(runtime.cachedData()))
+            case "connection_parts": return .array(runtime.connectionParts(text(2)!))
+            case "fingerprint": return .string(runtime.connectionFingerprint(text(2)!))
             case "alert_inputs":
                 let data = runtime.cachedData()
                 return ["windows": .array(runtime.alertWindows(data).map(JSON.object)), "balances": .array(runtime.alertBalances(data).map(JSON.object)),

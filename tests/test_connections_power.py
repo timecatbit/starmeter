@@ -108,7 +108,8 @@ class PowerTests(unittest.TestCase):
     def test_starting_readiness_body_is_cached_as_state(self):
         def request(path,**kwargs):
             return ({'version':'1.0'},None) if path=='/healthz' else (None,(503,'starting',{'status':'starting'})) if path=='/readyz' else ({},None)
-        with patch.object(self.m,'ocx_configured',return_value=True),patch.object(self.m,'request',side_effect=request):
+        with patch.object(self.m,'ocx_configured',return_value=True),patch.object(self.m,'request',side_effect=request),\
+             patch.object(self.m,'schedule_background_refresh'):
             self.m.opencodex_refresh()
             data=self.m.gather()
             self.assertTrue(any('OpenCodex 管理 · 正在启动' in line for line in self.m.unfiltered_management_lines(data)))

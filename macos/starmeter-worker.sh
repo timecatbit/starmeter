@@ -11,11 +11,4 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:/usr/bin:/bin:$PA
 if [ -f "$OCX_STATE_DIR/config.local.sh" ]; then source "$OCX_STATE_DIR/config.local.sh" >/dev/null; fi
 export OCX_MAC_APP=1 OCX_PLUGIN_PATH="$resources/starmeter-worker.sh"
 export OCX_CACHE_DIR="${OCX_MAC_CACHE_DIR:-$HOME/Library/Caches/Token Monitor}"
-export PYTHONDONTWRITEBYTECODE=1
-exec "$resources/runtime/bin/python3" -I -B -c '
-import sys
-sys.path.insert(0,sys.argv.pop(1))
-sys.path.insert(0,sys.argv.pop(1))
-import worker
-sys.exit(worker.main(sys.argv[1:]))
-' "$resources/lib" "$resources/macos" "$@"
+exec "$resources/starmeter-engine" --worker "$@"

@@ -244,7 +244,7 @@ public final class Runtime {
     /// Extra facts some sources depend on, set by their loaders' ports (app versions, Claude snapshots...).
     var connectionExtras: [String: () -> [JSON]] = [:]
 
-    func connectionParts(_ name: String) -> [JSON] {
+    public func connectionParts(_ name: String) -> [JSON] {
         var parts: [JSON] = name == "claude_subscription" ? claudeSubscriptionParts() : name == "app_updates" ? appUpdateParts() : connectionExtras[name]?() ?? []
         for key in Runtime.connectionKeys[name] ?? [] {
             let value = environment[key] ?? ""
@@ -258,7 +258,8 @@ public final class Runtime {
             parts.append(.string(codexHome()))
             if let state = ClaudeUsage.state(of: codexHome() + "/auth.json") { parts += [.int(state.mtime), .int(state.size)] } else { parts.append("unavailable") }
         }
-        if Runtime.connectionKeys[name] == nil || name == "provider_quotas" { parts += [.string(base), .string(tokenFile)] }
+        // The update checks also follow the OpenCodex address, as the Python engine's caches were keyed.
+        if Runtime.connectionKeys[name] == nil || name == "provider_quotas" || name == "app_updates" { parts += [.string(base), .string(tokenFile)] }
         return parts
     }
 

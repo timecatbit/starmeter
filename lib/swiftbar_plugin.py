@@ -2983,7 +2983,6 @@ def service_connection_entry(key,data=None):
             location_entry('Code 登录来源',[str(claude_oauth.config_root())]),
             {'label':'关闭本机回传' if claude_local.enabled(STATE_DIR) else '启用本机用量回传…','action':['set-claude-local','false' if claude_local.enabled(STATE_DIR) else 'true'],'children':[]},
             location_entry('本机快照',[os.path.join(STATE_DIR,claude_local.SNAPSHOT)]) if claude_local.enabled(STATE_DIR) else location_entry('App 快照文件',[os.path.join(source_path('claude'),'plan-usage-history.json')]),
-            {'label':'使用 App 登录查询一次…','action':['refresh-claude-online'],'children':[]},
             *([{'label':'清除在线查询授权','action':['set-claude-live','false'],'children':[]}] if view_settings()['claudeLiveUsage'] else []),
             {'label':'选择 Claude 数据目录…','action':['choose-source','claude'],'children':[]},
             {'label':'打开 Claude','action':['open-claude'],'children':[]},

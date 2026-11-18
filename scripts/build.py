@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build and ad-hoc sign the native AppKit helper on macOS."""
+"""Build and ad-hoc sign the native AppKit helper and the Swift engine on macOS."""
 import argparse
 import os
 import hashlib
@@ -51,9 +51,34 @@ def build(output, universal=False):
     print(output)
     return output
 
+def build_engine(output, universal=False):
+    """The engine every Mac host runs: SwiftBar's entry and the standalone app's worker. Release builds carry
+    both architectures, so it runs without a local compiler."""
+    if os.uname().sysname != 'Darwin':
+        raise SystemExit('The engine is built here on macOS; Windows builds it in its own workflow.')
+    output = Path(output).resolve()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    command = ['swift', 'build', '-c', 'release', '--package-path', str(ROOT / 'engine'), '--scratch-path', str(ROOT / 'build' / 'engine-release'),
+               '--product', 'starmeter-engine']
+    if universal:
+        command += ['--arch', 'arm64', '--arch', 'x86_64']
+    subprocess.run(command, check=True, env=dict(os.environ, MACOSX_DEPLOYMENT_TARGET='13.0'))
+    folder = subprocess.run(command + ['--show-bin-path'], check=True, capture_output=True, text=True).stdout.strip()
+    # Signed beside the target, then renamed over it: rewriting a running signed binary in place would kill it.
+    binary = output.with_name('.' + output.name + '.new')
+    shutil.copyfile(Path(folder) / 'starmeter-engine', binary)
+    binary.chmod(0o755)
+    subprocess.run(['codesign', '--force', '--sign', '-', str(binary)], check=True, capture_output=True)
+    os.replace(binary, output)
+    subprocess.run(['codesign', '--verify', '--strict', str(output)], check=True)
+    print(output)
+    return output
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, default=ROOT / 'build' / 'OpenCodexPanel.app')
     parser.add_argument('--universal', action='store_true', help='Build arm64 and x86_64 slices, as release packages do.')
+    parser.add_argument('--engine', type=Path, default=ROOT / 'build' / 'starmeter-engine', help='Where the engine program goes.')
     args = parser.parse_args()
     build(args.output, args.universal)
+    build_engine(args.engine, args.universal)

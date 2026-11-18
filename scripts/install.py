@@ -22,10 +22,29 @@ BACKUP_NAME = re.compile(r'\d{8}-\d{6}-[0-9a-f]{6}')
 KEEP_BACKUPS = 5
 # A source checkout keeps this script in scripts/; a release package keeps it beside the entry.
 ROOT = HERE if (HERE / ENTRY).is_file() else HERE.parent
-sys.path.insert(0, str(ROOT / 'lib'))
-from swiftbar_config import migrate_config
-from install_transport import prepare as prepare_transport
-import swiftbar_claude_local as claude_local
+ENGINE = Path('build/starmeter-engine')
+# Parts earlier versions installed that the engine replaced: the Python library and its HTTP helper.
+RETIRED = [Path('.opencodex-panel/python')]
+STATE = Path.home() / 'Library/Application Support/SwiftBarToken'
+
+def data_files(folder, names):
+    """lib/ ships only what the engine reads: the price tables and the licenses of the code they came with."""
+    return [name for name in names if not (name.endswith('.json') or name.endswith('LICENSE'))]
+
+def migrate_config(destination, state, explicit=None):
+    """An existing user file always wins; checkout config is never imported silently."""
+    target = Path(state) / 'config.local.sh'
+    legacy = Path(destination) / '.opencodex-panel/config.local.sh'
+    source = Path(explicit).expanduser() if explicit else legacy
+    if explicit and target.exists():
+        raise ValueError('本机配置已存在；请在连接设置中修改，不覆盖现有文件。')
+    if not target.exists() and source.is_file():
+        target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        fd = os.open(str(target), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        with os.fdopen(fd, 'wb') as out: out.write(source.read_bytes())
+    # The installer already backed up the legacy file before this migration.
+    if legacy.exists(): legacy.unlink()
+    return target
 
 def copy(source, target):
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -34,7 +53,7 @@ def copy(source, target):
     else:
         shutil.copy2(source, target)
 
-def stage(destination, transport):
+def stage(destination):
     """Build every part the install replaces in a scratch folder beside the installed ones and check it,
     so a bad helper or a failed copy leaves the running plugin untouched."""
     staging = destination / '.opencodex-panel' / ('.install-' + uuid.uuid4().hex[:8])
@@ -43,8 +62,10 @@ def stage(destination, transport):
         copy(ROOT / 'build/OpenCodexPanel.app', staging / 'OpenCodexPanel.app')
         subprocess.run(['codesign', '--verify', '--deep', str(staging / 'OpenCodexPanel.app')], check=True)
         copy(ROOT / 'assets', staging / 'assets')
-        shutil.copytree(ROOT / 'lib', staging / 'lib', ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
-        copy(transport, staging / 'python' / transport.name)
+        shutil.copytree(ROOT / 'lib', staging / 'lib', ignore=data_files)
+        (staging / 'bin').mkdir()
+        shutil.copy2(ROOT / ENGINE, staging / 'bin' / ENGINE.name)
+        subprocess.run(['codesign', '--verify', '--strict', str(staging / 'bin' / ENGINE.name)], check=True)
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise
@@ -118,22 +139,17 @@ def main():
     # Release packages ship a prebuilt helper and no Swift source, so they need no compiler.
     if not args.skip_build and (ROOT / 'panel/Panel.swift').is_file():
         subprocess.run([sys.executable, str(ROOT / 'scripts' / 'build.py')], check=True)
-    if not (ROOT / 'build/OpenCodexPanel.app').is_dir():
-        parser.error('The panel helper is missing; download the release zip again or build from source.')
-    # Ask the shell entry point so OCX_PYTHON and its PATH match the running plugin.
-    python = subprocess.run(['/bin/bash','-p',str(ROOT/ENTRY),'--python-path'],
-                            capture_output=True,text=True,check=True).stdout.strip()
-    if not Path(python).is_file():parser.error('The plugin Python interpreter is unavailable.')
-    transport = prepare_transport(ROOT,python)
+    if not (ROOT / 'build/OpenCodexPanel.app').is_dir() or not (ROOT / ENGINE).is_file():
+        parser.error('The panel helper or engine is missing; download the release zip again or build from source.')
     relative_app = Path('.opencodex-panel/OpenCodexPanel.app')
     local_config = Path('.opencodex-panel/config.local.sh')
-    relative_transport=Path('.opencodex-panel/python')/transport.name
     relative_assets = Path('.opencodex-panel/assets')
-    paths = [Path(ENTRY), relative_app, relative_assets, local_config, Path('.opencodex-panel/lib'),relative_transport]+LEGACY
+    relative_engine = Path('.opencodex-panel/bin')
+    paths = [Path(ENTRY), relative_app, relative_assets, local_config, Path('.opencodex-panel/lib'), relative_engine] + RETIRED + LEGACY
     previous = [p for p in paths if (destination / p).exists()]
     if previous:
         print('Backup:', back_up(destination, previous))
-    staging = stage(destination, transport)
+    staging = stage(destination)
     # Only close an already running helper. Never launch SwiftBar via AppleScript.
     if not args.no_refresh:
         subprocess.run(['osascript', '-e',
@@ -144,16 +160,15 @@ def main():
     moved = []
     try:
         swap([(staging / 'OpenCodexPanel.app', destination / relative_app), (staging / 'assets', destination / relative_assets),
-              (staging / 'lib', destination / '.opencodex-panel/lib'), (staging / 'python' / transport.name, destination / relative_transport)],
+              (staging / 'lib', destination / '.opencodex-panel/lib'), (staging / 'bin', destination / relative_engine)],
              staging, moved)
-        migrate_config(destination, Path.home() / 'Library/Application Support/SwiftBarToken', args.config)
-        state=Path.home()/'Library/Application Support/SwiftBarToken'
+        migrate_config(destination, STATE, args.config)
+        state = STATE
         # Update reminders used to live in SwiftBar's per-plugin data folder, which follows the file name.
         old_data = Path.home() / 'Library/Application Support/SwiftBar/Plugins/opencodex.30s.sh'
         for name in LEGACY_DATA:
             if (old_data / name).is_file() and not (state / name).exists():
                 state.mkdir(parents=True, exist_ok=True, mode=0o700); shutil.copy2(old_data / name, state / name)
-        if claude_local.enabled(state):claude_local.install(state)
         # Publish the script last; other plugins and runtime state are preserved.
         temporary = destination / '.opencodex-install.tmp'
         shutil.copyfile(ROOT / ENTRY, temporary)
@@ -165,13 +180,15 @@ def main():
         raise
     finally:
         shutil.rmtree(staging, ignore_errors=True)
-    # One plugin only: the old entry and visible assets are in the backup above.
-    for relative in LEGACY:
+    # One plugin only: the old entry, visible assets and retired parts are in the backup above.
+    for relative in LEGACY + RETIRED:
         target = destination / relative
         if target.is_dir() and not target.is_symlink(): shutil.rmtree(target)
         elif target.exists() or target.is_symlink(): target.unlink()
     try: (destination / 'assets').rmdir()
     except OSError: pass
+    # A Claude status line connected earlier now runs from this engine.
+    subprocess.run(['/bin/bash', '-p', str(destination / ENTRY), '--refresh-claude-bridge'], capture_output=True, timeout=30)
     detected = subprocess.run(['/bin/bash', '-p', str(destination / ENTRY), '--initialize-modules'],
                               capture_output=True, text=True, timeout=30)
     if detected.returncode:
