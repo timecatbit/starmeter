@@ -8,6 +8,12 @@ the embedded Python's licence (licenses/Python-LICENSE.txt) and the notices
 from the other bundled distributions. No fonts are bundled; text uses the
 fonts installed with Windows.
 
+The engine/ folder holds Starmeter's data engine with the Swift runtime and
+Foundation libraries it links, from the Swift toolchain (Apache License 2.0
+with the Runtime Library Exception, <https://swift.org/LICENSE.txt>);
+Foundation's ICU data is under the Unicode License
+(<https://www.unicode.org/license.txt>).
+
 - PySide6/Shiboken 6.8.3 source: <https://download.qt.io/official_releases/QtForPython/pyside6/PySide6-6.8.3-src/>
 - Qt 6.8.3 source: <https://download.qt.io/archive/qt/6.8/6.8.3/single/>
 - Qt for Python build instructions: <https://doc.qt.io/qtforpython-6.8/building_from_source/index.html>

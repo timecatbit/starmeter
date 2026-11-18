@@ -35,12 +35,14 @@
 
 ## 从源码运行 / 打包
 
-安装 64 位 Python 3.12，打开 PowerShell，在仓库根目录执行：
+托盘界面用 Python 3.12 和 Qt，读取用量的是和 Mac 版同一个 Swift 引擎。安装 64 位 Python 3.12 和
+[Swift for Windows](https://www.swift.org/install/windows/)（6.1 或更新），打开 PowerShell，在仓库根目录执行：
 
 ```powershell
+swift build -c release --package-path engine --scratch-path build\engine-release --product starmeter-engine
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r windows\requirements.txt
-.\.venv\Scripts\pythonw.exe windows\token_monitor.py
+.\.venv\Scripts\pythonw.exe windows\starmeter.py
 ```
 
 Windows CI 运行适配测试、构建独立 EXE 和安装包，用模拟历史对打包后的 EXE 做无界面验证，

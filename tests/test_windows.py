@@ -11,6 +11,8 @@ from unittest.mock import patch
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'windows'))
+# The Python reference implementation, still checked on Windows; the tray itself runs the Swift engine.
+sys.path.insert(1,str(ROOT/'lib'))
 import host
 import swiftbar_lock as lock
 import swiftbar_update_channels as channels
