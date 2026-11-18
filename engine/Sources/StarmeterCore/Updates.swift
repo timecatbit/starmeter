@@ -2,6 +2,9 @@ import Foundation
 #if canImport(FoundationXML)
 import FoundationXML
 #endif
+#if canImport(FoundationXML)
+import FoundationXML
+#endif
 
 /// Version checks for the apps and CLIs behind the selected Harness, and OpenCodex's own installer. Only public
 /// version metadata is read; no login, no real device ID. Ports of the update parts of swiftbar_plugin.py,
@@ -266,7 +269,9 @@ extension Runtime {
     }
 
     public func liveAppUpdateIDs() -> [String] {
-        selectedUpdateIDs().filter { $0 != "opencodex" && !Runtime.manualUpdates.contains($0) }
+        // A desktop host checks only the CLIs; its desktop apps update themselves.
+        if desktop != nil { return selectedUpdateIDs().filter { ["claude-code", "codex-cli"].contains($0) } }
+        return selectedUpdateIDs().filter { $0 != "opencodex" && !Runtime.manualUpdates.contains($0) }
     }
 
     /// A client-specific rollout or download wins over anonymous metadata.
@@ -409,10 +414,8 @@ extension Runtime {
     public func autoUpdateOpenCodex() {
         let path = autoUpdatePath
         try? Files.makeDirectory(stateDir)
-        let descriptor = open(path + ".lock", O_CREAT | O_RDWR | O_APPEND, 0o600)
-        guard descriptor >= 0 else { return }
-        defer { close(descriptor) }
-        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { return }
+        guard let lock = Platform.lock(path + ".lock", wait: false) else { return }
+        defer { withExtendedLifetime(lock) {} }
         let now = Date().timeIntervalSince1970
         var state = autoUpdateState()
         func save(_ values: JSONObject) -> Bool {

@@ -85,8 +85,8 @@ public enum Discovery {
         try? Files.makeDirectory(directory)
         let temporary = directory + "/.discovery-" + Files.randomName()
         guard case .created = Files.createExclusively(temporary, contents: Data(JSON.object(current).serialized().utf8)) else { return false }
-        defer { unlink(temporary) }
-        return link(temporary, target) == 0
+        defer { Platform.remove(temporary) }
+        return Platform.hardLink(temporary, target)
     }
 
     /// Only after the user confirms the detected selection.
@@ -108,7 +108,7 @@ extension Runtime {
 
     public func detectedModules() -> [String] {
         Discovery.detect(paths: Dictionary(uniqueKeysWithValues: Preferences.usage.map { ($0, sourcePath($0)) }), home: home, configuredProxy: opencodexConfigured(),
-                         komariURL: komariBaseURL, appRoots: [home + "/Applications", "/Applications"], chatgptHome: codexHome(),
+                         komariURL: komariBaseURL, appRoots: desktop != nil ? [] : [home + "/Applications", "/Applications"], chatgptHome: codexHome(),
                          configuredSubscriptions: settings()["configuredSubscriptions"]?.array?.compactMap(\.string) ?? [], environment: environment)
     }
 }

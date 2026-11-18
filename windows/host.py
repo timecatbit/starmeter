@@ -9,18 +9,18 @@ import traceback
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / 'lib'))
-import swiftbar_config as connections
 
+# The connection settings the engine reads from the environment (its Connections.keys).
+KEYS = frozenset(['ANTHROPIC_API_KEY', 'ANTHROPIC_API_KEY_FILE', 'DEEPSEEK_API_KEY', 'DEEPSEEK_API_KEY_FILE', 'GEMINI_API_KEY', 'GEMINI_API_KEY_FILE', 'GOOGLE_API_KEY', 'GOOGLE_API_KEY_FILE', 'KOMARI_BASE_URL', 'MINIMAX_API_KEY', 'MINIMAX_API_KEY_FILE', 'MINIMAX_PLATFORM_API_KEY', 'MINIMAX_PLATFORM_API_KEY_FILE', 'MINIMAX_REGION', 'MOONSHOT_API_KEY', 'MOONSHOT_API_KEY_FILE', 'MOONSHOT_REGION', 'OCX_BASE_URL', 'OCX_CHATGPT_HOME', 'OCX_HOME', 'OCX_TOKEN_FILE', 'OPENAI_API_KEY', 'OPENAI_API_KEY_FILE', 'QODER_CN_API_KEY', 'QODER_CN_API_KEY_FILE', 'QODER_CN_ORG_ID', 'XAI_MANAGEMENT_API_KEY', 'XAI_MANAGEMENT_API_KEY_FILE', 'XAI_TEAM_ID'])
 # Only paths, endpoints and non-secret options belong in the JSON settings file.
 # Named keys stay in the existing per-user key store; environment keys are inherited.
-CLEAR_ONLY = connections.KEYS - {
+CLEAR_ONLY = KEYS - {
     'OCX_HOME', 'OCX_BASE_URL', 'OCX_CHATGPT_HOME', 'KOMARI_BASE_URL', 'XAI_TEAM_ID',
     'MINIMAX_REGION', 'MOONSHOT_REGION', 'QODER_CN_ORG_ID', 'OCX_TOKEN_FILE'}
 OVERRIDE_NAMES = frozenset(
     {'OCX_HOME', 'OCX_BASE_URL', 'OCX_CHATGPT_HOME', 'KOMARI_BASE_URL', 'XAI_TEAM_ID',
      'MINIMAX_REGION', 'MOONSHOT_REGION', 'QODER_CN_ORG_ID', 'OCX_TOKEN_FILE'}
-    | {key for key in connections.KEYS if key.endswith('_FILE')}
+    | {key for key in KEYS if key.endswith('_FILE')}
 )
 PORTABLE_ACTIONS = frozenset('''
     set-module set-appearance set-theme reset-modules set-subscription set-collapse set-usage-alert
@@ -45,6 +45,14 @@ def read_json(path):
         return value if isinstance(value,dict) else {}
     except (OSError, ValueError):
         return {}
+
+
+def write_json(path,value):
+    """Replace a small settings file in one step."""
+    path=Path(path);path.parent.mkdir(parents=True,exist_ok=True)
+    temporary=path.with_name('.'+path.name+'.tmp')
+    temporary.write_text(json.dumps(value,ensure_ascii=False),encoding='utf-8')
+    os.replace(temporary,path)
 
 
 def overrides(path):

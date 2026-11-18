@@ -49,7 +49,7 @@ public final class Runtime {
         else { stateDir = home + "/Library/Application Support/SwiftBarToken" }
         let scope = SHA256.hex(Array(Runtime.absolute(stateDir).utf8)).prefix(16)
         let parent = environment["OCX_CACHE_DIR"].flatMap { $0.isEmpty ? nil : $0 } ?? NSTemporaryDirectory()
-        cacheDir = (parent as NSString).appendingPathComponent("opencodex-swiftbar-v5-\(getuid())-\(scope)")
+        cacheDir = (parent as NSString).appendingPathComponent("opencodex-swiftbar-v5-\(Platform.userID)-\(scope)")
         base = Runtime.detectBase(environment, home: home)
         if Pricing.folders.isEmpty { Pricing.folders = [Runtime.libDirectory(plugin: plugin), stateDir + "/pricing"] }
     }
@@ -64,13 +64,15 @@ public final class Runtime {
     }
 
     static func absolute(_ path: String) -> String {
-        path.hasPrefix("/") ? Paths.normalize(path) : Paths.normalize(FileManager.default.currentDirectoryPath + "/" + path)
+        Paths.isAbsolute(path) ? Paths.normalize(path) : Paths.normalize(FileManager.default.currentDirectoryPath + "/" + path)
     }
 
     /// The installed lib folder beside the entry, where the price tables ship.
     static func libDirectory(plugin: String) -> String {
         let folder = (absolute(plugin) as NSString).deletingLastPathComponent
-        for candidate in [folder + "/.opencodex-panel/lib", folder + "/lib"] where Harness.isDirectory(candidate) { return candidate }
+        // Installed beside the entry or the engine; a source checkout's build/ sits next to lib/.
+        for candidate in [folder + "/.opencodex-panel/lib", folder + "/lib", Paths.normalize((folder as NSString).deletingLastPathComponent + "/lib")]
+            where Harness.isDirectory(candidate) && FileManager.default.fileExists(atPath: candidate + "/model-pricing.json") { return candidate }
         return folder + "/lib"
     }
 
@@ -143,7 +145,7 @@ public final class Runtime {
     func magpieRoot() -> String {
         if let configured = env("MAGPIE_USAGE_DIR") { return Paths.normalize(Paths.expandUser(configured)) }
         let xdg = environment["XDG_CONFIG_HOME"] ?? ""
-        return (xdg.hasPrefix("/") ? Paths.normalize(xdg) : home + "/.config") + "/magpie"
+        return (Paths.isAbsolute(xdg) ? Paths.normalize(xdg) : home + "/.config") + "/magpie"
     }
 
     // MARK: Caches

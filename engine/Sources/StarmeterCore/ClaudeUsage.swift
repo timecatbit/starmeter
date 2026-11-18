@@ -454,7 +454,7 @@ extension LineReader {
 func contains(_ bytes: UnsafeBufferPointer<UInt8>, _ word: [UInt8]) -> Bool {
     guard let first = word.first, bytes.count >= word.count, let base = bytes.baseAddress else { return false }
     #if !os(Windows)
-    return word.withUnsafeBufferPointer { memmem(base, bytes.count, $0.baseAddress, word.count) != nil }
+    return word.withUnsafeBufferPointer { containsBytes(base, bytes.count, $0.baseAddress!, word.count) }
     #else
     var index = 0
     let last = bytes.count - word.count

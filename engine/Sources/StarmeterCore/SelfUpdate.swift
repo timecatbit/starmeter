@@ -132,7 +132,7 @@ extension Runtime {
             process.waitUntilExit()
             try Files.makeDirectory((log as NSString).deletingLastPathComponent)
             let text = "Starmeter \(Runtime.version) → \(version)\nexit \(process.terminationStatus)\n\n" + String(decoding: out, as: UTF8.self) + "\n" + String(decoding: err, as: UTF8.self)
-            unlink(log)
+            Platform.remove(log)
             guard case .created = Files.createExclusively(log, contents: Data(text.utf8)) else { throw SelfUpdateError("安装失败：OSError") }
             if process.terminationStatus != 0 { throw SelfUpdateError("安装程序退出码 \(process.terminationStatus)") }
         } catch let error as SelfUpdateError { throw error } catch { throw SelfUpdateError("安装失败：OSError") }
@@ -142,10 +142,8 @@ extension Runtime {
     @discardableResult
     public func selfUpdateWorker(_ version: String) -> Int32 {
         try? Files.makeDirectory(stateDir)
-        let descriptor = open(stateDir + "/self-update.lock", O_CREAT | O_RDWR | O_APPEND, 0o600)
-        guard descriptor >= 0 else { return 0 }
-        defer { close(descriptor) }
-        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { return 0 }
+        guard let lock = Platform.lock(stateDir + "/self-update.lock", wait: false) else { return 0 }
+        defer { withExtendedLifetime(lock) {} }
         setSelfUpdateState(["status": "running", "version": .string(version)])
         do {
             try installRelease(version, log: stateDir + "/logs/self-update.log")
@@ -181,10 +179,8 @@ extension Runtime {
         if rows.isEmpty { return }
         let path = stateDir + "/updates-notified.json"
         try? Files.makeDirectory(stateDir)
-        let descriptor = open(stateDir + "/updates.lock", O_CREAT | O_RDWR | O_APPEND, 0o600)
-        guard descriptor >= 0 else { return }
-        defer { close(descriptor) }
-        guard flock(descriptor, LOCK_EX) == 0 else { return }
+        guard let lock = Platform.lock(stateDir + "/updates.lock", wait: true) else { return }
+        defer { withExtendedLifetime(lock) {} }
         var seen = JSONObject()
         if let data = FileManager.default.contents(atPath: path), let value = (try? JSON.parse(data))?.object {
             for (key, entry) in value {

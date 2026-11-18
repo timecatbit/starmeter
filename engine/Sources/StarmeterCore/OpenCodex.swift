@@ -288,7 +288,8 @@ extension Runtime {
     /// A public Komari endpoint through the system curl, which keeps the system's TLS and proxy settings.
     func komariPublicJSON(_ path: String, body: JSON? = nil) -> (JSONObject?, String?) {
         #if os(Windows)
-        var command = ["curl.exe"]
+        // Windows 10 and later ship curl; Process needs its full path.
+        var command = [Shell.which("curl", environment: environment) ?? (environment["SystemRoot"] ?? "C:\\Windows") + "\\System32\\curl.exe"]
         #else
         var command = ["/usr/bin/curl"]
         #endif

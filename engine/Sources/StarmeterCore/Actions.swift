@@ -44,13 +44,13 @@ extension Runtime {
         for name in Runtime.connectionOrder {
             let fingerprint = JSON.string(connectionFingerprint(name))
             current[name] = fingerprint
-            if previous[name] != fingerprint { unlink(cachePath(name)) }
+            if previous[name] != fingerprint { Platform.remove(cachePath(name)) }
         }
         current["proxy"] = .string(connectionFingerprint("proxy"))
         if previous["proxy"] != current["proxy"] {
-            for name in Runtime.opencodexEndpoints.map(\.0) + ["badge"] { unlink(cachePath(name)) }
+            for name in Runtime.opencodexEndpoints.map(\.0) + ["badge"] { Platform.remove(cachePath(name)) }
             for name in (try? FileManager.default.contentsOfDirectory(atPath: cacheDir)) ?? [] where name.hasPrefix("range_usage_") && name.hasSuffix(".json") {
-                unlink(cacheDir + "/" + name)
+                Platform.remove(cacheDir + "/" + name)
             }
         }
         writeJSONCache(cachePath("connection-fingerprints"), .object(current))
@@ -235,7 +235,7 @@ extension Runtime {
         let previous = names.filter { $0.hasSuffix("_FILE") }.map { environment[$0] ?? "" }
         try saveOverrides(values)
         for file in previous where !file.isEmpty && !values.contains(where: { $0.1 == file }) && Connections.managedKey(stateDir, file) {
-            unlink(Paths.expandUser(file))
+            Platform.remove(Paths.expandUser(file))
         }
         let next = updated(values)
         next.syncConnectionCache()
@@ -285,7 +285,7 @@ extension Runtime {
         if id == "default" { return try configureConnection(provider, clear: true) }
         if !confirm("删除「" + Py.str(entry["label"] ?? .null) + "」？", "只删除插件保存的这把 Key，不影响服务商账户。", accept: "删除") { return }
         try Keys.remove(stateDir, provider, id: id)
-        unlink(cachePath(Py.str(entry["cache"] ?? .null)))
+        Platform.remove(cachePath(Py.str(entry["cache"] ?? .null)))
         var checks = readCache("key-checks")
         if checks[Runtime.checkID(provider, id)] != nil {
             checks[Runtime.checkID(provider, id)] = nil
@@ -452,7 +452,7 @@ extension Runtime {
                 // Renewal can take half a minute, so the background worker does it, as a retry.
                 writeJSONCache(cachePath("claude-retry"), ["schema": 1, "requestedAt": .double(Date().timeIntervalSince1970)])
             } else {
-                try update("claude-oauth", "false"); unlink(stateDir + "/claude-oauth-usage.json")
+                try update("claude-oauth", "false"); Platform.remove(stateDir + "/claude-oauth-usage.json")
             }
             invalidateCaches(["claude_subscription"])
             if value == "true" { launchBackground("--background-refresh-wait") } else { scheduleBackgroundRefresh() }
@@ -466,7 +466,7 @@ extension Runtime {
             if value == "true" { try update("module", "cursor", "true") }
             else {
                 for file in (try? FileManager.default.contentsOfDirectory(atPath: cacheDir)) ?? [] where file.hasPrefix("cursor_usage_") || file.hasPrefix("cursor_subscription") {
-                    unlink(cacheDir + "/" + file)
+                    Platform.remove(cacheDir + "/" + file)
                 }
             }
             invalidateCaches([rangeCacheName(), "cursor_subscription"])
@@ -614,7 +614,7 @@ extension Runtime {
             let tag = extra.first ?? "latest"
             if confirm("更新 opencodex（通道 " + tag + "）？", "更新需要几分钟，完成后会自动重启代理。") {
                 let (_, failure) = opencodexRequest("/api/update/run", method: "POST", body: ["tag": .string(tag), "restart": true], timeout: 30)
-                unlink(cachePath("badge"))
+                Platform.remove(cachePath("badge"))
                 if let failure, failure.message.contains("already_latest") { notify("已是最新版本", subtitle: "OpenCodex 无需更新") }
                 else if let failure { notify("操作失败：" + (failure.message.isEmpty ? String(failure.code) : failure.message), subtitle: "/api/update/run") }
                 else { notify("更新任务已启动", subtitle: "/api/update/run") }
@@ -672,11 +672,11 @@ extension Runtime {
     /// The panel queues an action in a file; it runs here, through the plugin's own permissions, only if the
     /// rendered panel offered it. A receipt tells the panel how it went.
     public func consumePanelAction() {
-        let pending = cachePath("panel-action"), claimed = pending + ".processing-\(getpid())"
-        guard rename(pending, claimed) == 0 else { return }
+        let pending = cachePath("panel-action"), claimed = pending + ".processing-\(Platform.processID)"
+        guard Platform.claim(pending, claimed) else { return }
         var requestID: String?, action: [String]?, status = "rejected", reason: JSON = .null
         defer {
-            unlink(claimed)
+            Platform.remove(claimed)
             if let requestID {
                 let preferences: JSON = status == "done" && action.map { Runtime.receiptActions.contains($0[0]) } == true ? presentationSettings() : .null
                 writeJSONCache(cachePath("panel-action-receipt"), ["schema": 1, "id": .string(requestID), "status": .string(status), "reason": reason,

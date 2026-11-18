@@ -1,4 +1,7 @@
 import Foundation
+#if os(Windows)
+import WinSDK
+#endif
 
 /// The statistics range on screen, read from every selected Harness: the port of range_usage_cached and the
 /// helpers around it in swiftbar_plugin.py.
@@ -12,7 +15,8 @@ extension Runtime {
     }
 
     public func selectedRange() -> String {
-        let value = readCache("view-range")["range"]?.string ?? "today"
+        // A desktop host keeps the range with its settings, not in the cache.
+        let value = (desktop != nil ? ClaudeApp.readObject(stateDir + "/view-range.json") : readCache("view-range"))["range"]?.string ?? "today"
         return Runtime.ranges.contains { $0.0 == value } ? value : "today"
     }
 
@@ -337,8 +341,14 @@ extension Runtime {
 
     func refreshCadence() -> (Bool, Bool) {
         if let cadence = hostCadence { return cadence() }
+        #if os(Windows)
+        // The tray says whether its panel is open; the battery comes from Windows.
+        if environment["OCX_PANEL_VISIBLE"] == "1" { return (true, false) }
+        var power = SYSTEM_POWER_STATUS()
+        return (false, GetSystemPowerStatus(&power) && power.ACLineStatus == 0)
+        #endif
         let state = readCache("panel-state")
-        if state["visible"] == .bool(true), let pid = state["pid"]?.integer, pid > 0, state["pid"]?.bool == nil, kill(pid_t(pid), 0) == 0 { return (true, false) }
+        if state["visible"] == .bool(true), let pid = state["pid"]?.integer, pid > 0, state["pid"]?.bool == nil, Platform.alive(Int(pid)) { return (true, false) }
         var power = readCache("power-state")
         let now = Date().timeIntervalSince1970
         if now - (power["checkedAt"]?.pythonFloat ?? 0) > 300 {

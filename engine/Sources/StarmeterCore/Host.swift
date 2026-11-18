@@ -283,7 +283,7 @@ public enum TerminalJobs {
         process.standardOutput = FileHandle.nullDevice; process.standardError = FileHandle.nullDevice
         try process.run()
         let deadline = Date().addingTimeInterval(15)
-        while process.isRunning && Date() < deadline { usleep(50_000) }
+        while process.isRunning && Date() < deadline { Platform.sleep(0.05) }
         if process.isRunning {
             // Delivery is uncertain: never start the updater twice after a timeout.
             process.terminate()
@@ -297,7 +297,7 @@ public enum TerminalJobs {
         for path in old.dropFirst(19) where !isLink(path) { try? FileManager.default.removeItem(atPath: path) }
         let name = root + "/starmeter-" + Files.randomName() + ".command"
         guard case .created = Files.createExclusively(name, contents: Data(("#!/bin/bash\n" + bootstrap(command)).utf8)) else { throw HostFailure("无法写入终端命令") }
-        chmod(name, 0o700)
+        Platform.setMode(name, 0o700)
         var opened = Shell.run(["/usr/bin/open", "-a", app, name], timeout: 10) != nil
         if !opened && app != "Terminal" { opened = Shell.run(["/usr/bin/open", "-a", "Terminal", name], timeout: 10) != nil }
         if !opened { throw HostFailure("无法打开终端，请检查 SwiftBar 的终端设置") }
@@ -350,4 +350,64 @@ public enum TerminalJobs {
             "(exit \"$token_update_status\")",
         ].joined(separator: "\n")
     }
+}
+
+/// The Windows tray (or any host with its own windows) running the engine as a helper: each question goes out as
+/// one JSON line on standard output and the host writes back one line, {"value": …}, on standard input.
+public final class StreamHost: DesktopHost {
+    let state: String
+    private let lock = NSLock()
+
+    public init(state: String) { self.state = state }
+
+    static func emit(_ message: JSONObject) {
+        FileHandle.standardOutput.write(Data((JSON.object(message).serialized(ensureASCII: true) + "\n").utf8))
+    }
+
+    /// Sends a request and waits for its answer; questions from parallel reads are asked one at a time.
+    @discardableResult
+    func ask(_ request: JSONObject) -> JSON {
+        lock.lock(); defer { lock.unlock() }
+        Self.emit(request)
+        guard let line = readLine(strippingNewline: true), let answer = (try? JSON.parse(line))?.object else { return .null }
+        return answer["value"] ?? .null
+    }
+
+    public func confirm(_ message: String, detail: String, accept: String) -> Bool {
+        ask(["host": "confirm", "message": .string(message), "detail": .string(detail), "accept": .string(accept)]) == .bool(true)
+    }
+    public func textDialog(_ message: String, value: String, hidden: Bool, title: String) -> String? {
+        ask(["host": "text", "message": .string(message), "value": .string(value), "hidden": .bool(hidden), "title": .string(title)]).string
+    }
+    public func choose(title: String, prompt: String, _ first: (label: String, value: String), _ second: (label: String, value: String)) -> String? {
+        ask(["host": "choose", "title": .string(title), "prompt": .string(prompt),
+             "options": [[.string(first.label), .string(first.value)], [.string(second.label), .string(second.value)]]]).string
+    }
+    public func choosePath(_ message: String, folder: Bool) -> String? { ask(["host": "choosePath", "message": .string(message), "folder": .bool(folder)]).string }
+    public func savePath(_ message: String, name: String) -> String? { ask(["host": "savePath", "message": .string(message), "name": .string(name)]).string }
+    public func error(_ title: String, _ detail: String) { ask(["host": "error", "title": .string(title), "detail": .string(detail)]) }
+    public func notify(_ message: String, subtitle: String) { ask(["host": "notify", "message": .string(message), "subtitle": .string(subtitle)]) }
+    public func openLocal(_ path: String, text: Bool) throws {
+        guard ask(["host": "openLocal", "path": .string(path), "text": .bool(text)]) == .bool(true) else { throw HostFailure("open failed") }
+    }
+    public func copy(_ text: String) { ask(["host": "copy", "text": .string(text)]) }
+    public func saveOverrides(_ values: [(String, String)]) throws {
+        let fields = JSONObject(values.map { ($0.0, JSON.string($0.1)) })
+        guard ask(["host": "saveOverrides", "values": .object(fields)]) == .bool(true) else { throw HostFailure("settings could not be saved") }
+    }
+    /// The tray's own settings file, JSON rather than a shell script.
+    public func configFile() -> String {
+        let path = state + "/config.local.json"
+        if !FileManager.default.fileExists(atPath: path) { try? Files.replaceAtomically(path, with: Data("{}".utf8), prefix: ".config-") }
+        return path
+    }
+    public func openClaude() { ask(["host": "openClaude"]) }
+    public func updateCLI(binary: String, key: String) { ask(["host": "updateCLI", "binary": .string(binary), "key": .string(key)]) }
+    public func submitTest(_ provider: String, _ id: String) { ask(["host": "submitTest", "provider": .string(provider), "id": .string(id)]) }
+    public func requestRefresh(_ mode: String?) { ask(["host": "refresh", "mode": mode.map(JSON.string) ?? .null]) }
+    public func saveRange(_ key: String) {
+        try? Files.makeDirectory(state)
+        try? Files.replaceAtomically(state + "/view-range.json", with: Data(JSON.object(["range": .string(key)]).serialized().utf8), prefix: ".range-")
+    }
+    public func localProxy(_ base: String) -> Bool { ["127.0.0.1", "localhost", "::1"].contains(URLComponents(string: base)?.host ?? "") }
 }

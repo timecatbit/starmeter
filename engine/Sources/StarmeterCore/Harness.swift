@@ -643,10 +643,31 @@ extension Paths {
     /// What pathlib keeps of a path: no repeated or trailing slashes and no "." parts.
     public static func normalize(_ path: String) -> String {
         guard !path.isEmpty else { return "." }
+        #if os(Windows)
+        // WindowsPath: either slash separates, the drive or UNC share stays in front, backslashes come out.
+        let unified = path.replacingOccurrences(of: "\\", with: "/")
+        var prefix = "", rest = Substring(unified)
+        if unified.count >= 2, unified[unified.index(after: unified.startIndex)] == ":" { prefix = String(unified.prefix(2)); rest = rest.dropFirst(2) }
+        else if unified.hasPrefix("//") { prefix = "\\\\"; rest = rest.dropFirst(2) }
+        let rooted = rest.hasPrefix("/"), joined = rest.split(separator: "/").filter { $0 != "." }.joined(separator: "\\")
+        if prefix.isEmpty && !rooted { return joined.isEmpty ? "." : joined }
+        return prefix + (rooted && !prefix.hasPrefix("\\\\") ? "\\" : "") + joined
+        #else
         let absolute = path.hasPrefix("/")
         let parts = path.split(separator: "/").filter { $0 != "." }
         let joined = parts.joined(separator: "/")
         return absolute ? "/" + joined : (joined.isEmpty ? "." : joined)
+        #endif
+    }
+
+    /// Whether a path names its place from the root: a leading slash, or on Windows a drive or a share.
+    public static func isAbsolute(_ path: String) -> Bool {
+        #if os(Windows)
+        let characters = Array(path.prefix(3))
+        return path.hasPrefix("/") || path.hasPrefix("\\") || (characters.count == 3 && characters[1] == ":" && (characters[2] == "\\" || characters[2] == "/"))
+        #else
+        return path.hasPrefix("/")
+        #endif
     }
 }
 

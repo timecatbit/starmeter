@@ -80,8 +80,8 @@ public enum ClaudeBridge {
             try Files.makeDirectory((bridge as NSString).deletingLastPathComponent)
             let temporary = bridge + ".new-" + Files.randomName()
             try FileManager.default.copyItem(atPath: executable, toPath: temporary)
-            chmod(temporary, 0o700)
-            guard rename(temporary, bridge) == 0 else { unlink(temporary); throw HostFailure("无法写入状态栏程序") }
+            Platform.setMode(temporary, 0o700)
+            guard Platform.replace(temporary, bridge) else { Platform.remove(temporary); throw HostFailure("无法写入状态栏程序") }
         }
         let backup = state + "/" + ClaudeSubscription.backupFile
         if enabled(state) {
@@ -116,7 +116,7 @@ public enum ClaudeBridge {
             if let original = meta["original"], !original.isNull { current["statusLine"] = original } else { current["statusLine"] = nil }
             try? write(settings, current)
         }
-        unlink(state + "/" + ClaudeSubscription.snapshotFile)
+        Platform.remove(state + "/" + ClaudeSubscription.snapshotFile)
         // The backup stays if the user replaced the integration themselves.
     }
 
@@ -134,7 +134,7 @@ public enum ClaudeBridge {
             if (try? process.run()) != nil {
                 input.fileHandleForWriting.write(raw); try? input.fileHandleForWriting.close()
                 let deadline = Date().addingTimeInterval(4)
-                while process.isRunning && Date() < deadline { usleep(20_000) }
+                while process.isRunning && Date() < deadline { Platform.sleep(0.02) }
                 if process.isRunning { process.terminate() }
             }
         } else {

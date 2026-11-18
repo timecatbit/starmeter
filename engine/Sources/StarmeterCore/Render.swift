@@ -143,6 +143,8 @@ extension Runtime {
             return 0
         case "--worker":
             return worker(Array(arguments.dropFirst()))
+        case "--desktop":
+            return desktopCommand(Array(arguments.dropFirst()))
         case "--refresh-claude-bridge":
             // After an install: a bridge that is on runs from this engine's new copy.
             if ClaudeBridge.enabled(stateDir) { try? ClaudeBridge.install(stateDir, environment: environment) }
@@ -189,6 +191,48 @@ extension Runtime {
             snapshot()
         default:
             return 2
+        }
+        return 0
+    }
+
+    /// One request from a desktop host (the Windows tray): its answer is the last line, {"result": …}; questions
+    /// for the user come before it, one line each, and wait for their answers.
+    func desktopCommand(_ arguments: [String]) -> Int32 {
+        if !(host is StreamHost) { host = StreamHost(state: stateDir) }
+        // Each snapshot notes its range, so while a new range is read the last one stays on screen (cachedData looks).
+        func snapshot() -> JSON {
+            let value = render { panelSnapshot(cachedData()) }
+            writeJSONCache(cachePath("panel-view"), ["schema": 1, "dashboard": ["rangeKey": value["dashboard"]?.object?["rangeKey"] ?? .null]])
+            return .object(value)
+        }
+        func reply(_ value: JSON) { StreamHost.emit(["result": value]) }
+        let rest = Array(arguments.dropFirst())
+        switch arguments.first ?? "" {
+        case "snapshot":
+            reply(snapshot())
+        case "prepare":
+            if !FileManager.default.fileExists(atPath: stateDir + "/preferences.json") { Discovery.initialize(stateDir, detected: detectedModules()) }
+            reply(snapshot())
+        case "refresh":
+            backgroundRefresh(wait: rest.first == "wait")
+            reply(snapshot())
+        case "range":
+            refreshUsageRange(wait: true)
+            reply(snapshot())
+        case "live":
+            refreshLive()
+            reply(snapshot())
+        case "action":
+            guard let name = rest.first else { reply(["error": "invalid action"]); return 2 }
+            do { try runAction(name, Array(rest.dropFirst())); reply(true) } catch { reply(["error": .string(String(describing: error))]); return 1 }
+        case "detect":
+            reply(.array(detectedModules().map(JSON.string)))
+        case "select":
+            do { try Discovery.replaceSelection(stateDir, detected: rest); reply(true) } catch { reply(["error": "not saved"]); return 1 }
+        case "version":
+            reply(.string(Runtime.version))
+        default:
+            reply(["error": "unknown request"]); return 2
         }
         return 0
     }

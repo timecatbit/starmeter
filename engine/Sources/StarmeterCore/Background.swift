@@ -259,10 +259,8 @@ extension Runtime {
     /// Runs body holding a lock file in the cache folder; nil when another process holds it and we don't wait.
     func withLock<T>(_ name: String, wait: Bool, _ body: () -> T) -> T? {
         try? Files.makeDirectory(cacheDir)
-        let descriptor = open(cacheDir + "/" + name, O_CREAT | O_RDWR | O_APPEND, 0o600)
-        guard descriptor >= 0 else { return nil }
-        defer { close(descriptor) }
-        if flock(descriptor, LOCK_EX | (wait ? 0 : LOCK_NB)) != 0 { return nil }
+        guard let lock = Platform.lock(cacheDir + "/" + name, wait: wait) else { return nil }
+        defer { withExtendedLifetime(lock) {} }
         return body()
     }
 
@@ -304,13 +302,7 @@ extension Runtime {
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: cacheDir) else { return }
         for name in names {
             let path = cacheDir + "/" + name
-            var info = stat()
-            guard lstat(path, &info) == 0 else { continue }
-            #if os(macOS)
-            let mtime = Double(info.st_mtimespec.tv_sec) + Double(info.st_mtimespec.tv_nsec) / 1e9
-            #else
-            let mtime = Double(info.st_mtim.tv_sec) + Double(info.st_mtim.tv_nsec) / 1e9
-            #endif
+            guard let mtime = Platform.modified(path) else { continue }
             let fileAge = now - mtime
             let stale = (Runtime.isIndexFile(name) && (!Runtime.currentIndexes.contains(where: name.hasPrefix) || Runtime.retiredIndexes.contains(where: name.hasPrefix)))
                 || Runtime.retiredCaches.contains(name)
@@ -324,7 +316,7 @@ extension Runtime {
 
     /// Asks SwiftBar to redraw the menu; the standalone app redraws on its own.
     public func refreshSwiftBar() {
-        guard !macApp else { return }
+        guard !macApp, desktop == nil else { return }
         _ = Shell.run(["/usr/bin/open", "-g", "swiftbar://refreshplugin?name=" + Accounts.quote(swiftbarName)], timeout: 4)
     }
 }

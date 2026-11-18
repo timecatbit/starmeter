@@ -7,6 +7,7 @@ on:
     branches: [main]
     paths:
       - "windows/**"
+      - "engine/**"
       - "lib/**"
       - "assets/**"
       - "starmeter.30s.sh"
@@ -15,6 +16,7 @@ on:
   pull_request:
     paths:
       - "windows/**"
+      - "engine/**"
       - "lib/**"
       - "assets/**"
       - "starmeter.30s.sh"
@@ -46,6 +48,19 @@ jobs:
         with:
           python-version: "3.12"
           architecture: x64
+      # The tray's data engine is the same Swift program as on the Mac.
+      - uses: compnerd/gha-setup-swift@main
+        with:
+          branch: swift-6.1.2-release
+          tag: 6.1.2-RELEASE
+      - name: Build the Swift engine and its probe
+        run: swift build -c release --package-path engine --scratch-path build/engine-release
+      - name: Run the engine on Windows
+        run: |
+          $engine = "build/engine-release/release/starmeter-engine.exe"
+          $version = & $engine --desktop version
+          Write-Output $version
+          if ($version -notmatch '"result"') { throw "The engine gave no answer." }
       - name: Install build dependencies
         run: python -m pip install -r windows/requirements.txt pyinstaller==6.16.0
       - name: Verify Windows adapters and panel

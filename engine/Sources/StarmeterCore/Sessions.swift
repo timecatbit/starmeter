@@ -294,6 +294,7 @@ extension Runtime {
     /// A notification from Starmeter: the standalone app's own, or SwiftBar's.
     @discardableResult
     public func postNotice(_ subtitle: String, _ body: String) -> Bool {
+        if let desktop { desktop.notify(body, subtitle: subtitle); return true }
         if macApp {
             guard readCache("notifications-enabled")["allowed"] == .bool(true) else { return false }
             let path = cachePath("notice-" + UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased())

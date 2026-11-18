@@ -102,8 +102,8 @@ public enum ChatGPT {
         defer {
             if process.isRunning { process.terminate() }
             let wait = Date().addingTimeInterval(2)
-            while process.isRunning && Date() < wait { usleep(20_000) }
-            if process.isRunning { kill(process.processIdentifier, SIGKILL); process.waitUntilExit() }
+            while process.isRunning && Date() < wait { Platform.sleep(0.02) }
+            if process.isRunning { Platform.kill(process); process.waitUntilExit() }
             try? input.fileHandleForWriting.close()
         }
         // One deadline for the whole handshake; frames are read on their own thread.

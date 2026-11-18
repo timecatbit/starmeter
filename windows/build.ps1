@@ -24,16 +24,27 @@ $env:PYTHONUTF8 = "1"
 $Icon = Join-Path $Build "starmeter.ico"
 python windows/make_icon.py $Icon
 if ($LASTEXITCODE -ne 0) { throw "Could not draw the program icon." }
+# The data engine is the Swift program the Mac uses, built here with the Windows toolchain.
+swift build -c release --package-path (Join-Path $Repo "engine") --scratch-path (Join-Path $Repo "build/engine-release") --product starmeter-engine
+if ($LASTEXITCODE -ne 0) { throw "The Swift engine did not build." }
+$EngineExe = Join-Path $Repo "build/engine-release/release/starmeter-engine.exe"
+if (-not (Test-Path -LiteralPath $EngineExe)) { throw "The Swift engine program is missing." }
 $BuildArgs = @(
     "--noconfirm", "--clean", "--windowed", "--onedir", "--name", "Starmeter", "--icon", $Icon,
-    "--paths", (Join-Path $Repo "lib"), "--workpath", "$Build/work", "--specpath", "$Build", "--distpath", "$Build/output",
-    "--add-data", "$Repo/assets;assets", "--add-data", "$Repo/lib/model-pricing.json;lib",
-    "--add-data", "$Repo/lib/codex-pricing.json;lib", "--collect-data", "tzdata",
-    "--hidden-import", "zstandard", (Join-Path $Repo "windows/starmeter.py")
+    "--workpath", "$Build/work", "--specpath", "$Build", "--distpath", "$Build/output",
+    "--add-data", "$Repo/assets;assets", (Join-Path $Repo "windows/starmeter.py")
 )
 python -m PyInstaller @BuildArgs
 if ($LASTEXITCODE -ne 0) { throw "Windows build failed." }
 $App = Join-Path $Build "output\Starmeter"
+# The engine with the Swift runtime it links (the toolchain's runtime DLLs, Foundation's ICU data among them) and the
+# price tables it reads beside it.
+$EngineDir = Join-Path $App "engine"
+New-Item -ItemType Directory -Force -Path (Join-Path $EngineDir "lib") | Out-Null
+Copy-Item -LiteralPath $EngineExe -Destination $EngineDir
+$Runtime = Split-Path -Parent ((Get-Command "swiftCore.dll" -ErrorAction Stop).Source)
+Get-ChildItem -LiteralPath $Runtime -Filter "*.dll" | Copy-Item -Destination $EngineDir
+Copy-Item -LiteralPath "lib/model-pricing.json", "lib/codex-pricing.json" -Destination (Join-Path $EngineDir "lib")
 Copy-Item -LiteralPath "LICENSE", "lib/CCUSAGE_LICENSE", "lib/CODEXBAR_LICENSE", "windows/THIRD_PARTY.md" -Destination $App
 $Site = python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])"
 $Notice = Join-Path $App "licenses"

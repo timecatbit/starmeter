@@ -127,8 +127,9 @@ extension Runtime {
         oc["available"] = .bool(badge["updateAvailable"]?.isTruthy == true && Updates.newer(oc["latest"], current))
         oc["status"] = .string(oc["available"] == .bool(true) ? "有新版本" : (current.isTruthy && oc["latest"]?.isTruthy == true ? "已是最新" : "等待检查"))
         let state = autoUpdateState()
-        oc["automatic"] = true
-        if state["status"] == .string("running") || (oc["available"] == .bool(true) && state["target"] == oc["latest"]) {
+        oc["automatic"] = .bool(desktop?.localProxy(base) ?? true)
+        if oc["automatic"] != .bool(true) {}
+        else if state["status"] == .string("running") || (oc["available"] == .bool(true) && state["target"] == oc["latest"]) {
             oc["status"] = Py.or(state["message"], .string("等待自动更新"))
             oc["needsAttention"] = .bool(state["status"] == .string("failed") || state["status"] == .string("blocked"))
         } else if oc["available"] == .bool(true) { oc["status"] = "等待自动更新" }
@@ -152,6 +153,7 @@ extension Runtime {
         }
         for index in rows.indices {
             let id = rows[index]["id"]?.string ?? ""
+            if desktop != nil && (id == "claude" || id == "chatgpt") { rows[index]["status"] = "在 App 内检查更新"; rows[index]["available"] = false; rows[index]["manual"] = true }
             let app = updateAppPath(id)
             if let app { rows[index]["href"] = .string(fileHref(app)); rows[index]["app"] = true }
             if Runtime.manualUpdates.contains(id) {
@@ -241,13 +243,13 @@ extension Runtime {
     }
 
     func updateAssetName(_ version: String) -> String {
-        macApp ? "token-monitor-\(version)-macos-\(Updates.machine == "arm64" ? "apple-silicon" : "intel").dmg" : "token-monitor-\(version).zip"
+        macApp ? "token-monitor-\(version)-macos-\(Updates.machine == "arm64" ? "apple-silicon" : "intel").dmg" : "token-monitor-\(version)\(desktop != nil ? "-windows-x64" : "").zip"
     }
 
     func selfUpdateLines(_ data: JSONObject) -> [String] {
         guard let release = pluginUpdate(data) else { return [] }
         let latest = Py.str(release["latest"] ?? .null), state = selfUpdateState()
-        if macApp {
+        if macApp || desktop != nil {
             let asset = updateAssetName(latest)
             guard (release["assets"]?.array ?? []).contains(where: { $0["name"] == .string(asset) }) else { return [] }
             return [Runtime.item(Runtime.product, Runtime.merged(["badge": .string("可更新 " + latest), "panelattention": true], logoMark(Runtime.menuIconSize))),

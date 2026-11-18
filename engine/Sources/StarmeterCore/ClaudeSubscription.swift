@@ -388,9 +388,8 @@ public enum ClaudeSubscription {
         let path = state + "/claude-oauth-usage.json"
         try? Files.makeDirectory(state)
         let lockPath = state + "/claude-oauth.lock"
-        let descriptor = open(lockPath, O_CREAT | O_RDWR, 0o600)
-        defer { if descriptor >= 0 { close(descriptor) } }
-        if descriptor >= 0 { flock(descriptor, LOCK_EX) }
+        let lock = Platform.lock(lockPath, wait: true)
+        defer { withExtendedLifetime(lock) {} }
         var cached = readState(path)
         let now = Date().timeIntervalSince1970
         let forced = force || requestedAt > (cached["checkedAt"]?.number ?? 0)
@@ -497,7 +496,7 @@ extension Runtime {
         var parts: [JSON] = [.string(root), settings["claudeLiveUsage"] ?? false, settings["claudeOAuthUsage"] ?? false,
                              .string(environment["CLAUDE_CONFIG_DIR"] ?? ""), "oauth-v1"]
         for file in ["plan-usage-history.json", "config.json", stateDir + "/" + ClaudeSubscription.snapshotFile] {
-            let path = file.hasPrefix("/") ? file : root + "/" + file
+            let path = Paths.isAbsolute(file) ? file : root + "/" + file
             if let state = ClaudeUsage.state(of: path) { parts += [.int(state.mtime), .int(state.size)] } else { parts.append("unavailable") }
         }
         return parts
