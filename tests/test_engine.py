@@ -485,6 +485,22 @@ class HarnessReaderParityTests(unittest.TestCase):
         self.compare('codex', codex, 'a session cleaned up', archive=True)
         self.compare('codex', codex, 'a narrower range', archive=True, start=1794996003, end=1794996006)
 
+    def test_codex_chats_without_a_project_go_by_their_title(self):
+        # The ChatGPT app runs a chat with no project in Documents/Codex/<day>/<slug>; a Guardian review in it has a parent.
+        codex = self.root / 'codex'
+        day = codex / 'sessions' / '2026' / '11' / '18'
+        chat = '/Users/u/Documents/Codex/2026-11-18/https-github-com-x'
+        jsonl(day / 'rollout-2026-11-18T10-00-00-chat.jsonl', codex_rows('chat-1', chat))
+        guardian = codex_rows('guard-1', 'file://' + chat + '/', model='codex-auto-review')
+        guardian[0]['payload']['parent_thread_id'] = 'chat-1'
+        jsonl(day / 'rollout-2026-11-18T10-10-00-guard.jsonl', guardian)
+        jsonl(day / 'rollout-2026-11-18T10-20-00-new.jsonl', codex_rows('chat-2', 'C:\\Users\\u\\Documents\\Codex\\2026-11-18\\wo-d'))
+        jsonl(day / 'rollout-2026-11-18T10-30-00-repo.jsonl', codex_rows('chat-3', chat + '/work/dsh-web-plugins'))
+        (codex / 'session_index.jsonl').write_text(json.dumps({'id': 'chat-1', 'thread_name': '为 Token Monitor 设计 Logo'}) + '\n'
+                                                   + json.dumps({'id': 'guard-1', 'thread_name': 'Guardian review'}) + '\n')
+        result = self.compare('codex', codex, 'chats by title')
+        self.assertEqual({row['project'] for row in result['projects']}, {'为 Token Monitor 设计 Logo', 'ChatGPT 对话', 'dsh-web-plugins'})
+
     def test_gateways_carry_requests(self):
         codex = self.root / 'codex'
         jsonl(codex / 'sessions' / '2026' / '11' / '18' / 'rollout-x.jsonl', codex_rows())

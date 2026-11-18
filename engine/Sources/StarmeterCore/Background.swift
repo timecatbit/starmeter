@@ -283,7 +283,7 @@ extension Runtime {
         if started { refreshSwiftBar() }
     }
 
-    static let currentIndexes = ["claude-app-usage-v4-", "harness-v4-", "harness-v5-codex-", "harness-v5-qoder-", "harness-v6-magpie-", "harness-gemini-v2-", "harness-gateway-v2-"]
+    static let currentIndexes = ["claude-app-usage-v4-", "harness-v4-", "harness-v6-codex-", "harness-v5-qoder-", "harness-v6-magpie-", "harness-gemini-v2-", "harness-gateway-v2-"]
     static let retiredIndexes = ["harness-v4-magpie-", "harness-v4-codex-", "harness-v4-qoder-"]
     static let retiredCaches = ["startup.json", "usage_today.json", "usage_7d.json"] + ranges.map { "cursor_usage_\($0.0).json" }
 

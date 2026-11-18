@@ -10,7 +10,32 @@ public enum Harness {
 
     static let serviceTiers = ["default": "standard", "standard": "standard", "fast": "fast", "priority": "fast", "flex": "flex", "ultrafast": "ultrafast"]
     /// A source's index version rises when what its events hold changes, so old indexes are rebuilt.
-    static let indexVersions = ["magpie": 6, "codex": 5, "qoder": 5]
+    static let indexVersions = ["magpie": 6, "codex": 6, "qoder": 5]
+
+    /// A ChatGPT app chat with no project folder runs in a folder the app makes for it, Documents/Codex/<day>/<slug>,
+    /// named after the first words typed ("wo-d", "https-github-com-…"). Its requests keep the chat they belong to (a
+    /// Guardian review its parent chat) and take the chat's title when a range is read; ChatGPT 对话 until it has one.
+    static let chatMark = "\u{1}"
+    static let chatFolder = try! NSRegularExpression(pattern: #"/Codex/\d{4}-\d{2}-\d{2}/[^/]+/?$"#)
+
+    static func codexProject(_ data: JSON, session: String) throws -> JSON {
+        if let cwd = try Py.get(data, "cwd")?.string {
+            let path = cwd.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\\", with: "/")
+            if chatFolder.firstMatch(in: path, range: NSRange(path.startIndex..., in: path)) != nil {
+                return .string(chatMark + Py.str(Py.or(try Py.get(data, "parent_thread_id"), .string(session))))
+            }
+        }
+        return Py.projectName(try Py.get(data, "cwd"))
+    }
+
+    static func chatProjects(_ events: [Event], titles: [String: String]) -> [Event] {
+        events.map { event in
+            guard let project = event["project"]?.string, project.hasPrefix(chatMark) else { return event }
+            var event = event
+            event["project"] = .string(titles[String(project.dropFirst())] ?? "ChatGPT 对话")
+            return event
+        }
+    }
 
     // MARK: Events
 
@@ -59,7 +84,7 @@ public enum Harness {
             let session = Py.or(Py.or(try Py.get(data, "id"), try Py.get(data, "session_id") ?? .null), state["session"] ?? .null)
             state["session"] = .string(Py.str(session))
             state["provider"] = .string(Py.str(Py.or(try Py.get(data, "model_provider"), .string(""))))
-            state["project"] = Py.projectName(try Py.get(data, "cwd"))
+            state["project"] = try codexProject(data, session: Py.str(session))
         } else if kind == .string("turn_context") {
             state["model"] = .string(Py.str(Py.or(Py.or(try Py.get(data, "model"), state["model"] ?? .null), .string("未知模型"))))
         } else if kind == .string("event_msg"), try Py.get(data, "type") == .string("token_count") {
@@ -455,7 +480,8 @@ public enum Harness {
             try? db.execute("ROLLBACK")
             throw error
         }
-        let events = Archive.merged(try uniqueEvents(db, start, end), archive, start, end)
+        var events = Archive.merged(try uniqueEvents(db, start, end), archive, start, end)
+        if source == "codex" { events = chatProjects(events, titles: Sessions.codexTitles(root)) }
         let defaultPrice: Price = source == "codex" ? Pricing.codexCost : Pricing.modelCost
         var result = aggregate(events, start: start, end: end, zone: zone, excludeProxy: excludeProxy, price: price ?? defaultPrice, carriers: carriers)
         if errors > 0 {

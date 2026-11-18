@@ -2338,7 +2338,7 @@ def background_refresh(wait=False):
 
 
 # Index generations in use; older generations, removed snapshots and stray temp files are dropped.
-CURRENT_INDEXES = ('claude-app-usage-v4-', 'harness-v4-', 'harness-v5-codex-', 'harness-v5-qoder-', 'harness-v6-magpie-', 'harness-gemini-v2-', 'harness-gateway-v2-')
+CURRENT_INDEXES = ('claude-app-usage-v4-', 'harness-v4-', 'harness-v6-codex-', 'harness-v5-qoder-', 'harness-v6-magpie-', 'harness-gemini-v2-', 'harness-gateway-v2-')
 # Indexes a source outgrew, under a prefix the current ones still match.
 RETIRED_INDEXES = ('harness-v4-magpie-', 'harness-v4-codex-', 'harness-v4-qoder-')
 INDEX_FILE = re.compile(r'(?:claude-app-usage|claude-usage|harness)-.+\.sqlite3(?:-journal|-wal|-shm)?')

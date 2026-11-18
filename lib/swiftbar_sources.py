@@ -19,6 +19,7 @@ import time
 from datetime import datetime, timezone
 
 import swiftbar_archive as kept
+import swiftbar_sessions
 from swiftbar_time import parse_iso
 from swiftbar_runtime import activate_vendor, cli_args, quiet_subprocess
 
@@ -143,6 +144,28 @@ def project_name(path):
     return re.split(r'[\\/]', path.strip().rstrip('/\\'))[-1] or None
 
 
+# A ChatGPT app chat with no project folder runs in a folder the app makes for it, Documents/Codex/<day>/<slug>, named
+# after the first words typed ("wo-d", "https-github-com-…"). Its requests keep the chat they belong to (a Guardian
+# review its parent chat) and take the chat's title when a range is read; ChatGPT 对话 until it has one.
+CHAT_MARK = '\x01'
+CHAT_FOLDER = re.compile(r'/Codex/\d{4}-\d{2}-\d{2}/[^/]+/?$')
+
+
+def codex_project(data, session):
+    cwd = data.get('cwd')
+    if isinstance(cwd, str) and CHAT_FOLDER.search(cwd.strip().replace('\\', '/')):
+        return CHAT_MARK + str(data.get('parent_thread_id') or session)
+    return project_name(cwd)
+
+
+def chat_projects(events, titles):
+    for event in events:
+        project = event.get('project')
+        if isinstance(project, str) and project.startswith(CHAT_MARK):
+            event = dict(event, project=titles.get(project[1:]) or 'ChatGPT 对话')
+        yield event
+
+
 def codex_event(row, state):
     kind = row.get('type'); data = row.get('payload') or {}
     if kind == 'event_msg' and data.get('type') == 'thread_settings_applied':
@@ -152,8 +175,8 @@ def codex_event(row, state):
             state['tier'] = SERVICE_TIERS.get(str(tier))
         return None
     if kind == 'session_meta':
-        state.update(session=str(data.get('id') or data.get('session_id') or state['session']),
-                     provider=str(data.get('model_provider') or ''), project=project_name(data.get('cwd')))
+        session = str(data.get('id') or data.get('session_id') or state['session'])
+        state.update(session=session, provider=str(data.get('model_provider') or ''), project=codex_project(data, session))
     elif kind == 'turn_context':
         state['model'] = str(data.get('model') or state.get('model') or '未知模型')
     elif kind == 'event_msg' and data.get('type') == 'token_count':
@@ -329,7 +352,7 @@ def _stream(path):
 
 # A source's index version rises when what its events hold changes, so old indexes are rebuilt.
 # Codex and Qoder CN went to 5 when their events learned the project they ran in.
-INDEX_VERSIONS = {'magpie': 6, 'codex': 5, 'qoder': 5}
+INDEX_VERSIONS = {'magpie': 6, 'codex': 6, 'qoder': 5}
 
 
 def jsonl_usage(source, root, cache, start, end, zone, exclude_proxy=False, carriers=None, price=None, archive=None):
@@ -401,7 +424,9 @@ def jsonl_usage(source, root, cache, start, end, zone, exclude_proxy=False, carr
             except read_errors:
                 errors += 1
         conn.commit()
-        result = aggregate(kept.merged(unique_events(conn, start, end), archive, start, end), start, end, zone, exclude_proxy, price or (codex_cost if source == 'codex' else model_cost), carriers)
+        events = kept.merged(unique_events(conn, start, end), archive, start, end)
+        if source == 'codex':events = chat_projects(events, swiftbar_sessions.codex_titles(root))
+        result = aggregate(events, start, end, zone, exclude_proxy, price or (codex_cost if source == 'codex' else model_cost), carriers)
         if errors:
             result['warning'] = '部分记录无法读取'
             result['partial'] = True

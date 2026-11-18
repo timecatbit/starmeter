@@ -68,7 +68,7 @@ public enum Sessions {
             context = total != 0 ? (total / window < 1 ? .double(total / window) : .double(1)) : .null
         }
         return ["tool": "Claude", "state": .string(waiting ? "waiting" : "running"), "title": (named ?? made).map(JSON.string) ?? .null,
-                "project": Py.projectName(folder), "model": model, "effort": .null, "context": context]
+                "project": projectName(folder), "model": model, "effort": .null, "context": context]
     }
 
     /// A Codex rollout: running between task_started and task_complete (or an aborted turn). A subagent's thread
@@ -94,8 +94,20 @@ public enum Sessions {
             }
         }
         guard let state else { return nil }
-        return ["tool": "ChatGPT", "state": .string(state), "title": .null, "project": Py.projectName(folder), "model": model,
+        return ["tool": "ChatGPT", "state": .string(state), "title": .null, "project": projectName(folder), "model": model,
                 "effort": effort.map(JSON.string) ?? .null, "context": context]
+    }
+
+    /// The folder's name; none for the folder the ChatGPT app makes for a chat (Documents/Codex/<day>/<slug>), whose
+    /// title the session already shows.
+    static func projectName(_ folder: JSON?) -> JSON {
+        if let path = folder?.string {
+            var trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+            while let last = trimmed.last, last == "/" || last == "\\" { trimmed.removeLast() }
+            trimmed = trimmed.replacingOccurrences(of: "\\", with: "/")
+            if trimmed.range(of: #"/Codex/\d{4}-\d{2}-\d{2}/[^/]+$"#, options: .regularExpression) != nil { return .null }
+        }
+        return Py.projectName(folder)
     }
 
     /// Codex's thread names by thread ID, from its session index; the last name given wins.

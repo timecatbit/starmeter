@@ -8,6 +8,7 @@ changed; never prompts, replies or paths. A session is identified by a hash.
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 
 ACTIVE = 1800   # A session waiting for input stays listed this long after its last change.
@@ -18,8 +19,11 @@ CLAUDE_WINDOWS = (200_000, 1_000_000)
 
 
 def project_name(path):
+    """The folder's name; none for the folder the ChatGPT app makes for a chat (Documents/Codex/<day>/<slug>)."""
     if not isinstance(path, str) or not path.strip():return None
-    return path.strip().rstrip('/\\').replace('\\', '/').rsplit('/', 1)[-1] or None
+    path = path.strip().rstrip('/\\').replace('\\', '/')
+    if re.search(r'/Codex/\d{4}-\d{2}-\d{2}/[^/]+$', path):return None
+    return path.rsplit('/', 1)[-1] or None
 
 
 def rows_at_end(path, size=TAIL):
