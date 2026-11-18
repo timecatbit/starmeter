@@ -378,7 +378,9 @@ def self_test(app,m,state,render_path=None):
     desktop.tray_action(QSystemTrayIcon.Trigger);app.processEvents()
     assert desktop.panel.isVisible()
     if os.name=='nt':desktop.before_tray_menu();assert not desktop.panel.isVisible()
-    desktop.quit();lock.unlock()
+    # Opening the panel queued another refresh; let it finish writing into the temporary state before
+    # that directory is removed, or the removal races it ("Directory not empty").
+    desktop.quit();desktop.pool.shutdown(wait=True);lock.unlock()
     if sys.stdout is not None:print('Token Monitor smoke test OK',flush=True)
 
 
