@@ -396,10 +396,36 @@ final class HintButton:NSButton {
         get{super.image}
         set{if bare,let icon=newValue{icon.alignmentRect=NSRect(origin:.zero,size:icon.size)};super.image=newValue}
     }
+    // Turning: the refresh arrow goes round from the click until an answer comes, finishing the turn it is on.
+    static let turn:TimeInterval=0.9
+    private var spinFrom:Date?,spinUntil:Date?,spinTimer:Timer?,spinGlyph:NSImage?
+    func spin(from start:Date,until end:Date?){
+        spinFrom=start;spinUntil=end
+        guard spinTimer==nil else{return}
+        let timer=Timer(timeInterval:1.0/60,repeats:true){[weak self] timer in
+            guard let self else{timer.invalidate();return}
+            if let end=self.spinUntil,Date()>=end {self.spinFrom=nil;self.spinUntil=nil;self.spinGlyph=nil;timer.invalidate();self.spinTimer=nil}
+            self.needsDisplay=true
+        }
+        spinTimer=timer;RunLoop.main.add(timer,forMode:.common)
+    }
+    override func viewWillMove(toWindow newWindow:NSWindow?){super.viewWillMove(toWindow:newWindow);if newWindow==nil{spinTimer?.invalidate();spinTimer=nil}}
     override func draw(_ dirtyRect:NSRect){
         if bare && (inside || isHighlighted) {
             NSColor.labelColor.withAlphaComponent(isHighlighted ? (dark(self) ? 0.16 : 0.11) : (dark(self) ? 0.09 : 0.06)).setFill()
             NSBezierPath(roundedRect:bounds.insetBy(dx:0.5,dy:0.5),xRadius:7,yRadius:7).fill()
+        }
+        if bare,let start=spinFrom,let icon=image {
+            if spinGlyph==nil {
+                let colour=contentTintColor ?? .labelColor
+                spinGlyph=NSImage(size:icon.size,flipped:false){rect in icon.draw(in:rect);colour.set();rect.fill(using:.sourceIn);return true}
+            }
+            let angle=CGFloat(Date().timeIntervalSince(start)/Self.turn)*2 * .pi
+            NSGraphicsContext.saveGraphicsState()
+            let turn=NSAffineTransform();turn.translateX(by:bounds.midX,yBy:bounds.midY);turn.rotate(byRadians:isFlipped ? angle : -angle);turn.concat()
+            spinGlyph?.draw(in:NSRect(x:-icon.size.width/2,y:-icon.size.height/2,width:icon.size.width,height:icon.size.height),from:.zero,operation:.sourceOver,fraction:1,respectFlipped:true,hints:nil)
+            NSGraphicsContext.restoreGraphicsState()
+            return
         }
         super.draw(dirtyRect)
     }
@@ -414,6 +440,8 @@ final class HintButton:NSButton {
 final class GroupTab:NSButton {
     override func acceptsFirstMouse(for event:NSEvent?)->Bool{true}
     var chosen=false{didSet{needsDisplay=true;setAccessibilityValue(chosen ? 1 : 0)}}
+    // The chosen tab's soft pill is a view of its own under the row, so it can slide to the next choice.
+    var pilled=false
     var invoke:(()->Void)?;private var hovered=false;private var area:NSTrackingArea?
     static let font=NSFont.systemFont(ofSize:11.5),boldFont=NSFont.systemFont(ofSize:11.5,weight:.semibold),height:CGFloat=22
     static func width(_ label:String)->CGFloat {ceil((label as NSString).size(withAttributes:[.font:boldFont]).width)+20}
@@ -429,13 +457,21 @@ final class GroupTab:NSButton {
     override func mouseExited(with event:NSEvent){hovered=false;needsDisplay=true}
     override func draw(_ dirtyRect:NSRect){
         let night=dark(self),down=isHighlighted
-        if chosen || hovered || down {
+        if (chosen && !pilled) || (hovered && !chosen) || down {
             NSColor.labelColor.withAlphaComponent(down ? (night ? 0.2 : 0.12) : chosen ? (night ? 0.15 : 0.08) : (night ? 0.07 : 0.04)).setFill()
             NSBezierPath(roundedRect:bounds,xRadius:bounds.height/2,yRadius:bounds.height/2).fill()
         }
         let attributes:[NSAttributedString.Key:Any]=[.font:chosen ? Self.boldFont : Self.font,.foregroundColor:chosen ? NSColor.labelColor : NSColor.secondaryLabelColor]
         let size=(title as NSString).size(withAttributes:attributes)
         (title as NSString).draw(at:NSPoint(x:(bounds.width-size.width)/2,y:(bounds.height-size.height)/2),withAttributes:attributes)
+    }
+}
+final class GroupPill:NSView {
+    override var isFlipped:Bool{true}
+    override func viewDidChangeEffectiveAppearance(){super.viewDidChangeEffectiveAppearance();needsDisplay=true}
+    override func draw(_ dirtyRect:NSRect){
+        NSColor.labelColor.withAlphaComponent(dark(self) ? 0.15 : 0.08).setFill()
+        NSBezierPath(roundedRect:bounds,xRadius:bounds.height/2,yRadius:bounds.height/2).fill()
     }
 }
 final class DisclosureButton:NSButton {
@@ -1215,11 +1251,13 @@ final class DashboardView:FlippedView {
         setAccessibilityElement(true);setAccessibilityRole(.group);setAccessibilityLabel("用量概览")
         if let options=data.groupings,Self.groupingHeight(data)>0 {
             var x:CGFloat=8;let top=Self.summaryHeight(data)+Self.heatmapHeight(data)+Self.harnessHeaderHeight(data)+4
+            let pill=GroupPill(frame:.zero);addSubview(pill);groupPill=pill
             for option in options {
-                let tab=GroupTab(label:option.label);tab.chosen=option.key==(data.grouping ?? "tool")
+                let tab=GroupTab(label:option.label);tab.chosen=option.key==(data.grouping ?? "tool");tab.pilled=true
                 tab.setFrameOrigin(NSPoint(x:x,y:top));x+=tab.frame.width+2
                 tab.invoke={[weak self] in self?.chooseGrouping(option.key)}
                 groupTabs.append((option.key,tab));addSubview(tab)
+                if tab.chosen {pill.frame=tab.frame}
             }
         }
         if data.collapsible {
@@ -1237,10 +1275,14 @@ final class DashboardView:FlippedView {
     }
 
     required init?(coder:NSCoder){fatalError()}
-    var chooseGroup:((String)->Void)?;private var groupTabs:[(String,GroupTab)]=[]
+    var chooseGroup:((String)->Void)?;private var groupTabs:[(String,GroupTab)]=[];private var groupPill:GroupPill?
     // The tab shows as chosen at once; the cards follow when the plugin answers.
     private func chooseGrouping(_ key:String){
         for (option,tab) in groupTabs {tab.chosen=option==key}
+        if let pill=groupPill,let target=groupTabs.first(where:{$0.0==key})?.1.frame {
+            if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {pill.frame=target}
+            else {NSAnimationContext.runAnimationGroup{context in context.duration=0.26;context.timingFunction=CAMediaTimingFunction(controlPoints:0.22,1,0.36,1);pill.animator().frame=target}}
+        }
         if key != (data.grouping ?? "tool"){chooseGroup?(key)}
     }
     override func viewDidChangeEffectiveAppearance(){super.viewDidChangeEffectiveAppearance();needsDisplay=true}
@@ -1270,6 +1312,25 @@ final class DashboardView:FlippedView {
     // Pinned, the note says when this reading arrived, to the second, in place of the minute it was read.
     var liveStamp:String?
     static let rollTime=0.7,glowTime=1.6
+    // Set when the range changed: the trend draws in from the left over a little over half a second.
+    var revealFrom:Date? {
+        didSet {
+            guard revealFrom != nil,revealTimer==nil else{return}
+            let timer=Timer(timeInterval:1.0/60,repeats:true){[weak self] timer in
+                guard let self,self.revealFrom != nil else{timer.invalidate();self?.revealTimer=nil;return}
+                self.needsDisplay=true
+            }
+            revealTimer=timer;RunLoop.main.add(timer,forMode:.common)
+        }
+    }
+    private var revealTimer:Timer?
+    static let revealTime:TimeInterval=0.6
+    private func revealShown()->CGFloat {
+        guard let start=revealFrom else{return 1}
+        let t=min(1,Date().timeIntervalSince(start)/Self.revealTime)
+        if t>=1 {revealFrom=nil;revealTimer?.invalidate();revealTimer=nil}
+        return CGFloat(1-pow(1-t,3))
+    }
     func animate(from old:Dashboard){
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,old.rangeKey==data.rangeKey,old.grouping==data.grouping else{return}
         let target=data,now=Date()
@@ -1291,7 +1352,7 @@ final class DashboardView:FlippedView {
         }
         motion=timer;RunLoop.main.add(timer,forMode:.common)
     }
-    override func viewWillMove(toWindow newWindow:NSWindow?){super.viewWillMove(toWindow:newWindow);if newWindow==nil{motion?.invalidate();motion=nil}}
+    override func viewWillMove(toWindow newWindow:NSWindow?){super.viewWillMove(toWindow:newWindow);if newWindow==nil{motion?.invalidate();motion=nil;revealTimer?.invalidate();revealTimer=nil}}
     // How far a grown figure still glows: 1 just after the reading, 0 once it has settled.
     private func glow(_ start:Date?)->CGFloat {
         guard let start else{return 0}
@@ -1571,6 +1632,10 @@ final class DashboardView:FlippedView {
         let positions=Self.chartPositions(data)
         let paths=Self.smoothCurves(series,positions:positions,plot:plot,ceiling:ceiling),totalPath=paths.last!
         let area=totalPath.copy() as! NSBezierPath;area.line(to:NSPoint(x:plot.maxX,y:plot.maxY));area.line(to:NSPoint(x:plot.minX,y:plot.maxY));area.close()
+        // A new range draws its lines in from the left.
+        let shown=revealShown()
+        NSGraphicsContext.saveGraphicsState()
+        if shown<1 {NSBezierPath(rect:NSRect(x:plot.minX-6,y:plot.minY-10,width:(plot.width+12)*shown,height:plot.height+20)).addClip()}
         NSGraphicsContext.saveGraphicsState();area.addClip();NSGradient(starting:totalColor.withAlphaComponent(dark(self) ? 0.16 : 0.11),ending:totalColor.withAlphaComponent(0))?.draw(from:NSPoint(x:plot.midX,y:plot.minY),to:NSPoint(x:plot.midX,y:plot.maxY),options:[]);NSGraphicsContext.restoreGraphicsState()
         for (i,curve) in paths.enumerated(){
             let total=i==paths.count-1
@@ -1580,6 +1645,7 @@ final class DashboardView:FlippedView {
         let end=NSPoint(x:plot.minX+CGFloat(positions[n-1])*plot.width,y:plot.maxY-CGFloat(totals[n-1]/ceiling)*plot.height)
         totalColor.withAlphaComponent(0.18).setFill();NSBezierPath(ovalIn:NSRect(x:end.x-5,y:end.y-5,width:10,height:10)).fill()
         totalColor.setFill();NSBezierPath(ovalIn:NSRect(x:end.x-2.5,y:end.y-2.5,width:5,height:5)).fill()
+        NSGraphicsContext.restoreGraphicsState()
         let middle=(1..<n-1).filter{positions[$0]>=0.25 && positions[$0]<=0.75}.min{abs(positions[$0]-0.5)<abs(positions[$1]-0.5)}
         let labelIndices=[0]+(middle.map{[$0]} ?? [])+[n-1]
         for i in labelIndices{let label=data.dates[i];let x=plot.minX+CGFloat(positions[i])*plot.width;text(label,x:i==0 ? x : (i==n-1 ? right-48 : x-25),y:212,w:i==n-1 ? 48 : 50,size:8.5,color:.secondaryLabelColor,align:i==0 ? .left : (i==n-1 ? .right : .center))}
@@ -2624,7 +2690,7 @@ final class MacHost {
 
 final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePickerDelegate {
     private let panel=Panel(contentRect:.zero,styleMask:[.borderless,.nonactivatingPanel],backing:.buffered,defer:false)
-    private var rangePicker:NSPopUpButton?;private var anchoredMenuOpen=false;private var toast:(text:String,until:Date,ok:Bool)?;private var toastView:NSView?;private weak var shareButton:NSButton?;private weak var detectButton:NSButton?;private weak var settingsButton:NSButton?;private var settingsFromHome=false;private var settingsReturn:CGFloat=0;private var hintTask:DispatchWorkItem?;private var hintView:NSView?;private var userApp:NSRunningApplication?;private var firstActivation=true;private var managerOnly=false {didSet{if managerOnly && !oldValue{leadingModules=nil}}}
+    private var rangePicker:NSPopUpButton?;private var anchoredMenuOpen=false;private var toast:(text:String,until:Date,ok:Bool)?;private var toastView:NSView?;private weak var shareButton:NSButton?;private weak var refreshButton:HintButton?;private var refreshSpin:(start:Date,end:Date?)?;private weak var detectButton:NSButton?;private weak var settingsButton:NSButton?;private var settingsFromHome=false;private var settingsReturn:CGFloat=0;private var hintTask:DispatchWorkItem?;private var hintView:NSView?;private var userApp:NSRunningApplication?;private var firstActivation=true;private var managerOnly=false {didSet{if managerOnly && !oldValue{leadingModules=nil}}}
     // The ticked modules when the list opened: they lead their sections until it opens again.
     private var leadingModules:Set<String>?
     private var snapshot:Snapshot?;private var snapshotPath="";private var pluginPath="";private var modified:Date?
@@ -2933,6 +2999,7 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
         guard force || date != modified else{return}
         guard let data=try? Data(contentsOf:URL(fileURLWithPath:snapshotPath)),let value=try? JSONDecoder().decode(Snapshot.self,from:data) else{return}
         modified=date;interaction.source=value
+        settleSpin(by:date ?? Date())
         if pinned,let dashboard=value.dashboard{liveFeed?.add(dashboard,at:date ?? Date())}
         updatePresentation()
     }
@@ -3016,7 +3083,10 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
             if !settingsFromHome {let done=NSButton(title:"完成",target:self,action:#selector(finishModules));done.bezelStyle = .rounded;done.controlSize = .small;done.frame=NSRect(x:inner-65,y:8,width:53,height:25);content.addSubview(done)}
         } else if let dashboard=snapshot.dashboard{let view=DashboardView(dashboard,width:inner)
             if pinned,let stamp=modified {let clock=DateFormatter();clock.dateFormat="HH:mm:ss";view.liveStamp="实时 "+clock.string(from:stamp)}
-            if let previous=shownDashboard{view.animate(from:previous)};shownDashboard=dashboard;view.live=liveChart;view.toggleProvider={[weak self] id,expanded in self?.performAction(["set-expanded",id,expanded ? "true" : "false"])};view.chooseGroup={[weak self] key in self?.performAction(["set-group",key])};content.addSubview(view)}else{let label=NSTextField(labelWithString:"AI 用量面板");label.frame=NSRect(x:12,y:10,width:300,height:20);content.addSubview(label)}
+            if let previous=shownDashboard{
+                view.animate(from:previous)
+                if previous.rangeKey != dashboard.rangeKey && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {view.revealFrom=Date()}
+            };shownDashboard=dashboard;view.live=liveChart;view.toggleProvider={[weak self] id,expanded in self?.performAction(["set-expanded",id,expanded ? "true" : "false"])};view.chooseGroup={[weak self] key in self?.performAction(["set-group",key])};content.addSubview(view)}else{let label=NSTextField(labelWithString:"AI 用量面板");label.frame=NSRect(x:12,y:10,width:300,height:20);content.addSubview(label)}
         if managerOnly {_=fillGrid(entries,in:content,y:top,width:inner)}
         else {content.addSubview(Divider(frame:NSRect(x:8,y:top-6,width:inner-16,height:2)));_=fillRows(entries,in:content,y:top,width:inner,depth:0)}
         if !managerOnly,let dashboard=snapshot.dashboard,let choices=snapshot.rangeOptions {
@@ -3041,7 +3111,8 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
             refresh.bare=true;refresh.controlSize = .small;refresh.title=""
             refresh.image=NSImage(systemSymbolName:"arrow.clockwise",accessibilityDescription:"刷新数据")?.withSymbolConfiguration(.init(pointSize:11,weight:.semibold));refresh.imagePosition = .imageOnly
             refresh.contentTintColor = .labelColor;refresh.hint="刷新数据";refresh.hovered={[weak self] in self?.hoverHint($0,$1)};refresh.setAccessibilityLabel("刷新数据")
-            refresh.target=self;refresh.action=#selector(refreshData)
+            refresh.target=self;refresh.action=#selector(refreshData);refreshButton=refresh
+            if let turning=refreshSpin {if let end=turning.end,end<=Date() {refreshSpin=nil} else {refresh.spin(from:turning.start,until:turning.end)}}
             let share=HintButton(frame:NSRect(x:inner-173,y:7.5,width:27,height:25))
             share.bare=true;share.controlSize = .small;share.title=""
             share.image=NSImage(systemSymbolName:"square.and.arrow.up",accessibilityDescription:"分享用量图")?.withSymbolConfiguration(.init(pointSize:11,weight:.semibold));share.imagePosition = .imageOnly
@@ -3351,7 +3422,21 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
         }
         hintTask=task;DispatchQueue.main.asyncAfter(deadline:.now()+0.35,execute:task)
     }
-    @objc private func refreshData(){performAction(["refresh"])}
+    @objc private func refreshData(){
+        if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            let start=Date();refreshSpin=(start,nil);refreshButton?.spin(from:start,until:nil)
+            // Nothing heard within a few seconds: stop at the end of the turn it is on.
+            DispatchQueue.main.asyncAfter(deadline:.now()+8){[weak self] in self?.settleSpin(by:Date())}
+        }
+        performAction(["refresh"])
+    }
+    // The answer came (a new snapshot): the arrow finishes its turn, at least one whole turn after the click.
+    private func settleSpin(by date:Date){
+        guard let turning=refreshSpin,turning.end==nil,date>turning.start else{return}
+        let elapsed=Date().timeIntervalSince(turning.start),turns=max(1,ceil(elapsed/HintButton.turn))
+        let end=turning.start.addingTimeInterval(turns*HintButton.turn)
+        refreshSpin=(turning.start,end);refreshButton?.spin(from:turning.start,until:end)
+    }
     @objc private func detectModules(){performAction(["detect-modules"])}
     // The picture covers Summary and the Harness cards only; subscriptions, balances and keys stay private.
     private func sharePicture(_ style:ShareCard.Style)->Data? {
