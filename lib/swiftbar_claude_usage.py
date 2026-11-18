@@ -116,8 +116,8 @@ def isolated(conn,added,allowed):
         return any((file,offset,slot) not in fresh and (allowed is None or session in allowed)
                    for file,offset,slot,session in conn.execute(sql,args))
     for row in added:
-        if clash('SELECT file,offset,slot,session FROM records WHERE key=?',(row['key'],)):return False
-        if row['message'] and clash('SELECT file,offset,slot,session FROM records WHERE message=? AND session=?',(row['message'],row['session'])):return False
+        if clash('SELECT file,offset,slot,session FROM everything WHERE key=?',(row['key'],)):return False
+        if row['message'] and clash('SELECT file,offset,slot,session FROM everything WHERE message=? AND session=?',(row['message'],row['session'])):return False
     return True
 
 
@@ -126,8 +126,10 @@ def store_canonical(conn,rows,first=0):
         ((first+index,row['ts'],row['model'],*row['metrics'],row['cost'],row['speed'],row['geo'],row['tier'],row['session']) for index,row in enumerate(rows)))
 
 
-def read_events(files,db_path,allowed_sessions=None,start=0,end=float('inf')):
-    """Reindex only changed files; retain only normalized counters and hashed IDs."""
+def read_events(files,db_path,allowed_sessions=None,start=0,end=float('inf'),archive=None):
+    """Reindex only changed files; retain only normalized counters and hashed IDs. archive: a durable file that
+    keeps the records of transcripts that disappear (Claude Code cleans up after 30 days); they are deduplicated
+    together with the live ones, so a response that survives in another file still counts once."""
     db_path=Path(db_path);db_path.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
     conn=sqlite3.connect(db_path,timeout=10);os.chmod(db_path,0o600)
     failures=0;rebuild=False;appended=[]
@@ -140,16 +142,28 @@ def read_events(files,db_path,allowed_sessions=None,start=0,end=float('inf')):
           CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT);
           CREATE TABLE IF NOT EXISTS canonical(id INTEGER PRIMARY KEY,ts REAL,model TEXT,i INTEGER,o INTEGER,w5 INTEGER,w1 INTEGER,r INTEGER,cost REAL,speed TEXT,geo TEXT,tier TEXT,session BLOB);
           CREATE INDEX IF NOT EXISTS canonical_ts ON canonical(ts);''')
+        if archive:
+            Path(archive).parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+            conn.execute('ATTACH DATABASE ? AS kept',(str(archive),))
+            conn.execute('''CREATE TABLE IF NOT EXISTS kept.records(file BLOB,offset INTEGER,slot INTEGER,key BLOB,message BLOB,request BLOB,session BLOB,ts REAL,model TEXT,
+              i INTEGER,o INTEGER,w5 INTEGER,w1 INTEGER,r INTEGER,cost REAL,sidechain INTEGER,speed TEXT,geo TEXT,tier TEXT,PRIMARY KEY(file,offset,slot))''')
+            os.chmod(archive,0o600)
+            # A transcript that comes back reads as itself again.
+            conn.execute('CREATE TEMP VIEW everything AS SELECT * FROM main.records UNION ALL SELECT * FROM kept.records WHERE file NOT IN (SELECT path FROM main.files)')
+        else:conn.execute('CREATE TEMP VIEW everything AS SELECT * FROM main.records')
         conn.execute('BEGIN')
         paths=sorted({Path(p).resolve() for p in files});active={digest(str(p)) for p in paths}
         for (key,) in conn.execute('SELECT path FROM files').fetchall():
             if key not in active:
                 rebuild=True
+                if archive:conn.execute('INSERT OR IGNORE INTO kept.records SELECT * FROM main.records WHERE file=?',(key,))
                 conn.execute('DELETE FROM records WHERE file=?',(key,));conn.execute('DELETE FROM files WHERE path=?',(key,))
         for path in paths:
             key=digest(str(path))
             try:
                 stat=path.stat();old=conn.execute('SELECT inode,size,mtime,offset FROM files WHERE path=?',(key,)).fetchone()
+                # A transcript the archive holds has come back: its records replace the archived ones.
+                if archive and not old and conn.execute('SELECT 1 FROM kept.records WHERE file=? LIMIT 1',(key,)).fetchone():rebuild=True
                 if old and old[:3]==(stat.st_ino,stat.st_size,stat.st_mtime_ns):continue
                 incremental=bool(old and old[0]==stat.st_ino and stat.st_size>old[1])
                 offset=old[3] if incremental else 0
@@ -184,12 +198,13 @@ def read_events(files,db_path,allowed_sessions=None,start=0,end=float('inf')):
                     conn.execute('ROLLBACK TO source');conn.execute('RELEASE source');raise
             except (OSError,ValueError):failures+=1
         allowed={digest(s) for s in allowed_sessions} if allowed_sessions is not None else None
-        scope=digest(sorted(allowed_sessions) if allowed_sessions is not None else None).hex()
+        # Switching the archive on or off changes what is deduplicated, so it starts the dedupe over.
+        scope=digest(sorted(allowed_sessions) if allowed_sessions is not None else None,bool(archive)).hex()
         old_scope=conn.execute("SELECT value FROM metadata WHERE key='dedupe-scope'").fetchone()
         added=sorted((row for row in appended if allowed is None or row['session'] in allowed),key=lambda row:(row['file'],row['offset'],row['slot']))
         if rebuild or not old_scope or old_scope[0]!=scope or (added and not isolated(conn,added,allowed)):
             # Deduplicate before date filtering, once per file/ownership change.
-            rows=conn.execute('SELECT '+COLUMNS+' FROM records ORDER BY file,offset,slot')
+            rows=conn.execute('SELECT '+COLUMNS+' FROM everything ORDER BY file,offset,slot')
             # Close the streaming cursor even when deduplication fails: an open read would keep
             # a shared lock that blocks the next run's commit.
             try:unique=deduplicate(stored_event(row) for row in rows if allowed is None or row[3] in allowed)

@@ -43,6 +43,9 @@ class DesktopTests(unittest.TestCase):
   data,error=self.m.claude_usage_live(missing,now=self.now)
   self.assertIsNone(error);self.assertEqual(data['summary']['requests'],1)
   (self.home/'.claude/projects/project'/(OTHER+'.jsonl')).unlink()
+  # Claude Code cleaned the transcript up: its usage lives on in the archive until the setting is turned off.
+  self.assertEqual(self.m.claude_usage_live(missing,now=self.now)[0]['summary']['requests'],1)
+  self.m.preferences.update(self.m.STATE_DIR,'keep-usage','false');self.m.usage_archive_store.clear(self.m.STATE_DIR)
   self.assertEqual(self.m.claude_usage_live(missing,now=self.now),({'error':'未找到 Claude 用量记录'},None))
  def test_app_folder_adds_only_sessions_the_app_registered(self):
   self.register()

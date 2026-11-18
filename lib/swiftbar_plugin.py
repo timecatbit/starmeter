@@ -119,6 +119,7 @@ import swiftbar_keys as keystore
 import swiftbar_qoder as qoder
 import swiftbar_cursor as cursor
 import swiftbar_alerts as alerts
+import swiftbar_archive as usage_archive_store
 import swiftbar_runtime
 from swiftbar_time import parse_iso
 
@@ -177,7 +178,7 @@ def range_cache_name(key=None):
     # A new price table changes every estimate, so each table's stamp is part of the cache key; a model
     # models.dev adds before ccusage does changes the stamp, not the ccusage commit.
     pricing = [sources.pricing(name).get('source', {}).get(field) for name in PRICING_TABLES for field in ('commit','committedAt')]
-    scope = [('collector','ccusage-v2'), ('pricing', pricing)] + [(k, source_path(k)) for k in preferences.USAGE if k in settings['visible']]
+    scope = [('collector','ccusage-v2'), ('pricing', pricing), ('keep', settings['keepCleanedUsage'])] + [(k, source_path(k)) for k in preferences.USAGE if k in settings['visible']]
     if 'claude' in settings['visible']:scope.append(('claude-projects',[str(p) for p in claude_desktop.project_roots(HOME)]))
     fingerprint = hashlib.sha256(json.dumps(scope).encode()).hexdigest()[:12]
     return 'range_usage_' + (key or selected_range()) + '_' + fingerprint
@@ -957,11 +958,19 @@ def claude_usage_live(root=None, db_path=None, now=None, range_key="today", carr
     root=root or source_path('claude')
     # The desktop App, VS Code, JetBrains and terminal sessions share these transcripts; all of them count.
     paths,_=claude_desktop.transcript_files(root,HOME)
-    if not paths:return {'error':'未找到 Claude 用量记录'},None
-    return claude_usage_records(root,db_path,now,range_key,paths,None,carriers)
+    archive=usage_archive('claude',root)
+    if not paths and not (archive and os.path.isfile(archive)):return {'error':'未找到 Claude 用量记录'},None
+    return claude_usage_records(root,db_path,now,range_key,paths,None,carriers,archive)
 
 
-def claude_usage_records(root, db_path=None, now=None, range_key="today", files=None, allowed_sessions=None, carriers=None):
+def usage_archive(source, root):
+    """Where a source's records live on after its tool cleans them up, while 保留已清理记录的用量 is on."""
+    if not root or not view_settings()['keepCleanedUsage']:return None
+    folder=hashlib.sha256(os.path.realpath(os.path.expanduser(str(root))).encode()).hexdigest()[:12]
+    return str(usage_archive_store.location(STATE_DIR,source,folder))
+
+
+def claude_usage_records(root, db_path=None, now=None, range_key="today", files=None, allowed_sessions=None, carriers=None, archive=None):
     from pathlib import Path
     root=Path(root)
     # Claude Code alone needs no desktop App folder: the transcripts are passed in.
@@ -969,7 +978,7 @@ def claude_usage_records(root, db_path=None, now=None, range_key="today", files=
     now=now or datetime.now(local_zone());zone=now.tzinfo
     start,end=range_bounds(range_key,now)
     db_path=db_path or os.path.join(CACHE_DIR,'claude-app-usage-v3-'+hashlib.sha256(str(root.resolve()).encode()).hexdigest()[:12]+'.sqlite3')
-    events,failures=claude_records.read_events(files if files is not None else root.rglob('*.jsonl'),db_path,allowed_sessions,start,end)
+    events,failures=claude_records.read_events(files if files is not None else root.rglob('*.jsonl'),db_path,allowed_sessions,start,end,archive)
     events=[row for row in events if start<=row['ts']<=end]
     def tally(rows):
         days={};hours={};models={};sessions=set();first_activity=None
@@ -1945,10 +1954,11 @@ def range_usage_cached(key=None):
                     return value or {'error':'未找到 Claude 用量记录'}
                 root=source_path(source)
                 if not root:return {'error':'请选择记录目录'}
-                if source=='magpie':return sources.jsonl_usage(source,root,CACHE_DIR,start,end,now.tzinfo,carriers=carriers,price=magpie_price)
-                if source=='gemini':return sources.gemini_usage(root,CACHE_DIR,start,end,now.tzinfo,'opencodex' in enabled,carriers)
+                kept=usage_archive(source,root)
+                if source=='magpie':return sources.jsonl_usage(source,root,CACHE_DIR,start,end,now.tzinfo,carriers=carriers,price=magpie_price,archive=kept)
+                if source=='gemini':return sources.gemini_usage(root,CACHE_DIR,start,end,now.tzinfo,'opencodex' in enabled,carriers,kept)
                 if source=='opencode':return sources.opencode_usage(root,start,end,now.tzinfo,'opencodex' in enabled,carriers)
-                return sources.jsonl_usage(source,root,CACHE_DIR,start,end,now.tzinfo,'opencodex' in enabled,carriers)
+                return sources.jsonl_usage(source,root,CACHE_DIR,start,end,now.tzinfo,'opencodex' in enabled,carriers,archive=kept)
             except Exception:return {'error':'记录暂不可用'}
         bundle={'range':key,'start':start,'end':end}
         logs=gateway_logs(enabled,start,end)
@@ -3004,7 +3014,7 @@ def module_options(data=None):
                        {'label':'重置前提醒','detail':'每周窗口用了不到 %d%%，重置前 %d 小时提醒'%(alerts.REMINDER_UNDER,alerts.REMINDER_LEAD//3600),'checked':settings['resetReminder'],
                         'action':['set-reset-reminder','false' if settings['resetReminder'] else 'true'],'children':[]}])
     settings_rows.extend([{'label':'','separator':True,'children':[]},
-                          {'label':'用量提醒','symbol':'bell','value':'%d%%'%settings['usageAlert'] if settings['usageAlert'] else '关闭','children':alert_rows},{'label':'高级配置文件…','symbol':'doc.text','action':['open-settings'],'children':[]},{'label':'自动检测','symbol':'sparkle.magnifyingglass','children':detection_help_entries()},{'label':'恢复默认模块','action':['reset-modules'],'children':[]}])
+                          {'label':'用量提醒','symbol':'bell','value':'%d%%'%settings['usageAlert'] if settings['usageAlert'] else '关闭','children':alert_rows},{'label':'保留已清理记录的用量','detail':'工具删掉旧记录后仍计入“全部”等统计','symbol':'archivebox','checked':settings['keepCleanedUsage'],'action':['set-keep-usage','false' if settings['keepCleanedUsage'] else 'true'],'children':[]},{'label':'高级配置文件…','symbol':'doc.text','action':['open-settings'],'children':[]},{'label':'自动检测','symbol':'sparkle.magnifyingglass','children':detection_help_entries()},{'label':'恢复默认模块','action':['reset-modules'],'children':[]}])
     options=[{'label':'允许折叠','detail':'各模块独立展开','symbol':'rectangle.compress.vertical','checked':settings['allowCollapse'],'action':['set-collapse','false' if settings['allowCollapse'] else 'true'],'children':[]},
              {'label':'外观与设置','symbol':'slider.horizontal.3','children':settings_rows},
              {'label':'','separator':True,'children':[]}];group=None
@@ -3837,6 +3847,14 @@ def run_action(name, extra):
                 except OSError:pass
         invalidate_caches([range_cache_name(),'cursor_subscription'])
         schedule_background_refresh()
+    elif name == 'set-keep-usage':
+        value=extra[0] if len(extra)==1 else ''
+        if value not in ('true','false'):raise ValueError('invalid keep usage setting')
+        if value=='false' and view_settings()['keepCleanedUsage']:
+            if not confirm('不再保留已清理记录的用量？','Claude Code 等工具会删掉旧记录（Claude Code 默认保留 30 天）。关闭后删除已保留的用量，“全部”和更早的日子只按还在的记录统计，删除后无法恢复。',accept='关闭并删除'):return
+            usage_archive_store.clear(STATE_DIR)
+        preferences.update(STATE_DIR,'keep-usage',value)
+        schedule_background_refresh()
     elif name == 'retry-claude-usage':
         if extra or not view_settings()['claudeOAuthUsage']:raise ValueError('invalid Claude refresh action')
         now=time.time()
@@ -4052,7 +4070,7 @@ def consume_panel_action():
                 allowed.append(node["action"])
                 # A persistent picker may queue another click before the previous refresh.
                 candidate=node['action']
-                if len(candidate)==2 and candidate[0] in ('set-collapse','set-reset-reminder','set-cursor-usage'):allowed.extend([[candidate[0],v] for v in ('true','false')])
+                if len(candidate)==2 and candidate[0] in ('set-collapse','set-reset-reminder','set-cursor-usage','set-keep-usage'):allowed.extend([[candidate[0],v] for v in ('true','false')])
                 if len(candidate)==3 and candidate[0]=='set-module' and candidate[1] in preferences.KNOWN:
                     allowed.extend([['set-module',candidate[1],value] for value in ('true','false')])
             nodes.extend(node.get("children") or [])

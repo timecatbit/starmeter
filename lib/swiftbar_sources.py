@@ -18,6 +18,7 @@ import threading
 import time
 from datetime import datetime, timezone
 
+import swiftbar_archive as kept
 from swiftbar_time import parse_iso
 from swiftbar_runtime import activate_vendor, cli_args, quiet_subprocess
 
@@ -322,9 +323,10 @@ def _stream(path):
 INDEX_VERSIONS = {'magpie': 6}
 
 
-def jsonl_usage(source, root, cache, start, end, zone, exclude_proxy=False, carriers=None, price=None):
+def jsonl_usage(source, root, cache, start, end, zone, exclude_proxy=False, carriers=None, price=None, archive=None):
     """carriers: gateways that may have logged the same requests, with what they logged (see aggregate);
-    without OpenCodex's own log, the plugin can only tell its sessions by their provider name."""
+    without OpenCodex's own log, the plugin can only tell its sessions by their provider name.
+    archive: where the events of log files that disappear are kept and read back (swiftbar_archive), or None."""
     root = Path(root).expanduser()
     if not root.is_dir():
         return {'error': '未找到记录目录'}
@@ -341,7 +343,7 @@ def jsonl_usage(source, root, cache, start, end, zone, exclude_proxy=False, carr
         read_errors = (OSError, EOFError, ValueError, RuntimeError, subprocess.SubprocessError)
         if any(path.suffix in ('.zst','.zstd') for path in paths) and (codec:=zstd_codec()):
             read_errors += (codec.ZstdError,)
-        forget_missing(conn, {identity(str(path)) for path in paths})
+        forget_missing(conn, {identity(str(path)) for path in paths}, archive)
         for path in paths:
             try:
                 st = path.stat(); file_key = identity(str(path))
@@ -390,12 +392,12 @@ def jsonl_usage(source, root, cache, start, end, zone, exclude_proxy=False, carr
             except read_errors:
                 errors += 1
         conn.commit()
-        result = aggregate(unique_events(conn, start, end), start, end, zone, exclude_proxy, price or (codex_cost if source == 'codex' else model_cost), carriers)
+        result = aggregate(kept.merged(unique_events(conn, start, end), archive, start, end), start, end, zone, exclude_proxy, price or (codex_cost if source == 'codex' else model_cost), carriers)
         if errors:
             result['warning'] = '部分记录无法读取'
             result['partial'] = True
             if not result['summary']['requests']: result['error'] = '记录格式或权限待检查'
-        if not paths:
+        if not paths and not (archive and Path(archive).is_file()):
             return {'error': '暂无用量记录'}
         return result
     except BaseException:
@@ -510,9 +512,11 @@ def summary_parts(counted, carried, tally):
             'carriedParts':{name:part(events) for name, events in carried.items()}}
 
 
-def forget_missing(conn, active):
+def forget_missing(conn, active, archive=None):
+    """Drop what the index holds for files that are gone; with an archive, their events move there first."""
     for (key,) in conn.execute('SELECT path FROM files').fetchall():
         if key not in active:
+            if archive:kept.keep(archive, conn.execute('SELECT id,ts,data FROM events WHERE file=?', (key,)).fetchall())
             conn.execute('DELETE FROM events WHERE file=?', (key,)); conn.execute('DELETE FROM files WHERE path=?', (key,))
 
 
@@ -732,7 +736,7 @@ def gemini_event(row, state):
     return result
 
 
-def gemini_usage(root, cache, start, end, zone, exclude_proxy=False, carriers=None):
+def gemini_usage(root, cache, start, end, zone, exclude_proxy=False, carriers=None, archive=None):
     """JSON/JSONL Gemini CLI sessions. Index usage only, including spent rewinds."""
     root = Path(root).expanduser()
     if not root.is_dir(): return {'error':'未找到 Gemini CLI 记录'}
@@ -740,15 +744,15 @@ def gemini_usage(root, cache, start, end, zone, exclude_proxy=False, carriers=No
     paths = sorted({p for folder in folders for p in folder.rglob('session-*.json*') if p.suffix in ('.json','.jsonl')})
     # New subagents may use UUID filenames instead of session-*.
     paths = sorted(set(paths) | {p for folder in folders for p in folder.rglob('chats/**/*.jsonl')})
-    if not paths: return {'error':'暂无 Gemini CLI 记录'}
+    if not paths and not (archive and Path(archive).is_file()): return {'error':'暂无 Gemini CLI 记录'}
     target = Path(cache)/('harness-gemini-v2-'+identity(str(root.resolve()))[:12]+'.sqlite3')
     target.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
     db = sqlite3.connect(target,timeout=10);os.chmod(target,0o600)
     try:
         db.executescript('CREATE TABLE IF NOT EXISTS files(path TEXT PRIMARY KEY,size INTEGER,mtime INTEGER); CREATE TABLE IF NOT EXISTS events(id TEXT,file TEXT,ts REAL,data TEXT,PRIMARY KEY(id,file)); CREATE INDEX IF NOT EXISTS events_ts ON events(ts); CREATE INDEX IF NOT EXISTS events_file ON events(file);')
         errors=0
-        # Deleted sessions must not keep contributing old usage.
-        with db:forget_missing(db,{identity(str(path)) for path in paths})
+        # Deleted sessions keep contributing only through the archive, when there is one.
+        with db:forget_missing(db,{identity(str(path)) for path in paths},archive)
         for path in paths:
             file_id=identity(str(path));st=path.stat()
             if db.execute('SELECT size,mtime FROM files WHERE path=?',(file_id,)).fetchone()==(st.st_size,st.st_mtime_ns):continue
@@ -779,7 +783,7 @@ def gemini_usage(root, cache, start, end, zone, exclude_proxy=False, carriers=No
                     for e in events:db.execute('INSERT OR REPLACE INTO events VALUES (?,?,?,?)',(e['id'],file_id,e['timestamp'],json.dumps(e)))
                     db.execute('INSERT OR REPLACE INTO files VALUES (?,?,?)',(file_id,st.st_size,st.st_mtime_ns))
             except (OSError,ValueError,TypeError,KeyError):errors+=1
-        result=aggregate(unique_events(db,start,end),start,end,zone,exclude_proxy,model_cost,carriers)
+        result=aggregate(kept.merged(unique_events(db,start,end),archive,start,end),start,end,zone,exclude_proxy,model_cost,carriers)
         if errors:
             result['partial']=True
             if not result['summary']['requests']:result['error']='Gemini 记录格式待检查'

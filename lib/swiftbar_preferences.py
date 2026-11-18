@@ -50,7 +50,7 @@ def balance_key(key):
 
 def read(directory):
     defaults = {'schema': 1, 'visible': list(DEFAULT_VISIBLE), 'appearance': 'glass', 'theme': 'system', 'paths': {}, 'allowCollapse': False, 'expandedProviders': [], 'revision': 0, 'configuredSubscriptions': [], 'claudeLiveUsage': False, 'claudeOAuthUsage': False, 'cursorUsage': False,
-                'usageAlert': 90, 'resetReminder': False, 'balanceAlerts': {}}
+                'usageAlert': 90, 'resetReminder': False, 'balanceAlerts': {}, 'keepCleanedUsage': True}
     try:
         value = json.loads((Path(directory) / 'preferences.json').read_text(encoding='utf-8'))
         if not isinstance(value, dict) or value.get('schema') != 1:
@@ -76,6 +76,7 @@ def read(directory):
         if isinstance(value.get('cursorUsage'),bool):defaults['cursorUsage']=value['cursorUsage']
         if value.get('usageAlert') in ALERT_LEVELS and not isinstance(value['usageAlert'],bool):defaults['usageAlert']=value['usageAlert']
         if isinstance(value.get('resetReminder'),bool):defaults['resetReminder']=value['resetReminder']
+        if isinstance(value.get('keepCleanedUsage'),bool):defaults['keepCleanedUsage']=value['keepCleanedUsage']
         lines=value.get('balanceAlerts')
         if isinstance(lines,dict):
             # 5.14.0 kept one line per API, asked in the API's usual currency.
@@ -136,6 +137,9 @@ def update(directory, kind, key=None, value=None):
     elif kind == 'reset-reminder':
         if key not in ('true','false'):raise ValueError('invalid reset reminder')
         current['resetReminder']=key=='true'
+    elif kind == 'keep-usage':
+        if key not in ('true','false'):raise ValueError('invalid keep usage setting')
+        current['keepCleanedUsage']=key=='true'
     elif kind == 'balance-alert':
         if not balance_key(key):raise ValueError('invalid balance alert')
         if value in (None,'','0'):current['balanceAlerts'].pop(key,None)
