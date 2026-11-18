@@ -975,7 +975,9 @@ final class DashboardView:FlippedView {
     // Worked out once: measuring the shared column means scaling the chart, far too slow to do per square.
     private let heatmapGeometry:HeatmapLayout?,heatmapColumn:CGFloat,heatmapLevels:[Int]
     private var summaryProviders:[ProviderUsage] {data.providers.compactMap{$0.summaryPart}}
-    static func sectionHeight(_ p:ProviderUsage)->CGFloat {52+clientHeight(p)+CGFloat(max(1,p.models.count))*18+14}
+    // The space under a card's last model row, before the next card's name.
+    static let cardGap:CGFloat=8
+    static func sectionHeight(_ p:ProviderUsage)->CGFloat {52+clientHeight(p)+CGFloat(max(1,p.models.count))*18+cardGap}
     // A gateway's clients in one line, by their share of its tokens: "客户端 · ChatGPT 62% · Claude Code 30%".
     static func clientLine(_ p:ProviderUsage)->String? {
         guard p.available,let clients=p.clients,!clients.isEmpty else{return nil}
@@ -984,7 +986,7 @@ final class DashboardView:FlippedView {
     static func clientHeight(_ p:ProviderUsage)->CGFloat {clientLine(p)==nil ? 0 : 16}
     static func providerHeight(_ p:ProviderUsage,_ d:Dashboard)->CGFloat {
         guard d.allowCollapse==true else{return sectionHeight(p)}
-        return (d.expandedProviders ?? []).contains(p.id) ? 52+clientHeight(p)+CGFloat(max(1,p.models.count))*18+14 : 52
+        return (d.expandedProviders ?? []).contains(p.id) ? sectionHeight(p) : 52
     }
     // Legend names drop suffixes the cards below already show, so four fit on a row.
     static func legendLabels(_ d:Dashboard)->[String] {["总量"]+d.providers.compactMap{$0.summaryPart}.map(legendName)}

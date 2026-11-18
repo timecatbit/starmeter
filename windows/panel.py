@@ -430,7 +430,7 @@ class Provider(QWidget):
 
     def __init__(self, data, foldable, expanded, act):
         super().__init__();self.setSizePolicy(QSizePolicy.Preferred,QSizePolicy.Maximum)
-        box=QVBoxLayout(self);box.setContentsMargins(0,2,0,10);box.setSpacing(3)
+        box=QVBoxLayout(self);box.setContentsMargins(0,2,0,4);box.setSpacing(3)
         toggle=(lambda:act(['set-expanded',data['id'],'false' if expanded else 'true'])) if foldable else None
         head=CardHeader(toggle);line=QHBoxLayout(head);line.setContentsMargins(0,0,0,0);line.setSpacing(7)
         line.addWidget(mark(data));line.addWidget(label(data['name'],'cardTitle'))
