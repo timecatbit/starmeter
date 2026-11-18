@@ -28,6 +28,8 @@ ALERT_LEVELS = (0, 70, 80, 90)  # Usage alert: 0 is off.
 THEMES = ('system', 'light', 'dark')  # The panel follows macOS/Windows, or stays light or dark.
 # The Harness cards on the homepage, one per tool (the default), per model or per project.
 GROUPINGS = ('tool', 'model', 'project')
+# Beside the menu bar star: nothing (the default), today's API-equivalent estimate, or the tightest subscription window.
+MENU_BAR = ('none', 'cost', 'quota')
 DEFAULT_VISIBLE = ['summary', 'heatmap', 'opencodex', 'claude', 'deepseek', 'chatgpt', 'komari', 'updates']
 KNOWN = {row[0] for row in MODULES}
 # Modules added after release show once for people who keep Summary on; a saved file lists the modules
@@ -60,7 +62,7 @@ def balance_key(key):
 
 def read(directory):
     defaults = {'schema': 1, 'visible': list(DEFAULT_VISIBLE), 'appearance': 'glass', 'theme': 'system', 'paths': {}, 'allowCollapse': False, 'expandedProviders': [], 'revision': 0, 'configuredSubscriptions': [], 'claudeLiveUsage': False, 'claudeOAuthUsage': False, 'cursorUsage': False,
-                'usageAlert': 90, 'resetReminder': False, 'balanceAlerts': {}, 'keepCleanedUsage': True, 'subscriptionPrices': {}, 'groupBy': 'tool'}
+                'usageAlert': 90, 'resetReminder': False, 'balanceAlerts': {}, 'keepCleanedUsage': True, 'subscriptionPrices': {}, 'groupBy': 'tool', 'menuBar': 'none'}
     try:
         value = json.loads((Path(directory) / 'preferences.json').read_text(encoding='utf-8'))
         if not isinstance(value, dict) or value.get('schema') != 1:
@@ -88,6 +90,7 @@ def read(directory):
         if isinstance(value.get('resetReminder'),bool):defaults['resetReminder']=value['resetReminder']
         if isinstance(value.get('keepCleanedUsage'),bool):defaults['keepCleanedUsage']=value['keepCleanedUsage']
         if value.get('groupBy') in GROUPINGS:defaults['groupBy']=value['groupBy']
+        if value.get('menuBar') in MENU_BAR:defaults['menuBar']=value['menuBar']
         prices=value.get('subscriptionPrices')
         if isinstance(prices,dict):
             defaults['subscriptionPrices']={k:v for k,v in prices.items() if k in catalog.SUBSCRIPTION_USAGE and monthly_price(v)}
@@ -154,6 +157,9 @@ def update(directory, kind, key=None, value=None):
     elif kind == 'keep-usage':
         if key not in ('true','false'):raise ValueError('invalid keep usage setting')
         current['keepCleanedUsage']=key=='true'
+    elif kind == 'menu-bar':
+        if key not in MENU_BAR:raise ValueError('invalid menu bar value')
+        current['menuBar']=key
     elif kind == 'group':
         if key not in GROUPINGS:raise ValueError('invalid grouping')
         current['groupBy']=key

@@ -2270,6 +2270,8 @@ def usage_ranges_due():
     due=[key] if cache_due(read_cache(range_cache_name(key)),refresh_ttl(60)) else []
     weighed=[k for k in view_settings()['subscriptionPrices'] if module_enabled(k) and module_enabled(catalog.SUBSCRIPTION_USAGE[k])]
     if weighed and key!='month' and cache_due(read_cache(range_cache_name('month')),refresh_ttl(600)):due.append('month')
+    # Today's estimate beside the star stays as current as the homepage would.
+    if view_settings()['menuBar']=='cost' and key!='today' and cache_due(read_cache(range_cache_name('today')),refresh_ttl(60)):due.append('today')
     return due
 
 
@@ -2431,10 +2433,31 @@ def deepseek_balance(data):
     return "", None
 
 
-def title():
+MENU_BAR_LABELS={'none':'只显示星星','cost':'今天的 API 估算','quota':'最紧张的订阅额度'}
+
+def menu_bar_value(data=None):
+    """The figure the user chose to show beside the star, or ''. Nothing about states or failures: those stay in the panel."""
+    choice=view_settings()['menuBar']
+    if choice=='cost':
+        bundle=read_cache(range_cache_name('today')).get('payload') or {}
+        if bundle.get('range')!='today':return ''
+        selected=[(k,label,bundle.get(k) or {}) for k,label,_ in preferences.MODULES if k in preferences.USAGE and module_enabled(k)]
+        costs=[summary_cost_value(part['usage'].get('summary') or {}) for part in summary_usage(selected).values()
+               if part['usage'] and part['usage'].get('summary') and not part['usage'].get('error')]
+        costs=[float(c) for c in costs if c is not None]
+        if not costs:return ''
+        total=sum(costs);return '$%.2f'%total if total<100 else '$%s'%format(round(total),',')
+    if choice=='quota' and data is not None:
+        # The tightest window still current; a stale or failed reading is not a figure to keep in sight.
+        used=[w['used'] for w in alert_windows(data) if w['current']]
+        return '%d%%'%round(max(used)) if used else ''
+    return ''
+
+def title(data=None):
     """Keep the dashboard entry stable while any individual source reconnects."""
     # 20 points: the mark's dots fall on whole pixels there, and it matches the system icons beside it.
-    return item("", tooltip="AI 用量面板", emojize="false", **logo_mark(20))
+    value=menu_bar_value(data) if data is not None else ''
+    return item(value, tooltip="AI 用量面板", emojize="false", size=None, **logo_mark(20))
 
 
 def account_quick_lines(data):
@@ -3055,6 +3078,8 @@ def module_options(data=None):
                        {'label':'重置前提醒','detail':'每周窗口用了不到 %d%%，重置前 %d 小时提醒'%(alerts.REMINDER_UNDER,alerts.REMINDER_LEAD//3600),'checked':settings['resetReminder'],
                         'action':['set-reset-reminder','false' if settings['resetReminder'] else 'true'],'children':[]}])
     settings_rows.extend([{'label':'','separator':True,'children':[]},
+                          {'label':'菜单栏显示','symbol':'menubar.rectangle','value':MENU_BAR_LABELS[settings['menuBar']],
+                           'children':[{'label':label,'checked':settings['menuBar']==key,'radio':True,'action':['set-menu-bar',key],'children':[]} for key,label in MENU_BAR_LABELS.items()]},
                           {'label':'用量提醒','symbol':'bell','value':'%d%%'%settings['usageAlert'] if settings['usageAlert'] else '关闭','children':alert_rows},{'label':'保留已清理记录的用量','detail':'工具删掉旧记录后仍计入“全部”等统计','symbol':'archivebox','checked':settings['keepCleanedUsage'],'action':['set-keep-usage','false' if settings['keepCleanedUsage'] else 'true'],'children':[]},{'label':'高级配置文件…','symbol':'doc.text','action':['open-settings'],'children':[]},{'label':'自动检测','symbol':'sparkle.magnifyingglass','children':detection_help_entries()},{'label':'恢复默认模块','action':['reset-modules'],'children':[]}])
     options=[{'label':'允许折叠','detail':'各模块独立展开','symbol':'rectangle.compress.vertical','checked':settings['allowCollapse'],'action':['set-collapse','false' if settings['allowCollapse'] else 'true'],'children':[]},
              {'label':'外观与设置','symbol':'slider.horizontal.3','children':settings_rows},
@@ -3755,7 +3780,7 @@ def panel_snapshot(data,dashboard=None,options=None):
             return [dict(entry,children=without_new_bridge(entry.get('children',[]))) for entry in entries
                     if entry.get('action')!=['set-claude-local','true']]
         options=without_new_bridge(options if options is not None else module_options(data))
-    return {"schema":1,"project":{"name":PRODUCT,"url":REPOSITORY},"dashboard":dashboard,
+    return {"schema":1,"project":{"name":PRODUCT,"url":REPOSITORY},"dashboard":dashboard,"menuBarText":menu_bar_value(data),
             "entries":resource_panel_entries(data),"rangeOptions":range_options(dashboard['rangeKey']),
             "moduleOptions":options if options is not None else module_options(data),
             "appearance":view_settings()['appearance'],"theme":view_settings()['theme'],"preferences":presentation_settings(),
@@ -3774,9 +3799,9 @@ def render(data):
             overview.append(item('Summary · '+dashboard['rangeLabel']+' · '+fmt_tokens(total)+' Token' if valid else 'Summary · 数据待同步'))
         for provider in dashboard['providers']:
             overview.append(item(provider['name']+' · '+(fmt_tokens(provider['tokens'])+' Token' if provider['available'] else provider['status'])))
-        return "\n".join([title(),'---']+[native_menu_line(line) for line in overview+(['---'] if overview else [])+management_lines(data)+['---']+module_menu_lines()])
+        return "\n".join([title(data),'---']+[native_menu_line(line) for line in overview+(['---'] if overview else [])+management_lines(data)+['---']+module_menu_lines()])
     write_json_cache(cache_path("panel-view"),panel_snapshot(data,dashboard,options))
-    return "\n".join([panel_title(title()),'---']+[native_menu_line(line) for line in native_rows])
+    return "\n".join([panel_title(title(data)),'---']+[native_menu_line(line) for line in native_rows])
 
 
 # ---------------------------------------------------------------------------
@@ -4061,6 +4086,11 @@ def run_action(name, extra):
         chosen=choose_local_path(prompt,folder=True)
         if chosen:
             preferences.update(STATE_DIR,'path',key,chosen);schedule_background_refresh()
+    elif name == "set-menu-bar":
+        key=extra[0] if len(extra)==1 else ''
+        if key not in preferences.MENU_BAR:raise ValueError('invalid menu bar value')
+        preferences.update(STATE_DIR,'menu-bar',key)
+        if key=='cost':schedule_background_refresh()
     elif name == "set-group":
         key=extra[0] if len(extra)==1 else ''
         if key not in GROUPINGS:raise ValueError('invalid grouping')

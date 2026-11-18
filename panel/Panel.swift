@@ -106,7 +106,7 @@ struct Dashboard:Decodable {var date:String;var dates:[String];var providers:[Pr
     var collapsible:Bool {allowCollapse==true && cards==nil}
 }
 struct Project:Decodable {var name:String;var url:String}
-struct Snapshot:Decodable {var project:Project?;var dashboard:Dashboard?;var entries:[Entry];var rangeOptions:[Entry]?;var updateCount:Int?;var moduleOptions:[Entry]?;var appearance:String?;var theme:String?;var preferences:PresentationPreferences?}
+struct Snapshot:Decodable {var project:Project?;var menuBarText:String?;var dashboard:Dashboard?;var entries:[Entry];var rangeOptions:[Entry]?;var updateCount:Int?;var moduleOptions:[Entry]?;var appearance:String?;var theme:String?;var preferences:PresentationPreferences?}
 func dark(_ view:NSView)->Bool {view.effectiveAppearance.bestMatch(from:[.darkAqua,.aqua]) == .darkAqua}
 func background(_ view:NSView)->NSColor {dark(view) ? NSColor(calibratedWhite:0.115,alpha:1) : NSColor(calibratedWhite:0.992,alpha:1)}
 func accent(_ id:String,_ view:NSView)->NSColor {
@@ -1864,7 +1864,7 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
                     if self.requestedHome != nil{self.showActionFailure("无法初始化本机数据，请重新打开 Starmeter。")}
                     return
                 }
-                self.snapshotPath=path;self.observeSnapshot();host.checkNotifications(askFirst:true);host.refresh()
+                self.snapshotPath=path;self.observeSnapshot();self.updateStatusTitle();host.checkNotifications(askFirst:true);host.refresh()
                 self.refreshTimer=Timer.scheduledTimer(withTimeInterval:60,repeats:true){[weak host] _ in host?.refresh()}
                 self.refreshTimer?.tolerance=12
                 if let modules=self.requestedHome{self.requestedHome=nil;self.managerOnly=modules;self.show()}
@@ -1943,7 +1943,7 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
     private func observeSnapshot(){
         guard !observer.active else{return}
         observer.start(directory:URL(fileURLWithPath:snapshotPath).deletingLastPathComponent().path){[weak self] in
-            guard let self else{return};self.macHost?.deliverNotices();self.checkAction();self.updateFallback();if self.panel.isVisible{self.reload()}
+            guard let self else{return};self.macHost?.deliverNotices();self.checkAction();self.updateFallback();self.updateStatusTitle();if self.panel.isVisible{self.reload()}
         }
         updateFallback()
     }
@@ -1970,6 +1970,17 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
             try? data.write(to:url,options:.atomic);try? FileManager.default.setAttributes([.posixPermissions:0o600],ofItemAtPath:url.path)
         }
         updateFallback()
+    }
+    // The figure the user chose for beside the star (今天的 API 估算 or 最紧张的订阅额度), read from each new snapshot.
+    private func updateStatusTitle(){
+        guard macHost != nil,let item=statusItem,let button=item.button,!snapshotPath.isEmpty,
+              let data=try? Data(contentsOf:URL(fileURLWithPath:snapshotPath)),
+              let value=try? JSONSerialization.jsonObject(with:data) as? [String:Any] else{return}
+        let text=(value["menuBarText"] as? String) ?? ""
+        guard button.title != text else{return}
+        item.length=text.isEmpty ? NSStatusItem.squareLength : NSStatusItem.variableLength
+        button.font=NSFont.monospacedDigitSystemFont(ofSize:NSFont.systemFontSize,weight:.regular)
+        button.title=text;button.imagePosition=text.isEmpty ? .imageOnly : .imageLeading
     }
     private func updateFallback(){
         fallbackTimer?.invalidate();fallbackTimer=nil

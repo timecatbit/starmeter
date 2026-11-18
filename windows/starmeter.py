@@ -148,6 +148,8 @@ class Desktop(QObject):
         if revision==self.revision and value is not None:
             value=dict(value,entries=host.filter_entries(value['entries']),moduleOptions=host.filter_entries(value['moduleOptions']))
             self.panel.render(value)
+            # A tray icon can't carry text: the figure chosen for beside the star goes in its tooltip.
+            self.tray.setToolTip('Starmeter'+(' · '+value['menuBarText'] if value.get('menuBarText') else ''))
         if done:
             self.running=False
             if self.pending and not self.exiting:self.pending=False;self.request_refresh()
