@@ -168,7 +168,7 @@ public enum Accounts {
             case "qoder-api":
                 let secret = key ?? credential("QODER_CN_API_KEY", environment: environment)
                 let org = Py.str(Py.or(options["org"], .string(environment["QODER_CN_ORG_ID"] ?? ""))).trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !secret.isEmpty, !org.isEmpty else { return ["state": "未配置 Qoder CN 组织 API Key 与组织 ID"] }
+                guard !secret.isEmpty, !org.isEmpty else { return ["state": "未配置 Qoder 组织 API Key 与组织 ID"] }
                 return try qoderPackages({ try HTTP.getJSON($0, key: secret) }, org: org)
             case "minimax":
                 let secret = credential("MINIMAX_API_KEY", environment: environment)

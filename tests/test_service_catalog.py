@@ -22,8 +22,8 @@ class CatalogTests(unittest.TestCase):
         code=(ROOT/'lib/swiftbar_plugin.py').read_text()
         exec(compile(code,'plugin','exec'),self.m.__dict__)
     def test_catalog_exact_order_and_independent_service_ids(self):
-        self.assertEqual([s.brand for s in catalog.SERVICES if s.category=='订阅'],['ChatGPT','Claude','MiniMax','Gemini','Grok','Kimi','Qoder CN','Cursor'])
-        self.assertEqual([s.brand for s in catalog.SERVICES if s.category=='API'],['ChatGPT','Claude','DeepSeek','MiniMax','Gemini','Grok','Kimi','Qoder CN'])
+        self.assertEqual([s.brand for s in catalog.SERVICES if s.category=='订阅'],['ChatGPT','Claude','MiniMax','Gemini','Grok','Kimi','Qoder','Cursor'])
+        self.assertEqual([s.brand for s in catalog.SERVICES if s.category=='API'],['ChatGPT','Claude','DeepSeek','MiniMax','Gemini','Grok','Kimi','Qoder'])
         self.assertEqual(len(catalog.BY_KEY),16)
         self.assertNotIn('codex-quota',preferences.KNOWN)
         self.assertEqual(next(label for k,label,g in preferences.MODULES if k=='codex'),'ChatGPT')
@@ -176,15 +176,15 @@ class CatalogTests(unittest.TestCase):
             preferences.update(self.m.STATE_DIR,'module',provider,'true');return rows
         a,b,c=keys('qoder-api',{'org':'org1'},{'org':'org1'},{'org':'org2'})
         data={'qoder-api@'+a:{'balance':100.0,'currency':'Credits','_fetchedAt':now-60},'qoder-api@'+b:{'balance':90.0,'currency':'Credits','_fetchedAt':now}}
-        row=self.entry('Qoder CN API',data)
+        row=self.entry('Qoder API',data)
         self.assertEqual(row['value'],'余额 90 Credits (2)')  # One organization, its freshest reading.
         children={k['label']:k for k in row['children'] if k.get('children')}
         self.assertEqual(children['K1']['detail'],'与「K0」同一组织，主页合计只算一次');self.assertNotIn('detail',children['K0'])
         data['qoder-api@'+c]={'balance':40.0,'currency':'Credits','_fetchedAt':now}
-        self.assertEqual(self.entry('Qoder CN API',data)['value'],'余额 130 Credits (3)')
+        self.assertEqual(self.entry('Qoder API',data)['value'],'余额 130 Credits (3)')
         with patch.dict(os.environ,{'QODER_CN_API_KEY':'sk-PRIVATE-ENV-1234567890','QODER_CN_ORG_ID':'org2'}):
             data['qoder-api']={'balance':40.0,'currency':'Credits','_fetchedAt':now}
-            self.assertEqual(self.entry('Qoder CN API',data)['value'],'余额 130 Credits (4)')  # The default key names org2 too.
+            self.assertEqual(self.entry('Qoder API',data)['value'],'余额 130 Credits (4)')  # The default key names org2 too.
         # Kimi tells no account, so each key is added as its own, even when two readings agree.
         x,y=keys('kimi-api',{'region':'china'},{'region':'china'})
         same={'balance':100.0,'currency':'CNY','_fetchedAt':now}

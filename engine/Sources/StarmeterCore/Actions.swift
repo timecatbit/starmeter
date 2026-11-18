@@ -190,8 +190,8 @@ extension Runtime {
             return team
         case "minimax": return host.choose(title: "MiniMax 套餐", prompt: "选择密钥所属地区", ("国际站", "international"), ("中国站", "china"))
         case "qoder-api":
-            let org = textDialog("Qoder CN 组织 ID（组织设置网址 qoder.cn/organizations/<组织 ID>/settings 中的那一段）", current)
-            if let org, !plain(org) { dialogError("组织 ID 无效", "请填写 Qoder CN 组织设置网址中的组织 ID。"); return nil }
+            let org = textDialog("Qoder 组织 ID（组织设置网址 qoder.cn/organizations/<组织 ID>/settings 中的那一段）", current)
+            if let org, !plain(org) { dialogError("组织 ID 无效", "请填写 Qoder 组织设置网址中的组织 ID。"); return nil }
             return org
         case "kimi-api":
             return host.choose(title: "Kimi API", prompt: "选择 Key 所属平台：中国站 platform.moonshot.cn，国际站 platform.moonshot.ai", ("中国站", "china"), ("国际站", "international"))
@@ -261,7 +261,7 @@ extension Runtime {
         guard let name = textDialog("给这把 Key 起个名字", "Key \(apiKeys(provider).count + 1)", title: "添加 Key") else { return }
         if !Keys.validLabel(name) { dialogError("名字无效", "请填写 1–24 个字符的名字。"); return }
         let note = provider == "claude-api" ? "\n管理员 Key 权限很大，建议在控制台设置过期时间；插件只用它读取花费。" : ""
-        let prompt = ["grok": "xAI 管理密钥（Management API Key）", "qoder-api": "Qoder CN 组织 API Key（组织管理员在 设置 → 高级 → API 密钥 创建，仅团队版/企业版）"][provider]
+        let prompt = ["grok": "xAI 管理密钥（Management API Key）", "qoder-api": "Qoder 组织 API Key（组织管理员在 设置 → 高级 → API 密钥 创建，仅团队版/企业版）"][provider]
             ?? service.label + " Key"
         guard let secret = textDialog(prompt + "\n只保存在本机仅你可读的文件中，不会显示或上传。" + note, hidden: true, title: "添加 Key") else { return }
         if !Keys.validKey(secret) { dialogError("Key 格式无效", "请粘贴完整的 API Key，不含空格或换行。"); return }

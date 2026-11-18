@@ -19,7 +19,7 @@ extension Runtime {
                                     "opencode": "OpenCode", "dsh": "DeepSeek Harness", "gemini": "Gemini CLI", "gemini-cli": "Gemini CLI",
                                     "agy": "Antigravity", "antigravity": "Antigravity", "pi": "Pi", "cursor": "Cursor", "": "未标注"]
     static let brandLogos: [String: (String, Bool)] = ["ChatGPT": ("openai.svg", true), "Claude": ("claude.svg", false), "MiniMax": ("minimax.svg", false),
-        "Gemini": ("gemini.svg", false), "Grok": ("grok.svg", true), "Kimi": ("kimi.svg", true), "Qoder CN": ("qoder.svg", true), "Cursor": ("cursor.svg", true)]
+        "Gemini": ("gemini.svg", false), "Grok": ("grok.svg", true), "Kimi": ("kimi.svg", true), "Qoder": ("qoder.svg", true), "Cursor": ("cursor.svg", true)]
     static let moduleLogos: [String: (String, Bool)] = ["magpie": ("magpie.svg", true), "claude": ("claude.svg", false), "codex": ("openai.svg", true),
         "opencode": ("opencode.svg", true), "workbuddy": ("workbuddy.svg", true), "qoder": ("qoder.svg", true), "gemini": ("gemini.svg", false), "cursor": ("cursor.svg", true)]
     static let moduleSymbols = ["summary": "chart.xyaxis.line", "heatmap": "square.grid.3x3.fill", "opencodex": "network", "komari": "server.rack",

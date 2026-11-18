@@ -211,7 +211,7 @@ def account(source,key=None,options=None):
             return xai_balance(get_json(url,key))
         if source=='qoder-api':
             key=key or credential('QODER_CN_API_KEY');org=str(options.get('org') or os.environ.get('QODER_CN_ORG_ID','')).strip()
-            if not key or not org:return {'state':'未配置 Qoder CN 组织 API Key 与组织 ID'}
+            if not key or not org:return {'state':'未配置 Qoder 组织 API Key 与组织 ID'}
             return qoder_packages(lambda url:get_json(url,key),org)
         if source=='minimax':
             key=credential('MINIMAX_API_KEY')

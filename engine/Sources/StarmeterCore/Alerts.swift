@@ -143,7 +143,7 @@ extension Runtime {
             let current = now - (Py.or(payload["observedAt"], .int(0)).number ?? 0) <= 600
             for (field, window) in [("plan", "套餐 Credits"), ("addOn", "加购 Credits")] {
                 guard let part = payload[field]?.object, let total = part["total"], total.isTruthy else { continue }
-                add("qoder-subscription", "Qoder CN 订阅", window, 100 * (part["used"]?.number ?? 0) / (total.number ?? 1),
+                add("qoder-subscription", "Qoder 订阅", window, 100 * (part["used"]?.number ?? 0) / (total.number ?? 1),
                     field == "plan" ? payload["resetsAt"] ?? .null : .null, .null, current)
             }
         }

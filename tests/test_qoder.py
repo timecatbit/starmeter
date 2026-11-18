@@ -76,7 +76,7 @@ class QoderPanelTests(unittest.TestCase):
         self.assertIn('Credits 用量',old[4]['detail'])
     def test_no_snapshot_says_what_is_known(self):
         with patch.object(self.m,'connection_ready',return_value=False):
-            self.assertEqual(self.rows({'empty':True})[0]['value'],'未发现 Qoder CN')
+            self.assertEqual(self.rows({'empty':True})[0]['value'],'未发现 Qoder')
         with patch.object(self.m,'connection_ready',return_value=True):
             rows=self.rows({'empty':True})
         self.assertEqual(rows[0]['value'],'暂无本机记录');self.assertIn('Credits 用量',rows[2]['label'])

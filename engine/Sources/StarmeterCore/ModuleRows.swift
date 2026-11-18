@@ -111,22 +111,22 @@ extension Runtime {
         var badge: String
         if let most { badge = Runtime.usedText(most) + (stale ? " · 截至 " + snapshotTime(observed ?? 0) : "") }
         else if observed != nil && observed != 0 { badge = payload["exceeded"]?.isTruthy == true ? "额度已用完" : "无 Credits 额度" }
-        else { badge = connectionReady("qoder-subscription") ? "暂无本机记录" : "未发现 Qoder CN" }
+        else { badge = connectionReady("qoder-subscription") ? "暂无本机记录" : "未发现 Qoder" }
         var rows = [Runtime.item(service.label, Runtime.merged(["badge": .string(Runtime.withFailure(badge, !windows.isEmpty, failed))], brandIcon("qoder-subscription"),
                                                               ["panelusagelevel": windows.isEmpty ? .null : Runtime.usageLevel(most, stale || failed)])),
-                    Runtime.item("来源 · Qoder CN 本机记录", level: 1, ["color": .string(Runtime.mutedColor), "size": 10])]
+                    Runtime.item("来源 · Qoder 本机记录", level: 1, ["color": .string(Runtime.mutedColor), "size": 10])]
         for (name, q) in windows {
             let used = 100 * Py.num(q["used"]) / Py.num(q["total"])
             var detail = Runtime.creditsAmount(Py.num(q["used"])) + " / " + Runtime.creditsAmount(Py.num(q["total"])) + " · 剩余 " + Runtime.creditsAmount(Py.num(q["remaining"]))
             if name == "套餐 Credits", let resets = payload["resetsAt"], resets.isTruthy { detail += "\n重置于 " + Runtime.format(resets.number ?? 0, localZone(), "%m/%d %H:%M") }
             rows.append(Runtime.item(name, level: 1, ["badge": .string(Runtime.usedText(used)), "paneldetail": .string(detail), "panelusagelevel": Runtime.usageLevel(used, stale || failed)]))
         }
-        let hint = "在 Qoder CN 窗口右下角打开 Credits 用量后更新"
+        let hint = "在 Qoder 窗口右下角打开 Credits 用量后更新"
         if failed { rows.append(Runtime.item("更新时间", level: 1, ["badge": "刷新失败", "paneldetail": .string(error!), "color": .string(Runtime.warnColor), "size": 10])) }
         else if let observed, observed != 0 {
             rows.append(Runtime.item("更新时间", level: 1, ["badge": .string(freshness(.double(observed))), "paneldetail": stale ? .string(hint) : .null, "color": .string(Runtime.mutedColor), "size": 10]))
         } else { rows.append(Runtime.item(hint, level: 1, ["color": .string(Runtime.mutedColor), "size": 10])) }
-        if let app = updateAppPath("qoder") { rows.append(Runtime.item("打开 Qoder CN", level: 1, ["sfimage": "macwindow", "href": .string(fileHref(app))])) }
+        if let app = updateAppPath("qoder") { rows.append(Runtime.item("打开 Qoder", level: 1, ["sfimage": "macwindow", "href": .string(fileHref(app))])) }
         rows.append(Runtime.item("打开订阅用量", level: 1, ["sfimage": "arrow.up.right", "href": .string(service.url)]))
         return rows
     }

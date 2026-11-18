@@ -17,7 +17,7 @@ MODULES = (
     ('opencode', 'OpenCode', 'Harness'),
     ('deepseek-harness', 'DeepSeek Harness', 'Harness'),
     ('workbuddy', 'WorkBuddy', 'Harness'),
-    ('qoder', 'Qoder CN', 'Harness'),
+    ('qoder', 'Qoder', 'Harness'),
     ('gemini', 'Gemini CLI', 'Harness'),
     ('cursor', 'Cursor', 'Harness'),
 ) + tuple((s.key, s.label, s.category) for s in catalog.SERVICES) + (

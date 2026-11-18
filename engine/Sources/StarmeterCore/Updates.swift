@@ -250,7 +250,7 @@ extension Runtime {
         "workbuddy": "https://cloud.tencent.com/product/workbuddy", "qoder": "https://qoder.cn/download", "gemini": "https://github.com/google-gemini/gemini-cli/releases",
         "cursor": "https://cursor.com/downloads"]
     static let updateNames: [String: String] = ["opencodex": "OpenCodex", "claude": "Claude", "chatgpt": "ChatGPT", "claude-code": "Claude Code", "codex-cli": "Codex",
-        "magpie": "Magpie", "opencode": "OpenCode", "deepseek-harness": "DeepSeek Harness", "workbuddy": "WorkBuddy", "qoder": "Qoder CN", "gemini": "Gemini CLI", "cursor": "Cursor"]
+        "magpie": "Magpie", "opencode": "OpenCode", "deepseek-harness": "DeepSeek Harness", "workbuddy": "WorkBuddy", "qoder": "Qoder", "gemini": "Gemini CLI", "cursor": "Cursor"]
     static let manualUpdates: Set<String> = ["magpie", "opencode", "deepseek-harness", "workbuddy", "qoder", "gemini", "cursor"]
     static let updateApps: [String: [String]] = ["magpie": ["magpie", "Magpie"], "claude": ["Claude"], "chatgpt": ["ChatGPT"], "workbuddy": ["WorkBuddy"],
                                                  "qoder": ["Qoder CN", "QoderCN"], "cursor": ["Cursor"]]

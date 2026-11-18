@@ -223,10 +223,10 @@ extension Runtime {
         } else if key == "qoder-subscription" {
             // Read from the Qoder CN app's own log, nothing to set up: where it reads, and how to bring it up to date.
             let roots = Qoder.logRoots(home: home, environment: environment), found = roots.filter(Harness.isDirectory)
-            children = [["label": "来源 · Qoder CN 桌面 App 的本机日志", "children": []],
-                        ["label": "在 Qoder CN 窗口右下角打开 Credits 用量后更新", "children": []],
+            children = [["label": "来源 · Qoder 桌面 App 的本机日志", "children": []],
+                        ["label": "在 Qoder 窗口右下角打开 Credits 用量后更新", "children": []],
                         Runtime.locationEntry("日志目录", found.isEmpty ? [roots[0]] : found)]
-            if let app = updateAppPath("qoder") { children.append(["label": "打开 Qoder CN", "symbol": "macwindow", "href": .string(fileHref(app)), "children": []]) }
+            if let app = updateAppPath("qoder") { children.append(["label": "打开 Qoder", "symbol": "macwindow", "href": .string(fileHref(app)), "children": []]) }
             children.append(["label": "打开订阅用量", "symbol": "arrow.up.right", "href": .string(service!.url), "children": []])
         } else {
             children = configured ? [Runtime.locationEntry("面板地址", [komariBaseURL])] : []

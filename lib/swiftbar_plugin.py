@@ -69,7 +69,7 @@ LOGO_DIR = os.path.join(ASSET_DIR, "logos")
 # Monochrome logos are template images so they follow light and dark menus.
 BRAND_LOGOS = {'ChatGPT': ('openai.svg', True), 'Claude': ('claude.svg', False), 'MiniMax': ('minimax.svg', False),
                'Gemini': ('gemini.svg', False), 'Grok': ('grok.svg', True), 'Kimi': ('kimi.svg', True),
-               'Qoder CN': ('qoder.svg', True), 'Cursor': ('cursor.svg', True)}
+               'Qoder': ('qoder.svg', True), 'Cursor': ('cursor.svg', True)}
 # Every module's mark in the module list and on its homepage card: the tool's logo where LobeHub has one,
 # a system symbol for the rest (the Windows panel shows only the logos).
 MODULE_LOGOS = {'magpie': ('magpie.svg', True), 'claude': ('claude.svg', False), 'codex': ('openai.svg', True),
@@ -1029,7 +1029,7 @@ MANUAL_UPDATES = {'magpie':('Magpie','https://github.com/yetone/magpie/releases/
                   'opencode':('OpenCode','https://opencode.ai'),
                   'deepseek-harness':('DeepSeek Harness','https://github.com/deepseek-ai/deepseek-harness/releases'),
                   'workbuddy':('WorkBuddy','https://cloud.tencent.com/product/workbuddy'),
-                  'qoder':('Qoder CN','https://qoder.cn/download'),
+                  'qoder':('Qoder','https://qoder.cn/download'),
                   'gemini':('Gemini CLI','https://github.com/google-gemini/gemini-cli/releases'),
                   'cursor':('Cursor','https://cursor.com/downloads')}
 UPDATE_NAMES.update({key:value[0] for key,value in MANUAL_UPDATES.items()})
@@ -1803,20 +1803,20 @@ def qoder_subscription_lines(data):
     most=max((100*q['used']/q['total'] for _,q in windows),default=None)
     if windows:badge=used_text(most)+(' · 截至 '+snapshot_time(observed) if stale else '')
     elif observed:badge='额度已用完' if payload.get('exceeded') else '无 Credits 额度'
-    else:badge='暂无本机记录' if connection_ready('qoder-subscription') else '未发现 Qoder CN'
+    else:badge='暂无本机记录' if connection_ready('qoder-subscription') else '未发现 Qoder'
     rows=[item(service.label,badge=with_failure(badge,bool(windows),failed),**brand_icon('qoder-subscription'),
                panelusagelevel=usage_level(most,stale or failed) if windows else None),
-          item('来源 · Qoder CN 本机记录',level=1,color=MUTED,size=10)]
+          item('来源 · Qoder 本机记录',level=1,color=MUTED,size=10)]
     for name,q in windows:
         used=100*q['used']/q['total'];detail='%s / %s · 剩余 %s'%(credits_amount(q['used']),credits_amount(q['total']),credits_amount(q['remaining']))
         if name=='套餐 Credits' and payload.get('resetsAt'):detail+='\n重置于 '+datetime.fromtimestamp(payload['resetsAt'],local_zone()).strftime('%m/%d %H:%M')
         rows.append(item(name,badge=used_text(used),paneldetail=detail,level=1,panelusagelevel=usage_level(used,stale or failed)))
-    hint='在 Qoder CN 窗口右下角打开 Credits 用量后更新'
+    hint='在 Qoder 窗口右下角打开 Credits 用量后更新'
     if failed:rows.append(item('更新时间',badge='刷新失败',paneldetail=str(error[1]),level=1,color=WARN,size=10))
     elif observed:rows.append(item('更新时间',badge=freshness({'_fetchedAt':observed}),paneldetail=hint if stale else None,level=1,color=MUTED,size=10))
     else:rows.append(item(hint,level=1,color=MUTED,size=10))
     app=update_app_path('qoder')
-    if app:rows.append(item('打开 Qoder CN',level=1,sfimage='macwindow',href='file://'+urllib.parse.quote(app)))
+    if app:rows.append(item('打开 Qoder',level=1,sfimage='macwindow',href='file://'+urllib.parse.quote(app)))
     rows.append(item('打开订阅用量',level=1,sfimage='arrow.up.right',href=service.url))
     return rows
 
@@ -2208,7 +2208,7 @@ def alert_windows(data):
         for field,window in (('plan','套餐 Credits'),('addOn','加购 Credits')):
             part=payload.get(field)
             if isinstance(part,dict) and part.get('total'):
-                add('qoder-subscription','Qoder CN 订阅',window,100*part['used']/part['total'],payload.get('resetsAt') if field=='plan' else None,None,current)
+                add('qoder-subscription','Qoder 订阅',window,100*part['used']/part['total'],payload.get('resetsAt') if field=='plan' else None,None,current)
     if module_enabled('cursor-subscription') and view_settings()['cursorUsage']:
         payload=data.get('cursor_subscription') or {}
         if payload.get('percent') is not None:
@@ -3012,11 +3012,11 @@ def service_connection_entry(key,data=None):
     elif key=='qoder-subscription':
         # Read from the Qoder CN app's own log, nothing to set up: where it reads, and how to bring it up to date.
         roots=[str(root) for root in qoder.log_roots(HOME)];found=[root for root in roots if os.path.isdir(root)]
-        children=[{'label':'来源 · Qoder CN 桌面 App 的本机日志','children':[]},
-                  {'label':'在 Qoder CN 窗口右下角打开 Credits 用量后更新','children':[]},
+        children=[{'label':'来源 · Qoder 桌面 App 的本机日志','children':[]},
+                  {'label':'在 Qoder 窗口右下角打开 Credits 用量后更新','children':[]},
                   location_entry('日志目录',found or roots[:1])]
         app=update_app_path('qoder')
-        if app:children.append({'label':'打开 Qoder CN','symbol':'macwindow','href':'file://'+urllib.parse.quote(app),'children':[]})
+        if app:children.append({'label':'打开 Qoder','symbol':'macwindow','href':'file://'+urllib.parse.quote(app),'children':[]})
         children.append({'label':'打开订阅用量','symbol':'arrow.up.right','href':service.url,'children':[]})
     else:
         children=[location_entry('面板地址',[KOMARI_BASE_URL])] if configured else []
@@ -3104,9 +3104,9 @@ def ask_option(key,current=''):
         return team
     if key=='minimax':return choose_region('MiniMax 套餐','选择密钥所属地区',('国际站','international'),('中国站','china'))
     if key=='qoder-api':
-        org=text_dialog('Qoder CN 组织 ID（组织设置网址 qoder.cn/organizations/<组织 ID>/settings 中的那一段）',current)
+        org=text_dialog('Qoder 组织 ID（组织设置网址 qoder.cn/organizations/<组织 ID>/settings 中的那一段）',current)
         if org is not None and not re.fullmatch(r'[A-Za-z0-9_-]+',org):
-            dialog_error('组织 ID 无效','请填写 Qoder CN 组织设置网址中的组织 ID。');return None
+            dialog_error('组织 ID 无效','请填写 Qoder 组织设置网址中的组织 ID。');return None
         return org
     if key=='kimi-api':return choose_region('Kimi API','选择 Key 所属平台：中国站 platform.moonshot.cn，国际站 platform.moonshot.ai',('中国站','china'),('国际站','international'))
     return ''
@@ -3169,7 +3169,7 @@ def add_api_key(provider):
     if not keystore.LABEL.fullmatch(name):
         dialog_error('名字无效','请填写 1–24 个字符的名字。');return
     note='\n管理员 Key 权限很大，建议在控制台设置过期时间；插件只用它读取花费。' if provider=='claude-api' else ''
-    secret=text_dialog({'grok':'xAI 管理密钥（Management API Key）','qoder-api':'Qoder CN 组织 API Key（组织管理员在 设置 → 高级 → API 密钥 创建，仅团队版/企业版）'}.get(provider,service.label+' Key')+'\n只保存在本机仅你可读的文件中，不会显示或上传。'+note,hidden=True,title='添加 Key')
+    secret=text_dialog({'grok':'xAI 管理密钥（Management API Key）','qoder-api':'Qoder 组织 API Key（组织管理员在 设置 → 高级 → API 密钥 创建，仅团队版/企业版）'}.get(provider,service.label+' Key')+'\n只保存在本机仅你可读的文件中，不会显示或上传。'+note,hidden=True,title='添加 Key')
     if secret is None:return
     if not connections.KEY_FORMAT.fullmatch(secret):
         dialog_error('Key 格式无效','请粘贴完整的 API Key，不含空格或换行。');return

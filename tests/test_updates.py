@@ -358,7 +358,7 @@ class UpdateTests(unittest.TestCase):
    self.assertEqual(rows['claude']['href'],'file:///Applications/Claude.app')
    self.assertEqual(rows['workbuddy']['href'],'file:///Users/me/Applications/Work%20Buddy.app')
    self.assertEqual(rows['workbuddy']['status'],'在 App 内检查更新')
-   self.assertEqual((rows['qoder']['name'],rows['qoder']['href']),('Qoder CN','file:///Applications/QoderCN.app'))
+   self.assertEqual((rows['qoder']['name'],rows['qoder']['href']),('Qoder','file:///Applications/QoderCN.app'))
    self.assertTrue(rows['claude-code']['href'].startswith('https://'))
    self.assertEqual(rows['gemini']['status'],'在官网查看更新')
    entries=self.m.panel_entries(self.m.app_update_lines({'app_updates':{'apps':[dict(self.row(),status='有新版本')]}}))[0]['children']

@@ -28,7 +28,7 @@ SERVICES = (
     Service('gemini-subscription', 'Gemini', '订阅', 'https://gemini.google.com'),
     Service('grok-subscription', 'Grok', '订阅', 'https://grok.com'),
     Service('kimi-subscription', 'Kimi', '订阅', 'https://www.kimi.com'),
-    Service('qoder-subscription', 'Qoder CN', '订阅', 'https://qoder.cn/account/usage', capability='app-log'),
+    Service('qoder-subscription', 'Qoder', '订阅', 'https://qoder.cn/account/usage', capability='app-log'),
     Service('cursor-subscription', 'Cursor', '订阅', 'https://cursor.com/dashboard', capability='account-usage'),
     Service('chatgpt-api', 'ChatGPT', 'API', 'https://platform.openai.com/usage', 'OPENAI_API_KEY'),
     Service('claude-api', 'Claude', 'API', 'https://platform.claude.com/usage', 'ANTHROPIC_API_KEY', 'cost'),
@@ -37,7 +37,7 @@ SERVICES = (
     Service('gemini-api', 'Gemini', 'API', 'https://aistudio.google.com/usage', 'GEMINI_API_KEY'),
     Service('grok', 'Grok', 'API', 'https://console.x.ai', 'XAI_MANAGEMENT_API_KEY', 'balance'),
     Service('kimi-api', 'Kimi', 'API', 'https://platform.moonshot.cn/console/account', 'MOONSHOT_API_KEY', 'balance'),
-    Service('qoder-api', 'Qoder CN', 'API', 'https://qoder.cn/organizations', 'QODER_CN_API_KEY', 'balance'),
+    Service('qoder-api', 'Qoder', 'API', 'https://qoder.cn/organizations', 'QODER_CN_API_KEY', 'balance'),
 )
 BY_KEY = {s.key: s for s in SERVICES}
 MANUAL_SUBSCRIPTIONS = tuple(s.key for s in SERVICES if s.category == '订阅' and s.capability == 'portal')

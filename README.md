@@ -14,9 +14,9 @@ macOS 菜单栏与 Windows 托盘应用：在一个面板里查看各 AI 编程�
 
 ## 能看什么
 
-- **Harness 用量**：Claude（桌面 App 和 VS Code、JetBrains、终端里的 Claude Code）、ChatGPT（Codex）、OpenCodex、Magpie、OpenCode、DeepSeek Harness、WorkBuddy、Qoder CN、Gemini CLI、Cursor（桌面版和 Cursor CLI）。显示 Token、请求、缓存命中、模型分布和趋势图，并按模型官方价估算 API 等值费用；Qoder CN 套餐请求在本机只记 Credits、不记 Token，卡片按 Credits 显示。Cursor 不在本机记录 Token，要在它的侧栏勾选“读取 Cursor 用量记录”后，才用本机的 Cursor 登录向 cursor.com 查询本账户的用量记录；开启后“Cursor 订阅”也会显示本计费周期已用多少。范围可选今天、昨天、近 24 小时、近 7/30 天、本周、本月或全部。主页卡片可以切换按工具、按模型或按项目查看（项目取工作目录的文件夹名）；热力图在“全部”范围最多画一年，并写出连续使用天数。工具自己清理掉的旧记录（Claude Code 默认只留 30 天）仍会计入，可在“外观与设置”关闭。
-- **订阅**：ChatGPT、Claude、MiniMax、Cursor 显示已用百分比和重置时间，70% 起变橙、90% 起变红，侧栏还会写出比匀速多用还是少用；Qoder CN 读取 Qoder CN App 本机记录的 Credits 用量（在 App 右下角打开 Credits 用量时更新）；Gemini、Grok、Kimi 可以手动标记。ChatGPT、Claude、Cursor、Gemini 填上每月订阅价后，侧栏会写本月用量值订阅价的几倍（按 API 官方价估算）。
-- **API**：DeepSeek、Kimi、Grok 显示余额；Qoder CN 用组织 API Key（团队版/企业版）显示组织共享的加购 Credits 余额；Claude 显示本月花费（需要管理员 Key）；ChatGPT、Gemini 可以测试 Key 是否可用。每个 API 可以保存多把 Key（同一把不能重复添加），主页显示合计和 Key 数量，如“余额 ¥12.00 (3)”；同一组织或 Team 的多把 Key 只算一次。
+- **Harness 用量**：Claude（桌面 App 和 VS Code、JetBrains、终端里的 Claude Code）、ChatGPT（Codex）、OpenCodex、Magpie、OpenCode、DeepSeek Harness、WorkBuddy、Qoder（国内版 Qoder CN）、Gemini CLI、Cursor（桌面版和 Cursor CLI）。显示 Token、请求、缓存命中、模型分布和趋势图，并按模型官方价估算 API 等值费用；Qoder CN 套餐请求在本机只记 Credits、不记 Token，卡片按 Credits 显示。Cursor 不在本机记录 Token，要在它的侧栏勾选“读取 Cursor 用量记录”后，才用本机的 Cursor 登录向 cursor.com 查询本账户的用量记录；开启后“Cursor 订阅”也会显示本计费周期已用多少。范围可选今天、昨天、近 24 小时、近 7/30 天、本周、本月或全部。主页卡片可以切换按工具、按模型或按项目查看（项目取工作目录的文件夹名）；热力图在“全部”范围最多画一年，并写出连续使用天数。工具自己清理掉的旧记录（Claude Code 默认只留 30 天）仍会计入，可在“外观与设置”关闭。
+- **订阅**：ChatGPT、Claude、MiniMax、Cursor 显示已用百分比和重置时间，70% 起变橙、90% 起变红，侧栏还会写出比匀速多用还是少用；Qoder 读取 Qoder CN App 本机记录的 Credits 用量（在 App 右下角打开 Credits 用量时更新）；Gemini、Grok、Kimi 可以手动标记。ChatGPT、Claude、Cursor、Gemini 填上每月订阅价后，侧栏会写本月用量值订阅价的几倍（按 API 官方价估算）。
+- **API**：DeepSeek、Kimi、Grok 显示余额；Qoder 用组织 API Key（团队版/企业版）显示组织共享的加购 Credits 余额；Claude 显示本月花费（需要管理员 Key）；ChatGPT、Gemini 可以测试 Key 是否可用。每个 API 可以保存多把 Key（同一把不能重复添加），主页显示合计和 Key 数量，如“余额 ¥12.00 (3)”；同一组织或 Team 的多把 Key 只算一次。
 - **提醒**：订阅窗口用到 90%（可改为 70%、80% 或关闭）时发通知；余额类 API 可以按币种设置余额低于多少时提醒；可选在每周额度快重置却还没怎么用时提醒。
 - **Harness 更新**：已勾选客户端有新版本时提醒，Claude Code 和 Codex CLI 可一键在终端更新。
 - **其他**：Komari 服务器监控；分享按钮把当前用量生成一张图，可直接复制或发送；菜单栏星星旁可选显示今天的 API 估算或最紧张的订阅额度；当前范围的用量可导出成 CSV 或 JSON（都在“外观与设置”）；“活跃会话”列出正在运行或等待输入的 Claude Code 与 Codex 会话及上下文用量，每个会话可展开看最近几轮各用了多少 Token、费用和工具，可选在一轮完成时提醒；可选读取 Claude、OpenAI、Cursor 的官方状态页，服务出问题时标在卡片上（默认关）；API 等值估算可以改用人民币显示（每天按欧洲央行参考汇率换算，或填固定汇率）；点标题旁的图钉把面板钉在屏幕上，每 1–5 秒按本机日志刷新一次。
