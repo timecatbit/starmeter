@@ -496,8 +496,10 @@ class Provider(QWidget):
         if data['available'] and data.get('clients'):
             clients=label('客户端 · '+' · '.join(f"{c['name']} {share(c['share'])}" for c in data['clients']),'muted')
             clients.setWordWrap(True);body.addWidget(clients)
+        # A source with nothing to show yet says so once; no empty model list under it.
+        if not data['available']:return
         if not data['models']:
-            body.addWidget(label('此时段暂无模型调用' if data['available'] else '模型明细暂不可用','muted'));return
+            body.addWidget(label('此时段暂无模型调用','muted'));return
         color=COLORS.get(data.get('accent') or data['id'],'#437fc4')
         models=QGridLayout();models.setContentsMargins(0,5,0,0);models.setHorizontalSpacing(8);models.setVerticalSpacing(2)
         for i,model in enumerate(data['models']):

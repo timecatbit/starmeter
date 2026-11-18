@@ -1122,7 +1122,8 @@ final class DashboardView:FlippedView {
     }
     // The space under a card's last model row, before the next card's name.
     static let cardGap:CGFloat=8
-    static func sectionHeight(_ p:ProviderUsage)->CGFloat {52+clientHeight(p)+CGFloat(max(1,p.models.count))*18+cardGap}
+    // A source with nothing to show yet says so once, under its name, with no empty model list below.
+    static func sectionHeight(_ p:ProviderUsage)->CGFloat {p.available ? 52+clientHeight(p)+CGFloat(max(1,p.models.count))*18+cardGap : 44+cardGap}
     // A gateway's clients in one line, by their share of its tokens: "客户端 · ChatGPT 62% · Claude Code 30%".
     static func clientLine(_ p:ProviderUsage)->String? {
         guard p.available,let clients=p.clients,!clients.isEmpty else{return nil}
@@ -1393,7 +1394,8 @@ final class DashboardView:FlippedView {
     }
     private func drawModels(_ p:ProviderUsage,y:CGFloat,left:CGFloat,right:CGFloat,color c:NSColor){
         let width=right-left
-        if p.models.isEmpty{text(p.available ? "此时段暂无模型调用" : "模型明细暂不可用",x:left,y:y,w:width,size:10,color:.secondaryLabelColor)}
+        guard p.available else{return}
+        if p.models.isEmpty{text("此时段暂无模型调用",x:left,y:y,w:width,size:10,color:.secondaryLabelColor)}
         // Each model's share is a short rounded bar of its own beside the figures, not a rule across the card.
         let shareX=right-34,amountX=shareX-62,barX=amountX-48,mid=ToolMark.middle(of:.systemFont(ofSize:10.5),top:0)
         for (i,m) in p.models.enumerated(){
