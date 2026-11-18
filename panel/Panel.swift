@@ -99,6 +99,8 @@ struct Grouping:Decodable {var key:String;var label:String}
 struct Dashboard:Decodable {var date:String;var dates:[String];var providers:[ProviderUsage];var rangeKey:String;var rangeLabel:String;var chartUnit:String;var chartSpan:String;var period:[String]?;var chartStatus:String;var updated:String?;var chartPositions:[Double]?;var heatmap:UsageHeatmap?;var showSummary:Bool?;var allowCollapse:Bool?;var expandedProviders:[String]?
     // The Harness cards: one per tool, or regrouped by model or project. Summary, the chart and the share picture stay per tool.
     var grouping:String?;var groupings:[Grouping]?;var cards:[ProviderUsage]?
+    // How the regrouped cards count, when that differs from Summary (projects come from each client's own records).
+    var groupNote:String?
     var cardList:[ProviderUsage] {cards ?? providers}
     // Regrouped cards always show their rows; folding is per tool.
     var collapsible:Bool {allowCollapse==true && cards==nil}
@@ -1128,7 +1130,9 @@ final class DashboardView:FlippedView {
             if dirtyRect.intersects(NSRect(x:0,y:y,width:bounds.width,height:Self.heatmapHeight(data))){drawHeatmap(heatmap,left:left,right:right)}
             y+=Self.heatmapHeight(data)
         }
-        y+=Self.harnessHeaderHeight(data)+Self.groupingHeight(data)
+        y+=Self.harnessHeaderHeight(data)
+        if let note=data.groupNote,Self.groupingHeight(data)>0 {text(note,x:right-150,y:y+9,w:150,size:9,color:.tertiaryLabelColor,align:.right)}
+        y+=Self.groupingHeight(data)
         if data.cardList.isEmpty && !data.providers.isEmpty {text("此时段暂无调用",x:left,y:y+4,w:width,size:10.5,color:.secondaryLabelColor)}
         for p in data.cardList {
             let height=Self.providerHeight(p,data)

@@ -135,6 +135,13 @@ def metrics(model, inputs, output, cached=0, writes=0, cost=None):
             'cost': number(cost) if isinstance(cost, (int, float)) and math.isfinite(cost) and cost >= 0 else None}
 
 
+def project_name(path):
+    """A project's folder name, the last part of its working directory; only the name is kept, never the path."""
+    if not isinstance(path, str) or not path.strip():
+        return None
+    return re.split(r'[\\/]', path.strip().rstrip('/\\'))[-1] or None
+
+
 def codex_event(row, state):
     kind = row.get('type'); data = row.get('payload') or {}
     if kind == 'event_msg' and data.get('type') == 'thread_settings_applied':
@@ -145,7 +152,7 @@ def codex_event(row, state):
         return None
     if kind == 'session_meta':
         state.update(session=str(data.get('id') or data.get('session_id') or state['session']),
-                     provider=str(data.get('model_provider') or ''))
+                     provider=str(data.get('model_provider') or ''), project=project_name(data.get('cwd')))
     elif kind == 'turn_context':
         state['model'] = str(data.get('model') or state.get('model') or '未知模型')
     elif kind == 'event_msg' and data.get('type') == 'token_count':
@@ -167,7 +174,7 @@ def codex_event(row, state):
         if inputs + result['output'] <= 0:
             return None
         result.update(id=identity('codex', state['session'], total or [row['timestamp'],last]), session=identity(state['session']),
-                      timestamp=stamp(row['timestamp']), provider=state.get('provider', ''), tier=state.get('tier'))
+                      timestamp=stamp(row['timestamp']), provider=state.get('provider', ''), tier=state.get('tier'), project=state.get('project'))
         return result
     return None
 
@@ -320,7 +327,8 @@ def _stream(path):
 
 
 # A source's index version rises when what its events hold changes, so old indexes are rebuilt.
-INDEX_VERSIONS = {'magpie': 6}
+# Codex and Qoder CN went to 5 when their events learned the project they ran in.
+INDEX_VERSIONS = {'magpie': 6, 'codex': 5, 'qoder': 5}
 
 
 def jsonl_usage(source, root, cache, start, end, zone, exclude_proxy=False, carriers=None, price=None, archive=None):
@@ -542,7 +550,7 @@ def tally(events, zone, price=None):
     def empty():
         return dict(totalTokens=0, inputTokens=0, outputTokens=0, cachedInputTokens=0,
                     requests=0, estimatedCostUsd=0, unpricedRequests=0, credits=0)
-    summary = empty(); models = {}; days = {}; hours = {}; sessions = set(); first = None; clients = {}
+    summary = empty(); models = {}; projects = {}; days = {}; hours = {}; sessions = set(); first = None; clients = {}
     for event in events:
         ts = event['timestamp']
         i, o, r, w = [number(event.get(k)) for k in ('input', 'output', 'cached', 'writes')]
@@ -556,7 +564,7 @@ def tally(events, zone, price=None):
         first = ts if first is None else min(first, ts)
         day = datetime.fromtimestamp(ts, zone).date().isoformat()
         if event.get('session') is not None:sessions.add(event['session'])
-        for target in [summary, models.setdefault(event['model'], empty()), days.setdefault(day, empty()), hours.setdefault(int(ts//3600)*3600, empty())]:
+        for target in [summary, models.setdefault(event['model'], empty()), projects.setdefault(event.get('project') or '', empty()), days.setdefault(day, empty()), hours.setdefault(int(ts//3600)*3600, empty())]:
             target['totalTokens'] += i + o + r + w; target['inputTokens'] += i + r + w
             target['outputTokens'] += o; target['cachedInputTokens'] += r; target['requests'] += 1; target['credits'] += credits
             if 'cacheKnown' in event:
@@ -565,7 +573,7 @@ def tally(events, zone, price=None):
             else: target['estimatedCostUsd'] += cost
     summary['sessions'] = len(sessions)
     summary['coverageRatio'] = (summary['requests'] - summary['unpricedRequests']) / max(1, summary['requests'])
-    result = {'summary': summary, 'models': [dict(v, model=k) for k,v in models.items()],
+    result = {'summary': summary, 'models': [dict(v, model=k) for k,v in models.items()], 'projects': [dict(v, project=k) for k,v in projects.items()],
               'days': [dict(v, date=k) for k,v in sorted(days.items())],
               'hours': [dict(v, timestamp=k) for k,v in sorted(hours.items())],
               'firstActivityAt': first}
@@ -585,7 +593,9 @@ def opencode_usage(root, start, end, zone, exclude_proxy=False, carriers=None):
                 try:
                     data = json.loads(raw); usage = data.get('tokens') or {}; cached = usage.get('cache') or {}
                     event = metrics(data.get('modelID'), usage.get('input'), usage.get('output'), cached.get('read'), cached.get('write'), data.get('cost'))
-                    event.update(id=identity(key), session=identity(session), timestamp=created/1000, provider=data.get('providerID',''))
+                    folder = data.get('path') if isinstance(data.get('path'), dict) else {}
+                    event.update(id=identity(key), session=identity(session), timestamp=created/1000, provider=data.get('providerID',''),
+                                 project=project_name(folder.get('cwd') or folder.get('root')))
                     yield event
                 except (ValueError, TypeError, AttributeError): continue
         return aggregate(events(), start, end, zone, exclude_proxy, model_cost, carriers)
@@ -713,7 +723,7 @@ def qoder_event(row, state):
     if not response:
         return None
     # A streamed reply is rewritten under the same message ID; the newest copy in a file wins.
-    event.update(id=identity('qoder', session, response), session=identity(session), credits=credits, timestamp=when)
+    event.update(id=identity('qoder', session, response), session=identity(session), credits=credits, timestamp=when, project=project_name(row.get('cwd')))
     return event
 
 

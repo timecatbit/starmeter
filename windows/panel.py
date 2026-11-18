@@ -651,7 +651,9 @@ class TrayPanel(QWidget):
                 def choose(_=False,key=option['key']):
                     if key!=d.get('grouping','tool'):self.action.emit(['set-group',key]);QTimer.singleShot(0,self.flush_pending)
                 button.clicked.connect(choose);row.addWidget(button)
-            row.addStretch(1);box.addLayout(row)
+            row.addStretch(1)
+            if d.get('groupNote'):row.addWidget(label(d['groupNote'],'muted'))
+            box.addLayout(row)
         if cards is not None and not cards and d['providers']:box.addWidget(label('此时段暂无调用','muted'))
         # Cards are kept apart by space, as on macOS; only the groups below get a rule.
         for p in (d['providers'] if cards is None else cards):

@@ -2,7 +2,8 @@
 
 Response deduplication, advisor records and cache-duration accounting are adapted
 from ccusage (MIT), commit 615bd802. See CCUSAGE_LICENSE. This collector never
-reads credentials and never persists message text, paths or raw response IDs.
+reads credentials and never persists message text, paths or raw response IDs; of a
+project it keeps only the folder name.
 """
 import hashlib
 import json
@@ -34,6 +35,12 @@ def normalize(usage):
     else:w5,w1=counter(usage.get('cache_creation_input_tokens')),0
     return [counter(usage.get('input_tokens')),counter(usage.get('output_tokens')),
             w5,w1,counter(usage.get('cache_read_input_tokens'))]
+
+
+def project_name(path):
+    """The folder a request ran in, by its last name only."""
+    if not isinstance(path,str) or not path.strip():return None
+    return path.strip().rstrip('/\\').replace('\\','/').rsplit('/',1)[-1] or None
 
 
 def records(row,session_fallback,location):
@@ -73,7 +80,7 @@ def records(row,session_fallback,location):
                        'speed':counts.get('speed') if isinstance(counts.get('speed'),str) else None,
                        'geo':counts.get('inference_geo') if isinstance(counts.get('inference_geo'),str) else 'global',
                        'tier':counts.get('service_tier') if isinstance(counts.get('service_tier'),str) else 'standard',
-                       'slot':slot})
+                       'slot':slot,'project':project_name(row.get('cwd'))})
     return output
 
 
@@ -100,13 +107,13 @@ def deduplicate(events):
     return output
 
 
-COLUMNS='key,message,request,session,ts,model,i,o,w5,w1,r,cost,sidechain,speed,geo,tier'
+COLUMNS='key,message,request,session,ts,model,i,o,w5,w1,r,cost,sidechain,speed,geo,tier,project'
 
 
 def stored_event(row):
-    key,message,request,session,ts,model,i,o,w5,w1,r,cost,sidechain,speed,geo,tier=row
+    key,message,request,session,ts,model,i,o,w5,w1,r,cost,sidechain,speed,geo,tier,project=row
     return {'key':key,'message':message,'request':request,'session':session,'ts':ts,'model':model,
-            'metrics':[i,o,w5,w1,r],'cost':cost,'sidechain':bool(sidechain),'speed':speed,'geo':geo,'tier':tier}
+            'metrics':[i,o,w5,w1,r],'cost':cost,'sidechain':bool(sidechain),'speed':speed,'geo':geo,'tier':tier,'project':project}
 
 
 def isolated(conn,added,allowed):
@@ -122,8 +129,8 @@ def isolated(conn,added,allowed):
 
 
 def store_canonical(conn,rows,first=0):
-    conn.executemany('INSERT INTO canonical VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
-        ((first+index,row['ts'],row['model'],*row['metrics'],row['cost'],row['speed'],row['geo'],row['tier'],row['session']) for index,row in enumerate(rows)))
+    conn.executemany('INSERT INTO canonical VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        ((first+index,row['ts'],row['model'],*row['metrics'],row['cost'],row['speed'],row['geo'],row['tier'],row['session'],row.get('project')) for index,row in enumerate(rows)))
 
 
 def read_events(files,db_path,allowed_sessions=None,start=0,end=float('inf'),archive=None):
@@ -136,17 +143,19 @@ def read_events(files,db_path,allowed_sessions=None,start=0,end=float('inf'),arc
     try:
         conn.executescript('''CREATE TABLE IF NOT EXISTS files(path BLOB PRIMARY KEY,inode INTEGER,size INTEGER,mtime INTEGER,offset INTEGER);
           CREATE TABLE IF NOT EXISTS records(file BLOB,offset INTEGER,slot INTEGER,key BLOB,message BLOB,request BLOB,session BLOB,ts REAL,model TEXT,
-            i INTEGER,o INTEGER,w5 INTEGER,w1 INTEGER,r INTEGER,cost REAL,sidechain INTEGER,speed TEXT,geo TEXT,tier TEXT,PRIMARY KEY(file,offset,slot));
+            i INTEGER,o INTEGER,w5 INTEGER,w1 INTEGER,r INTEGER,cost REAL,sidechain INTEGER,speed TEXT,geo TEXT,tier TEXT,project TEXT,PRIMARY KEY(file,offset,slot));
           CREATE INDEX IF NOT EXISTS records_key ON records(key);
           CREATE INDEX IF NOT EXISTS records_route ON records(message,session);
           CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT);
-          CREATE TABLE IF NOT EXISTS canonical(id INTEGER PRIMARY KEY,ts REAL,model TEXT,i INTEGER,o INTEGER,w5 INTEGER,w1 INTEGER,r INTEGER,cost REAL,speed TEXT,geo TEXT,tier TEXT,session BLOB);
+          CREATE TABLE IF NOT EXISTS canonical(id INTEGER PRIMARY KEY,ts REAL,model TEXT,i INTEGER,o INTEGER,w5 INTEGER,w1 INTEGER,r INTEGER,cost REAL,speed TEXT,geo TEXT,tier TEXT,session BLOB,project TEXT);
           CREATE INDEX IF NOT EXISTS canonical_ts ON canonical(ts);''')
         if archive:
             Path(archive).parent.mkdir(parents=True,exist_ok=True,mode=0o700)
             conn.execute('ATTACH DATABASE ? AS kept',(str(archive),))
             conn.execute('''CREATE TABLE IF NOT EXISTS kept.records(file BLOB,offset INTEGER,slot INTEGER,key BLOB,message BLOB,request BLOB,session BLOB,ts REAL,model TEXT,
-              i INTEGER,o INTEGER,w5 INTEGER,w1 INTEGER,r INTEGER,cost REAL,sidechain INTEGER,speed TEXT,geo TEXT,tier TEXT,PRIMARY KEY(file,offset,slot))''')
+              i INTEGER,o INTEGER,w5 INTEGER,w1 INTEGER,r INTEGER,cost REAL,sidechain INTEGER,speed TEXT,geo TEXT,tier TEXT,project TEXT,PRIMARY KEY(file,offset,slot))''')
+            # Archives written before records knew their project gain the column, empty for what they hold.
+            if 'project' not in [row[1] for row in conn.execute('PRAGMA kept.table_info(records)')]:conn.execute('ALTER TABLE kept.records ADD COLUMN project TEXT')
             os.chmod(archive,0o600)
             # A transcript that comes back reads as itself again.
             conn.execute('CREATE TEMP VIEW everything AS SELECT * FROM main.records UNION ALL SELECT * FROM kept.records WHERE file NOT IN (SELECT path FROM main.files)')
@@ -183,9 +192,9 @@ def read_events(files,db_path,allowed_sessions=None,start=0,end=float('inf'),arc
                             if b'"usage"' not in line or b'"assistant"' not in line:continue
                             try:
                                 for event in records(json.loads(line),fallback,(key.hex(),position)):
-                                    conn.execute('INSERT OR REPLACE INTO records VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                                    conn.execute('INSERT OR REPLACE INTO records VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                                                  (key,position,event['slot'],event['key'],event['message'],event['request'],event['session'],event['ts'],event['model'],
-                                                  *event['metrics'],event['cost'],int(event['sidechain']),event['speed'],event['geo'],event['tier']))
+                                                  *event['metrics'],event['cost'],int(event['sidechain']),event['speed'],event['geo'],event['tier'],event['project']))
                                     added.append(dict(event,file=key,offset=position))
                             except (ValueError,TypeError,OverflowError):continue
                         offset=handle.tell()
@@ -215,9 +224,9 @@ def read_events(files,db_path,allowed_sessions=None,start=0,end=float('inf'),arc
         elif added:
             store_canonical(conn,deduplicate(added),conn.execute('SELECT COALESCE(MAX(id)+1,0) FROM canonical').fetchone()[0])
         conn.commit()
-        events=[{'ts':ts,'model':model,'metrics':[i,o,w5,w1,r],'cost':cost,'speed':speed,'geo':geo,'tier':tier,'session':session}
-                for ts,model,i,o,w5,w1,r,cost,speed,geo,tier,session in conn.execute(
-                    'SELECT ts,model,i,o,w5,w1,r,cost,speed,geo,tier,session FROM canonical WHERE ts>=? AND ts<=?',(start,end))]
+        events=[{'ts':ts,'model':model,'metrics':[i,o,w5,w1,r],'cost':cost,'speed':speed,'geo':geo,'tier':tier,'session':session,'project':project}
+                for ts,model,i,o,w5,w1,r,cost,speed,geo,tier,session,project in conn.execute(
+                    'SELECT ts,model,i,o,w5,w1,r,cost,speed,geo,tier,session,project FROM canonical WHERE ts>=? AND ts<=?',(start,end))]
         return events,failures
     except BaseException:
         # Python 3.11+ no longer resets open cursors on close, so an interrupted reindex would

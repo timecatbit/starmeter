@@ -977,11 +977,11 @@ def claude_usage_records(root, db_path=None, now=None, range_key="today", files=
     if files is None and not root.is_dir():return None,(0,'未找到 Claude 用量记录',None)
     now=now or datetime.now(local_zone());zone=now.tzinfo
     start,end=range_bounds(range_key,now)
-    db_path=db_path or os.path.join(CACHE_DIR,'claude-app-usage-v3-'+hashlib.sha256(str(root.resolve()).encode()).hexdigest()[:12]+'.sqlite3')
+    db_path=db_path or os.path.join(CACHE_DIR,'claude-app-usage-v4-'+hashlib.sha256(str(root.resolve()).encode()).hexdigest()[:12]+'.sqlite3')
     events,failures=claude_records.read_events(files if files is not None else root.rglob('*.jsonl'),db_path,allowed_sessions,start,end,archive)
     events=[row for row in events if start<=row['ts']<=end]
     def tally(rows):
-        days={};hours={};models={};sessions=set();first_activity=None
+        days={};hours={};models={};projects={};sessions=set();first_activity=None
         def empty():return dict(totalTokens=0,inputTokens=0,outputTokens=0,cacheReadInputTokens=0,cacheCreationInputTokens=0,requests=0,estimatedCostUsd=0,unpricedRequests=0,recordedCostRequests=0)
         summary=empty()
         for row in rows:
@@ -990,7 +990,7 @@ def claude_usage_records(root, db_path=None, now=None, range_key="today", files=
             cost=row['cost'] if row['cost'] is not None else claude_price(model,row['metrics'],row['speed'] or 'standard',row['geo'],row['tier'])
             first_activity=stamp if first_activity is None else min(first_activity,stamp)
             day=datetime.fromtimestamp(stamp,zone).date().isoformat();sessions.add(row['session'])
-            targets=[summary,models.setdefault(model,empty()),days.setdefault(day,empty())]
+            targets=[summary,models.setdefault(model,empty()),projects.setdefault(row.get('project') or '',empty()),days.setdefault(day,empty())]
             if range_key in HOURLY_RANGES:targets.append(hours.setdefault(int(stamp//3600)*3600,empty()))
             for target in targets:
                 target['totalTokens']+=i+o+w5+w1+r;target['inputTokens']+=i+w5+w1+r
@@ -999,7 +999,7 @@ def claude_usage_records(root, db_path=None, now=None, range_key="today", files=
                 else:target['estimatedCostUsd']+=cost
                 if row['cost'] is not None:target['recordedCostRequests']+=1
         summary['sessions']=len(sessions);summary['coverageRatio']=(summary['requests']-summary['unpricedRequests'])/max(1,summary['requests'])
-        return {'summary':summary,'models':[dict(v,model=k) for k,v in models.items()],
+        return {'summary':summary,'models':[dict(v,model=k) for k,v in models.items()],'projects':[dict(v,project=k) for k,v in projects.items()],
                 'days':[dict(v,date=k) for k,v in sorted(days.items())],
                 'hours':[dict(v,timestamp=k) for k,v in sorted(hours.items())],
                 'firstActivityAt':first_activity}
@@ -2313,9 +2313,9 @@ def background_refresh(wait=False):
 
 
 # Index generations in use; older generations, removed snapshots and stray temp files are dropped.
-CURRENT_INDEXES = ('claude-app-usage-v3-', 'harness-v4-', 'harness-v6-magpie-', 'harness-gemini-v2-', 'harness-gateway-v2-')
+CURRENT_INDEXES = ('claude-app-usage-v4-', 'harness-v4-', 'harness-v5-codex-', 'harness-v5-qoder-', 'harness-v6-magpie-', 'harness-gemini-v2-', 'harness-gateway-v2-')
 # Indexes a source outgrew, under a prefix the current ones still match.
-RETIRED_INDEXES = ('harness-v4-magpie-',)
+RETIRED_INDEXES = ('harness-v4-magpie-', 'harness-v4-codex-', 'harness-v4-qoder-')
 INDEX_FILE = re.compile(r'(?:claude-app-usage|claude-usage|harness)-.+\.sqlite3(?:-journal|-wal|-shm)?')
 RETIRED_CACHES = ('startup.json', 'usage_today.json', 'usage_7d.json', *('cursor_usage_%s.json' % key for key in RANGES))
 
@@ -3393,7 +3393,9 @@ def add_usage(parts):
 
 
 # The homepage's Harness cards can be grouped another way than one per tool.
-GROUPINGS={'tool':'工具','model':'模型'}
+GROUPINGS={'tool':'工具','model':'模型','project':'项目'}
+# Gateways don't know which project a request came from; the clients behind them do.
+GATEWAYS=('opencodex','magpie')
 # Whose mark and colour a model's card takes: the tool or brand its name starts with.
 MODEL_MAKERS=(('claude','claude'),('gpt','codex'),('chatgpt','codex'),('codex','codex'),('o1','codex'),('o3','codex'),('o4','codex'),
               ('gemini','gemini'),('deepseek','deepseek-harness'),('kimi','kimi-api'),('moonshot','kimi-api'),('grok','grok'),
@@ -3409,39 +3411,79 @@ def model_title(key):
     match=re.match(r'claude-(opus|sonnet|haiku|fable)-(.+)$',key)
     return 'Claude '+match.group(1).capitalize()+' '+match.group(2).replace('-','.') if match else key
 
+GROUP_FIELDS=('tokens','cost','requests','unpriced','output','credits','cached','inputs')
+# Past this many, the smallest model or project cards fold into one, so the homepage stays short.
+GROUP_CARDS=9
+
+def group_add(groups, key, tool, row):
+    """Add one model or project row of a tool to its group."""
+    def num(name):
+        try:return max(0.0,float(row.get(name) or 0))
+        except (TypeError,ValueError):return 0.0
+    g=groups.setdefault(key,dict({field:0.0 for field in GROUP_FIELDS},tools={}))
+    tokens=num('totalTokens')
+    for field,value in (('tokens',tokens),('cost',num('estimatedCostUsd')),('requests',num('requests')),('unpriced',num('unpricedRequests')),
+                        ('output',num('outputTokens')),('credits',num('credits')),('cached',num('cacheReadInputTokens') or num('cachedInputTokens')),
+                        ('inputs',num('cacheEligibleInputTokens') if 'cacheEligibleInputTokens' in row else num('inputTokens'))):g[field]+=value
+    g['tools'][tool]=g['tools'].get(tool,0.0)+(tokens or num('credits'))
+
+def group_merge(parts):
+    total=dict({field:0.0 for field in GROUP_FIELDS},tools={})
+    for g in parts:
+        for field in GROUP_FIELDS:total[field]+=g[field]
+        for tool,amount in g['tools'].items():total['tools'][tool]=total['tools'].get(tool,0.0)+amount
+    return total
+
+def group_card(card_id, name, mark, accent, g):
+    """A model or project card in the shape of a tool's, with the tools that make it up as its rows."""
+    weight=sum(g['tools'].values()) or 1;requests=int(g['requests']);unpriced=int(g['unpriced'])
+    tools=[{'name':tool[1] if isinstance(tool,tuple) else tool,'tokens':amount if g['tokens'] else 0,'share':min(1,amount/weight),**({'credits':amount} if not g['tokens'] else {})}
+           for tool,amount in sorted(g['tools'].items(),key=lambda item:-item[1])[:3]]
+    priced=requests>unpriced
+    return {'id':card_id,'name':name,**mark,'accent':accent,'subtitle':'','status':'已同步' if priced or g['credits'] else '费用待定价','available':True,
+            'credits':g['credits'] or None,'clients':None,'cost':g['cost'] if priced else None,'tokens':g['tokens'],'requests':requests,'output':g['output'],
+            'cache':min(1,g['cached']/g['inputs']) if g['inputs'] else None,'coverage':None,'sessions':0,'unpriced':unpriced,
+            'models':tools,'history':[],'summaryIncluded':False,
+            'priceNote':'%d 次未定价'%unpriced if 0<unpriced<requests and not g['credits'] else None}
+
+def ranked_groups(groups):
+    """Groups with requests, the costliest first; past GROUP_CARDS the rest come back merged, with how many."""
+    order=sorted((k for k,g in groups.items() if g['requests']),key=lambda k:(-groups[k]['cost'],-groups[k]['tokens'],-groups[k]['credits']))
+    rest=order[GROUP_CARDS:] if len(order)>GROUP_CARDS+1 else []
+    return [(k,groups[k]) for k in order[:len(order)-len(rest)]],(group_merge(groups[k] for k in rest) if rest else None),len(rest)
+
 def model_cards(selected, counting):
     """One card per model across every tool, as Summary counts: a request a gateway also logged counts once.
     Under each card, the tools that used the model by their share of its tokens."""
     groups={}
-    def num(value):
-        try:return max(0.0,float(value or 0))
-        except (TypeError,ValueError):return 0.0
     for source,label,_ in selected:
         usage=counting[source]['usage']
         if not usage or usage.get('error'):continue
-        for row in usage.get('models') or []:
-            key=model_key(row.get('model'));g=groups.setdefault(key,{'tools':{},'tokens':0.0,'cost':0.0,'requests':0,'unpriced':0,'output':0.0,'credits':0.0,'cached':0.0,'inputs':0.0})
-            tokens=num(row.get('totalTokens'));g['tokens']+=tokens;g['cost']+=num(row.get('estimatedCostUsd'))
-            g['requests']+=int(num(row.get('requests')));g['unpriced']+=int(num(row.get('unpricedRequests')));g['output']+=num(row.get('outputTokens'))
-            g['credits']+=num(row.get('credits'));g['cached']+=num(row.get('cacheReadInputTokens') or row.get('cachedInputTokens'))
-            g['inputs']+=num(row.get('cacheEligibleInputTokens',row.get('inputTokens')))
-            g['tools'][label]=g['tools'].get(label,0.0)+(tokens or num(row.get('credits')))
-    cards=[]
-    for key,g in groups.items():
-        if not g['requests']:continue
+        for row in usage.get('models') or []:group_add(groups,model_key(row.get('model')),label,row)
+    shown,rest,count=ranked_groups(groups);cards=[]
+    for key,g in shown:
         maker=next((tool for prefix,tool in MODEL_MAKERS if key.startswith(prefix)),None)
-        weight=sum(g['tools'].values()) or 1
-        tools=[{'name':name,'tokens':amount if g['tokens'] else 0,'share':min(1,amount/weight),**({'credits':amount} if not g['tokens'] else {})}
-               for name,amount in sorted(g['tools'].items(),key=lambda item:-item[1])[:3]]
-        priced=g['requests']>g['unpriced']
-        cards.append({'id':'model:'+key,'name':model_title(key),**(module_icon(maker) if maker else {'symbol':'cpu'}),'accent':maker,
-                      'subtitle':'','status':'已同步','available':True,'credits':g['credits'] or None,'clients':None,
-                      'cost':g['cost'] if priced else None,'tokens':g['tokens'],'requests':g['requests'],'output':g['output'],
-                      'cache':min(1,g['cached']/g['inputs']) if g['inputs'] else None,'coverage':None,'sessions':0,'unpriced':g['unpriced'],
-                      'models':tools,'history':[],'summaryIncluded':False,
-                      'priceNote':'%d 次未定价'%g['unpriced'] if 0<g['unpriced']<g['requests'] and not g['credits'] else None,
-                      **({'status':'费用待定价'} if not priced and not g['credits'] else {})})
-    return sorted(cards,key=lambda c:(-(c['cost'] or 0),-c['tokens'],-(c['credits'] or 0)))
+        cards.append(group_card('model:'+key,model_title(key),module_icon(maker) if maker else {'symbol':'cpu'},maker,g))
+    if rest:cards.append(group_card('model:','其他 %d 个模型'%count,{'symbol':'ellipsis.circle'},None,rest))
+    return cards
+
+
+def project_cards(selected):
+    """One card per project across the clients that record where they ran, from each client's own records:
+    gateways don't know the project, so a request that passed one counts here from its client. Requests
+    whose tool keeps no project go to 未标注项目, last."""
+    groups={}
+    for source,label,usage in selected:
+        if source in GATEWAYS or not usage.get('summary') or usage.get('error'):continue
+        # A tool that keeps no project lands in 未标注项目 whole.
+        for row in usage.get('projects') or [dict(usage['summary'],project='')]:group_add(groups,str(row.get('project') or ''),(source,label),row)
+    unmarked=groups.pop('',None)
+    shown,rest,count=ranked_groups(groups)
+    def lead(g):return max(g['tools'].items(),key=lambda item:item[1])[0][0]
+    cards=[group_card('project:'+key,key,{'symbol':'folder'},lead(g),g) for key,g in shown]
+    if rest:cards.append(group_card('project:*','其他 %d 个项目'%count,{'symbol':'ellipsis.circle'},lead(rest),rest))
+    if unmarked and unmarked['requests']:cards.append(group_card('project:','未标注项目',{'symbol':'questionmark.folder'},lead(unmarked),unmarked))
+    return cards
 
 
 def summary_usage(selected):
@@ -3660,9 +3702,10 @@ def dashboard_payload(data):
         read=datetime.fromtimestamp(min(reads),now.tzinfo)
         updated='更新时间：'+read.strftime('%H:%M' if read.date()==now.date() else '%m/%d %H:%M')
     grouping=view_settings()['groupBy'] if view_settings()['groupBy'] in GROUPINGS else 'tool'
-    cards=model_cards(selected,counting) if grouping=='model' and bundle else None
+    cards=(model_cards(selected,counting) if grouping=='model' else project_cards(selected) if grouping=='project' else None) if bundle else None
     return {'date':now.date().isoformat(),'dates':labels,'providers':providers,'rangeKey':key,'rangeLabel':RANGES[key],
             'grouping':grouping,'groupings':[{'key':k,'label':v} for k,v in GROUPINGS.items()],'cards':cards,
+            'groupNote':'按客户端自己的记录' if grouping=='project' and cards is not None else None,
             'chartUnit':unit,'chartSpan':span,'period':period,'chartStatus':chart_status,'updated':updated,'chartPositions':chart_positions,
             'heatmap':heatmap_payload(bundle,key,now,selected,data.get('range_usage_error')) if module_enabled('heatmap') and selected else None,
             'showSummary':module_enabled('summary'),'allowCollapse':view_settings()['allowCollapse'],'expandedProviders':view_settings()['expandedProviders']}

@@ -47,6 +47,55 @@ class GroupingTests(unittest.TestCase):
         card = self.m.model_cards(selected, self.m.summary_usage(selected))[0]
         self.assertIsNone(card['cost']); self.assertEqual(card['status'], '费用待定价'); self.assertEqual(card['symbol'], 'cpu')
 
+    def test_one_card_per_project_from_the_clients_own_records(self):
+        claude = usage([('claude-opus-5-5', 100, 1.0, 2)], projects=[{'project': 'starmeter', 'totalTokens': 60, 'estimatedCostUsd': 0.6, 'requests': 1},
+                                                                     {'project': 'notes', 'totalTokens': 40, 'estimatedCostUsd': 0.4, 'requests': 1}])
+        codex = usage([('gpt-6.2-sol', 30, 2.0, 1)], projects=[{'project': 'starmeter', 'totalTokens': 30, 'estimatedCostUsd': 2.0, 'requests': 1}])
+        gemini = usage([('gemini-3-pro', 5, 0.1, 1)])
+        magpie = usage([('claude-opus-5-5', 50, 0.5, 1)])
+        cards = self.m.project_cards([('magpie', 'Magpie', magpie), ('claude', 'Claude', claude), ('codex', 'ChatGPT', codex), ('gemini', 'Gemini CLI', gemini)])
+        self.assertEqual([c['name'] for c in cards], ['starmeter', 'notes', '未标注项目'], 'Gateways are left out; tools without projects go last')
+        star = cards[0]
+        self.assertEqual((star['tokens'], star['requests'], star['cost']), (90, 2, 2.6))
+        self.assertEqual([t['name'] for t in star['models']], ['Claude', 'ChatGPT']); self.assertEqual(star['accent'], 'claude')
+        self.assertEqual(star['symbol'], 'folder'); self.assertEqual(cards[2]['models'][0]['name'], 'Gemini CLI')
+
+    def test_past_nine_the_smallest_fold_into_one_card(self):
+        projects=[{'project':'p%02d'%i,'totalTokens':100-i,'estimatedCostUsd':(100-i)/100,'requests':1} for i in range(12)]
+        claude=usage([('claude-opus-5-5',1,1.0,12)],projects=projects)
+        cards=self.m.project_cards([('claude','Claude',claude)])
+        self.assertEqual([c['name'] for c in cards][-2:],['p08','其他 3 个项目']);self.assertEqual(len(cards),10)
+        self.assertEqual((cards[-1]['requests'],cards[-1]['tokens']),(3,270))
+        ten=self.m.project_cards([('claude','Claude',usage([('m',1,1.0,10)],projects=projects[:10]))])
+        self.assertEqual(len(ten),10,'Ten fit as they are: folding one card into "其他" saves nothing')
+
+    def test_readers_keep_only_the_project_folder_name(self):
+        import json
+        import swiftbar_sources as sources
+        from datetime import timezone
+        root = Path(self.temp.name) / 'codex'; root.mkdir()
+        usage_counts = {'total_tokens': 50, 'input_tokens': 40, 'cached_input_tokens': 0, 'output_tokens': 10}
+        rows = [{'type': 'session_meta', 'payload': {'id': 's', 'cwd': '/Users/someone/Code/starmeter/'}}, {'type': 'turn_context', 'payload': {'model': 'gpt-6.2-sol'}},
+                {'type': 'event_msg', 'timestamp': 100, 'payload': {'type': 'token_count', 'info': {'total_token_usage': usage_counts, 'last_token_usage': usage_counts}}}]
+        (root / 'a.jsonl').write_text(''.join(json.dumps(row) + '\n' for row in rows))
+        result = sources.jsonl_usage('codex', root, Path(self.temp.name) / 'cache', 0, 1e9, timezone.utc)
+        self.assertEqual([(r['project'], r['requests']) for r in result['projects']], [('starmeter', 1)])
+        for db in (Path(self.temp.name) / 'cache').glob('*.sqlite3'):self.assertNotIn(b'/Users/someone', db.read_bytes())
+        self.assertEqual(sources.project_name('C:\\Users\\me\\proj'), 'proj'); self.assertIsNone(sources.project_name(''))
+
+    def test_claude_records_keep_their_project(self):
+        import json
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        root = Path(self.temp.name) / 'projects'; root.mkdir()
+        def row(id, cwd):
+            return {'type': 'assistant', 'timestamp': '2026-11-04T01:00:00Z', 'sessionId': 's', 'requestId': 'r' + id, 'cwd': cwd,
+                    'message': {'id': id, 'model': 'claude-opus-5-5', 'usage': {'input_tokens': 10, 'output_tokens': 2}}}
+        (root / 'a.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in (row('m1', '/Users/someone/Code/starmeter'), row('m2', None))))
+        result = self.m.claude_usage_records(root, str(Path(self.temp.name) / 'c.db'), datetime(2026, 11, 4, 12, tzinfo=ZoneInfo('Asia/Taipei')), 'today')[0]
+        self.assertEqual(sorted((r['project'], r['requests']) for r in result['projects']), [('', 1), ('starmeter', 1)])
+        self.assertNotIn(b'/Users/someone', (Path(self.temp.name) / 'c.db').read_bytes())
+
     def test_the_choice_is_saved_and_always_allowed(self):
         self.assertEqual(preferences.read(self.m.STATE_DIR)['groupBy'], 'tool')
         self.m.run_action('set-group', ['model'])
