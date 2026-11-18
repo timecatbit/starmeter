@@ -1096,9 +1096,9 @@ final class DashboardView:FlippedView {
     static func heatmapCaption(_ h:UsageHeatmap,pointed:Int?)->String? {pointed.map{h.detail($0)} ?? h.note}
     static func heading(_ d:Dashboard)->String {d.showSummary==false ? "Harness 用量" : "Summary"}
     // The heading ends clear of the buttons beside it; the leftmost one (自动检测) starts 209pt from the right.
-    static func headingWidth(_ width:CGFloat)->CGFloat {width-209-18}
+    // The heading ends 6pt before the leftmost header button (the pin, 233pt from the right).
+    static func headingWidth(_ width:CGFloat)->CGFloat {width-233-18}
     // The pin sits right after the heading, small and borderless, and still ends before 自动检测.
-    static func pinX(_ d:Dashboard)->CGFloat {12+min(headingWidth(344),ceil((heading(d) as NSString).size(withAttributes:[.font:NSFont.systemFont(ofSize:14,weight:.semibold)]).width))+4}
     init(_ data:Dashboard,width:CGFloat){
         self.data=data;Currency.unit=data.currency
         heatmapGeometry=Self.heatmapLayout(data);heatmapColumn=Self.labelColumn(data);heatmapLevels=data.heatmap?.levels ?? []
@@ -2040,8 +2040,7 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
     private func showPin(){
         guard let pin=pinButton else{return}
         let interval=Int(snapshot?.pinInterval ?? 2)
-        pin.image=NSImage(systemSymbolName:pinned ? "pin.fill" : "pin",accessibilityDescription:nil)?.withSymbolConfiguration(.init(pointSize:11,weight:.medium))
-        pin.contentTintColor=pinned ? .controlAccentColor : .tertiaryLabelColor
+        pin.image=NSImage(systemSymbolName:pinned ? "pin.fill" : "pin",accessibilityDescription:nil)?.withSymbolConfiguration(.init(pointSize:11,weight:.semibold))
         pin.hint=pinned ? "取消钉住" : "钉住，每 \(interval) 秒刷新";pin.setAccessibilityLabel(pinned ? "取消钉住面板" : "钉住面板")
     }
     private func scheduleLive(){
@@ -2211,28 +2210,29 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
             // which showed two checks while the previous range stays on screen.
             (picker.cell as? NSPopUpButtonCell)?.altersStateOfSelectedItem=false
             // Refresh leaves the button and current data in place; duplicate actions are coalesced.
-            let refresh=HintButton(frame:NSRect(x:inner-145,y:7.5,width:28,height:25))
+            let refresh=HintButton(frame:NSRect(x:inner-143,y:7.5,width:27,height:25))
             refresh.bezelStyle = .rounded;refresh.controlSize = .small;refresh.title=""
             refresh.image=NSImage(systemSymbolName:"arrow.clockwise",accessibilityDescription:"刷新数据")?.withSymbolConfiguration(.init(pointSize:11,weight:.semibold));refresh.imagePosition = .imageOnly
             refresh.contentTintColor = .labelColor;refresh.hint="刷新数据";refresh.hovered={[weak self] in self?.hoverHint($0,$1)};refresh.setAccessibilityLabel("刷新数据")
             refresh.target=self;refresh.action=#selector(refreshData)
             content.addSubview(refresh)
-            let share=HintButton(frame:NSRect(x:inner-177,y:7.5,width:28,height:25))
+            let share=HintButton(frame:NSRect(x:inner-173,y:7.5,width:27,height:25))
             share.bezelStyle = .rounded;share.controlSize = .small;share.title=""
             share.image=NSImage(systemSymbolName:"square.and.arrow.up",accessibilityDescription:"分享用量图")?.withSymbolConfiguration(.init(pointSize:11,weight:.semibold));share.imagePosition = .imageOnly
             share.contentTintColor = .labelColor;share.hint="分享用量图";share.hovered={[weak self] in self?.hoverHint($0,$1)};share.setAccessibilityLabel("分享用量图")
             share.target=self;share.action=#selector(shareDashboard(_:));content.addSubview(share);shareButton=share
             // Auto-detect is a rarely used setup action, so it is a plain icon like its neighbours; the
             // hover hint and accessibility label name it, and it always asks before changing anything.
-            let detect=HintButton(frame:NSRect(x:inner-209,y:7.5,width:28,height:25))
+            let detect=HintButton(frame:NSRect(x:inner-203,y:7.5,width:27,height:25))
             detect.bezelStyle = .rounded;detect.controlSize = .small;detect.title=""
             detect.image=NSImage(systemSymbolName:"sparkle.magnifyingglass",accessibilityDescription:"自动检测")?.withSymbolConfiguration(.init(pointSize:11,weight:.semibold));detect.imagePosition = .imageOnly
             detect.contentTintColor = .labelColor;detect.setAccessibilityLabel("自动检测")
             detect.hint="自动检测";detect.hovered={[weak self] in self?.hoverHint($0,$1)}
             detect.target=self;detect.action=#selector(detectModules);content.addSubview(detect);detectButton=detect
-            // Pinned, the panel stays open and re-reads the range on screen every few seconds.
-            let pin=HintButton(frame:NSRect(x:DashboardView.pinX(dashboard),y:9,width:20,height:20))
-            pin.isBordered=false;pin.title="";pin.imagePosition = .imageOnly
+            // Pinned, the panel stays open and re-reads the range on screen every few seconds. Same button as
+            // its neighbours; the filled pin alone says it is on.
+            let pin=HintButton(frame:NSRect(x:inner-233,y:7.5,width:27,height:25))
+            pin.bezelStyle = .rounded;pin.controlSize = .small;pin.title="";pin.imagePosition = .imageOnly;pin.contentTintColor = .labelColor
             pin.hovered={[weak self] in self?.hoverHint($0,$1)};pin.target=self;pin.action=#selector(togglePin)
             content.addSubview(pin);pinButton=pin;showPin()
             if pinned,liveTimer?.timeInterval != (snapshot.pinInterval ?? 2){scheduleLive()}
@@ -2476,7 +2476,7 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
                     .withSymbolConfiguration(base.applying(.init(paletteColors:[colour])))
             } else {share.image=NSImage(systemSymbolName:"square.and.arrow.up",accessibilityDescription:"分享用量图")?.withSymbolConfiguration(base)}
         }
-        guard let current,let surface=panel.contentView as? Surface,let detect=detectButton,let row=detect.superview else{return}
+        guard let current,let surface=panel.contentView as? Surface,let detect=pinButton ?? detectButton,let row=detect.superview else{return}
         let label=NSTextField(labelWithString:current.text);label.font = .systemFont(ofSize:11,weight:.medium)
         label.textColor=current.ok ? statusGreen(surface) : .systemOrange
         let size=label.intrinsicContentSize,anchor=surface.convert(detect.bounds,from:detect)

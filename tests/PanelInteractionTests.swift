@@ -313,12 +313,12 @@ for style in ShareCard.Style.allCases {
 heatData.allowCollapse=true
 let heatFold=DashboardView(heatData,width:344).subviews.compactMap{$0 as? DisclosureButton}.first!
 expect(heatFold.frame.minY==DashboardView.summaryHeight(heatData)+DashboardView.heatmapHeight(heatData)+2,"Folded cards start right below the heatmap")
-// The heading ends before the 自动检测 button, which starts 209pt from the right of the 344pt dashboard.
+// The heading ends before the pin, the leftmost header button, 233pt from the right of the 344pt dashboard.
 let headingFont=NSFont.systemFont(ofSize:14,weight:.semibold)
 for summary in [true,false] {
     var d=withoutHeatmap;d.showSummary=summary
     let w=(DashboardView.heading(d) as NSString).size(withAttributes:[.font:headingFont]).width
-    expect(w<=DashboardView.headingWidth(344) && 12+DashboardView.headingWidth(344)<=344-209-6 && DashboardView.pinX(d)+20<=344-209-6,"The heading fits beside the buttons: "+DashboardView.heading(d))
+    expect(w<=DashboardView.headingWidth(344) && 12+DashboardView.headingWidth(344)<=344-233-6,"The heading fits beside the buttons: "+DashboardView.heading(d))
 }
 expect(!MenuLayout.aiming(from:NSPoint(x:330,y:480),to:NSPoint(x:332,y:479),flyout:openFlyout),"A tiny drift toward the flyout is not aiming")
 // The share picture is opaque, signed, and lists every source that has data.

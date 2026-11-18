@@ -225,6 +225,9 @@ def tool(text,hint,callback):
     return button
 
 
+# Pin and PinnedFill in Segoe Fluent Icons (Windows 11) and Segoe MDL2 Assets (Windows 10).
+PIN_OFF,PIN_ON='\ue718','\ue841'
+
 LOGO_SIZES=(16,20,24,32,40,48,64,128,256)
 
 
@@ -568,7 +571,7 @@ class TrayPanel(QWidget):
             QScrollArea > QWidget > QWidget {{background:transparent;}}
             QToolButton {{padding:3px;border-radius:5px;background:transparent;}}
             QToolButton:hover,QCheckBox:hover {{background:{hover};}}
-            #pin {{color:{muted};}} #pinned {{background:{hover};}}
+            #pin {{font-family:'Segoe Fluent Icons','Segoe MDL2 Assets';font-size:12px;}}
             #segment {{border:0;border-radius:11px;padding:3px 10px;font-size:12px;color:{muted};background:transparent;}}
             #segment:hover {{background:{hover};}}
             #segment:checked {{background:{hover};color:{text};font-weight:650;}}
@@ -616,17 +619,17 @@ class TrayPanel(QWidget):
         unit=d.get('currency') or {}
         CURRENCY.update(symbol=unit.get('symbol') or '$',rate=float(unit.get('rate') or 1))
         head.addWidget(label('Summary' if d.get('showSummary',True) else 'Harness 用量','title'))
-        if not sharing:
-            # Pinned, the panel stays open when it loses focus and re-reads the range on screen every few seconds.
-            pin=tool('📌','取消钉住' if self.pinned else '钉住，每 %d 秒刷新'%snapshot.get('pinInterval',2),self.toggle_pin)
-            pin.setObjectName('pinned' if self.pinned else 'pin');head.addWidget(pin)
         head.addStretch()
         if sharing:
             head.addWidget(label(d.get('rangeLabel',''),'muted'))
         else:
             self.share_note=label();head.addWidget(self.share_note)
             share=tool('↗','分享用量图',lambda:self.open_share(share));self.share_button=share
-            for button in (tool('⌕','自动检测',lambda:self.action.emit(['detect-modules'])),share,
+            # Pinned, the panel stays open when it loses focus and re-reads the range on screen every few seconds.
+            # The same plain button as its neighbours, in the system icon font: an outline pin, filled when on.
+            pin=tool(PIN_ON if self.pinned else PIN_OFF,'取消钉住' if self.pinned else '钉住，每 %d 秒刷新'%snapshot.get('pinInterval',2),self.toggle_pin)
+            pin.setObjectName('pin')
+            for button in (pin,tool('⌕','自动检测',lambda:self.action.emit(['detect-modules'])),share,
                            tool('⟳','刷新数据',lambda:self.action.emit(['refresh']))):
                 head.addWidget(button)
             self.show_copy_state()
