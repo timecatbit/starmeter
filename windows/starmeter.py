@@ -257,6 +257,11 @@ class Desktop(QObject):
         if folder:return QFileDialog.getExistingDirectory(self.panel,message,start) or None
         return QFileDialog.getOpenFileName(self.panel,message,start)[0] or None
 
+    def save_path(self,message,name):
+        kind=Path(name).suffix.lstrip('.')
+        path,_=QFileDialog.getSaveFileName(self.panel,message,str(Path.home()/name),'%s 文件 (*.%s)'%(kind.upper(),kind))
+        return path or None
+
     def text_dialog(self,message,default,hidden,title):
         text,ok=QInputDialog.getText(self.panel,title,message,QLineEdit.Password if hidden else QLineEdit.Normal,default)
         return text.strip() if ok else None

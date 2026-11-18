@@ -120,6 +120,7 @@ import swiftbar_qoder as qoder
 import swiftbar_cursor as cursor
 import swiftbar_alerts as alerts
 import swiftbar_archive as usage_archive_store
+import swiftbar_export as usage_export
 import swiftbar_runtime
 from swiftbar_time import parse_iso
 
@@ -3078,6 +3079,8 @@ def module_options(data=None):
                        {'label':'重置前提醒','detail':'每周窗口用了不到 %d%%，重置前 %d 小时提醒'%(alerts.REMINDER_UNDER,alerts.REMINDER_LEAD//3600),'checked':settings['resetReminder'],
                         'action':['set-reset-reminder','false' if settings['resetReminder'] else 'true'],'children':[]}])
     settings_rows.extend([{'label':'','separator':True,'children':[]},
+                          {'label':'导出用量','symbol':'square.and.arrow.up','value':RANGES[selected_range()],
+                           'children':[{'label':'CSV（每天每个工具一行）…','action':['export-usage','csv'],'children':[]},{'label':'JSON…','action':['export-usage','json'],'children':[]}]},
                           {'label':'菜单栏显示','symbol':'menubar.rectangle','value':MENU_BAR_LABELS[settings['menuBar']],
                            'children':[{'label':label,'checked':settings['menuBar']==key,'radio':True,'action':['set-menu-bar',key],'children':[]} for key,label in MENU_BAR_LABELS.items()]},
                           {'label':'用量提醒','symbol':'bell','value':'%d%%'%settings['usageAlert'] if settings['usageAlert'] else '关闭','children':alert_rows},{'label':'保留已清理记录的用量','detail':'工具删掉旧记录后仍计入“全部”等统计','symbol':'archivebox','checked':settings['keepCleanedUsage'],'action':['set-keep-usage','false' if settings['keepCleanedUsage'] else 'true'],'children':[]},{'label':'高级配置文件…','symbol':'doc.text','action':['open-settings'],'children':[]},{'label':'自动检测','symbol':'sparkle.magnifyingglass','children':detection_help_entries()},{'label':'恢复默认模块','action':['reset-modules'],'children':[]}])
@@ -3822,6 +3825,29 @@ def choose_local_path(message,folder=False):
     return result.stdout.strip() if result.returncode==0 else None
 
 
+def save_path(message,name):
+    """Where to write a new file, suggested by name; None when the user cancels."""
+    if DESKTOP is not None:return DESKTOP.save_path(message,name)
+    result=applescript('POSIX path of (choose file name with prompt '+as_literal(message)+' default name '+as_literal(name)+' default location (path to desktop folder))')
+    return result.stdout.strip() if result.returncode==0 else None
+
+
+def export_usage(kind):
+    """Write the range on screen as CSV (a row per day and tool) or JSON (totals, models and days per tool)."""
+    if kind not in ('csv','json'):raise ValueError('invalid export')
+    key=selected_range();bundle=read_cache(range_cache_name(key)).get('payload') or {}
+    if bundle.get('range')!=key:
+        dialog_error('还没有可导出的用量','“'+RANGES[key]+'”还在读取，读完后再导出。');return
+    path=save_path('导出“%s”的用量'%RANGES[key],'starmeter-%s-%s.%s'%(key,usage_now().strftime('%Y%m%d'),kind))
+    if not path:return
+    selected=[(k,label,bundle.get(k) or {}) for k,label,_ in preferences.MODULES if k in preferences.USAGE and module_enabled(k)]
+    counting=summary_usage(selected)
+    text=usage_export.csv_text(selected,counting) if kind=='csv' else usage_export.json_text(selected,counting,key,RANGES[key],bundle.get('start'),bundle.get('end'),VERSION)
+    # Excel opens a CSV with a byte-order mark as UTF-8, so tool names read correctly.
+    with open(path,'w',encoding='utf-8-sig' if kind=='csv' else 'utf-8',newline='') as handle:handle.write(text)
+    notify('已导出到 '+os.path.basename(path),subtitle='导出用量')
+
+
 def open_local(path,text=False):
     if DESKTOP is not None:DESKTOP.open_local(str(path),text)
     else:subprocess.run(['/usr/bin/open']+(['-t'] if text else [])+[str(path)],check=True,timeout=5)
@@ -4086,6 +4112,9 @@ def run_action(name, extra):
         chosen=choose_local_path(prompt,folder=True)
         if chosen:
             preferences.update(STATE_DIR,'path',key,chosen);schedule_background_refresh()
+    elif name == "export-usage":
+        if len(extra)!=1:raise ValueError('invalid export')
+        export_usage(extra[0])
     elif name == "set-menu-bar":
         key=extra[0] if len(extra)==1 else ''
         if key not in preferences.MENU_BAR:raise ValueError('invalid menu bar value')
