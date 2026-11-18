@@ -503,6 +503,11 @@ class Provider(QWidget):
         if not data['available']:return
         if not data['models']:
             body.addWidget(label('此时段暂无模型调用','muted'));return
+        # A model or project card whose usage all came from one tool says just that: its bar, tokens and 100% would
+        # repeat the line above.
+        only=data['models'][0]
+        if str(data['id']).startswith(('model:','project:')) and len(data['models'])==1 and only['share']>=0.999 and not only.get('priceNote'):
+            body.addWidget(Elided('全部来自 '+model_name(only['name']),'muted'));return
         color=COLORS.get(data.get('accent') or data['id'],'#437fc4')
         models=QGridLayout();models.setContentsMargins(0,5,0,0);models.setHorizontalSpacing(8);models.setVerticalSpacing(2)
         for i,model in enumerate(data['models']):

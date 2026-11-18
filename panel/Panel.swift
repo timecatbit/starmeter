@@ -1403,6 +1403,11 @@ final class DashboardView:FlippedView {
         let width=right-left
         guard p.available else{return}
         if p.models.isEmpty{text("此时段暂无模型调用",x:left,y:y,w:width,size:10,color:.secondaryLabelColor)}
+        // A model or project card whose usage all came from one tool says just that: its bar, tokens and 100% would
+        // repeat the line above.
+        if p.grouped,p.models.count==1,let only=p.models.first,only.share>=0.999,only.priceNote==nil {
+            text("全部来自 "+modelName(only.name),x:left,y:y,w:width,size:10.5,color:.secondaryLabelColor);return
+        }
         // Each model's share is a short rounded bar of its own beside the figures, not a rule across the card.
         let shareX=right-34,amountX=shareX-62,barX=amountX-48,mid=ToolMark.middle(of:.systemFont(ofSize:10.5),top:0)
         for (i,m) in p.models.enumerated(){
