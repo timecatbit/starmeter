@@ -4,8 +4,9 @@
 Three SVG files in assets/, all from the same sparkle:
   token-monitor.svg        the app icon, 15 dots across, on the macOS icon grid (an 824 tile in a 1024 canvas);
   token-monitor-small.svg  the same icon with 9 larger dots, for 32 pixels and below, where 15 dots blur;
-  token-monitor-mark.svg   one-colour 7-dot mark on a 24 grid for the menu bar and menus, a template image.
-The mark's dots fall on whole pixels at 20 points on a Retina screen, its menu bar size (a 6-pixel pitch).
+  token-monitor-mark.svg   one-colour 5-dot mark on a 24 grid for the menu bar and menus, a template image;
+                           it samples the middle of a 7-dot grid, where the sparkle is, so it fills the box.
+The mark's dots fall on whole pixels at 20 points on a Retina screen, its menu bar size (an 8-pixel pitch).
 """
 import argparse
 import math
@@ -49,13 +50,14 @@ def blend(light, value):
     return '#%02X%02X%02X' % tuple(round(a + (0xFF - a) * min(1.0, value ** light)) for a in TIP)
 
 
-def dots(count, span, centre, largest, smallest, cutoff):
-    """Halftone: each dot's area follows the brightness under it; (x, y, radius, brightness) for the visible ones."""
+def dots(count, span, centre, largest, smallest, cutoff, reach=1.0):
+    """Halftone: each dot's area follows the brightness under it; (x, y, radius, brightness) for the visible ones.
+    reach is how far out the grid samples the sparkle: below 1 leaves out the dark rim, so the dots fill the span."""
     half = (count - 1) / 2
     step = span / (count - 1)
     for row in range(count):
         for column in range(count):
-            value = brightness((column - half) / half, (row - half) / half)
+            value = brightness((column - half) / half * reach, (row - half) / half * reach)
             if value >= cutoff:
                 yield (centre + (column - half) * step, centre + (row - half) * step,
                        step * max(smallest, largest * math.sqrt(value)), value)
@@ -99,7 +101,7 @@ def icon(count, span, largest, smallest, cutoff, light, background):
 
 def mark():
     body = ''.join('<circle cx="%s" cy="%s" r="%s" fill="#000000"/>' % (number(x), number(y), number(radius))
-                   for x, y, radius, _ in dots(7, 21.6, 12, 0.46, 0.16, 0.08))
+                   for x, y, radius, _ in dots(5, 19.2, 12, 0.46, 0.16, 0.08, 2 / 3))
     return svg(24, body)
 
 
