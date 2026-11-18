@@ -401,13 +401,8 @@ extension Runtime {
         return state["schema"] == .int(1) ? state : JSONObject()
     }
 
-    /// A notification titled Starmeter through AppleScript, as the plugin's other notices.
-    public func notify(_ message: String, subtitle: String = "") {
-        func literal(_ text: String) -> String { "\"" + text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\"" }
-        var script = "display notification " + literal(message) + " with title " + literal(Runtime.product)
-        if !subtitle.isEmpty { script += " subtitle " + literal(subtitle) }
-        _ = Shell.run(["/usr/bin/osascript", "-e", script], timeout: 5)
-    }
+    /// A notification titled Starmeter, through the host (AppleScript for SwiftBar).
+    public func notify(_ message: String, subtitle: String = "") { host.notify(message, subtitle: subtitle) }
 
     /// OpenCodex's stable-channel installer only, never the other apps. The intent is saved before the request;
     /// an unclear answer is settled from the job and health endpoints, never by asking a second time.

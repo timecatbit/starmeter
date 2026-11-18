@@ -20,6 +20,9 @@ public final class Runtime {
     /// The update checks and what runs after the background reads (the alerts), set where they are ported.
     var selfUpdateLoader: (() -> Void)?
     var afterBackgroundReads: (() -> Void)?
+    /// Dialogs, notices and files for actions; a desktop host (the Windows tray) also takes over refreshes and settings.
+    public var host: Host = AppleScriptHost()
+    public var desktop: DesktopHost? { host as? DesktopHost }
 
     private let lock = NSLock()
 
@@ -49,6 +52,15 @@ public final class Runtime {
         cacheDir = (parent as NSString).appendingPathComponent("opencodex-swiftbar-v5-\(getuid())-\(scope)")
         base = Runtime.detectBase(environment, home: home)
         if Pricing.folders.isEmpty { Pricing.folders = [Runtime.libDirectory(plugin: plugin), stateDir + "/pricing"] }
+    }
+
+    /// The same runtime after connection settings changed: config.local.sh is not re-read, the new values are applied.
+    public func updated(_ values: [(String, String)]) -> Runtime {
+        var environment = self.environment
+        for (key, value) in values { environment[key] = value }
+        let next = Runtime(environment: environment, argv0: plugin)
+        next.hostCadence = hostCadence; next.selfUpdateLoader = selfUpdateLoader; next.afterBackgroundReads = afterBackgroundReads; next.host = host
+        return next
     }
 
     static func absolute(_ path: String) -> String {
@@ -233,7 +245,7 @@ public final class Runtime {
     var connectionExtras: [String: () -> [JSON]] = [:]
 
     func connectionParts(_ name: String) -> [JSON] {
-        var parts: [JSON] = name == "claude_subscription" ? claudeSubscriptionParts() : connectionExtras[name]?() ?? []
+        var parts: [JSON] = name == "claude_subscription" ? claudeSubscriptionParts() : name == "app_updates" ? appUpdateParts() : connectionExtras[name]?() ?? []
         for key in Runtime.connectionKeys[name] ?? [] {
             let value = environment[key] ?? ""
             parts.append(.string(value))
@@ -242,7 +254,34 @@ public final class Runtime {
                 else { parts.append("unavailable") }
             }
         }
+        if name == "chatgpt" {
+            parts.append(.string(codexHome()))
+            if let state = ClaudeUsage.state(of: codexHome() + "/auth.json") { parts += [.int(state.mtime), .int(state.size)] } else { parts.append("unavailable") }
+        }
         if Runtime.connectionKeys[name] == nil || name == "provider_quotas" { parts += [.string(base), .string(tokenFile)] }
+        return parts
+    }
+
+    /// What the update checks depend on: which apps and CLIs are checked, their versions and install channels.
+    func appUpdateParts() -> [JSON] {
+        let selected = selectedUpdateIDs()
+        var parts: [JSON] = selected.map(JSON.string) + [.bool(moduleEnabled("updates")), "channels-v3"]
+        for (key, name) in [("claude", "Claude"), ("chatgpt", "ChatGPT")] where selected.contains(key) {
+            let info = appInfo(name)
+            parts.append(.object(info))
+            if key == "chatgpt" {
+                let local = Updates.chatgptRelease(home: home, bundle: info["CFBundleIdentifier"]) ?? JSONObject()
+                parts.append(.object(JSONObject(["latest", "build", "releaseSource"].map { ($0, local[$0] ?? .null) })))
+            }
+        }
+        for (key, command) in [("claude-code", "claude"), ("codex-cli", "codex")] where selected.contains(key) {
+            let binary = Shell.which(command, environment: environment)
+            parts.append(binary.map(JSON.string) ?? .null)
+            if let binary, let state = ClaudeUsage.state(of: binary) {
+                parts += [.string(Paths.resolve(binary) ?? binary), .int(state.inode), .int(state.mtime), .int(state.size)]
+            } else { parts.append("unavailable") }
+            if key == "codex-cli", let binary { parts.append(.object(Updates.codexChannel(binary))) }
+        }
         return parts
     }
 }

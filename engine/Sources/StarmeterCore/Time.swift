@@ -20,6 +20,18 @@ public struct ISOTime: Equatable {
         (self.hour, self.minute, self.second, self.microsecond, self.offset) = (hour, minute, second, microsecond, offset)
     }
 
+    /// datetime.fromtimestamp(seconds, timezone.utc).isoformat()
+    public static func utcString(_ seconds: Double) -> String {
+        var whole = seconds.rounded(.down)
+        var micros = ((seconds - whole) * 1e6).rounded(.toNearestOrEven)
+        if micros >= 1e6 { whole += 1; micros -= 1e6 }
+        let total = Int64(whole), days = Int(total >= 0 ? total / 86400 : (total - 86399) / 86400), rest = Int(total - Int64(days) * 86400)
+        let (year, month, day) = civilFromDays(days)
+        var text = String(format: "%04d-%02d-%02dT%02d:%02d:%02d", year, month, day, rest / 3600, rest % 3600 / 60, rest % 60)
+        if micros > 0 { text += String(format: ".%06d", Int(micros)) }
+        return text + "+00:00"
+    }
+
     public static func parse(_ value: String) throws -> ISOTime {
         let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let time = scan(Array(text.utf8)) else { throw Invalid(text: text) }

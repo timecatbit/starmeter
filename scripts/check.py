@@ -59,8 +59,7 @@ with tempfile.TemporaryDirectory(prefix='starmeter-tests-') as scratch:
     # Built with the real environment: SwiftPM keeps its caches under the real home.
     swift = shutil.which('swift')
     if swift:
-        subprocess.run([swift, 'build', '--package-path', str(ROOT / 'engine'), '--scratch-path', str(ROOT / 'build' / 'engine'),
-                        '--product', 'starmeter-probe'], check=True)
+        subprocess.run([swift, 'build', '--package-path', str(ROOT / 'engine'), '--scratch-path', str(ROOT / 'build' / 'engine')], check=True)
         environment['STARMETER_PROBE'] = str(ROOT / 'build' / 'engine' / 'debug' / 'starmeter-probe')
     subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s',
                     str(ROOT / 'tests'), '-p', 'test_*.py', '-v'],

@@ -49,8 +49,7 @@ def probe_binary():
     if not swift:
         return None
     scratch = ROOT / 'build' / 'engine'
-    built = subprocess.run([swift, 'build', '--package-path', str(ROOT / 'engine'), '--scratch-path', str(scratch),
-                            '--product', 'starmeter-probe'], capture_output=True, text=True)
+    built = subprocess.run([swift, 'build', '--package-path', str(ROOT / 'engine'), '--scratch-path', str(scratch)], capture_output=True, text=True)
     if built.returncode:
         raise RuntimeError('swift build failed:\n' + built.stdout + built.stderr)
     path = scratch / 'debug' / 'starmeter-probe'
@@ -58,6 +57,8 @@ def probe_binary():
 
 
 PROBE = probe_binary()
+# The program the hosts run, built beside the probe.
+ENGINE = str(Path(PROBE).parent / 'starmeter-engine') if PROBE else None
 
 
 class SwiftError(Exception):
@@ -1483,6 +1484,87 @@ class PanelParityTests(BackgroundParityTests):
                   dict(windows[2], kind='usage'), dict(windows[0], kind='usage', used=89.5, resetsAt=moment + 86400 * 20),
                   dict(windows[0], kind='usage', resetsAt=moment + 86400), dict(balances[0], kind='balance')]
         self.assertEqual(self.python('alert_notices', alerts), self.swift('alert_notices', alerts))
+
+
+class EngineRunParityTests(PanelParityTests):
+    """Whole runs of the entry: the Python plugin and the Swift engine, each on its own copy of the same state."""
+
+    def setUp(self):
+        super().setUp()
+        root = Path(self.temp.name) / 'plugins'; root.mkdir()
+        # A stand-in entry: background runs the menu starts do nothing here.
+        self.entry = root / 'starmeter.30s.sh'; self.entry.write_text('exit 0\n')
+        self.common.update(OCX_PLUGIN_PATH=str(self.entry), OCX_SELF_UPDATES='0', OCX_PRICING_UPDATES='0')
+
+    def run_engine(self, engine, arguments=(), extra=None):
+        environment = {k: v for k, v in os.environ.items() if k not in ('DEEPSEEK_API_KEY', 'DEEPSEEK_API_KEY_FILE', 'TZ', 'OCX_BASE_URL')}
+        environment.update(self.common, **self.states[engine], **(extra or {}))
+        command = [sys.executable, str(ROOT / 'lib' / 'swiftbar_plugin.py')] if engine == 'python' else [ENGINE]
+        done = subprocess.run(command + list(arguments), capture_output=True, env=environment, timeout=120)
+        return done.returncode, done.stdout.decode()
+
+    def cache_dir(self, engine):
+        state = self.states[engine]['OCX_STATE_DIR']
+        scope = hashlib.sha256(os.path.abspath(state).encode()).hexdigest()[:16]
+        return Path(self.states[engine]['OCX_CACHE_DIR']) / ('opencodex-swiftbar-v5-%s-%s' % (os.getuid(), scope))
+
+    def preferences(self, engine):
+        values = json.loads((Path(self.states[engine]['OCX_STATE_DIR']) / 'preferences.json').read_text())
+        values.pop('revision', None)
+        return values
+
+    def same_text(self, python, swift):
+        # The plugin path differs only by which engine's state it names; nothing else may.
+        self.assertEqual(python.splitlines(), swift.splitlines())
+
+    def test_menu_text_and_snapshot(self):
+        codex = Path(self.common['HOME']) / '.codex'; codex.mkdir()
+        (codex / 'auth.json').write_text(json.dumps({'auth_mode': 'chatgpt'}))
+        everything = [m[0] for m in preferences.MODULES]
+        keys = {'MOONSHOT_API_KEY': 'k', 'XAI_TEAM_ID': 't', 'XAI_MANAGEMENT_API_KEY': 'k'}
+        for values, extra in ((dict(visible=everything), {}), (dict(visible=[k for k in everything if k != 'opencodex'], menuBar='quota'), keys)):
+            for panel in (False, True):
+                with self.subTest(settings=values, panel=panel):
+                    app = self.entry.parent / '.opencodex-panel' / 'OpenCodexPanel.app'
+                    if panel:app.mkdir(parents=True, exist_ok=True)
+                    elif app.exists():app.rmdir()
+                    self.settings(**values)
+                    self.caches(time.time())
+                    python, swift = self.run_engine('python', extra=extra), self.run_engine('swift', extra=extra)
+                    self.assertEqual(python[0], swift[0])
+                    self.same_text(python[1], swift[1])
+                    if panel:
+                        expected = json.loads((self.cache_dir('python') / 'panel-view.json').read_text())
+                        got = json.loads((self.cache_dir('swift') / 'panel-view.json').read_text())
+                        for key in expected:self.assertEqual(self.steady(expected[key]), self.steady(got.get(key)), key)
+
+    def test_actions_and_panel_requests(self):
+        self.settings(visible=['summary', 'claude', 'codex'])
+        actions = [['set-module', 'heatmap', 'true'], ['set-theme', 'dark'], ['set-collapse', 'true'], ['set-expanded', 'claude', 'true'],
+                   ['set-range', '7d'], ['set-group', 'model'], ['set-pin-interval', '5'], ['set-menu-bar', 'cost'], ['set-usage-alert', '80'],
+                   ['set-currency', 'CNY'], ['set-service-status', 'true'], ['set-subscription', 'gemini-subscription', 'true'], ['auto-source', 'claude'],
+                   ['set-module', 'nope', 'true']]
+        for action in actions:
+            with self.subTest(action=action):
+                python, swift = self.run_engine('python', ['--action', *action]), self.run_engine('swift', ['--action', *action])
+                self.assertEqual(python[0] == 0, swift[0] == 0)
+                self.assertEqual(self.preferences('python'), self.preferences('swift'))
+                self.assertEqual(json.loads((self.cache_dir('python') / 'view-range.json').read_text()) if (self.cache_dir('python') / 'view-range.json').exists() else None,
+                                 json.loads((self.cache_dir('swift') / 'view-range.json').read_text()) if (self.cache_dir('swift') / 'view-range.json').exists() else None)
+        # A request from the panel runs only when the rendered panel offered it, and leaves a receipt either way.
+        app = self.entry.parent / '.opencodex-panel' / 'OpenCodexPanel.app'; app.mkdir(parents=True)
+        for request in (['set-theme', 'light'], ['set-module', 'sessions', 'true'], ['refresh-live'], ['set-pin-interval', '7'], ['set-expanded', 'codex', 'false']):
+            with self.subTest(request=request):
+                for engine in ('python', 'swift'):
+                    self.run_engine(engine)
+                    (self.cache_dir(engine) / 'panel-action.json').write_text(json.dumps({'id': 'r1', 'action': request, 'createdAt': time.time()}))
+                    self.run_engine(engine)
+                receipts = [json.loads((self.cache_dir(e) / 'panel-action-receipt.json').read_text()) for e in ('python', 'swift')]
+                for receipt in receipts:
+                    receipt.pop('finishedAt')
+                    (receipt.get('preferences') or {}).pop('revision', None)
+                self.assertEqual(receipts[0], receipts[1])
+                self.assertEqual(self.preferences('python'), self.preferences('swift'))
 
 
 class UpdateParityTests(unittest.TestCase):

@@ -534,6 +534,21 @@ extension JSON {
         return output
     }
 
+    /// json.dumps(value, indent=n): one item per line, "," then a newline between items, empty containers kept short.
+    public func serialized(ensureASCII: Bool = false, indent: Int, level: Int = 0) -> String {
+        let inner = String(repeating: " ", count: indent * (level + 1)), outer = String(repeating: " ", count: indent * level)
+        switch self {
+        case .array(let items) where !items.isEmpty:
+            return "[\n" + items.map { inner + $0.serialized(ensureASCII: ensureASCII, indent: indent, level: level + 1) }.joined(separator: ",\n") + "\n" + outer + "]"
+        case .object(let object) where !object.isEmpty:
+            return "{\n" + object.keys.map { name in
+                inner + JSON.string(name).serialized(ensureASCII: ensureASCII) + ": " + object[name]!.serialized(ensureASCII: ensureASCII, indent: indent, level: level + 1)
+            }.joined(separator: ",\n") + "\n" + outer + "}"
+        default:
+            return serialized(ensureASCII: ensureASCII)
+        }
+    }
+
     private func write(to output: inout String, ensureASCII: Bool, item: String, key: String, sortKeys: Bool) {
         switch self {
         case .null: output += "null"

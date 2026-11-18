@@ -402,9 +402,9 @@ extension Runtime {
     }
 
     /// Everything the panel shows, in the file the panel reads.
-    public func panelSnapshot(_ data: JSONObject, now: Double = Date().timeIntervalSince1970) -> JSONObject {
-        let dashboard = dashboardPayload(data, rangeError: data["range_usage_error"]?.string, now: now)
-        var options = moduleOptions(data)
+    public func panelSnapshot(_ data: JSONObject, dashboard given: JSONObject? = nil, options chosen: [JSON]? = nil, now: Double = Date().timeIntervalSince1970) -> JSONObject {
+        let dashboard = given ?? dashboardPayload(data, rangeError: data["range_usage_error"]?.string, now: now)
+        var options = chosen ?? moduleOptions(data)
         if macApp {
             func withoutNewBridge(_ entries: [JSON]) -> [JSON] {
                 entries.filter { $0.object?["action"] != ["set-claude-local", "true"] }.map { entry in
