@@ -381,4 +381,16 @@ let paceJSON=#"[{"label":"本周","value":"已用 38%","usageLevel":"normal","de
 let paceRows=try JSONDecoder().decode([Entry].self,from:Data(paceJSON.utf8))
 expect(abs((DetailStyle.pace(paceRows[0]) ?? 0)-0.86)<0.001 && abs((DetailStyle.pace(paceRows[1]) ?? 0)-0.5)<0.001,"The even-pace mark sits at the share used less how far ahead of pace it is")
 expect(DetailStyle.share(paceRows[2])==0.79 && MenuLayout.gauge(paceRows[2]),"A homepage row's bar shows its tightest window")
+// Pinned: the live chart keeps a reading per refresh, widens from one minute to ten, and starts again on a new day.
+let liveBase=try JSONDecoder().decode(Dashboard.self,from:Data(("{\"date\":\"\",\"dates\":[\"11/04\"],\"providers\":["+toolCardJSON+"],\"rangeKey\":\"today\",\"rangeLabel\":\"今天\",\"chartUnit\":\"\",\"chartSpan\":\"\",\"chartStatus\":\"\"}").utf8))
+let liveFeed=LiveFeed(),liveNow=Date();liveFeed.started=liveNow.addingTimeInterval(-120)
+var liveDay=liveBase
+for step in 0..<60 {liveDay.providers[0].tokens=10+Double(step)*1000;liveFeed.add(liveDay,at:liveNow.addingTimeInterval(Double(step*2)-118))}
+liveFeed.add(liveDay,at:liveNow.addingTimeInterval(0.2))
+expect(liveFeed.samples.count==60,"A redraw of the same reading doesn't add a sample")
+expect(abs((liveFeed.rate(liveNow) ?? 0)-30_000)<200,"The rate is the last minute's tokens per minute")
+expect(liveFeed.span(liveNow)==120 && liveFeed.span(liveNow.addingTimeInterval(3600))==600 && LiveFeed().span(Date())==60,"The window opens at a minute and widens to ten")
+liveDay.providers[0].tokens=5;liveFeed.add(liveDay,at:liveNow.addingTimeInterval(2))
+expect(liveFeed.samples.count==1,"A fall (a new day) starts the line again")
+expect(LiveChart.nice(27_000_000)==30_000_000 && LiveChart.nice(31_000_000)==40_000_000 && LiveChart.compact(25_000_000)=="25M" && LiveChart.compact(1_500)=="1.5K","The scale tops out at a round value just above the line")
 print("Native interaction assertions: \(assertions) passed")
