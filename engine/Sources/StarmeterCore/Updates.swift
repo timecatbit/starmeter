@@ -210,7 +210,7 @@ public enum Updates {
               let rows = try? db.rows("""
                 SELECT r.request_key,r.time_stamp,d.isDataOnFS,d.receiver_data FROM cfurl_cache_response r JOIN cfurl_cache_receiver_data d USING(entry_ID)
                 WHERE r.request_key LIKE 'https://persistent.oaistatic.com/codex-app-prod/appcast%' AND length(d.receiver_data)<=? ORDER BY r.time_stamp DESC LIMIT 12
-                """, [.int(1024 * 1024)]) else { return nil }
+                """, [.int(Int64(1024 * 1024))]) else { return nil }
         for row in rows {
             guard let url = row[0].text, let parts = URLComponents(string: url), parts.host == "persistent.oaistatic.com", parts.port == nil || parts.port == 443,
                   parts.user == nil, parts.password == nil else { continue }

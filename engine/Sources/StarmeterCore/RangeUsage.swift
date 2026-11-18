@@ -346,7 +346,7 @@ extension Runtime {
         if environment["OCX_PANEL_VISIBLE"] == "1" { return (true, false) }
         var power = SYSTEM_POWER_STATUS()
         return (false, GetSystemPowerStatus(&power) && power.ACLineStatus == 0)
-        #endif
+        #else
         let state = readCache("panel-state")
         if state["visible"] == .bool(true), let pid = state["pid"]?.integer, pid > 0, state["pid"]?.bool == nil, Platform.alive(Int(pid)) { return (true, false) }
         var power = readCache("power-state")
@@ -359,5 +359,6 @@ extension Runtime {
             }
         }
         return (false, power["battery"]?.isTruthy ?? false)
+        #endif
     }
 }
