@@ -339,7 +339,17 @@ final class ContentScrollView:NSScrollView {
         verticalScrollElasticity=needsVerticalScrolling ? .automatic : .none
         if !needsVerticalScrolling{contentView.scroll(to:.zero);reflectScrolledClipView(contentView)}
     }
+    // A page goes back on a two-finger swipe to the right, as Safari does.
+    var swipedBack:(()->Void)?;private var sideways:CGFloat=0;private var swiped=false
     override func scrollWheel(with event:NSEvent){
+        if let swipedBack {
+            if event.phase == .began {sideways=0;swiped=false}
+            if abs(event.scrollingDeltaX)>abs(event.scrollingDeltaY) {
+                sideways+=event.scrollingDeltaX
+                if !swiped && sideways>60 {swiped=true;swipedBack()}
+                return
+            }
+        }
         guard needsVerticalScrolling else{return}
         super.scrollWheel(with:event)
     }
@@ -1742,6 +1752,250 @@ final class Row:NSButton {
         if !entry.children.isEmpty{let p=NSBezierPath();p.move(to:NSPoint(x:bounds.width-19,y:line-4));p.line(to:NSPoint(x:bounds.width-15,y:line));p.line(to:NSPoint(x:bounds.width-19,y:line+4));p.lineWidth=1.2;p.lineJoinStyle = .round;p.lineCapStyle = .round;NSColor.labelColor.setStroke();p.stroke()}
     }
 }
+// MARK: - Detail pages
+// What used to open beside the panel now opens inside it, as Token Monitor shows its details: the panel slides to the
+// row's page, a row with more under it opens in place on an indented guide line, a usage reads as a coloured bar, and
+// every row that does something sinks while pressed.
+enum DetailStyle {
+    static let indent:CGFloat=16,inset:CGFloat=8,lead:CGFloat=22
+    static func titleFont(_ e:Entry,depth:Int)->NSFont {
+        info(e) ? .systemFont(ofSize:10.5) : .systemFont(ofSize:depth==0 ? 12.5 : 12,weight:depth==0 && !e.children.isEmpty ? .medium : .regular)
+    }
+    static let valueFont=NSFont.monospacedDigitSystemFont(ofSize:11.5,weight:.medium)
+    static let detailFont=NSFont.systemFont(ofSize:10.5)
+    static let sectionFont=NSFont.systemFont(ofSize:10,weight:.semibold)
+    // A plain fact (where data comes from, a note): quieter than the rows that can be acted on or carry a figure.
+    static func info(_ e:Entry)->Bool {!e.actionable && e.value==nil && e.statusLight==nil && e.checked==nil && e.usageLevel==nil}
+    static func leads(_ e:Entry)->Bool {e.checked != nil || e.statusLight != nil || e.image != nil || e.symbol != nil}
+    // "已用 38%", "已用 本周 38% · Fable 39%": the first share, for the bar under a usage row.
+    static func share(_ e:Entry)->Double? {
+        guard e.usageLevel != nil,let value=e.value,let range=value.range(of:#"\d+(\.\d+)?(?=%)"#,options:.regularExpression) else{return nil}
+        return Double(value[range]).map{min(1,max(0,$0/100))}
+    }
+    static func barColor(_ level:String?)->NSColor {level=="critical" ? .systemRed : level=="warning" ? .systemOrange : .controlAccentColor}
+    static func left(depth:Int)->CGFloat {inset+CGFloat(depth)*indent}
+    static func valueText(_ e:Entry,room:CGFloat)->String? {
+        guard let value=e.value else{return nil}
+        for form in [value]+(e.fallbacks ?? []) where MenuLayout.width(form,font:valueFont)<=room {return form}
+        return e.fallbacks?.last ?? value
+    }
+    // aligned: a sibling has an icon, so every row of the level starts its text in the same column.
+    static func layout(_ e:Entry,depth:Int,width:CGFloat,aligned:Bool)->(title:NSRect,value:NSRect?,valueText:String?,bar:NSRect?,detail:NSRect?,height:CGFloat) {
+        let left=left(depth:depth)+(aligned || leads(e) ? lead : 0),right=width-inset-(e.children.isEmpty ? (e.href != nil ? 16 : 0) : 18)
+        let valueText=valueText(e,room:(right-left)*0.62),valueWidth=valueText.map{MenuLayout.width($0,font:valueFont)+(e.attention==true ? 14 : 0)} ?? 0
+        let titleWidth=max(40,right-left-(valueWidth>0 ? valueWidth+10 : 0)),font=titleFont(e,depth:depth)
+        let titleHeight=MenuLayout.height(e.label,font:font,width:titleWidth)
+        var y:CGFloat=info(e) ? 5 : 8
+        let title=NSRect(x:left,y:y,width:titleWidth,height:titleHeight);y+=titleHeight
+        let value=valueText.map{_ in NSRect(x:right-valueWidth,y:title.minY,width:valueWidth,height:max(titleHeight,16))}
+        var bar:NSRect?
+        if share(e) != nil {y+=6;bar=NSRect(x:left,y:y,width:right-left,height:4);y+=4}
+        var detail:NSRect?
+        if let text=e.detail {let h=MenuLayout.height(text,font:detailFont,width:right-left);y+=3;detail=NSRect(x:left,y:y,width:right-left,height:h);y+=h}
+        y+=info(e) ? 5 : 8
+        return (title,value,valueText,bar,detail,max(e.actionable ? 32 : 22,ceil(y)))
+    }
+}
+
+final class DetailRow:NSButton {
+    override func acceptsFirstMouse(for event:NSEvent?)->Bool{true}
+    let entry:Entry,depth:Int,aligned:Bool
+    var open=false {didSet{if open != oldValue{turnChevron(animated:true)}}}
+    var invoke:((DetailRow)->Void)?
+    private var hovering=false;private var tracking:NSTrackingArea?;private var glyph:NSImage?;private var chevron:NSImageView?
+    init(_ entry:Entry,depth:Int,aligned:Bool,frame:NSRect,open:Bool){
+        self.entry=entry;self.depth=depth;self.aligned=aligned;self.open=open;super.init(frame:frame)
+        title="";isBordered=false;setButtonType(.momentaryChange);target=self;action=#selector(pressed);isEnabled=entry.actionable
+        setAccessibilityLabel(entry.label+(entry.value.map{", "+$0} ?? "")+(entry.detail.map{", "+$0} ?? ""))
+        if let raw=entry.image,let data=Data(base64Encoded:raw),let img=NSImage(data:data){glyph=img;glyph?.isTemplate=entry.template ?? false}
+        else if let symbol=entry.symbol{glyph=NSImage(systemSymbolName:symbol,accessibilityDescription:nil)}
+        if !entry.children.isEmpty {
+            let image=NSImageView(frame:NSRect(x:bounds.width-DetailStyle.inset-12,y:0,width:12,height:12))
+            image.image=NSImage(systemSymbolName:"chevron.right",accessibilityDescription:nil)?.withSymbolConfiguration(.init(pointSize:10,weight:.semibold))
+            image.contentTintColor = .tertiaryLabelColor;image.wantsLayer=true;addSubview(image);chevron=image
+            setAccessibilityExpanded(open)
+        }
+        wantsLayer=true
+    }
+    required init?(coder:NSCoder){fatalError()}
+    override var isFlipped:Bool{true}
+    @objc private func pressed(){invoke?(self)}
+    override func layout(){super.layout();placeChevron()}
+    private func placeChevron(){
+        guard let chevron else{return}
+        let line=DetailStyle.layout(entry,depth:depth,width:bounds.width,aligned:aligned).title
+        let mid=line.minY+min(line.height,ceil(DetailStyle.titleFont(entry,depth:depth).ascender-DetailStyle.titleFont(entry,depth:depth).descender))/2
+        chevron.frameCenterRotation=0;chevron.frame=NSRect(x:bounds.width-DetailStyle.inset-12,y:mid-6,width:12,height:12);turnChevron(animated:false)
+    }
+    // Open, the chevron points down; it turns as the rows below slide out.
+    private func turnChevron(animated:Bool){
+        guard let chevron else{return}
+        setAccessibilityExpanded(open)
+        let angle:CGFloat=open ? 90 : 0
+        if animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            NSAnimationContext.runAnimationGroup{context in context.duration=0.22;context.allowsImplicitAnimation=true;chevron.animator().frameCenterRotation=angle}
+        } else {chevron.frameCenterRotation=angle}
+    }
+    override func updateTrackingAreas(){super.updateTrackingAreas();if let tracking{removeTrackingArea(tracking)};tracking=NSTrackingArea(rect:bounds,options:[.mouseEnteredAndExited,.activeAlways,.inVisibleRect],owner:self,userInfo:nil);addTrackingArea(tracking!)}
+    override func mouseEntered(with event:NSEvent){hovering=true;needsDisplay=true}
+    override func mouseExited(with event:NSEvent){hovering=false;needsDisplay=true}
+    override func mouseDown(with event:NSEvent){if isEnabled {Press.track(self,scale:0.985){super.mouseDown(with:event)}} else {super.mouseDown(with:event)}}
+    override func viewDidChangeEffectiveAppearance(){super.viewDidChangeEffectiveAppearance();needsDisplay=true}
+    override func draw(_ dirtyRect:NSRect){
+        let e=entry,night=dark(self),layout=DetailStyle.layout(e,depth:depth,width:bounds.width,aligned:aligned)
+        if isEnabled && (hovering || isHighlighted) {
+            NSColor.labelColor.withAlphaComponent(isHighlighted ? (night ? 0.14 : 0.09) : (night ? 0.065 : 0.045)).setFill()
+            NSBezierPath(roundedRect:bounds.insetBy(dx:2,dy:1),xRadius:8,yRadius:8).fill()
+        }
+        // Nested rows hang from a guide line under their parent's leading edge.
+        for level in 0..<depth {
+            let x=DetailStyle.left(depth:level)+6
+            NSColor.labelColor.withAlphaComponent(night ? 0.24 : 0.16).setFill();NSRect(x:x,y:0,width:1,height:bounds.height).fill()
+        }
+        let titleFont=DetailStyle.titleFont(e,depth:depth),mid=layout.title.minY+ceil(titleFont.ascender-titleFont.descender)/2
+        let leadX=DetailStyle.left(depth:depth)
+        if let checked=e.checked {
+            let box=NSRect(x:leadX+1,y:mid-6.5,width:13,height:13),radio=e.radio==true
+            let outline=NSBezierPath(roundedRect:box,xRadius:radio ? 6.5 : 3.5,yRadius:radio ? 6.5 : 3.5)
+            if checked {
+                NSColor.controlAccentColor.setFill();outline.fill();NSColor.white.setFill();NSColor.white.setStroke()
+                if radio {NSBezierPath(ovalIn:box.insetBy(dx:4,dy:4)).fill()}
+                else {let tick=NSBezierPath();tick.move(to:NSPoint(x:box.minX+3,y:box.midY));tick.line(to:NSPoint(x:box.minX+5.5,y:box.maxY-3.5));tick.line(to:NSPoint(x:box.maxX-3,y:box.minY+3.5));tick.lineWidth=1.6;tick.lineCapStyle = .round;tick.lineJoinStyle = .round;tick.stroke()}
+            } else {NSColor.secondaryLabelColor.withAlphaComponent(0.55).setStroke();outline.lineWidth=1;outline.stroke()}
+        } else if let state=e.statusLight {drawStatusLight(state,centre:NSPoint(x:leadX+7,y:mid),in:self)}
+        else if let glyph {
+            let rect=NSRect(x:leadX,y:mid-7.5,width:15,height:15)
+            if glyph.isTemplate {
+                let image=NSImage(size:rect.size);image.lockFocus();glyph.draw(in:NSRect(origin:.zero,size:rect.size))
+                (e.actionable ? NSColor.labelColor : NSColor.secondaryLabelColor).set();NSRect(origin:.zero,size:rect.size).fill(using:.sourceIn);image.unlockFocus()
+                image.draw(in:rect)
+            } else {glyph.draw(in:rect)}
+        }
+        let titleColor:NSColor=DetailStyle.info(e) ? .secondaryLabelColor : (e.action?.first=="stop" ? .systemRed : .labelColor)
+        MenuLayout.draw(e.label,in:layout.title,font:titleFont,color:titleColor)
+        if let rect=layout.value,let text=layout.valueText {
+            let height=MenuLayout.height(text,font:DetailStyle.valueFont,width:rect.width+2),y=mid-height/2
+            if e.attention==true {
+                let pill=NSRect(x:rect.minX,y:mid-9,width:rect.width,height:18)
+                NSColor.controlAccentColor.withAlphaComponent(night ? 0.22 : 0.12).setFill();NSBezierPath(roundedRect:pill,xRadius:9,yRadius:9).fill()
+                MenuLayout.draw(text,in:NSRect(x:pill.minX,y:y,width:pill.width,height:height),font:DetailStyle.valueFont,color:night ? accent("opencodex",self) : .controlAccentColor,alignment:.center)
+            } else if let configured=MenuLayout.configured(text) {
+                drawStatusLight(configured ? "ok" : "unknown",centre:NSPoint(x:rect.minX+3.5,y:mid),in:self)
+                MenuLayout.draw(text,in:NSRect(x:rect.minX+12,y:y,width:rect.width-10,height:height),font:DetailStyle.valueFont,color:.secondaryLabelColor,alignment:.right)
+            } else {
+                let color=usageColor(e.usageLevel) ?? (e.actionable || e.usageLevel != nil ? NSColor.labelColor : NSColor.secondaryLabelColor)
+                MenuLayout.draw(text,in:NSRect(x:rect.minX-2,y:y,width:rect.width+2,height:height),font:DetailStyle.valueFont,color:color,alignment:.right)
+            }
+        }
+        if let bar=layout.bar,let share=DetailStyle.share(e) {
+            NSColor.labelColor.withAlphaComponent(night ? 0.12 : 0.08).setFill();NSBezierPath(roundedRect:bar,xRadius:2,yRadius:2).fill()
+            DetailStyle.barColor(e.usageLevel).setFill()
+            NSBezierPath(roundedRect:NSRect(x:bar.minX,y:bar.minY,width:max(4,bar.width*CGFloat(share)),height:bar.height),xRadius:2,yRadius:2).fill()
+        }
+        if let rect=layout.detail,let text=e.detail {MenuLayout.draw(text,in:rect,font:DetailStyle.detailFont,color:.secondaryLabelColor)}
+        if e.children.isEmpty,e.href != nil,let arrow=NSImage(systemSymbolName:"arrow.up.right",accessibilityDescription:nil)?.withSymbolConfiguration(.init(pointSize:9,weight:.semibold)) {
+            let rect=NSRect(x:bounds.width-DetailStyle.inset-10,y:mid-5,width:10,height:10)
+            let tinted=NSImage(size:rect.size);tinted.lockFocus();arrow.draw(in:NSRect(origin:.zero,size:rect.size));NSColor.tertiaryLabelColor.set();NSRect(origin:.zero,size:rect.size).fill(using:.sourceIn);tinted.unlockFocus()
+            tinted.draw(in:rect)
+        }
+    }
+}
+
+// A page's rows. Opening or closing one moves the rows below to their new places, fades the new ones in, and
+// tells the panel its new height.
+final class DetailView:FlippedView {
+    private enum Item {case row(Entry,Int,Bool),section(Entry,Int),rule(Int)}
+    private let entries:[Entry]
+    private(set) var open:Set<String>
+    var invoke:((Entry)->Void)?
+    var resized:((CGFloat,Bool)->Void)?
+    var toggled:((Set<String>)->Void)?
+    private var views:[String:NSView]=[:]
+    init(_ entries:[Entry],width:CGFloat,open:Set<String>){
+        self.entries=entries;self.open=open
+        super.init(frame:NSRect(x:0,y:0,width:width,height:0))
+        place(animated:false)
+    }
+    required init?(coder:NSCoder){fatalError()}
+    private func items()->[(String,Item)] {
+        var out:[(String,Item)]=[]
+        func walk(_ list:[Entry],_ depth:Int,_ parent:String){
+            var seen:[String:Int]=[:];let aligned=list.contains(where:DetailStyle.leads)
+            for (index,entry) in list.enumerated() {
+                if entry.separator==true {
+                    // A rule between groups, never at the top or bottom of a level.
+                    if index>0 && index<list.count-1 {out.append((parent+"/—\(index)",.rule(depth)))};continue
+                }
+                let base=parent+"/"+entry.key,count=seen[base,default:0];seen[base]=count+1
+                let id=count==0 ? base : base+"#\(count)"
+                if entry.section==true {out.append((id,.section(entry,depth)));continue}
+                out.append((id,.row(entry,depth,aligned)))
+                if !entry.children.isEmpty && open.contains(id) {walk(entry.children,depth+1,id)}
+            }
+        }
+        walk(entries,0,"")
+        return out
+    }
+    static func height(_ entries:[Entry],width:CGFloat,open:Set<String>)->CGFloat {DetailView(entries,width:width,open:open).frame.height}
+    private func size(_ item:Item)->CGFloat {
+        switch item {
+        case .row(let e,let depth,let aligned):return DetailStyle.layout(e,depth:depth,width:bounds.width,aligned:aligned).height
+        case .section:return 28
+        case .rule:return 13
+        }
+    }
+    private func make(_ id:String,_ item:Item,_ frame:NSRect)->NSView {
+        switch item {
+        case .row(let e,let depth,let aligned):
+            let row=DetailRow(e,depth:depth,aligned:aligned,frame:frame,open:open.contains(id))
+            row.invoke={[weak self] row in self?.pressed(id,row)};return row
+        case .section(let e,let depth):
+            let label=NSTextField(labelWithString:e.label);label.font=DetailStyle.sectionFont;label.textColor = .secondaryLabelColor
+            label.frame=frame.insetBy(dx:0,dy:0);label.frame.origin.x=DetailStyle.left(depth:depth);label.frame.origin.y=frame.minY+11;label.frame.size.height=15
+            let box=FlippedView(frame:frame);label.frame.origin.y=11;box.addSubview(label);return box
+        case .rule(let depth):
+            let box=FlippedView(frame:frame),line=NSBox(frame:NSRect(x:DetailStyle.left(depth:depth),y:6,width:frame.width-DetailStyle.left(depth:depth)-DetailStyle.inset,height:1));line.boxType = .separator;box.addSubview(line);return box
+        }
+    }
+    private func pressed(_ id:String,_ row:DetailRow){
+        guard !row.entry.children.isEmpty else{invoke?(row.entry);return}
+        if open.contains(id){open=open.filter{$0 != id && !$0.hasPrefix(id+"/")}}else{open.insert(id)}
+        row.open=open.contains(id);toggled?(open);place(animated:true)
+    }
+    private func place(animated:Bool){
+        let list=items(),motion=animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        var y:CGFloat=0,keep=Set<String>(),fresh:[NSView]=[],moves:[(NSView,NSRect)]=[]
+        for (id,item) in list {
+            let frame=NSRect(x:0,y:y,width:bounds.width,height:size(item));y+=frame.height;keep.insert(id)
+            if let view=views[id] {moves.append((view,frame))}
+            else {
+                let view=make(id,item,frame);views[id]=view;addSubview(view)
+                if motion {view.alphaValue=0;view.frame=frame.offsetBy(dx:0,dy:-6);moves.append((view,frame));fresh.append(view)}
+            }
+        }
+        let gone=views.filter{!keep.contains($0.key)}
+        for key in gone.keys {views[key]=nil}
+        let height=ceil(y)
+        if motion {
+            if height>frame.height {setFrameSize(NSSize(width:bounds.width,height:height))}
+            resized?(height,true)
+            NSAnimationContext.runAnimationGroup({context in
+                context.duration=0.26;context.timingFunction=CAMediaTimingFunction(controlPoints:0.22,1,0.36,1);context.allowsImplicitAnimation=true
+                for (view,frame) in moves {view.animator().frame=frame}
+                for view in fresh {view.animator().alphaValue=1}
+                for view in gone.values {view.animator().alphaValue=0}
+            },completionHandler:{[weak self] in
+                for view in gone.values {view.removeFromSuperview()}
+                if let self,self.frame.height != height {self.setFrameSize(NSSize(width:self.bounds.width,height:height))}
+            })
+        } else {
+            for (view,frame) in moves {view.frame=frame}
+            for view in gone.values {view.removeFromSuperview()}
+            setFrameSize(NSSize(width:bounds.width,height:height))
+            resized?(height,false)
+        }
+    }
+}
 struct Flyout {var panel:Panel;var key:String;weak var row:Row?}
 // Presentation is optimistic, but a saved preference revision wins over an older data refresh.
 struct PresentationPreferences:Decodable {
@@ -1992,7 +2246,7 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
     private var sourceChecks:[String:Date]=[:]
     private var flyouts:[Flyout]=[];private var rows:[[String:Row]]=[];private let hoverIntent=HoverIntent();private var closeTask:DispatchWorkItem?;private var closeLevel=0
     private var trail:[(point:NSPoint,time:TimeInterval)]=[]
-    private func setup(_ window:Panel){window.backgroundColor = .clear;window.isOpaque=false;window.hasShadow=true;window.level = .popUpMenu;window.hidesOnDeactivate=false;window.isReleasedWhenClosed=false;window.acceptsMouseMovedEvents=true;window.collectionBehavior=[.canJoinAllSpaces,.fullScreenAuxiliary,.transient,.ignoresCycle];window.escape={[weak self] in self?.hide()}}
+    private func setup(_ window:Panel){window.backgroundColor = .clear;window.isOpaque=false;window.hasShadow=true;window.level = .popUpMenu;window.hidesOnDeactivate=false;window.isReleasedWhenClosed=false;window.acceptsMouseMovedEvents=true;window.collectionBehavior=[.canJoinAllSpaces,.fullScreenAuxiliary,.transient,.ignoresCycle];window.escape={[weak self] in self?.back()}}
     func applicationDidFinishLaunching(_ notification:Notification){
         let args=CommandLine.arguments
         if Bundle.main.object(forInfoDictionaryKey:"TokenMonitorStandalone") as? Bool == true {
@@ -2143,6 +2397,10 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
     private var pinned=false;private var liveTimer:Timer?;private weak var pinButton:HintButton?
     // The readings on screen, so the next ones roll from them; and when the last live tick went out.
     private var shownDashboard:Dashboard?;private var liveTick=Date()
+    // The page on screen: empty for the homepage (or the module grid), else the keys of the row opened, and which of
+    // that page's rows are open in place. slide is the next layout's direction: 1 in to a page, -1 back, 0 none.
+    private var pagePath:[String]=[];private var pageOpen:Set<String>=[];private var slide:CGFloat=0;private var homeScroll:CGFloat=0
+    private weak var pageScroll:ContentScrollView?
     @objc private func togglePin(){hideHint();setPinned(!pinned);if pinned{performAction(["refresh-live"])}}
     private func setPinned(_ value:Bool){
         guard value != pinned else{return}
@@ -2223,7 +2481,7 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
         if macHost==nil,let requested=requestedMode(){managerOnly=requested}
         leadingModules=nil
         guard !nativeMenuVisible() else{hide();return}
-        scrollOffset=0
+        scrollOffset=0;pagePath=[];pageOpen=[];slide=0
         if let button=statusItem?.button,let window=button.window {
             anchorRect=window.convertToScreen(button.convert(button.bounds,to:nil))
             anchor=NSPoint(x:anchorRect.midX,y:anchorRect.midY)
@@ -2248,7 +2506,7 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
         guard NSApp.isActive,let app=userApp,!app.isTerminated else{return}
         if #available(macOS 14.0,*){NSApp.yieldActivation(to:app);app.activate()}else{app.activate(options:[])}
     }
-    private func hide(returningFocus:Bool=true){setPinned(false);shownDashboard=nil;if returningFocus{returnFocus()};hintTask?.cancel();hintView?.removeFromSuperview();hintView=nil;rangePicker?.menu?.cancelTracking();hoverIntent.cancel();closeTask?.cancel();closeFlyouts(from:0);panel.orderOut(nil);removePointerMonitors();reloadTask?.cancel();publishVisibility(false)}
+    private func hide(returningFocus:Bool=true){setPinned(false);shownDashboard=nil;pagePath=[];pageOpen=[];slide=0;if returningFocus{returnFocus()};hintTask?.cancel();hintView?.removeFromSuperview();hintView=nil;rangePicker?.menu?.cancelTracking();hoverIntent.cancel();closeTask?.cancel();closeFlyouts(from:0);panel.orderOut(nil);removePointerMonitors();reloadTask?.cancel();publishVisibility(false)}
     private func updatePresentation(){snapshot=interaction.displayed();layout()}
     private func reload(force:Bool=false){
         // Do not replace a button while the user is pressing it.
@@ -2303,7 +2561,13 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
         NSApp.appearance=name.flatMap{NSAppearance(named:$0)}
     }
     private func layout(){
-        guard !anchoredMenuOpen,let snapshot else{return};applyTheme(snapshot.theme);if panel.isVisible,let old=(panel.contentView as? Surface)?.content.subviews.first as? NSScrollView {scrollOffset=old.contentView.bounds.origin.y};let opened=flyouts.map{$0.key};closeFlyouts(from:0);rows=[]
+        guard !anchoredMenuOpen,let snapshot else{return};applyTheme(snapshot.theme)
+        // A page whose row has gone (a module turned off, a key removed) gives way to the homepage.
+        if !pagePath.isEmpty && pageEntry()==nil {pagePath=[];pageOpen=[]}
+        let previous=slide != 0 && panel.isVisible ? (panel.contentView as? Surface).flatMap(picture) : nil
+        if let page=pageEntry() {layoutPage(page,previous:previous);return}
+        if panel.isVisible,slide==0,let old=(panel.contentView as? Surface)?.content.subviews.first as? NSScrollView,old !== pageScroll {scrollOffset=old.contentView.bounds.origin.y}
+        let opened=flyouts.map{$0.key};closeFlyouts(from:0);rows=[]
         let screen=NSScreen.screens.first(where:{$0.frame.contains(anchor)}) ?? NSScreen.main!,width:CGFloat=managerOnly ? ModuleGrid.width : 360,inner=width-16
         let entries=managerOnly ? snapshot.moduleOptions ?? [] : snapshot.entries
         let top:CGFloat=managerOnly ? 49 : (snapshot.dashboard.map{DashboardView.height($0)+8} ?? 36)
@@ -2369,11 +2633,119 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
         }
         scroll.documentView=content;scroll.configureScrolling();scroll.contentView.scroll(to:NSPoint(x:0,y:min(scrollOffset,max(0,contentHeight-scroll.frame.height))));surface.content.addSubview(scroll);panel.contentView=surface
         let x=min(max(anchor.x-22,screen.visibleFrame.minX+4),screen.visibleFrame.maxX-width-4)
-        panel.setFrame(NSRect(x:x,y:screen.visibleFrame.maxY-height-4,width:width,height:height),display:true);placeToast()
+        place(NSRect(x:x,y:screen.visibleFrame.maxY-height-4,width:width,height:height),surface:surface,previous:previous);placeToast()
         for (depth,key) in opened.enumerated(){guard rows.indices.contains(depth),let row=rows[depth][key] else{break};openFlyout(row.entry,row:row,depth:depth,checkSource:false)}
         DispatchQueue.main.async{[weak self] in self?.checkPointer()}
     }
     private func rowRect(_ row:Row)->NSRect{guard let window=row.window else{return .zero};return window.convertToScreen(row.convert(row.bounds,to:nil))}
+
+    // MARK: Pages
+    private func pageEntry()->Entry? {
+        var list=(managerOnly ? snapshot?.moduleOptions : snapshot?.entries) ?? [],found:Entry?
+        for key in pagePath {
+            guard let entry=list.first(where:{$0.key==key && !$0.children.isEmpty}) else{return nil}
+            found=entry;list=entry.children
+        }
+        return found
+    }
+    private func push(_ entry:Entry){
+        if let action=entry.onOpenAction,action.count==2 {
+            let now=Date()
+            if now.timeIntervalSince(sourceChecks[action[1]] ?? .distantPast)>=5 {sourceChecks[action[1]]=now;DispatchQueue.main.async{[weak self] in self?.performAction(action)}}
+        }
+        if let scroll=(panel.contentView as? Surface)?.content.subviews.first as? NSScrollView {homeScroll=scroll.contentView.bounds.origin.y}
+        hideHint();pagePath=[entry.key];pageOpen=[];slide=1;layout();slide=0
+    }
+    private func back(){
+        guard !pagePath.isEmpty else{hide();return}
+        hideHint();pagePath=[];pageOpen=[];scrollOffset=homeScroll;slide = -1;layout();slide=0
+    }
+    // The surface as it looks now, to slide away while the next page slides in.
+    private func picture(_ view:NSView)->NSImage? {
+        guard view.bounds.width>0,let rep=view.bitmapImageRepForCachingDisplay(in:view.bounds) else{return nil}
+        view.cacheDisplay(in:view.bounds,to:rep);let image=NSImage(size:view.bounds.size);image.addRepresentation(rep);return image
+    }
+    static let pageCurve=CAMediaTimingFunction(controlPoints:0.22,1,0.36,1)
+    // Puts the panel at its frame; going to or from a page, the new content slides in from the side it comes from
+    // while the old slides away and fades, and the panel eases to its new size.
+    private func place(_ frame:NSRect,surface:Surface,previous:NSImage?){
+        panel.contentView=surface
+        guard let previous,panel.isVisible,!NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else{panel.setFrame(frame,display:true);return}
+        let direction=slide,shift:CGFloat=72
+        let shot=NSImageView(frame:NSRect(x:0,y:0,width:previous.size.width,height:previous.size.height));shot.image=previous;shot.imageScaling = .scaleNone;shot.imageAlignment = .alignTopLeft
+        shot.wantsLayer=true;surface.addSubview(shot)
+        surface.content.wantsLayer=true
+        func move(_ layer:CALayer?,from:CGFloat,to:CGFloat,fade:(CGFloat,CGFloat),duration:Double,done:(()->Void)?=nil){
+            guard let layer else{return}
+            CATransaction.begin();CATransaction.setCompletionBlock(done)
+            let slide=CABasicAnimation(keyPath:"transform.translation.x");slide.fromValue=from;slide.toValue=to
+            let alpha=CABasicAnimation(keyPath:"opacity");alpha.fromValue=fade.0;alpha.toValue=fade.1
+            let group=CAAnimationGroup();group.animations=[slide,alpha];group.duration=duration;group.timingFunction=App.pageCurve
+            group.fillMode = .forwards;group.isRemovedOnCompletion=false;layer.add(group,forKey:"page")
+            CATransaction.commit()
+        }
+        move(surface.content.layer,from:direction*shift,to:0,fade:(0,1),duration:0.32){[weak surface] in surface?.content.layer?.removeAnimation(forKey:"page")}
+        move(shot.layer,from:0,to:-direction*shift*0.6,fade:(1,0),duration:0.22){shot.removeFromSuperview()}
+        NSAnimationContext.runAnimationGroup{context in context.duration=0.3;context.timingFunction=App.pageCurve;panel.animator().setFrame(frame,display:true)}
+    }
+    // A page: a back button with the row's icon, name and figure, then its rows; opening one in place grows the panel.
+    private func layoutPage(_ page:Entry,previous:NSImage?){
+        closeFlyouts(from:0);rows=[]
+        // A refresh redraws the page where the reader left it; arriving on it starts at the top.
+        let kept=slide==0 ? (pageScroll?.contentView.bounds.origin.y ?? 0) : 0
+        let screen=NSScreen.screens.first(where:{$0.frame.contains(anchor)}) ?? NSScreen.main!,width:CGFloat=360,inner=width-16,header:CGFloat=50
+        let detail=DetailView(page.children,width:inner,open:pageOpen)
+        let height=min(header+detail.frame.height+20,screen.visibleFrame.height-16)
+        let surface=Surface(frame:NSRect(x:0,y:0,width:width,height:height),glass:snapshot?.appearance != "solid")
+        let content=surface.content
+        let backButton=HintButton(frame:NSRect(x:12,y:13,width:27,height:25))
+        backButton.bezelStyle = .rounded;backButton.controlSize = .small;backButton.title="";backButton.imagePosition = .imageOnly;backButton.contentTintColor = .labelColor
+        backButton.image=NSImage(systemSymbolName:"chevron.left",accessibilityDescription:"返回")?.withSymbolConfiguration(.init(pointSize:11,weight:.semibold))
+        backButton.hint="返回";backButton.hovered={[weak self] in self?.hoverHint($0,$1)};backButton.setAccessibilityLabel("返回")
+        backButton.target=self;backButton.action=#selector(backPressed);content.addSubview(backButton)
+        var titleX:CGFloat=48
+        let glyph:NSImage?={
+            if let raw=page.image,let data=Data(base64Encoded:raw),let image=NSImage(data:data){image.isTemplate=page.template ?? false;return image}
+            return page.symbol.flatMap{NSImage(systemSymbolName:$0,accessibilityDescription:nil)}
+        }()
+        if let glyph {
+            let icon=NSImageView(frame:NSRect(x:titleX,y:16,width:18,height:18));icon.image=glyph;icon.imageScaling = .scaleProportionallyUpOrDown
+            if glyph.isTemplate{icon.contentTintColor = .labelColor};content.addSubview(icon);titleX+=25
+        }
+        // The figure beside the name keeps its whole text, in a shorter form if the name needs the room.
+        let titleFont=NSFont.systemFont(ofSize:14,weight:.semibold),valueFont=NSFont.monospacedDigitSystemFont(ofSize:11.5,weight:.medium)
+        let room=width-16-titleX-MenuLayout.width(page.label,font:titleFont)-14
+        let shown=page.value.map{value in ([value]+(page.fallbacks ?? [])).first{MenuLayout.width($0,font:valueFont)+6<=room} ?? (page.fallbacks?.last ?? value)}
+        var valueWidth:CGFloat=0
+        if let shown {
+            let value=NSTextField(labelWithString:shown);value.font=valueFont;value.textColor=usageColor(page.usageLevel) ?? .secondaryLabelColor;value.alignment = .right
+            value.lineBreakMode = .byTruncatingTail;valueWidth=min(max(60,room),MenuLayout.width(shown,font:valueFont)+6)
+            value.frame=NSRect(x:width-16-valueWidth,y:18,width:valueWidth,height:16);content.addSubview(value)
+        }
+        let title=NSTextField(labelWithString:page.label);title.font=titleFont;title.lineBreakMode = .byTruncatingTail
+        title.frame=NSRect(x:titleX,y:15,width:width-16-valueWidth-8-titleX,height:20);content.addSubview(title)
+        let rule=NSBox(frame:NSRect(x:16,y:header-1,width:width-32,height:1));rule.boxType = .separator;content.addSubview(rule)
+        let scroll=ContentScrollView(frame:NSRect(x:8,y:header+4,width:inner,height:height-header-12));scroll.drawsBackground=false;scroll.scrollerStyle = .overlay
+        scroll.documentView=detail;scroll.configureScrolling();content.addSubview(scroll);pageScroll=scroll
+        if kept>0 {scroll.contentView.scroll(to:NSPoint(x:0,y:min(kept,max(0,detail.frame.height-scroll.frame.height))));scroll.reflectScrolledClipView(scroll.contentView)}
+        scroll.swipedBack={[weak self] in self?.back()}
+        detail.invoke={[weak self] entry in self?.open(entry)}
+        detail.toggled={[weak self] open in self?.pageOpen=open}
+        detail.resized={[weak self,weak scroll,weak surface] body,animated in
+            guard let self,let scroll,let surface else{return}
+            let total=min(header+body+20,screen.visibleFrame.height-16),frame=self.panel.frame
+            let target=NSRect(x:frame.minX,y:frame.maxY-total,width:frame.width,height:total)
+            scroll.frame.size.height=max(scroll.frame.height,total-header-12)
+            let finish={[weak scroll] in scroll?.frame.size.height=total-header-12;scroll?.configureScrolling()}
+            if animated {
+                NSAnimationContext.runAnimationGroup({context in context.duration=0.26;context.timingFunction=App.pageCurve;self.panel.animator().setFrame(target,display:true)},completionHandler:finish)
+            } else {self.panel.setFrame(target,display:true);finish()}
+            _=surface
+        }
+        let x=min(max(anchor.x-22,screen.visibleFrame.minX+4),screen.visibleFrame.maxX-width-4)
+        place(NSRect(x:x,y:screen.visibleFrame.maxY-height-4,width:width,height:height),surface:surface,previous:previous);placeToast()
+    }
+    @objc private func backPressed(){back()}
     private func topPanel(at point:NSPoint)->NSWindow? {
         let windows=([panel]+flyouts.map{$0.panel}).filter{$0.isVisible}
         guard let index=MenuLayout.topmostIndex(at:point,frames:windows.map{$0.frame}) else{return nil}
@@ -2386,23 +2758,8 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
         if managerOnly && window === panel {return false}
         return MenuLayout.configurationHover(row.entry,x:row.convert(window.convertPoint(fromScreen:NSEvent.mouseLocation),from:nil).x)
     }
-    private func hover(_ entry:Entry,row:Row,depth:Int){
-        guard !anchoredMenuOpen,pointerHits(row) else{return}
-        closeTask?.cancel()
-        // A left-opening flyout is reached through the checkbox column.
-        // Suppress new hover requests here, but retain the already open panel.
-        guard allowsConfigurationHover(row) else{hoverIntent.cancel();return}
-        hoverIntent.schedule(String(depth)+"\u{1f}"+entry.key){[weak self,weak row] in self?.settleHover(entry,row:row,depth:depth,postponed:0)}
-    }
-    private func settleHover(_ entry:Entry,row:Row?,depth:Int,postponed:Int){
-        guard let row,pointerHits(row),allowsConfigurationHover(row) else{return}
-        // Still travelling into the open flyout: look again shortly, but never hold the old row for long.
-        if postponed<2,aimingAtFlyout(depth) {
-            hoverIntent.schedule(String(depth)+"\u{1f}"+entry.key,after:0.06){[weak self,weak row] in self?.settleHover(entry,row:row,depth:depth,postponed:postponed+1)}
-            return
-        }
-        if entry.children.isEmpty{closeFlyouts(from:depth)}else{openFlyout(entry,row:row,depth:depth)}
-    }
+    // Rows open their page on a click; the pointer only lights them.
+    private func hover(_ entry:Entry,row:Row,depth:Int){}
     private func recordPointer(_ point:NSPoint){
         let now=ProcessInfo.processInfo.systemUptime
         if trail.last?.point != point{trail.append((point,now))}
@@ -2493,9 +2850,11 @@ final class App:NSObject,NSApplicationDelegate,NSMenuDelegate,NSSharingServicePi
     }
     private func activate(_ entry:Entry,row:Row,depth:Int){
         if entry.isModule,!row.configurationClick,let action=entry.action{performAction(action);return}
-        // In the module grid a second click on the open module closes its settings again.
-        if managerOnly,depth==0,row.carded,flyouts.first?.key==entry.key{closeFlyouts(from:0);return}
-        if !entry.children.isEmpty{openFlyout(entry,row:row,depth:depth);return}
+        if !entry.children.isEmpty{push(entry);return}
+        open(entry)
+    }
+    // What a row without a page does: open the app or the link, or run its action.
+    private func open(_ entry:Entry){
         // Desktop app update rows link to the installed .app, which opens the app to update itself.
         if let href=entry.href,let url=URL(string:href),url.isFileURL,url.pathExtension=="app"{
             hide(returningFocus:false)

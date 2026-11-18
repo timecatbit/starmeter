@@ -347,4 +347,23 @@ expect(byModel.cardList.map{$0.name}==["Claude Opus 5.5"] && byModel.providers.m
 expect(!byModel.collapsible && byModel.cardList[0].colour=="claude" && byModel.cardList[0].grouped,"Grouped cards never fold and take their maker's colour")
 expect(!DashboardView.stats(byModel.cardList[0]).contains("会话") && DashboardView.stats(byModel.providers[0]).contains("3 会话"),"Only tool cards count sessions")
 expect(DashboardView.groupingHeight(byModel)==30,"The grouping switch sits above the cards")
+// Pages: what used to open beside the panel opens inside it, rows with more under them opening in place.
+let pageJSON=#"[{"label":"本周","value":"已用 38%","usageLevel":"normal","detail":"重置于 11/19 22:00","children":[]},{"label":"","separator":true,"children":[]},{"label":"lab","value":"余额 ¥3.02","children":[{"label":"重命名…","action":["rename-api-key","deepseek","x"],"children":[]},{"label":"删除…","action":["remove-api-key","deepseek","x"],"children":[]}]},{"label":"打开用量与账单","symbol":"arrow.up.right","href":"https://example.com","children":[]}]"#
+let pageEntries=try JSONDecoder().decode([Entry].self,from:Data(pageJSON.utf8))
+expect(DetailStyle.share(pageEntries[0])==0.38 && DetailStyle.share(pageEntries[2])==nil,"A usage row draws its share as a bar; a balance does not")
+let closedHeight=DetailView.height(pageEntries,width:344,open:[]),labID="/"+pageEntries[2].key
+let openedHeight=DetailView.height(pageEntries,width:344,open:[labID])
+expect(openedHeight>closedHeight+50,"Opening a row in place adds its rows below it")
+let pageView=DetailView(pageEntries,width:344,open:[])
+var heights:[CGFloat]=[];pageView.resized={height,_ in heights.append(height)}
+let labRow=pageView.subviews.compactMap{$0 as? DetailRow}.first{$0.entry.label=="lab"}
+labRow?.invoke?(labRow!)
+expect(pageView.open==[labID] && labRow?.open==true && heights.last==openedHeight,"Clicking a row with more opens it and tells the panel its new height")
+labRow?.invoke?(labRow!)
+expect(pageView.open.isEmpty && heights.last==closedHeight,"Clicking it again closes it")
+var invoked:[String]=[];pageView.invoke={invoked.append($0.label)}
+if let link=pageView.subviews.compactMap({$0 as? DetailRow}).first(where:{$0.entry.href != nil}) {link.invoke?(link)}
+expect(invoked==["打开用量与账单"],"A row without more runs its action or opens its link")
+let aligned=DetailStyle.layout(pageEntries[2],depth:0,width:344,aligned:true).title.minX,plain=DetailStyle.layout(pageEntries[2],depth:0,width:344,aligned:false).title.minX
+expect(aligned==plain+DetailStyle.lead,"Rows of a level start their text in one column when any of them has an icon")
 print("Native interaction assertions: \(assertions) passed")
