@@ -16,6 +16,7 @@ import unittest.mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'lib'))
+import swiftbar_accounts as accounts
 import swiftbar_catalog as catalog
 import swiftbar_claude_usage as claude_usage
 import swiftbar_sources as sources
@@ -703,6 +704,143 @@ class RangeParityTests(unittest.TestCase):
                 for key in ('today', 'yesterday', '24h', '7d', '30d', 'week', 'month', 'all'):
                     with self.subTest(zone=zone, moment=moment, key=key):
                         self.assertEqual(swift('range.bounds', key, moment, zone), list(plugin.range_bounds(key, now)))
+
+
+class FakeServices:
+    """A local HTTP server standing in for every provider: both engines are pointed at it, and answer the same."""
+
+    def __init__(self, handler):
+        import http.server, threading, urllib.request
+        outer = self
+        self.handler = handler
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                status, body, headers = outer.handler(self.path, dict(self.headers))
+                self.send_response(status)
+                for name, value in headers.items():self.send_header(name, value)
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            def log_message(self, *args):pass
+        self.server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.base = 'http://127.0.0.1:%d' % self.server.server_address[1]
+        hosts = ['https://api.deepseek.com', 'https://management-api.x.ai', 'https://api.qoder.com.cn', 'https://www.minimax.io', 'https://api.minimaxi.com',
+                 'https://api.moonshot.cn', 'https://api.moonshot.ai', 'https://api.anthropic.com', 'https://api.openai.com', 'https://generativelanguage.googleapis.com']
+        self.routes = {host: self.base + '/' + host.split('//')[1] for host in hosts}
+        original = urllib.request.OpenerDirector.open
+        routes = self.routes
+        def rerouted(director, request, *args, **kwargs):
+            if isinstance(request, urllib.request.Request):
+                for host, target in routes.items():
+                    if request.full_url.startswith(host):request.full_url = target + request.full_url[len(host):];break
+            return original(director, request, *args, **kwargs)
+        self.patch = unittest.mock.patch.object(urllib.request.OpenerDirector, 'open', rerouted)
+        self.patch.start()
+
+    def close(self):
+        self.patch.stop()
+        self.server.shutdown()
+        self.server.server_close()
+
+
+@unittest.skipUnless(PROBE, 'Swift toolchain not installed')
+class AccountParityTests(unittest.TestCase):
+    def setUp(self):
+        self.answers = {}
+        def handler(path, headers):
+            for prefix, answer in self.answers.items():
+                if path.startswith(prefix):
+                    return answer(path, headers) if callable(answer) else answer
+            return 404, b'{}', {}
+        self.services = FakeServices(handler)
+        self.addCleanup(self.services.close)
+
+    def both(self, source, key=None, options=None, environment=None):
+        with unittest.mock.patch.dict(os.environ, environment or {}):
+            expected = accounts.account(source, key, options)
+        got = swift('accounts.account', source, key, options or {}, environment or {}, self.services.routes)
+        same(self, expected, got)
+        return expected
+
+    def ok(self, value):
+        return 200, json.dumps(value).encode(), {'Content-Type': 'application/json'}
+
+    def test_balances_plans_and_spend(self):
+        cases = {
+            'deepseek': ('/api.deepseek.com/user/balance', [
+                {'balance_infos': [{'currency': 'USD', 'total_balance': '3.20'}, {'currency': 'CNY', 'total_balance': '123456789.123456789'}]},
+                {'balance_infos': [{'currency': 'USD', 'total_balance': -0.5}]}, {'balance_infos': []}, {'balance_infos': [{'currency': 'CNY'}]},
+                {'balance_infos': [{'total_balance': 'NaN'}]}, {'balance_infos': [{'total_balance': True}]}]),
+            'grok': ('/management-api.x.ai/v1/billing/teams/team%201/prepaid/balance', [
+                {'total': {'val': -1000}}, {'total': {'val': '-1234.5'}}, {'total': {'val': 0.1}}, {'total': {}}, {'total': {'val': 'x'}}]),
+            'kimi-api': ('/api.moonshot.cn/v1/users/me/balance', [
+                {'code': 0, 'data': {'available_balance': 12.5, 'voucher_balance': '2.5', 'cash_balance': -3}}, {'code': 1, 'data': {}},
+                {'status': False, 'data': {'available_balance': 1}}, {'data': {'voucher_balance': 1}}, {'code': False, 'data': {'available_balance': '1e2'}},
+                {'data': {'available_balance': None}}]),
+            'minimax': ('/www.minimax.io/v1/token_plan/remains', [
+                {'base_resp': {'status_code': 0}, 'model_remains': [
+                    {'model_name': 'MiniMax-M3', 'current_interval_remaining_percent': 72.5, 'start_time': 1794996000000, 'end_time': 1795014000000,
+                     'current_weekly_status': 3},
+                    {'model_name': 'speech', 'current_interval_total_count': 100, 'current_interval_usage_count': 40, 'end_time': 1795014000,
+                     'current_weekly_total_count': 10, 'current_weekly_usage_count': 11},
+                    {'current_interval_total_count': 0, 'current_interval_status': 3, 'current_weekly_total_count': 0, 'current_weekly_status': 3},
+                    'bad', {'model_name': 'x', 'current_interval_remaining_percent': True}]},
+                {'base_resp': {'status_code': 1004}}, {'base_resp': {'status_code': 0}, 'model_remains': []}]),
+        }
+        environment = {'XAI_TEAM_ID': 'team 1', 'MOONSHOT_API_KEY': 'k', 'MINIMAX_API_KEY': 'k', 'XAI_MANAGEMENT_API_KEY': 'k'}
+        for source, (path, bodies) in cases.items():
+            for body in bodies:
+                with self.subTest(source=source, body=body):
+                    self.answers = {path: self.ok(body)}
+                    self.both(source, 'sk-test' if source == 'deepseek' else None, environment=environment)
+            for status in (401, 403, 429, 500, 302):
+                with self.subTest(source=source, status=status):
+                    self.answers = {path: (status, b'{"error": {"message": "no"}}', {'Location': 'https://example.com/'} if status == 302 else {})}
+                    self.both(source, 'sk-test' if source == 'deepseek' else None, environment=environment)
+            with self.subTest(source=source, body='not json'):
+                self.answers = {path: (200, b'<html>', {})}
+                self.both(source, 'sk-test' if source == 'deepseek' else None, environment=environment)
+        self.both('grok', environment={'XAI_MANAGEMENT_API_KEY': 'k'})
+        self.both('kimi-api', options={'region': 'mars'}, environment={'MOONSHOT_API_KEY': 'k'})
+        self.both('minimax', environment={'MINIMAX_API_KEY': 'k', 'MINIMAX_REGION': 'moon'})
+        self.both('deepseek', '')
+        self.both('claude-api', environment={'ANTHROPIC_API_KEY': ''})
+
+    def test_qoder_packages_page_through(self):
+        def pages(path, headers):
+            if 'nextToken=p2' in path:return self.ok({'resourcePackages': [{'remainingValue': '0.3'}, {'remainingValue': 7, 'status': 'expired'}]})
+            return self.ok({'resourcePackages': [{'remainingValue': '100.1', 'status': 'ACTIVE'}, 'x', {'remainingValue': 0.2}], 'nextToken': 'p2'})
+        self.answers = {'/api.qoder.com.cn/v1/organizations/org%2F1/resource-packages': pages}
+        self.both('qoder-api', 'qk', {'org': 'org/1'})
+        self.answers = {'/api.qoder.com.cn/': self.ok({'resourcePackages': [{'remainingValue': -1}]})}
+        self.both('qoder-api', 'qk', {'org': 'o'})
+        self.answers = {'/api.qoder.com.cn/': self.ok({'nothing': []})}
+        self.both('qoder-api', 'qk', {'org': 'o'})
+
+    def test_claude_spend(self):
+        today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        def report(path, headers):
+            if 'page=two' in path:return self.ok({'data': [{'starting_at': today + 'T00:00:00Z', 'results': [{'amount': '250.5', 'currency': 'USD'}]}], 'has_more': False})
+            return self.ok({'data': [{'starting_at': '2026-11-01T00:00:00Z', 'results': [{'amount': '1000'}, {'amount': 33.3}]}, 'odd'],
+                            'has_more': True, 'next_page': 'two'})
+        self.answers = {'/api.anthropic.com/v1/organizations/cost_report': report}
+        self.both('claude-api', 'sk-ant-admin-x')
+        for status, body in ((403, b'{}'), (401, b'{"error": {"message": "Admin API key required"}}'), (401, b'{}'), (500, b'')):
+            with self.subTest(status=status, body=body):
+                self.answers = {'/api.anthropic.com/': (status, body, {})}
+                self.both('claude-api', 'sk-ant-api')
+        self.answers = {'/api.anthropic.com/': self.ok({'data': [{'results': [{'amount': '1', 'currency': 'EUR'}]}]})}
+        self.both('claude-api', 'k')
+
+    def test_key_checks(self):
+        for source, key in (('chatgpt-api', 'sk'), ('claude-api', 'sk-ant-api'), ('claude-api', 'sk-ant-admin-1'), ('gemini-api', 'g')):
+            for status, body in ((200, b'{}'), (400, b'{"error": {"message": "This key is not scoped to a workspace"}}'), (400, b'{}'),
+                                 (401, b''), (403, b''), (429, b''), (503, b''), (302, b'')):
+                with self.subTest(source=source, key=key, status=status):
+                    self.answers = {'/': (status, body, {'Location': 'https://example.com/'} if status == 302 else {})}
+                    expected = accounts.check_key(source, key)
+                    self.assertEqual(swift('accounts.check', source, key, self.services.routes), expected)
 
 
 if __name__ == '__main__':

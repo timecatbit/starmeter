@@ -74,6 +74,15 @@ func answer(_ call: String, _ args: [JSON]) throws -> JSON {
         // [data, now, range error]
         let runtime = Runtime()
         return .object(runtime.render { runtime.dashboardPayload(args[0].object ?? JSONObject(), rangeError: text(2), now: args[1].number ?? Date().timeIntervalSince1970) })
+    case "accounts.account":
+        // [source, key or null, options, environment, routes]
+        for (from, to) in args[4].object ?? JSONObject() { HTTP.routes[from] = to.string }
+        var environment = ProcessInfo.processInfo.environment
+        for (name, value) in args[3].object ?? JSONObject() { environment[name] = value.string }
+        return .object(Accounts.account(text(0)!, key: text(1), options: args[2].object ?? JSONObject(), environment: environment))
+    case "accounts.check":
+        for (from, to) in args[2].object ?? JSONObject() { HTTP.routes[from] = to.string }
+        return .object(Accounts.checkKey(text(0)!, key: text(1)!))
     case "zstd":
         // The SHA-256 and size of each file's decompressed bytes.
         return .array(args.map { path in
