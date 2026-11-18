@@ -578,6 +578,8 @@ class TrayPanel(QWidget):
         surface=('#242830' if night else '#f8f9fc') if appearance=='glass' else ('#202124' if night else '#ffffff');border='#444953' if night else '#d3dae6'
         text=ink().name();muted='#a5aebd' if night else '#596477'
         hover='#353e4c' if night else '#e8effb'; divider='#404750' if night else '#dce3ed'
+        # Held down, a control darkens past its hover tint, as the Mac panel's do.
+        pressed='#46516a' if night else '#d3e0f6'
         self.setStyleSheet(f'''
             #surface {{background:{surface};border:1px solid {border};border-radius:13px;}}
             QLabel,QToolButton,QCheckBox,QComboBox {{color:{text};}}
@@ -585,9 +587,11 @@ class TrayPanel(QWidget):
             QScrollArea > QWidget > QWidget {{background:transparent;}}
             QToolButton {{padding:3px;border-radius:5px;background:transparent;}}
             QToolButton:hover,QCheckBox:hover {{background:{hover};}}
+            QToolButton:pressed,QCheckBox:pressed {{background:{pressed};}}
             #pin {{font-family:'Segoe Fluent Icons','Segoe MDL2 Assets';font-size:12px;}}
             #segment {{border:0;border-radius:11px;padding:3px 10px;font-size:12px;color:{muted};background:transparent;}}
             #segment:hover {{background:{hover};}}
+            #segment:pressed {{background:{pressed};}}
             #segment:checked {{background:{hover};color:{text};font-weight:650;}}
             QComboBox {{border:1px solid {border};border-radius:5px;padding:4px 8px;min-height:18px;background:{surface};}}
             QComboBox QAbstractItemView {{background:{surface};color:{text};selection-background-color:{hover};selection-color:{text};}}
