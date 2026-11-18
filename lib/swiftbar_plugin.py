@@ -172,8 +172,9 @@ def local_zone():
 
 def range_cache_name(key=None):
     settings = view_settings()
-    # A new price table changes every estimate, so its snapshot commit is part of the cache key.
-    pricing = sources.pricing('model-pricing.json').get('source', {}).get('commit')
+    # A new price table changes every estimate, so each table's stamp is part of the cache key; a model
+    # models.dev adds before ccusage does changes the stamp, not the ccusage commit.
+    pricing = [sources.pricing(name).get('source', {}).get(field) for name in PRICING_TABLES for field in ('commit','committedAt')]
     scope = [('collector','ccusage-v2'), ('pricing', pricing)] + [(k, source_path(k)) for k in preferences.USAGE if k in settings['visible']]
     if 'claude' in settings['visible']:scope.append(('claude-projects',[str(p) for p in claude_desktop.project_roots(HOME)]))
     fingerprint = hashlib.sha256(json.dumps(scope).encode()).hexdigest()[:12]

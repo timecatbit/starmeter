@@ -7,8 +7,15 @@ models that WorkBuddy, DeepSeek Harness, Gemini CLI and OpenCode may log. Prices
 USD per million tokens; missing cache prices use ccusage's defaults (read 10%,
 write 125% of input). A daily GitHub Action runs it against the latest ccusage, and
 installed plugins download the committed tables, so users get new prices without upgrading.
+
+ccusage builds its snapshot from models.dev (MIT) and can fall days behind it. Given
+models.dev's own api.json, OpenAI's first-party text models that models.dev updated after
+the version ccusage's snapshot was built from, and that the snapshot lacks, are added as
+models.dev lists them. Nothing ccusage prices is overridden, and once ccusage has a model
+it comes from ccusage again.
 """
 import argparse
+from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 import re
@@ -40,13 +47,50 @@ def table(snapshot, pattern, key=str):
     return models
 
 
+def newer_openai(api, snapshot, built):
+    """OpenAI's own text models that models.dev updated after the day ccusage's snapshot was built
+    from and that the snapshot lacks, in the snapshot's shape."""
+    found = {}
+    for name, entry in sorted(((api.get('openai') or {}).get('models') or {}).items()):
+        cost = entry.get('cost') if isinstance(entry, dict) else None
+        if not OPENAI.fullmatch(name) or name in snapshot or not isinstance(cost, dict):continue
+        if str(entry.get('last_updated') or '') <= built or 'text' not in ((entry.get('modalities') or {}).get('output') or []):continue
+        prices = [cost.get(k) for k in ('input', 'output', 'cache_read', 'cache_write') if k in cost]
+        if {'input', 'output'} <= set(cost) and all(isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0 for v in prices):
+            found[name] = {'cost': cost}
+    return found
+
+
+def stamped(path, result, committed):
+    """Installed plugins keep the copy with the latest committedAt. A table that did not change keeps
+    its stamp; one that did takes ccusage's commit time, or a second past the last stamp when that is
+    later (a models.dev addition while ccusage stands still), so a changed table always reads as newer."""
+    try:current = json.loads(path.read_text())
+    except (OSError, ValueError):current = {}
+    before = (current.get('source') or {}).get('committedAt') if isinstance(current, dict) else None
+    plain = lambda data:dict(data, source={k: v for k, v in data['source'].items() if k != 'committedAt'})
+    if before and isinstance(current.get('source'), dict) and plain(current) == plain(dict(result, source=dict(result['source'], committedAt=before))):
+        result['source']['committedAt'] = before;return result
+    if before and datetime.fromisoformat(before) >= datetime.fromisoformat(committed):
+        committed = (datetime.fromisoformat(before) + timedelta(seconds=1)).isoformat()
+    result['source']['committedAt'] = committed
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('ccusage', type=Path, help='Path to a ccusage git checkout')
+    parser.add_argument('--models-dev', type=Path, help="models.dev's api.json, for OpenAI models ccusage has not picked up yet")
     args = parser.parse_args()
     repo = args.ccusage.resolve()
     snapshot = json.loads((repo / 'rust/crates/ccusage-pricing-snapshots/src/models-dev-pricing.json').read_text())
-    models = table(snapshot, OPENAI)
+    added = {}
+    if args.models_dev:
+        # The models.dev version ccusage's snapshot was built from, as pinned in its flake.lock.
+        locked = json.loads((repo / 'flake.lock').read_text())['nodes']['models-dev']['locked']['lastModified']
+        built = datetime.fromtimestamp(locked, timezone.utc).date().isoformat()
+        added = newer_openai(json.loads(args.models_dev.read_text()), snapshot, built)
+    models = table(dict(snapshot, **added), OPENAI)
     pricing = (repo / 'rust/crates/ccusage-core/src/pricing.rs').read_text()
     body = pricing.split('fn pricing_alias(', 1)[1].split('\n}\n', 1)[0]
     aliases = dict(re.findall(r'"([^"]+)" => Some\("([^"]+)"\)', body))
@@ -59,12 +103,15 @@ def main():
     # The commit time orders tables: installed plugins keep whichever copy is newest.
     committed = subprocess.run(['git', '-C', str(repo), 'log', '-1', '--format=%cI'], capture_output=True, text=True, check=True).stdout.strip()
     source = {'project': 'ccusage', 'commit': commit, 'committedAt': committed, 'license': 'MIT'}
-    result = {'source': source, 'aliases': aliases, 'autoReviewFallbacks': fallbacks, 'multipliers': multipliers, 'models': models}
-    (ROOT / 'lib/codex-pricing.json').write_text(json.dumps(result, ensure_ascii=False, indent=1) + '\n')
+    codex_source = dict(source, supplement={'project': 'models.dev', 'license': 'MIT', 'models': sorted(added)}) if added else dict(source)
+    result = {'source': codex_source, 'aliases': aliases, 'autoReviewFallbacks': fallbacks, 'multipliers': multipliers, 'models': models}
+    path = ROOT / 'lib/codex-pricing.json'
+    path.write_text(json.dumps(stamped(path, result, committed), ensure_ascii=False, indent=1) + '\n')
     # Lower-case keys: harness logs spell vendor model names inconsistently.
     others = table(snapshot, VENDORS, key=str.lower)
-    (ROOT / 'lib/model-pricing.json').write_text(json.dumps({'source': source, 'models': others}, ensure_ascii=False, indent=1) + '\n')
-    print('codex models:', len(models), 'other models:', len(others), 'commit:', commit[:8])
+    path = ROOT / 'lib/model-pricing.json'
+    path.write_text(json.dumps(stamped(path, {'source': dict(source), 'models': others}, committed), ensure_ascii=False, indent=1) + '\n')
+    print('codex models:', len(models), 'other models:', len(others), 'commit:', commit[:8], 'from models.dev:', ', '.join(sorted(added)) or 'none')
 
 
 if __name__ == '__main__':

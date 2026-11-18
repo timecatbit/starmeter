@@ -72,7 +72,8 @@ def valid_pricing(name, data):
 
 
 def committed(table):
-    """When the ccusage snapshot behind a table was committed; 0 when unknown."""
+    """A table's stamp: ccusage's commit time, or a second past the last stamp when models.dev added a model
+    ccusage has not picked up yet. Installed plugins keep the copy with the latest; 0 when unknown."""
     try: return parse_iso(str(((table or {}).get('source') or {}).get('committedAt') or '')).timestamp()
     except ValueError: return 0
 

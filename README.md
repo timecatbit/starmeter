@@ -88,6 +88,7 @@ python3 scripts/package.py  # 打包发布 zip
 
 - [SwiftBar](https://github.com/swiftbar/SwiftBar)（MIT）：插件版由 SwiftBar 提供菜单栏图标、右键菜单和定时刷新。
 - [ccusage](https://github.com/ccusage/ccusage)（MIT）：用量统计规则与模型价格快照，许可见 [lib/CCUSAGE_LICENSE](lib/CCUSAGE_LICENSE)。
+- [models.dev](https://github.com/anomalyco/models.dev)（MIT）：ccusage 快照还没收录的 OpenAI 新模型价格。
 - [CodexBar](https://github.com/steipete/CodexBar)（MIT）：Claude 用量查询的参考实现，许可见 [lib/CODEXBAR_LICENSE](lib/CODEXBAR_LICENSE)。
 - [LobeHub Icons](https://github.com/lobehub/lobe-icons)（MIT）：品牌图标，许可见 [assets/logos/LICENSE](assets/logos/LICENSE)；标志归各自所有者，仅用于标识服务。
 
