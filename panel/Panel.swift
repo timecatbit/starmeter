@@ -104,6 +104,7 @@ struct Grouping:Decodable {var key:String;var label:String}
 struct Dashboard:Decodable {var date:String;var dates:[String];var providers:[ProviderUsage];var rangeKey:String;var rangeLabel:String;var chartUnit:String;var chartSpan:String;var period:[String]?;var chartStatus:String;var updated:String?;var chartPositions:[Double]?;var heatmap:UsageHeatmap?;var showSummary:Bool?;var allowCollapse:Bool?;var expandedProviders:[String]?
     // The Harness cards: one per tool, or regrouped by model or project. Summary, the chart and the share picture stay per tool.
     var grouping:String?;var groupings:[Grouping]?;var cards:[ProviderUsage]?
+    var currency:MoneyUnit?
     // How the regrouped cards count, when that differs from Summary (projects come from each client's own records).
     var groupNote:String?
     var cardList:[ProviderUsage] {cards ?? providers}
@@ -189,7 +190,14 @@ func modelName(_ name:String)->String {
     guard let family=parts.first,["opus","sonnet","haiku","fable"].contains(family) else{return name}
     return family.capitalized+" "+parts.dropFirst().joined(separator:".")
 }
-func money(_ value:Double?)->String {value.map{String(format:"$%.2f",$0)} ?? "—"}
+// API-equivalent estimates read in dollars, or in yuan at the rate the snapshot carries. Set from each dashboard shown.
+struct MoneyUnit:Decodable {var code:String;var symbol:String;var rate:Double;var note:String?}
+enum Currency {
+    static var unit:MoneyUnit?
+    static var symbol:String {unit?.symbol ?? "$"}
+    static func convert(_ value:Double)->Double {value*(unit?.rate ?? 1)}
+}
+func money(_ value:Double?)->String {value.map{Currency.symbol+String(format:"%.2f",Currency.convert($0))} ?? "—"}
 // Qoder CN plan requests log Qoder Credits and no tokens; Credits are never shown as dollars or tokens.
 func creditsText(_ value:Double)->String {String(format:value>=100 ? "%.0f Credits" : "%.1f Credits",value)}
 func headline(_ p:ProviderUsage)->String {
@@ -218,7 +226,7 @@ enum Figure {
         let style=NSMutableParagraphStyle();style.alignment=align;style.lineBreakMode = .byClipping
         let out=NSMutableAttributedString();var body=Substring(value)
         let small:[NSAttributedString.Key:Any]=[.font:font(size*0.62,.medium),.foregroundColor:NSColor.secondaryLabelColor,.paragraphStyle:style]
-        if body.hasPrefix("$"){out.append(NSAttributedString(string:"$",attributes:small.merging([.baselineOffset:size*0.3]){$1}));body=body.dropFirst()}
+        if let first=body.first,"$¥".contains(first){out.append(NSAttributedString(string:String(first),attributes:small.merging([.baselineOffset:size*0.3]){$1}));body=body.dropFirst()}
         var unit=""
         if let last=body.last,"KMB".contains(last),body.dropLast().last?.isNumber==true{unit=String(last);body=body.dropLast()}
         out.append(NSAttributedString(string:String(body),attributes:[.font:font(size,weight),.foregroundColor:color,.paragraphStyle:style]))
@@ -390,7 +398,8 @@ class ShareCard:FlippedView {
         }
     }
     static func make(_ style:Style,_ dashboard:Dashboard,project:Project)->ShareCard {
-        style == .terminal ? TerminalShareCard(dashboard,project:project) : CardShareCard(dashboard,project:project)
+        Currency.unit=dashboard.currency
+        return style == .terminal ? TerminalShareCard(dashboard,project:project) : CardShareCard(dashboard,project:project)
     }
     init(_ dashboard:Dashboard,project:Project){
         // Every source with data, in the panel's order; those Summary doesn't count are tagged, not moved.
@@ -433,7 +442,7 @@ class ShareCard:FlippedView {
     }
     // Dollars with thousands separators: the picture is read at a glance.
     static let dollars:NumberFormatter={let f=NumberFormatter();f.numberStyle = .decimal;f.minimumFractionDigits=2;f.maximumFractionDigits=2;f.locale=Locale(identifier:"en_US");return f}()
-    func amount(_ p:ProviderUsage)->String {p.cost.flatMap{Self.dollars.string(from:NSNumber(value:$0))}.map{"$"+$0} ?? headline(p)}
+    func amount(_ p:ProviderUsage)->String {p.cost.flatMap{Self.dollars.string(from:NSNumber(value:Currency.convert($0)))}.map{Currency.symbol+$0} ?? headline(p)}
     // The app icon signs the picture: its tile only, without the margin the macOS icon grid leaves around it (100 of 1024).
     private static let logo=Bundle.main.image(forResource:"Starmeter")
     func brandMark(_ rect:NSRect){
@@ -551,8 +560,8 @@ final class CardShareCard:ShareCard {
         draw(partial ? "已知 API 等值估算" : "API 等值估算",NSRect(x:left,y:y,width:width,height:16),font(11.5,.medium),.secondaryLabelColor)
         let hero=NSMutableAttributedString()
         if let total=costs.isEmpty ? nil : costs.reduce(0,+) {
-            hero.append(NSAttributedString(string:"$",attributes:[.font:font(26,.semibold,rounded:true),.foregroundColor:NSColor.secondaryLabelColor,.baselineOffset:15]))
-            hero.append(NSAttributedString(string:Self.dollars.string(from:NSNumber(value:total)) ?? String(money(total).dropFirst()),attributes:[.font:font(50,.bold,rounded:true),.foregroundColor:NSColor.labelColor,.kern:-0.6]))
+            hero.append(NSAttributedString(string:Currency.symbol,attributes:[.font:font(26,.semibold,rounded:true),.foregroundColor:NSColor.secondaryLabelColor,.baselineOffset:15]))
+            hero.append(NSAttributedString(string:Self.dollars.string(from:NSNumber(value:Currency.convert(total))) ?? String(money(total).dropFirst()),attributes:[.font:font(50,.bold,rounded:true),.foregroundColor:NSColor.labelColor,.kern:-0.6]))
         } else {hero.append(NSAttributedString(string:"—",attributes:[.font:font(50,.bold,rounded:true),.foregroundColor:NSColor.labelColor]))}
         hero.draw(in:NSRect(x:left-2,y:y+16,width:width,height:64))
         y+=88
@@ -827,10 +836,10 @@ final class TerminalShareCard:ShareCard {
         NSGraphicsContext.restoreGraphicsState()
         let counted=self.counted,costs=counted.compactMap{$0.cost},partial=counted.contains{$0.cost==nil || $0.unpriced>0}
         draw(partial ? "// 已知 API 等值估算" : "// API 等值估算",NSRect(x:left,y:y,width:width,height:15),mono(11),c.comment)
-        let total=costs.isEmpty ? "—" : "$"+(Self.dollars.string(from:NSNumber(value:costs.reduce(0,+))) ?? "0.00")
+        let total=costs.isEmpty ? "—" : Currency.symbol+(Self.dollars.string(from:NSNumber(value:Currency.convert(costs.reduce(0,+)))) ?? "0.00")
         let heroFont=mono(min(42,floor(42*width*0.86/max(1,measure(total,mono(42,.bold))))),.bold),heroTop=y+18
         let hero=NSMutableAttributedString(string:total,attributes:[.font:heroFont,.foregroundColor:c.text,.kern:-1])
-        if total.hasPrefix("$"){hero.addAttribute(.foregroundColor,value:c.accent,range:NSRange(location:0,length:1))}
+        if total.hasPrefix(Currency.symbol){hero.addAttribute(.foregroundColor,value:c.accent,range:NSRange(location:0,length:1))}
         hero.draw(in:NSRect(x:left-1,y:heroTop,width:width,height:52))
         let heroWidth=hero.size().width
         c.accent.withAlphaComponent(0.85).setFill()
@@ -1061,7 +1070,7 @@ final class DashboardView:FlippedView {
     // The heading ends clear of the buttons beside it; the leftmost one (自动检测) starts 209pt from the right.
     static func headingWidth(_ width:CGFloat)->CGFloat {width-209-18}
     init(_ data:Dashboard,width:CGFloat){
-        self.data=data
+        self.data=data;Currency.unit=data.currency
         heatmapGeometry=Self.heatmapLayout(data);heatmapColumn=Self.labelColumn(data);heatmapLevels=data.heatmap?.levels ?? []
         super.init(frame:NSRect(x:0,y:0,width:width,height:Self.height(data)))
         setAccessibilityElement(true);setAccessibilityRole(.group);setAccessibilityLabel("用量概览")

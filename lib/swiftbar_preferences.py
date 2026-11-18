@@ -31,6 +31,8 @@ THEMES = ('system', 'light', 'dark')  # The panel follows macOS/Windows, or stay
 GROUPINGS = ('tool', 'model', 'project')
 # Beside the menu bar star: nothing (the default), today's API-equivalent estimate, or the tightest subscription window.
 MENU_BAR = ('none', 'cost', 'quota')
+# API-equivalent estimates read in US dollars, or in yuan at the day's reference rate (or one the user fixed).
+CURRENCIES = ('USD', 'CNY')
 DEFAULT_VISIBLE = ['summary', 'heatmap', 'opencodex', 'claude', 'deepseek', 'chatgpt', 'sessions', 'komari', 'updates']
 KNOWN = {row[0] for row in MODULES}
 # Modules added after release show once for people who keep Summary on; a saved file lists the modules
@@ -49,6 +51,14 @@ def balance_line(value):
     return 0<number<1e9
 
 
+def exchange_rate(value):
+    """Yuan to the dollar, within reason."""
+    if isinstance(value,bool):return False
+    try:number=float(value)
+    except (TypeError,ValueError):return False
+    return 1<number<20
+
+
 def monthly_price(value):
     """A subscription's monthly price in US dollars, as the user wrote it down."""
     if isinstance(value,bool):return False
@@ -65,7 +75,7 @@ def balance_key(key):
 
 def read(directory):
     defaults = {'schema': 1, 'visible': list(DEFAULT_VISIBLE), 'appearance': 'glass', 'theme': 'system', 'paths': {}, 'allowCollapse': False, 'expandedProviders': [], 'revision': 0, 'configuredSubscriptions': [], 'claudeLiveUsage': False, 'claudeOAuthUsage': False, 'cursorUsage': False,
-                'usageAlert': 90, 'resetReminder': False, 'balanceAlerts': {}, 'keepCleanedUsage': True, 'subscriptionPrices': {}, 'groupBy': 'tool', 'menuBar': 'none', 'sessionAlerts': False, 'serviceStatus': False}
+                'usageAlert': 90, 'resetReminder': False, 'balanceAlerts': {}, 'keepCleanedUsage': True, 'subscriptionPrices': {}, 'groupBy': 'tool', 'menuBar': 'none', 'sessionAlerts': False, 'serviceStatus': False, 'currency': 'USD', 'cnyRate': None}
     try:
         value = json.loads((Path(directory) / 'preferences.json').read_text(encoding='utf-8'))
         if not isinstance(value, dict) or value.get('schema') != 1:
@@ -97,6 +107,8 @@ def read(directory):
         if value.get('menuBar') in MENU_BAR:defaults['menuBar']=value['menuBar']
         if isinstance(value.get('sessionAlerts'),bool):defaults['sessionAlerts']=value['sessionAlerts']
         if isinstance(value.get('serviceStatus'),bool):defaults['serviceStatus']=value['serviceStatus']
+        if value.get('currency') in CURRENCIES:defaults['currency']=value['currency']
+        if exchange_rate(value.get('cnyRate')):defaults['cnyRate']=float(value['cnyRate'])
         prices=value.get('subscriptionPrices')
         if isinstance(prices,dict):
             defaults['subscriptionPrices']={k:v for k,v in prices.items() if k in catalog.SUBSCRIPTION_USAGE and monthly_price(v)}
@@ -163,6 +175,13 @@ def update(directory, kind, key=None, value=None):
     elif kind == 'keep-usage':
         if key not in ('true','false'):raise ValueError('invalid keep usage setting')
         current['keepCleanedUsage']=key=='true'
+    elif kind == 'currency':
+        if key not in CURRENCIES:raise ValueError('invalid currency')
+        current['currency']=key
+    elif kind == 'cny-rate':
+        if key in (None,''):current['cnyRate']=None
+        elif exchange_rate(key):current['cnyRate']=float(key)
+        else:raise ValueError('invalid exchange rate')
     elif kind == 'service-status':
         if key not in ('true','false'):raise ValueError('invalid service status setting')
         current['serviceStatus']=key=='true'

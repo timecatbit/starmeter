@@ -335,6 +335,10 @@ let clip=shareCard.png().map{ShareCard.pasteboardItem($0)}
 expect(clip.map{Set($0.types)==Set([NSPasteboard.PasteboardType.png,.tiff])}==true,"Copied picture carries PNG and TIFF, not a file URL")
 expect(PanelInteraction.keepsPanelOpen(["retry-claude-usage"]),"Retrying Claude usage keeps the panel open")
 expect(PanelInteraction.keepsPanelOpen(["set-group","model"]),"Choosing how cards group keeps the panel open")
+Currency.unit=MoneyUnit(code:"CNY",symbol:"¥",rate:7,note:nil)
+expect(money(2.5)=="¥17.50" && Figure.string("¥17.50",size:16).string=="¥17.50","Estimates read in yuan at the dashboard's rate, the sign set small like the dollar's")
+Currency.unit=nil
+expect(money(2.5)=="$2.50","Without a rate estimates stay in dollars")
 let toolCardJSON=#"{"id":"claude","name":"Claude","subtitle":"","status":"已同步","available":true,"cost":1,"tokens":10,"requests":2,"output":1,"sessions":3,"unpriced":0,"models":[],"history":[10]}"#
 let modelCardJSON=#"{"id":"model:claude-opus-5-5","name":"Claude Opus 5.5","accent":"claude","subtitle":"","status":"已同步","available":true,"cost":1,"tokens":10,"requests":2,"output":1,"sessions":0,"unpriced":0,"models":[],"history":[]}"#
 let byModel=try JSONDecoder().decode(Dashboard.self,from:Data(("{\"date\":\"2026-11-04\",\"dates\":[\"11/04\"],\"providers\":["+toolCardJSON+"],\"rangeKey\":\"today\",\"rangeLabel\":\"今天\",\"chartUnit\":\"每小时\",\"chartSpan\":\"\",\"chartStatus\":\"\",\"allowCollapse\":true,\"grouping\":\"model\",\"groupings\":[{\"key\":\"tool\",\"label\":\"工具\"},{\"key\":\"model\",\"label\":\"模型\"}],\"cards\":["+modelCardJSON+"]}").utf8))

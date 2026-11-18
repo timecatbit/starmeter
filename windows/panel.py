@@ -33,8 +33,12 @@ def tokens(n):
     return f'{n:,.0f}'
 
 
+# API-equivalent estimates read in dollars, or in yuan at the rate the dashboard carries; set by each render.
+CURRENCY={'symbol':'$','rate':1.0}
+
+
 def cash(n):
-    return '—' if n is None else f'${n:,.2f}'
+    return '—' if n is None else f"{CURRENCY['symbol']}{n*CURRENCY['rate']:,.2f}"
 
 
 def share(ratio):
@@ -93,8 +97,8 @@ def figure(value,size,weight=650):
     the K/M/B unit smaller."""
     body=value;head=tail=''
     # Qt shrinks superscript on its own, so the $ asks for 0.92 to land near the Mac's 0.62.
-    if body.startswith('$'):
-        head=f'<span style="font-size:{size*.92:.1f}px;font-weight:500;color:{tone().name()};vertical-align:super">$</span>';body=body[1:]
+    if body[:1] in ('$','¥'):
+        head=f'<span style="font-size:{size*.92:.1f}px;font-weight:500;color:{tone().name()};vertical-align:super">{body[0]}</span>';body=body[1:]
     if len(body)>1 and body[-1] in 'KMB' and body[-2].isdigit():
         tail=f'<span style="font-size:{size*.74:.1f}px">{body[-1]}</span>';body=body[:-1]
     item=QLabel(f'<span style="font-size:{size}px;font-weight:{weight}">{head}{escape(body)}{tail}</span>')
@@ -592,6 +596,8 @@ class TrayPanel(QWidget):
 
     def home(self,box,snapshot,sharing=False):
         d=snapshot.get('dashboard',{});head=QHBoxLayout()
+        unit=d.get('currency') or {}
+        CURRENCY.update(symbol=unit.get('symbol') or '$',rate=float(unit.get('rate') or 1))
         head.addWidget(label('Summary' if d.get('showSummary',True) else 'Harness 用量','title'));head.addStretch()
         if sharing:
             head.addWidget(label(d.get('rangeLabel',''),'muted'))

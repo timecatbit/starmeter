@@ -202,7 +202,7 @@ UPDATE_STATUS_CACHE = os.path.join(CACHE_DIR, "badge.json")
 # OpenCodex management endpoints are polled in the background; the health check gates the rest.
 OPENCODEX_ENDPOINTS = {"healthz": ("/healthz", False), "ready": ("/readyz", False), "quota": ("/api/codex-auth/quota", True),
                        "accounts": ("/api/codex-auth/accounts", True), "active": ("/api/codex-auth/active", True)}
-EXTERNAL_TTLS = {"provider_quotas": 300, "badge": 3600, "komari": 30, "app_updates": 21600, "self_update": 21600, "chatgpt": 300, "grok": 300, "minimax": 300, "kimi-api": 300, "qoder-api": 300, "claude-api": 1800, "claude_subscription":60, "qoder_subscription":60, "cursor_subscription":300, "sessions":30, "service_status":300}
+EXTERNAL_TTLS = {"provider_quotas": 300, "badge": 3600, "komari": 30, "app_updates": 21600, "self_update": 21600, "chatgpt": 300, "grok": 300, "minimax": 300, "kimi-api": 300, "qoder-api": 300, "claude-api": 1800, "claude_subscription":60, "qoder_subscription":60, "cursor_subscription":300, "sessions":30, "service_status":300, "exchange_rate":86400}
 # Provider accounts read with the user's own key: Grok/Kimi balances, the MiniMax plan and Claude API spend.
 ACCOUNT_SOURCES = ('grok', 'minimax', 'kimi-api', 'qoder-api', 'claude-api')
 # APIs whose named extra keys are queried one by one, each in its own cache.
@@ -2081,6 +2081,9 @@ def external_loaders():
     if os.environ.get('OCX_SELF_UPDATES')!='0':loaders['self_update']=lambda:cached_fetch('self_update',self_update_load,EXTERNAL_TTLS['self_update'])
     if module_enabled('claude-subscription'):loaders['claude_subscription']=claude_subscription_cached
     if module_enabled('sessions'):loaders['sessions']=sessions_cached
+    # The yuan rate is read only once 人民币 is chosen without a rate of the user's own.
+    if view_settings()['currency']=='CNY' and not view_settings()['cnyRate']:
+        loaders['exchange_rate']=lambda:cached_fetch('exchange_rate',exchange_rate_load,EXTERNAL_TTLS['exchange_rate'],retry=3600)
     pages=status_pages()
     if pages:loaders['service_status']=lambda:cached_fetch('service_status',lambda:(service_status.read_all(pages,VERSION),None),EXTERNAL_TTLS['service_status'])
     if module_enabled('cursor-subscription') and view_settings()['cursorUsage']:
@@ -2454,7 +2457,8 @@ def menu_bar_value(data=None):
                if part['usage'] and part['usage'].get('summary') and not part['usage'].get('error')]
         costs=[float(c) for c in costs if c is not None]
         if not costs:return ''
-        total=sum(costs);return '$%.2f'%total if total<100 else '$%s'%format(round(total),',')
+        unit=currency_unit(data) or {'symbol':'$','rate':1}
+        total=sum(costs)*unit['rate'];return unit['symbol']+('%.2f'%total if total<100 else format(round(total),','))
     if choice=='quota' and data is not None:
         # The tightest window still current; a stale or failed reading is not a figure to keep in sight.
         used=[w['used'] for w in alert_windows(data) if w['current']]
@@ -2558,6 +2562,30 @@ def komari_expiry(row):
         return date.isoformat(), days
     except ValueError:
         return "未设置", None
+
+
+EXCHANGE_RATE_URL='https://api.frankfurter.dev/v1/latest?base=USD&symbols=CNY'
+
+def exchange_rate_load():
+    """The day's ECB reference rate of the yuan to the dollar, from Frankfurter; only a User-Agent is sent."""
+    req=urllib.request.Request(EXCHANGE_RATE_URL,headers={'User-Agent':'Starmeter/'+VERSION,'Accept':'application/json'})
+    try:
+        with urllib.request.urlopen(req,timeout=10) as response:body=json.loads(response.read(16*1024))
+        rate=(body.get('rates') or {}).get('CNY')
+        if not preferences.exchange_rate(rate) or not isinstance(body.get('date'),str):raise ValueError('unexpected rate')
+        return {'rate':float(rate),'date':body['date'][:10]},None
+    except (OSError,ValueError,AttributeError) as exc:return None,(0,'汇率读取失败 · '+type(exc).__name__,None)
+
+
+def currency_unit(data):
+    """How API-equivalent estimates read: None for US dollars, else the yuan with its rate and where it came from.
+    Until a rate is known, estimates stay in dollars rather than guess one."""
+    settings=view_settings()
+    if settings['currency']!='CNY':return None
+    if settings['cnyRate']:return {'code':'CNY','symbol':'¥','rate':settings['cnyRate'],'note':'手动汇率 %.4f'%settings['cnyRate']}
+    known=(data or {}).get('exchange_rate') or {}
+    if not preferences.exchange_rate(known.get('rate')):return None
+    return {'code':'CNY','symbol':'¥','rate':float(known['rate']),'note':'欧洲央行 %s 参考汇率 %.4f'%(known.get('date',''),float(known['rate']))}
 
 
 def status_pages():
@@ -3142,6 +3170,12 @@ def module_options(data=None):
                        {'label':'重置前提醒','detail':'每周窗口用了不到 %d%%，重置前 %d 小时提醒'%(alerts.REMINDER_UNDER,alerts.REMINDER_LEAD//3600),'checked':settings['resetReminder'],
                         'action':['set-reset-reminder','false' if settings['resetReminder'] else 'true'],'children':[]}])
     settings_rows.extend([{'label':'','separator':True,'children':[]},
+                          {'label':'金额显示','symbol':'yensign.circle' if settings['currency']=='CNY' else 'dollarsign.circle','value':'人民币' if settings['currency']=='CNY' else '美元',
+                           'children':[{'label':'美元（$）','checked':settings['currency']=='USD','radio':True,'action':['set-currency','USD'],'children':[]},
+                                       {'label':'人民币（¥）','checked':settings['currency']=='CNY','radio':True,'action':['set-currency','CNY'],'children':[]},
+                                       {'label':'','separator':True,'children':[]},
+                                       {'label':'汇率…','value':'%.4f · 手动'%settings['cnyRate'] if settings['cnyRate'] else '每天自动更新',
+                                        'detail':'API 等值估算按这个汇率换成人民币；订阅月费与 API 实际花费仍是美元','action':['set-cny-rate'],'children':[]}]},
                           {'label':'服务状态','detail':'每 5 分钟查一次 Claude、OpenAI、Cursor 的官方状态页，出问题时标在卡片上','symbol':'waveform.path.ecg',
                            'checked':settings['serviceStatus'],'action':['set-service-status','false' if settings['serviceStatus'] else 'true'],'children':[]},
                           {'label':'导出用量','symbol':'square.and.arrow.up','value':RANGES[selected_range()],
@@ -3817,7 +3851,7 @@ def dashboard_payload(data):
     grouping=view_settings()['groupBy'] if view_settings()['groupBy'] in GROUPINGS else 'tool'
     cards=(model_cards(selected,counting) if grouping=='model' else project_cards(selected) if grouping=='project' else None) if bundle else None
     return {'date':now.date().isoformat(),'dates':labels,'providers':providers,'rangeKey':key,'rangeLabel':RANGES[key],
-            'grouping':grouping,'groupings':[{'key':k,'label':v} for k,v in GROUPINGS.items()],'cards':cards,
+            'grouping':grouping,'groupings':[{'key':k,'label':v} for k,v in GROUPINGS.items()],'cards':cards,'currency':currency_unit(data),
             'groupNote':'按客户端自己的记录' if grouping=='project' and cards is not None else None,
             'chartUnit':unit,'chartSpan':span,'period':period,'chartStatus':chart_status,'updated':updated,'chartPositions':chart_positions,
             'heatmap':heatmap_payload(bundle,key,now,selected,data.get('range_usage_error')) if module_enabled('heatmap') and selected else None,
@@ -4200,6 +4234,18 @@ def run_action(name, extra):
     elif name == "export-usage":
         if len(extra)!=1:raise ValueError('invalid export')
         export_usage(extra[0])
+    elif name == "set-currency":
+        if len(extra)!=1:raise ValueError('invalid currency')
+        preferences.update(STATE_DIR,'currency',extra[0])
+        if extra[0]=='CNY':schedule_background_refresh()
+    elif name == "set-cny-rate":
+        if extra:raise ValueError('invalid exchange rate')
+        rate=view_settings()['cnyRate']
+        answer=text_dialog('1 美元合多少人民币？留空则每天按欧洲央行参考汇率自动更新。','%g'%rate if rate else '',title='汇率')
+        if answer is None:return
+        try:preferences.update(STATE_DIR,'cny-rate',answer.strip().lstrip('¥'))
+        except ValueError:dialog_error('汇率无效','请填写 1 到 20 之间的数字，或留空自动更新。');return
+        schedule_background_refresh()
     elif name == "set-service-status":
         if len(extra)!=1:raise ValueError('invalid service status setting')
         preferences.update(STATE_DIR,'service-status',extra[0])
