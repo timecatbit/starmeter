@@ -148,7 +148,6 @@
   let feed = $state<LiveFeed | null>(null);
   /** Unpinned at this moment: the live chart zooms back out to the trend, then lets go of the feed. */
   let leaving = $state<number | null>(null);
-  let liveSince = $state(Date.now());
   let liveStamp = $state<string | null>(null);
   let liveTimer: ReturnType<typeof setInterval> | undefined;
   const pinInterval = $derived(Math.max(1, snapshot?.pinInterval ?? 2));
@@ -218,10 +217,8 @@
 
   function schedule() {
     clearInterval(liveTimer);
-    liveSince = Date.now();
     liveTimer = setInterval(() => {
       if (!pinned || panel.menuOpen) return;
-      liveSince = Date.now();
       perform(['refresh-live']);
     }, pinInterval * 1000);
   }
@@ -499,7 +496,7 @@
 {#snippet dashboardView()}
   {#if shown && snapshot}
     <Dashboard data={shown} rangeOptions={snapshot.rangeOptions ?? []} {reveal} {glows} {summaryGlow} live={pinned || leaving !== null ? feed : null} {leaving} onleft={() => { leaving = null; feed = null; }} {liveStamp} {pinned}
-      {pinInterval} {liveSince} onrange={perform} onshare={share}
+      {pinInterval} onrange={perform} onshare={share}
       onpin={() => { panel.hint = null; setPinned(!pinned); if (pinned) perform(['refresh-live']); }} onsettings={openSettings}
       ongroup={(key) => perform(['set-group', key])} ontoggle={(id, expanded) => perform(['set-expanded', id, expanded ? 'true' : 'false'])} />
   {/if}

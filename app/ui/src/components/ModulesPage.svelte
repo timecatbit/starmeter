@@ -75,7 +75,7 @@
     width: 572px;
     padding-top: 49px;
   }
-  .back { position: absolute; left: 4px; top: 9px; }
+  .back { position: absolute; left: 3px; top: 7.5px; }
   .heading {
     position: absolute;
     top: 7px;

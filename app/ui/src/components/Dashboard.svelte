@@ -18,11 +18,11 @@
   import ProviderCard from './ProviderCard.svelte';
   import SummaryChart from './SummaryChart.svelte';
 
-  let { data, rangeOptions, reveal, glows, summaryGlow, live, leaving = null, onleft, liveStamp, pinned, pinInterval, liveSince, onrange,
+  let { data, rangeOptions, reveal, glows, summaryGlow, live, leaving = null, onleft, liveStamp, pinned, pinInterval, onrange,
     onshare, onpin, onsettings, ongroup, ontoggle }: {
     data: Dashboard; rangeOptions: Entry[]; reveal: number; glows: Record<string, number>; summaryGlow: number; live: LiveFeed | null;
     leaving?: number | null; onleft?: () => void;
-    liveStamp: string | null; pinned: boolean; pinInterval: number; liveSince: number;
+    liveStamp: string | null; pinned: boolean; pinInterval: number;
     onrange: (action: string[]) => void; onshare: (button: HTMLElement) => void; onpin: () => void;
     onsettings: () => void; ongroup: (key: string) => void; ontoggle: (id: string, expanded: boolean) => void;
   } = $props();
@@ -67,8 +67,8 @@
   /** The menu bar's star, drawn in the heading's colour. */
   const mark = markSvg.replace(/fill="#000000"/g, 'fill="currentColor"').replace(/width="24" height="24"/, 'width="15" height="15"');
   const headingRight = 12 + 15 + 5 + width('Starmeter', font(14, 600)) + 6;
-  const firstButton = $derived(pickerX - 6 - 27);
-  const leftmost = $derived(firstButton - 2 * 29);
+  const firstButton = $derived(pickerX - 6 - 30);
+  const leftmost = $derived(firstButton - 2 * 32);
   const toastWidth = $derived(panel.toast ? width(panel.toast.text, font(11, 500)) + 4 : 0);
   const toastX = $derived(leftmost - 12 - toastWidth);
   const chosen = $derived(rangeOptions.find((o) => o.checked)?.action?.[1] ?? data.rangeKey);
@@ -110,9 +110,9 @@
         <HintButton icon={panel.toast ? (panel.toast.ok ? 'checkmark' : 'exclamationmark') : 'square.and.arrow.up'} hint="分享用量图" label="分享用量图"
           tint={panel.toast ? (panel.toast.ok ? 'var(--green)' : 'var(--orange)') : 'var(--label)'} onclick={() => shareButton && onshare(shareButton)} />
       </span>
-      <span class="slot" style:left="{firstButton - 29}px">
+      <span class="slot" style:left="{firstButton - 32}px">
         <HintButton icon={pinned ? 'pin.fill' : 'pin'} hint={pinned ? '取消钉住' : `钉住，每 ${pinInterval} 秒刷新`} label={pinned ? '取消钉住面板' : '钉住面板'}
-          onclick={onpin} ring={pinned ? { interval: pinInterval, since: liveSince } : null} />
+          onclick={onpin} on={pinned} />
       </span>
       <span class="slot" style:left="{leftmost}px"><HintButton icon="gearshape" hint="主页模块与设置" label="主页模块与设置" onclick={onsettings} /></span>
       {#if panel.toast && toastX >= headingRight}
@@ -211,7 +211,7 @@
   }
   .buttons { position: absolute; left: 0; top: 0; width: 100%; height: 40px; pointer-events: none; }
   .buttons > * { pointer-events: auto; }
-  .slot { top: 7.5px; }
+  .slot { top: 6px; }
   .toast {
     top: 12px;
     font-size: 11px;
@@ -220,8 +220,8 @@
   }
   .toast.ok { color: var(--green); }
   .picker {
-    top: 7.5px;
-    height: 25px;
+    top: 6px;
+    height: 28px;
     display: flex;
     align-items: center;
     gap: 4px;

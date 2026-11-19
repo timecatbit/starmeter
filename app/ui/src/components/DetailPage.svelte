@@ -57,7 +57,7 @@
   }
   .grip.movable { cursor: grab; }
   .grip.movable:active { cursor: grabbing; }
-  .back { position: absolute; left: 12px; top: 13px; }
+  .back { position: absolute; left: 10px; top: 11px; }
   /* The header's words let the pointer through to the strip under them. */
   .page-glyph, .title, .value { pointer-events: none; }
   .page-glyph { position: absolute; left: 48px; top: 16px; }
