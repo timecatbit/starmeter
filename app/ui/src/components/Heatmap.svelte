@@ -68,7 +68,8 @@
         style:top="{8 + layout.height + 2}px">{hour}</span>
     {/each}
   {/if}
-  <span class="hint" style:right="{344 - right}px" style:top="{line - top + 1}px">{heatmap.hint}</span>
+  <!-- Its right edge on the squares' (the block spans the panel's inner width, wider in a pinned panel made wider). -->
+  <span class="hint" style:right="{panel.width - 16 - right}px" style:top="{line - top + 1}px">{heatmap.hint}</span>
   {#if caption}
     <span class="caption" style:left="{layout.x}px" style:top="{line - top}px" style:width="{right - layout.x - hintWidth - 10}px">{caption}</span>
   {/if}
