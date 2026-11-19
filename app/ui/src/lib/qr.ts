@@ -1,19 +1,21 @@
 // A QR code for the share picture's signature, so a reader can scan their way to the project. Byte mode at error
-// correction level M, the smallest version (1–10) that holds the text, the mask with the lowest penalty: the
+// correction level M or Q, the smallest version (1–10) that holds the text, the mask with the lowest penalty: the
 // standard's algorithm, written out here rather than adding a library for one short URL.
 
-/** Error correction codewords per block and the number of blocks, level M, versions 1–10. */
-const ECC_PER_BLOCK = [0, 10, 16, 26, 18, 24, 16, 18, 22, 22, 26];
-const BLOCKS = [0, 1, 1, 1, 2, 2, 4, 4, 4, 5, 5];
-/** Level M's two format bits. */
-const LEVEL_M = 0;
+export type Level = 'M' | 'Q';
+/** Per level: error correction codewords per block and the number of blocks for versions 1–10, and its format bits.
+ *  Q recovers a quarter of the symbol, enough to set a logo in the middle. */
+const LEVELS: Record<Level, { ecc: number[]; blocks: number[]; bits: number }> = {
+  M: { ecc: [0, 10, 16, 26, 18, 24, 16, 18, 22, 22, 26], blocks: [0, 1, 1, 1, 2, 2, 4, 4, 4, 5, 5], bits: 0 },
+  Q: { ecc: [0, 13, 22, 18, 26, 18, 24, 18, 22, 20, 24], blocks: [0, 1, 1, 2, 2, 4, 4, 6, 6, 8, 8], bits: 3 },
+};
 
 const rawModules = (version: number) => {
   let result = (16 * version + 128) * version + 64;
   if (version >= 2) { const align = Math.floor(version / 7) + 2; result -= (25 * align - 10) * align - 55; if (version >= 7) result -= 36; }
   return result;
 };
-const dataCodewords = (version: number) => Math.floor(rawModules(version) / 8) - ECC_PER_BLOCK[version] * BLOCKS[version];
+const dataCodewords = (version: number, level: Level) => Math.floor(rawModules(version) / 8) - LEVELS[level].ecc[version] * LEVELS[level].blocks[version];
 
 function multiply(x: number, y: number): number {
   let z = 0;
@@ -41,13 +43,13 @@ function remainder(data: number[], by: number[]): number[] {
 }
 
 /** The symbol's modules, true for dark, row by row; null when the text is too long for version 10. */
-export function qrModules(text: string): boolean[][] | null {
+export function qrModules(text: string, level: Level = 'M'): boolean[][] | null {
   const bytes = [...new TextEncoder().encode(text)];
   let version = 1;
   const needed = (v: number) => 4 + (v < 10 ? 8 : 16) + bytes.length * 8;
-  while (version <= 10 && needed(version) > dataCodewords(version) * 8) version++;
+  while (version <= 10 && needed(version) > dataCodewords(version, level) * 8) version++;
   if (version > 10) return null;
-  const size = version * 4 + 17, capacity = dataCodewords(version) * 8;
+  const size = version * 4 + 17, capacity = dataCodewords(version, level) * 8;
 
   // The bit stream: mode, length, the bytes, a terminator, then padding.
   const bits: number[] = [];
@@ -61,7 +63,7 @@ export function qrModules(text: string): boolean[][] | null {
   for (let i = 0; i < bits.length; i += 8) data.push(bits.slice(i, i + 8).reduce((s, bit) => (s << 1) | bit, 0));
 
   // Split into blocks, add each block's error correction, and interleave.
-  const blocks = BLOCKS[version], eccLength = ECC_PER_BLOCK[version], raw = Math.floor(rawModules(version) / 8);
+  const blocks = LEVELS[level].blocks[version], eccLength = LEVELS[level].ecc[version], raw = Math.floor(rawModules(version) / 8);
   const short = blocks - (raw % blocks), shortLength = Math.floor(raw / blocks), by = divisor(eccLength);
   const pieces: number[][] = [];
   for (let i = 0, k = 0; i < blocks; i++) {
@@ -96,7 +98,7 @@ export function qrModules(text: string): boolean[][] | null {
     for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) set(x + dx, y + dy, Math.max(Math.abs(dx), Math.abs(dy)) !== 1);
   }));
   const format = (mask: number) => {
-    const value = (LEVEL_M << 3) | mask;
+    const value = (LEVELS[level].bits << 3) | mask;
     let rem = value;
     for (let i = 0; i < 10; i++) rem = (rem << 1) ^ ((rem >>> 9) * 0x537);
     const word = ((value << 10) | rem) ^ 0x5412, bit = (i: number) => ((word >>> i) & 1) === 1;

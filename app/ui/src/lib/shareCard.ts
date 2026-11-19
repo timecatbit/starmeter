@@ -4,21 +4,17 @@
 import { smoothCurves, tracePath } from './chart';
 import { accent, alpha, label as labelColour, systemColor } from './colors';
 import { font, ROUNDED } from './measure';
-import { BOTTOM_BAND, canvasFor, crownSeed, drawMark, drawSymbol, fade, loadSymbols, measure, middleText, roundRect, text, TOP_BAND, WIDTH, type Box, type Fade } from './shareCommon';
-import { drawAmount, drawMasthead, drawMembers, drawSignature, figures, fitAmount, poster, SIGNATURE, tickBox, type PosterTool } from './sharePoster';
+import { BOTTOM_BAND, canvasFor, crownSeed, drawMark, drawSymbol, fade, loadSymbols, measure, middleText, roundRect, text, WIDTH, type Box, type Fade } from './shareCommon';
+import { drawAmount, drawMasthead, drawMembers, drawSignature, figures, fitAmount, HERO_BASELINE, layout, poster, ROWS, tickBox, toolHeight } from './sharePoster';
 import type { Dashboard, Project } from './types';
 
-const INSET = 28, CHART = 150, MODEL = 20;
+const INSET = 28;
 const rounded = (size: number, weight = 600) => font(size, weight, ROUNDED);
-
-const blockHeight = (t: PosterTool) => 64 + (t.members.length ? 1 : t.models.length) * MODEL;
 
 export async function drawCardPicture(d: Dashboard, project: Project, dark: boolean): Promise<HTMLCanvasElement> {
   const label = labelColour(dark, 0.85), secondary = labelColour(dark, dark ? 0.55 : 0.5), tertiary = labelColour(dark, dark ? 0.3 : 0.3);
-  const p = await poster(d, label);
+  const p = await poster(d, label), L = layout(p), height = L.height;
   const width = WIDTH - INSET * 2, left = INSET, right = left + width;
-  const body = 40 + 96 + 82 + (p.chart ? CHART + 14 : 0) + p.tools.reduce((s, t) => s + blockHeight(t) + 8, 0);
-  const height = TOP_BAND + 8 + body + 12 + SIGNATURE + 14 + BOTTOM_BAND;
   const { canvas, ctx } = canvasFor(height);
   const teal = dark ? 'rgb(110, 201, 191)' : 'rgb(38, 120, 117)';
   const surface = dark ? 'rgb(26, 27, 29)' : 'rgb(255, 255, 255)';
@@ -56,35 +52,32 @@ export async function drawCardPicture(d: Dashboard, project: Project, dark: bool
 
   // Masthead, then the title.
   drawMasthead(ctx, p, project.name, { ink: label, dateInk: teal, font: (s, w) => font(s, Math.min(700, w)), name: 16, date: 13.5, left, right, weight: 700 });
-  let y = TOP_BAND + 8;
-  text(ctx, p.title, { x: left, y, w: width, h: 30 }, font(24, 700), label);
-  y += 40;
+  text(ctx, p.title, { x: left, y: L.title + 10, w: width, h: 30 }, font(24, 700), label);
 
   // Hero: the estimate, its sign small against the figure, with dots fading in from the card's right edge beside it.
-  halftone({ x: WIDTH - 170, y: y - 4, w: 170, h: 96 }, 'left', teal, dark ? 0.34 : 0.26);
-  text(ctx, p.costLabel, { x: left, y, w: width, h: 16 }, font(12, 500), secondary);
-  const hero = fitAmount(ctx, p.cost, width - 30, 56, 30, (s) => rounded(s, 700), -0.012);
-  drawAmount(ctx, p.cost, left - 2, y + 20 + hero * 0.76, hero, (s) => rounded(s, 700), label, secondary, -0.012);
-  y += 96;
+  halftone({ x: WIDTH - 170, y: L.hero + 4, w: 170, h: 104 }, 'left', teal, dark ? 0.34 : 0.26);
+  text(ctx, p.costLabel, { x: left, y: L.hero + 4, w: width, h: 16 }, font(12, 500), secondary);
+  const hero = fitAmount(ctx, p.cost, width - 30, 80, 30, (s) => rounded(s, 700), -0.012);
+  drawAmount(ctx, p.cost, left - 2, L.hero + HERO_BASELINE, hero, (s) => rounded(s, 700), label, secondary, -0.012);
 
   // Three figures, each with its own small symbol. The cache hit rate is weighted by each tool's tokens.
   const tileWidth = (width - 20) / 3, icons = ['square.stack.3d.up.fill', 'arrow.up.arrow.down', 'bolt.fill'];
   figures(p).forEach(([name, value], i) => {
-    const tile: Box = { x: left + i * (tileWidth + 10), y, w: tileWidth, h: 62 };
+    const tile: Box = { x: left + i * (tileWidth + 10), y: L.stats + 2, w: tileWidth, h: 62 };
     ctx.fillStyle = quiet; roundRect(ctx, tile, 16); ctx.fill();
     drawSymbol(ctx, symbols.get(icons[i]), tile.x + 19, tile.y + 18, 11);
     text(ctx, name, { x: tile.x + 30, y: tile.y + 10.5, w: tile.w - 40, h: 15 }, font(10.5, 500), secondary);
     const full = measure(ctx, value, rounded(20)), size = full <= tile.w - 26 ? 20 : Math.max(11, Math.floor((20 * (tile.w - 26)) / full));
     text(ctx, value, { x: tile.x + 13, y: tile.y + 29, w: tile.w - 24, h: 26 }, rounded(size), label);
   });
-  y += 82;
 
   // Chart: the total as a soft area, each listed tool as a thin line in its own colour, on the panel's scale.
   const chart = p.chart;
-  if (chart) {
+  if (chart && L.chart !== null) {
+    const y = L.chart;
     text(ctx, chart.label, { x: left, y, w: width / 2, h: 15 }, font(11, 600), secondary);
     if (chart.note) text(ctx, chart.note, { x: left + width / 2, y: y + 1, w: width / 2, h: 14 }, font(10, 500), tertiary, 'right');
-    const plot = { x: left, y: y + 32, w: width, h: CHART - 64 }, bottom = plot.y + plot.h, axisFont = rounded(9.5, 500);
+    const plot = { x: left, y: y + 32, w: width, h: ROWS.chart - 70 }, bottom = plot.y + plot.h, axisFont = rounded(9.5, 500);
     for (const f of [0, 0.5, 1]) {
       const yy = bottom - f * plot.h;
       ctx.beginPath(); ctx.moveTo(plot.x, yy); ctx.lineTo(plot.x + plot.w, yy);
@@ -114,36 +107,35 @@ export async function drawCardPicture(d: Dashboard, project: Project, dark: bool
       const at = tickBox(i, chart.ticks.length, plot.x + tick.at * plot.w, left, right, 80);
       text(ctx, tick.label, { x: at.x, y: bottom + 8, w: 80, h: 13 }, rounded(9.5, 500), tertiary, at.align);
     });
-    y += CHART + 14;
   }
 
   // Each tool on its own tile: its mark, name and amount; its tokens and share, or the tag that explains them; then
   // its first models. 其他工具 lists the tools folded into it instead.
-  for (const t of p.tools) {
-    const other = t.id === 'other', c = other ? secondary : accent(t.id, dark), block: Box = { x: left, y, w: width, h: blockHeight(t) };
+  p.tools.forEach((t, index) => {
+    const top = L.tools[index], other = t.id === 'other', c = other ? secondary : accent(t.id, dark), block: Box = { x: left, y: top, w: width, h: toolHeight(t) };
     ctx.fillStyle = quiet; roundRect(ctx, block, 16); ctx.fill();
-    const il = block.x + 14, ir = block.x + block.w - 14, top = block.y + 12, tl = il + 12, tw = ir - tl;
-    ctx.fillStyle = alpha(c, t.tag ? 0.45 : 1); roundRect(ctx, { x: il, y: top + 3, w: 4, h: 15 }, 2); ctx.fill();
+    const il = block.x + 14, ir = block.x + block.w - 14, tl = il + 12, tw = ir - tl;
+    ctx.fillStyle = alpha(c, t.tag ? 0.45 : 1); roundRect(ctx, { x: il, y: top + 8.5, w: 4, h: 15 }, 2); ctx.fill();
     const nameFont = font(14.5, 600), amountFont = rounded(16.5), amountWidth = measure(ctx, t.cost, amountFont), mark = p.marks.tools.get(t.id), markRoom = mark ? 22 : 0;
-    if (mark) drawMark(ctx, mark, { x: tl, y: top + 2.5, w: 16, h: 16 }, label);
-    middleText(ctx, t.name, tl + markRoom, top + 10.5, tw - amountWidth - 12 - markRoom, nameFont, label);
-    middleText(ctx, t.cost, ir - amountWidth - 2, top + 10.5, amountWidth + 2, amountFont, label, 'right');
+    if (mark) drawMark(ctx, mark, { x: tl, y: top + 8, w: 16, h: 16 }, label);
+    middleText(ctx, t.name, tl + markRoom, top + 16, tw - amountWidth - 12 - markRoom, nameFont, label);
+    middleText(ctx, t.cost, ir - amountWidth - 2, top + 16, amountWidth + 2, amountFont, label, 'right');
     // Tokens and share; a tag at the right, read whole; an unpriced count in orange after the figures.
     const lineFont = font(11.5, 500), tagFont = font(9.5, 500), line = [t.tokens, t.share].filter(Boolean).join(' · ');
     let tagWidth = 0;
     if (t.tag) {
       tagWidth = measure(ctx, t.tag, tagFont) + 16;
-      const capsule: Box = { x: ir - tagWidth, y: top + 21.5, w: tagWidth, h: 17 };
+      const capsule: Box = { x: ir - tagWidth, y: top + 27.5, w: tagWidth, h: 17 };
       ctx.fillStyle = labelColour(dark, dark ? 0.09 : 0.06); roundRect(ctx, capsule, 8.5); ctx.fill();
       middleText(ctx, t.tag, capsule.x + 8, capsule.y + 8.5, capsule.w - 16, tagFont, secondary, 'center');
     }
     const room = tw - tagWidth - (tagWidth ? 10 : 0), lineWidth = Math.min(room, measure(ctx, line, lineFont));
-    middleText(ctx, line, tl, top + 30, room, lineFont, secondary);
-    if (t.unpriced && lineWidth + 60 < room) middleText(ctx, '· ' + t.unpriced, tl + lineWidth + 5, top + 30, room - lineWidth - 5, font(10.5, 600), systemColor('orange', dark));
-    let my = top + 42;
-    if (other) drawMembers(ctx, p, t, tl, my + MODEL / 2, tw, font(11.5), label, label, 13);
+    middleText(ctx, line, tl, top + 36, room, lineFont, secondary);
+    if (t.unpriced && lineWidth + 60 < room) middleText(ctx, '· ' + t.unpriced, tl + lineWidth + 5, top + 36, room - lineWidth - 5, font(10.5, 600), systemColor('orange', dark));
+    let my = top + ROWS.head;
+    if (other) drawMembers(ctx, p, t, tl, my + ROWS.model / 2, tw, font(11.5), label, label, 13);
     for (const m of t.models) {
-      const middle = my + MODEL / 2, nameRoom = tw - 196, noteFont = font(10, 500), nameWidth = Math.min(nameRoom, measure(ctx, m.name, font(11.5)));
+      const middle = my + ROWS.model / 2, nameRoom = tw - 196, noteFont = font(10, 500), nameWidth = Math.min(nameRoom, measure(ctx, m.name, font(11.5)));
       middleText(ctx, m.name, tl, middle, nameRoom, font(11.5), m.other ? secondary : label);
       if (m.note && nameWidth + 30 < nameRoom) middleText(ctx, m.note, tl + nameWidth + 6, middle, nameRoom - nameWidth - 6, noteFont, systemColor('orange', dark));
       const track: Box = { x: ir - 184, y: middle - 2, w: 56, h: 4 };
@@ -151,12 +143,11 @@ export async function drawCardPicture(d: Dashboard, project: Project, dark: bool
       ctx.fillStyle = m.other ? secondary : c; roundRect(ctx, { x: track.x, y: track.y, w: Math.max(4, track.w * m.ratio), h: 4 }, 2); ctx.fill();
       middleText(ctx, m.amount, ir - 120, middle, 72, rounded(11.5, 500), label, 'right');
       middleText(ctx, m.share, ir - 42, middle, 42, rounded(11, 500), secondary, 'right');
-      my += MODEL;
+      my += ROWS.model;
     }
-    y += block.h + 8;
-  }
+  });
 
-  // Signature: the app icon, our name and where to find us.
-  drawSignature(ctx, p, project, y + 12, { name: font(14, 600), small: (s) => font(s), size: 11, ink: label, muted: secondary, qrInk: 'rgb(26, 27, 29)', qrPaper: dark ? 'rgb(236, 236, 238)' : 'rgb(255, 255, 255)' });
+  // Signature: the QR code, the app icon, our name and where to find us.
+  drawSignature(ctx, p, project, L.sign + 20, { name: font(14, 600), small: (s) => font(s), ink: label, muted: secondary });
   return canvas;
 }

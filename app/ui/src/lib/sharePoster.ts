@@ -8,8 +8,8 @@
 import starmeterMark from '../../../../assets/starmeter-mark.svg?url';
 import { chartPositions } from './chart';
 import { axisTokens, creditsText, currency, legendName, modelAmount, modelName, share, summaryPart, tokenLine, tokens } from './format';
-import { dollars, drawBrand, drawMark, load, loadMarks, measure, middleText, shownHeatmap, shownRows, tag, WIDTH, type Marks } from './shareCommon';
 import { qrModules } from './qr';
+import { BOTTOM_BAND, dollars, drawBrand, drawMark, load, loadMarks, measure, middleText, shownHeatmap, shownRows, tag, TOP_BAND, WIDTH, type Marks } from './shareCommon';
 import type { Dashboard, ModelUsage, ProviderUsage } from './types';
 
 /** A sum of money split for drawing: the sign set small and raised, the figure with thousands separators. */
@@ -247,32 +247,68 @@ export function drawMembers(ctx: CanvasRenderingContext2D, p: Poster, t: PosterT
 
 /** How tall the signature is: its QR code's tile. */
 export const SIGNATURE = 66;
-/** What Starmeter is, for someone who only sees the picture. */
-const TAGLINE = '在 macOS 和 Windows 上查看 AI 编程工具的用量';
-export interface SignStyle {
-  name: string; small: (size: number) => string; ink: string; muted: string;
-  /** The QR code's modules and its tile: always dark on light, which every scanner reads. */
-  qrInk: string; qrPaper: string; size?: number;
-}
-/** The signature at the foot, centred: a QR code to the project, then the app icon and our name, what it does, and the
- *  full address. */
-export function drawSignature(ctx: CanvasRenderingContext2D, p: Poster, project: { name: string; url: string }, y: number, s: SignStyle) {
-  const modules = qrModules(project.url), tile = modules ? SIGNATURE : 0, gap = modules ? 14 : 0, room = WIDTH - 48 - tile - gap;
-  let size = s.size ?? 11;
-  while (size > 8 && Math.max(measure(ctx, project.url, s.small(size)), measure(ctx, TAGLINE, s.small(size))) > room) size -= 0.5;
-  const nameWidth = measure(ctx, project.name, s.name), block = Math.max(26 + nameWidth, measure(ctx, project.url, s.small(size)), measure(ctx, TAGLINE, s.small(size)));
-  const left = Math.round((WIDTH - tile - gap - block) / 2), middle = y + SIGNATURE / 2;
-  if (modules) {
-    const quiet = 2, cell = tile / (modules.length + quiet * 2);
-    ctx.fillStyle = s.qrPaper; ctx.beginPath(); ctx.roundRect(left, y, tile, tile, 7); ctx.fill();
-    ctx.fillStyle = s.qrInk;
-    modules.forEach((row, my) => row.forEach((dark, mx) => { if (dark) ctx.fillRect(left + (mx + quiet) * cell, y + (my + quiet) * cell, cell + 0.02, cell + 0.02); }));
+export interface SignStyle { name: string; small: (size: number) => string; ink: string; muted: string; size?: number }
+
+/** The QR code in the logo's look: midnight-navy dots on a pale tile, rounded finder eyes, our icon in the middle (level
+ *  Q, so the modules under the icon are recovered). Dark modules on light, which every scanner reads. */
+function drawQr(ctx: CanvasRenderingContext2D, brand: HTMLImageElement | null, url: string, x: number, y: number, size: number): boolean {
+  const modules = qrModules(url, 'Q');
+  if (!modules) return false;
+  const n = modules.length, quiet = 2, cell = size / (n + quiet * 2), ox = x + quiet * cell, oy = y + quiet * cell, paper = '#F4F7FF';
+  ctx.fillStyle = paper; ctx.beginPath(); ctx.roundRect(x, y, size, size, size * 0.16); ctx.fill();
+  ctx.strokeStyle = 'rgba(31, 58, 122, 0.16)'; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.roundRect(x + 0.4, y + 0.4, size - 0.8, size - 0.8, size * 0.16); ctx.stroke();
+  const ink = ctx.createLinearGradient(x, y, x + size * 0.35, y + size);
+  ink.addColorStop(0, '#1F3A7A'); ink.addColorStop(0.55, '#0E1D4C'); ink.addColorStop(1, '#050A24');
+  const logo = n >= 29 ? 7 : 5, clear = logo + 2, from = Math.floor((n - clear) / 2);
+  const eye = (mx: number, my: number) => (mx < 7 && my < 7) || (mx >= n - 7 && my < 7) || (mx < 7 && my >= n - 7);
+  const centre = (mx: number, my: number) => mx >= from && mx < from + clear && my >= from && my < from + clear;
+  ctx.fillStyle = ink;
+  modules.forEach((row, my) => row.forEach((dark, mx) => {
+    if (!dark || eye(mx, my) || centre(mx, my)) return;
+    ctx.beginPath(); ctx.arc(ox + (mx + 0.5) * cell, oy + (my + 0.5) * cell, cell * 0.43, 0, Math.PI * 2); ctx.fill();
+  }));
+  for (const [fx, fy] of [[0, 0], [n - 7, 0], [0, n - 7]]) {
+    const ex = ox + fx * cell, ey = oy + fy * cell;
+    ctx.fillStyle = ink; ctx.beginPath(); ctx.roundRect(ex, ey, cell * 7, cell * 7, cell * 2.2); ctx.fill();
+    ctx.fillStyle = paper; ctx.beginPath(); ctx.roundRect(ex + cell, ey + cell, cell * 5, cell * 5, cell * 1.5); ctx.fill();
+    ctx.fillStyle = ink; ctx.beginPath(); ctx.roundRect(ex + cell * 2, ey + cell * 2, cell * 3, cell * 3, cell * 1); ctx.fill();
   }
+  drawBrand(ctx, brand, { x: ox + (from + 1) * cell, y: oy + (from + 1) * cell, w: logo * cell, h: logo * cell });
+  return true;
+}
+
+/** The signature at the foot, centred: the QR code to the project, then the app icon with our name over the full
+ *  address. */
+export function drawSignature(ctx: CanvasRenderingContext2D, p: Poster, project: { name: string; url: string }, y: number, s: SignStyle) {
+  const room = WIDTH - 48 - SIGNATURE - 16;
+  let size = s.size ?? 11.5;
+  while (size > 8 && measure(ctx, project.url, s.small(size)) > room) size -= 0.5;
+  const nameWidth = measure(ctx, project.name, s.name), block = Math.max(28 + nameWidth, measure(ctx, project.url, s.small(size)));
+  const shown = qrModules(project.url, 'Q') !== null, tile = shown ? SIGNATURE : 0, gap = shown ? 16 : 0;
+  const left = Math.round((WIDTH - tile - gap - block) / 2), middle = y + SIGNATURE / 2;
+  if (shown) drawQr(ctx, p.marks.brand, project.url, left, y, tile);
   const x = left + tile + gap;
-  drawBrand(ctx, p.marks.brand, { x, y: middle - 28, w: 18, h: 18 });
-  middleText(ctx, project.name, x + 26, middle - 19, nameWidth + 2, s.name, s.ink);
-  middleText(ctx, TAGLINE, x, middle + 3, room, s.small(size), s.muted);
-  middleText(ctx, project.url, x, middle + 21, room, s.small(size), s.muted);
+  drawBrand(ctx, p.marks.brand, { x, y: middle - 21, w: 20, h: 20 });
+  middleText(ctx, project.name, x + 28, middle - 11, nameWidth + 2, s.name, s.ink);
+  middleText(ctx, project.url, x, middle + 13, room, s.small(size), s.muted);
+}
+
+// MARK: The rows every style lays its picture out on
+
+/** Each section's height, the same in every style, so a picture is as tall in one style as in another and switching
+ *  styles never moves anything. A tool takes a head (its name row and figures line), a row per model, and padding. */
+export const ROWS = { title: 52, hero: 120, stats: 76, chart: 168, head: 52, model: 21, pad: 12, gap: 8, foot: 28, sign: 106 };
+/** Where the hero's figure sits, from the top of its section, in every style. */
+export const HERO_BASELINE = 104;
+export const toolHeight = (t: PosterTool) => ROWS.head + (t.members.length ? 1 : t.models.length) * ROWS.model + ROWS.pad;
+export interface Layout { title: number; hero: number; stats: number; chart: number | null; tools: number[]; foot: number; sign: number; height: number }
+export function layout(p: Poster): Layout {
+  let y = TOP_BAND;
+  const at = (height: number) => { const top = y; y += height; return top; };
+  const title = at(ROWS.title), hero = at(ROWS.hero), stats = at(ROWS.stats), chart = p.chart ? at(ROWS.chart) : null;
+  const tools = p.tools.map((t) => at(toolHeight(t) + ROWS.gap));
+  const foot = at(ROWS.foot), sign = at(ROWS.sign);
+  return { title, hero, stats, chart, tools, foot, sign, height: y + BOTTOM_BAND };
 }
 
 /** A deterministic number in [0, 1) for decorations, so a picture drawn twice looks the same. */

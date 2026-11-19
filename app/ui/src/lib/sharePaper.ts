@@ -1,25 +1,19 @@
 // 报刊: a printed sheet. Cream paper and black rules (by night, a dark sheet printed in cream), the estimate as a giant
 // ultramarine figure, the hour by hour in bars, and each tool with its first models in ruled rows.
 import { canvasFor, drawMark, measure, middleText, text, TOP_BAND, WIDTH } from './shareCommon';
-import { drawAmount, drawBars, drawMasthead, drawMembers, drawSignature, figures, fitAmount, GROTESK, poster, posterFont, SIGNATURE, slotCentre, tickBox, type PosterTool } from './sharePoster';
+import { drawAmount, drawBars, drawMasthead, drawMembers, drawSignature, figures, fitAmount, GROTESK, HERO_BASELINE, layout, poster, posterFont, ROWS, slotCentre, tickBox } from './sharePoster';
 import type { Dashboard, Project } from './types';
 
 const M = 26, INNER = WIDTH - M * 2;
 const palettes = {
-  light: { ink: '#17150F', paper: '#F6F1E6', blue: '#1A2BD8', grey: '#6E685B', hair: '#CDC5B3', orange: '#C2410C', grain: 'rgba(80, 60, 20, 0.035)', qrInk: '#17150F', qrPaper: '#FFFDF7' },
-  dark: { ink: '#EFE8D8', paper: '#17160F', blue: '#8590FF', grey: '#A59E8D', hair: '#3D3A30', orange: '#F0915A', grain: 'rgba(255, 235, 190, 0.03)', qrInk: '#17160F', qrPaper: '#EFE8D8' },
+  light: { ink: '#17150F', paper: '#F6F1E6', blue: '#1A2BD8', grey: '#6E685B', hair: '#CDC5B3', orange: '#C2410C', grain: 'rgba(80, 60, 20, 0.035)' },
+  dark: { ink: '#EFE8D8', paper: '#17160F', blue: '#8590FF', grey: '#A59E8D', hair: '#3D3A30', orange: '#F0915A', grain: 'rgba(255, 235, 190, 0.03)' },
 };
 const f = (size: number, weight = 700) => posterFont(size, weight, GROTESK);
-const HEAD = 30, SUB = 22, ROW = 24, AFTER = 12;
-
-const blockHeight = (t: PosterTool) => HEAD + SUB + (t.members.length ? 1 : t.models.length) * ROW + AFTER;
 
 export async function drawPaperPicture(d: Dashboard, project: Project, dark: boolean): Promise<HTMLCanvasElement> {
-  const { ink, paper, blue, grey, hair, orange, grain, qrInk, qrPaper } = dark ? palettes.dark : palettes.light;
-  const p = await poster(d, ink);
-  const measuring = document.createElement('canvas').getContext('2d')!;
-  const hero = fitAmount(measuring, p.cost, INNER, 100, 44, (s) => f(s, 900), -0.035);
-  const height = TOP_BAND + 15 + 46 + 20 + Math.round(hero * 0.78) + 18 + 12 + 66 + 14 + (p.chart ? 178 : 0) + p.tools.reduce((s, t) => s + blockHeight(t), 0) + 16 + 22 + SIGNATURE + 30;
+  const { ink, paper, blue, grey, hair, orange, grain } = dark ? palettes.dark : palettes.light;
+  const p = await poster(d, ink), L = layout(p), height = L.height;
   const { canvas, ctx } = canvasFor(height);
   const rule = (y: number, weight = 1.5, colour = ink) => { ctx.fillStyle = colour; ctx.fillRect(M, y, INNER, weight); };
 
@@ -31,21 +25,16 @@ export async function drawPaperPicture(d: Dashboard, project: Project, dark: boo
   // Masthead over a heavy rule, then the headline.
   drawMasthead(ctx, p, project.name, { ink, font: f, name: 18, date: 15, left: M, right: WIDTH - M, weight: 800 });
   rule(TOP_BAND - 1, 2);
-  let y = TOP_BAND + 15;
-  text(ctx, p.title, { x: M, y, w: INNER, h: 34 }, f(30, 900), ink);
-  y += 46;
+  text(ctx, p.title, { x: M, y: L.title + 10, w: INNER, h: 34 }, f(30, 900), ink);
 
-  // The estimate as large as the line allows, in ultramarine.
-  text(ctx, p.costLabel, { x: M, y, w: INNER, h: 16 }, f(13, 700), ink);
-  y += 20;
-  const baseline = y + Math.round(hero * 0.78);
-  drawAmount(ctx, p.cost, M - 3, baseline, hero, (s) => f(s, 900), blue, blue, -0.035);
-  y = baseline + 18;
-  rule(y, 1.5);
-  y += 12;
+  // The estimate as large as the line allows, in ultramarine, over a rule.
+  text(ctx, p.costLabel, { x: M, y: L.hero + 4, w: INNER, h: 16 }, f(13, 700), ink);
+  const hero = fitAmount(ctx, p.cost, INNER, 100, 44, (s) => f(s, 900), -0.035);
+  drawAmount(ctx, p.cost, M - 3, L.hero + HERO_BASELINE, hero, (s) => f(s, 900), blue, blue, -0.035);
+  rule(L.stats - 6, 1.5);
 
   // Three figures between rules.
-  const column = INNER / 3;
+  const column = INNER / 3, y = L.stats + 6;
   figures(p).forEach(([name, value], i) => {
     const x = M + i * column + (i ? 14 : 0), w = column - (i ? 14 : 0) - 14;
     if (i) { ctx.fillStyle = ink; ctx.fillRect(M + i * column, y + 2, 1.2, 50); }
@@ -54,17 +43,15 @@ export async function drawPaperPicture(d: Dashboard, project: Project, dark: boo
     while (size > 16 && measure(ctx, value, f(size, 900)) > w) size -= 1;
     text(ctx, value, { x, y: y + 22, w, h: 32 }, f(size, 900), ink);
   });
-  y += 66;
-  rule(y, 2);
-  y += 14;
+  rule(L.stats + ROWS.stats - 6, 2);
 
   const chart = p.chart;
-  if (chart) {
-    text(ctx, chart.label, { x: M, y, w: INNER / 2, h: 22 }, f(18, 900), ink);
-    if (chart.note) text(ctx, chart.note, { x: M + INNER / 2, y: y + 4, w: INNER / 2, h: 15 }, f(12, 500), ink, 'right');
-    y += 32;
+  if (chart && L.chart !== null) {
+    const top = L.chart + 6;
+    text(ctx, chart.label, { x: M, y: top, w: INNER / 2, h: 22 }, f(18, 900), ink);
+    if (chart.note) text(ctx, chart.note, { x: M + INNER / 2, y: top + 4, w: INNER / 2, h: 15 }, f(12, 500), ink, 'right');
     const labelWidth = Math.max(...chart.axis.map((a) => measure(ctx, a, f(11, 500)))) + 8;
-    const plot = { x: M + labelWidth, y: y + 6, w: INNER - labelWidth, h: 96 };
+    const plot = { x: M + labelWidth, y: top + 38, w: INNER - labelWidth, h: ROWS.chart - 88 };
     chart.axis.forEach((label, i) => {
       const at = plot.y + plot.h - (plot.h * i) / 2;
       ctx.fillStyle = hair; ctx.fillRect(plot.x, at, plot.w, 1);
@@ -76,42 +63,40 @@ export async function drawPaperPicture(d: Dashboard, project: Project, dark: boo
       const at = tickBox(i, chart.ticks.length, slotCentre(chart, plot, tick.index), plot.x - 2, WIDTH - M, 80);
       text(ctx, tick.label, { x: at.x, y: plot.y + plot.h + 8, w: 80, h: 15 }, f(12, 500), ink, at.align);
     });
-    y += 132;
-    rule(y, 2);
-    y += 14;
+    rule(L.chart + ROWS.chart - 6, 2);
   }
 
   // Each tool: its mark, name and amount, a line of figures (or the tag that explains them), then its models.
-  for (const [index, t] of p.tools.entries()) {
-    if (index) rule(y - 8, 1);
+  p.tools.forEach((t, index) => {
+    const top = L.tools[index];
+    if (index) rule(top - ROWS.gap / 2, 1);
     const mark = p.marks.tools.get(t.id), costWidth = Math.min(170, measure(ctx, t.cost, f(20, 900)) + 2), indent = mark ? 28 : 0;
-    if (mark) drawMark(ctx, mark, { x: M, y: y + 4, w: 20, h: 20 }, ink);
-    middleText(ctx, t.name, M + indent, y + 14, INNER - costWidth - indent - 10, f(20, 900), ink);
-    middleText(ctx, t.cost, WIDTH - M - costWidth, y + 14, costWidth, f(20, 900), ink, 'right');
-    y += HEAD;
+    if (mark) drawMark(ctx, mark, { x: M, y: top + 6, w: 20, h: 20 }, ink);
+    middleText(ctx, t.name, M + indent, top + 16, INNER - costWidth - indent - 10, f(20, 900), ink);
+    middleText(ctx, t.cost, WIDTH - M - costWidth, top + 16, costWidth, f(20, 900), ink, 'right');
     const line = [t.tokens, t.share, t.tag].filter(Boolean).join(' · '), lineWidth = Math.min(INNER - indent, measure(ctx, line, f(13, 500)));
-    middleText(ctx, line, M + indent, y + 8, INNER - indent, f(13, 500), grey);
-    if (t.unpriced && lineWidth + 80 < INNER - indent) middleText(ctx, '· ' + t.unpriced, M + indent + lineWidth + 5, y + 8, INNER - indent - lineWidth - 5, f(12, 700), orange);
-    y += SUB;
+    middleText(ctx, line, M + indent, top + 37, INNER - indent, f(13, 500), grey);
+    if (t.unpriced && lineWidth + 80 < INNER - indent) middleText(ctx, '· ' + t.unpriced, M + indent + lineWidth + 5, top + 37, INNER - indent - lineWidth - 5, f(12, 700), orange);
+    let my = top + ROWS.head;
+    const middle = () => my + ROWS.model / 2;
     if (t.members.length) {
-      rule(y - 2, 1, hair);
-      drawMembers(ctx, p, t, M + indent, y + ROW / 2, INNER - indent, f(13.5, 600), ink, ink, 14);
-      y += ROW;
+      rule(my - 1, 1, hair);
+      drawMembers(ctx, p, t, M + indent, middle(), INNER - indent, f(13.5, 600), ink, ink, 14);
+      my += ROWS.model;
     }
     for (const m of t.models) {
-      rule(y - 2, 1, hair);
-      const nameRoom = INNER - indent - 150, nameWidth = Math.min(nameRoom, measure(ctx, m.name, f(14, 600)));
-      middleText(ctx, m.name, M + indent, y + 10, nameRoom, f(14, 600), m.other ? grey : ink);
-      if (m.note && nameWidth + 30 < nameRoom) middleText(ctx, m.note, M + indent + nameWidth + 6, y + 10, nameRoom - nameWidth - 6, f(11, 700), orange);
-      middleText(ctx, m.amount, WIDTH - M - 150, y + 10, 90, f(14, 500), ink, 'right');
-      middleText(ctx, m.share, WIDTH - M - 50, y + 10, 50, f(14, 500), ink, 'right');
-      y += ROW;
+      rule(my - 1, 1, hair);
+      const nameRoom = INNER - indent - 150, nameWidth = Math.min(nameRoom, measure(ctx, m.name, f(13.5, 600)));
+      middleText(ctx, m.name, M + indent, middle(), nameRoom, f(13.5, 600), m.other ? grey : ink);
+      if (m.note && nameWidth + 30 < nameRoom) middleText(ctx, m.note, M + indent + nameWidth + 6, middle(), nameRoom - nameWidth - 6, f(11, 700), orange);
+      middleText(ctx, m.amount, WIDTH - M - 150, middle(), 90, f(13.5, 500), ink, 'right');
+      middleText(ctx, m.share, WIDTH - M - 50, middle(), 50, f(13.5, 500), ink, 'right');
+      my += ROWS.model;
     }
-    y += AFTER;
-  }
+  });
 
-  // Signature under a heavy rule.
-  rule(y + 2, 2);
-  drawSignature(ctx, p, project, y + 22, { name: f(17, 900), small: (s) => f(s, 500), size: 12, ink, muted: grey, qrInk, qrPaper });
+  // The end of the page: a double rule, then the signature.
+  rule(L.foot + 10, 2); rule(L.foot + 14, 0.8);
+  drawSignature(ctx, p, project, L.sign + 20, { name: f(17, 900), small: (s) => f(s, 500), size: 12, ink, muted: grey });
   return canvas;
 }

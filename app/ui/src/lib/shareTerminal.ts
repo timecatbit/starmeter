@@ -5,14 +5,13 @@ import { smoothCurves, tracePath } from './chart';
 import { accent, alpha, systemColor } from './colors';
 import { font, MONO } from './measure';
 import { BOTTOM_BAND, canvasFor, crownSeed, drawMark, fade, grain, measure, middleText, roundRect, shadow, text, TOP_BAND, WIDTH, type Box, type Fade } from './shareCommon';
-import { drawAmount, drawMasthead, drawMembers, drawSignature, figures, fitAmount, poster, posterDate, SIGNATURE, tickBox, type PosterTool } from './sharePoster';
+import { drawAmount, drawMasthead, drawMembers, drawSignature, figures, fitAmount, HERO_BASELINE, layout, poster, posterDate, ROWS, tickBox } from './sharePoster';
 import type { Dashboard, Project } from './types';
 
-const PAD = 26, CHART = 160, MODEL = 20;
+const PAD = 26;
 const mono = (size: number, weight = 400) => font(size, weight, MONO);
 const ui = (size: number, weight: number) => font(size, weight);
 
-const blockHeight = (t: PosterTool) => 54 + (t.members.length ? 1 : t.models.length) * MODEL + 10;
 
 const rgb = (r: number, g: number, b: number, a = 1) => `rgba(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)}, ${a})`;
 const palettes = {
@@ -26,9 +25,7 @@ export async function drawTerminalPicture(d: Dashboard, project: Project, dark: 
   const c = dark ? palettes.dark : palettes.light;
   const p = await poster(d, c.text);
   p.date = posterDate(d, '-', ' → ');
-  const left = PAD, width = WIDTH - PAD * 2, right = left + width;
-  const body = 30 + 38 + 86 + 76 + (p.chart ? CHART : 0) + p.tools.reduce((s, t) => s + blockHeight(t), 0);
-  const height = TOP_BAND + 18 + body + 20 + SIGNATURE + 14 + BOTTOM_BAND;
+  const left = PAD, width = WIDTH - PAD * 2, right = left + width, L = layout(p), height = L.height;
   const { canvas, ctx } = canvasFor(height);
   const seed = crownSeed(d);
 
@@ -67,22 +64,21 @@ export async function drawTerminalPicture(d: Dashboard, project: Project, dark: 
   rain({ x: 0, y: height - BOTTOM_BAND + 8, w: WIDTH, h: BOTTOM_BAND - 8 }, 'up');
 
   // The command that printed this, then the title.
-  let y = TOP_BAND + 18;
+  let y = L.title + 4;
   const flag = ({ today: 'today', yesterday: 'yesterday', '24h': '24h', '7d': '7d', '30d': '30d', week: 'week', month: 'month', all: 'all' } as Record<string, string>)[d.rangeKey] ?? d.rangeKey;
   middleText(ctx, '❯', left, y + 8, 14, mono(12.5, 700), c.accent);
   middleText(ctx, 'starmeter usage --range ' + flag, left + 16, y + 8, width - 16, mono(12, 500), c.muted);
-  y += 30;
-  text(ctx, p.title, { x: left, y, w: width, h: 28 }, ui(22, 700), c.text);
-  y += 38;
+  text(ctx, p.title, { x: left, y: L.title + 22, w: width, h: 28 }, ui(22, 700), c.text);
+  y = L.hero + 4;
 
   // The estimate, set like output, with the cursor after it and rain fading in beside it from the window's edge.
-  rain({ x: WIDTH - 140, y: y - 4, w: 140, h: 84 }, 'left', 0.55);
+  rain({ x: WIDTH - 140, y: y, w: 140, h: 104 }, 'left', 0.55);
   text(ctx, '// ' + p.costLabel, { x: left, y, w: width, h: 15 }, mono(11), c.comment);
-  const size = fitAmount(ctx, p.cost, width * 0.84, 44, 24, (s) => mono(s, 700), -0.02), baseline = y + 20 + size * 0.78;
+  const size = fitAmount(ctx, p.cost, width * 0.84, 64, 24, (s) => mono(s, 700), -0.02), baseline = L.hero + HERO_BASELINE;
   const amountWidth = drawAmount(ctx, p.cost, left - 1, baseline, size, (s) => mono(s, 700), c.text, c.accent, -0.02);
   ctx.fillStyle = alpha(c.accent, 0.85);
   ctx.fillRect(left + amountWidth + 6, baseline - size * 0.7 - 1, size * 0.32, size * 0.7 + 3);
-  y += 86;
+  y = L.stats + 2;
 
   // Three figures in a ruled table.
   const table: Box = { x: left, y, w: width, h: 56 }, column = width / 3;
@@ -95,14 +91,14 @@ export async function drawTerminalPicture(d: Dashboard, project: Project, dark: 
     const measured = measure(ctx, value, mono(18, 600)), fitted = measured <= column - 22 ? 18 : Math.max(11, Math.floor((18 * (column - 22)) / measured));
     text(ctx, value, { x: cx + 12, y: table.y + 27, w: column - 18, h: 24 }, mono(fitted, 600), c.text);
   });
-  y += 76;
 
   // The trend on an oscilloscope grid: the total glows, each listed tool a thin line in its own colour.
   const chart = p.chart;
-  if (chart) {
+  if (chart && L.chart !== null) {
+    y = L.chart;
     text(ctx, '// ' + chart.label, { x: left, y, w: width / 2, h: 15 }, mono(10.5), c.comment);
     if (chart.note) text(ctx, chart.note, { x: left + width / 2, y, w: width / 2, h: 15 }, mono(10), c.comment, 'right');
-    const plot = { x: left, y: y + 30, w: width, h: 98 }, bottom = plot.y + plot.h;
+    const plot = { x: left, y: y + 30, w: width, h: ROWS.chart - 66 }, bottom = plot.y + plot.h;
     ctx.setLineDash([1, 3]); ctx.lineWidth = 0.75; ctx.strokeStyle = c.rule;
     for (let f = 0; f <= 1.0001; f += 0.2) { ctx.beginPath(); ctx.moveTo(plot.x + f * plot.w, plot.y); ctx.lineTo(plot.x + f * plot.w, bottom); ctx.stroke(); }
     for (const f of [0, 0.5, 1]) {
@@ -137,38 +133,38 @@ export async function drawTerminalPicture(d: Dashboard, project: Project, dark: 
       const at = tickBox(i, chart.ticks.length, plot.x + tick.at * plot.w, left, right, 80);
       text(ctx, tick.label, { x: at.x, y: bottom + 7, w: 80, h: 13 }, mono(9.5), c.comment, at.align);
     });
-    y += CHART;
   }
 
   // Each tool as a listing: its mark, name and amount; tokens and share, or its tag; then its first models as a tree
   // with cell bars. 其他工具 lists the tools folded into it instead.
   const orange = systemColor('orange', dark), noteFont = mono(9.5, 500);
-  for (const t of p.tools) {
-    const colour = t.id === 'other' ? c.comment : accent(t.id, dark), top = y;
-    dashed(top);
-    ctx.fillStyle = alpha(colour, t.tag ? 0.45 : 1); ctx.beginPath(); ctx.arc(left + 4, top + 20, 4, 0, Math.PI * 2); ctx.fill();
+  p.tools.forEach((t, index) => {
+    const colour = t.id === 'other' ? c.comment : accent(t.id, dark), top = L.tools[index];
+    dashed(top - ROWS.gap / 2);
+    ctx.fillStyle = alpha(colour, t.tag ? 0.45 : 1); ctx.beginPath(); ctx.arc(left + 4, top + 18, 4, 0, Math.PI * 2); ctx.fill();
     const nameFont = ui(14.5, 600), costFont = mono(14.5, 600), costWidth = measure(ctx, t.cost, costFont), mark = p.marks.tools.get(t.id), markRoom = mark ? 21 : 0;
-    if (mark) drawMark(ctx, mark, { x: left + 16, y: top + 12.5, w: 15, h: 15 }, c.text);
-    middleText(ctx, t.name, left + 16 + markRoom, top + 20, width - 16 - markRoom - costWidth - 12, nameFont, c.text);
-    middleText(ctx, t.cost, right - costWidth - 2, top + 20, costWidth + 2, costFont, c.text, 'right');
+    if (mark) drawMark(ctx, mark, { x: left + 16, y: top + 10.5, w: 15, h: 15 }, c.text);
+    middleText(ctx, t.name, left + 16 + markRoom, top + 18, width - 16 - markRoom - costWidth - 12, nameFont, c.text);
+    middleText(ctx, t.cost, right - costWidth - 2, top + 18, costWidth + 2, costFont, c.text, 'right');
     const figuresLine = [t.tokens, t.share].filter(Boolean).join(' · '), lineFont = mono(10.5, 500);
     let tagWidth = 0;
     if (t.tag) {
       tagWidth = measure(ctx, t.tag, noteFont) + 14;
-      const box: Box = { x: right - tagWidth, y: top + 32, w: tagWidth, h: 16 };
+      const box: Box = { x: right - tagWidth, y: top + 30, w: tagWidth, h: 16 };
       ctx.strokeStyle = alpha(c.muted, 0.45); ctx.lineWidth = 1; roundRect(ctx, { x: box.x + 0.5, y: box.y + 0.5, w: box.w - 1, h: box.h - 1 }, 3.5); ctx.stroke();
       middleText(ctx, t.tag, box.x + 7, box.y + 8, box.w - 14, noteFont, c.muted, 'center');
     }
     const room = width - 16 - tagWidth - (tagWidth ? 10 : 0), used = Math.min(room, measure(ctx, figuresLine, lineFont));
-    middleText(ctx, figuresLine, left + 16, top + 40, room, lineFont, c.muted);
-    if (t.unpriced && used + 60 < room) middleText(ctx, '! ' + t.unpriced, left + 16 + used + 10, top + 40, room - used - 10, mono(10, 500), orange);
-    let my = top + 54;
-    if (t.members.length) drawMembers(ctx, p, t, left + 16, my + MODEL / 2, width - 16, mono(11), c.text, c.text, 13);
+    middleText(ctx, figuresLine, left + 16, top + 38, room, lineFont, c.muted);
+    if (t.unpriced && used + 60 < room) middleText(ctx, '! ' + t.unpriced, left + 16 + used + 10, top + 38, room - used - 10, mono(10, 500), orange);
+    let my = top + ROWS.head;
+    const MODEL = ROWS.model, mid = (row: number) => row + MODEL / 2;
+    if (t.members.length) drawMembers(ctx, p, t, left + 16, mid(my), width - 16, mono(11), c.text, c.text, 13);
     // Models hang off a drawn tree: one stem, a tick per model.
     if (t.models.length) {
       const stem = left + 20, branch = alpha(c.comment, 0.7);
-      line(stem, my + 1, stem, my + 8 + (t.models.length - 1) * MODEL, branch);
-      t.models.forEach((_, i) => { const mid = my + 8 + i * MODEL; line(stem, mid, stem + 10, mid, branch); });
+      line(stem, my + 1, stem, mid(my) + (t.models.length - 1) * MODEL, branch);
+      t.models.forEach((_, i) => { const at = mid(my) + i * MODEL; line(stem, at, stem + 10, at, branch); });
     }
     // Columns sized to this tool's longest model name and amount; the cells take what is left.
     const modelFont = mono(11), figureFont = mono(11, 500);
@@ -179,24 +175,24 @@ export async function drawTerminalPicture(d: Dashboard, project: Project, dark: 
       let nameRoom = nameColumn - 8;
       if (m.note) {
         const w = Math.min(nameRoom * 0.55, measure(ctx, m.note, noteFont)), nw = Math.min(nameRoom - w - 6, measure(ctx, m.name, modelFont));
-        middleText(ctx, m.note, left + 38 + nw + 6, my + 8, w + 2, noteFont, orange);
+        middleText(ctx, m.note, left + 38 + nw + 6, mid(my), w + 2, noteFont, orange);
         nameRoom = nw;
       }
-      middleText(ctx, m.name, left + 38, my + 8, nameRoom + 1, modelFont, m.other ? c.muted : c.text);
+      middleText(ctx, m.name, left + 38, mid(my), nameRoom + 1, modelFont, m.other ? c.muted : c.text);
       const lit = m.ratio > 0 ? Math.max(1, Math.round(m.ratio * slots)) : 0;
       for (let k = 0; k < slots; k++) {
         ctx.fillStyle = k < lit ? alpha(m.other ? c.comment : colour, t.tag ? 0.6 : 0.95) : c.rule;
-        roundRect(ctx, { x: barLeft + k * 6.5, y: my + 4, w: 5, h: 8 }, 1); ctx.fill();
+        roundRect(ctx, { x: barLeft + k * 6.5, y: mid(my) - 4, w: 5, h: 8 }, 1); ctx.fill();
       }
-      middleText(ctx, m.amount, right - 44 - amountColumn, my + 8, amountColumn, figureFont, c.text, 'right');
-      middleText(ctx, m.share, right - 40, my + 8, 40, mono(10.5), c.muted, 'right');
+      middleText(ctx, m.amount, right - 44 - amountColumn, mid(my), amountColumn, figureFont, c.text, 'right');
+      middleText(ctx, m.share, right - 40, mid(my), 40, mono(10.5), c.muted, 'right');
       my += MODEL;
     }
-    y += blockHeight(t);
-  }
-  dashed(y);
-
-  // Signature: the app icon, our name and where to find us.
-  drawSignature(ctx, p, project, y + 20, { name: ui(14, 600), small: (s) => mono(s), size: 10.5, ink: c.text, muted: c.muted, qrInk: palettes.dark.window, qrPaper: dark ? palettes.dark.text : palettes.light.window });
+  });
+  // The session waits at a prompt, then the signature.
+  dashed(L.foot - ROWS.gap / 2);
+  middleText(ctx, '❯', left, L.foot + 14, 14, mono(12.5, 700), c.accent);
+  ctx.fillStyle = alpha(c.accent, 0.85); ctx.fillRect(left + 16, L.foot + 7, 7.5, 14);
+  drawSignature(ctx, p, project, L.sign + 20, { name: ui(14, 600), small: (s) => mono(s), size: 10.5, ink: c.text, muted: c.muted });
   return canvas;
 }

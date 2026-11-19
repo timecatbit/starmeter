@@ -3,13 +3,12 @@
 // models are lit bars.
 import { smoothCurves, tracePath } from './chart';
 import { accent, alpha } from './colors';
-import { blurFilter, canvasFor, drawMark, measure, middleText, shadow, text, TOP_BAND, WIDTH } from './shareCommon';
-import { drawAmount, drawMasthead, drawMembers, drawSignature, figures, fitAmount, poster, posterFont, SERIF, seeded, SIGNATURE, tickBox, type PosterTool } from './sharePoster';
+import { blurFilter, canvasFor, drawMark, measure, middleText, shadow, text, WIDTH } from './shareCommon';
+import { drawAmount, drawMasthead, drawMembers, drawSignature, figures, fitAmount, HERO_BASELINE, layout, poster, posterFont, ROWS, SERIF, seeded, tickBox } from './sharePoster';
 import type { Dashboard, Project } from './types';
 
 const M = 28, INNER = WIDTH - M * 2;
 const serif = (size: number, italic = true, weight = 400) => posterFont(size, weight, SERIF, italic);
-const HEAD = 32, SUB = 22, MODEL = 28, AFTER = 12, CHART = 168;
 
 const palettes = {
   dark: {
@@ -17,18 +16,16 @@ const palettes = {
     halo: 'rgba(255, 210, 170, 0.3)', disc: ['#FFF1DC', '#E3B892'], seas: 'rgba(176, 120, 96, 0.22)', cloud: 'rgba(226, 150, 160, 0.28)',
     text: '#FBEBD8', soft: 'rgb(205, 185, 230)', dim: 'rgba(205, 185, 230, 0.66)', curve: '#F4C69C', curveGlow: 'rgba(255, 190, 140, 0.8)',
     fill: 'rgba(244, 198, 156, 0.32)', end: '#FFF3E4', heroGlow: 'rgba(255, 196, 150, 0.5)', warn: '#FFB27A', rule: 'rgba(205, 185, 230, 0.28)',
-    hills: '#1E1631', lake: 'rgba(90, 64, 120, 0.55)', light: [255, 200, 150], track: 'rgba(255, 255, 255, 0.09)', qrInk: '#16112A', qrPaper: '#FBEBD8',
+    hills: '#1E1631', lake: 'rgba(90, 64, 120, 0.55)', light: [255, 200, 150], track: 'rgba(255, 255, 255, 0.09)',
   },
   light: {
     sky: ['#E7E0F4', '#F4E2EC', '#FAE8DE', '#F1ECF6'], star: [128, 104, 178], stars: 70, starStrength: 0.45,
     halo: 'rgba(255, 255, 255, 0.75)', disc: ['#FFFFFF', '#E9E1F2'], seas: 'rgba(150, 130, 190, 0.16)', cloud: 'rgba(255, 255, 255, 0.85)',
     text: '#2B2145', soft: 'rgb(104, 82, 156)', dim: 'rgba(43, 33, 69, 0.6)', curve: '#DE7357', curveGlow: 'rgba(222, 115, 87, 0.45)',
     fill: 'rgba(222, 115, 87, 0.2)', end: '#DE7357', heroGlow: 'rgba(222, 115, 87, 0.28)', warn: '#C2410C', rule: 'rgba(104, 82, 156, 0.25)',
-    hills: 'rgba(120, 96, 168, 0.3)', lake: 'rgba(170, 150, 210, 0.35)', light: [222, 115, 87], track: 'rgba(43, 33, 69, 0.08)', qrInk: '#2B2145', qrPaper: '#FFFFFF',
+    hills: 'rgba(120, 96, 168, 0.3)', lake: 'rgba(170, 150, 210, 0.35)', light: [222, 115, 87], track: 'rgba(43, 33, 69, 0.08)',
   },
 };
-
-const blockHeight = (t: PosterTool) => HEAD + SUB + (t.members.length ? 1 : t.models.length) * MODEL + AFTER;
 
 /** A tool's colour: by night lifted toward the moonlight so it glows on the dark sky, by day as it is. */
 function lit(id: string, dark: boolean): string {
@@ -40,10 +37,9 @@ function lit(id: string, dark: boolean): string {
 
 export async function drawNightPicture(d: Dashboard, project: Project, dark: boolean): Promise<HTMLCanvasElement> {
   const c = dark ? palettes.dark : palettes.light;
-  const p = await poster(d, c.text);
+  const p = await poster(d, c.text), L = layout(p), height = L.height;
   const measuring = document.createElement('canvas').getContext('2d')!;
-  const hero = fitAmount(measuring, p.cost, INNER - 10, 86, 44, (s) => serif(s));
-  const height = TOP_BAND + 11 + 50 + 22 + Math.round(hero * 0.8) + 24 + 76 + (p.chart ? CHART : 30) + p.tools.reduce((s, t) => s + blockHeight(t), 0) + 20 + SIGNATURE + 34;
+  const hero = fitAmount(measuring, p.cost, INNER - 10, 92, 44, (s) => serif(s));
   const { canvas, ctx } = canvasFor(height);
   const random = seeded([...d.date].reduce((s, ch) => s + ch.charCodeAt(0), 0));
   const [sr, sg, sb] = c.star;
@@ -80,16 +76,13 @@ export async function drawNightPicture(d: Dashboard, project: Project, dark: boo
 
   // Masthead, the title, then the estimate glowing under it.
   drawMasthead(ctx, p, project.name, { ink: c.text, font: (s) => serif(s), name: 19, date: 16, left: M, right: WIDTH - M, weight: 400 });
-  let y = TOP_BAND + 11;
-  text(ctx, p.title, { x: M, y, w: INNER - 80, h: 40 }, serif(34, false, 500), c.text);
-  y += 50;
-  text(ctx, p.costLabel, { x: M, y, w: INNER, h: 18 }, serif(15, false), c.soft);
-  y += 22;
-  const baseline = y + Math.round(hero * 0.8);
+  text(ctx, p.title, { x: M, y: L.title + 8, w: INNER - 80, h: 40 }, serif(34, false, 500), c.text);
+  text(ctx, p.costLabel, { x: M, y: L.hero + 4, w: INNER, h: 18 }, serif(15, false), c.soft);
+  const baseline = L.hero + HERO_BASELINE;
   ctx.save(); shadow(ctx, c.heroGlow, 13);
   drawAmount(ctx, p.cost, M - 2, baseline, hero, (s) => serif(s), c.text, c.soft);
   ctx.restore();
-  y = baseline + 24;
+  let y = L.stats + 4;
 
   // Three figures, centred between faint rules.
   const column = INNER / 3;
@@ -101,11 +94,11 @@ export async function drawNightPicture(d: Dashboard, project: Project, dark: boo
     while (size > 16 && measure(ctx, value, serif(size, false, 500)) > column - 12) size -= 1;
     text(ctx, value, { x, y: y + 22, w: column, h: 34 }, serif(size, false, 500), c.text, 'center');
   });
-  y += 76;
 
   // The curve over the horizon, glowing; the light lies on the lake under it.
   const chart = p.chart;
-  if (chart) {
+  if (chart && L.chart !== null) {
+    y = L.chart;
     text(ctx, chart.label, { x: M, y, w: INNER / 2, h: 18 }, serif(15), c.soft);
     if (chart.note) text(ctx, chart.note, { x: M + INNER / 2, y: y + 1, w: INNER / 2, h: 17 }, serif(13.5), c.dim, 'right');
     const plot = { x: M + 4, y: y + 30, w: INNER - 8, h: 92 }, bottom = plot.y + plot.h;
@@ -138,34 +131,34 @@ export async function drawNightPicture(d: Dashboard, project: Project, dark: boo
       const at = tickBox(i, chart.ticks.length, plot.x + tick.at * plot.w, M, WIDTH - M, 90);
       text(ctx, tick.label, { x: at.x, y: horizon + 8, w: 90, h: 17 }, serif(14), c.text, at.align);
     });
-    y += CHART;
-  } else y += 30;
+  }
 
   // Each tool: its mark in a small halo, name and amount in the serif, a line of figures, then its models as lit bars.
-  for (const t of p.tools) {
+  p.tools.forEach((t, index) => {
+    y = L.tools[index];
     const colour = t.id === 'other' ? c.soft : lit(t.id, dark), mark = p.marks.tools.get(t.id);
     if (mark) {
-      const glow = ctx.createRadialGradient(M + 11, y + 15, 2, M + 11, y + 15, 20);
+      const glow = ctx.createRadialGradient(M + 11, y + 16, 2, M + 11, y + 16, 20);
       glow.addColorStop(0, alpha(colour, dark ? 0.45 : 0.28)); glow.addColorStop(1, alpha(colour, 0));
-      ctx.fillStyle = glow; ctx.fillRect(M - 10, y - 6, 44, 44);
-      drawMark(ctx, mark, { x: M + 2, y: y + 6, w: 18, h: 18 }, c.text);
+      ctx.fillStyle = glow; ctx.fillRect(M - 10, y - 5, 44, 44);
+      drawMark(ctx, mark, { x: M + 2, y: y + 7, w: 18, h: 18 }, c.text);
     }
     const costWidth = Math.min(170, measure(ctx, t.cost, serif(22)) + 4);
-    middleText(ctx, t.name, M + 32, y + 15, INNER - 32 - costWidth - 10, serif(24), c.soft);
-    middleText(ctx, t.cost, WIDTH - M - costWidth, y + 15, costWidth, serif(22), c.text, 'right');
-    y += HEAD;
+    middleText(ctx, t.name, M + 32, y + 16, INNER - 32 - costWidth - 10, serif(24), c.soft);
+    middleText(ctx, t.cost, WIDTH - M - costWidth, y + 16, costWidth, serif(22), c.text, 'right');
+    y += 29;
     const line = [t.tokens, t.share, t.tag].filter(Boolean).join('  ·  '), lineWidth = Math.min(INNER - 32, measure(ctx, line, serif(13.5, false)));
     middleText(ctx, line, M + 32, y + 8, INNER - 32, serif(13.5, false), c.dim);
     if (t.unpriced && lineWidth + 80 < INNER - 32) middleText(ctx, '·  ' + t.unpriced, M + 32 + lineWidth + 8, y + 8, INNER - 32 - lineWidth - 8, serif(13, true), c.warn);
-    y += SUB;
-    if (t.members.length) { drawMembers(ctx, p, t, M + 32, y + 10, INNER - 32, serif(15, false), c.text, c.text, 14); y += MODEL; }
+    y = L.tools[index] + ROWS.head;
+    if (t.members.length) { drawMembers(ctx, p, t, M + 32, y + 10, INNER - 32, serif(15, false), c.text, c.text, 14); y += ROWS.model; }
     for (const m of t.models) {
-      const nameRoom = INNER - 32 - 150, nameWidth = Math.min(nameRoom, measure(ctx, m.name, serif(15, false)));
-      middleText(ctx, m.name, M + 32, y + 8, nameRoom, serif(15, false), m.other ? c.dim : c.text);
+      const nameRoom = INNER - 32 - 150, nameWidth = Math.min(nameRoom, measure(ctx, m.name, serif(14, false)));
+      middleText(ctx, m.name, M + 32, y + 8, nameRoom, serif(14, false), m.other ? c.dim : c.text);
       if (m.note && nameWidth + 30 < nameRoom) middleText(ctx, m.note, M + 32 + nameWidth + 8, y + 8, nameRoom - nameWidth - 8, serif(12), c.warn);
-      middleText(ctx, m.amount, WIDTH - M - 150, y + 8, 96, serif(15, false), c.text, 'right');
-      middleText(ctx, m.share, WIDTH - M - 50, y + 8, 50, serif(15, false), c.text, 'right');
-      const track = { x: M + 32, y: y + 20, w: INNER - 32, h: 3 };
+      middleText(ctx, m.amount, WIDTH - M - 150, y + 8, 96, serif(14, false), c.text, 'right');
+      middleText(ctx, m.share, WIDTH - M - 50, y + 8, 50, serif(14, false), c.text, 'right');
+      const track = { x: M + 32, y: y + 16.5, w: INNER - 32, h: 2.5 };
       ctx.fillStyle = c.track; ctx.beginPath(); ctx.roundRect(track.x, track.y, track.w, track.h, 1.5); ctx.fill();
       const bar = m.other ? c.soft : colour;
       ctx.save(); shadow(ctx, alpha(bar, dark ? 1 : 0.5), dark ? 4 : 2);
@@ -173,12 +166,17 @@ export async function drawNightPicture(d: Dashboard, project: Project, dark: boo
       fill.addColorStop(0, alpha(bar, 0.7)); fill.addColorStop(1, bar);
       ctx.fillStyle = m.other ? alpha(bar, 0.6) : fill; ctx.beginPath(); ctx.roundRect(track.x, track.y, Math.max(3, track.w * m.ratio), track.h, 1.5); ctx.fill();
       ctx.restore();
-      y += MODEL;
+      y += ROWS.model;
     }
-    y += AFTER;
-  }
+  });
 
   // Signature.
-  drawSignature(ctx, p, project, y + 20, { name: serif(18), small: (s) => serif(s, false), size: 13, ink: c.text, muted: c.dim, qrInk: c.qrInk, qrPaper: c.qrPaper });
+  // A shooting star across the end of the sky, then the signature.
+  const streak = ctx.createLinearGradient(M + 60, L.foot + 22, WIDTH - M - 60, L.foot + 6);
+  streak.addColorStop(0, alpha(c.soft, 0)); streak.addColorStop(1, alpha(c.soft, 0.9));
+  ctx.strokeStyle = streak; ctx.lineWidth = 1.4; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(M + 60, L.foot + 24); ctx.quadraticCurveTo(WIDTH / 2, L.foot + 10, WIDTH - M - 60, L.foot + 6); ctx.stroke();
+  ctx.fillStyle = c.text; ctx.beginPath(); ctx.arc(WIDTH - M - 60, L.foot + 6, 1.8, 0, Math.PI * 2); ctx.fill();
+  drawSignature(ctx, p, project, L.sign + 20, { name: serif(18), small: (s) => serif(s, false), size: 13, ink: c.text, muted: c.dim });
   return canvas;
 }
