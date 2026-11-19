@@ -189,31 +189,43 @@ test('a pinned panel resized at its edges lays its pages out at that width, and 
   const resize = (width: number, height: number) =>
     page.evaluate(([w, h]) => window.dispatchEvent(new CustomEvent('panel-resized', { detail: { width: w, height: h } })), [width, height]);
   // Not pinned: the user can't have resized it, and the page keeps 360.
-  await resize(560, 640);
+  await resize(480, 640);
   await expect(page.locator('.window')).toHaveCSS('width', '360px');
   await button(page, '钉住面板').click();
-  await resize(560, 640);
-  await expect(page.locator('.window')).toHaveCSS('width', '560px');
+  await resize(480, 640);
+  await expect(page.locator('.window')).toHaveCSS('width', '480px');
   await expect(page.locator('.window')).toHaveCSS('height', '640px');
-  await expect(page.locator('.dashboard')).toHaveCSS('width', '544px');
+  await expect(page.locator('.dashboard')).toHaveCSS('width', '464px');
   // The figures, the live chart and the cards reach the new right edge.
   const right = async (selector: string) => page.locator(selector).last().evaluate((e) => e.getBoundingClientRect().right);
   const edge = await right('.dashboard');
   expect(edge - (await right('.figure'))).toBeLessThan(16);
   expect(edge - (await right('.live'))).toBeLessThan(16);
   expect(edge - (await right('.session .value'))).toBeLessThan(16);
-  // The corner handle follows the pointer, no smaller than 360 × 220.
-  const corner = (await page.getByRole('separator', { name: '拖动调整大小' }).boundingBox())!;
-  await page.mouse.move(corner.x + 15, corner.y + 15);
-  await page.mouse.down();
-  await page.mouse.move(corner.x + 15 - 100, corner.y + 15 - 60, { steps: 6 });
-  await page.mouse.up();
-  await expect(page.locator('.window')).toHaveCSS('width', '460px');
+  // The corner handle follows the pointer: no wider than 480 (wider only adds air), no narrower than 360.
+  const corner = async () => (await page.getByRole('separator', { name: '拖动调整大小' }).boundingBox())!;
+  const drag = async (dx: number, dy: number) => {
+    const c = await corner();
+    await page.mouse.move(c.x + 15, c.y + 15);
+    await page.mouse.down();
+    await page.mouse.move(c.x + 15 + dx, c.y + 15 + dy, { steps: 6 });
+    await page.mouse.up();
+  };
+  await drag(-60, -60);
+  await expect(page.locator('.window')).toHaveCSS('width', '420px');
   await expect(page.locator('.window')).toHaveCSS('height', '580px');
-  await resize(560, 640);
+  await drag(200, 0);
+  await expect(page.locator('.window')).toHaveCSS('width', '480px');
+  // Never shorter than the homepage's top down to its heatmap.
+  await drag(0, -250);
+  await expect.poll(async () => (await page.locator('.window').boundingBox())!.height).toBeLessThan(420);
+  const floor = await page.locator('.heatmap').evaluate((e) => e.getBoundingClientRect().bottom);
+  const panel = (await page.locator('.window').boundingBox())!;
+  expect(panel.y + panel.height).toBeGreaterThanOrEqual(floor);
+  await resize(480, 640);
   // A row's page takes the width too.
   await page.locator('.row').filter({ hasText: 'Claude 订阅' }).click();
-  await expect(page.locator('.page .rule')).toHaveCSS('width', '528px');
+  await expect(page.locator('.page .rule')).toHaveCSS('width', '448px');
   await page.keyboard.press('Escape');
   await button(page, '取消钉住面板').click();
   await expect(page.locator('.window')).toHaveCSS('width', '360px');

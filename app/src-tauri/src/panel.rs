@@ -22,7 +22,8 @@ pub const PANEL: &str = "panel";
 /// A pinned panel's limits at its edges: the pages are laid out for 360pt and need room for the live chart (pinning
 /// starts compact, at about that height).
 const MIN_SIZE: (f64, f64) = (360.0, 220.0);
-const MAX_WIDTH: f64 = 720.0;
+/** Wider leaves the pages' rows and charts with more air than content. */
+const MAX_WIDTH: f64 = 480.0;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Mode {
@@ -58,6 +59,8 @@ pub struct Panel {
     sized_at: Mutex<Instant>,
     /// Pinned and moved: the left edge the user chose, and where (and when) the shell last put it.
     left: Mutex<Left>,
+    /// The least height the page on screen asks of a pinned panel (the homepage: down to its heatmap).
+    min_height: Mutex<f64>,
 }
 
 #[derive(Default)]
@@ -86,6 +89,7 @@ impl Panel {
             #[cfg(not(target_os = "macos"))]
             sized_at: Mutex::new(Instant::now()),
             left: Mutex::new(Left::default()),
+            min_height: Mutex::new(MIN_SIZE.1),
         }
     }
 }
@@ -562,7 +566,8 @@ fn set_resizable(app: &AppHandle, resizable: bool) {
     }
     let _ = window.set_resizable(resizable);
     if resizable {
-        let _ = window.set_min_size(Some(LogicalSize::new(MIN_SIZE.0, MIN_SIZE.1)));
+        let least = *state.min_height.lock().expect("the min height lock");
+        let _ = window.set_min_size(Some(LogicalSize::new(MIN_SIZE.0, least)));
         let _ = window.set_max_size(Some(LogicalSize::new(MAX_WIDTH, 10_000.0)));
     } else {
         let _ = window.set_min_size(None::<LogicalSize<f64>>);
@@ -661,7 +666,8 @@ pub fn size_panel(app: AppHandle, width: f64, height: f64) {
         return;
     }
     let Some(window) = window(&app) else { return };
-    let asked = (width.clamp(MIN_SIZE.0, MAX_WIDTH).round(), height.max(MIN_SIZE.1).round());
+    let least = *state.min_height.lock().expect("the min height lock");
+    let asked = (width.clamp(MIN_SIZE.0, MAX_WIDTH).round(), height.max(least).round());
     #[cfg(target_os = "macos")]
     let size = macos::frame(&window).map_or(asked, |current| {
         let frame = macos::free_frame(current, asked.0, asked.1);
@@ -799,5 +805,20 @@ mod left_tests {
         // The user drags it elsewhere (some time after the shell last placed it): that is their place now.
         state.left.lock().unwrap().placed = Some((1000.0, Instant::now() - Duration::from_secs(2)));
         assert_eq!(chosen_left(&state, 500.0), 500.0);
+    }
+}
+
+/// The least height the page on screen asks of a pinned panel, kept at its edges too (the homepage: down to its
+/// heatmap, so a panel made small still shows the figures, the live chart and the heatmap).
+#[tauri::command]
+pub fn set_min_height(app: AppHandle, height: f64) {
+    use tauri::LogicalSize;
+    let state = app.state::<Panel>();
+    let height = height.clamp(MIN_SIZE.1, 900.0).round();
+    *state.min_height.lock().expect("the min height lock") = height;
+    if state.resizable.load(Ordering::SeqCst)
+        && let Some(window) = window(&app)
+    {
+        let _ = window.set_min_size(Some(LogicalSize::new(MIN_SIZE.0, height)));
     }
 }

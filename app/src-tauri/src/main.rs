@@ -310,6 +310,7 @@ fn main() {
             panel::set_pinned,
             panel::drag_panel,
             panel::size_panel,
+            panel::set_min_height,
             panel::panel_shown,
             panel::hold_open,
             panel::set_look,

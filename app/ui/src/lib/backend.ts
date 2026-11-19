@@ -58,6 +58,8 @@ export const shell = {
   /** Pinned: the corner handle's size, the top left kept; the size applied comes back through onResized. */
   sizeTo: (width: number, height: number) => (inTauri ? invoke<void>('size_panel', { width, height })
     : quiet().then(() => void window.dispatchEvent(new CustomEvent('panel-resized', { detail: { width, height } })))),
+  /** The least height a pinned panel keeps at its edges, for the page on screen. */
+  setMinHeight: (height: number) => (inTauri ? invoke<void>('set_min_height', { height }) : quiet()),
   /** The page has drawn what the panel opened on; a window kept clear until then shows. */
   shown: () => (inTauri ? invoke<void>('panel_shown') : quiet()),
   /** Theme (system, light, dark) and background (solid, frosted or glass) for the window and the material under it.

@@ -21,7 +21,7 @@
   import SummaryChart from './SummaryChart.svelte';
 
   let { data, rangeOptions, reveal, glows, summaryGlow, live, leaving = null, onleft, liveStamp, pinned, pinInterval, onrange,
-    onshare, onpin, onsettings, ongroup, ontoggle, onopentool, onsize, sessions = null, view = 'cards', onview, busy = null, onopen, onchoose }: {
+    onshare, onpin, onsettings, ongroup, ontoggle, onopentool, onsize, onfloor, sessions = null, view = 'cards', onview, busy = null, onopen, onchoose }: {
     data: Dashboard; rangeOptions: Entry[]; reveal: number; glows: Record<string, number>; summaryGlow: number; live: LiveFeed | null;
     leaving?: number | null; onleft?: () => void;
     liveStamp: string | null; pinned: boolean; pinInterval: number;
@@ -29,6 +29,8 @@
     onsettings: () => void; ongroup: (key: string) => void; ontoggle: (id: string, expanded: boolean) => void;
     /** How tall a pinned panel that fits the homepage is: down to the end of the third card or session. */
     onsize?: (height: number) => void;
+    /** The least a pinned panel shows of the homepage: down to the end of the heatmap. */
+    onfloor?: (height: number) => void;
     onopentool: (id: string) => void;
     /** The 会话 module's row, when it is on the homepage: its sessions are the fourth choice beside the groupings. */
     sessions?: Entry | null; view?: 'cards' | 'sessions'; onview?: (view: 'cards' | 'sessions') => void;
@@ -79,6 +81,7 @@
   const fitList = $derived(showingSessions ? sessionsFit
     : cardList.length <= FIT ? listHeight : cardList.slice(0, FIT).reduce((s, p) => s + cardHeight(p), 0) + 4);
   $effect(() => onsize?.(summaryHeight + heatmapHeight + harnessHeader + groupingHeight + fitList));
+  $effect(() => onfloor?.(summaryHeight + heatmapHeight));
 
   const counted = $derived(summaryProviders(data));
   const valid = $derived(counted.filter((p) => p.available));

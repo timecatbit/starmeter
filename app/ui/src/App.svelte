@@ -84,7 +84,11 @@
   const onPage = $derived(!grid && !!(sharing || toolId || pageEntry));
   let pageHeight = $state<number | null>(null);
   $effect(() => { void viewKey; pageHeight = null; });
-  const panelHeight = $derived(free && !grid && !onPage ? free.height
+  // Pinned, the homepage is never shorter than its top down to the heatmap, whatever size it was given.
+  let floorHeight = $state(0);
+  const homeFloor = $derived(Math.max(220, Math.round(8 + floorHeight + 8)));
+  $effect(() => { if (pinned) void shell.setMinHeight(onPage || grid ? 220 : homeFloor); });
+  const panelHeight = $derived(free && !grid && !onPage ? Math.max(free.height, homeFloor)
     : free && onPage && pageHeight !== null ? pageHeight
     : Math.min(sharing ? wanted.share : toolId ? wanted.tool : pageEntry ? wanted.page : managerOnly ? wanted.grid : wanted.home, info.maxHeight));
   $effect(() => { panel.width = free?.width ?? 360; });
@@ -224,7 +228,7 @@
   let dashboardHeight = $state(0);
   $effect(() => {
     if (!pinned || !fitting || grid || pageEntry || sharing || toolId || dashboardHeight <= 0) return;
-    const height = Math.min(info.maxHeight, Math.max(220, Math.round(8 + dashboardHeight + 10)));
+    const height = Math.min(info.maxHeight, Math.max(homeFloor, Math.round(8 + dashboardHeight + 10)));
     const now = untrack(() => free);
     if (now?.height !== height) free = { width: now?.width ?? 360, height };
   });
@@ -262,8 +266,8 @@
   }
   function cornerMove(event: PointerEvent) {
     if (!cornerFrom) return;
-    const width = Math.round(Math.min(720, Math.max(360, cornerFrom.width + event.clientX - cornerFrom.x)));
-    const height = Math.round(Math.max(220, cornerFrom.height + event.clientY - cornerFrom.y));
+    const width = Math.round(Math.min(480, Math.max(360, cornerFrom.width + event.clientX - cornerFrom.x)));
+    const height = Math.round(Math.max(onPage ? 220 : homeFloor, cornerFrom.height + event.clientY - cornerFrom.y));
     cancelAnimationFrame(cornerFrame);
     cornerFrame = requestAnimationFrame(() => void shell.sizeTo(width, height));
   }
@@ -580,7 +584,7 @@
       {pinInterval} onrange={perform} onshare={openShare}
       onpin={() => { panel.hint = null; setPinned(!pinned); if (pinned) perform(['refresh-live']); }} onsettings={openSettings}
       onopentool={openTool} ongroup={(key) => perform(['set-group', key])} {sessions} {view} onview={chooseView} busy={interaction.active}
-      onsize={(h) => (dashboardHeight = h)} ontoggle={(id, expanded) => perform(['set-expanded', id, expanded ? 'true' : 'false'])}
+      onsize={(h) => (dashboardHeight = h)} onfloor={(h) => (floorHeight = h)} ontoggle={(id, expanded) => perform(['set-expanded', id, expanded ? 'true' : 'false'])}
       onopen={open} onchoose={choose} />
   {/if}
 {/snippet}
