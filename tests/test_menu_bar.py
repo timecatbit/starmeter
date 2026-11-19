@@ -20,6 +20,9 @@ class MenuBarTests(unittest.TestCase):
         env.start(); self.addCleanup(env.stop)
         self.m = types.ModuleType('menu_bar_test'); exec(compile((ROOT / 'lib/swiftbar_plugin.py').read_text(), 'plugin', 'exec'), self.m.__dict__)
         for key in ('claude', 'codex'):preferences.update(self.m.STATE_DIR, 'module', key, 'true')
+        # Choosing the estimate or the speed starts a background read: none here, it would write into the folder
+        # being cleaned up.
+        background = patch.object(self.m, 'schedule_background_refresh'); background.start(); self.addCleanup(background.stop)
 
     def today(self, claude, codex, output=(0, 0), at=None):
         os.makedirs(self.m.CACHE_DIR, exist_ok=True)
