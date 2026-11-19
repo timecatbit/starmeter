@@ -1,5 +1,6 @@
 // How a page's rows read: which are plain facts, switches, segmented choices or commands, the icon every action
 // carries, and a usage row's share and even-pace mark.
+import { reads, source } from './i18n.svelte';
 import type { Entry } from './types';
 
 /** A row's identity among its siblings: a module by its id, else its action, link or the first part of its label. */
@@ -7,7 +8,9 @@ export function entryKey(e: Entry): string {
   if (e.action?.[0] === 'set-module') return e.action.slice(0, 2).join('\u001f');
   // A switch keeps its identity when its action flips from true to false, so it slides instead of being replaced.
   if (e.checked !== undefined && !e.radio && (e.action?.at(-1) === 'true' || e.action?.at(-1) === 'false')) return e.action.slice(0, -1).join('\u001f');
-  return e.action?.join('\u001f') ?? e.href ?? e.label.split(' · ')[0] ?? e.label;
+  // By its Chinese label, so a page stays open when the language changes.
+  const label = source(e).label;
+  return e.action?.join('\u001f') ?? e.href ?? label.split(' · ')[0] ?? label;
 }
 
 export const actionable = (e: Entry) => e.children.length > 0 || e.href !== undefined || e.action !== undefined;
@@ -38,27 +41,29 @@ export function iconed(e: Entry): Entry {
   if (e.href) return { ...e, symbol: e.href.startsWith('file:') ? 'macwindow' : 'globe' };
   const action = e.action?.[0];
   if (!action) return e;
-  const symbol = action === 'configure-connection' && e.label.includes('地址') ? 'link' : actionSymbols[action];
+  const symbol = action === 'configure-connection' && source(e).label.includes('地址') ? 'link' : actionSymbols[action];
   return symbol ? { ...e, symbol } : e;
 }
 
 /** Something to do rather than to read: tinted like a link, red when it takes something away. */
 export const command = (e: Entry) => !e.children.length && (e.action !== undefined || e.href !== undefined) && e.value === undefined && e.checked === undefined && e.statusLight === undefined;
-export const destructive = (e: Entry) => ['remove-api-key', 'clear-connection', 'stop', 'reset-modules'].includes(e.action?.[0] ?? '') || e.label.startsWith('删除') || e.label.startsWith('清除');
+export const destructive = (e: Entry) => ['remove-api-key', 'clear-connection', 'stop', 'reset-modules'].includes(e.action?.[0] ?? '') || source(e).label.startsWith('删除') || source(e).label.startsWith('清除');
 
 /** "已用 38%", "已用 本周 38% · Fable 39%": the tightest share, for the bar under a usage row. */
 export function usageShare(e: Entry): number | null {
-  if (e.usageLevel === undefined || e.value === undefined) return null;
-  const shares = [...e.value.matchAll(/(\d+(?:\.\d+)?)(?=%)/g)].map((m) => Number(m[1]));
+  const value = source(e).value;
+  if (e.usageLevel === undefined || value === undefined) return null;
+  const shares = [...value.matchAll(/(\d+(?:\.\d+)?)(?=%)/g)].map((m) => Number(m[1]));
   return shares.length ? Math.min(1, Math.max(0, Math.max(...shares) / 100)) : null;
 }
 
 /** Where even use would put the bar now: the share used, less how far ahead of even pace the detail says it is. */
 export function pace(e: Entry): number | null {
   const used = usageShare(e);
-  if (used === null || !e.detail) return null;
-  if (e.detail.includes('与匀速持平')) return used;
-  const match = e.detail.match(/比匀速(多用|少用) (\d+(?:\.\d+)?)%/);
+  const detail = source(e).detail;
+  if (used === null || !detail) return null;
+  if (detail.includes('与匀速持平')) return used;
+  const match = detail.match(/比匀速(多用|少用) (\d+(?:\.\d+)?)%/);
   if (!match) return null;
   const ahead = match[1] === '多用', number = Number(match[2]);
   return Math.min(1, Math.max(0, used - (ahead ? number : -number) / 100));
@@ -68,7 +73,7 @@ export function pace(e: Entry): number | null {
 export const gauge = (e: Entry) => e.children.length > 0 && usageShare(e) !== null;
 
 /** 已配置 / 未配置 draw as a status light, not words. */
-export const configured = (value: string | undefined) => (value === '已配置' ? true : value === '未配置' ? false : null);
+export const configured = (value: string | undefined) => (reads(value, '已配置') ? true : reads(value, '未配置') ? false : null);
 
 /** A page with a single row to open (one Key, one session) arrives with it open. */
 export function opening(page: Entry): Set<string> {
@@ -102,7 +107,7 @@ export function keepsPanelOpen(action: string[], swiftbar = false): boolean {
 /** The 会话 module's row on the homepage (its sessions become the dashboard's fourth choice), or null. */
 export function sessionsEntry(entries: Entry[]): Entry | null {
   return entries.find((e) => e.onOpenAction?.[0] === 'refresh-source' && e.onOpenAction[1] === 'sessions')
-    ?? entries.find((e) => e.label === '会话' && e.symbol === 'terminal') ?? null;
+    ?? entries.find((e) => source(e).label === '会话' && e.symbol === 'terminal') ?? null;
 }
 
 /** The homepage's rows without one of them, and without the divider it leaves doubled or dangling. */

@@ -2,6 +2,11 @@
 // choices made in the panel, as the Tauri app's fixture backend (app/src-tauri/src/fixtures.rs) does; the two follow
 // the same rules. Pick a scenario with ?fixture=failed or ?fixture=pending.
 import type { ActionReceipt, Dashboard, Entry, PresentationPreferences, ProviderUsage, Question, Snapshot } from './types';
+import { addPhrases } from './i18n.svelte';
+
+// The made-up session titles in English, for the English screenshots; a real title is the user's own and stays as it is.
+addPhrases({ 重做设置页的分段控件: 'Redo the settings page segments', 修订论文的评估章节: "Revise the paper's evaluation section",
+  迁移博客的图片目录: "Move the blog's image folder" });
 
 interface Fixture {
   snapshot: Snapshot;

@@ -2,6 +2,7 @@
   // A tool's own page, opened from its card: what it used in the range (figures, notes, its own trend, every model, a
   // gateway's clients), then its settings as the module grid has them (where it reads from, what to open).
   import { chartPositions, smoothCurves, svgPath } from '../lib/chart';
+  import { t } from '../lib/i18n.svelte';
   import { accent, alpha } from '../lib/colors';
   import { clientLine, colourOf, headline, modelAmount, modelName, notes, share, tokens } from '../lib/format';
   import { moveWindow, panel } from '../lib/ui.svelte';
@@ -21,9 +22,9 @@
   const credits = $derived(p.tokens === 0 && p.credits !== null);
   const figures = $derived<[string, string][]>(p.available ? [
     credits ? ['Credits', String(Math.round(p.credits ?? 0))] : ['Token', tokens(p.tokens)],
-    ['请求', String(p.requests)],
-    ...(credits ? [] : [['缓存', p.cache === null ? '—' : (p.cache * 100).toFixed(1) + '%'], ['输出', tokens(p.output)]] as [string, string][]),
-    ['会话', String(p.sessions)],
+    [t('请求'), String(p.requests)],
+    ...(credits ? [] : [[t('缓存'), p.cache === null ? '—' : (p.cache * 100).toFixed(1) + '%'], [t('输出'), tokens(p.output)]] as [string, string][]),
+    [t('会话'), String(p.sessions)],
   ] : []);
   const said = $derived(notes(p));
   const clients = $derived(clientLine(p));
@@ -44,7 +45,7 @@
   <!-- Pinned, the header's free space moves the window, as a title bar would. -->
   <div class="grip" class:movable={panel.pinned} aria-hidden="true"
     onpointerdown={(event) => { if (event.button === 0 && panel.pinned) { event.preventDefault(); void moveWindow(); } }}></div>
-  <span class="back"><HintButton icon="chevron.left" size={17} hint="返回" label="返回" onclick={onback} /></span>
+  <span class="back"><HintButton icon="chevron.left" size={17} hint={t('返回')} label={t('返回')} onclick={onback} /></span>
   <span class="page-glyph"><Glyph image={p.image} template={p.template} symbol={p.symbol} size={18} /></span>
   <h2 class="title">{p.name}</h2>
   <span class="value num">{p.available ? headline(p) : '—'}</span>
@@ -60,7 +61,7 @@
             {/each}
           </div>
         {:else}
-          <p class="quiet">等待可用数据</p>
+          <p class="quiet">{t('等待可用数据')}</p>
         {/if}
         {#each said as [text, warning] (text)}
           <p class="note" class:warning>{text}</p>
@@ -78,7 +79,7 @@
           <div class="ends"><span>{trend.first}</span><span>{trend.last}</span></div>
         {/if}
         {#if p.available && p.models.length}
-          <h3 class="section">模型</h3>
+          <h3 class="section">{t('模型')}</h3>
           {#each p.models as m, i (m.name + i)}
             <div class="model">
               <span class="model-name">{modelName(m.name)}{#if m.priceNote}<span class="price">{m.priceNote}</span>{/if}</span>
@@ -90,7 +91,7 @@
         {/if}
         {#if clients}<p class="quiet clients">{clients}</p>{/if}
         {#if settings?.children.length}
-          <h3 class="section">设置</h3>
+          <h3 class="section">{t('设置')}</h3>
           <div class="settings">
             <DetailList entries={settings.children} {open} {busy} rowWidth={panel.width - 16} {onopen} {onchoose} ontoggled={(next) => (open = next)} />
           </div>

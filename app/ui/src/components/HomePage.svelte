@@ -1,6 +1,7 @@
 <script lang="ts">
   // The homepage: the dashboard, a divider, then the subscription, API and other rows, groups split by lines.
   import { entryKey } from '../lib/detail';
+  import { t } from '../lib/i18n.svelte';
   import type { Snippet } from 'svelte';
   import type { Entry } from '../lib/types';
   import { panel } from '../lib/ui.svelte';
@@ -20,7 +21,7 @@
     {#if dashboard}
       {@render dashboard()}
     {:else}
-      <div class="placeholder">AI 用量面板</div>
+      <div class="placeholder">{t('AI 用量面板')}</div>
     {/if}
     <div class="rows">
       <div class="divider lead"></div>

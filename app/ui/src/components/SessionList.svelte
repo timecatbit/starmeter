@@ -4,6 +4,7 @@
   // turn's once it has finished), read again with every pinned tick so the number moves as the session works; a click
   // opens its last turns. The alert switch closes the list; a pinned panel fits down to the third session.
   import { panel } from '../lib/ui.svelte';
+  import { t } from '../lib/i18n.svelte';
   import type { Entry } from '../lib/types';
   import DetailList from './DetailList.svelte';
   import Glyph from './Glyph.svelte';
@@ -45,7 +46,7 @@
     const turn = turnsOf(s)[0];
     if (!turn) return null;
     const cost = turn.label.split(' · ').at(-1) ?? '';
-    return `${s.statusLight === 'new' ? '本轮' : '上一轮'} ${cost} · ${turn.detail}`;
+    return `${t(s.statusLight === 'new' ? '本轮' : '上一轮')} ${cost} · ${turn.detail}`;
   }
 
   // A figure that changed since the last reading glows in the accent colour for a moment.

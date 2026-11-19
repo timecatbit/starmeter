@@ -6,6 +6,7 @@
 // first models and folds the rest into “其他 N 个模型”, tools that used little fold into “其他工具”, and a tool a
 // gateway partly counted keeps its own row with its tag, so nothing it shares with the gateway is added twice.
 import starmeterMark from '../../../../assets/starmeter-mark.svg?url';
+import { t, t as tr } from './i18n.svelte';
 import { chartPositions } from './chart';
 import { axisTokens, creditsText, currency, legendName, modelAmount, modelName, share, summaryPart, tokenLine, tokens } from './format';
 import { qrModules } from './qr';
@@ -85,12 +86,12 @@ function models(p: ProviderUsage): PosterModel[] {
   const rest = p.models.slice(MODELS - 1), sum = rest.reduce((s, m) => s + m.tokens, 0), part = rest.reduce((s, m) => s + m.share, 0);
   const credits = sum === 0 && rest.some((m) => m.credits !== undefined) ? rest.reduce((s, m) => s + (m.credits ?? 0), 0) : null;
   return [...p.models.slice(0, MODELS - 1).map(row), {
-    name: `其他 ${rest.length} 个模型`, amount: credits !== null ? creditsText(credits) : tokens(sum), share: share(part), ratio: ratio(part),
-    note: rest.some((m) => m.priceNote) ? '含未定价' : null, other: true,
+    name: t('其他 {n} 个模型', { n: rest.length }), amount: credits !== null ? creditsText(credits) : tokens(sum), share: share(part), ratio: ratio(part),
+    note: rest.some((m) => m.priceNote) ? t('含未定价') : null, other: true,
   }];
 }
 
-const costText = (p: ProviderUsage) => (p.cost !== null ? amountText(amount(p.cost)) : p.credits !== null ? creditsText(p.credits) : '费用待定价');
+const costText = (p: ProviderUsage) => (p.cost !== null ? amountText(amount(p.cost)) : p.credits !== null ? creditsText(p.credits) : t('费用待定价'));
 
 export async function poster(d: Dashboard, markColour: string): Promise<Poster> {
   const rows = shownRows(d), counted = rows.map(summaryPart).filter((p): p is ProviderUsage => p !== null);
@@ -110,7 +111,7 @@ export async function poster(d: Dashboard, markColour: string): Promise<Poster> 
     const why = tag(p), part = summaryPart(p);
     return {
       id: p.id, name: p.name, cost: costText(p), tokens: tokenLine(p), tag: why, unpriced: p.priceNote ?? null, models: models(p), members: [],
-      share: !why && part && part.tokens > 0 && sumTokens > 0 ? '占 ' + share(part.tokens / sumTokens) : '',
+      share: !why && part && part.tokens > 0 && sumTokens > 0 ? t('占 {n}', { n: share(part.tokens / sumTokens) }) : '',
     };
   });
   if (folded.length) {
@@ -118,9 +119,9 @@ export async function poster(d: Dashboard, markColour: string): Promise<Poster> 
     const credits = folded.reduce((s, p) => s + (p.cost === null ? p.credits ?? 0 : 0), 0);
     const unpriced = folded.reduce((s, p) => s + (p.priceNote ? p.unpriced : 0), 0);
     tools.push({
-      id: 'other', name: '其他工具', tokens: t > 0 ? tokens(t) + ' Token' : 'Token 未记录', tag: null, models: [],
+      id: 'other', name: tr('其他工具'), tokens: t > 0 ? tokens(t) + ' Token' : tr('Token 未记录'), tag: null, models: [],
       cost: known.length ? amountText(amount(known.reduce((s, p) => s + (p.cost ?? 0), 0))) : credits > 0 ? creditsText(credits) : '—',
-      share: t > 0 && sumTokens > 0 ? '占 ' + share(t / sumTokens) : '', unpriced: unpriced > 0 ? `${unpriced} 次未定价` : null,
+      share: t > 0 && sumTokens > 0 ? tr('占 {n}', { n: share(t / sumTokens) }) : '', unpriced: unpriced > 0 ? tr('{n} 次未定价', { n: unpriced }) : null,
       members: folded.map((p) => ({ id: p.id, name: legendName(p) })),
     });
   }
@@ -147,9 +148,9 @@ export async function poster(d: Dashboard, markColour: string): Promise<Poster> 
 
   const [marks, star] = await Promise.all([loadMarks(rows, markColour), load(starmeterMark)]);
   return {
-    title: (titles[d.rangeKey] ?? d.rangeLabel) + ' AI 用量',
+    title: t('{range} AI 用量', { range: titles[d.rangeKey] ? t(titles[d.rangeKey]) : d.rangeLabel }),
     date: posterDate(d),
-    costLabel: partial ? '已知 API 等值估算' : 'API 等值估算',
+    costLabel: partial ? t('已知 API 等值估算') : t('API 等值估算'),
     cost: costs.length ? amount(sumCost) : { symbol: currency.symbol, figure: '—' },
     tokens: counted.length ? tokens(sumTokens) : '—',
     requests: counted.length ? counted.reduce((s, p) => s + p.requests, 0).toLocaleString('en-US') : '—',
@@ -159,7 +160,7 @@ export async function poster(d: Dashboard, markColour: string): Promise<Poster> 
 }
 
 /** The three figures under the hero, in this order in every style. */
-export const figures = (p: Poster): [string, string][] => [['Token', p.tokens], ['请求', p.requests], ['缓存命中', p.cache]];
+export const figures = (p: Poster): [string, string][] => [['Token', p.tokens], [t('请求'), p.requests], [t('缓存命中'), p.cache]];
 
 // MARK: Drawing every style shares
 
@@ -231,7 +232,7 @@ export function drawAmount(ctx: CanvasRenderingContext2D, a: Amount, x: number, 
 export function drawMembers(ctx: CanvasRenderingContext2D, p: Poster, t: PosterTool, x: number, middle: number, width: number, css: string, colour: string,
   markInk: string, mark = 13) {
   const widths = t.members.map((m) => (p.marks.tools.get(m.id) ? mark + 4 : 0) + measure(ctx, m.name, css));
-  const rest = `等 ${t.members.length} 个`, restWidth = measure(ctx, rest, css);
+  const rest = tr('等 {n} 个', { n: t.members.length }), restWidth = measure(ctx, rest, css);
   let shown = t.members.length;
   const needed = (count: number) => widths.slice(0, count).reduce((s, w) => s + w + 12, 0) + (count < t.members.length ? restWidth : -12);
   while (shown > 1 && needed(shown) > width) shown--;

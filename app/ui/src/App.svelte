@@ -11,6 +11,7 @@
   import { font, width as measure } from './lib/measure';
   import { pageIn, pageOut } from './lib/motion';
   import { ask, show as showQuestion } from './lib/ask.svelte';
+  import { chooseLanguage, localize, t } from './lib/i18n.svelte';
   import { panel } from './lib/ui.svelte';
   import type { Dashboard as DashboardData, Entry, ShellInfo, Snapshot } from './lib/types';
   import Dashboard from './components/Dashboard.svelte';
@@ -23,7 +24,8 @@
 
   const interaction = new PanelInteraction();
   let version = $state(0);
-  const snapshot: Snapshot | null = $derived.by(() => { void version; return interaction.displayed(); });
+  // As the panel shows it: in the language chosen, with the 语言 row in 外观与设置.
+  const snapshot: Snapshot | null = $derived.by(() => { void version; const shown = interaction.displayed(); return shown && localize(shown); });
   let info = $state<ShellInfo>({ platform: 'browser', mode: 'browser', version: '', maxHeight: 900, modules: false });
 
   // MARK: Where the panel is
@@ -301,7 +303,7 @@
     if (pinned && interaction.source.dashboard) {
       feed?.add(interaction.source.dashboard);
       const now = new Date();
-      liveStamp = '实时 ' + [now.getHours(), now.getMinutes(), now.getSeconds()].map((n) => String(n).padStart(2, '0')).join(':');
+      liveStamp = t('实时') + ' ' + [now.getHours(), now.getMinutes(), now.getSeconds()].map((n) => String(n).padStart(2, '0')).join(':');
     }
     version++;
   }
@@ -316,6 +318,8 @@
   function perform(action: string[]) {
     // 选择 Harness… opens the module grid in place.
     if (action[0] === 'panel-modules') { openSettings(); return; }
+    // The language is the panel's own choice: no engine action, the page redraws in it at once.
+    if (action[0] === 'set-language') { chooseLanguage(action[1]); return; }
     switch (interaction.submit(action)) {
       case 'start': void dispatch(action); break;
       case 'queued': version++; break;
@@ -537,7 +541,7 @@
 
 <svelte:window onkeydown={keydown} />
 
-<div class="window" class:solid={!glass} class:browser={!inTauri} oncontextmenu={contextmenu} role="application" aria-label="AI 用量面板"
+<div class="window" class:solid={!glass} class:browser={!inTauri} oncontextmenu={contextmenu} role="application" aria-label={t('AI 用量面板')}
   onpointermove={() => { if (pinned) showChrome(); }} onpointerleave={() => { if (pinned && !cornerFrom) showChrome(700); }}
   style:width={inTauri ? '100vw' : `${panelWidth}px`} style:height={inTauri ? '100vh' : `${panelHeight}px`}>
   {#key viewKey}
@@ -566,7 +570,7 @@
   {#if pinned && !grid}
     <!-- Pinned: a grabber says the top moves the panel; a thick corner, as iOS draws one, resizes it. -->
     <span class="grabber" class:faded={!chromeShown} transition:fade={{ duration: panel.reduceMotion ? 0 : 200 }} aria-hidden="true"></span>
-    <span class="corner" class:faded={!chromeShown} role="separator" aria-label="拖动调整大小" transition:fade={{ duration: panel.reduceMotion ? 0 : 200 }}
+    <span class="corner" class:faded={!chromeShown} role="separator" aria-label={t('拖动调整大小')} transition:fade={{ duration: panel.reduceMotion ? 0 : 200 }}
       onpointerdown={cornerDown} onpointermove={cornerMove} onpointerup={cornerUp} onpointercancel={cornerUp}>
       <!-- Its bend shares the window corner's centre (13pt in from both edges), 5pt inside the edge. -->
       <svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><path d="M25 8V17A8 8 0 0 1 17 25H8" /></svg>

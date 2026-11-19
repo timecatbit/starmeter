@@ -7,6 +7,7 @@
   // ripple, 实时 breathes, and the last minute's rate reads at the top right in Token/s. Beside 实时, Token / Token/s
   // turns the line into that rate over the last minute (remembered): how fast the models are writing, rising and easing.
   import { accent, alpha, label as labelColour, starAccent, totalColor } from '../lib/colors';
+  import { t } from '../lib/i18n.svelte';
   import { chartAxis, chartPositions, seriesOf, smoothCurves, summaryProviders, tracePath } from '../lib/chart';
   import { tokens } from '../lib/format';
   import { baseLabel, compact, nice, rateText, scaleFor, type LiveFeed, type Sample, type Scale } from '../lib/live';
@@ -218,13 +219,13 @@
           mark('+' + compact(target.height), range.lo + range.height, false, apart);
         }
         // 实时, breathing, at the top left; the last minute's additions and its rate at the top right.
-        const badgeWidth = width('实时', font(8, 500, MONO)) + 10;
+        const badgeWidth = width(t('实时'), font(8, 500, MONO)) + 10;
         const pulse = 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(((now - born) / 1600) * 2 * Math.PI));
         ctx.fillStyle = alpha(accentColour, dark ? 0.22 : 0.14);
         ctx.beginPath(); ctx.roundRect(0, 1, badgeWidth + 8, 13, 6.5); ctx.fill();
         ctx.fillStyle = alpha(accentColour, panel.reduceMotion ? 1 : pulse);
         ctx.beginPath(); ctx.arc(7, 7.5, 2, 0, Math.PI * 2); ctx.fill();
-        text('实时', 12, 2, 8, accentColour, 'left', 500);
+        text(t('实时'), 12, 2, 8, accentColour, 'left', 500);
         ctx.globalAlpha = liveAlpha;
         const added = base ? Math.max(0, (samples.at(-1)?.total ?? base.total) - base.total) : 0;
         const rate = feed.rate(now);
@@ -232,7 +233,7 @@
         canvas.dataset.added = String(Math.round(added));
         canvas.dataset.rate = String(Math.round(rate ?? 0));
         const unit = ' Token/s', figure = rateText(rate ?? 0);
-        const lead = `近 1 分钟 +${tokens(added)} Token · 输出 `;
+        const lead = t('近 1 分钟 +{n} Token · 输出 ', { n: tokens(added) });
         const baseline = 11;
         ctx.textBaseline = 'alphabetic';
         ctx.font = font(8); ctx.fillStyle = secondary; ctx.textAlign = 'right';
@@ -243,9 +244,9 @@
         const figureWidth = width(figure, font(11, 600, MONO));
         ctx.font = font(8); ctx.fillStyle = secondary;
         ctx.fillText(lead, W - unitWidth - figureWidth - 1, baseline);
-        text('1 分钟前', plot.x, bottom + 7, 8.5, secondary);
-        text('现在', plot.x + plot.w, bottom + 7, 8.5, secondary, 'right');
-        if (!base && !rating) text('正在读取第一笔数据…', plot.x + plot.w / 2, plot.y + plot.h / 2 - 6, 9, labelColour(dark, dark ? 0.25 : 0.26), 'center');
+        text(t('1 分钟前'), plot.x, bottom + 7, 8.5, secondary);
+        text(t('现在'), plot.x + plot.w, bottom + 7, 8.5, secondary, 'right');
+        if (!base && !rating) text(t('正在读取第一笔数据…'), plot.x + plot.w / 2, plot.y + plot.h / 2 - 6, 9, labelColour(dark, dark ? 0.25 : 0.26), 'center');
         ctx.restore();
       }
       if (!base && !rating) return;
@@ -322,9 +323,9 @@
   }
 </script>
 
-<canvas bind:this={canvas} class="live" style:width="{wide + PAD}px" style:height="{H}px" aria-label="实时用量图"></canvas>
+<canvas bind:this={canvas} class="live" style:width="{wide + PAD}px" style:height="{H}px" aria-label={t('实时用量图')}></canvas>
 {#if leaving === null}
-  <div class="modes" role="radiogroup" aria-label="实时图显示">
+  <div class="modes" role="radiogroup" aria-label={t('实时图显示')}>
     <button class="mode pressable" class:chosen={mode === 'total'} role="radio" aria-checked={mode === 'total'} onclick={() => pickMode('total')}>Token</button>
     <button class="mode pressable" class:chosen={mode === 'rate'} role="radio" aria-checked={mode === 'rate'} onclick={() => pickMode('rate')}>Token/s</button>
   </div>

@@ -27,6 +27,8 @@ export interface Entry {
   action?: string[];
   /** Sent once when the row's page opens (refresh-source <key>), at most every 5 seconds. */
   onOpenAction?: string[];
+  /** In English, what the row said in Chinese (i18n.svelte.ts): the panel's logic reads rows by their Chinese wording. */
+  source?: { label: string; value?: string; detail?: string };
 }
 
 export interface ModelUsage {

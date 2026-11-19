@@ -1,6 +1,7 @@
 // The trend chart's arithmetic, shared by the panel and the share pictures: the scale, where each point sits, the
 // smooth curves, and the legend's justified columns.
 import { axisTokens, legendName, summaryPart } from './format';
+import { t } from './i18n.svelte';
 import { font, width } from './measure';
 import type { Dashboard } from './types';
 
@@ -90,7 +91,7 @@ export function tracePath(ctx: CanvasRenderingContext2D, c: Curve, move = true) 
   for (const [a, b, e] of c.segments) ctx.bezierCurveTo(a[0], a[1], b[0], b[1], e[0], e[1]);
 }
 
-export const legendLabels = (d: Dashboard) => ['总量', ...summaryProviders(d).map(legendName)];
+export const legendLabels = (d: Dashboard) => [t('总量'), ...summaryProviders(d).map(legendName)];
 
 /** Legend columns are justified: the first at the left edge, the last column's longest label ending at the right edge,
  *  column starts evenly spaced. Four per row when they fit, otherwise three, with rows as even as possible. */

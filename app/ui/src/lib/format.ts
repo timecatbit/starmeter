@@ -1,4 +1,5 @@
 // How figures read, as the 5.x panel wrote them: shares, token counts, money, Credits and the counts line.
+import { reads, t } from './i18n.svelte';
 import type { MoneyUnit, ModelUsage, ProviderUsage } from './types';
 
 const fixed = (value: number, digits: number) => value.toFixed(digits);
@@ -61,7 +62,7 @@ export function headline(p: ProviderUsage): string {
   return money(p.cost);
 }
 
-export const tokenLine = (p: ProviderUsage) => (p.tokens === 0 && p.credits !== null ? 'Token 未记录' : tokens(p.tokens) + ' Token');
+export const tokenLine = (p: ProviderUsage) => (p.tokens === 0 && p.credits !== null ? t('Token 未记录') : tokens(p.tokens) + ' Token');
 
 export function modelAmount(m: ModelUsage): string {
   if (m.tokens === 0 && m.credits !== undefined) return creditsText(m.credits);
@@ -81,13 +82,14 @@ export function summaryPart(p: ProviderUsage): ProviderUsage | null {
 
 /** The counts line, longest first: a card that can't fit it rounds the cache share, drops output, then sessions. */
 export function statsForms(p: ProviderUsage): string[] {
-  if (!p.available) return ['等待可用数据'];
-  if (p.tokens === 0 && p.credits !== null) return [`${p.requests} 请求 · ${p.sessions} 会话`, `${p.requests} 请求`];
-  const requests = `${p.requests} 请求`, output = `输出 ${tokens(p.output)}`;
-  const cache = (digits: number) => (p.cache === null ? '缓存 —' : `缓存 ${fixed(p.cache * 100, digits)}%`);
+  if (!p.available) return [t('等待可用数据')];
+  const requests = t('{n} 请求', { n: p.requests }), sessions = t('{n} 会话', { n: p.sessions });
+  if (p.tokens === 0 && p.credits !== null) return [`${requests} · ${sessions}`, requests];
+  const output = t('输出 {n}', { n: tokens(p.output) });
+  const cache = (digits: number) => (p.cache === null ? t('缓存 —') : t('缓存 {n}%', { n: fixed(p.cache * 100, digits) }));
   const extras: string[] = [];
-  if (p.id === 'opencodex') { if (p.coverage !== null && p.coverage < 1) extras.push(`已定价 ${fixed(p.coverage * 100, 0)}%`); }
-  else if (!isGrouped(p)) extras.push(`${p.sessions} 会话`);
+  if (p.id === 'opencodex') { if (p.coverage !== null && p.coverage < 1) extras.push(t('已定价 {n}%', { n: fixed(p.coverage * 100, 0) })); }
+  else if (!isGrouped(p)) extras.push(sessions);
   if (p.cost !== null && p.credits !== null) extras.push(creditsText(p.credits));
   const forms: string[] = [];
   for (const parts of [[requests, cache(1), output, ...extras], [requests, cache(0), output, ...extras], [requests, cache(0), ...extras], [requests, cache(0)], [requests]]) {
@@ -99,8 +101,9 @@ export function statsForms(p: ProviderUsage): string[] {
 
 /** Normal states say nothing; a problem, or a note that changes how to read the numbers, sits after the name. */
 export function notes(p: ProviderUsage): [string, boolean][] {
-  if (!p.available) return [[p.status === '运行正常' || p.status === '已同步' ? '数据暂不可用' : p.status, true]];
-  if (p.status !== '运行正常' && p.status !== '已同步') return [[p.status, true]];
+  const normal = reads(p.status, '运行正常') || reads(p.status, '已同步');
+  if (!p.available) return [[normal ? t('数据暂不可用') : p.status, true]];
+  if (!normal) return [[p.status, true]];
   return [...(p.subtitle ? [[p.subtitle, false] as [string, boolean]] : []), ...(p.serviceNote ? [[p.serviceNote, true] as [string, boolean]] : []),
     ...(p.priceNote ? [[p.priceNote, true] as [string, boolean]] : [])];
 }
@@ -108,7 +111,7 @@ export function notes(p: ProviderUsage): [string, boolean][] {
 /** A gateway's clients in one line, by their share of its tokens. */
 export function clientLine(p: ProviderUsage): string | null {
   if (!p.available || !p.clients?.length) return null;
-  return '客户端 · ' + p.clients.map((c) => c.name + ' ' + share(c.share)).join(' · ');
+  return t('客户端') + ' · ' + p.clients.map((c) => c.name + ' ' + share(c.share)).join(' · ');
 }
 
 /** Legend names drop suffixes the cards below already show. */

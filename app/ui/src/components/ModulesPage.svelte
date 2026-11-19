@@ -3,6 +3,7 @@
   // every module in view at once. Ticked modules lead each section; the order is fixed when the list opens, so ticking
   // one never moves cells under the pointer.
   import { entryKey, isModule } from '../lib/detail';
+  import { t } from '../lib/i18n.svelte';
   import type { Entry } from '../lib/types';
   import GridCell from './GridCell.svelte';
   import HintButton from './HintButton.svelte';
@@ -44,10 +45,10 @@
 <div class="modules">
   <Scroller bind:scrollTop onswipeback={fromHome ? onback : undefined} onheight={(h) => onheight(h + 16)}>
     <div class="content">
-      {#if fromHome}<span class="back"><HintButton icon="chevron.left" size={17} hint="返回" label="返回" onclick={onback} /></span>{/if}
-      <h2 class="heading" style:left="{lead}px">主页模块</h2>
-      <span class="count" style:left="{lead}px">已启用 {enabled} 项</span>
-      {#if !fromHome}<button class="done pressable" onclick={ondone}>完成</button>{/if}
+      {#if fromHome}<span class="back"><HintButton icon="chevron.left" size={17} hint={t('返回')} label={t('返回')} onclick={onback} /></span>{/if}
+      <h2 class="heading" style:left="{lead}px">{t('主页模块')}</h2>
+      <span class="count" style:left="{lead}px">{t('已启用 {n} 项', { n: enabled })}</span>
+      {#if !fromHome}<button class="done pressable" onclick={ondone}>{t('完成')}</button>{/if}
       <div class="grid">
         {#each sections as section, s (s)}
           {#if section.title}<div class="section">{section.title}</div>{/if}

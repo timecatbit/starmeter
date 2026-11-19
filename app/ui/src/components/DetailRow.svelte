@@ -2,6 +2,7 @@
   // One row of a page: hung on guide lines under its parent, led by its control, light or icon, its figure or switch on
   // the right, a 4pt usage bar with the even-pace mark, its detail, and a chevron that turns when it opens.
   import { barColor, usageColor } from '../lib/colors';
+  import { t } from '../lib/i18n.svelte';
   import { actionable, command, configured, destructive, info, leads, pace, toggle, usageShare } from '../lib/detail';
   import { font, width as measure } from '../lib/measure';
   import { panel } from '../lib/ui.svelte';
@@ -71,7 +72,7 @@
       {#if isToggle}
         <span class="switch" class:on={knob}><span class="knob"></span></span>
       {:else if busy}
-        <span class="spinner" aria-label="正在进行"></span>
+        <span class="spinner" aria-label={t('正在进行')}></span>
       {:else if value !== undefined}
         {#if entry.attention}
           <span class="value pill num">{value}</span>

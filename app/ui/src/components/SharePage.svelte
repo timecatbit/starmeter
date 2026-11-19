@@ -4,6 +4,7 @@
   // picture needs. The figures are those on screen when the page opened, so live readings don't redraw it under the
   // reader.
   import { onDestroy, untrack } from 'svelte';
+  import { t } from '../lib/i18n.svelte';
   import { inTauri, shell } from '../lib/backend';
   import { renderPicture, shareStyles, type Picture, type ShareStyle } from '../lib/share';
   import { SCALE } from '../lib/shareCommon';
@@ -131,58 +132,58 @@
   <!-- Pinned, the header's free space moves the window, as a title bar would. -->
   <div class="grip" class:movable={panel.pinned} aria-hidden="true"
     onpointerdown={(event) => { if (event.button === 0 && panel.pinned) { event.preventDefault(); void moveWindow(); } }}></div>
-  <span class="back"><HintButton icon="chevron.left" size={17} hint="返回" label="返回" onclick={onback} /></span>
+  <span class="back"><HintButton icon="chevron.left" size={17} hint={t('返回')} label={t('返回')} onclick={onback} /></span>
   <span class="page-glyph"><Icon name="square.and.arrow.up" size={17} system /></span>
-  <h2 class="title">分享用量图<span class="range">{frozen.rangeLabel}</span></h2>
+  <h2 class="title">{t('分享用量图')}<span class="range">{frozen.rangeLabel}</span></h2>
   <span class="rule"></span>
   <div class="body">
     <Scroller onswipeback={onback}>
       <div class="columns">
         <div class="frame" style:width="{previewWidth}px" style:height="{previewHeight}px">
           {#if picture}
-            <img src={picture.url} alt="{shareStyles.find((s) => s.key === drawnStyle)?.name ?? ''}风格的用量图预览" width={previewWidth} height={previewHeight} />
+            <img src={picture.url} alt={t('{style}风格的用量图预览', { style: t(shareStyles.find((s) => s.key === drawnStyle)?.name ?? '') })} width={previewWidth} height={previewHeight} />
           {:else if failed}
-            <span class="note">没能画出来</span>
+            <span class="note">{t('没能画出来')}</span>
           {:else}
-            <span class="spinner" aria-label="正在生成"></span>
+            <span class="spinner" aria-label={t('正在生成')}></span>
           {/if}
         </div>
         <div class="controls" style:height="{columnHeight}px">
           <div class="settings" bind:this={settingsBox}>
           <div class="setting">
-            <span class="setting-name">风格</span>
-            <Dropdown label="风格" value={style} size={12} align="left" field options={shareStyles.map((s) => ({ value: s.key, label: s.name }))}
+            <span class="setting-name">{t('风格')}</span>
+            <Dropdown label={t('风格')} value={style} size={12} align="left" field options={shareStyles.map((s) => ({ value: s.key, label: t(s.name) }))}
               onpick={(next) => (style = next as ShareStyle)} />
           </div>
           <div class="setting">
-            <span class="setting-name">色彩</span>
-            <div class="modes" role="radiogroup" aria-label="色彩">
+            <span class="setting-name">{t('色彩')}</span>
+            <div class="modes" role="radiogroup" aria-label={t('色彩')}>
               <span class="pill" class:right={dark}></span>
-              <button class="mode pressable" class:chosen={!dark} role="radio" aria-checked={!dark} onclick={() => pickMode('light')}>浅色</button>
-              <button class="mode pressable" class:chosen={dark} role="radio" aria-checked={dark} onclick={() => pickMode('dark')}>深色</button>
+              <button class="mode pressable" class:chosen={!dark} role="radio" aria-checked={!dark} onclick={() => pickMode('light')}>{t('浅色')}</button>
+              <button class="mode pressable" class:chosen={dark} role="radio" aria-checked={dark} onclick={() => pickMode('dark')}>{t('深色')}</button>
             </div>
           </div>
           {#if rangeOptions.length}
             <div class="setting">
-              <span class="setting-name">时间范围</span>
-              <Dropdown label="时间范围" value={chosenRange} size={12} align="left" field
+              <span class="setting-name">{t('时间范围')}</span>
+              <Dropdown label={t('时间范围')} value={chosenRange} size={12} align="left" field
                 options={rangeOptions.map((o) => ({ value: o.action?.[1] ?? '', label: o.label }))} onpick={pickRange} />
             </div>
           {/if}
           </div>
           <div class="spacer"></div>
           <div class="foot" bind:this={footBox}>
-          {#if picture}<p class="size">{Math.round(picture.width * SCALE)} × {Math.round(picture.height * SCALE)} 像素 · PNG</p>{/if}
+          {#if picture}<p class="size">{Math.round(picture.width * SCALE)} × {Math.round(picture.height * SCALE)} {t('像素')} · PNG</p>{/if}
           <div class="actions">
             <button class="action primary pressable" class:done={copied === '已复制'} class:failed={copied === '复制失败'} disabled={!picture} onclick={copy}>
-              <Icon name={copied === '已复制' ? 'checkmark' : 'doc.on.doc'} size={14} system />{copied ?? '复制图片'}
+              <Icon name={copied === '已复制' ? 'checkmark' : 'doc.on.doc'} size={14} system />{t(copied ?? '复制图片')}
             </button>
             <button class="action pressable" class:done={!!saved} disabled={!picture} onclick={save}>
-              <Icon name={saved ? 'checkmark' : 'square.and.arrow.down'} size={14} system />{saved ?? '保存…'}
+              <Icon name={saved ? 'checkmark' : 'square.and.arrow.down'} size={14} system />{t(saved ?? '保存…')}
             </button>
             {#if mac && inTauri}
               <button class="action pressable" bind:this={shareButton} disabled={!picture} onclick={share}>
-                <Icon name="square.and.arrow.up" size={14} system />分享…
+                <Icon name="square.and.arrow.up" size={14} system />{t('分享…')}
               </button>
             {/if}
           </div>

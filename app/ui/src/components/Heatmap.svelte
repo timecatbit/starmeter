@@ -5,6 +5,7 @@
   // an hour axis. Pointing at a dot reads it out on the line under them, where the streak (or why there's nothing yet)
   // sits otherwise; only this block redraws as the pointer moves.
   import { heatmapFuture, heatmapShades, label, totalColor } from '../lib/colors';
+  import { t } from '../lib/i18n.svelte';
   import { detail, dotRadius, HeatmapLayout, levels as shadeLevels, note, past as pastCount, rows as rowCount } from '../lib/heatmap';
   import { font, width } from '../lib/measure';
   import { panel } from '../lib/ui.svelte';
@@ -44,7 +45,7 @@
     {/if}
   {/each}
   <svg bind:this={box} class="squares" style:left="{layout.x - 2}px" style:top="{8 - 2}px" width={layout.width + 4} height={layout.height + 4}
-    onpointermove={move} onpointerleave={() => (pointed = null)} role="img" aria-label="用量热力图">
+    onpointermove={move} onpointerleave={() => (pointed = null)} role="img" aria-label={t('用量热力图')}>
     <g transform="translate({2 - layout.x}, {2 - layout.y})">
       {#each squares as square, i (i)}
         <circle class="cell" cx={square.x + square.size / 2} cy={square.y + square.size / 2} r={dotRadius(square.size, levels[i], i >= past)}

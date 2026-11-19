@@ -3,6 +3,7 @@
 // plotted figure with hatching under it, each tool is a numbered callout with its models measured off, and the
 // signature fills the title block.
 import { alpha } from './colors';
+import { t as tr } from './i18n.svelte';
 import { canvasFor, drawMark, measure, middleText, text, WIDTH } from './shareCommon';
 import { drawAmount, drawMasthead, drawMembers, drawSignature, figures, fitAmount, GROTESK, HERO_BASELINE, layout, poster, posterFont, ROWS, tickBox } from './sharePoster';
 import type { Dashboard, Project } from './types';
@@ -70,7 +71,7 @@ export async function drawBlueprintPicture(d: Dashboard, project: Project, dark:
   const chart = p.chart;
   if (chart && L.chart !== null) {
     y = L.chart;
-    text(ctx, '图 1 · ' + chart.label, { x: M, y, w: INNER / 2 + 40, h: 16 }, t(13, 700), c.ink);
+    text(ctx, tr('图 1 · ') + chart.label, { x: M, y, w: INNER / 2 + 40, h: 16 }, t(13, 700), c.ink);
     if (chart.note) text(ctx, chart.note, { x: M + INNER / 2, y: y + 1, w: INNER / 2, h: 15 }, t(11.5, 500), c.soft, 'right');
     const axisWidth = Math.max(...chart.axis.map((a) => measure(ctx, a, t(10.5, 500)))) + 10;
     const plot = { x: M + axisWidth, y: y + 30, w: INNER - axisWidth - 4, h: ROWS.chart - 68 }, bottom = plot.y + plot.h;

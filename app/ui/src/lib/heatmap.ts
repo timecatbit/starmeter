@@ -1,5 +1,6 @@
 // The heatmap's squares: their shades, what a square says when pointed at, and where each one goes.
 import { money, tokens } from './format';
+import { t } from './i18n.svelte';
 import type { UsageHeatmap } from './types';
 
 export const rows = (h: UsageHeatmap) => Math.max(1, Math.ceil(h.tokens.length / Math.max(1, h.columns)));
@@ -23,19 +24,19 @@ export function levels(h: UsageHeatmap): number[] {
 export function detail(h: UsageHeatmap, index: number): string {
   if (index < 0 || index >= h.labels.length) return '';
   const n = h.requests[index] ?? 0;
-  if (!active(h)[index]) return h.labels[index] + ' · 无用量';
+  if (!active(h)[index]) return h.labels[index] + ' · ' + t('无用量');
   const parts = [h.labels[index]];
   if (h.tokens[index] > 0) parts.push(tokens(h.tokens[index]) + ' Token');
   const cost = h.costs[index] ?? 0, partial = (h.unpriced[index] ?? 0) > 0;
-  if (cost > 0) parts.push((partial ? '已知 ' : '') + money(cost));
-  parts.push(`${n} 请求`);
+  if (cost > 0) parts.push(partial ? t('已知 {n}', { n: money(cost) }) : money(cost));
+  parts.push(t('{n} 请求', { n }));
   return parts.join(' · ');
 }
 
 /** What the bottom left says while no square is pointed at: why there's nothing yet, what's missing, or the streak. */
 export function note(h: UsageHeatmap): string | null {
   if (h.status) return h.status;
-  if (!active(h).includes(true)) return '暂无用量';
+  if (!active(h).includes(true)) return t('暂无用量');
   if (h.notice) return h.notice;
   return h.streak ?? null;
 }

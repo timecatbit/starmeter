@@ -1,6 +1,7 @@
 // What the share pictures share at the lowest level: the rows they show and their tags, the bands of pattern, text on
 // a canvas as AppKit set it, and the marks.
 import starmeterIcon from '../../../../assets/starmeter.svg?url';
+import { t } from './i18n.svelte';
 import { active } from './heatmap';
 import { iconImage } from './icons';
 import type { Dashboard, ProviderUsage, UsageHeatmap } from './types';
@@ -13,7 +14,7 @@ export const TOP_BAND = 63, BOTTOM_BAND = 44;
 /** Only the tools with something in the range get a block, in the panel's order. */
 export const shownRows = (d: Dashboard) => d.providers.filter((p) => p.available && (p.tokens > 0 || p.requests > 0 || (p.credits ?? 0) > 0));
 /** The tag at the right of a tool's token line: what Summary leaves out or a gateway counted. */
-export const tag = (p: ProviderUsage) => (p.summaryIncluded === false ? '未计入 Summary' : p.counted && p.subtitle ? p.subtitle : null);
+export const tag = (p: ProviderUsage) => (p.summaryIncluded === false ? t('未计入 Summary') : p.counted && p.subtitle ? p.subtitle : null);
 /** The heatmap as the panel shows it, once read and something used: its streak goes beside the trend. */
 export const shownHeatmap = (d: Dashboard): UsageHeatmap | null => (d.heatmap && !d.heatmap.status && active(d.heatmap).includes(true) ? d.heatmap : null);
 

@@ -5,6 +5,7 @@
   // own that opens the tool's page. Not folded, a click anywhere on the card opens the page. One gesture each: the
   // card's click never means one thing first and another the second time.
   import { accent, alpha, blend, label as labelColour } from '../lib/colors';
+  import { t } from '../lib/i18n.svelte';
   import { clientLine, colourOf, headline, isGrouped, modelAmount, modelName, notes, share, statsForms, tokenLine } from '../lib/format';
   import { figureWidth, font, ROUNDED, width } from '../lib/measure';
   import { panel } from '../lib/ui.svelte';
@@ -56,17 +57,17 @@
 
 <div class="card" class:opens={!!onopen || collapsible} style:height="{height}px">
   {#if collapsible}
-    <button class="open pressable" aria-label="{expanded ? '收起' : '展开'} {p.name} 明细" aria-expanded={expanded} onclick={ontoggle}></button>
+    <button class="open pressable" aria-label={t(expanded ? '收起 {name} 明细' : '展开 {name} 明细', { name: p.name })} aria-expanded={expanded} onclick={ontoggle}></button>
     {#if onopen}
       <!-- Centred on the amount's digits, which sit 0.8pt above the header line's middle. -->
-      <button class="enter pressable" style:left="{right - 16}px" style:top="{mid - 12.8}px" aria-label="{p.name} 详情" onclick={onopen}>
+      <button class="enter pressable" style:left="{right - 16}px" style:top="{mid - 12.8}px" aria-label={t('{name} 详情', { name: p.name })} onclick={onopen}>
         <svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true">
           <path d="M2.5 1 5.5 4 2.5 7" fill="none" stroke="var(--secondary)" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
       </button>
     {/if}
   {:else if onopen}
-    <button class="open pressable" aria-label="{p.name} 详情" onclick={onopen}></button>
+    <button class="open pressable" aria-label={t('{name} 详情', { name: p.name })} onclick={onopen}></button>
   {/if}
   <span class="mark" style:left="{left}px" style:top="{mid - 7}px">
     {#if p.image || p.symbol}
@@ -94,9 +95,9 @@
     {#if clients}<span class="clients" style:left="{left + 21}px" style:width="{right - left - 21}px">{clients}</span>{/if}
     <div class="models" style:top="{52 + clientHeight}px">
       {#if !p.models.length}
-        <span class="empty">此时段暂无模型调用</span>
+        <span class="empty">{t('此时段暂无模型调用')}</span>
       {:else if single}
-        <span class="empty from">全部来自 {modelName(p.models[0].name)}</span>
+        <span class="empty from">{t('全部来自 {name}', { name: modelName(p.models[0].name) })}</span>
       {:else}
         {#each p.models as m, i (m.name + i)}
           {@const barX = right - 34 - 62 - bar - 4}

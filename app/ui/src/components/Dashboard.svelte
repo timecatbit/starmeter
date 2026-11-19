@@ -2,6 +2,7 @@
   // The homepage's top: the heading and its buttons, Summary's three figures, the legend and trend (or the live chart
   // while pinned), the heatmap, the grouping tabs and the Harness cards, or 会话's session cards.
   import { accent, blend, label as labelColour, totalColor } from '../lib/colors';
+  import { t } from '../lib/i18n.svelte';
   import { chartExtra, labelColumn, legendLabels, legendLayout, summaryProviders } from '../lib/chart';
   import { isGrouped, money, tokens } from '../lib/format';
   import { blockHeight, HeatmapLayout, panelDot, rows as heatmapRows } from '../lib/heatmap';
@@ -49,7 +50,7 @@
   const heatmapLayout = $derived(data.heatmap ? new HeatmapLayout(left + column, summaryHeight + 8, right - left - column, data.heatmap.columns, heatmapRows(data.heatmap), dot) : null);
   const heatmapHeight = $derived(heatmapLayout && data.heatmap ? blockHeight(heatmapLayout, data.heatmap) : 0);
   const harnessHeader = $derived(!data.providers.length || !showSummary || data.heatmap ? 0 : 6);
-  const tabOptions = $derived([...(data.providers.length ? data.groupings ?? [] : []), ...(sessions ? [{ key: 'sessions', label: '会话' }] : [])]);
+  const tabOptions = $derived([...(data.providers.length ? data.groupings ?? [] : []), ...(sessions ? [{ key: 'sessions', label: t('会话') }] : [])]);
   // 会话 when chosen, and always when there are no cards to choose instead (its row has left the other rows for here).
   const showingSessions = $derived(!!sessions && (view === 'sessions' || !data.providers.length));
   const groupingHeight = $derived(tabOptions.length < 2 ? 0 : 30);
@@ -87,7 +88,7 @@
   const valid = $derived(counted.filter((p) => p.available));
   const costs = $derived(valid.map((p) => p.cost).filter((c) => c !== null));
   const partial = $derived(valid.length !== counted.length || valid.some((p) => p.unpriced > 0));
-  const labels = $derived([partial ? '已知 API 估算' : 'API 估算', 'Token 用量', '请求']);
+  const labels = $derived([partial ? t('已知 API 估算') : t('API 估算'), t('Token 用量'), t('请求')]);
   const values = $derived([money(costs.length ? costs.reduce((a, b) => a + b, 0) : null), valid.length ? tokens(valid.reduce((s, p) => s + p.tokens, 0)) : '—',
     valid.length ? String(valid.reduce((s, p) => s + p.requests, 0)) : '—']);
   const third = $derived((right - left) / 3);
@@ -136,15 +137,15 @@
     <div class="buttons">
       <!-- The pin first, then settings and share; on a Mac the symbols are the system's own. -->
       <span class="slot" style:left="{leftmost}px">
-        <HintButton icon={pinned ? 'pin.fill' : 'pin'} system hint={pinned ? '取消钉住' : `钉住，每 ${pinInterval} 秒刷新`} label={pinned ? '取消钉住面板' : '钉住面板'}
+        <HintButton icon={pinned ? 'pin.fill' : 'pin'} system hint={pinned ? t('取消钉住') : t('钉住，每 {n} 秒刷新', { n: pinInterval })} label={pinned ? t('取消钉住面板') : t('钉住面板')}
           onclick={onpin} on={pinned} />
       </span>
-      <span class="slot" style:left="{firstButton - 32}px"><HintButton icon="gearshape" system hint="主页模块与设置" label="主页模块与设置" onclick={onsettings} /></span>
+      <span class="slot" style:left="{firstButton - 32}px"><HintButton icon="gearshape" system hint={t('主页模块与设置')} label={t('主页模块与设置')} onclick={onsettings} /></span>
       <span class="slot" style:left="{firstButton}px">
-        <HintButton icon="square.and.arrow.up" system hint="分享用量图" label="分享用量图" onclick={onshare} />
+        <HintButton icon="square.and.arrow.up" system hint={t('分享用量图')} label={t('分享用量图')} onclick={onshare} />
       </span>
       <span class="picker" style:left="{pickerX}px" style:width="{pickerWidth}px">
-        <Dropdown label="统计范围" value={chosen} options={rangeOptions.map((o) => ({ value: o.action?.[1] ?? '', label: o.label }))} onpick={pickRange} />
+        <Dropdown label={t('统计范围')} value={chosen} options={rangeOptions.map((o) => ({ value: o.action?.[1] ?? '', label: o.label }))} onpick={pickRange} />
       </span>
     </div>
     {#if showSummary}
@@ -181,7 +182,7 @@
       </div>
     {:else}
       {#if !cardList.length && data.providers.length}
-        <div class="no-calls">此时段暂无调用</div>
+        <div class="no-calls">{t('此时段暂无调用')}</div>
       {/if}
       {#each cardList as p (p.id)}
         <ProviderCard {p} {collapsible} expanded={expanded.has(p.id)} glow={glows[p.id] ?? 0} ontoggle={() => ontoggle(p.id, !expanded.has(p.id))}

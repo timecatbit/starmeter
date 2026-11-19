@@ -2,6 +2,8 @@
   // A cell of the module grid, flat as magpie's: checkbox, icon, name and a green dot once configured. The checkbox
   // switches the module on the homepage; the name or icon opens its settings, with an arrow under the pointer.
   import { isModule } from '../lib/detail';
+  import { t } from '../lib/i18n.svelte';
+  import { reads } from '../lib/i18n.svelte';
   import { font, width } from '../lib/measure';
   import { panel } from '../lib/ui.svelte';
   import type { Entry } from '../lib/types';
@@ -9,7 +11,7 @@
 
   let { entry, cellWidth, height, ontoggle, onopen }: { entry: Entry; cellWidth: number; height: number; ontoggle: () => void; onopen: () => void } = $props();
 
-  const configured = $derived(entry.value === '已配置');
+  const configured = $derived(reads(entry.value, '已配置'));
   const room = $derived(cellWidth - 54 - (entry.children.length ? 18 : 6) - (configured ? 12 : 0));
   const nameWidth = $derived(Math.min(room, width(entry.label, font(12.5, 500)) + 1));
   const line = $derived(entry.detail === undefined ? height / 2 : 15);
@@ -30,7 +32,7 @@
 
 <button class="cell pressable" style:width="{cellWidth}px" style:height="{height}px" aria-label={entry.label} onclick={click}>
   {#if entry.checked !== undefined}
-    <span class="box" class:on={checked} style:top="{middle - 6.5}px" role="checkbox" aria-checked={checked} aria-label="在主页显示 {entry.label}">
+    <span class="box" class:on={checked} style:top="{middle - 6.5}px" role="checkbox" aria-checked={checked} aria-label={t('在主页显示 {name}', { name: entry.label })}>
       {#if checked}<svg viewBox="0 0 13 13" width="13" height="13"><path d="M3 6.5 5.5 9.5 10 3.5" fill="none" style="stroke: var(--on-accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>{/if}
     </span>
   {/if}
