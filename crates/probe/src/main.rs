@@ -11,8 +11,8 @@ use starmeter_core::json::{Format, Json, Object, python_repr};
 use starmeter_core::runtime::Runtime;
 use starmeter_core::time::IsoTime;
 use starmeter_core::{
-    accounts, catalog, claude_usage, cursor, files, harness, http, object, opencodex, preferences, pricing, py,
-    range_usage, sessions, tally, zstd,
+    accounts, catalog, claude_usage, client_accounts, cursor, files, harness, http, object, opencodex, preferences,
+    pricing, py, range_usage, sessions, tally, zstd,
 };
 
 fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
@@ -133,6 +133,19 @@ fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
                 starmeter_core::runtime::now(),
             )
             .into())
+        }
+        "qoder.snapshot" => {
+            let environment: HashMap<String, String> = std::env::vars().collect();
+            let snapshot = client_accounts::qoder::snapshot(
+                text(0).unwrap_or(""),
+                &environment,
+                args.get(1).and_then(Json::number).unwrap_or(0.0),
+            );
+            Ok(snapshot.into())
+        }
+        "chatgpt.account" => {
+            let environment: HashMap<String, String> = std::env::vars().collect();
+            Ok(client_accounts::chatgpt::account(text(0), text(1), &environment).into())
         }
         "accounts.check" => {
             routes(args.get(2));
