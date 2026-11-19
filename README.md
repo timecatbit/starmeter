@@ -19,23 +19,23 @@ Starmeter 是 macOS 菜单栏（独立 App 或 SwiftBar 插件）和 Windows 托
 
 ## 能看什么
 
-- **Harness Token 用量**：Claude（桌面 App 和 VS Code、JetBrains、终端里的 Claude Code）、ChatGPT（Codex）、OpenCodex、Magpie、OpenCode、DeepSeek Harness、WorkBuddy、Qoder（国内版 Qoder CN）、Gemini CLI、Cursor（桌面版和 Cursor CLI）。显示 Token、请求、缓存命中、模型分布、趋势图和用量热力图，并按模型官方价估算 API 等值费用。范围可选今天、昨天、近 24 小时、近 7/30 天、本周、本月或全部；卡片可以按工具、按模型或按项目（工作目录的文件夹名）查看。网关（Magpie、OpenCodex）和经过它的客户端会各记一遍同一请求，Summary 只算一次。工具自己清理掉的旧记录（Claude Code 默认只留 30 天）仍会计入，可以关闭。
+- **Harness Token 用量**：Claude（桌面 App 和 VS Code、JetBrains、终端里的 Claude Code）、ChatGPT（Codex）、OpenCodex、Magpie、OpenCode、DeepSeek Harness、WorkBuddy、Qoder（国内版 Qoder CN）、Gemini CLI、Cursor（桌面版和 Cursor CLI）。显示 Token、请求、缓存命中、模型分布、趋势图和用量热力图，并按模型官方价估算 API 等值费用。范围可选今天、昨天、近 24 小时、近 7/30 天、本周、本月或全部；卡片可以按工具、按模型或按项目（会话所在的项目文件夹）查看。网关（Magpie、OpenCodex）和经过它的客户端会各记一遍同一请求，Summary 只算一次。工具自己清理掉的旧记录（Claude Code 默认只留 30 天）仍会计入，可以关闭。
 - **订阅额度**：ChatGPT、Claude、MiniMax、Cursor 显示已用百分比和重置时间，70% 起变橙、90% 起变红，并写出比匀速多用还是少用；Qoder 读取 Qoder CN App 本机记录的 Credits 用量；Gemini、Grok、Kimi 可以手动标记。填上每月订阅价后，侧栏写本月用量值订阅价的几倍（按 API 官方价估算）。
 - **API 余额与花费**：DeepSeek、Kimi、Grok 显示余额；Qoder 用组织 API Key（团队版/企业版）显示组织共享的加购 Credits；Claude 显示本月花费（需要管理员 Key）；ChatGPT、Gemini 可以测试 Key 是否可用。每个 API 可以保存多把 Key，主页显示合计和 Key 数量，如“余额 ¥12.00 (3)”。
-- **活跃会话**：正在运行或等待输入的 Claude Code 与 Codex 会话、上下文用了多少，展开看最近几轮各用了多少 Token、费用和工具；可选在一轮完成时提醒。
-- **钉住实时看**：点标题旁的图钉，面板浮在其他窗口之上，可以挪动、拉大；趋势图换成近 1 分钟的实时图，每 1–5 秒按本机日志刷新。
-- **分享图**：卡片、报刊、夜空、地铁、织物、终端六种风格，先预览，再复制或保存（Mac 还能直接分享）。图里只有 Summary 计入的用量，不含订阅、余额和 Key。
+- **会话**：工具 / 模型 / 项目旁的第四个标签。每个 Claude Code 与 Codex 会话一张卡：是否正在运行、这一轮用了多少 Token（钉住时实时跳动）、上下文用了多少，点开看最近几轮各用了多少 Token、费用和工具；可选在一轮完成时提醒。
+- **钉住实时看**：点标题旁的图钉，面板浮在其他窗口之上，可以挪动、拉大；趋势图换成近 1 分钟的实时图（可切换累计 Token 或每秒输出的 Token/s），下面自动切到正在跑的会话，每 1–5 秒按本机日志刷新。
+- **分享图**：卡片、终端、手绘、报刊、夜空、地铁、织物、收据、蓝图、霓虹十种风格，每种都有浅色和深色，先预览，再复制或保存（Mac 还能直接分享）。图里只有 Summary 计入的用量，不含订阅、余额和 Key。
 - **提醒**：订阅窗口用到 90%（可改为 70%、80% 或关闭）时发通知；余额类 API 可以按币种设置低于多少时提醒；可选在每周额度快重置却还没怎么用时提醒。
 - **Harness 更新**：已勾选客户端有新版本时提醒，Claude Code 和 Codex CLI 可一键在终端更新。
 - **其他**：菜单栏星星旁可选显示今天的 API 估算或最紧张的订阅额度；当前范围的用量可导出成 CSV 或 JSON；可选读取 Claude、OpenAI、Cursor 的官方状态页，服务出问题时标在卡片上；API 等值估算可以改用人民币显示；Komari 服务器监控；浅色、深色或跟随系统。
 
 <p align="center">
   <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/models-dark.png"><img src="docs/images/models-light.png" width="240" align="top" alt="按模型查看：每个模型的费用、Token 和来自哪些工具"></picture>
-  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/sessions-dark.png"><img src="docs/images/sessions-light.png" width="240" align="top" alt="活跃会话：运行中和等待输入的会话，以及最近几轮的用量"></picture>
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/sessions-dark.png"><img src="docs/images/sessions-light.png" width="240" align="top" alt="会话：每个会话是否在运行、这一轮的 Token，展开看最近几轮"></picture>
   <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/share-page-dark.png"><img src="docs/images/share-page-light.png" width="240" align="top" alt="分享用量图：选择风格，预览后复制或保存"></picture>
 </p>
 
-<p align="center"><sub>截图都用测试数据生成，不是真实用量。更多截图和六种分享图见 <a href="https://timecatbit.github.io/starmeter/">网站</a>。</sub></p>
+<p align="center"><sub>截图都用测试数据生成，不是真实用量。更多截图和十种分享图见 <a href="https://timecatbit.github.io/starmeter/">网站</a>。</sub></p>
 
 ## 下载与安装
 

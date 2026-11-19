@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <title>Starmeter · 在菜单栏一眼看清 AI 编程工具用了多少</title>
-  <meta name="description" content="Starmeter 在 macOS 菜单栏和 Windows 托盘里显示 Claude Code、Codex、Cursor、Gemini CLI 等 AI 编程工具的 Token 和 API 等值费用、订阅额度、API 余额与活跃会话。免费开源，数据留在本机。">
+  <meta name="description" content="Starmeter 在 macOS 菜单栏和 Windows 托盘里显示 Claude Code、Codex、Cursor、Gemini CLI 等 AI 编程工具的 Token 和 API 等值费用、订阅额度、API 余额与正在运行的会话。免费开源，数据留在本机。">
   <meta property="og:title" content="Starmeter">
   <meta property="og:description" content="在菜单栏一眼看清 AI 编程工具用了多少 · See how much your AI coding tools use, from the menu bar.">
   <meta property="og:image" content="https://timecatbit.github.io/starmeter/images/home-light.png">
@@ -60,7 +60,7 @@
       <div class="fan">
         <picture class="side left"><source media="(prefers-color-scheme: dark)" srcset="images/subscription-dark.png"><img src="images/subscription-light.png" width="440" height="589" alt="" loading="eager"></picture>
         <picture class="front"><source media="(prefers-color-scheme: dark)" srcset="images/home-dark.png"><img src="images/home-light.png" width="440" height="840" alt="Starmeter 主页 · home page" loading="eager"></picture>
-        <picture class="side right"><source media="(prefers-color-scheme: dark)" srcset="images/live-dark.png"><img src="images/live-light.png" width="440" height="640" alt="" loading="eager"></picture>
+        <picture class="side right"><source media="(prefers-color-scheme: dark)" srcset="images/live-dark.png"><img src="images/live-light.png" width="440" height="626" alt="" loading="eager"></picture>
       </div>
       <p class="note"><span class="zh">截图都由测试数据生成，界面目前只有中文。</span><span class="en">Screenshots are made from test data. The interface is in Chinese.</span></p>
     </section>
@@ -85,7 +85,7 @@
           <p><span class="zh">Summary 写出今天（或你选的范围）的 API 等值估算、Token 和请求数，下面是趋势图、用量热力图和每个工具一张卡片：模型分布、缓存命中、输出和会话数。</span><span class="en">Summary gives the API-equivalent estimate, tokens and requests for today, or the range you pick; below are the trend, a usage heatmap and a card per tool, with its models, cache hits, output and sessions.</span></p>
           <ul>
             <li><b><span class="zh">只算一次</span><span class="en">Counted once</span></b><span class="zh">：Magpie、OpenCodex 等网关和经过它的客户端会各记一遍同一请求，Summary 只算一次。</span><span class="en">: a gateway such as Magpie or OpenCodex and the client behind it each log the same request; Summary counts it once.</span></li>
-            <li><b><span class="zh">按工具、模型或项目</span><span class="en">By tool, model or project</span></b><span class="zh">：一键切换卡片的分组，项目按工作目录的文件夹名。</span><span class="en">: switch how the cards are grouped; a project is the folder a request ran in.</span></li>
+            <li><b><span class="zh">按工具、模型或项目</span><span class="en">By tool, model or project</span></b><span class="zh">：一键切换卡片的分组，项目按会话所在的项目文件夹。</span><span class="en">: switch how the cards are grouped; a project is the folder its session belongs to.</span></li>
             <li><b><span class="zh">八种范围</span><span class="en">Eight ranges</span></b><span class="zh">：今天到全部，热力图写出连续使用了多少天。</span><span class="en">: from today to everything, with your streak of active days under the heatmap.</span></li>
             <li><b><span class="zh">旧记录不丢</span><span class="en">Nothing lost</span></b><span class="zh">：工具自己清理掉的日志（Claude Code 默认只留 30 天）照样计入。</span><span class="en">: logs a tool cleans up itself (Claude Code keeps 30 days) keep counting.</span></li>
           </ul>
@@ -123,40 +123,44 @@
 
       <section class="feature flip">
         <div class="copy">
-          <p class="kicker">04 · <span class="zh">活跃会话</span><span class="en">Active sessions</span></p>
-          <h2><span class="zh">哪个会话在跑，上下文还剩多少。</span><span class="en">Which session is running, and how full its context is.</span></h2>
-          <p><span class="zh">列出正在运行和等待输入的 Claude Code 与 Codex 会话：标题、模型、推理强度和上下文用量。展开一个会话，看最近几轮各用了多少 Token、花了多少、调用了哪些工具。</span><span class="en">Running and waiting Claude Code and Codex sessions, with their title, model, reasoning effort and context used. Open one to see its last few turns: tokens, cost and the tools they called.</span></p>
+          <p class="kicker">04 · <span class="zh">会话</span><span class="en">Sessions</span></p>
+          <h2><span class="zh">哪个会话在跑，这一轮用了多少。</span><span class="en">Which session is running, and what this turn has used.</span></h2>
+          <p><span class="zh">工具 / 模型 / 项目旁的第四个标签：每个 Claude Code 与 Codex 会话一张卡，写着它是否正在运行、这一轮用了多少 Token、模型、推理强度和上下文用量。点开一个会话，看最近几轮各用了多少 Token、花了多少、调用了哪些工具。</span><span class="en">A fourth choice beside tool, model and project: a card for each Claude Code and Codex session, with whether it is running, this turn's tokens, its model, reasoning effort and context used. Open one to see its last few turns: tokens, cost and the tools they called.</span></p>
           <ul>
-            <li><b><span class="zh">等你的时候提醒</span><span class="en">Ping when it waits</span></b><span class="zh">：一轮跑完、轮到你了，发一条通知。</span><span class="en">: a notification when a turn finishes and it's your move.</span></li>
+            <li><b><span class="zh">跑完提醒</span><span class="en">Ping when it's done</span></b><span class="zh">：一轮跑完，发一条通知。</span><span class="en">: a notification when a turn finishes.</span></li>
             <li><b><span class="zh">不存内容</span><span class="en">No contents kept</span></b><span class="zh">：只记状态、标题和数字，不保存提问和回复。</span><span class="en">: only status, titles and numbers; never prompts or replies.</span></li>
           </ul>
         </div>
-        <picture class="shot"><source media="(prefers-color-scheme: dark)" srcset="images/sessions-dark.png"><img src="images/sessions-light.png" width="440" height="492" alt="活跃会话 · active sessions" loading="lazy"></picture>
+        <picture class="shot"><source media="(prefers-color-scheme: dark)" srcset="images/sessions-dark.png"><img src="images/sessions-light.png" width="440" height="700" alt="会话 · sessions" loading="lazy"></picture>
       </section>
 
       <section class="feature">
         <div class="copy">
           <p class="kicker">05 · <span class="zh">钉住</span><span class="en">Pinned</span></p>
           <h2><span class="zh">钉在屏幕上，看着它涨。</span><span class="en">Pin it, and watch it climb.</span></h2>
-          <p><span class="zh">点图钉，面板浮在其他窗口之上，可以挪动、拉大。趋势图放大到“现在”，换成近 1 分钟的实时图，每 1–5 秒按本机日志刷新一次，数字滚动更新。</span><span class="en">Click the pin and the panel floats above your windows, movable and resizable. The trend zooms into now, a live chart of the last minute, re-read from the local logs every 1–5 seconds as the figures roll.</span></p>
+          <p><span class="zh">点图钉，面板浮在其他窗口之上，可以挪动、拉大。趋势图放大到“现在”，换成近 1 分钟的实时图（累计 Token 或每秒输出的 Token/s，一键切换），下面自动切到正在跑的会话，每 1–5 秒按本机日志刷新一次，数字滚动更新。</span><span class="en">Click the pin and the panel floats above your windows, movable and resizable. The trend zooms into now, a live chart of the last minute (the running total or output tokens a second, one click apart) with the running sessions under it, re-read from the local logs every 1–5 seconds as the figures roll.</span></p>
         </div>
-        <picture class="shot"><source media="(prefers-color-scheme: dark)" srcset="images/live-dark.png"><img src="images/live-light.png" width="440" height="640" alt="钉住后的实时图 · the live chart" loading="lazy"></picture>
+        <picture class="shot"><source media="(prefers-color-scheme: dark)" srcset="images/live-dark.png"><img src="images/live-light.png" width="440" height="626" alt="钉住后的实时图 · the live chart" loading="lazy"></picture>
       </section>
     </div>
 
     <section class="share" aria-labelledby="share-title">
       <div class="copy centered">
         <p class="kicker">06 · <span class="zh">分享图</span><span class="en">Share pictures</span></p>
-        <h2 id="share-title"><span class="zh">六种风格，晒一晒今天用了多少。</span><span class="en">Six styles to show off today's usage.</span></h2>
-        <p><span class="zh">先预览，再复制或保存，Mac 上还能直接分享。图里只有用量，不含订阅、余额和 Key。</span><span class="en">Preview it, then copy or save it, or share it straight from a Mac. Only usage goes in: no subscriptions, balances or keys.</span></p>
+        <h2 id="share-title"><span class="zh">十种风格，晒一晒今天用了多少。</span><span class="en">Ten styles to show off today's usage.</span></h2>
+        <p><span class="zh">每种都有浅色和深色。先预览，再复制或保存，Mac 上还能直接分享。图里只有用量，不含订阅、余额和 Key。</span><span class="en">Each comes in light and dark. Preview it, then copy or save it, or share it straight from a Mac. Only usage goes in: no subscriptions, balances or keys.</span></p>
       </div>
       <div class="gallery">
-        <a href="images/share-card-light.jpg"><picture><source media="(prefers-color-scheme: dark)" srcset="images/share-card-dark.jpg"><img src="images/share-card-light.jpg" width="600" height="2743" alt="卡片风格 · card" loading="lazy"></picture><span><span class="zh">卡片</span><span class="en">Card</span></span></a>
-        <a href="images/share-paper.jpg"><img src="images/share-paper.jpg" width="600" height="2837" alt="报刊风格 · paper" loading="lazy"><span><span class="zh">报刊</span><span class="en">Paper</span></span></a>
-        <a href="images/share-night.jpg"><img src="images/share-night.jpg" width="600" height="3214" alt="夜空风格 · night sky" loading="lazy"><span><span class="zh">夜空</span><span class="en">Night sky</span></span></a>
-        <a href="images/share-metro.jpg"><img src="images/share-metro.jpg" width="600" height="2700" alt="地铁风格 · metro" loading="lazy"><span><span class="zh">地铁</span><span class="en">Metro</span></span></a>
-        <a href="images/share-knit.jpg"><img src="images/share-knit.jpg" width="600" height="2116" alt="织物风格 · knit" loading="lazy"><span><span class="zh">织物</span><span class="en">Knit</span></span></a>
-        <a href="images/share-terminal-light.jpg"><picture><source media="(prefers-color-scheme: dark)" srcset="images/share-terminal-dark.jpg"><img src="images/share-terminal-light.jpg" width="600" height="2626" alt="终端风格 · terminal" loading="lazy"></picture><span><span class="zh">终端</span><span class="en">Terminal</span></span></a>
+        <a href="images/share-card-light.jpg"><picture><source media="(prefers-color-scheme: dark)" srcset="images/share-card-dark.jpg"><img src="images/share-card-light.jpg" width="600" height="1946" alt="卡片风格 · card" loading="lazy"></picture><span><span class="zh">卡片</span><span class="en">Card</span></span></a>
+        <a href="images/share-terminal-light.jpg"><picture><source media="(prefers-color-scheme: dark)" srcset="images/share-terminal-dark.jpg"><img src="images/share-terminal-light.jpg" width="600" height="1946" alt="终端风格 · terminal" loading="lazy"></picture><span><span class="zh">终端</span><span class="en">Terminal</span></span></a>
+        <a href="images/share-sketch-light.jpg"><picture><source media="(prefers-color-scheme: dark)" srcset="images/share-sketch-dark.jpg"><img src="images/share-sketch-light.jpg" width="600" height="1946" alt="手绘风格 · sketch" loading="lazy"></picture><span><span class="zh">手绘</span><span class="en">Sketch</span></span></a>
+        <a href="images/share-paper-light.jpg"><picture><source media="(prefers-color-scheme: dark)" srcset="images/share-paper-dark.jpg"><img src="images/share-paper-light.jpg" width="600" height="1946" alt="报刊风格 · paper" loading="lazy"></picture><span><span class="zh">报刊</span><span class="en">Paper</span></span></a>
+        <a href="images/share-night-light.jpg"><picture><source media="(prefers-color-scheme: dark)" srcset="images/share-night-dark.jpg"><img src="images/share-night-light.jpg" width="600" height="1946" alt="夜空风格 · night sky" loading="lazy"></picture><span><span class="zh">夜空</span><span class="en">Night sky</span></span></a>
+        <a href="images/share-metro-light.jpg"><picture><source media="(prefers-color-scheme: dark)" srcset="images/share-metro-dark.jpg"><img src="images/share-metro-light.jpg" width="600" height="1946" alt="地铁风格 · metro" loading="lazy"></picture><span><span class="zh">地铁</span><span class="en">Metro</span></span></a>
+        <a href="images/share-knit-light.jpg"><picture><source media="(prefers-color-scheme: dark)" srcset="images/share-knit-dark.jpg"><img src="images/share-knit-light.jpg" width="600" height="1946" alt="织物风格 · knit" loading="lazy"></picture><span><span class="zh">织物</span><span class="en">Knit</span></span></a>
+        <a href="images/share-receipt-light.jpg"><picture><source media="(prefers-color-scheme: dark)" srcset="images/share-receipt-dark.jpg"><img src="images/share-receipt-light.jpg" width="600" height="1946" alt="收据风格 · receipt" loading="lazy"></picture><span><span class="zh">收据</span><span class="en">Receipt</span></span></a>
+        <a href="images/share-blueprint-light.jpg"><picture><source media="(prefers-color-scheme: dark)" srcset="images/share-blueprint-dark.jpg"><img src="images/share-blueprint-light.jpg" width="600" height="1946" alt="蓝图风格 · blueprint" loading="lazy"></picture><span><span class="zh">蓝图</span><span class="en">Blueprint</span></span></a>
+        <a href="images/share-neon-light.jpg"><picture><source media="(prefers-color-scheme: dark)" srcset="images/share-neon-dark.jpg"><img src="images/share-neon-light.jpg" width="600" height="1946" alt="霓虹风格 · neon" loading="lazy"></picture><span><span class="zh">霓虹</span><span class="en">Neon</span></span></a>
       </div>
     </section>
 

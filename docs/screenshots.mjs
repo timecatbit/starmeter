@@ -72,7 +72,8 @@ async function open(context, { height = PANEL_HEIGHT } = {}) {
   await page.addInitScript((inner) => Object.defineProperty(window, 'innerHeight', { get: () => inner, configurable: true }), height + 16);
   await page.setViewportSize({ width: 588 + 2 * MARGIN + 40, height: height + 2 * MARGIN + 40 });
   const errors = [];
-  page.on('pageerror', (error) => errors.push(String(error)));
+  // A resize observer that sees a size change it caused in the same frame says so; it is a notice, not a failure.
+  page.on('pageerror', (error) => { if (!/ResizeObserver loop/.test(String(error))) errors.push(String(error)); });
   await page.goto(`${context.base}/`);
   await page.locator('.dashboard').waitFor();
   await page.addStyleTag({ content: STILL });
@@ -123,14 +124,15 @@ const shots = {
     await page.waitForTimeout(500);
     await panelShot(page, `api-${context.look}.png`);
   },
-  // Active sessions, the first one opened to its recent turns.
+  // 会话, the fourth choice beside the groupings: the sessions as cards, the first one opened to its recent turns,
+  // scrolled so the choices sit at the top.
   async sessions(context) {
-    const page = await open(context);
-    await row(page, '活跃会话').click();
-    await page.locator('.page').waitFor();
-    const first = page.locator('.detail-row[aria-expanded]').first();
-    if ((await first.getAttribute('aria-expanded')) === 'false') await first.click();
-    await page.waitForTimeout(500);
+    const page = await open(context, { height: 620 });
+    await page.getByRole('radio', { name: '会话' }).click();
+    await page.locator('.session').first().waitFor();
+    await page.locator('.session .head').first().click();
+    await page.evaluate(() => document.querySelector('.tabs')?.scrollIntoView({ block: 'start' }));
+    await page.waitForTimeout(600);
     await panelShot(page, `sessions-${context.look}.png`);
   },
   // Pinned: the live chart, after a few readings have come in. The fixtures add a little more on each 2-second tick
