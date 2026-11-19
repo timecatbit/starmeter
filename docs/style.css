@@ -338,6 +338,37 @@ h2 { font-size: clamp(28px, 4vw, 40px); font-weight: 700; }
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 a.platform:hover { transform: translateY(-2px); box-shadow: inset 0 0 0 1.5px var(--accent); }
+/* Until the DMG is notarized, the plugin is the one to pick on a Mac: its card is outlined and badged. */
+.platform.recommended { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: 0;
+  vertical-align: 1px;
+}
+/* The notice above the downloads: large, in the accent, read before picking a file. */
+.notice {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  margin: 32px auto 0;
+  padding: 20px 24px;
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 50%, transparent);
+  text-align: left;
+  color: var(--accent);
+}
+.notice svg { flex: none; width: 24px; height: 24px; margin-top: 2px; }
+.notice p { margin: 0; color: var(--muted); font-size: 15.5px; }
+.notice .notice-title { color: var(--text); font-size: 19px; font-weight: 700; margin-bottom: 8px; }
+.notice a { color: var(--accent); }
 .platform .os { font-size: 13px; font-weight: 650; letter-spacing: 0.02em; color: var(--accent); }
 .platform b { font-size: 18px; }
 .platform > span:last-child { color: var(--muted); font-size: 14px; }

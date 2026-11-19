@@ -271,15 +271,26 @@
         <p class="kicker"><span class="zh">下载</span><span class="en">Download</span></p>
         <h2 id="download-title"><span class="zh">选一个文件，装上就能用。</span><span class="en">Pick one file and you're set.</span></h2>
         <p><span class="zh">都在 GitHub 的最新发布页上，按下面的名字找附件。</span><span class="en">All on the latest GitHub release; look for these names among the files.</span></p>
+        <aside class="notice" role="note">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="8.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 5.6v5.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="10" cy="14" r="1.1" fill="currentColor"/></svg>
+          <div>
+            <p class="notice-title"><span class="zh">Mac 用户请先用 SwiftBar 插件版。</span><span class="en">On a Mac, start with the SwiftBar plugin for now.</span></p>
+            <p><span class="zh">我还没有加入 Apple 开发者计划，独立版 DMG 暂时没有经过苹果签名和公证：第一次打开会被 macOS 拦下，要到“系统设置 → 隐私与安全性”里手动放行，之后的更新也可能要再放行一次。SwiftBar 插件版用的是同一个面板和同一套统计，装起来没有这一步，所以现在推荐先用它（<a href="https://github.com/timecatbit/starmeter#下载与安装">安装方法</a>）。等我加入开发者计划、DMG 完成公证，会在这里更新，到时再换成独立版也不迟。</span><span class="en">I haven't joined the Apple Developer Program yet, so the standalone DMG isn't signed or notarized by Apple: macOS blocks it the first time, you have to allow it in System Settings → Privacy &amp; Security, and an update may need that again. The SwiftBar plugin runs the same panel and counts the same way without that step, so it's the recommended way for now (<a href="https://github.com/timecatbit/starmeter/blob/main/README.en.md#download-and-install">how to install</a>). Once I've joined and the DMG is notarized, this note will say so, and you can switch then.</span></p>
+          </div>
+        </aside>
       </div>
       <div class="platforms">
+        <a class="platform recommended" href="https://github.com/timecatbit/starmeter/releases/latest">
+          <span class="os">SwiftBar <span class="badge"><span class="zh">推荐</span><span class="en">Recommended</span></span></span><b>Mac · SwiftBar plugin</b>
+          <span><span class="zh">现在推荐 · 不分芯片，需先装 SwiftBar</span><span class="en">For now · any chip, needs SwiftBar</span></span>
+        </a>
         <a class="platform" href="https://github.com/timecatbit/starmeter/releases/latest">
           <span class="os">macOS</span><b>Mac · Apple Silicon</b>
-          <span><span class="zh">M 系列芯片 · DMG</span><span class="en">M-series chips · DMG</span></span>
+          <span><span class="zh">M 系列芯片 · DMG · 未公证</span><span class="en">M-series chips · DMG · not notarized</span></span>
         </a>
         <a class="platform" href="https://github.com/timecatbit/starmeter/releases/latest">
           <span class="os">macOS</span><b>Mac · Intel</b>
-          <span><span class="zh">Intel 处理器 · DMG</span><span class="en">Intel processors · DMG</span></span>
+          <span><span class="zh">Intel 处理器 · DMG · 未公证</span><span class="en">Intel processors · DMG · not notarized</span></span>
         </a>
         <a class="platform" href="https://github.com/timecatbit/starmeter/releases/latest">
           <span class="os">Windows</span><b>Windows · Installer</b>
@@ -288,10 +299,6 @@
         <a class="platform" href="https://github.com/timecatbit/starmeter/releases/latest">
           <span class="os">Windows</span><b>Windows · Portable</b>
           <span><span class="zh">免安装 · ZIP</span><span class="en">No install · ZIP</span></span>
-        </a>
-        <a class="platform" href="https://github.com/timecatbit/starmeter/releases/latest">
-          <span class="os">SwiftBar</span><b>Mac · SwiftBar plugin</b>
-          <span><span class="zh">已经在用 SwiftBar · 不分芯片</span><span class="en">Already using SwiftBar · any chip</span></span>
         </a>
         <div class="platform brew">
           <span class="os">Homebrew</span>
