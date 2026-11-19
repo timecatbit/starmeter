@@ -3,11 +3,15 @@
 
 pub mod catalog;
 pub mod claude_usage;
+pub mod database;
 pub mod files;
+pub mod http;
 pub mod json;
+pub mod platform;
 pub mod preferences;
 pub mod pricing;
 pub mod py;
+pub mod shell;
 pub mod time;
 
 /// The version every host reports and the update check compares.

@@ -10,4 +10,12 @@ publish.workspace = true
 [dependencies]
 indexmap = "2"
 jiff.workspace = true
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "native-tls", "system-proxy", "http2", "socks"] }
+rusqlite = { version = "0.37", features = ["bundled"] }
 sha2 = "0.10"
+
+[target."cfg(unix)".dependencies]
+libc = "0.2"
+
+[target."cfg(windows)".dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }
