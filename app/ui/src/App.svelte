@@ -256,7 +256,13 @@
     }
     version++;
   }
-  $effect(() => { if (!panel.menuOpen && deferred) { deferred = false; void reload(); } });
+  // A native menu (the range, the share style) swallows the button coming up, so its closing ends the press too;
+  // otherwise the new range would wait for the next click to show.
+  $effect(() => {
+    if (panel.menuOpen) return;
+    pressing = false;
+    if (deferred) { deferred = false; void reload(); }
+  });
 
   function perform(action: string[]) {
     // 选择 Harness… opens the module grid in place.
