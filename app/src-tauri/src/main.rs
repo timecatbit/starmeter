@@ -195,8 +195,33 @@ fn build_star(app: &AppHandle) -> tauri::Result<()> {
             }
         })
         .build(app)?;
+    #[cfg(target_os = "macos")]
+    take_over_star(app);
     panel::update_star(app);
     Ok(())
+}
+
+/// On macOS the star's button reports its own clicks: a status item with a menu attached opens it on any click, so
+/// the tray library's left-click handling never sees them on newer systems.
+#[cfg(target_os = "macos")]
+fn take_over_star(app: &AppHandle) {
+    let Some(tray) = app.tray_by_id("star") else { return };
+    let item = tray
+        .with_inner_tray_icon(|inner| inner.ns_status_item().map(|item| objc2::rc::Retained::as_ptr(&item) as usize));
+    let Ok(Some(item)) = item else { return };
+    let app = app.clone();
+    macos::take_over_star(item, move |secondary| {
+        if secondary {
+            // The right-click menu replaces the panel; its own items then decide.
+            panel::close(&app, false);
+            if let (Some(tray), Ok(menu)) = (app.tray_by_id("star"), star_menu(&app)) {
+                let _ = tray.set_menu(Some(menu));
+                macos::pop_star_menu();
+            }
+        } else {
+            panel::toggle(&app, star_anchor(&app, None), false);
+        }
+    });
 }
 
 /// The homepage or the module list a launch asks for: the plugin's panel-open.json in SwiftBar's panel (its

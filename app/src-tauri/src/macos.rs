@@ -4,12 +4,12 @@
 
 use std::cell::RefCell;
 use std::ptr;
-use std::sync::mpsc;
+use std::sync::{OnceLock, mpsc};
 
 use block2::{Block, RcBlock};
 use objc2::rc::Retained;
-use objc2::runtime::{AnyClass, AnyObject, Bool};
-use objc2::{class, msg_send};
+use objc2::runtime::{AnyClass, AnyObject, Bool, NSObject};
+use objc2::{ClassType, class, define_class, msg_send, sel};
 use objc2_foundation::{NSPoint, NSRect, NSSize};
 use tauri::{AppHandle, Runtime, WebviewWindow};
 
@@ -204,6 +204,87 @@ pub fn set_frame(panel: &WebviewWindow, frame: NSRect) {
 pub fn frame(panel: &WebviewWindow) -> Option<NSRect> {
     let window = panel.ns_window().ok()?;
     unsafe { Some(msg_send![window.cast::<AnyObject>(), frame]) }
+}
+
+// MARK: The star
+
+/// What a click on the star does: true for the menu (a right click, or a click with Control held), false for the panel.
+type StarHandler = Box<dyn Fn(bool) + Send + Sync>;
+static STAR_HANDLER: OnceLock<StarHandler> = OnceLock::new();
+
+thread_local! {
+    /// The star's status item and the target its button reports clicks to (a control holds its target weakly).
+    static STAR: RefCell<Option<(Retained<AnyObject>, Retained<StarTarget>)>> = const { RefCell::new(None) };
+}
+
+define_class!(
+    #[unsafe(super(NSObject))]
+    #[name = "StarmeterStarTarget"]
+    struct StarTarget;
+
+    impl StarTarget {
+        #[unsafe(method(starClicked:))]
+        fn star_clicked(&self, _sender: *mut AnyObject) {
+            // NSEventTypeRightMouseUp is 4; NSEventModifierFlagControl is 1 << 18.
+            let secondary = unsafe {
+                let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+                let event: *mut AnyObject = msg_send![app, currentEvent];
+                if event.is_null() {
+                    false
+                } else {
+                    let kind: usize = msg_send![event, type];
+                    let flags: usize = msg_send![event, modifierFlags];
+                    kind == 4 || flags & (1 << 18) != 0
+                }
+            };
+            if let Some(handler) = STAR_HANDLER.get() {
+                handler(secondary);
+            }
+        }
+    }
+);
+
+/// Takes the star's clicks from the tray library. With a menu attached, a status item opens it on any click (newer
+/// macOS gives the click to the item before the library's overlay sees it), so the menu stays detached: the button
+/// reports left and right clicks to us, a left click toggles the panel, and the menu is attached only to show it.
+pub fn take_over_star(item: usize, handler: impl Fn(bool) + Send + Sync + 'static) {
+    let _ = STAR_HANDLER.set(Box::new(handler));
+    unsafe {
+        let Some(item) = Retained::retain(item as *mut AnyObject) else { return };
+        let _: () = msg_send![&*item, setMenu: ptr::null_mut::<AnyObject>()];
+        let button: *mut AnyObject = msg_send![&*item, button];
+        if button.is_null() {
+            return;
+        }
+        // The library's overlay would otherwise also catch clicks where macOS still hands them to it.
+        let subviews: Retained<AnyObject> = msg_send![button, subviews];
+        let count: usize = msg_send![&*subviews, count];
+        for index in (0..count).rev() {
+            let view: *mut AnyObject = msg_send![&*subviews, objectAtIndex: index];
+            if !view.is_null() && (*view).class().name() == c"TaoTrayTarget" {
+                let _: () = msg_send![view, removeFromSuperview];
+            }
+        }
+        let target: Retained<StarTarget> = msg_send![StarTarget::class(), new];
+        let _: () = msg_send![button, setTarget: &*target];
+        let _: () = msg_send![button, setAction: sel!(starClicked:)];
+        // NSEventMaskLeftMouseUp | NSEventMaskRightMouseUp
+        let _: isize = msg_send![button, sendActionOn: (1usize << 2) | (1usize << 4)];
+        STAR.with(|star| *star.borrow_mut() = Some((item, target)));
+    }
+}
+
+/// Opens the menu the tray library just attached, then detaches it again so the next left click opens the panel.
+pub fn pop_star_menu() {
+    let Some(item) = STAR.with(|star| star.borrow().as_ref().map(|(item, _)| item.clone())) else { return };
+    unsafe {
+        let button: *mut AnyObject = msg_send![&*item, button];
+        if !button.is_null() {
+            // Tracks the menu until it closes.
+            let _: () = msg_send![button, performClick: ptr::null_mut::<AnyObject>()];
+        }
+        let _: () = msg_send![&*item, setMenu: ptr::null_mut::<AnyObject>()];
+    }
 }
 
 // MARK: Focus
