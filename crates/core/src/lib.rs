@@ -5,13 +5,17 @@ pub mod catalog;
 pub mod claude_usage;
 pub mod database;
 pub mod files;
+pub mod harness;
 pub mod http;
 pub mod json;
+pub mod lines;
 pub mod platform;
 pub mod preferences;
 pub mod pricing;
 pub mod py;
+pub mod sessions;
 pub mod shell;
+pub mod tally;
 pub mod time;
 pub mod zstd;
 

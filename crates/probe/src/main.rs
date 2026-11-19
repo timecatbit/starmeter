@@ -9,7 +9,7 @@ use std::path::Path;
 use jiff::tz::TimeZone;
 use starmeter_core::json::{Format, Json, python_repr};
 use starmeter_core::time::IsoTime;
-use starmeter_core::{catalog, claude_usage, files, object, preferences, pricing, py, zstd};
+use starmeter_core::{catalog, claude_usage, files, harness, object, preferences, pricing, py, tally, zstd};
 
 fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
     let text = |index: usize| args.get(index).and_then(Json::as_str);
@@ -60,6 +60,77 @@ fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
             .collect::<Vec<_>>()
             .into()),
         "sha256" => Ok(py::sha256_hex(text(0).unwrap_or("").as_bytes()).into()),
+        "harness.gateway" => {
+            let log = tally::gateway_requests(
+                Path::new(text(0).unwrap_or("")),
+                Path::new(text(1).unwrap_or("")),
+                args.get(2).and_then(Json::number).unwrap_or(0.0),
+                args.get(3).and_then(Json::number).unwrap_or(f64::INFINITY),
+                text(4).unwrap_or("opencodex"),
+            )
+            .map_err(|error| error.to_string())?;
+            let clients: Vec<Json> = log
+                .into_iter()
+                .map(|(agent, requests)| {
+                    let mut splits: Vec<_> = requests.into_iter().collect();
+                    splits.sort_by_key(|(split, _)| *split);
+                    let splits: Vec<Json> = splits
+                        .into_iter()
+                        .map(|(split, times)| {
+                            Json::from(vec![
+                                Json::Int(split.input),
+                                Json::Int(split.cached),
+                                Json::Int(split.writes),
+                                Json::Int(split.output),
+                                Json::from(times),
+                            ])
+                        })
+                        .collect();
+                    Json::from(vec![Json::from(agent), Json::Array(splits)])
+                })
+                .collect();
+            Ok(clients.into())
+        }
+        "harness.read" => {
+            // [source, root, cache, start, end, zone, excludeProxy, archive, carriers]; carriers: [[name, log path or null, kind, agents or null]]
+            let source = text(0).unwrap_or("");
+            let zone = text(5).and_then(|name| TimeZone::get(name).ok()).unwrap_or(TimeZone::UTC);
+            let start = args.get(3).and_then(Json::number).unwrap_or(0.0);
+            let end = args.get(4).and_then(Json::number).unwrap_or(f64::INFINITY);
+            let cache = Path::new(text(2).unwrap_or(""));
+            let mut carriers: Vec<tally::Carrier> = Vec::new();
+            for spec in args.get(8).and_then(Json::as_array).into_iter().flatten() {
+                let fields = spec.as_array().cloned().unwrap_or_default();
+                let Some(name) = fields.first().and_then(Json::as_str) else { continue };
+                match fields.get(1).and_then(Json::as_str) {
+                    Some(path) => {
+                        let kind = fields.get(2).and_then(Json::as_str).unwrap_or("opencodex");
+                        let log = tally::gateway_requests(Path::new(path), cache, start, end, kind)
+                            .map_err(|error| error.to_string())?;
+                        let agents: Option<HashSet<String>> = fields
+                            .get(3)
+                            .and_then(Json::as_array)
+                            .map(|_| strings(fields.get(3)).into_iter().collect());
+                        carriers.push((name.to_string(), Some(tally::requests_from(&log, agents.as_ref()))));
+                    }
+                    None => carriers.push((name.to_string(), None)),
+                }
+            }
+            let exclude = args.get(6) == Some(&Json::Bool(true));
+            let carried = if carriers.is_empty() { None } else { Some(carriers.as_mut_slice()) };
+            let archive = text(7).map(Path::new);
+            let root = text(1).unwrap_or("");
+            let result = match source {
+                "gemini" => harness::gemini_usage(root, cache, start, end, &zone, exclude, carried, archive),
+                "opencode" => harness::opencode_usage(root, start, end, &zone, exclude, carried),
+                _ => {
+                    let price: Option<tally::Price> =
+                        if source == "magpie" { Some(&harness::magpie_price) } else { None };
+                    harness::jsonl_usage(source, root, cache, start, end, &zone, exclude, carried, price, archive)
+                }
+            };
+            Ok(result.map_err(|error| error.to_string())?.into())
+        }
         "claude.read_events" => {
             let files: Vec<String> = strings(args.first());
             let allowed: Option<HashSet<String>> =
