@@ -358,8 +358,8 @@ test('sharing previews the picture in each style, then copies or saves it', asyn
   // Every style draws, each with its own picture.
   const sources = new Set<string>();
   for (const name of ['卡片', '报刊', '夜空', '地铁', '织物', '终端']) {
-    if (name !== (await page.locator('.share-page .trigger .current').textContent())) await choose(page, /^风格/, name);
-    await expect(page.locator('.share-page .trigger .current')).toHaveText(name);
+    if (name !== (await page.getByRole('button', { name: /^风格 · / }).locator('.current').textContent())) await choose(page, /^风格/, name);
+    await expect(page.getByRole('button', { name: /^风格 · / }).locator('.current')).toHaveText(name);
     await expect(preview).toHaveAttribute('alt', new RegExp('^' + name));
     sources.add((await preview.getAttribute('src'))!);
   }
@@ -382,7 +382,7 @@ test('sharing previews the picture in each style, then copies or saves it', asyn
   await page.keyboard.press('Escape');
   await expect(page.locator('.dashboard')).toBeVisible();
   await button(page, '分享用量图').click();
-  await expect(page.locator('.share-page .trigger .current')).toHaveText('终端');
+  await expect(page.getByRole('button', { name: /^风格 · / }).locator('.current')).toHaveText('终端');
   await expect(page.getByRole('radio', { name: '深色' })).toHaveAttribute('aria-checked', 'true');
 });
 
