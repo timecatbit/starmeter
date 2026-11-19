@@ -42,7 +42,7 @@
 <div class="modules">
   <Scroller bind:scrollTop onswipeback={fromHome ? onback : undefined} onheight={(h) => onheight(h + 16)}>
     <div class="content">
-      {#if fromHome}<span class="back"><HintButton icon="chevron.left" hint="返回" label="返回" onclick={onback} /></span>{/if}
+      {#if fromHome}<span class="back"><HintButton icon="chevron.left" size={17} hint="返回" label="返回" onclick={onback} /></span>{/if}
       <h2 class="heading" style:left="{lead}px">主页模块</h2>
       <span class="count" style:left="{lead}px">已启用 {enabled} 项</span>
       {#if !fromHome}<button class="done pressable" onclick={ondone}>完成</button>{/if}

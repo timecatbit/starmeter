@@ -100,7 +100,7 @@
   <!-- Pinned, the header's free space moves the window, as a title bar would. -->
   <div class="grip" class:movable={panel.pinned} aria-hidden="true"
     onpointerdown={(event) => { if (event.button === 0 && panel.pinned) { event.preventDefault(); void moveWindow(); } }}></div>
-  <span class="back"><HintButton icon="chevron.left" hint="返回" label="返回" onclick={onback} /></span>
+  <span class="back"><HintButton icon="chevron.left" size={17} hint="返回" label="返回" onclick={onback} /></span>
   <span class="page-glyph"><Icon name="square.and.arrow.up" size={17} /></span>
   <h2 class="title">分享用量图<span class="range">{frozen.rangeLabel}</span></h2>
   <span class="rule"></span>

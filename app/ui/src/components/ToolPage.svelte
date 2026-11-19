@@ -44,7 +44,7 @@
   <!-- Pinned, the header's free space moves the window, as a title bar would. -->
   <div class="grip" class:movable={panel.pinned} aria-hidden="true"
     onpointerdown={(event) => { if (event.button === 0 && panel.pinned) { event.preventDefault(); void moveWindow(); } }}></div>
-  <span class="back"><HintButton icon="chevron.left" hint="返回" label="返回" onclick={onback} /></span>
+  <span class="back"><HintButton icon="chevron.left" size={17} hint="返回" label="返回" onclick={onback} /></span>
   <span class="page-glyph"><Glyph image={p.image} template={p.template} symbol={p.symbol} size={18} /></span>
   <h2 class="title">{p.name}</h2>
   <span class="value num">{p.available ? headline(p) : '—'}</span>
