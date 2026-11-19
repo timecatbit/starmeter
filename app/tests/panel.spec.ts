@@ -262,7 +262,7 @@ test('sharing previews the picture in each style, then copies or saves it', asyn
   // The picture is the poster itself, shown small (enough to see its look) and never cropped; light or dark is chosen
   // beside it.
   const size = await preview.evaluate((img: HTMLImageElement) => [img.naturalWidth, img.naturalHeight, img.width, img.height]);
-  expect(size[0]).toBe(840);
+  expect(size[0]).toBe(1260);
   expect(size[2]).toBeLessThanOrEqual(130);
   const light = await preview.getAttribute('src');
   await page.getByRole('radio', { name: '深色' }).click();

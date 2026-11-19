@@ -25,6 +25,8 @@
   const frozen = untrack(() => $state.snapshot(dashboard)) as Dashboard;
   const pictures = new Map<string, Picture>();
   let picture = $state<Picture | null>(null);
+  /** The style the picture on screen was drawn in: the menu changes at once, the picture once it is drawn. */
+  let drawnStyle = $state<ShareStyle>('card');
   let failed = $state(false);
   let busy = $state<'copy' | 'save' | 'share' | null>(null);
   let result = $state<{ op: 'copy' | 'save'; ok: boolean } | null>(null);
@@ -37,12 +39,14 @@
     const key = style + (dark ? ':dark' : ':light'), wantsDark = dark;
     remember(STYLE, style);
     const known = pictures.get(key);
-    if (known) { picture = known; failed = false; return; }
+    if (known) { picture = known; drawnStyle = style; failed = false; return; }
     let current = true;
-    void renderPicture(style, frozen, project, wantsDark).then((drawn) => {
+    const wanted = style;
+    void renderPicture(wanted, frozen, project, wantsDark).then((drawn) => {
       if (!current) return;
       if (drawn) pictures.set(key, drawn);
       picture = drawn;
+      drawnStyle = wanted;
       failed = !drawn;
     });
     return () => { current = false; };
@@ -104,7 +108,7 @@
       <div class="columns">
         <div class="frame" style:width="{PREVIEW}px" style:height="{previewHeight}px">
           {#if picture}
-            <img src={picture.url} alt="{styleName}风格的用量图预览" width={PREVIEW} height={previewHeight} />
+            <img src={picture.url} alt="{shareStyles.find((s) => s.key === drawnStyle)?.name ?? ''}风格的用量图预览" width={PREVIEW} height={previewHeight} />
           {:else if failed}
             <span class="note">没能画出来</span>
           {:else}
