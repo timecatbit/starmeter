@@ -15,6 +15,7 @@ pub mod client_accounts;
 pub mod cursor;
 pub mod dashboard;
 pub mod database;
+pub mod desktop;
 pub mod discovery;
 pub mod files;
 pub mod harness;
