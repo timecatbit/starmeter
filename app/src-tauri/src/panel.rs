@@ -19,8 +19,9 @@ use crate::macos;
 
 pub const PANEL: &str = "panel";
 
-/// A pinned panel's limits at its edges: the pages are laid out for 360pt and need room for Summary's top.
-const MIN_SIZE: (f64, f64) = (360.0, 280.0);
+/// A pinned panel's limits at its edges: the pages are laid out for 360pt and need room for the live chart (pinning
+/// starts compact, at about that height).
+const MIN_SIZE: (f64, f64) = (360.0, 220.0);
 const MAX_WIDTH: f64 = 720.0;
 
 #[derive(Clone, Copy, PartialEq)]

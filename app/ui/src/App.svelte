@@ -173,8 +173,13 @@
     }
     pinned = value;
     panel.pinned = value;
-    // Unpinned, the panel goes back under the star at its pages' own size.
+    // Unpinned, the panel goes back under the star at its pages' own size. Pinned from the homepage, it starts compact:
+    // the heading, the figures and the live chart (the rest scrolls, or the corner makes it taller).
     if (!value) free = null;
+    else if (!free && !managerOnly && !pageEntry && !sharing && !toolId) {
+      const top = (document.querySelector('.dashboard .summary') as HTMLElement | null)?.offsetHeight ?? 0;
+      if (top > 120) free = { width: panelWidth, height: Math.max(220, Math.round(8 + top + 6)) };
+    }
     void shell.setPinned(value);
     clearInterval(liveTimer);
     clearTimeout(pinHintTimer);
@@ -232,7 +237,7 @@
   function cornerMove(event: PointerEvent) {
     if (!cornerFrom) return;
     const width = Math.round(Math.min(720, Math.max(360, cornerFrom.width + event.clientX - cornerFrom.x)));
-    const height = Math.round(Math.max(280, cornerFrom.height + event.clientY - cornerFrom.y));
+    const height = Math.round(Math.max(220, cornerFrom.height + event.clientY - cornerFrom.y));
     cancelAnimationFrame(cornerFrame);
     cornerFrame = requestAnimationFrame(() => void shell.sizeTo(width, height));
   }

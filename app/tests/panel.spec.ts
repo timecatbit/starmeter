@@ -50,6 +50,9 @@ test('header buttons take clicks, and pinning turns the trend live', async ({ pa
   await expect(page.locator('.grabber')).toBeVisible();
   await expect(page.getByRole('separator', { name: '拖动调整大小' })).toBeVisible();
   await expect(page.locator('.pin-hint')).toHaveText('拖动顶部移动面板 · 拖右下角调整大小');
+  // Pinned, the panel starts compact: the heading, the figures and the live chart.
+  await expect.poll(async () => (await page.locator('.window').boundingBox())!.height).toBeLessThan(300);
+  expect((await page.locator('.window').boundingBox())!.height).toBeGreaterThanOrEqual(220);
   // The live tick reads again and the figures roll up.
   const before = await page.locator('.figure').nth(1).textContent();
   await expect.poll(async () => page.locator('.figure').nth(1).textContent(), { timeout: 8000 }).not.toBe(before);
@@ -76,7 +79,7 @@ test('a pinned panel resized at its edges lays its pages out at that width, and 
   expect(edge - (await right('.figure'))).toBeLessThan(16);
   expect(edge - (await right('.live'))).toBeLessThan(16);
   expect(edge - (await right('.card .cost'))).toBeLessThan(16);
-  // The corner handle follows the pointer, no smaller than 360 × 280.
+  // The corner handle follows the pointer, no smaller than 360 × 220.
   const corner = (await page.getByRole('separator', { name: '拖动调整大小' }).boundingBox())!;
   await page.mouse.move(corner.x + 15, corner.y + 15);
   await page.mouse.down();
