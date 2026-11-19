@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Checks Starmeter: Rust format, lints and tests; an unused-code scan of lib/ and scripts/; and the Python
-tests, which also hold the Rust engine's probe against the Python reference. Does not run the live plugin.
---rust-only stops after the Rust checks (the Windows runner: the Python reference is written for macOS)."""
+"""Checks Starmeter: the web UI's types and build; Rust format, lints and tests; an unused-code scan of lib/
+and scripts/; and the Python tests, which also hold the Rust engine's probe against the Python reference. Does
+not run the live plugin. --rust-only skips the Python tests (the Windows runner: the reference is written for
+macOS)."""
 import argparse
 import ast
 import os
@@ -41,6 +42,18 @@ def unused_code():
     return problems
 
 
+def ui():
+    """The panel's web UI: type check, then the build Tauri embeds (cargo needs it before it can compile the app)."""
+    npm = shutil.which('npm')
+    if not npm:
+        sys.exit('Install Node.js first: https://nodejs.org')
+    app = ROOT / 'app'
+    if not (app / 'node_modules').is_dir():
+        subprocess.run([npm, 'ci'], cwd=app, check=True)
+    subprocess.run([npm, 'run', 'check'], cwd=app, check=True)
+    subprocess.run([npm, 'run', 'build'], cwd=app, check=True)
+
+
 def rust():
     """Built with the real environment: cargo keeps its registry and toolchains under the real home."""
     cargo = shutil.which('cargo') or str(Path.home() / '.cargo' / 'bin' / 'cargo')
@@ -74,6 +87,7 @@ if __name__ == '__main__':
     problems = unused_code()
     if problems:
         sys.exit('Unused code:\n' + '\n'.join(problems))
+    ui()
     probe = rust()
     if not args.rust_only:
         python_tests(probe)
