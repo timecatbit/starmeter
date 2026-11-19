@@ -315,6 +315,7 @@ fn main() {
             host::open_link,
             host::copy_picture,
             host::share_picture,
+            host::save_picture,
         ])
         .setup(move |app| {
             #[cfg(target_os = "macos")]

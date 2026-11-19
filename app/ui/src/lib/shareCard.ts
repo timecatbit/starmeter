@@ -1,5 +1,5 @@
-// The card style: an opaque card on a soft wash lit by the leading tools' colours, with halftone dots above, below and
-// beside the estimate.
+// The card style: the card is the whole picture (no surround: chat apps shrink a picture to fit, and a frame only made
+// the figures smaller), lit by the leading tools' colours, with halftone dots above, below and beside the estimate.
 import { chartPositions, smoothCurves, tracePath } from './chart';
 import { accent, alpha, heatmapShades, label as labelColour, systemColor } from './colors';
 import { axisTokens, currency, headline, modelAmount, modelName, share, statsForms, tokenLine, tokens } from './format';
@@ -10,7 +10,7 @@ import {
 } from './shareCommon';
 import type { Dashboard, Project, ProviderUsage } from './types';
 
-const MARGIN = 22, INSET = 24, CHART = 150, MODEL = 24, LEGEND = 20;
+const MARGIN = 0, INSET = 28, CHART = 150, MODEL = 24, LEGEND = 20;
 const CLIENT_WIDTH = WIDTH - MARGIN * 2 - INSET * 2 - 32 - 12, CLIENT_FONT = font(10.5);
 const rounded = (size: number, weight: number) => font(size, weight, ROUNDED);
 
@@ -62,26 +62,20 @@ export async function drawCardPicture(d: Dashboard, project: Project, dark: bool
     }
   };
 
-  // A soft wash lit by the colours of the tools that used the most.
-  ctx.fillStyle = dark ? 'rgb(13, 15, 18)' : 'rgb(242, 245, 247)';
+  // The card's own surface to every edge, lit softly by the colours of the tools that used the most.
+  ctx.fillStyle = surface;
   ctx.fillRect(0, 0, WIDTH, height);
   const glows = [teal, ...[...counted].sort((a, b) => b.tokens - a.tokens).slice(0, 2).map((p) => accent(p.id, dark))];
   const spots: [number, number, number][] = [[0.08, 0.03, 0.95], [1, 0.22, 0.8], [0.1, 0.78, 0.9]];
   glows.forEach((colour, i) => {
     const [fx, fy, fr] = spots[i], cx = WIDTH * fx, cy = height * fy, r = WIDTH * fr;
     const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-    gradient.addColorStop(0, alpha(colour, dark ? 0.26 : 0.2)); gradient.addColorStop(1, alpha(colour, 0));
+    gradient.addColorStop(0, alpha(colour, dark ? 0.2 : 0.12)); gradient.addColorStop(1, alpha(colour, 0));
     ctx.fillStyle = gradient; ctx.fillRect(0, 0, WIDTH, height);
   });
   halftone({ x: 0, y: 0, w: WIDTH, h: TOP_BAND - 8 }, 'down', teal, dark ? 0.6 : 0.5);
   halftone({ x: 0, y: height - BOTTOM_BAND + 8, w: WIDTH, h: BOTTOM_BAND - 8 }, 'up', teal, dark ? 0.6 : 0.5);
   const card: Box = { x: MARGIN, y: TOP_BAND, w: WIDTH - MARGIN * 2, h: cardHeight };
-  ctx.save();
-  ctx.shadowColor = `rgba(0, 0, 0, ${dark ? 0.45 : 0.09})`; ctx.shadowBlur = 36; ctx.shadowOffsetY = 12;
-  ctx.fillStyle = surface; roundRect(ctx, card, 26); ctx.fill();
-  ctx.restore();
-  ctx.strokeStyle = labelColour(dark, dark ? 0.11 : 0.05); ctx.lineWidth = 1;
-  roundRect(ctx, { x: card.x + 0.5, y: card.y + 0.5, w: card.w - 1, h: card.h - 1 }, 25.5); ctx.stroke();
   const left = card.x + INSET, width = card.w - INSET * 2, right = left + width;
   let y = card.y + INSET;
 
@@ -96,7 +90,7 @@ export async function drawCardPicture(d: Dashboard, project: Project, dark: bool
   y += 44;
 
   // Hero: the estimate, its sign small against the figure, with dots fading in from the card's right edge beside it.
-  ctx.save(); roundRect(ctx, card, 26); ctx.clip();
+  ctx.save(); ctx.beginPath(); ctx.rect(card.x, card.y, card.w, card.h); ctx.clip();
   halftone({ x: card.x + card.w - 170, y: y - 6, w: 170, h: 94 }, 'left', teal, dark ? 0.34 : 0.26);
   ctx.restore();
   const costs = counted.map((p) => p.cost).filter((c): c is number => c !== null), partial = counted.some((p) => p.cost === null || p.unpriced > 0);

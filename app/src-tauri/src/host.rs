@@ -131,6 +131,16 @@ pub fn copy_picture(app: AppHandle, png: String) -> bool {
     }
 }
 
+/// 保存…: the picture where the user picks in the save dialog, the panel staying open below it. True once written.
+#[tauri::command]
+pub async fn save_picture(app: AppHandle, png: String, name: String) -> bool {
+    let bytes = decode(&png);
+    panel::step_aside(&app, true);
+    let path = save_file(&app, &name.replace('/', "-"), "png").await;
+    panel::step_aside(&app, false);
+    path.is_some_and(|path| std::fs::write(path, bytes).is_ok())
+}
+
 /// 分享…: the system share menu at the share button (macOS), or 保存图片… elsewhere.
 #[tauri::command]
 pub async fn share_picture(app: AppHandle, png: String, name: String, x: f64, y: f64, width: f64, height: f64) {

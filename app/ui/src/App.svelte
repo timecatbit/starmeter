@@ -10,13 +10,13 @@
   import { LiveFeed } from './lib/live';
   import { font, width as measure } from './lib/measure';
   import { pageIn, pageOut } from './lib/motion';
-  import { openShareMenu, renderPicture, type ShareStyle } from './lib/share';
-  import { panel, showToast } from './lib/ui.svelte';
+  import { panel } from './lib/ui.svelte';
   import type { Dashboard as DashboardData, Entry, ShellInfo, Snapshot } from './lib/types';
   import Dashboard from './components/Dashboard.svelte';
   import DetailPage from './components/DetailPage.svelte';
   import HomePage from './components/HomePage.svelte';
   import ModulesPage from './components/ModulesPage.svelte';
+  import SharePage from './components/SharePage.svelte';
 
   const interaction = new PanelInteraction();
   let version = $state(0);
@@ -47,7 +47,9 @@
   });
   // A page whose row has gone (a module turned off, a key removed) gives way to its list.
   $effect(() => { if (pagePath.length && snapshot && !pageEntry) { pagePath = []; pageOpen = new Set(); } });
-  const viewKey = $derived(pageEntry ? (managerOnly ? 'grid:' : 'home:') + pagePath.join('/') : managerOnly ? 'grid' : 'home');
+  /** The share page: the picture previewed before it is copied or saved. */
+  let sharing = $state(false);
+  const viewKey = $derived(sharing ? 'share' : pageEntry ? (managerOnly ? 'grid:' : 'home:') + pagePath.join('/') : managerOnly ? 'grid' : 'home');
 
   // MARK: The window
 
@@ -55,10 +57,11 @@
   /** The size the user gave the pinned panel at its edges: the homepage and the pages take it (the module grid keeps
    *  its own) until unpinned. */
   let free = $state<{ width: number; height: number } | null>(null);
-  let wanted = $state({ home: 400, page: 300, grid: 400 });
-  const grid = $derived(managerOnly && !pageEntry);
+  let wanted = $state({ home: 400, page: 300, grid: 400, share: 600 });
+  const grid = $derived(managerOnly && !pageEntry && !sharing);
   const panelWidth = $derived(grid ? 588 : free?.width ?? 360);
-  const panelHeight = $derived(free && !grid ? free.height : Math.min(pageEntry ? wanted.page : managerOnly ? wanted.grid : wanted.home, info.maxHeight));
+  const panelHeight = $derived(free && !grid ? free.height
+    : Math.min(sharing ? wanted.share : pageEntry ? wanted.page : managerOnly ? wanted.grid : wanted.home, info.maxHeight));
   $effect(() => { panel.width = free?.width ?? 360; });
   let lastSize = '';
   /** The latest size asked of the shell, for an opening to wait on. */
@@ -296,6 +299,12 @@
 
   function back() {
     panel.hint = null;
+    if (sharing) {
+      dir = -1;
+      sharing = false;
+      homeScroll = savedHome;
+      return;
+    }
     if (!pagePath.length) {
       if (settingsFromHome && managerOnly) finishModules();
       else void shell.close(true);
@@ -343,21 +352,13 @@
     if (entry.action) perform(entry.action);
   }
 
-  async function share(button: HTMLElement) {
+  /** The share button: the panel slides to the share page, as to a row's page. */
+  function openShare() {
+    if (!snapshot?.dashboard) return;
     panel.hint = null;
-    const dashboard = snapshot?.dashboard;
-    if (!dashboard) return;
-    const picked = await openShareMenu(button);
-    if (!picked) return;
-    const png = await renderPicture(picked.style as ShareStyle, dashboard, snapshot?.project ?? { name: 'Starmeter', url: 'https://github.com/timecatbit/starmeter' }, panel.dark);
-    if (!png) { showToast('复制失败', false); return; }
-    if (picked.op === 'copy') {
-      const ok = await shell.copyPicture(png).catch(() => false);
-      showToast(ok ? '已复制' : '复制失败', ok);
-    } else {
-      const box = button.getBoundingClientRect();
-      await shell.sharePicture(png, `Starmeter ${dashboard.date}.png`, { x: box.left, y: box.top, width: box.width, height: box.height });
-    }
+    savedHome = homeScroll;
+    dir = 1;
+    sharing = true;
   }
 
   // MARK: Opening and closing
@@ -365,6 +366,7 @@
   /** The page the panel opens on, without sliding: the homepage, or the module grid. */
   function startOver(modules: boolean) {
     panel.hint = null;
+    sharing = false;
     managerOnly = modules;
     settingsFromHome = false;
     pagePath = [];
@@ -464,7 +466,10 @@
   style:width={inTauri ? '100vw' : `${panelWidth}px`} style:height={inTauri ? '100vh' : `${panelHeight}px`}>
   {#key viewKey}
     <div class="view" in:pageIn={{ dir }} out:pageOut={{ dir }}>
-      {#if snapshot && pageEntry}
+      {#if sharing && snapshot?.dashboard}
+        <SharePage dashboard={snapshot.dashboard} project={snapshot.project ?? { name: 'Starmeter', url: 'https://github.com/timecatbit/starmeter' }}
+          onback={back} onheight={(h) => (wanted.share = h)} />
+      {:else if snapshot && pageEntry}
         <DetailPage page={pageEntry} open={pageOpen} busy={interaction.active} bind:scrollTop={pageScroll} onback={back}
           onopen={open} onchoose={choose} ontoggled={(next) => (pageOpen = next)} onheight={(h) => (wanted.page = h)} />
       {:else if snapshot && managerOnly}
@@ -496,7 +501,7 @@
 {#snippet dashboardView()}
   {#if shown && snapshot}
     <Dashboard data={shown} rangeOptions={snapshot.rangeOptions ?? []} {reveal} {glows} {summaryGlow} live={pinned || leaving !== null ? feed : null} {leaving} onleft={() => { leaving = null; feed = null; }} {liveStamp} {pinned}
-      {pinInterval} onrange={perform} onshare={share}
+      {pinInterval} onrange={perform} onshare={openShare}
       onpin={() => { panel.hint = null; setPinned(!pinned); if (pinned) perform(['refresh-live']); }} onsettings={openSettings}
       ongroup={(key) => perform(['set-group', key])} ontoggle={(id, expanded) => perform(['set-expanded', id, expanded ? 'true' : 'false'])} />
   {/if}

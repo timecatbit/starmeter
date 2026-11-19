@@ -400,6 +400,27 @@ pub fn focused(app: &AppHandle) {
     app.state::<Panel>().sharing.store(false, Ordering::SeqCst);
 }
 
+/// A save dialog is up: the panel stays open while the dialog has the focus, and sits below it (pinned or not, the panel
+/// floats above ordinary windows); afterwards it is back where it was, with the focus.
+pub fn step_aside(app: &AppHandle, aside: bool) {
+    let state = app.state::<Panel>();
+    state.held.store(aside, Ordering::SeqCst);
+    let pinned = state.pinned.load(Ordering::SeqCst);
+    let Some(window) = window(app) else { return };
+    #[cfg(target_os = "macos")]
+    {
+        let w = window.clone();
+        let _ = macos::on_main(app, move || macos::step_aside(&w, aside, pinned));
+    }
+    #[cfg(not(target_os = "macos"))]
+    if pinned {
+        let _ = window.set_always_on_top(!aside);
+    }
+    if !aside {
+        let _ = window.set_focus();
+    }
+}
+
 /// The share sheet (macOS) draws in another process; its clicks must not close the panel.
 #[cfg(target_os = "macos")]
 pub fn hold_for_share(app: &AppHandle) {

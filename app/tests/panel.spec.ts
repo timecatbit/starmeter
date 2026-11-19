@@ -181,15 +181,33 @@ test('folding shows each card on two lines until it is opened', async ({ page })
   await expect(page.locator('.model-name', { hasText: 'Opus 5.5' })).toBeVisible();
 });
 
-test('the share menu copies a picture and the share button turns into a green check', async ({ page }) => {
+test('sharing previews the picture in each style, then copies or saves it', async ({ page }) => {
   await open(page);
-  const share = button(page, '分享用量图');
-  await share.click();
-  await expect(page.locator('.share-menu')).toBeVisible();
-  await page.locator('.share-item', { hasText: '复制图片' }).first().click();
-  // With Summary and five buttons there is no room for the word, so the button alone says it (as in 5.x).
-  await expect(share.locator('.glyph')).toHaveCSS('color', 'rgb(46, 125, 79)');
-  await expect(share.locator('.glyph')).not.toHaveCSS('color', 'rgb(46, 125, 79)', { timeout: 4000 });
+  await button(page, '分享用量图').click();
+  await expect(page.locator('.share-page .title')).toHaveText('分享用量图');
+  const preview = page.locator('.frame img');
+  // Every style draws, each with its own picture.
+  const sources = new Set<string>();
+  for (const name of ['卡片', '报刊', '夜空', '地铁', '织物', '终端']) {
+    await page.getByRole('radio', { name }).click();
+    await expect(preview).toHaveAttribute('alt', new RegExp('^' + name));
+    sources.add((await preview.getAttribute('src'))!);
+  }
+  expect(sources.size).toBe(6);
+  // The picture is the poster itself: as wide as the page allows, never cropped.
+  const size = await preview.evaluate((img: HTMLImageElement) => [img.naturalWidth, img.naturalHeight, img.width, img.height]);
+  expect(size[0]).toBe(840);
+  expect(Math.abs(size[2] / size[3] - size[0] / size[1])).toBeLessThan(0.01);
+  await button(page, '复制图片').click();
+  await expect(page.locator('.action.primary')).toHaveText('已复制');
+  await expect(page.locator('.action.primary')).toHaveText('复制图片', { timeout: 4000 });
+  await button(page, '保存…').click();
+  await expect(page.locator('.action', { hasText: '已保存' })).toBeVisible();
+  // The chosen style is remembered, and Esc goes back home.
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.dashboard')).toBeVisible();
+  await button(page, '分享用量图').click();
+  await expect(page.getByRole('radio', { name: '终端' })).toHaveAttribute('aria-checked', 'true');
 });
 
 test('failures and first-run states say so', async ({ page }) => {

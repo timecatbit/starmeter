@@ -1,5 +1,5 @@
-// The terminal style: a terminal window on a dot grid, mostly in a monospaced face, with hex rain above, below and
-// beside the estimate.
+// The terminal style: the terminal is the whole picture (no desk around it: chat apps shrink a picture to fit, and a
+// frame only made the text smaller), mostly in a monospaced face, with hex rain above, below and beside the estimate.
 import { chartPositions, smoothCurves, tracePath } from './chart';
 import { accent, alpha, systemColor } from './colors';
 import { axisTokens, currency, headline, modelAmount, modelName, share, statsForms, tokenLine, tokens } from './format';
@@ -10,7 +10,7 @@ import {
 } from './shareCommon';
 import type { Dashboard, Project, ProviderUsage } from './types';
 
-const MARGIN = 22, PAD = 22, BAR = 34, CHART = 170, MODEL = 20, LEGEND = 18;
+const MARGIN = 0, PAD = 26, BAR = 34, CHART = 170, MODEL = 20, LEGEND = 18;
 const CLIENT_WIDTH = WIDTH - MARGIN * 2 - PAD * 2 - 16;
 const mono = (size: number, weight = 400) => font(size, weight, MONO);
 const ui = (size: number, weight: number) => font(size, weight);
@@ -91,10 +91,8 @@ export async function drawTerminalPicture(d: Dashboard, project: Project, dark: 
     }
   };
 
-  // A dot grid, lit faintly behind the window.
-  ctx.fillStyle = c.base; ctx.fillRect(0, 0, WIDTH, height);
-  ctx.fillStyle = c.dots;
-  for (let gy = 7; gy < height; gy += 14) for (let gx = 7; gx < WIDTH; gx += 14) ctx.fillRect(gx - 0.6, gy - 0.6, 1.2, 1.2);
+  // The window's own background to every edge, lit faintly from the top left.
+  ctx.fillStyle = c.window; ctx.fillRect(0, 0, WIDTH, height);
   const glow = ctx.createRadialGradient(WIDTH * 0.15, 60, 0, WIDTH * 0.15, 60, WIDTH * 0.9);
   glow.addColorStop(0, alpha(c.accent, dark ? 0.16 : 0.12)); glow.addColorStop(1, alpha(c.accent, 0));
   ctx.fillStyle = glow; ctx.fillRect(0, 0, WIDTH, height);
@@ -103,17 +101,11 @@ export async function drawTerminalPicture(d: Dashboard, project: Project, dark: 
 
   // The window: a title bar with its three lights, then the session.
   const win: Box = { x: MARGIN, y: TOP_BAND, w: WIDTH - MARGIN * 2, h: windowHeight };
-  ctx.save();
-  ctx.shadowColor = `rgba(0, 0, 0, ${dark ? 0.55 : 0.14})`; ctx.shadowBlur = 34; ctx.shadowOffsetY = 14;
-  ctx.fillStyle = c.window; roundRect(ctx, win, 12); ctx.fill();
-  ctx.restore();
-  ctx.save(); roundRect(ctx, win, 12); ctx.clip();
   ctx.fillStyle = c.bar; ctx.fillRect(win.x, win.y, win.w, BAR);
-  ctx.restore();
+  line(win.x, win.y, win.x + win.w, win.y, c.rule);
   line(win.x, win.y + BAR, win.x + win.w, win.y + BAR, c.rule);
-  ctx.strokeStyle = c.rule; ctx.lineWidth = 1; roundRect(ctx, { x: win.x + 0.5, y: win.y + 0.5, w: win.w - 1, h: win.h - 1 }, 11.5); ctx.stroke();
   [rgb(1, 0.37, 0.34), rgb(1, 0.74, 0.18), rgb(0.16, 0.78, 0.25)].forEach((light, i) => {
-    ctx.fillStyle = light; ctx.beginPath(); ctx.arc(win.x + 14 + i * 18 + 6, win.y + BAR / 2, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = light; ctx.beginPath(); ctx.arc(win.x + PAD + i * 18 + 6, win.y + BAR / 2, 6, 0, Math.PI * 2); ctx.fill();
   });
   middleText(ctx, 'starmeter — usage', win.x, win.y + BAR / 2, win.w, mono(11, 500), c.muted, 'center');
   const left = win.x + PAD, width = win.w - PAD * 2, right = left + width;

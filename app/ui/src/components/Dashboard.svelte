@@ -23,7 +23,7 @@
     data: Dashboard; rangeOptions: Entry[]; reveal: number; glows: Record<string, number>; summaryGlow: number; live: LiveFeed | null;
     leaving?: number | null; onleft?: () => void;
     liveStamp: string | null; pinned: boolean; pinInterval: number;
-    onrange: (action: string[]) => void; onshare: (button: HTMLElement) => void; onpin: () => void;
+    onrange: (action: string[]) => void; onshare: () => void; onpin: () => void;
     onsettings: () => void; ongroup: (key: string) => void; ontoggle: (id: string, expanded: boolean) => void;
   } = $props();
 
@@ -66,14 +66,10 @@
   const pickerX = $derived(inner - 12 - pickerWidth);
   /** The menu bar's star, drawn in the heading's colour. */
   const mark = markSvg.replace(/fill="#000000"/g, 'fill="currentColor"').replace(/width="24" height="24"/, 'width="15" height="15"');
-  const headingRight = 12 + 15 + 5 + width('Starmeter', font(14, 600)) + 6;
   const firstButton = $derived(pickerX - 6 - 30);
   const leftmost = $derived(firstButton - 2 * 32);
-  const toastWidth = $derived(panel.toast ? width(panel.toast.text, font(11, 500)) + 4 : 0);
-  const toastX = $derived(leftmost - 12 - toastWidth);
   const chosen = $derived(rangeOptions.find((o) => o.checked)?.action?.[1] ?? data.rangeKey);
 
-  let shareButton: HTMLSpanElement | undefined = $state();
   /** The range menu is open: only then does the picker look pressed (other menus set panel.menuOpen too). */
   let picking = $state(false);
   let select: HTMLSelectElement | undefined = $state();
@@ -106,18 +102,14 @@
     <div class="grip" class:movable={panel.pinned} onpointerdown={grab} aria-hidden="true"></div>
     <h1 class="heading" style:width="{leftmost - 6 - 12}px"><span class="brand" aria-hidden="true">{@html mark}</span>Starmeter</h1>
     <div class="buttons">
-      <span class="slot" bind:this={shareButton} style:left="{firstButton}px">
-        <HintButton icon={panel.toast ? (panel.toast.ok ? 'checkmark' : 'exclamationmark') : 'square.and.arrow.up'} hint="分享用量图" label="分享用量图"
-          tint={panel.toast ? (panel.toast.ok ? 'var(--green)' : 'var(--orange)') : 'var(--label)'} onclick={() => shareButton && onshare(shareButton)} />
+      <span class="slot" style:left="{firstButton}px">
+        <HintButton icon="square.and.arrow.up" hint="分享用量图" label="分享用量图" onclick={onshare} />
       </span>
       <span class="slot" style:left="{firstButton - 32}px">
         <HintButton icon={pinned ? 'pin.fill' : 'pin'} hint={pinned ? '取消钉住' : `钉住，每 ${pinInterval} 秒刷新`} label={pinned ? '取消钉住面板' : '钉住面板'}
           onclick={onpin} on={pinned} />
       </span>
       <span class="slot" style:left="{leftmost}px"><HintButton icon="gearshape" hint="主页模块与设置" label="主页模块与设置" onclick={onsettings} /></span>
-      {#if panel.toast && toastX >= headingRight}
-        <span class="toast" class:ok={panel.toast.ok} style:left="{toastX}px" style:width="{toastWidth}px" role="status">{panel.toast.text}</span>
-      {/if}
       <span class="picker" class:open={picking} style:left="{pickerX}px" style:width="{pickerWidth}px">
         <span class="picker-label">{data.rangeLabel}</span>
         <svg class="picker-arrows" width="7" height="5" viewBox="0 0 7 5" aria-hidden="true"><path d="M1 1.1 3.5 3.6 6 1.1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
@@ -212,13 +204,6 @@
   .buttons { position: absolute; left: 0; top: 0; width: 100%; height: 40px; pointer-events: none; }
   .buttons > * { pointer-events: auto; }
   .slot { top: 6px; }
-  .toast {
-    top: 12px;
-    font-size: 11px;
-    font-weight: 500;
-    color: var(--orange);
-  }
-  .toast.ok { color: var(--green); }
   .picker {
     top: 6px;
     height: 28px;

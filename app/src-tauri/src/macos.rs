@@ -117,6 +117,21 @@ fn reduce_transparency() -> bool {
     }
 }
 
+/// A save dialog is up: the panel drops to the ordinary level so the dialog shows above it, then goes back up.
+pub fn step_aside(panel: &WebviewWindow, aside: bool, pinned: bool) {
+    let Ok(window) = panel.ns_window() else { return };
+    let level = if aside {
+        0
+    } else if pinned {
+        FLOATING_LEVEL
+    } else {
+        POPUP_MENU_LEVEL
+    };
+    unsafe {
+        let _: () = msg_send![window.cast::<AnyObject>(), setLevel: level];
+    }
+}
+
 pub fn set_pinned(panel: &WebviewWindow, pinned: bool) {
     let Ok(window) = panel.ns_window() else { return };
     unsafe {

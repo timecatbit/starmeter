@@ -1,4 +1,5 @@
-// Panel-wide state the components share: light or dark, reduced motion, the header hint bubble and the copy toast.
+// Panel-wide state the components share: light or dark, reduced motion, the header hint bubble, the layout width and
+// whether the panel is pinned.
 import { shell } from './backend';
 
 const media = (query: string) => (typeof matchMedia === 'function' ? matchMedia(query) : null);
@@ -15,8 +16,6 @@ class PanelState {
   menuOpen = $state(false);
   /** The hint under a header button: its text and the button's box in the panel. */
   hint = $state<{ text: string; x: number; y: number; width: number; height: number } | null>(null);
-  /** The share button's confirmation: 已复制 in green, 复制失败 in orange. */
-  toast = $state<{ text: string; ok: boolean } | null>(null);
   /** The width the homepage and the pages lay out at: 360, or what the user made a pinned panel at its edges. */
   width = $state(360);
   /** Pinned: a page's top strip moves the window. */
@@ -59,9 +58,3 @@ export async function moveWindow() {
   }
 }
 
-let toastTimer: ReturnType<typeof setTimeout> | undefined;
-export function showToast(text: string, ok: boolean) {
-  clearTimeout(toastTimer);
-  panel.toast = { text, ok };
-  toastTimer = setTimeout(() => (panel.toast = null), 1850);
-}
