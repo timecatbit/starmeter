@@ -1,7 +1,8 @@
-﻿; Per-user installer for the Windows tray app; no administrator rights. build.ps1 passes the
-; version, the built program folder and the icon, and compiles it with Inno Setup 6.5 or later.
+﻿; Per-user installer for the Windows tray app; no administrator rights. scripts/build_windows.py passes the
+; version, the built program folder, the icon and Microsoft's WebView2 bootstrapper, and compiles it with Inno
+; Setup 6.5 or later.
 #ifndef AppVersion
-  #error Pass /DAppVersion=x.y.z /DAppDir=<built folder> /DIconFile=<icon>
+  #error Pass /DAppVersion=x.y.z /DAppDir=<built folder> /DIconFile=<icon> /DWebView2=<bootstrapper>
 #endif
 
 [Setup]
@@ -43,8 +44,10 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Name: "autostart"; Description: "登录 Windows 时启动"; Flags: unchecked
 
 [InstallDelete]
-; A newer build may drop libraries; the previous runtime must not stay mixed in with this one.
+; A newer build may drop libraries; the previous runtime must not stay mixed in with this one. 5.x shipped a
+; Python runtime in _internal and the Swift engine with its DLLs in engine.
 Type: filesandordirs; Name: "{app}\_internal"
+Type: filesandordirs; Name: "{app}\engine"
 Type: filesandordirs; Name: "{app}\licenses"
 ; Copies installed as Token Monitor gave the program and its shortcuts that name.
 Type: files; Name: "{app}\Token Monitor.exe"
@@ -53,6 +56,9 @@ Type: files; Name: "{autodesktop}\Token Monitor.lnk"
 
 [Files]
 Source: "{#AppDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+#ifdef WebView2
+Source: "{#WebView2}"; DestDir: "{tmp}"; DestName: "MicrosoftEdgeWebview2Setup.exe"; Flags: deleteafterinstall; Check: NeedsWebView2
+#endif
 
 [Icons]
 ; The same AppUserModelID as the app, so its notifications carry its name and icon.
@@ -60,12 +66,30 @@ Name: "{autoprograms}\Starmeter"; Filename: "{app}\Starmeter.exe"; AppUserModelI
 Name: "{autodesktop}\Starmeter"; Filename: "{app}\Starmeter.exe"; Tasks: desktopicon
 
 [Run]
+#ifdef WebView2
+; The panel draws with WebView2; Windows 11 has it, an older Windows 10 may not. Microsoft's bootstrapper installs
+; it for this user.
+Filename: "{tmp}\MicrosoftEdgeWebview2Setup.exe"; Parameters: "/silent /install"; StatusMsg: "正在安装 WebView2 运行库…"; Check: NeedsWebView2
+#endif
 Filename: "{app}\Starmeter.exe"; Description: "{cm:LaunchProgram,Starmeter}"; Flags: nowait postinstall skipifsilent
 
 [Code]
 const
   RunKey = 'Software\Microsoft\Windows\CurrentVersion\Run';
   RunValue = 'TokenMonitor';
+
+const
+  WebView2Client = '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}';
+
+{ Installed for the machine or for this user, as Microsoft's distribution guide says to check. }
+function NeedsWebView2: Boolean;
+var
+  Version: String;
+begin
+  Result := not ((RegQueryStringValue(HKLM, 'SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\' + WebView2Client, 'pv', Version)
+    or RegQueryStringValue(HKCU, 'Software\Microsoft\EdgeUpdate\Clients\' + WebView2Client, 'pv', Version))
+    and (Version <> '') and (Version <> '0.0.0.0'));
+end;
 
 function InstalledExe: String;
 begin
