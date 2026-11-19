@@ -179,24 +179,50 @@ test('folding shows each card on two lines until it is opened', async ({ page })
   await expect(page.locator('.model-name', { hasText: 'Opus 5.5' })).toHaveCount(0);
   await fold.click();
   await expect(page.locator('.model-name', { hasText: 'Opus 5.5' })).toBeVisible();
+  // Folding stays on the chevron's corner; the rest of the card still opens its page.
+  await button(page, 'Claude 详情').click();
+  await expect(page.getByRole('heading', { name: 'Claude', exact: true })).toBeVisible();
+});
+
+test('a tool card opens its page: figures, its trend, every model, then its settings', async ({ page }) => {
+  await open(page);
+  await button(page, 'Claude 详情').click();
+  await expect(page.getByRole('heading', { name: 'Claude', exact: true })).toBeVisible();
+  await expect(page.locator('.figure-name')).toHaveText(['Token', '请求', '缓存', '输出', '会话']);
+  await expect(page.locator('.page .trend path')).toHaveCount(2);
+  await expect(page.locator('.page .model-name')).toHaveText(['Opus 5.5', 'Fable 5.2', 'Haiku 5.5']);
+  await expect(page.locator('.page .section', { hasText: '设置' })).toBeVisible();
+  await expect(page.getByText('选择 Claude 数据目录…')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.dashboard')).toBeVisible();
+  // A gateway's page names its clients; a card grouped by model has no page.
+  await button(page, 'Magpie 详情').click();
+  await expect(page.locator('.page .clients')).toContainText('客户端');
+  await page.keyboard.press('Escape');
+  await page.getByRole('radio', { name: '模型' }).click();
+  await expect(page.locator('.card .name').first()).toHaveText('Claude Opus 5.5');
+  await expect(page.locator('.card .open')).toHaveCount(0);
 });
 
 test('sharing previews the picture in each style, then copies or saves it', async ({ page }) => {
   await open(page);
   await button(page, '分享用量图').click();
-  await expect(page.locator('.share-page .title')).toHaveText('分享用量图');
+  await expect(page.locator('.share-page .title')).toHaveText('分享用量图今天');
   const preview = page.locator('.frame img');
   // Every style draws, each with its own picture.
   const sources = new Set<string>();
+  const styles = page.locator('.share-page select');
   for (const name of ['卡片', '报刊', '夜空', '地铁', '织物', '终端']) {
-    await page.getByRole('radio', { name }).click();
+    await styles.selectOption({ label: name });
+    await expect(page.locator('.share-page .picker-label')).toHaveText(name);
     await expect(preview).toHaveAttribute('alt', new RegExp('^' + name));
     sources.add((await preview.getAttribute('src'))!);
   }
   expect(sources.size).toBe(6);
-  // The picture is the poster itself: as wide as the page allows, never cropped.
+  // The picture is the poster itself, shown small (about 60% of the page) and never cropped.
   const size = await preview.evaluate((img: HTMLImageElement) => [img.naturalWidth, img.naturalHeight, img.width, img.height]);
   expect(size[0]).toBe(840);
+  expect(size[2]).toBeLessThanOrEqual(280);
   expect(Math.abs(size[2] / size[3] - size[0] / size[1])).toBeLessThan(0.01);
   await button(page, '复制图片').click();
   await expect(page.locator('.action.primary')).toHaveText('已复制');
@@ -207,7 +233,7 @@ test('sharing previews the picture in each style, then copies or saves it', asyn
   await page.keyboard.press('Escape');
   await expect(page.locator('.dashboard')).toBeVisible();
   await button(page, '分享用量图').click();
-  await expect(page.getByRole('radio', { name: '终端' })).toHaveAttribute('aria-checked', 'true');
+  await expect(styles).toHaveValue('terminal');
 });
 
 test('failures and first-run states say so', async ({ page }) => {

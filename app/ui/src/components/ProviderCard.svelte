@@ -10,8 +10,8 @@
   import Figure from './Figure.svelte';
   import Glyph from './Glyph.svelte';
 
-  let { p, collapsible = false, expanded = true, glow = 0, ontoggle }:
-    { p: ProviderUsage; collapsible?: boolean; expanded?: boolean; glow?: number; ontoggle?: () => void } = $props();
+  let { p, collapsible = false, expanded = true, glow = 0, ontoggle, onopen }:
+    { p: ProviderUsage; collapsible?: boolean; expanded?: boolean; glow?: number; ontoggle?: () => void; onopen?: () => void } = $props();
 
   const left = 12;
   const right = $derived(panel.width - 28);
@@ -52,9 +52,13 @@
   const height = $derived(collapsible && !expanded ? 52 : p.available ? 52 + clientHeight + Math.max(1, p.models.length) * 18 + 8 : 52);
 </script>
 
-<div class="card" style:height="{height}px">
+<div class="card" class:opens={!!onopen} style:height="{height}px">
+  <!-- A tool's card opens its page; folded cards keep the chevron's corner for folding. -->
+  {#if onopen}
+    <button class="open pressable" aria-label="{p.name} 详情" onclick={onopen}></button>
+  {/if}
   {#if collapsible}
-    <button class="fold pressable" aria-label="{expanded ? '收起' : '展开'} {p.name} 明细" aria-expanded={expanded} onclick={ontoggle}></button>
+    <button class="fold pressable" class:corner={!!onopen} aria-label="{expanded ? '收起' : '展开'} {p.name} 明细" aria-expanded={expanded} onclick={ontoggle}></button>
     <svg class="chevron" class:open={expanded} style:left="{right - 8}px" style:top="{mid - 4}px" width="8" height="8" viewBox="0 0 8 8" aria-hidden="true">
       <path d="M2.5 1 5.5 4 2.5 7" fill="none" stroke="var(--tertiary)" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" />
     </svg>
@@ -123,7 +127,7 @@
     text-overflow: ellipsis;
     line-height: 1.2;
   }
-  .fold {
+  .fold, .open {
     position: absolute;
     left: 4px;
     top: 2px;
@@ -131,8 +135,12 @@
     height: 46px;
     border-radius: 8px;
   }
-  .fold:hover { background: var(--hover); }
-  .fold:active { background: var(--press); }
+  .open { --press-scale: 0.99; height: calc(100% - 6px); }
+  .fold.corner { left: auto; right: 4px; width: 40px; }
+  .fold:hover, .open:hover { background: var(--hover); }
+  .fold:active, .open:active { background: var(--press); }
+  /* The words let the pointer through to the card's button under them. */
+  .card.opens > span, .card.opens .models { pointer-events: none; }
   .chevron {
     position: absolute;
     pointer-events: none;

@@ -1,6 +1,6 @@
 <script lang="ts">
-  // 分享用量图: pick a style, see the picture exactly as it will be sent, then copy it, save it to the computer, or (on
-  // macOS) hand it to the share menu. The figures are those on screen when the page opened, so live readings don't
+  // 分享用量图: pick a style from the menu at the top right, see the picture exactly as it will be sent (small, so most
+  // of it shows at once), then copy it, save it to the computer, or (on macOS) hand it to the share menu. The figures are those on screen when the page opened, so live readings don't
   // redraw the picture under the reader.
   import { onDestroy, untrack } from 'svelte';
   import { inTauri, shell } from '../lib/backend';
@@ -43,7 +43,13 @@
   });
   onDestroy(() => { for (const p of pictures.values()) URL.revokeObjectURL(p.url); clearTimeout(resultTimer); });
 
-  const previewWidth = $derived(panel.width - 32);
+  const previewWidth = $derived(Math.min(280, Math.round(panel.width * 0.62)));
+  const styleName = $derived(shareStyles.find((s) => s.key === style)?.name ?? '');
+  let picking = $state(false);
+  function pick(event: Event) {
+    style = (event.target as HTMLSelectElement).value as ShareStyle;
+    panel.menuOpen = picking = false;
+  }
   const previewHeight = $derived(picture ? Math.round((previewWidth * picture.height) / picture.width) : 420);
   const fileName = $derived(`Starmeter ${frozen.date} ${shareStyles.find((s) => s.key === style)?.name ?? ''}.png`);
 
@@ -83,19 +89,24 @@
     onpointerdown={(event) => { if (event.button === 0 && panel.pinned) { event.preventDefault(); void moveWindow(); } }}></div>
   <span class="back"><HintButton icon="chevron.left" hint="返回" label="返回" onclick={onback} /></span>
   <span class="page-glyph"><Icon name="square.and.arrow.up" size={17} /></span>
-  <h2 class="title">分享用量图</h2>
-  <span class="value">{frozen.rangeLabel}</span>
+  <h2 class="title">分享用量图<span class="range">{frozen.rangeLabel}</span></h2>
+  <!-- The style, as the range picker on the homepage: bare until pointed at, the system menu when clicked. -->
+  <span class="picker" class:open={picking}>
+    <span class="picker-label">{styleName}</span>
+    <svg class="picker-arrows" width="7" height="5" viewBox="0 0 7 5" aria-hidden="true"><path d="M1 1.1 3.5 3.6 6 1.1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
+    <select aria-label="风格 · {styleName}" value={style} onchange={pick}
+      onpointerdown={() => (panel.menuOpen = picking = true)} onblur={() => (panel.menuOpen = picking = false)}>
+      {#each shareStyles as s (s.key)}
+        <option value={s.key}>{s.name}</option>
+      {/each}
+    </select>
+  </span>
   <span class="rule"></span>
-  <div class="styles" role="radiogroup" aria-label="风格">
-    {#each shareStyles as s (s.key)}
-      <button class="style pressable" class:chosen={s.key === style} role="radio" aria-checked={s.key === style} onclick={() => (style = s.key)}>{s.name}</button>
-    {/each}
-  </div>
   <div class="preview">
-    <Scroller onswipeback={onback} onheight={(h) => onheight(96 + h + 64)}>
+    <Scroller onswipeback={onback} onheight={(h) => onheight(62 + h + 64)}>
       <div class="frame" style:width="{previewWidth}px" style:height="{previewHeight}px">
         {#if picture}
-          <img src={picture.url} alt="{shareStyles.find((s) => s.key === style)?.name}风格的用量图预览" width={previewWidth} height={previewHeight} />
+          <img src={picture.url} alt="{styleName}风格的用量图预览" width={previewWidth} height={previewHeight} />
         {:else if failed}
           <span class="note">这张图没能画出来</span>
         {:else}
@@ -146,15 +157,38 @@
     line-height: 20px;
     pointer-events: none;
   }
-  .value {
-    position: absolute;
-    right: 16px;
-    top: 18px;
+  .range {
+    margin-left: 8px;
     font-size: 11.5px;
     font-weight: 500;
-    line-height: 16px;
     color: var(--secondary);
-    pointer-events: none;
+  }
+  .picker {
+    position: absolute;
+    right: 12px;
+    top: 11px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    box-sizing: border-box;
+    padding: 0 8px;
+    border-radius: 7px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--label);
+  }
+  .picker:hover { background: var(--hover); }
+  .picker.open, .picker:active { background: var(--press); }
+  .picker-arrows { flex: none; color: var(--secondary); }
+  .picker select {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    font-size: 12px;
+    cursor: default;
   }
   .rule {
     position: absolute;
@@ -164,40 +198,17 @@
     height: 1px;
     background: var(--separator);
   }
-  .styles {
-    position: absolute;
-    left: 12px;
-    right: 12px;
-    top: 58px;
-    height: 28px;
-    display: flex;
-    gap: 2px;
-  }
-  .style {
-    --press-scale: 0.92;
-    flex: 1;
-    height: 26px;
-    border-radius: 7px;
-    font-size: 11.5px;
-    color: var(--secondary);
-  }
-  .style:hover { background: var(--hover); }
-  .style.chosen {
-    color: var(--label);
-    font-weight: 600;
-    background: color-mix(in srgb, var(--label) 9.5%, transparent);
-  }
   .preview {
     position: absolute;
     left: 0;
     right: 0;
-    top: 96px;
+    top: 62px;
     bottom: 60px;
     display: flex;
   }
   .frame {
     margin: 0 auto 4px;
-    border-radius: 10px;
+    border-radius: 8px;
     overflow: hidden;
     box-shadow: 0 0 0 0.5px var(--separator), 0 4px 14px rgba(0, 0, 0, 0.14);
     display: flex;

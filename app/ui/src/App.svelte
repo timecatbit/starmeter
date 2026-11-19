@@ -17,6 +17,7 @@
   import HomePage from './components/HomePage.svelte';
   import ModulesPage from './components/ModulesPage.svelte';
   import SharePage from './components/SharePage.svelte';
+  import ToolPage from './components/ToolPage.svelte';
 
   const interaction = new PanelInteraction();
   let version = $state(0);
@@ -49,7 +50,11 @@
   $effect(() => { if (pagePath.length && snapshot && !pageEntry) { pagePath = []; pageOpen = new Set(); } });
   /** The share page: the picture previewed before it is copied or saved. */
   let sharing = $state(false);
-  const viewKey = $derived(sharing ? 'share' : pageEntry ? (managerOnly ? 'grid:' : 'home:') + pagePath.join('/') : managerOnly ? 'grid' : 'home');
+  /** A tool's page, opened from its card: its usage and its settings. */
+  let toolId = $state<string | null>(null);
+  const tool = $derived(toolId ? snapshot?.dashboard?.providers.find((p) => p.id === toolId) ?? null : null);
+  const toolSettings = $derived(toolId ? (snapshot?.moduleOptions ?? []).find((e) => e.action?.[0] === 'set-module' && e.action[1] === toolId) ?? null : null);
+  const viewKey = $derived(sharing ? 'share' : toolId ? 'tool:' + toolId : pageEntry ? (managerOnly ? 'grid:' : 'home:') + pagePath.join('/') : managerOnly ? 'grid' : 'home');
 
   // MARK: The window
 
@@ -57,11 +62,11 @@
   /** The size the user gave the pinned panel at its edges: the homepage and the pages take it (the module grid keeps
    *  its own) until unpinned. */
   let free = $state<{ width: number; height: number } | null>(null);
-  let wanted = $state({ home: 400, page: 300, grid: 400, share: 600 });
-  const grid = $derived(managerOnly && !pageEntry && !sharing);
+  let wanted = $state({ home: 400, page: 300, grid: 400, share: 600, tool: 500 });
+  const grid = $derived(managerOnly && !pageEntry && !sharing && !toolId);
   const panelWidth = $derived(grid ? 588 : free?.width ?? 360);
   const panelHeight = $derived(free && !grid ? free.height
-    : Math.min(sharing ? wanted.share : pageEntry ? wanted.page : managerOnly ? wanted.grid : wanted.home, info.maxHeight));
+    : Math.min(sharing ? wanted.share : toolId ? wanted.tool : pageEntry ? wanted.page : managerOnly ? wanted.grid : wanted.home, info.maxHeight));
   $effect(() => { panel.width = free?.width ?? 360; });
   let lastSize = '';
   /** The latest size asked of the shell, for an opening to wait on. */
@@ -76,10 +81,11 @@
 
   // MARK: Theme and background
 
-  // The shell says whether the system material shows (not on Linux, not with Reduce Transparency).
-  let glass = $state(true);
+  // 实色 (the default), 磨砂 or 玻璃; the shell says whether a material shows (not on Linux, not with Reduce
+  // Transparency), and otherwise the page paints the solid colour.
+  let glass = $state(false);
   $effect(() => {
-    const theme = snapshot?.theme ?? 'system', wanted = (snapshot?.appearance ?? 'glass') !== 'solid';
+    const theme = snapshot?.theme ?? 'system', material = snapshot?.appearance ?? 'solid';
     panel.theme = theme;
     if (theme === 'system') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = theme;
     void shell.setLook(theme, material).then((shown) => (glass = shown));
@@ -299,9 +305,10 @@
 
   function back() {
     panel.hint = null;
-    if (sharing) {
+    if (sharing || toolId) {
       dir = -1;
       sharing = false;
+      toolId = null;
       homeScroll = savedHome;
       return;
     }
@@ -352,6 +359,18 @@
     if (entry.action) perform(entry.action);
   }
 
+  /** A tool's card: the panel slides to its page. */
+  function openTool(id: string) {
+    panel.hint = null;
+    savedHome = homeScroll;
+    dir = 1;
+    toolScroll = 0;
+    toolId = id;
+  }
+  let toolScroll = $state(0);
+  // A tool that has left the homepage (its module turned off) gives way to it.
+  $effect(() => { if (toolId && snapshot?.dashboard && !tool) toolId = null; });
+
   /** The share button: the panel slides to the share page, as to a row's page. */
   function openShare() {
     if (!snapshot?.dashboard) return;
@@ -367,6 +386,7 @@
   function startOver(modules: boolean) {
     panel.hint = null;
     sharing = false;
+    toolId = null;
     managerOnly = modules;
     settingsFromHome = false;
     pagePath = [];
@@ -469,6 +489,9 @@
       {#if sharing && snapshot?.dashboard}
         <SharePage dashboard={snapshot.dashboard} project={snapshot.project ?? { name: 'Starmeter', url: 'https://github.com/timecatbit/starmeter' }}
           onback={back} onheight={(h) => (wanted.share = h)} />
+      {:else if toolId && tool && snapshot?.dashboard}
+        <ToolPage p={tool} dashboard={snapshot.dashboard} settings={toolSettings} busy={interaction.active} bind:scrollTop={toolScroll} onback={back}
+          onopen={open} onchoose={choose} onheight={(h) => (wanted.tool = h)} />
       {:else if snapshot && pageEntry}
         <DetailPage page={pageEntry} open={pageOpen} busy={interaction.active} bind:scrollTop={pageScroll} onback={back}
           onopen={open} onchoose={choose} ontoggled={(next) => (pageOpen = next)} onheight={(h) => (wanted.page = h)} />
@@ -503,7 +526,7 @@
     <Dashboard data={shown} rangeOptions={snapshot.rangeOptions ?? []} {reveal} {glows} {summaryGlow} live={pinned || leaving !== null ? feed : null} {leaving} onleft={() => { leaving = null; feed = null; }} {liveStamp} {pinned}
       {pinInterval} onrange={perform} onshare={openShare}
       onpin={() => { panel.hint = null; setPinned(!pinned); if (pinned) perform(['refresh-live']); }} onsettings={openSettings}
-      ongroup={(key) => perform(['set-group', key])} ontoggle={(id, expanded) => perform(['set-expanded', id, expanded ? 'true' : 'false'])} />
+      onopentool={openTool} ongroup={(key) => perform(['set-group', key])} ontoggle={(id, expanded) => perform(['set-expanded', id, expanded ? 'true' : 'false'])} />
   {/if}
 {/snippet}
 

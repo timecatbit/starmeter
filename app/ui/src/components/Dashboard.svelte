@@ -3,7 +3,7 @@
   // while pinned), the heatmap, the grouping tabs and the Harness cards.
   import { accent, blend, label as labelColour, totalColor } from '../lib/colors';
   import { chartExtra, labelColumn, legendLabels, legendLayout, summaryProviders } from '../lib/chart';
-  import { money, tokens } from '../lib/format';
+  import { isGrouped, money, tokens } from '../lib/format';
   import { HeatmapLayout, panelSquare, rows as heatmapRows } from '../lib/heatmap';
   import type { LiveFeed } from '../lib/live';
   import { font, width } from '../lib/measure';
@@ -19,12 +19,13 @@
   import SummaryChart from './SummaryChart.svelte';
 
   let { data, rangeOptions, reveal, glows, summaryGlow, live, leaving = null, onleft, liveStamp, pinned, pinInterval, onrange,
-    onshare, onpin, onsettings, ongroup, ontoggle }: {
+    onshare, onpin, onsettings, ongroup, ontoggle, onopentool }: {
     data: Dashboard; rangeOptions: Entry[]; reveal: number; glows: Record<string, number>; summaryGlow: number; live: LiveFeed | null;
     leaving?: number | null; onleft?: () => void;
     liveStamp: string | null; pinned: boolean; pinInterval: number;
     onrange: (action: string[]) => void; onshare: () => void; onpin: () => void;
     onsettings: () => void; ongroup: (key: string) => void; ontoggle: (id: string, expanded: boolean) => void;
+    onopentool: (id: string) => void;
   } = $props();
 
   // 344pt between the homepage's margins, more in a pinned panel made wider.
@@ -152,7 +153,8 @@
       <div class="no-calls">此时段暂无调用</div>
     {/if}
     {#each cardList as p (p.id)}
-      <ProviderCard {p} {collapsible} expanded={expanded.has(p.id)} glow={glows[p.id] ?? 0} ontoggle={() => ontoggle(p.id, !expanded.has(p.id))} />
+      <ProviderCard {p} {collapsible} expanded={expanded.has(p.id)} glow={glows[p.id] ?? 0} ontoggle={() => ontoggle(p.id, !expanded.has(p.id))}
+        onopen={isGrouped(p) ? undefined : () => onopentool(p.id)} />
     {/each}
   </div>
 </div>
