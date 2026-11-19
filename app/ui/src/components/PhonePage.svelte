@@ -137,9 +137,9 @@
         {#if failed}<p class="failed">{t(failed)}</p>{/if}
 
         {#if view}
-          <p class="note">
+          {#if !asking}<p class="note">
             {reach === 'public' ? t('任何网络都能打开，链接带一次性口令') : t('手机和电脑连同一个网络（Wi-Fi）后扫码；第一次打开时系统可能问是否允许 Starmeter 接收连接，选允许')}
-          </p>
+          </p>{/if}
           <p class="note">{t('只读：手机上只能看主页和工具页，不能改设置。还能看 {n} 分钟。', { n: minutes })}</p>
           <div class="actions">
             {#if view.public}<button class="action pressable" onclick={closePublic}>{t('关闭外网链接')}</button>{/if}
