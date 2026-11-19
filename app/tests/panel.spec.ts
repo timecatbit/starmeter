@@ -113,6 +113,33 @@ test('a new range while pinned carries the live line on instead of starting it o
   expect(result.ranges).toBe(true);
 });
 
+test('pinned, picking ranges back and forth adds nothing to the live line', async ({ page }) => {
+  test.setTimeout(60_000);
+  await open(page);
+  await button(page, '钉住面板').click();
+  await page.waitForTimeout(4500);
+  const added = () => page.locator('.live').evaluate((c) => Number((c as HTMLElement).dataset.added ?? 0));
+  // As a person picks: at the menu's own place, nothing scrolled to it first.
+  const pick = async (label: string) => {
+    const at = async (l: ReturnType<Page['locator']>) => { const b = (await l.boundingBox())!; await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2); };
+    await at(page.locator('.picker .trigger'));
+    await at(page.getByRole('option', { name: label, exact: true }));
+  };
+  for (const label of ['昨天', '今天', '近 7 天', '昨天', '今天']) {
+    const before = await added();
+    await pick(label);
+    await page.waitForTimeout(700);
+    // A new range, its sources arriving one by one, a gateway taking over its clients' requests: none of it is usage.
+    expect(await added() - before, label).toBeLessThan(150_000);
+    if (label === '昨天') {
+      const settled = await added();
+      await page.waitForTimeout(2500);
+      expect(await added(), 'yesterday does not grow').toBe(settled);
+    }
+    expect(await page.evaluate(() => document.querySelector('.home .viewport')?.scrollTop ?? 0)).toBe(0);
+  }
+});
+
 test('会话 sits beside the groupings: running or idle, this turn\'s tokens, three shown and the rest one click away', async ({ page }) => {
   await open(page);
   // Its row leaves the other rows for the tab.
