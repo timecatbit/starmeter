@@ -138,8 +138,6 @@
     <div class="grip" class:movable={panel.pinned} onpointerdown={grab} aria-hidden="true"></div>
     <h1 class="heading" style:width="{leftmost - 6 - 12}px"><span class="brand" aria-hidden="true">{@html mark}</span>Starmeter</h1>
     <div class="buttons">
-      <!-- The three buttons sit together on one soft base, a small toolbar; the pin's cell deepens while pinned. -->
-      <span class="toolbar" style:left="{leftmost}px" style:width="{firstButton + 30 - leftmost}px"></span>
       <!-- The pin first, then settings and share; on a Mac the symbols are the system's own. -->
       <span class="slot" style:left="{leftmost}px">
         <HintButton icon={pinned ? 'pin.fill' : 'pin'} system hint={pinned ? '取消钉住' : `钉住，每 ${pinInterval} 秒刷新`} label={pinned ? '取消钉住面板' : '钉住面板'}
@@ -247,13 +245,6 @@
   .buttons { position: absolute; left: 0; top: 0; width: 100%; height: 40px; pointer-events: none; }
   .buttons > * { pointer-events: auto; }
   .slot { top: 6px; }
-  .toolbar {
-    top: 6px;
-    height: 28px;
-    border-radius: 9px;
-    background: color-mix(in srgb, var(--label) 5.5%, transparent);
-    pointer-events: none;
-  }
   .picker {
     top: 6px;
     height: 28px;
