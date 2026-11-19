@@ -573,9 +573,11 @@ fn jsonl_files(root: &str, source: &str) -> Vec<String> {
             if Path::new(&log).exists() && !is_directory(&log) { vec![log] } else { vec![] }
         }
         "codex" => {
-            let roots: Vec<String> = ["sessions", "archived_sessions"]
+            // On Windows, also the Codex homes inside the WSL distributions that are running.
+            let homes = std::iter::once(root.to_string()).chain(crate::wsl::codex_homes()).collect::<Vec<_>>();
+            let roots: Vec<String> = homes
                 .iter()
-                .map(|part| format!("{root}/{part}"))
+                .flat_map(|home| ["sessions", "archived_sessions"].iter().map(move |part| format!("{home}/{part}")))
                 .filter(|p| is_directory(p))
                 .collect();
             let folders = if roots.is_empty() { vec![root.to_string()] } else { roots };

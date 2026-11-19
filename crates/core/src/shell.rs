@@ -25,6 +25,13 @@ pub fn run_data(
     let mut command = Command::new(program);
     command.args(rest).stdout(Stdio::piped()).stderr(Stdio::null());
     command.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() });
+    // On Windows a console program started from the app (a window, no console of its own) would flash a console
+    // window: CREATE_NO_WINDOW.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000);
+    }
     if let Some(environment) = environment {
         command.env_clear().envs(environment.iter().map(|(key, value)| (key, value)));
     }

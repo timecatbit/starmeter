@@ -138,6 +138,8 @@ pub fn project_roots(home: &str, environment: &HashMap<String, String>) -> Vec<S
     };
     let mut seen = HashSet::new();
     let mut result = Vec::new();
+    // On Windows, also Claude Code's folders inside the WSL distributions that are running.
+    let roots = roots.into_iter().chain(crate::wsl::claude_projects());
     for root in roots {
         let last = root.rsplit('/').next().unwrap_or("");
         let projects = if last == "projects" { root.clone() } else { format!("{root}/projects") };

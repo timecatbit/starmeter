@@ -44,6 +44,7 @@ pub mod shell;
 pub mod tally;
 pub mod time;
 pub mod updates;
+pub mod wsl;
 pub mod zstd;
 
 /// The version every host reports and the update check compares.

@@ -112,6 +112,7 @@
 - Windows 入口在 `windows/starmeter.py`，独立托盘、无 SwiftBar 依赖。数据、刷新和动作都交给 Swift 引擎（`windows/engine.py`：每个请求运行一次 `starmeter-engine --desktop …`，最后一行 `{"result": …}` 是答案；需要用户时引擎先写一行 `{"host": …}`，托盘在界面线程弹框后写回一行 `{"value": …}`），不在 Windows 面板重做统计或去重；引擎在隐藏的控制台里运行，它读取的 CLI 不会闪窗口。UI 线程只负责显示、确认和表单；后台串行刷新、保留前次快照，统计范围在对应数据准备好后与标题一起发布。仅执行本机生成的受支持动作，不调用 macOS 钥匙串、AppleScript 或 SwiftBar URL。
 - Windows 的分享按钮同样进入预览页，只有“复制图片”和“保存…”（没有系统分享菜单）：复制只放图片、不附文件路径；钉住时保存对话框期间取消置顶，之后恢复。
 - Windows 安装包用 Inno Setup（`windows/installer/`，中文界面用 Inno 官方简体中文消息文件，须与 CI 所用 Inno 版本的消息完全对应），由 `scripts/build_windows.py` 构建：只装当前用户、不要管理员权限，装到 `%LOCALAPPDATA%\Programs\Starmeter`（从 Token Monitor 升级的沿用原文件夹，安装时删掉旧名字的程序和快捷方式）；AppId 不得更改。装的是 Tauri 的 `Starmeter.exe`，旁边带引擎、`lib/` 与 `assets/`；5.x 留下的 `_internal`（Python 运行库）和 `engine`（Swift 引擎）安装时删掉；缺 WebView2 运行库（较老的 Windows 10）时安装包运行微软的引导程序为当前用户安装。开始菜单快捷方式带与应用相同的 AppUserModelID；桌面快捷方式和登录启动默认不勾，已有的登录启动项改指向安装位置，卸载只删除指向本副本的启动项并保留用户数据。托盘运行时持有 `TokenMonitorTray` 互斥量，安装和卸载据此请用户先从托盘退出，不强行结束进程。exe、快捷方式、安装包、托盘与窗口用标志生成的图标。CI 在构建目录和安装后的目录各跑一次引擎冒烟，静默安装后核对程序、价格表、快捷方式、卸载项和启动项，再卸载并确认都已移除。
+- Windows 也读 WSL：正在运行的 WSL 发行版（`wsl.exe -l -q --running`，最多每 5 分钟问一次）里每个用户家目录（/home/* 和 /root）下 Claude Code 的项目目录和 Codex 的会话目录，经 Windows 自己的共享路径（`\\wsl.localhost\<发行版>`，旧版 WSL 是 `\\wsl$`）和 Windows 这边的记录一起读、一起去重（`wsl.rs`）；没在运行的发行版绝不为此启动。引擎从 App 里启动的命令行程序都带 CREATE_NO_WINDOW，不闪控制台窗口。
 - Windows 状态保存在用户的 LocalAppData（`%LOCALAPPDATA%\Token Monitor`，见 `desktop::state_dir`），连接覆盖项在其中的 `config.local.json`；启动项只在用户勾选后写 HKCU；启动后单实例。真实托盘定位、键鼠及深浅色另外在 Windows 桌面核对。
 
 
