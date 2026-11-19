@@ -104,6 +104,7 @@
             <li><b><span class="zh">按工具、模型或项目</span><span class="en">By tool, model or project</span></b><span class="zh">：一键切换卡片的分组，项目按会话所在的项目文件夹。</span><span class="en">: switch how the cards are grouped; a project is the folder its session belongs to.</span></li>
             <li><b><span class="zh">八种范围</span><span class="en">Eight ranges</span></b><span class="zh">：今天到全部，热力图写出连续使用了多少天。</span><span class="en">: from today to everything, with your streak of active days under the heatmap.</span></li>
             <li><b><span class="zh">旧记录不丢</span><span class="en">Nothing lost</span></b><span class="zh">：工具自己清理掉的日志（Claude Code 默认只留 30 天）照样计入。</span><span class="en">: logs a tool cleans up itself (Claude Code keeps 30 days) keep counting.</span></li>
+            <li><b><span class="zh">连 WSL 一起</span><span class="en">WSL included</span></b><span class="zh">：Windows 上，正在运行的 WSL 里的 Claude Code 和 Codex 也一起统计。</span><span class="en">: on Windows, Claude Code and Codex inside running WSL distributions count too.</span></li>
           </ul>
         </div>
         <picture class="shot zh"><source media="(prefers-color-scheme: dark)" srcset="images/models-dark.png"><img src="images/models-light.png" width="440" height="840" alt="按模型查看" loading="lazy"></picture>
@@ -209,6 +210,14 @@
       <h2 id="more-title" class="centered"><span class="zh">还有这些</span><span class="en">And more</span></h2>
       <div class="grid">
         <div>
+          <p class="kicker"><span class="zh">随时随地</span><span class="en">Anywhere</span></p>
+          <dl>
+            <dt><span class="zh">全局快捷键</span><span class="en">Global shortcut</span></dt><dd><span class="zh">选一个组合键（如 ⌃⌥S），在任何地方按下就打开或收起面板。</span><span class="en">Pick a combination (⌃⌥S, say) that opens and closes the panel from anywhere.</span></dd>
+            <dt><span class="zh">在手机上看</span><span class="en">View on your phone</span></dt><dd><span class="zh">扫二维码，在手机浏览器里只读看主页；同一个网络直连电脑，不在时可选经 Cloudflare 的临时链接，一小时后关闭。</span><span class="en">Scan a QR code to see the home page in your phone's browser, read-only: straight from the computer on the same network, or through a temporary Cloudflare link from anywhere else, closed after an hour.</span></dd>
+            <dt><span class="zh">多台电脑合并</span><span class="en">Combine computers</span></dt><dd><span class="zh">每台电脑选同一个同步文件夹（iCloud 云盘、Dropbox、OneDrive…），用量合起来显示，图表上方写“含 N 台电脑”。</span><span class="en">Choose the same synced folder (iCloud Drive, Dropbox, OneDrive…) on each computer and see their usage added up, with "N computers" above the chart.</span></dd>
+          </dl>
+        </div>
+        <div>
           <p class="kicker"><span class="zh">提醒</span><span class="en">Alerts</span></p>
           <dl>
             <dt><span class="zh">用量提醒</span><span class="en">Usage alerts</span></dt><dd><span class="zh">订阅窗口用到你设定的比例时通知一次。</span><span class="en">Once per window when it reaches your line.</span></dd>
@@ -219,7 +228,7 @@
         <div>
           <p class="kicker"><span class="zh">显示</span><span class="en">Display</span></p>
           <dl>
-            <dt><span class="zh">菜单栏数字</span><span class="en">Menu bar figure</span></dt><dd><span class="zh">星星旁可加今天的估算或最紧张的额度。</span><span class="en">Today's estimate or the tightest limit beside the star.</span></dd>
+            <dt><span class="zh">菜单栏数字</span><span class="en">Menu bar figure</span></dt><dd><span class="zh">星星旁可加今天的估算、最紧张的额度或输出速度（如 42 tok/s）。</span><span class="en">Today's estimate, the tightest limit or the output speed (like 42 tok/s) beside the star.</span></dd>
             <dt><span class="zh">人民币显示</span><span class="en">Yuan</span></dt><dd><span class="zh">估算按欧洲央行参考汇率换算，或填固定汇率。</span><span class="en">Estimates at the ECB reference rate, or a rate you set.</span></dd>
             <dt><span class="zh">深浅色</span><span class="en">Light and dark</span></dt><dd><span class="zh">跟随系统，或固定浅色、深色。</span><span class="en">Follow the system, or pick one.</span></dd>
             <dt><span class="zh">中文与英文</span><span class="en">Chinese and English</span></dt><dd><span class="zh">第一次打开时，欢迎页就能选中文或 English，之后在设置里切换。</span><span class="en">Pick English on the welcome screen the first time, or later in Settings.</span></dd>
@@ -250,12 +259,15 @@
             <li><span class="zh">把 Key 存在本机只有你能读的文件里。</span><span class="en">Keep keys on this computer, in files only you can read.</span></li>
             <li><span class="zh">每天从 GitHub 检查一次价格表和新版本，不带 Cookie 或任何标识，可以关闭。</span><span class="en">Check GitHub daily for price tables and new versions, with no cookies or identifiers; this can be turned off.</span></li>
             <li><span class="zh">只在你开启后读取 Claude、Cursor 的用量、服务状态页和人民币汇率。</span><span class="en">Read Claude and Cursor usage, status pages and the exchange rate only once you turn them on.</span></li>
+            <li><span class="zh">多台电脑合并时，只把电脑名称、工具、模型和用量数字写进你自己选的同步文件夹，由你的网盘同步。</span><span class="en">Combining computers, write only computer names, tools, models and counts to the synced folder you choose, and leave the syncing to your cloud drive.</span></li>
+            <li><span class="zh">在手机上看时，只在局域网里把数字直接发给手机，链接带一次性口令；选了“任何网络”才经过 Cloudflare 的临时链接，一小时后关闭。</span><span class="en">Viewing on your phone, send the figures straight to it over your local network behind a one-time key; only "Any network" goes through a temporary Cloudflare link, closed after an hour.</span></li>
           </ul>
         </div>
         <div class="card never">
           <h3><span class="zh">它从不</span><span class="en">It never</span></h3>
           <ul>
             <li><span class="zh">保存或上传对话内容。</span><span class="en">Saves or sends your prompts or replies.</span></li>
+            <li><span class="zh">把你的用量交给 Starmeter 自己的服务器：根本没有这样的服务器。</span><span class="en">Hands your usage to a Starmeter server: there is none.</span></li>
             <li><span class="zh">在界面上显示 Key 的内容。</span><span class="en">Shows a key's contents.</span></li>
             <li><span class="zh">保存、刷新或改写 Claude Code、Cursor 的登录令牌：令牌只在内存里。</span><span class="en">Saves, refreshes or rewrites the Claude Code or Cursor sign-in: the token stays in memory.</span></li>
             <li><span class="zh">推算额度，或把没有价格的模型算成零。</span><span class="en">Guesses a limit, or prices an unknown model at zero.</span></li>
