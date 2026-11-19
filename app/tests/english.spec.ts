@@ -101,6 +101,19 @@ test('English: the homepage, its pages and the card groupings', async ({ page })
   expect(left.list).toEqual([]);
 });
 
+test('English: the first-run tour, its language choice first', async ({ page }) => {
+  const left = new Leftovers();
+  await english(page, '?guide');
+  await expect(page.locator('.guide h2')).toHaveText('Welcome to Starmeter');
+  for (let stop = 0; stop < 8 && (await page.locator('.guide').count()); stop++) {
+    await left.take(page, `tour ${stop}`);
+    await page.locator('.guide .step.primary').click();
+    await page.waitForTimeout(350);
+  }
+  await expect(page.locator('.guide')).toHaveCount(0);
+  expect(left.list).toEqual([]);
+});
+
 test('English: the module grid and every module\'s settings', async ({ page }) => {
   const left = new Leftovers();
   await english(page);

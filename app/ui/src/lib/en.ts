@@ -97,7 +97,26 @@ export const phrases: Record<string, string> = {
   本次读取失败: 'This read failed', '令牌已过期，请在 Claude Code 里运行 /login': 'The token expired; run /login in Claude Code',
   网络连接超时: 'The connection timed out', 保留最近一次成功的数据: 'keeping the last good data',
   // Share page
-  风格: 'Style', 色彩: 'Colours', 工具数量: 'Tools', 复制图片: 'Copy picture', 已复制: 'Copied', 复制失败: 'Copy failed', '保存…': 'Save…', 已保存: 'Saved',
+  风格: 'Style', 色彩: 'Colours', 工具数量: 'Tools',
+  // 新手指引
+  帮助: 'Help', 新手指引: 'Quick tour', 界面语言: 'Language', 跳过: 'Skip', 开始: 'Start', 上一步: 'Back', 下一步: 'Next',
+  '欢迎使用 Starmeter': 'Welcome to Starmeter',
+  '它读取 AI 工具已经留在这台电脑上的用量记录，在一个面板里告诉你用了多少。不需要账号，任何内容都不会上传。花半分钟认识一下。':
+    'It reads the usage records your AI tools already keep on this computer and shows, in one panel, how much you use. No account, and nothing is uploaded. Here is a 30-second tour.',
+  用量总览: 'Your usage at a glance',
+  '最上面是这段时间的 API 等值估算、Token 和请求数，下面是趋势和热力图。估算按官方价格计算，不是你的账单。':
+    'At the top: the API-equivalent estimate, tokens and requests for the range; below, the trend and the heatmap. Estimates use official prices; they are not your bill.',
+  '从今天到全部共 8 种范围，整页跟着切换。': 'Eight ranges, from today to all time; the whole page follows.',
+  每个工具一张卡: 'A card for each tool',
+  '卡片列出每个工具用的模型和用量，点开是它的详情页。也可以按模型、项目分组；“会话”里是正在运行的 Claude Code 和 Codex 会话。':
+    'Each card lists a tool\'s models and usage; click it for the tool\'s own page. Group by model or project instead, or open Sessions for the Claude Code and Codex sessions at work.',
+  '订阅额度和 API 余额': 'Plans and API balances',
+  '带箭头的行点开是详情：每个额度窗口用了多少、何时重置，账户余额，以及这一项的设置。':
+    'A row with an arrow opens its details: how much of each window is used and when it resets, balances, and the settings for that item.',
+  三个按钮: 'Three buttons',
+  '图钉：钉住后面板浮在最上层并实时刷新，可以拖动、调大小。齿轮：选择主页显示哪些模块，设置目录、Key、语言和外观。分享：把用量做成一张图。':
+    'Pin: keep the panel on top, refreshing live; drag it and resize it. Gear: choose what the homepage shows, and set folders, keys, language and look. Share: turn your usage into a picture.',
+  '以后可以在 外观与设置 → 新手指引 再看一遍。': 'You can take this tour again from Settings → Quick tour.', 复制图片: 'Copy picture', 已复制: 'Copied', 复制失败: 'Copy failed', '保存…': 'Save…', 已保存: 'Saved',
   '分享…': 'Share…', 没能画出来: 'Couldn\'t draw it', 正在生成: 'Drawing', 卡片: 'Card', 终端: 'Terminal', 手绘: 'Sketch', 报刊: 'Paper',
   夜空: 'Night sky', 地铁: 'Metro', 织物: 'Knit', 收据: 'Receipt', 蓝图: 'Blueprint', 霓虹: 'Neon',
   // Questions

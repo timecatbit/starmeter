@@ -6,6 +6,7 @@ import { shell } from './backend';
 type Icon = { d: string; fill?: string };
 const icons: Record<string, Icon> = {
   'chart.xyaxis.line': { d: 'M3.5 3v13.5H17 M5.5 13l3.5-4 3 2.5 4.5-5.5' },
+  'questionmark.circle': { d: 'M10 2.8a7.2 7.2 0 1 1 0 14.4 7.2 7.2 0 0 1 0-14.4z M7.8 8a2.3 2.3 0 1 1 3.2 2.1c-.6.3-1 .8-1 1.5v.5', fill: 'M10 13.8a.95.95 0 1 1 0 1.9.95.95 0 0 1 0-1.9z' },
   'square.grid.3x3.fill': { d: '', fill: 'M3 3h3.6v3.6H3z M8.2 3h3.6v3.6H8.2z M13.4 3H17v3.6h-3.6z M3 8.2h3.6v3.6H3z M8.2 8.2h3.6v3.6H8.2z M13.4 8.2H17v3.6h-3.6z M3 13.4h3.6V17H3z M8.2 13.4h3.6V17H8.2z M13.4 13.4H17V17h-3.6z' },
   'square.grid.2x2': { d: 'M3.5 3.5h5v5h-5z M11.5 3.5h5v5h-5z M3.5 11.5h5v5h-5z M11.5 11.5h5v5h-5z' },
   network: { d: 'M10 3.2a2 2 0 1 1 0 4 2 2 0 0 1 0-4z M4.6 12.8a2 2 0 1 1 0 4 2 2 0 0 1 0-4z M15.4 12.8a2 2 0 1 1 0 4 2 2 0 0 1 0-4z M10 7.2v3 M10 10.2l-4.2 2.9 M10 10.2l4.2 2.9' },

@@ -116,7 +116,8 @@ function dashboard(d: Dashboard): Dashboard {
 }
 
 /** The 语言 row, first under 显示 in 外观与设置: 中文 / English. The choice is the panel's own (kept in the web view's
- *  storage), not the engine's, so the engine's other output (menus, notifications) stays Chinese. */
+ *  storage), not the engine's, so the engine's other output (menus, notifications) stays Chinese. The 新手指引 row
+ *  under 帮助 is the panel's own too. */
 function withLanguage(list: Entry[]): Entry[] {
   return list.map((e) => {
     if (e.label !== '外观与设置') return e;
@@ -124,6 +125,8 @@ function withLanguage(list: Entry[]): Entry[] {
     const radio = (label: string, key: Language): Entry => ({ label, children: [], radio: true, checked: language.current === key, action: ['set-language', key] });
     children.splice(at + 1, 0, { label: '语言 Language', symbol: 'globe', value: language.current === 'en' ? 'English' : '中文',
       children: [radio('中文', 'zh'), radio('English', 'en')] });
+    // 帮助, last: the first-run tour, again.
+    children.push({ label: '帮助', section: true, children: [] }, { label: '新手指引', symbol: 'questionmark.circle', action: ['show-guide'], children: [] });
     return { ...e, children };
   });
 }

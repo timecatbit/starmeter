@@ -16,6 +16,7 @@
   import type { Dashboard as DashboardData, Entry, ShellInfo, Snapshot } from './lib/types';
   import Dashboard from './components/Dashboard.svelte';
   import DetailPage from './components/DetailPage.svelte';
+  import Guide from './components/Guide.svelte';
   import HomePage from './components/HomePage.svelte';
   import InlineAsk from './components/InlineAsk.svelte';
   import ModulesPage from './components/ModulesPage.svelte';
@@ -315,7 +316,27 @@
     if (deferred) { deferred = false; void reload(); }
   });
 
+  // 新手指引: once, the first time the panel opens on its homepage (the web view keeps that it was seen); again from
+  // 外观与设置 → 新手指引. In a browser (the fixtures, the screenshots) only when the address asks for it with ?guide.
+  const GUIDE = 'starmeter.guide';
+  let guiding = $state(false);
+  let guideWanted = $state(!inTauri && typeof location !== 'undefined' && new URLSearchParams(location.search).has('guide'));
+  let windowBox: HTMLDivElement | undefined = $state();
+  const guideSeen = () => { try { return localStorage.getItem(GUIDE) === '1'; } catch { return false; } };
+  $effect(() => {
+    if (!guideWanted || guiding || !snapshot?.dashboard || managerOnly || onPage) return;
+    // A moment for the homepage to draw (and the page change to finish) before its parts are lit.
+    const timer = setTimeout(() => { guideWanted = false; guiding = true; }, panel.reduceMotion ? 0 : 420);
+    return () => clearTimeout(timer);
+  });
+  function endGuide() {
+    guiding = false;
+    try { localStorage.setItem(GUIDE, '1'); } catch { /* shown again next time */ }
+  }
+
   function perform(action: string[]) {
+    // 新手指引 from 外观与设置: back to the homepage, then the tour.
+    if (action[0] === 'show-guide') { startOver(false); dir = -1; guideWanted = true; return; }
     // 选择工具… opens the module grid in place.
     if (action[0] === 'panel-modules') { openSettings(); return; }
     // The language is the panel's own choice: no engine action, the page redraws in it at once.
@@ -461,6 +482,7 @@
     startOver(modules);
     void reload();
     if (!modules) perform(['refresh-view']);
+    if (!modules && inTauri && !guideSeen()) guideWanted = true;
     void revealWhenDrawn();
   }
 
@@ -484,6 +506,9 @@
   /** Closed: back to the homepage at once, so the next opening shows it rather than the page left open, with nothing
    *  left focused. */
   function closed() {
+    // A tour left halfway is shown again next time.
+    guiding = false;
+    guideWanted = false;
     setPinned(false, false);
     ask.current = null;
     free = null;
@@ -541,7 +566,7 @@
 
 <svelte:window onkeydown={keydown} />
 
-<div class="window" class:solid={!glass} class:browser={!inTauri} oncontextmenu={contextmenu} role="application" aria-label={t('AI 用量面板')}
+<div class="window" bind:this={windowBox} class:solid={!glass} class:browser={!inTauri} oncontextmenu={contextmenu} role="application" aria-label={t('AI 用量面板')}
   onpointermove={() => { if (pinned) showChrome(); }} onpointerleave={() => { if (pinned && !cornerFrom) showChrome(700); }}
   style:width={inTauri ? '100vw' : `${panelWidth}px`} style:height={inTauri ? '100vh' : `${panelHeight}px`}>
   {#key viewKey}
@@ -575,6 +600,9 @@
       <!-- Its bend shares the window corner's centre (13pt in from both edges), 5pt inside the edge. -->
       <svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><path d="M25 8V17A8 8 0 0 1 17 25H8" /></svg>
     </span>
+  {/if}
+  {#if guiding && windowBox}
+    <Guide container={windowBox} onfinish={endGuide} />
   {/if}
   {#if ask.current && sheetReady && ask.placed === 0}
     <!-- A question no row on screen asked (from the homepage or the grid): the panel shows it at its foot. -->
