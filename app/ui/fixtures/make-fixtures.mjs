@@ -17,7 +17,7 @@ const brandLogos = { ChatGPT: ['openai.svg', true], Claude: ['claude.svg', false
   Grok: ['grok.svg', true], Kimi: ['kimi.svg', true], Qoder: ['qoder.svg', true], Cursor: ['cursor.svg', true] };
 const moduleLogos = { magpie: ['magpie.svg', true], claude: ['claude.svg', false], codex: ['openai.svg', true], opencode: ['opencode.svg', true],
   workbuddy: ['workbuddy.svg', true], qoder: ['qoder.svg', true], gemini: ['gemini.svg', false], cursor: ['cursor.svg', true] };
-const moduleSymbols = { summary: 'chart.xyaxis.line', heatmap: 'square.grid.3x3.fill', opencodex: 'network', komari: 'server.rack', updates: 'arrow.down.circle' };
+const moduleSymbols = { summary: 'chart.xyaxis.line', heatmap: 'square.grid.3x3.fill', opencodex: 'network', komari: 'server.rack', updates: 'arrow.down.circle', sessions: 'terminal' };
 // In the engine's order (catalog.rs, preferences.rs): the gateways first, then every brand by its name, the same in
 // each group.
 const services = [

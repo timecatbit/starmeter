@@ -95,6 +95,7 @@ fn module_symbol(key: &str) -> &'static str {
         "opencodex" => "network",
         "komari" => "server.rack",
         "updates" => "arrow.down.circle",
+        "sessions" => "terminal",
         _ => "square.grid.2x2",
     }
 }

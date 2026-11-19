@@ -76,7 +76,7 @@ MODULE_LOGOS = {'magpie': ('magpie.svg', True), 'claude': ('claude.svg', False),
                 'opencode': ('opencode.svg', True), 'workbuddy': ('workbuddy.svg', True), 'qoder': ('qoder.svg', True),
                 'gemini': ('gemini.svg', False), 'cursor': ('cursor.svg', True)}
 MODULE_SYMBOLS = {'summary': 'chart.xyaxis.line', 'heatmap': 'square.grid.3x3.fill', 'opencodex': 'network',
-                  'komari': 'server.rack', 'updates': 'arrow.down.circle'}
+                  'komari': 'server.rack', 'updates': 'arrow.down.circle', 'sessions': 'terminal'}
 
 HOME = os.path.expanduser("~")
 OCX_HOME = os.path.expanduser(os.environ.get("OCX_HOME") or os.path.join(HOME, ".opencodex"))
