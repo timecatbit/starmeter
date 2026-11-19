@@ -9,7 +9,7 @@ import type { Dashboard, Project } from './types';
 
 const M = 28, INNER = WIDTH - M * 2;
 const serif = (size: number, italic = true, weight = 400) => posterFont(size, weight, SERIF, italic);
-const HEAD = 32, SUB = 22, MODEL = 28, AFTER = 14, CHART = 176;
+const HEAD = 32, SUB = 22, MODEL = 28, AFTER = 12, CHART = 168;
 
 const palettes = {
   dark: {

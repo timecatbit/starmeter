@@ -15,7 +15,7 @@ const palettes = {
     map: '#141918', ink: '#EDE7D8', faded: 'rgba(237, 231, 216, 0.58)', trunk: '#3C8A86', station: '#141918', warn: '#F0915A', qrInk: '#12302F', qrPaper: '#F7F1E3' },
 };
 const r = (size: number, weight = 800) => posterFont(size, weight, ROUNDED);
-const TRUNK = 36, BRANCH = 90, LABEL = 116, HEAD = 52, STATION = 26, AFTER = 10, SHOULDER = 22, CHART = 196;
+const TRUNK = 36, BRANCH = 90, LABEL = 116, HEAD = 50, STATION = 26, AFTER = 10, SHOULDER = 22, CHART = 186;
 
 /** Line colours, saturated like a transit map (lighter by night, to read on the dark map); tools without one take a
  *  steady blue. */
@@ -69,7 +69,7 @@ export async function drawMetroPicture(d: Dashboard, project: Project, dark: boo
     y = top + 24;
     text(ctx, chart.label, { x: M, y, w: INNER / 2, h: 24 }, r(19, 900), c.depotInk);
     if (chart.note) text(ctx, chart.note, { x: M + INNER / 2, y: y + 4, w: INNER / 2, h: 16 }, r(12.5, 700), c.depotMuted, 'right');
-    const plot = { x: M + 2, y: y + 40, w: INNER - 4, h: 80 };
+    const plot = { x: M + 2, y: y + 36, w: INNER - 4, h: 76 };
     drawBars(ctx, chart, plot, c.bars, 0.24, 2);
     ctx.fillStyle = c.depotInk; ctx.fillRect(plot.x - 2, plot.y + plot.h + 2, plot.w + 4, 2.5);
     chart.ticks.forEach((tick, i) => {
