@@ -725,3 +725,23 @@ fn mica_supported() -> bool {
             .is_some_and(|build| build >= 22000)
     })
 }
+
+/// The header's symbols as macOS draws them (pin, gear, share): base64 PNG at 3 pixels a point, or None for any other
+/// name. Elsewhere the panel draws its own.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub fn system_symbol(app: AppHandle, name: String, points: f64) -> Option<String> {
+    const SYMBOLS: [&str; 4] = ["pin", "pin.fill", "gearshape", "square.and.arrow.up"];
+    if !SYMBOLS.contains(&name.as_str()) {
+        return None;
+    }
+    let png = macos::on_main(&app, move || macos::symbol_png(&name, points.clamp(8.0, 48.0))).flatten()?;
+    Some(starmeter_core::dashboard::base64_encode(&png))
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+pub fn system_symbol(name: String, points: f64) -> Option<String> {
+    let _ = (name, points);
+    None
+}

@@ -313,6 +313,7 @@ fn main() {
             panel::panel_shown,
             panel::hold_open,
             panel::set_look,
+            panel::system_symbol,
             host::open_link,
             host::copy_picture,
             host::share_picture,

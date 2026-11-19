@@ -68,6 +68,9 @@ export const shell = {
   openLink: (href: string) => (inTauri ? invoke<void>('open_link', { href }) : Promise.resolve(void window.open(href, '_blank'))),
   /** Holds the panel open while a native menu or the share sheet has the pointer. */
   holdOpen: (held: boolean) => (inTauri ? invoke<void>('hold_open', { held }) : quiet()),
+  /** One of the header's symbols as macOS draws it (base64 PNG at 3 pixels a point); null off a Mac or outside the app. */
+  systemSymbol: (name: string, points: number): Promise<string | null> =>
+    (inTauri ? invoke<string | null>('system_symbol', { name, points }).catch(() => null) : Promise.resolve(null)),
   copyPicture: (png: Uint8Array): Promise<boolean> => (inTauri ? invoke('copy_picture', { png: base64(png) }) : Promise.resolve(true)),
   /** Saves the picture where the user picks in the system's save dialog (the desktop at first); true once written. */
   savePicture: (png: Uint8Array, name: string): Promise<boolean> => (inTauri ? invoke<boolean>('save_picture', { png: base64(png), name }) : Promise.resolve(true)),

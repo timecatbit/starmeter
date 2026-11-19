@@ -140,14 +140,15 @@
     <div class="buttons">
       <!-- The three buttons sit together on one soft base, a small toolbar; the pin's cell deepens while pinned. -->
       <span class="toolbar" style:left="{leftmost}px" style:width="{firstButton + 30 - leftmost}px"></span>
-      <span class="slot" style:left="{firstButton}px">
-        <HintButton icon="square.and.arrow.up" hint="分享用量图" label="分享用量图" onclick={onshare} />
-      </span>
-      <span class="slot" style:left="{firstButton - 32}px">
-        <HintButton icon={pinned ? 'pin.fill' : 'pin'} hint={pinned ? '取消钉住' : `钉住，每 ${pinInterval} 秒刷新`} label={pinned ? '取消钉住面板' : '钉住面板'}
+      <!-- The pin first, then settings and share; on a Mac the symbols are the system's own. -->
+      <span class="slot" style:left="{leftmost}px">
+        <HintButton icon={pinned ? 'pin.fill' : 'pin'} system hint={pinned ? '取消钉住' : `钉住，每 ${pinInterval} 秒刷新`} label={pinned ? '取消钉住面板' : '钉住面板'}
           onclick={onpin} on={pinned} />
       </span>
-      <span class="slot" style:left="{leftmost}px"><HintButton icon="gearshape" hint="主页模块与设置" label="主页模块与设置" onclick={onsettings} /></span>
+      <span class="slot" style:left="{firstButton - 32}px"><HintButton icon="gearshape" system hint="主页模块与设置" label="主页模块与设置" onclick={onsettings} /></span>
+      <span class="slot" style:left="{firstButton}px">
+        <HintButton icon="square.and.arrow.up" system hint="分享用量图" label="分享用量图" onclick={onshare} />
+      </span>
       <span class="picker" style:left="{pickerX}px" style:width="{pickerWidth}px">
         <Dropdown label="统计范围" value={chosen} options={rangeOptions.map((o) => ({ value: o.action?.[1] ?? '', label: o.label }))} onpick={pickRange} />
       </span>

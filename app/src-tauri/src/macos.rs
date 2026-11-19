@@ -636,3 +636,66 @@ pub fn on_main<R: Runtime, T: Send + 'static>(
     .ok()?;
     receive.recv().ok()
 }
+
+/// An SF Symbol as macOS itself draws it, at 3 pixels a point: PNG bytes, or None for a name it doesn't know. The
+/// panel's own icons can't copy the symbols' outlines (their licence keeps them to Apple platforms, and the panel ships
+/// on Windows too); asking the system for them at run time on a Mac is how they are meant to be used. Only the alpha
+/// matters: the panel uses it as a mask in the text colour.
+pub fn symbol_png(name: &str, points: f64) -> Option<Vec<u8>> {
+    let name = std::ffi::CString::new(name).ok()?;
+    unsafe {
+        let text: *mut AnyObject = msg_send![class!(NSString), stringWithUTF8String: name.as_ptr()];
+        if text.is_null() {
+            return None;
+        }
+        let symbol: *mut AnyObject = msg_send![
+            class!(NSImage),
+            imageWithSystemSymbolName: text,
+            accessibilityDescription: ptr::null_mut::<AnyObject>()
+        ];
+        if symbol.is_null() {
+            return None;
+        }
+        let configuration: *mut AnyObject =
+            msg_send![class!(NSImageSymbolConfiguration), configurationWithPointSize: points * 3.0, weight: 0.0f64];
+        let sized: *mut AnyObject = msg_send![symbol, imageWithSymbolConfiguration: configuration];
+        if sized.is_null() {
+            return None;
+        }
+        let tiff: *mut AnyObject = msg_send![sized, TIFFRepresentation];
+        if tiff.is_null() {
+            return None;
+        }
+        let bitmap: *mut AnyObject = msg_send![class!(NSBitmapImageRep), imageRepWithData: tiff];
+        if bitmap.is_null() {
+            return None;
+        }
+        let properties: *mut AnyObject = msg_send![class!(NSDictionary), dictionary];
+        // NSBitmapImageFileTypePNG
+        let png: *mut AnyObject = msg_send![bitmap, representationUsingType: 4usize, properties: properties];
+        if png.is_null() {
+            return None;
+        }
+        let length: usize = msg_send![png, length];
+        let bytes: *const u8 = msg_send![png, bytes];
+        if bytes.is_null() || length == 0 {
+            return None;
+        }
+        Some(std::slice::from_raw_parts(bytes, length).to_vec())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn draws_the_header_symbols_and_nothing_for_an_unknown_name() {
+        for name in ["pin", "pin.fill", "gearshape", "square.and.arrow.up"] {
+            let png = super::symbol_png(name, 15.0).unwrap_or_else(|| panic!("{name} is drawn"));
+            assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n", "{name} is a PNG");
+            if let Ok(folder) = std::env::var("STARMETER_SYMBOLS_OUT") {
+                std::fs::write(format!("{folder}/{name}.png"), &png).unwrap();
+            }
+        }
+        assert!(super::symbol_png("no.such.symbol.anywhere", 15.0).is_none());
+    }
+}

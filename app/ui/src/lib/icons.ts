@@ -1,3 +1,5 @@
+import { shell } from './backend';
+
 // The panel's icons, drawn after the SF Symbols the engine names (Entry.symbol) so the same names work on every
 // platform: 20×20, a 1.6 stroke in the current colour; "fill" marks a shape filled instead of stroked.
 
@@ -34,8 +36,8 @@ const icons: Record<string, Icon> = {
   globe: { d: 'M10 2.8a7.2 7.2 0 1 1 0 14.4 7.2 7.2 0 0 1 0-14.4z M2.8 10h14.4 M10 2.8c2 2 3 4.4 3 7.2s-1 5.2-3 7.2 M10 2.8c-2 2-3 4.4-3 7.2s1 5.2 3 7.2' },
   'arrow.up.right': { d: 'M6 14 14 6 M7.6 6H14v6.4' },
   gearshape: { d: 'M15.57 10.54 L17.53 11.6 A7.7 7.7 0 0 1 16.46 14.19 L14.32 13.56 A5.6 5.6 0 0 1 13.56 14.32 L14.19 16.46 A7.7 7.7 0 0 1 11.6 17.53 L10.54 15.57 A5.6 5.6 0 0 1 9.46 15.57 L8.4 17.53 A7.7 7.7 0 0 1 5.81 16.46 L6.44 14.32 A5.6 5.6 0 0 1 5.68 13.56 L3.54 14.19 A7.7 7.7 0 0 1 2.47 11.6 L4.43 10.54 A5.6 5.6 0 0 1 4.43 9.46 L2.47 8.4 A7.7 7.7 0 0 1 3.54 5.81 L5.68 6.44 A5.6 5.6 0 0 1 6.44 5.68 L5.81 3.54 A7.7 7.7 0 0 1 8.4 2.47 L9.46 4.43 A5.6 5.6 0 0 1 10.54 4.43 L11.6 2.47 A7.7 7.7 0 0 1 14.19 3.54 L13.56 5.68 A5.6 5.6 0 0 1 14.32 6.44 L16.46 5.81 A7.7 7.7 0 0 1 17.53 8.4 L15.57 9.46 A5.6 5.6 0 0 1 15.57 10.54Z M7.5 10 a2.5 2.5 0 1 1 5 0 a2.5 2.5 0 1 1 -5 0Z' },
-  pin: { d: 'M11.7 2.3 L17.19 7.24 M12.78 3.59 L9.59 7.13 Q8.55 8.28 6.94 8.12 L5.25 8.04 Q4.07 8.1 4.96 8.9 L11.34 14.64 Q12.22 15.44 12.16 14.26 L11.9 12.58 Q11.57 11 12.6 9.84 L15.79 6.3 M7.99 11.94 L2.8 17.7' },
-  'pin.fill': { d: 'M11.7 2.3 L17.19 7.24 M7.99 11.94 L2.8 17.7', fill: 'M12.78 3.59 L9.59 7.13 Q8.55 8.28 6.94 8.12 L5.25 8.04 Q4.07 8.1 4.96 8.9 L11.34 14.64 Q12.22 15.44 12.16 14.26 L11.9 12.58 Q11.57 11 12.6 9.84 L15.79 6.3 Z' },
+  pin: { d: 'M6.8 2.9h6.4 M8.3 3.3v3.6c0 .7-.3 1.3-.8 1.8l-1.6 1.5c-.5.5-.2 1.2.5 1.2h7.2c.7 0 1-.7.5-1.2l-1.6-1.5c-.5-.5-.8-1.1-.8-1.8V3.3 M10 11.4v5.9' },
+  'pin.fill': { d: 'M6.8 2.9h6.4 M10 11.4v5.9', fill: 'M7.5 3.1h5v3.8c0 .7.3 1.3.8 1.8l1.6 1.5c.8.8.3 2-.8 2H5.9c-1.1 0-1.6-1.2-.8-2l1.6-1.5c.5-.5.8-1.1.8-1.8z' },
   'chevron.left': { d: 'M12.2 4.4 6.6 10l5.6 5.6' },
   'chevron.right': { d: 'M7.8 4.4 13.4 10l-5.6 5.6' },
   'rectangle.compress.vertical': { d: 'M3.2 9.2h13.6 M3.2 11h13.6 M10 2.8v4 M7.8 4.8 10 7l2.2-2.2 M10 17.2v-4 M7.8 15.2 10 13l2.2 2.2' },
@@ -114,4 +116,23 @@ async function measureEye(name: string): Promise<[number, number]> {
   }
   if (maxX < 0 || !mass) return [10, 10];
   return [(minX + maxX + 1) / 2 / scale, ((minY + maxY + 1) / 2 + sumY / mass) / 2 / scale];
+}
+
+const symbols = new Map<string, Promise<{ url: string; width: number; height: number } | null>>();
+
+/** A symbol as macOS draws it, with its size in points (the PNG is 3 pixels a point); null where there is none. */
+export function systemSymbol(name: string, points: number): Promise<{ url: string; width: number; height: number } | null> {
+  const key = `${name}@${points}`;
+  let known = symbols.get(key);
+  if (!known) {
+    known = shell.systemSymbol(name, points).then(async (png) => {
+      if (!png) return null;
+      const url = `data:image/png;base64,${png}`, image = new Image();
+      image.src = url;
+      await image.decode();
+      return { url, width: image.naturalWidth / 3, height: image.naturalHeight / 3 };
+    }).catch(() => null);
+    symbols.set(key, known);
+  }
+  return known;
 }

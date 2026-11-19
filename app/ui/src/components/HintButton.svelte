@@ -5,9 +5,9 @@
   import { hoverHint } from '../lib/ui.svelte';
   import Icon from './Icon.svelte';
 
-  let { icon, hint = '', label, onclick, on = false, tint = 'var(--label)', width = 30, size = 15 }: {
+  let { icon, hint = '', label, onclick, on = false, tint = 'var(--label)', width = 30, size = 15, system = false }: {
     icon: string; hint?: string; label: string; onclick: (event: MouseEvent) => void;
-    on?: boolean; tint?: string; width?: number; size?: number;
+    on?: boolean; tint?: string; width?: number; size?: number; system?: boolean;
   } = $props();
 
   let button: HTMLButtonElement | undefined = $state();
@@ -17,7 +17,7 @@
 <button bind:this={button} class="hint-button pressable" class:on style:width="{width}px" aria-label={label} aria-pressed={on || undefined}
   onpointerenter={() => hoverHint(button ?? null, hint)} onpointerleave={() => hoverHint(null, '')}
   onpointerdown={() => hoverHint(null, '')} onclick={onclick}>
-  <span class="glyph" style:color={tint}><Icon name={icon} {size} eye /></span>
+  <span class="glyph" style:color={tint}><Icon name={icon} {size} eye {system} /></span>
 </button>
 
 <style>
