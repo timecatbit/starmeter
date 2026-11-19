@@ -350,6 +350,27 @@ test('a tool card opens its page: figures, its trend, every model, then its sett
   await expect(page.locator('.card .open')).toHaveCount(0);
 });
 
+test('pinned, a row\'s page fits its own rows, and the homepage keeps its size', async ({ page }) => {
+  await open(page);
+  const height = async () => (await page.locator('.window').boundingBox())!.height;
+  await page.locator('.row', { hasText: 'Kimi API' }).first().click();
+  await expect(page.locator('.page h2.title')).toHaveText('Kimi API');
+  await page.waitForTimeout(400);
+  const own = await height();
+  await page.keyboard.press('Escape');
+  await button(page, '钉住面板').click();
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('panel-resized', { detail: { width: 400, height: 760 } })));
+  await expect(page.locator('.window')).toHaveCSS('height', '760px');
+  await page.locator('.row', { hasText: 'Kimi API' }).first().click();
+  await expect(page.locator('.page h2.title')).toHaveText('Kimi API');
+  // Its own height, not the 760 the homepage was sized to; the width stays the panel's.
+  await expect.poll(height).toBeLessThan(own + 3);
+  expect(await height()).toBeGreaterThan(own - 3);
+  await expect(page.locator('.window')).toHaveCSS('width', '400px');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.window')).toHaveCSS('height', '760px');
+});
+
 test('pinned, the share page takes its own height and gives the panel back its size', async ({ page }) => {
   await open(page);
   await button(page, '钉住面板').click();

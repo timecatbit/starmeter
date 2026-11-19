@@ -78,8 +78,14 @@
   let wanted = $state({ home: 400, page: 300, grid: 400, share: 600, tool: 500 });
   const grid = $derived(managerOnly && !pageEntry && !sharing && !toolId);
   const panelWidth = $derived(grid ? 588 : free?.width ?? 360);
-  // The share page is as tall as its picture even in a pinned panel the user sized: it has nothing to scroll to.
-  const panelHeight = $derived(free && !grid && !sharing ? free.height
+  // Pinned, the homepage keeps the size the panel was given (fitted, or the user's); every other page fits its own
+  // content (a share page its picture, a tool's or a row's page its rows), unless the user sizes it at its edges while
+  // on it, which holds until they leave it.
+  const onPage = $derived(!grid && !!(sharing || toolId || pageEntry));
+  let pageHeight = $state<number | null>(null);
+  $effect(() => { void viewKey; pageHeight = null; });
+  const panelHeight = $derived(free && !grid && !onPage ? free.height
+    : free && onPage && pageHeight !== null ? pageHeight
     : Math.min(sharing ? wanted.share : toolId ? wanted.tool : pageEntry ? wanted.page : managerOnly ? wanted.grid : wanted.home, info.maxHeight));
   $effect(() => { panel.width = free?.width ?? 360; });
   let lastSize = '';
@@ -250,7 +256,7 @@
     event.preventDefault();
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
     panel.arranged = true;
-    fitting = false;
+    if (!onPage) fitting = false;
     panel.hint = null;
     cornerFrom = { x: event.clientX, y: event.clientY, width: panelWidth, height: Math.round(panelHeight) };
   }
@@ -498,7 +504,12 @@
     window.addEventListener('pointerup', up, true);
     window.addEventListener('pointercancel', up, true);
     const stops = [backend.onSnapshot(() => void reload()), shell.onOpened(opened), shell.onClosed(closed),
-      shell.onResized((width, height) => { if (pinned) { fitting = false; free = { width, height }; } }),
+      shell.onResized((width, height) => {
+        if (!pinned) return;
+        // On a page the height is that page's; the width is the panel's everywhere.
+        if (onPage) { pageHeight = height; free = { width, height: free?.height ?? height }; }
+        else { fitting = false; free = { width, height }; }
+      }),
       shell.onAsk((question) => showQuestion(question, interaction.active ?? null))];
     void shell.info().then((value) => {
       info = value;
