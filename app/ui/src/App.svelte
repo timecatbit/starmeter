@@ -323,8 +323,11 @@
   let guideWanted = $state(!inTauri && typeof location !== 'undefined' && new URLSearchParams(location.search).has('guide'));
   let windowBox: HTMLDivElement | undefined = $state();
   const guideSeen = () => { try { return localStorage.getItem(GUIDE) === '1'; } catch { return false; } };
+  // Ready once the homepage is there; a yes or no, so the readings that keep arriving on a first run (each a new
+  // snapshot) don't put the tour off again and again.
+  const guideReady = $derived(guideWanted && !guiding && !!snapshot?.dashboard && !managerOnly && !onPage);
   $effect(() => {
-    if (!guideWanted || guiding || !snapshot?.dashboard || managerOnly || onPage) return;
+    if (!guideReady) return;
     // A moment for the homepage to draw (and the page change to finish) before its parts are lit.
     const timer = setTimeout(() => { guideWanted = false; guiding = true; }, panel.reduceMotion ? 0 : 420);
     return () => clearTimeout(timer);
