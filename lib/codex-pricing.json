@@ -1,17 +1,9 @@
 {
  "source": {
   "project": "ccusage",
-  "commit": "58866ba681343634ab6e5add61f18f3b70aa98f7",
-  "committedAt": "2026-11-16T21:23:19+01:00",
-  "license": "MIT",
-  "supplement": {
-   "project": "models.dev",
-   "license": "MIT",
-   "models": [
-    "gpt-6.2-astra",
-    "gpt-6.2-sol"
-   ]
-  }
+  "commit": "2a903a4c6b588c512be5a957d70bce17449adcbe",
+  "committedAt": "2026-11-19T12:17:52Z",
+  "license": "MIT"
  },
  "aliases": {
   "gpt-reserve": "gpt-5.6-luna",
@@ -589,8 +581,8 @@
   },
   "gpt-oss-20b": {
    "input": 0.036,
-   "output": 0.154286,
-   "cacheRead": 0.003714,
+   "output": 0.1543,
+   "cacheRead": 0.0037,
    "cacheWrite": 0.045
   },
   "gpt-oss-safeguard-120b": {
