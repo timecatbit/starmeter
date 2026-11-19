@@ -21,7 +21,8 @@
 
   /** The canvas sits where the trend's plot is, so the two line up exactly while one turns into the other. */
   const H = 122, ZOOM = 750, STRETCH = 16;
-  /** Room past the line's end, so its dot and the ripple of a new reading aren't cut off. */
+  /** Room past the line's end, so its dot and the ripple of a new reading (at most 10pt round, inside the panel's
+   *  margin) aren't cut off. */
   const PAD = 16;
   // Read by the drawing each frame: a pinned panel's edges change it.
   let W = 320;
@@ -258,7 +259,7 @@
         ? [trendEnd[0] + (liveTip[0] - trendEnd[0]) * move, trendEnd[1] + (liveTip[1] - trendEnd[1]) * move]
         : liveTip;
       if (!zoom && ripple !== null && now - ripple < 1100 && !panel.reduceMotion) {
-        const t = (now - ripple) / 1100, radius = 3 + 13 * (1 - Math.pow(1 - t, 2));
+        const t = (now - ripple) / 1100, radius = 3 + 7 * (1 - Math.pow(1 - t, 2));
         ctx.strokeStyle = alpha(total, 0.6 * (1 - t)); ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.arc(tip[0], tip[1], radius, 0, Math.PI * 2); ctx.stroke();
       }
