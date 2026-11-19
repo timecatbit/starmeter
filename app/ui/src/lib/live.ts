@@ -47,6 +47,9 @@ export class LiveFeed {
       // Output as Summary counts it: a source a gateway partly logged adds only its share not logged there.
       raw.set(p.id, { tokens: part.tokens, output: p.output * (p.counted ? (p.tokens > 0 ? p.counted.tokens / p.tokens : 0) : 1), cost: part.cost ?? 0 });
     }
+    // A reading with no source read yet (a range just picked, everything still loading) says nothing: it is let go
+    // rather than taken as the line standing at zero.
+    if (!raw.size) return;
     const newRange = dashboard.rangeKey !== this.rangeKey;
     this.rangeKey = dashboard.rangeKey;
     const comparable = !newRange && this.raw.size > 0 && raw.size === this.raw.size && [...raw].every(([id, now]) => {
