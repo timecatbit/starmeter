@@ -441,7 +441,8 @@
     if (event.key === 'Escape') { event.preventDefault(); back(); }
   }
 
-  // Right-click inside the panel opens the module list, as the 5.x panel did.
+  // Right-click does nothing inside the panel (no web page menu): the gear opens the settings, and a hidden way in
+  // with no way back out only surprised.
   function contextmenu(event: MouseEvent) {
     event.preventDefault();
     if (managerOnly) return;
