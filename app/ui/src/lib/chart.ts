@@ -117,8 +117,9 @@ export function legendLayout(labels: string[], total: number): { x: number; w: n
   return rows;
 }
 
-/** The legend's extra rows push the chart down 17pt each; the dashboard's legend has 320pt between its margins. */
-export const chartExtra = (d: Dashboard) => Math.max(0, legendLayout(legendLabels(d), 320).length - 1) * 17;
+/** The legend's extra rows push the chart down 17pt each; the dashboard's legend has 320pt between its margins (more
+ *  in a pinned panel made wider). */
+export const chartExtra = (d: Dashboard, room = 320) => Math.max(0, legendLayout(legendLabels(d), room).length - 1) * 17;
 
 /** One column holds the chart's axis labels and the heatmap's row names, so the plot and the squares start together. */
 export function labelColumn(d: Dashboard): number {

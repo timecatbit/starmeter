@@ -48,9 +48,15 @@ export const shell = {
       modules: new URLSearchParams(location.search).has('modules') })),
   /** Esc or the star hand the focus back to the app used before; a click elsewhere leaves it where it went. */
   close: (returnFocus = true) => (inTauri ? invoke<void>('close_panel', { returnFocus }) : quiet()),
-  /** The panel's size; the top stays under the star. Animated, it eases there over 0.3 s as the page slides. */
-  resize: (width: number, height: number, animate: boolean) => (inTauri ? invoke<void>('resize_panel', { width, height, animate }) : quiet()),
+  /** The panel's size; the top stays under the star (or, moved by the user, where they put it). Animated, it eases
+   *  there over 0.3 s as the page slides. Resizable: a pinned panel's edges resize it (not on the module grid). */
+  resize: (width: number, height: number, animate: boolean, resizable = false) =>
+    (inTauri ? invoke<void>('resize_panel', { width, height, animate, resizable }) : quiet()),
   setPinned: (pinned: boolean) => (inTauri ? invoke<void>('set_pinned', { pinned }) : quiet()),
+  /** Pinned: moves the window with the pointer, from a page's top strip. */
+  drag: () => (inTauri ? invoke<void>('drag_panel') : quiet()),
+  /** The page has drawn what the panel opened on; a window kept clear until then shows. */
+  shown: () => (inTauri ? invoke<void>('panel_shown') : quiet()),
   /** Theme (system, light, dark) and background (glass or solid) for the window and the system material under it. */
   /** Returns whether the system material shows; when it doesn't, the page paints its solid background. */
   setLook: (theme: string, glass: boolean): Promise<boolean> => (inTauri ? invoke<boolean>('set_look', { theme, glass }) : Promise.resolve(glass)),
@@ -70,6 +76,16 @@ export const shell = {
   onClosed(closed: () => void): () => void {
     if (!inTauri) return () => {};
     const stop = listen('panel-closed', closed);
+    return () => void stop.then((f) => f());
+  },
+  /** The user resized the pinned panel at its edges. In a browser, a test sends the same as a window event. */
+  onResized(resized: (width: number, height: number) => void): () => void {
+    if (!inTauri) {
+      const listener = (event: Event) => { const size = (event as CustomEvent<{ width: number; height: number }>).detail; resized(size.width, size.height); };
+      window.addEventListener('panel-resized', listener);
+      return () => window.removeEventListener('panel-resized', listener);
+    }
+    const stop = listen<{ width: number; height: number }>('panel-resized', (event) => resized(event.payload.width, event.payload.height));
     return () => void stop.then((f) => f());
   },
 };

@@ -14,12 +14,16 @@
   import { panel } from '../lib/ui.svelte';
   import type { Dashboard, ProviderUsage } from '../lib/types';
 
-  let { feed, column, counted, data, note = '', leaving = null, onleft }: {
+  let { feed, column, counted, data, note = '', leaving = null, onleft, width: wide = 320 }: {
     feed: LiveFeed; column: number; counted: ProviderUsage[]; data: Dashboard; note?: string; leaving?: number | null; onleft?: () => void;
+    width?: number;
   } = $props();
 
   /** The canvas sits where the trend's plot is, so the two line up exactly while one turns into the other. */
-  const W = 320, H = 122, ZOOM = 750, STRETCH = 16;
+  const H = 122, ZOOM = 750, STRETCH = 16;
+  // Read by the drawing each frame: a pinned panel's edges change it.
+  let W = 320;
+  $effect(() => { W = wide; });
   let canvas: HTMLCanvasElement | undefined = $state();
   const born = Date.now();
 
@@ -60,7 +64,7 @@
   function start(canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext('2d')!;
     const scale = window.devicePixelRatio || 1;
-    canvas.width = W * scale; canvas.height = H * scale;
+    canvas.height = H * scale;
     let shown: Scale | null = null, seen: number | null = null, ripple: number | null = null, frame = 0, last = 0, left = false;
     // progress runs from 0 (the trend) to 1 (live): up when pinning, back down when unpinning.
     let zoom: { from: number; to: number; start: number; trend: Trend } | null = null;
@@ -73,6 +77,7 @@
       frame = requestAnimationFrame(draw);
       if (time - last < (panel.reduceMotion ? 1000 : 33)) return;
       last = time;
+      if (canvas.width !== Math.round(W * scale)) canvas.width = Math.round(W * scale);
       const now = Date.now(), dark = panel.dark;
       // Unpinning: zoom back out from wherever the chart stands, then hand back to the trend.
       if (leavingAt !== null && !left && (!zoom || zoom.to !== 0)) {
@@ -263,7 +268,7 @@
   }
 </script>
 
-<canvas bind:this={canvas} class="live" style:width="{W}px" style:height="{H}px" aria-label="实时用量图"></canvas>
+<canvas bind:this={canvas} class="live" style:width="{wide}px" style:height="{H}px" aria-label="实时用量图"></canvas>
 
 <style>
   .live {

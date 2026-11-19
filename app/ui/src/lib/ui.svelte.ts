@@ -16,6 +16,10 @@ class PanelState {
   hint = $state<{ text: string; x: number; y: number; width: number; height: number } | null>(null);
   /** The share button's confirmation: 已复制 in green, 复制失败 in orange. */
   toast = $state<{ text: string; ok: boolean } | null>(null);
+  /** The width the homepage and the pages lay out at: 360, or what the user made a pinned panel at its edges. */
+  width = $state(360);
+  /** Pinned: a page's top strip moves the window. */
+  pinned = $state(false);
 
   constructor() {
     darkQuery?.addEventListener('change', (e) => (this.systemDark = e.matches));

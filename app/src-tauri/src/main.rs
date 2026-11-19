@@ -307,6 +307,8 @@ fn main() {
             panel::close_panel,
             panel::resize_panel,
             panel::set_pinned,
+            panel::drag_panel,
+            panel::panel_shown,
             panel::hold_open,
             panel::set_look,
             host::open_link,
@@ -341,6 +343,7 @@ fn main() {
                 // A click outside closes the panel; the app clicked keeps the focus.
                 WindowEvent::Focused(false) => panel::blurred(window.app_handle()),
                 WindowEvent::Focused(true) => panel::focused(window.app_handle()),
+                WindowEvent::Resized(_) => panel::resized(window.app_handle()),
                 WindowEvent::CloseRequested { api, .. } => {
                     api.prevent_close();
                     panel::close(window.app_handle(), true);

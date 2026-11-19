@@ -61,7 +61,7 @@
   .heatmap {
     position: absolute;
     left: 0;
-    width: 344px;
+    width: 100%;
   }
   .row-name, .hint, .caption {
     position: absolute;

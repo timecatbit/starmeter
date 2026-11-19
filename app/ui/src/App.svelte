@@ -1,7 +1,7 @@
 <script lang="ts">
   // The panel: which page is on screen (the homepage, a row's page, the module grid), actions and their optimistic
   // display, the window's size, the pinned live mode and the rolling figures.
-  import { onMount, untrack } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import { backend, inTauri, shell } from './lib/backend';
   import { automatic, entryKey, isModule, keepsPanelOpen, opening, passive } from './lib/detail';
   import { currency } from './lib/format';
@@ -50,15 +50,24 @@
 
   // MARK: The window
 
+  let pinned = $state(false);
+  /** The size the user gave the pinned panel at its edges: the homepage and the pages take it (the module grid keeps
+   *  its own) until unpinned. */
+  let free = $state<{ width: number; height: number } | null>(null);
   let wanted = $state({ home: 400, page: 300, grid: 400 });
-  const panelWidth = $derived(managerOnly && !pageEntry ? 588 : 360);
-  const panelHeight = $derived(Math.min(pageEntry ? wanted.page : managerOnly ? wanted.grid : wanted.home, info.maxHeight));
+  const grid = $derived(managerOnly && !pageEntry);
+  const panelWidth = $derived(grid ? 588 : free?.width ?? 360);
+  const panelHeight = $derived(free && !grid ? free.height : Math.min(pageEntry ? wanted.page : managerOnly ? wanted.grid : wanted.home, info.maxHeight));
+  $effect(() => { panel.width = free?.width ?? 360; });
   let lastSize = '';
+  /** The latest size asked of the shell, for an opening to wait on. */
+  let sizing: Promise<void> = Promise.resolve();
   $effect(() => {
-    const size = `${panelWidth}x${Math.round(panelHeight)}`;
+    const resizable = pinned && !grid;
+    const size = `${panelWidth}x${Math.round(panelHeight)}${resizable ? ' resizable' : ''}`;
     if (size === lastSize) return;
     lastSize = size;
-    void shell.resize(panelWidth, Math.round(panelHeight), !panel.reduceMotion);
+    sizing = shell.resize(panelWidth, Math.round(panelHeight), !panel.reduceMotion, resizable).catch(() => {});
   });
 
   // MARK: Theme and background
@@ -135,7 +144,6 @@
 
   // MARK: Pinned
 
-  let pinned = $state(false);
   let feed = $state<LiveFeed | null>(null);
   /** Unpinned at this moment: the live chart zooms back out to the trend, then lets go of the feed. */
   let leaving = $state<number | null>(null);
@@ -150,6 +158,9 @@
       return;
     }
     pinned = value;
+    panel.pinned = value;
+    // Unpinned, the panel goes back under the star at its pages' own size.
+    if (!value) free = null;
     void shell.setPinned(value);
     clearInterval(liveTimer);
     if (value) {
@@ -328,8 +339,9 @@
 
   // MARK: Opening and closing
 
-  function opened(modules: boolean, maxHeight?: number) {
-    if (maxHeight) info = { ...info, maxHeight };
+  /** The page the panel opens on, without sliding: the homepage, or the module grid. */
+  function startOver(modules: boolean) {
+    panel.hint = null;
     managerOnly = modules;
     settingsFromHome = false;
     pagePath = [];
@@ -338,8 +350,38 @@
     homeScroll = 0;
     gridScroll = 0;
     if (modules) leading = new Set((snapshot?.moduleOptions ?? []).filter((e) => isModule(e) && e.checked).map(entryKey));
+  }
+
+  function opened(modules: boolean, maxHeight?: number) {
+    if (maxHeight) info = { ...info, maxHeight };
+    startOver(modules);
     void reload();
     if (!modules) perform(['refresh-view']);
+    void revealWhenDrawn();
+  }
+
+  const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  /** Opening on another page than the closed panel drew (the module grid), the shell keeps the window clear until the
+   *  window has the page's size and the page has drawn into it. */
+  async function revealWhenDrawn() {
+    if (!inTauri) return;
+    await tick();
+    await nextFrame();
+    for (let i = 0; i < 30; i++) {
+      await sizing;
+      if (Math.abs(window.innerWidth - panelWidth) <= 1 && Math.abs(window.innerHeight - Math.round(panelHeight)) <= 1) break;
+      await nextFrame();
+    }
+    await nextFrame();
+    await nextFrame();
+    void shell.shown();
+  }
+
+  /** Closed: back to the homepage at once, so the next opening shows it rather than the page left open. */
+  function closed() {
+    setPinned(false, false);
+    free = null;
+    startOver(false);
   }
 
   function keydown(event: KeyboardEvent) {
@@ -365,7 +407,8 @@
     window.addEventListener('pointerdown', down, true);
     window.addEventListener('pointerup', up, true);
     window.addEventListener('pointercancel', up, true);
-    const stops = [backend.onSnapshot(() => void reload()), shell.onOpened(opened), shell.onClosed(() => setPinned(false, false))];
+    const stops = [backend.onSnapshot(() => void reload()), shell.onOpened(opened), shell.onClosed(closed),
+      shell.onResized((width, height) => { if (pinned) free = { width, height }; })];
     void shell.info().then((value) => {
       info = value;
       opened(value.modules);

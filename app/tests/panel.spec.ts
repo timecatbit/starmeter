@@ -44,6 +44,33 @@ test('header buttons take clicks, and pinning turns the trend live', async ({ pa
   await expect(page.getByLabel('实时用量图')).toHaveCount(0);
 });
 
+test('a pinned panel resized at its edges lays its pages out at that width, and unpinning gives the size back', async ({ page }) => {
+  await open(page);
+  const resize = (width: number, height: number) =>
+    page.evaluate(([w, h]) => window.dispatchEvent(new CustomEvent('panel-resized', { detail: { width: w, height: h } })), [width, height]);
+  // Not pinned: the user can't have resized it, and the page keeps 360.
+  await resize(560, 640);
+  await expect(page.locator('.window')).toHaveCSS('width', '360px');
+  await button(page, '钉住面板').click();
+  await resize(560, 640);
+  await expect(page.locator('.window')).toHaveCSS('width', '560px');
+  await expect(page.locator('.window')).toHaveCSS('height', '640px');
+  await expect(page.locator('.dashboard')).toHaveCSS('width', '544px');
+  // The figures, the live chart and the cards reach the new right edge.
+  const right = async (selector: string) => page.locator(selector).last().evaluate((e) => e.getBoundingClientRect().right);
+  const edge = await right('.dashboard');
+  expect(edge - (await right('.figure'))).toBeLessThan(16);
+  expect(edge - (await right('.live'))).toBeLessThan(16);
+  expect(edge - (await right('.card .cost'))).toBeLessThan(16);
+  // A row's page takes the width too.
+  await page.locator('.row').filter({ hasText: 'Claude 订阅' }).click();
+  await expect(page.locator('.page .rule')).toHaveCSS('width', '528px');
+  await page.keyboard.press('Escape');
+  await button(page, '取消钉住面板').click();
+  await expect(page.locator('.window')).toHaveCSS('width', '360px');
+  await expect(page.locator('.dashboard')).toHaveCSS('width', '344px');
+});
+
 test('a header hint appears after the pointer rests', async ({ page }) => {
   await open(page);
   await button(page, '刷新数据').hover();

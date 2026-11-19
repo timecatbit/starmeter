@@ -3,6 +3,7 @@
   import { entryKey } from '../lib/detail';
   import type { Snippet } from 'svelte';
   import type { Entry } from '../lib/types';
+  import { panel } from '../lib/ui.svelte';
   import HomeRow from './HomeRow.svelte';
   import Scroller from './Scroller.svelte';
 
@@ -27,7 +28,7 @@
         {#if entry.separator}
           <div class="divider"></div>
         {:else}
-          <HomeRow {entry} {column} {onactivate} />
+          <HomeRow {entry} {column} rowWidth={panel.width - 16} {onactivate} />
         {/if}
       {/each}
     </div>

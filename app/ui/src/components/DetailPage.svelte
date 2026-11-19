@@ -1,6 +1,7 @@
 <script lang="ts">
   // A page inside the panel: the back button with the row's icon, name and figure (in a shorter form if the name needs
   // the room), a rule, then its rows. Esc, the back button or a two-finger swipe to the right go back.
+  import { shell } from '../lib/backend';
   import { usageColor } from '../lib/colors';
   import { font, width } from '../lib/measure';
   import type { Entry } from '../lib/types';
@@ -8,13 +9,14 @@
   import Glyph from './Glyph.svelte';
   import HintButton from './HintButton.svelte';
   import Scroller from './Scroller.svelte';
+  import { panel } from '../lib/ui.svelte';
 
   let { page, open, busy, scrollTop = $bindable(0), onback, onopen, onchoose, ontoggled, onheight }: {
     page: Entry; open: Set<string>; busy: string[] | null; scrollTop?: number;
     onback: () => void; onopen: (e: Entry) => void; onchoose: (e: Entry) => void; ontoggled: (open: Set<string>) => void; onheight: (height: number) => void;
   } = $props();
 
-  const W = 360;
+  const W = $derived(panel.width);
   const hasGlyph = $derived(page.image !== undefined || page.symbol !== undefined);
   const titleX = $derived(hasGlyph ? 73 : 48);
   const room = $derived(W - 16 - titleX - width(page.label, font(14, 600)) - 14);
@@ -24,6 +26,8 @@
 </script>
 
 <div class="page">
+  <!-- Pinned, the header's free space moves the window, as a title bar would. -->
+  <div class="grip" aria-hidden="true" onpointerdown={(event) => { if (event.button === 0 && panel.pinned) { event.preventDefault(); void shell.drag(); } }}></div>
   <span class="back"><HintButton icon="chevron.left" hint="返回" label="返回" onclick={onback} /></span>
   {#if hasGlyph}<span class="page-glyph"><Glyph image={page.image} template={page.template} symbol={page.symbol} size={18} /></span>{/if}
   <h2 class="title" style:left="{titleX}px" style:width="{W - 16 - valueWidth - 8 - titleX}px">{page.label}</h2>
@@ -33,7 +37,7 @@
   <span class="rule"></span>
   <div class="rows">
     <Scroller bind:scrollTop onswipeback={onback} onheight={(h) => onheight(50 + h + 20)}>
-      <DetailList entries={page.children} {open} {busy} {onopen} {onchoose} {ontoggled} />
+      <DetailList entries={page.children} {open} {busy} rowWidth={W - 16} {onopen} {onchoose} {ontoggled} />
     </Scroller>
   </div>
 </div>
@@ -41,10 +45,19 @@
 <style>
   .page {
     position: relative;
-    width: 360px;
+    width: 100%;
     height: 100%;
   }
+  .grip {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 48px;
+  }
   .back { position: absolute; left: 12px; top: 13px; }
+  /* The header's words let the pointer through to the strip under them. */
+  .page-glyph, .title, .value { pointer-events: none; }
   .page-glyph { position: absolute; left: 48px; top: 16px; }
   .title {
     position: absolute;

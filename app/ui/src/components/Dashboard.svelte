@@ -1,6 +1,7 @@
 <script lang="ts">
   // The homepage's top: the heading and its buttons, Summary's three figures, the legend and trend (or the live chart
   // while pinned), the heatmap, the grouping tabs and the Harness cards.
+  import { shell } from '../lib/backend';
   import { accent, blend, label as labelColour, totalColor } from '../lib/colors';
   import { chartExtra, labelColumn, legendLabels, legendLayout, summaryProviders } from '../lib/chart';
   import { heading, money, tokens } from '../lib/format';
@@ -26,9 +27,12 @@
     onsettings: () => void; ongroup: (key: string) => void; ontoggle: (id: string, expanded: boolean) => void;
   } = $props();
 
-  const inner = 344, left = 12, right = 332;
+  // 344pt between the homepage's margins, more in a pinned panel made wider.
+  const left = 12;
+  const inner = $derived(panel.width - 16);
+  const right = $derived(inner - 12);
   const showSummary = $derived(data.showSummary !== false);
-  const extra = $derived(chartExtra(data));
+  const extra = $derived(chartExtra(data, right - left));
   const summaryHeight = $derived(showSummary ? 230 + extra : 44);
   const column = $derived(labelColumn(data));
   const heatmapLayout = $derived(data.heatmap ? new HeatmapLayout(left + column, summaryHeight + 8, right - left - column, data.heatmap.columns, heatmapRows(data.heatmap)) : null);
@@ -46,7 +50,7 @@
   const labels = $derived([partial ? '已知 API 估算' : 'API 估算', 'Token 用量', '请求']);
   const values = $derived([money(costs.length ? costs.reduce((a, b) => a + b, 0) : null), valid.length ? tokens(valid.reduce((s, p) => s + p.tokens, 0)) : '—',
     valid.length ? String(valid.reduce((s, p) => s + p.requests, 0)) : '—']);
-  const third = (right - left) / 3;
+  const third = $derived((right - left) / 3);
   const legend = $derived(legendLabels(data));
   const legendColours = $derived([totalColor(panel.dark), ...counted.map((p) => accent(p.id, panel.dark))]);
   const legendCells = $derived(legendLayout(legend, right - left).flatMap((row, r) => row.map((cell) => ({ ...cell, row: r }))));
@@ -80,6 +84,12 @@
     if (select) select.value = chosen;
   }
   const glowColour = $derived(blend(labelColour(panel.dark, 0.85), totalColor(panel.dark), summaryGlow * 0.85));
+  /** Pinned, the header's free space moves the window, as a title bar would. */
+  function grab(event: PointerEvent) {
+    if (event.button !== 0 || !panel.pinned) return;
+    event.preventDefault();
+    void shell.drag();
+  }
   function cardHeight(p: Dashboard['providers'][number]) {
     if (collapsible && !expanded.has(p.id)) return 52;
     const clients = p.available && p.clients?.length ? 16 : 0;
@@ -87,8 +97,9 @@
   }
 </script>
 
-<div class="dashboard" style:height="{summaryHeight + heatmapHeight + harnessHeader + groupingHeight + Math.max(cardList.length === 0 && data.providers.length ? 24 : 0, cardList.reduce((s, p) => s + cardHeight(p), 0)) + (data.providers.length ? 4 : 0)}px">
+<div class="dashboard" style:width="{inner}px" style:height="{summaryHeight + heatmapHeight + harnessHeader + groupingHeight + Math.max(cardList.length === 0 && data.providers.length ? 24 : 0, cardList.reduce((s, p) => s + cardHeight(p), 0)) + (data.providers.length ? 4 : 0)}px">
   <div class="summary" style:height="{summaryHeight}px">
+    <div class="grip" class:movable={panel.pinned} onpointerdown={grab} aria-hidden="true"></div>
     <h1 class="heading" style:width="{inner - 233 - 18}px">{headingText}</h1>
     <div class="buttons">
       <span class="slot" style:left="{firstButton}px">
@@ -133,15 +144,15 @@
       {/each}
       <div class="trend" style:transform="translateY({extra}px)">
         {#if live}
-          <LiveChart feed={live} {column} {counted} {data} {note} {leaving} {onleft} />
+          <LiveChart feed={live} {column} {counted} {data} {note} {leaving} {onleft} width={right - left} />
         {:else}
-          <SummaryChart {data} {note} {reveal} />
+          <SummaryChart {data} {note} {reveal} {right} />
         {/if}
       </div>
     {/if}
   </div>
   {#if data.heatmap}
-    <Heatmap heatmap={data.heatmap} {column} top={summaryHeight} />
+    <Heatmap heatmap={data.heatmap} {column} top={summaryHeight} {right} />
   {/if}
   <div class="cards" style:top="{summaryHeight + heatmapHeight + harnessHeader}px">
     {#if groupingHeight && data.groupings}
@@ -159,7 +170,6 @@
 <style>
   .dashboard {
     position: relative;
-    width: 344px;
   }
   .summary {
     position: relative;
@@ -169,10 +179,19 @@
     white-space: nowrap;
     line-height: 1.2;
   }
+  /* Under the heading and the buttons: the header's free space. */
+  .grip {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 40px;
+  }
   .heading {
     position: absolute;
     left: 12px;
     top: 10px;
+    pointer-events: none;
     margin: 0;
     font-size: 14px;
     font-weight: 600;
@@ -181,7 +200,8 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .buttons { position: absolute; left: 0; top: 0; width: 344px; height: 40px; }
+  .buttons { position: absolute; left: 0; top: 0; width: 100%; height: 40px; pointer-events: none; }
+  .buttons > * { pointer-events: auto; }
   .slot { top: 7.5px; }
   .toast {
     top: 12px;
@@ -243,14 +263,14 @@
     position: absolute;
     left: 0;
     top: 0;
-    width: 344px;
+    width: 100%;
     height: 230px;
     pointer-events: none;
   }
   .cards {
     position: absolute;
     left: 0;
-    width: 344px;
+    width: 100%;
   }
   .no-calls {
     padding: 4px 12px 0;

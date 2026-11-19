@@ -13,7 +13,8 @@
   let { p, collapsible = false, expanded = true, glow = 0, ontoggle }:
     { p: ProviderUsage; collapsible?: boolean; expanded?: boolean; glow?: number; ontoggle?: () => void } = $props();
 
-  const left = 12, right = 332;
+  const left = 12;
+  const right = $derived(panel.width - 28);
   const colour = $derived(accent(colourOf(p), panel.dark));
   const headerRight = $derived(collapsible ? right - 16 : right);
   const cost = $derived(p.available ? headline(p) : '—');
@@ -109,7 +110,7 @@
 <style>
   .card {
     position: relative;
-    width: 344px;
+    width: 100%;
     transition: height 0.26s var(--page-curve);
     overflow: hidden;
   }

@@ -205,6 +205,42 @@ pub fn panel_frame(anchor: (f64, f64), width: f64, height: f64) -> NSRect {
     NSRect::new(NSPoint::new(x, top - height), NSSize::new(width, height))
 }
 
+/// Where a panel the user moved goes at a new size: its top left stays, the window kept on its screen and its bottom
+/// above the Dock (it scrolls rather than run off the screen).
+pub fn free_frame(current: NSRect, width: f64, height: f64) -> NSRect {
+    let visible =
+        visible_frame(current.origin.x + current.size.width / 2.0, current.origin.y + current.size.height / 2.0);
+    let top = (current.origin.y + current.size.height).min(visible.origin.y + visible.size.height);
+    let height = height.min(top - visible.origin.y - 4.0).max(80.0);
+    let x = current.origin.x.min(visible.origin.x + visible.size.width - width).max(visible.origin.x);
+    NSRect::new(NSPoint::new(x, top - height), NSSize::new(width, height))
+}
+
+/// The window's opacity: clear while the page draws an opening, then shown.
+pub fn set_alpha(panel: &WebviewWindow, alpha: f64) {
+    let Ok(window) = panel.ns_window() else { return };
+    unsafe {
+        let _: () = msg_send![window.cast::<AnyObject>(), setAlphaValue: alpha];
+    }
+}
+
+/// The user is dragging one of the window's edges.
+pub fn in_live_resize(panel: &WebviewWindow) -> bool {
+    let Ok(window) = panel.ns_window() else { return false };
+    unsafe {
+        let live: Bool = msg_send![window.cast::<AnyObject>(), inLiveResize];
+        live.as_bool()
+    }
+}
+
+/// The window's size while the user drags an edge; None when the shell changed it.
+pub fn live_resize_size(panel: &WebviewWindow) -> Option<(f64, f64)> {
+    if !in_live_resize(panel) {
+        return None;
+    }
+    frame(panel).map(|frame| (frame.size.width, frame.size.height))
+}
+
 pub fn set_frame(panel: &WebviewWindow, frame: NSRect) {
     let Ok(window) = panel.ns_window() else { return };
     unsafe {
