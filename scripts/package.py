@@ -8,7 +8,9 @@ import subprocess
 import tempfile
 from urllib.parse import quote
 
-from build import build, build_engine
+import json
+
+from build import build_app, build_engine
 
 ROOT = Path(__file__).resolve().parents[1]
 ENTRY = 'starmeter.30s.sh'
@@ -20,12 +22,15 @@ ENGINE = Path('build/starmeter-engine')
 
 
 def version():
-    plugin = re.search(r'^VERSION = "([^"]+)"$', (ROOT / 'lib/swiftbar_plugin.py').read_text(), re.M)
-    engine = re.search(r'^version = "([^"]+)"$', (ROOT / 'Cargo.toml').read_text(), re.M)
-    entry = re.search(r'<xbar.version>([^<]+)</xbar.version>', (ROOT / ENTRY).read_text())
-    if not plugin or not entry or not engine or len({plugin.group(1), entry.group(1), engine.group(1)}) != 1:
-        raise SystemExit('VERSION in lib/swiftbar_plugin.py, the workspace version in Cargo.toml and xbar.version in %s must match.' % ENTRY)
-    return plugin.group(1)
+    """One version everywhere it is written. The Python reference in lib/ keeps 5.x's number; it isn't shipped."""
+    engine = re.search(r'^version = "([^"]+)"$', (ROOT / 'Cargo.toml').read_text(encoding='utf-8'), re.M)
+    entry = re.search(r'<xbar.version>([^<]+)</xbar.version>', (ROOT / ENTRY).read_text(encoding='utf-8'))
+    app = json.loads((ROOT / 'app/src-tauri/tauri.conf.json').read_text(encoding='utf-8')).get('version')
+    ui = json.loads((ROOT / 'app/package.json').read_text(encoding='utf-8')).get('version')
+    if not engine or not entry or len({engine.group(1), entry.group(1), app, ui}) != 1:
+        raise SystemExit('The workspace version in Cargo.toml, version in app/src-tauri/tauri.conf.json and app/package.json '
+                         'and xbar.version in %s must match.' % ENTRY)
+    return engine.group(1)
 
 
 def downloads(number):
@@ -87,7 +92,8 @@ def main():
     number = version()
     if args.tag and args.tag != 'v' + number:
         raise SystemExit('Tag %s does not match version %s.' % (args.tag, number))
-    notes = release_notes(number)
+    # A tagged release needs its CHANGELOG section; a trial package doesn't.
+    notes = release_notes(number) if args.tag else None
     name = 'token-monitor-' + number
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -103,14 +109,15 @@ def main():
                 shutil.copytree(source, target, ignore=shutil.ignore_patterns('__pycache__', '*.pyc', '.DS_Store'))
             else:
                 shutil.copy2(source, target)
-        build(package / APP, universal=True)
+        build_app(package / APP, 'panel', universal=True)
         build_engine(package / ENGINE, universal=True)
         # ditto keeps the bundle's signature and executable bits; no AppleDouble or quarantine data.
         archive.unlink(missing_ok=True)
         subprocess.run(['ditto', '-c', '-k', '--keepParent', '--norsrc', '--noextattr', '--noacl',
                         str(package), str(archive)], check=True)
     verify(archive, name)
-    (output / 'release-notes.md').write_text(notes)
+    if notes:
+        (output / 'release-notes.md').write_text(notes)
     # What the publish step uploads, as gh's file#label arguments.
     (output / 'release-assets.txt').write_text(''.join('%s#%s\n' % (file, label) for file, label in downloads(number)))
     print(archive)

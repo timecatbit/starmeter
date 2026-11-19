@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Install this plugin into a selected SwiftBar directory, with a local backup."""
+"""Install this plugin into a selected SwiftBar directory, with a local backup. Standard library only and Python
+3.9 compatible: an installed 5.x plugin runs this file from the release zip when it updates itself."""
 import argparse
 from datetime import datetime
 import os
@@ -136,9 +137,10 @@ def main():
         parser.error('User config already exists; edit it through connection settings.')
     if args.config and not args.config.expanduser().is_file():
         parser.error('--config must name an existing file.')
-    # Release packages ship a prebuilt helper and no Swift source, so they need no compiler.
-    if not args.skip_build and (ROOT / 'panel/Panel.swift').is_file():
-        subprocess.run([sys.executable, str(ROOT / 'scripts' / 'build.py')], check=True)
+    # Release packages ship the prebuilt panel and engine and no source, so they need no compiler. A source
+    # checkout builds both: the Rust engine and the Tauri panel.
+    if not args.skip_build and (ROOT / 'Cargo.toml').is_file():
+        subprocess.run([sys.executable, str(ROOT / 'scripts' / 'build.py'), '--panel', str(ROOT / 'build/OpenCodexPanel.app')], check=True)
     if not (ROOT / 'build/OpenCodexPanel.app').is_dir() or not (ROOT / ENGINE).is_file():
         parser.error('The panel helper or engine is missing; download the release zip again or build from source.')
     relative_app = Path('.opencodex-panel/OpenCodexPanel.app')

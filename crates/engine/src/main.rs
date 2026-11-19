@@ -1,9 +1,9 @@
-//! The program every host runs: the SwiftBar entry execs it, and the apps call it for refreshes and actions.
-//! While Starmeter 6 is being ported only --version works; everything else exits with UNPORTED so the whole-run
-//! tests skip it instead of failing.
+//! One run of Starmeter: the menu for SwiftBar, a background read, an action, the Claude status line, or a request
+//! from an app. The SwiftBar entry script loads config.local.sh into the environment first.
 
-/// sysexits' EX_CONFIG: the tests read this exit status as "not ported yet".
-const UNPORTED: i32 = 78;
+use std::io::Write;
+
+use starmeter_core::runtime::Runtime;
 
 fn main() {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
@@ -11,6 +11,8 @@ fn main() {
         println!("{}", starmeter_core::VERSION);
         return;
     }
-    eprintln!("starmeter-engine {}: not ported yet", arguments.join(" "));
-    std::process::exit(UNPORTED);
+    let mut runtime = Runtime::from_process();
+    let status = runtime.main(&arguments);
+    let _ = std::io::stdout().flush();
+    std::process::exit(status);
 }
