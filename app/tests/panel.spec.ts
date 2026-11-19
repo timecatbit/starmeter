@@ -30,12 +30,8 @@ test('the homepage shows Summary, the trend, the heatmap, the cards and the rows
   await expect(page.locator('.legend')).toHaveCount(8);
   await expect(page.locator('.chart path')).not.toHaveCount(0);
   await expect(page.locator('.squares .cell')).toHaveCount(24);
-  // Three cards, those that cost most, each in its place; the rest one click away.
-  await expect(page.locator('.card .name')).toHaveText(['Magpie', 'Claude', 'ChatGPT']);
-  await page.getByRole('button', { name: '其余 4 个工具' }).click();
   await expect(page.locator('.card .name')).toHaveText(['Magpie', 'Claude', 'ChatGPT', 'OpenCode', 'Qoder', 'Gemini CLI', 'Cursor']);
-  await page.getByRole('button', { name: '只看前 3 个' }).click();
-  await expect(page.locator('.card .name')).toHaveCount(3);
+  await expect(page.getByRole('button', { name: /^其余 \d+ 个/ })).toHaveCount(0);
   await expect(page.locator('.card-note').filter({ hasText: '次已由 Magpie 计入' })).toBeVisible();
   await expect(page.locator('.row .title')).toContainText(['ChatGPT 订阅', 'Claude 订阅', 'Cursor 订阅']);
   // Usage rows carry their 3pt bar, coloured by level.
@@ -55,12 +51,13 @@ test('header buttons take clicks, and pinning turns the trend live', async ({ pa
   await expect(page.locator('.grabber')).toBeVisible();
   await expect(page.getByRole('separator', { name: '拖动调整大小' })).toBeVisible();
   await expect(page.getByText('拖动顶部移动面板')).toHaveCount(0);
-  // Pinned, the panel turns to 会话 and fits the dashboard, down to just above the subscriptions.
+  // Pinned, the panel turns to 会话 and fits down to the end of the third session; the rest is below, to scroll to or
+  // to make the panel taller for.
   await expect(page.getByRole('radio', { name: '会话' })).toHaveAttribute('aria-checked', 'true');
-  await expect(page.locator('.session')).toHaveCount(3);
+  await expect(page.locator('.session')).toHaveCount(4);
   const gap = async () => {
-    const window = (await page.locator('.window').boundingBox())!, dashboard = (await page.locator('.dashboard').boundingBox())!;
-    return window.y + window.height - (dashboard.y + dashboard.height);
+    const window = (await page.locator('.window').boundingBox())!, third = (await page.locator('.session').nth(2).boundingBox())!;
+    return window.y + window.height - (third.y + third.height);
   };
   await expect.poll(gap).toBeLessThan(24);
   expect(await gap()).toBeGreaterThanOrEqual(0);
@@ -93,14 +90,12 @@ test('会话 sits beside the groupings: running or idle, this turn\'s tokens, th
   await expect(page.locator('.row .title', { hasText: /^会话$/ })).toHaveCount(0);
   await page.getByRole('radio', { name: '会话' }).click();
   const cards = page.locator('.session');
-  await expect(cards).toHaveCount(3);
+  await expect(cards).toHaveCount(4);
   await expect(cards.first().locator('.title')).toHaveText('重做设置页的分段控件');
   await expect(cards.first().locator('.value')).toHaveText('2.41M Token');
   await expect(cards.first()).toContainText('运行中 4 分钟');
   await expect(cards.first()).toContainText('本轮 $0.92 · 9 次请求');
   await expect(page.locator('.session-list')).not.toContainText('等待输入');
-  await page.locator('.session-list .more').click();
-  await expect(cards).toHaveCount(4);
   await expect(cards.last()).toContainText('空闲 6 分钟');
   await expect(cards.last()).toContainText('上一轮 $0.12');
   // A card opens its last turns.
@@ -213,11 +208,9 @@ test('grouping by model or project swaps the cards, with the pill on the choice'
   await page.getByRole('radio', { name: '模型' }).click();
   await expect(page.getByRole('radio', { name: '模型' })).toHaveAttribute('aria-checked', 'true');
   await expect(page.locator('.card .name').first()).toHaveText('Claude Opus 5.5');
-  await page.getByRole('button', { name: /^其余 \d+ 个模型$/ }).click();
   await expect(page.locator('.card .name')).toContainText(['Claude Sonnet 5.5']);
   await page.getByRole('radio', { name: '项目' }).click();
   await expect(page.locator('.tabs .note')).toHaveText('按客户端自己的记录');
-  await page.getByRole('button', { name: /^其余 \d+ 个项目$/ }).click();
   await expect(page.locator('.card .name')).toContainText(['starmeter', '未标注项目']);
 });
 

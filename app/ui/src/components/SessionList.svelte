@@ -2,23 +2,39 @@
   // 会话: the Claude Code and Codex sessions of the last half hour as cards, the fourth choice beside 工具 / 模型 / 项目.
   // A session is running or it is not. Its card leads with its tool's logo, its title and this turn's tokens (the last
   // turn's once it has finished), read again with every pinned tick so the number moves as the session works; a click
-  // opens its last turns. Three are shown, the rest one click away; the alert switch closes the list.
+  // opens its last turns. The alert switch closes the list; a pinned panel fits down to the third session.
   import { panel } from '../lib/ui.svelte';
   import type { Entry } from '../lib/types';
   import DetailList from './DetailList.svelte';
   import Glyph from './Glyph.svelte';
   import StatusLight from './StatusLight.svelte';
 
-  let { entry, busy, onopen, onchoose }: {
+  let { entry, busy, onopen, onchoose, onfit }: {
     entry: Entry; busy: string[] | null; onopen: (e: Entry) => void; onchoose: (e: Entry) => void;
+    /** The list's height down to the end of its third session (all of it with three or fewer). */
+    onfit?: (height: number) => void;
   } = $props();
 
-  const SHOWN = 3;
+  const FIT = 3;
   const sessions = $derived(entry.children.filter((c) => c.statusLight !== undefined));
   const notes = $derived(entry.children.filter((c) => c.statusLight === undefined && !c.separator && c.checked === undefined && !c.action));
   const settings = $derived(entry.children.filter((c) => c.checked !== undefined));
-  let all = $state(false);
-  const visible = $derived(all ? sessions : sessions.slice(0, SHOWN));
+  let list: HTMLDivElement | undefined = $state();
+  // Taken a frame after the list changes size (an opened session, a new one), never inside the observer's own call.
+  $effect(() => {
+    const box = list;
+    if (!box || !onfit) return;
+    let frame = 0;
+    const measure = () => {
+      const cards = box.querySelectorAll<HTMLElement>('.session');
+      const third = cards.length > FIT ? cards[FIT - 1] : null;
+      onfit?.(third ? third.offsetTop - box.offsetTop + third.offsetHeight + 4 : box.offsetHeight);
+    };
+    const observer = new ResizeObserver(() => { cancelAnimationFrame(frame); frame = requestAnimationFrame(measure); });
+    observer.observe(box);
+    measure();
+    return () => { observer.disconnect(); cancelAnimationFrame(frame); };
+  });
   let opened = $state(new Set<string>());
   let settingsOpen = $state(new Set<string>());
 
@@ -57,8 +73,8 @@
   }
 </script>
 
-<div class="session-list">
-  {#each visible as s (s.label)}
+<div class="session-list" bind:this={list}>
+  {#each sessions as s (s.label)}
     {@const more = latest(s)}
     {@const open = opened.has(s.label)}
     <div class="session" class:open>
@@ -82,9 +98,6 @@
       {/if}
     </div>
   {/each}
-  {#if sessions.length > SHOWN}
-    <button class="more pressable" onclick={() => (all = !all)}>{all ? '只看最近 3 个' : `其余 ${sessions.length - SHOWN} 个会话`}</button>
-  {/if}
   {#each notes as note, i (i)}
     <div class="empty">{note.label}</div>
   {/each}
@@ -152,16 +165,6 @@
   .turn { display: flex; flex-direction: column; padding: 2px 0; }
   .turn-label { font-size: 11px; font-variant-numeric: tabular-nums; }
   .turn-detail { font-size: 10px; color: var(--secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .more {
-    --press-scale: 0.97;
-    margin: 0 12px 6px;
-    height: 22px;
-    padding: 0 8px;
-    border-radius: 7px;
-    font-size: 11px;
-    color: var(--accent);
-  }
-  .more:hover { background: var(--hover); }
   .empty { padding: 2px 12px 10px; font-size: 10.5px; color: var(--secondary); }
   .settings { margin-top: 2px; }
 </style>

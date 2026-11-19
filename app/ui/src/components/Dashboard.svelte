@@ -27,7 +27,7 @@
     liveStamp: string | null; pinned: boolean; pinInterval: number;
     onrange: (action: string[]) => void; onshare: () => void; onpin: () => void;
     onsettings: () => void; ongroup: (key: string) => void; ontoggle: (id: string, expanded: boolean) => void;
-    /** The dashboard's height, for a pinned panel that fits it. */
+    /** How tall a pinned panel that fits the homepage is: down to the end of the third card or session. */
     onsize?: (height: number) => void;
     onopentool: (id: string) => void;
     /** The 会话 module's row, when it is on the homepage: its sessions are the fourth choice beside the groupings. */
@@ -69,23 +69,15 @@
   const cardList = $derived(data.cards ?? data.providers);
   const collapsible = $derived(data.allowCollapse === true && !data.cards);
   const expanded = $derived(new Set(data.expandedProviders ?? []));
-  // Three cards, the rest one click away: the three that cost most (then used most), each where it stands in the list.
-  const SHOWN = 3;
-  let allCards = $state(false);
-  $effect(() => { void data.grouping; allCards = false; });
-  const shownCards = $derived.by(() => {
-    if (allCards || cardList.length <= SHOWN) return cardList;
-    const ranked = cardList.map((p, i) => ({ i, cost: p.cost ?? -1, tokens: p.tokens }))
-      .sort((a, b) => b.cost - a.cost || b.tokens - a.tokens || a.i - b.i).slice(0, SHOWN).map((r) => r.i);
-    return cardList.filter((_, i) => ranked.includes(i));
-  });
-  const hiddenCards = $derived(cardList.length - shownCards.length);
-  const noun = $derived(data.grouping === 'model' ? '模型' : data.grouping === 'project' ? '项目' : '工具');
-  const moreRow = $derived(cardList.length > SHOWN ? 28 : 0);
   const listHeight = $derived(showingSessions ? sessionsHeight
-    : Math.max(cardList.length === 0 && data.providers.length ? 24 : 0, shownCards.reduce((s, p) => s + cardHeight(p), 0)) + moreRow + (data.providers.length ? 4 : 0));
+    : Math.max(cardList.length === 0 && data.providers.length ? 24 : 0, cardList.reduce((s, p) => s + cardHeight(p), 0)) + (data.providers.length ? 4 : 0));
   const total = $derived(summaryHeight + heatmapHeight + harnessHeader + groupingHeight + listHeight);
-  $effect(() => onsize?.(total));
+  // A pinned panel fits down to the end of the third card or session (the user makes it taller at its edges).
+  const FIT = 3;
+  let sessionsFit = $state(0);
+  const fitList = $derived(showingSessions ? sessionsFit
+    : cardList.length <= FIT ? listHeight : cardList.slice(0, FIT).reduce((s, p) => s + cardHeight(p), 0) + 4);
+  $effect(() => onsize?.(summaryHeight + heatmapHeight + harnessHeader + groupingHeight + fitList));
 
   const counted = $derived(summaryProviders(data));
   const valid = $derived(counted.filter((p) => p.available));
@@ -181,19 +173,16 @@
     {/if}
     {#if showingSessions && sessions}
       <div class="sessions" bind:this={sessionsBox}>
-        <SessionList entry={sessions} {busy} onopen={(e) => onopen?.(e)} onchoose={(e) => onchoose?.(e)} />
+        <SessionList entry={sessions} {busy} onopen={(e) => onopen?.(e)} onchoose={(e) => onchoose?.(e)} onfit={(h) => (sessionsFit = h)} />
       </div>
     {:else}
       {#if !cardList.length && data.providers.length}
         <div class="no-calls">此时段暂无调用</div>
       {/if}
-      {#each shownCards as p (p.id)}
+      {#each cardList as p (p.id)}
         <ProviderCard {p} {collapsible} expanded={expanded.has(p.id)} glow={glows[p.id] ?? 0} ontoggle={() => ontoggle(p.id, !expanded.has(p.id))}
           onopen={isGrouped(p) ? undefined : () => onopentool(p.id)} />
       {/each}
-      {#if moreRow}
-        <button class="more pressable" onclick={() => (allCards = !allCards)}>{allCards ? '只看前 3 个' : `其余 ${hiddenCards} 个${noun}`}</button>
-      {/if}
     {/if}
   </div>
 </div>
@@ -282,17 +271,6 @@
     left: 0;
     width: 100%;
   }
-  .more {
-    --press-scale: 0.97;
-    display: block;
-    margin: 2px 12px 4px;
-    height: 22px;
-    padding: 0 8px;
-    border-radius: 7px;
-    font-size: 11px;
-    color: var(--accent);
-  }
-  .more:hover { background: var(--hover); }
   .no-calls {
     padding: 4px 12px 0;
     height: 20px;
