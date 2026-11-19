@@ -82,11 +82,11 @@ export class LiveFeed {
 
   span() { return LiveFeed.window; }
 
-  /** Output tokens a second over the last minute, up to now: what the models generated since the window's left edge (or
-   *  since pinning, in the first minute) over the time gone by, so a burst eases off as the window moves past it. Not
-   *  all tokens: each request re-reads its whole context from the cache, so those run to tens of thousands a second and
-   *  say nothing about speed. Requests are logged whole when they finish, so a per-reading rate would mostly be 0 with an
-   *  occasional spike. */
+  /** Output tokens a second over the last minute, up to now: what the models generated since the window's left edge
+   *  over its 60 seconds, so a burst eases off as the window moves past it. Over 60 seconds in the first minute after
+   *  pinning too: a request is logged whole when it finishes, with output written long before, and over the few seconds
+   *  since pinning it read as thousands a second for a moment. Not all tokens: each request re-reads its whole context
+   *  from the cache, so those run to tens of thousands a second and say nothing about speed. */
   rate(now: number): number | null { return this.rateAt(now); }
 
   /** The same rate as it stood at an earlier moment, from the readings up to then: the Token/s line is drawn from it. */
@@ -94,11 +94,8 @@ export class LiveFeed {
     const upto = this.samples.filter((s) => s.at <= at), last = upto.at(-1);
     if (!last) return null;
     const start = at - LiveFeed.window;
-    const base = [...upto].reverse().find((s) => s.at <= start);
-    const from = base ?? upto[0];
-    const seconds = base ? LiveFeed.window / 1000 : (at - from.at) / 1000;
-    if (seconds < 1) return null;
-    return Math.max(0, last.output - from.output) / seconds;
+    const from = [...upto].reverse().find((s) => s.at <= start) ?? upto[0];
+    return Math.max(0, last.output - from.output) / (LiveFeed.window / 1000);
   }
 }
 

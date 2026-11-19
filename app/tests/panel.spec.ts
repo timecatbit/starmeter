@@ -140,6 +140,27 @@ test('pinned, picking ranges back and forth adds nothing to the live line', asyn
   }
 });
 
+test('Token/s is the last minute\'s output over 60 seconds, even just after pinning', async ({ page }) => {
+  await open(page);
+  const rates = await page.evaluate(async () => {
+    const { backend } = await import('/src/lib/backend.ts');
+    const { LiveFeed } = await import('/src/lib/live.ts');
+    const today = (await backend.snapshot()).dashboard!;
+    const out = (by: number) => ({ ...today, providers: today.providers.map((p) => (p.id === 'claude' ? { ...p, output: p.output + by, tokens: p.tokens + by * 50 } : p)) });
+    const feed = new LiveFeed(), t = Date.now();
+    feed.add(today, t);
+    // Two seconds after pinning, a request that wrote 4,000 tokens over its whole run is logged at once.
+    feed.add(out(4000), t + 2000);
+    // Read the same way every few seconds; the 4,000 leaves the window 60 seconds after it landed.
+    return [feed.rateAt(t + 2000) ?? 0, feed.rateAt(t + 30_000) ?? 0, feed.rateAt(t + 61_000) ?? 0, feed.rateAt(t + 63_000) ?? 0];
+  });
+  // 4,000 over 60 seconds, not over the 2 since pinning (which read as 2,000 a second); gone once the minute passes it.
+  expect(Math.round(rates[0])).toBe(67);
+  expect(Math.round(rates[1])).toBe(67);
+  expect(Math.round(rates[2])).toBe(67);
+  expect(Math.round(rates[3])).toBe(0);
+});
+
 test('会话 sits beside the groupings: running or idle, this turn\'s tokens, three shown and the rest one click away', async ({ page }) => {
   await open(page);
   // Its row leaves the other rows for the tab.
