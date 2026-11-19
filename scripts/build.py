@@ -89,7 +89,9 @@ def resources(engine=None):
     mapping = {}
     if engine:
         # In bin/, as in the SwiftBar plugin; Tauri can't copy a resource onto the engine cargo built beside the app.
-        mapping[str(Path(engine).resolve())] = 'bin/' + Path(engine).name
+        # Staged under the checkout by build_app and named relative to it: Tauri takes an absolute Windows path for
+        # one on the checkout's drive (/Users\runneradmin\…).
+        mapping['../../build/bundled-engine/' + Path(engine).name] = 'bin/' + Path(engine).name
     for path in sorted((ROOT / 'lib').iterdir()):
         if path.suffix == '.json' or path.name.endswith('LICENSE'):
             mapping['../../lib/' + path.name] = 'lib/' + path.name
@@ -110,6 +112,10 @@ def build_app(output, flavor='app', universal=False, target=None, bundles=None, 
     if not (app / 'node_modules').is_dir():
         subprocess.run([npm(), 'ci'], cwd=app, check=True)
     names = FLAVORS[flavor]
+    if engine:
+        staged = ROOT / 'build' / 'bundled-engine'
+        staged.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(engine, staged / Path(engine).name)
     command = [npm(), 'run', 'tauri', '--', 'build', '--config', json.dumps(tauri_config(flavor, engine), ensure_ascii=False)]
     if sys.platform == 'darwin':
         command += ['--bundles', 'app']
