@@ -27,7 +27,8 @@
     open = true;
     panel.menuOpen = true;
     lit = Math.max(0, options.findIndex((o) => o.value === value));
-    const bottom = root?.closest('.window')?.getBoundingClientRect().bottom ?? window.innerHeight;
+    // The bottom of what scrolls around it (else the panel's): past it, the menu would make the page scroll to it.
+    const bottom = (root?.closest('.viewport') ?? root?.closest('.window'))?.getBoundingClientRect().bottom ?? window.innerHeight;
     room = root ? Math.max(96, bottom - root.getBoundingClientRect().bottom - 10) : 0;
     window.addEventListener('pointerdown', outside, true);
     // Focusing would scroll the page to show the whole menu, jolting it up under the pointer.
@@ -79,7 +80,7 @@
       onwheel={(event) => event.stopPropagation()} transition:drop>
       {#each options as option, i (option.value)}
         <div class="option" class:chosen={option.value === value} class:lit={i === lit} role="option" tabindex="-1" aria-selected={option.value === value}
-          onpointerenter={() => (lit = i)} onclick={() => pick(option.value)} onkeydown={() => {}}>
+          onpointerenter={() => (lit = i)} onpointerdown={(event) => event.preventDefault()} onclick={() => pick(option.value)} onkeydown={() => {}}>
           {#if option.value === value}
             <svg class="check" width="10" height="8" viewBox="0 0 10 8" aria-hidden="true"><path d="M1 4.2 3.7 6.8 9 1.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
           {/if}
