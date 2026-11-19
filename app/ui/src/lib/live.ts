@@ -53,13 +53,16 @@ export class LiveFeed {
    *  all tokens: each request re-reads its whole context from the cache, so those run to tens of thousands a second and
    *  say nothing about speed. Requests are logged whole when they finish, so a per-reading rate would mostly be 0 with an
    *  occasional spike. */
-  rate(now: number): number | null {
-    const last = this.samples.at(-1);
+  rate(now: number): number | null { return this.rateAt(now); }
+
+  /** The same rate as it stood at an earlier moment, from the readings up to then: the Token/s line is drawn from it. */
+  rateAt(at: number): number | null {
+    const upto = this.samples.filter((s) => s.at <= at), last = upto.at(-1);
     if (!last) return null;
-    const start = now - LiveFeed.window;
-    const base = [...this.samples].reverse().find((s) => s.at <= start);
-    const from = base ?? this.samples[0];
-    const seconds = base ? LiveFeed.window / 1000 : (now - from.at) / 1000;
+    const start = at - LiveFeed.window;
+    const base = [...upto].reverse().find((s) => s.at <= start);
+    const from = base ?? upto[0];
+    const seconds = base ? LiveFeed.window / 1000 : (at - from.at) / 1000;
     if (seconds < 1) return null;
     return Math.max(0, last.output - from.output) / seconds;
   }

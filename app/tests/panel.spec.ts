@@ -60,6 +60,11 @@ test('header buttons take clicks, and pinning turns the trend live', async ({ pa
   // The live tick reads again and the figures roll up.
   const before = await page.locator('.figure').nth(1).textContent();
   await expect.poll(async () => page.locator('.figure').nth(1).textContent(), { timeout: 8000 }).not.toBe(before);
+  // Token / Token/s: the line becomes the last minute's output rate, and the choice is kept.
+  await page.getByRole('radio', { name: 'Token/s' }).click();
+  await expect(page.getByRole('radio', { name: 'Token/s' })).toHaveAttribute('aria-checked', 'true');
+  expect(await page.evaluate(() => localStorage.getItem('starmeter.liveMode'))).toBe('rate');
+  await page.getByRole('radio', { name: 'Token', exact: true }).click();
   await button(page, '取消钉住面板').click();
   await expect(page.getByLabel('实时用量图')).toHaveCount(0);
   await expect(page.locator('.grabber')).toHaveCount(0);

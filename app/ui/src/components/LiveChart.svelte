@@ -4,11 +4,12 @@
   // axis whose bottom is where the window starts. Pinning zooms into now: the trend stretches away from its end and
   // fades, its end dot settles where the live line ends, and the live line opens out leftward from that dot while the
   // live marks come in. Unpinning plays the same in reverse and hands back to the trend. A new reading lands with a
-  // ripple, 实时 breathes, and the last minute's rate reads at the top right in Token/s.
+  // ripple, 实时 breathes, and the last minute's rate reads at the top right in Token/s. Beside 实时, Token / Token/s
+  // turns the line into that rate over the last minute (remembered): how fast the models are writing, rising and easing.
   import { accent, alpha, label as labelColour, starAccent, totalColor } from '../lib/colors';
   import { chartAxis, chartPositions, seriesOf, smoothCurves, summaryProviders, tracePath } from '../lib/chart';
   import { tokens } from '../lib/format';
-  import { baseLabel, compact, rateText, scaleFor, type LiveFeed, type Sample, type Scale } from '../lib/live';
+  import { baseLabel, compact, nice, rateText, scaleFor, type LiveFeed, type Sample, type Scale } from '../lib/live';
   import { font, MONO, SANS, width } from '../lib/measure';
   import { untrack } from 'svelte';
   import { panel } from '../lib/ui.svelte';
@@ -29,6 +30,15 @@
   $effect(() => { W = wide; });
   let canvas: HTMLCanvasElement | undefined = $state();
   const born = Date.now();
+  const MODE = 'starmeter.liveMode';
+  let mode = $state<'total' | 'rate'>(typeof localStorage !== 'undefined' && localStorage.getItem(MODE) === 'rate' ? 'rate' : 'total');
+  // Read by the drawing each frame.
+  let modeNow: 'total' | 'rate' = 'total';
+  $effect(() => { modeNow = mode; });
+  function pickMode(next: 'total' | 'rate') {
+    mode = next;
+    if (typeof localStorage !== 'undefined') localStorage.setItem(MODE, next);
+  }
 
   type Trend = ReturnType<typeof trendNow>;
   /** The trend as SummaryChart draws it, to zoom in from or back out to. */
@@ -69,6 +79,7 @@
     const scale = window.devicePixelRatio || 1;
     canvas.height = H * scale;
     let shown: Scale | null = null, seen: number | null = null, ripple: number | null = null, frame = 0, last = 0, left = false;
+    let drawnMode = modeNow;
     // progress runs from 0 (the trend) to 1 (live): up when pinning, back down when unpinning.
     let zoom: { from: number; to: number; start: number; trend: Trend } | null = null;
     let progress = 1;
@@ -104,7 +115,20 @@
       const base: Sample | undefined = [...samples].reverse().find((s) => s.at <= start) ?? samples[0];
       const points = samples.filter((s) => s.at > start);
       const from = base ? feed.value(base) : 0;
-      const target = scaleFor(from, Math.max(from, ...points.map((s) => feed.value(s))));
+      // Token/s: the last minute's output rate as it stood at each second of the window, from zero up.
+      const rating = modeNow === 'rate';
+      if (drawnMode !== modeNow) { drawnMode = modeNow; shown = null; }
+      const rates: [number, number][] = [];
+      if (rating) {
+        for (let k = 0; k <= 60; k++) {
+          const t = start + (k * span) / 60, r = feed.rateAt(t);
+          if (r !== null) rates.push([t, r]);
+        }
+        const r = feed.rateAt(now);
+        if (r !== null) rates.push([now, r]);
+      }
+      const target = rating ? { lo: 0, height: nice(Math.max(5, ...rates.map(([, r]) => r * 1.15))) }
+        : scaleFor(from, Math.max(from, ...points.map((s) => feed.value(s))));
       // While zooming the live scale stands still; afterwards it eases to each new window.
       const range: Scale = zoom || !shown ? target
         : { lo: shown.lo + (target.lo - shown.lo) * 0.12, height: shown.height + (target.height - shown.height) * 0.12 };
@@ -185,10 +209,16 @@
           if (labelStrength > 0.01) { ctx.globalAlpha = liveAlpha * labelStrength; text(label, 0, level - 5, 8, secondary); ctx.globalAlpha = liveAlpha; }
           grid(level, isBottom, 1);
         };
-        mark(baseLabel(range.lo, (label) => width(label, font(8)) <= column - 4), range.lo, true);
         const apart = Math.min(1, Math.max(0, (Math.abs(y(range.lo) - y(range.lo + range.height / 2)) - 8) / 6));
-        mark('+' + compact(target.height / 2), range.lo + range.height / 2, false, apart);
-        mark('+' + compact(target.height), range.lo + range.height, false, apart);
+        if (rating) {
+          mark('0', 0, true);
+          mark(compact(target.height / 2), range.height / 2, false, apart);
+          mark(compact(target.height), range.height, false, apart);
+        } else {
+          mark(baseLabel(range.lo, (label) => width(label, font(8)) <= column - 4), range.lo, true);
+          mark('+' + compact(target.height / 2), range.lo + range.height / 2, false, apart);
+          mark('+' + compact(target.height), range.lo + range.height, false, apart);
+        }
         // 实时, breathing, at the top left; the last minute's additions and its rate at the top right.
         const badgeWidth = width('实时', font(8, 500, MONO)) + 10;
         const pulse = 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(((now - born) / 1600) * 2 * Math.PI));
@@ -197,6 +227,7 @@
         ctx.fillStyle = alpha(accentColour, panel.reduceMotion ? 1 : pulse);
         ctx.beginPath(); ctx.arc(7, 7.5, 2, 0, Math.PI * 2); ctx.fill();
         text('实时', 12, 2, 8, accentColour, 'left', 500);
+        ctx.globalAlpha = liveAlpha;
         const added = base ? Math.max(0, (samples.at(-1)?.total ?? base.total) - base.total) : 0;
         const rate = feed.rate(now);
         const unit = ' Token/s', figure = rateText(rate ?? 0);
@@ -237,7 +268,23 @@
         }
         ctx.lineTo(plot.x + plot.w, clamped(previous));
       };
-      if (reach > 0.001) {
+      const rateTip = rates.at(-1);
+      if (rating && reach > 0.001) {
+        ctx.save();
+        ctx.globalAlpha = trend ? ramp(0.3, 0.7, p) : 1;
+        const opened = plot.w * reach;
+        ctx.beginPath(); ctx.rect(plot.x + plot.w - opened, plot.y - 6, opened, plot.h + 12); ctx.clip();
+        if (rates.length > 1) {
+          const trace = () => { ctx.beginPath(); rates.forEach(([t, r], i) => (i ? ctx.lineTo(x(t), clamped(r)) : ctx.moveTo(x(t), clamped(r)))); };
+          trace();
+          ctx.lineTo(x(rates.at(-1)![0]), bottom); ctx.lineTo(x(rates[0][0]), bottom); ctx.closePath();
+          const fill = ctx.createLinearGradient(0, plot.y, 0, bottom);
+          fill.addColorStop(0, alpha(total, dark ? 0.28 : 0.18)); fill.addColorStop(1, alpha(total, 0));
+          ctx.fillStyle = fill; ctx.fill();
+          trace(); ctx.lineWidth = 1.8; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.strokeStyle = total; ctx.stroke();
+        }
+        ctx.restore();
+      } else if (reach > 0.001) {
         // The live line opens out leftward from the end dot as the zoom finishes.
         ctx.save();
         ctx.globalAlpha = trend ? ramp(0.3, 0.7, p) : 1;
@@ -253,7 +300,9 @@
         ctx.restore();
       }
       // The end dot carries the eye between the charts: from the trend's newest point to the live line's end.
-      const liveTip: [number, number] = [plot.x + plot.w, clamped(level(null, [...samples].reverse().find((s) => s.at <= now) ?? base))];
+      const liveTip: [number, number] = rating
+        ? [plot.x + plot.w, clamped(rateTip ? rateTip[1] : 0)]
+        : [plot.x + plot.w, clamped(level(null, [...samples].reverse().find((s) => s.at <= now) ?? base))];
       const move = trendEnd ? ramp(0.1, 0.8, p) : 1;
       const tip: [number, number] = trendEnd
         ? [trendEnd[0] + (liveTip[0] - trendEnd[0]) * move, trendEnd[1] + (liveTip[1] - trendEnd[1]) * move]
@@ -272,6 +321,12 @@
 </script>
 
 <canvas bind:this={canvas} class="live" style:width="{wide + PAD}px" style:height="{H}px" aria-label="实时用量图"></canvas>
+{#if leaving === null}
+  <div class="modes" role="radiogroup" aria-label="实时图显示">
+    <button class="mode pressable" class:chosen={mode === 'total'} role="radio" aria-checked={mode === 'total'} onclick={() => pickMode('total')}>Token</button>
+    <button class="mode pressable" class:chosen={mode === 'rate'} role="radio" aria-checked={mode === 'rate'} onclick={() => pickMode('rate')}>Token/s</button>
+  </div>
+{/if}
 
 <style>
   .live {
@@ -279,4 +334,24 @@
     left: 12px;
     top: 104px;
   }
+  /* Beside 实时: the line's two readings. The chart's layer lets clicks through; these take them. */
+  .modes {
+    position: absolute;
+    left: 56px;
+    top: 104px;
+    height: 15px;
+    display: flex;
+    gap: 2px;
+    pointer-events: auto;
+  }
+  .mode {
+    --press-scale: 0.94;
+    height: 15px;
+    padding: 0 6px;
+    border-radius: 7.5px;
+    font-size: 8.5px;
+    color: var(--secondary);
+  }
+  .mode:hover { background: var(--hover); }
+  .mode.chosen { color: var(--label); font-weight: 600; background: color-mix(in srgb, var(--label) 9%, transparent); }
 </style>
