@@ -5,12 +5,20 @@ written with everything but letters and digits as '-': the folder the conversati
 the Claude app. That folder is the project, whatever folders the conversation went on to work in (a subfolder, a
 scratchpad). A worktree Claude makes for a conversation (<repository>/.claude/worktrees/<name>) belongs to its
 repository, and the Claude app's conversations without a folder (its scratch workspaces) are Claude 对话.
+
+The written name cannot tell a '-' that was '/' from a space, a dot or a dash, and the folders themselves are never
+looked at (reading Documents or Desktop makes macOS ask the user for access): the path comes from the folders Claude
+Code lists in its own settings (only the keys of `projects` in ~/.claude.json) or from the working folders the
+conversation's first lines record.
 """
+import json
 import os
 import re
 
 CLAUDE_CHATS = 'Claude 对话'
-FOLDERS = {}
+HEAD = 256 * 1024
+SETTINGS = [None, {}]
+TRANSCRIPTS = {}
 
 
 def encoded(name):
@@ -18,56 +26,101 @@ def encoded(name):
     return ''.join(c if c.isascii() and c.isalnum() else '-' for c in name)
 
 
-def decode(name):
-    """The folder a name Claude gave it stands for, looked up on disk: the name alone cannot tell a '-' that was '/'
-    from one that was a space, a dot or a dash. The longest matching name is tried first at each level."""
-    at = name.find('--claude-worktrees-')
-    if at >= 0:name = name[:at]
-    if name.startswith('-'):root, rest = '/', name[1:]
-    elif len(name) > 3 and name[0].isascii() and name[0].isalpha() and name[1:3] == '--':root, rest = name[0] + ':/', name[3:]
-    else:return None
-    return walk(root, rest, 0) if rest else None
+def repository(path):
+    """A path without the Claude worktree it is in (<repository>/.claude/worktrees/<name>/…)."""
+    at = path.find('/.claude/worktrees/')
+    return path[:at] if at >= 0 else path
 
 
-def walk(folder, rest, depth):
-    if depth > 40:return None
-    try:entries = os.listdir(folder)
-    except OSError:return None
-    names = [(encoded(entry), entry) for entry in entries]
-    names = sorted(((code, entry) for code, entry in names if code and (rest == code or rest.startswith(code + '-'))),
-                   key=lambda pair: (-len(pair[0]), pair[1]))
-    for code, entry in names:
-        path = os.path.join(folder, entry)
-        if not os.path.isdir(path):continue
-        if code == rest:return path
-        found = walk(path, rest[len(code) + 1:], depth + 1)
-        if found:return found
-    return None
+def listed(written):
+    """The folders Claude Code has run in, by their written name: the keys of `projects` in its settings, each also under
+    its repository's name when it is a worktree. Read again when the file changes."""
+    home = os.environ.get('CLAUDE_CONFIG_DIR') or os.environ.get('HOME')
+    if not home:return None
+    file = os.path.join(home, '.claude.json')
+    try:stamp = (file, os.stat(file).st_mtime_ns)
+    except OSError:stamp = (file, None)
+    if SETTINGS[0] != stamp:
+        folders = {}
+        try:
+            with open(file, 'rb') as handle:projects = json.loads(handle.read()).get('projects')
+        except (OSError, ValueError, AttributeError):projects = None
+        for path in projects if isinstance(projects, dict) else {}:
+            path = path.replace('\\', '/').rstrip('/'); root = repository(path)
+            folders.setdefault(encoded(root), root); folders.setdefault(encoded(path), path)
+        SETTINGS[:] = [stamp, folders]
+    return SETTINGS[1].get(written)
 
 
-def folder_project(name):
-    """The project a Claude conversation folder name stands for."""
-    if name not in FOLDERS:
-        FOLDERS[name] = CLAUDE_CHATS if '-Library-Application-Support-Claude-scratch-workspaces-' in name else (
-            name_of(path) if (path := decode(name)) else None)
-    return FOLDERS[name]
+def target(folder):
+    """The written name a conversation folder stands for, without the worktree part; None for the Claude app's
+    conversations without a folder."""
+    if '-Library-Application-Support-Claude-scratch-workspaces-' in folder:return None
+    at = folder.find('--claude-worktrees-')
+    return folder[:at] if at >= 0 else folder
+
+
+def folder_project(folder):
+    """The project a Claude conversation folder name stands for, when Claude Code's settings list it."""
+    written = target(folder)
+    if written is None:return CLAUDE_CHATS
+    path = listed(written)
+    return name_of(path) if path else None
+
+
+def within(cwd, folder):
+    """The folder of a working path that a conversation folder name stands for: the path itself or one of the folders it
+    is in. The project's name then, without reading anything."""
+    written = target(folder)
+    if written is None:return None
+    path = cwd.strip().replace('\\', '/')
+    end = len(path.rstrip('/'))
+    while True:
+        prefix = path[:end]
+        if prefix and encoded(prefix) == written:return name_of(prefix)
+        end = prefix.rfind('/')
+        if end < 0:return None
+
+
+def transcript_folder(file):
+    """The conversation folder a transcript is filed under (…/projects/<folder>/…)."""
+    parts = re.split(r'[\\/]', str(file))
+    at = max((i for i, part in enumerate(parts) if part == 'projects'), default=None)
+    return parts[at + 1] if at is not None and at + 2 < len(parts) else None
+
+
+def first_folders(file):
+    """The working folders a transcript's first lines record, in order."""
+    try:
+        with open(file, 'rb') as handle:data = handle.read(HEAD)
+    except OSError:return []
+    lines = data.split(b'\n')
+    if len(data) >= HEAD:lines = lines[:-1]
+    found = []
+    for line in lines:
+        try:row = json.loads(line)
+        except ValueError:continue
+        cwd = row.get('cwd') if isinstance(row, dict) else None
+        if isinstance(cwd, str) and cwd.strip():found.append(cwd)
+    return found
 
 
 def transcript_project(file):
-    """The project of a Claude-format transcript, by the folder it is filed under (…/projects/<folder>/…); none when
-    that folder no longer stands for one on disk."""
-    parts = re.split(r'[\\/]', str(file))
-    at = max((i for i, part in enumerate(parts) if part == 'projects'), default=None)
-    if at is None or at + 2 >= len(parts):return None
-    return folder_project(parts[at + 1])
+    """The project of a Claude-format transcript, by the folder it is filed under: as Claude Code's settings list it,
+    else as the working folders its first lines record show it; None when neither says."""
+    file = str(file)
+    if file in TRANSCRIPTS:return TRANSCRIPTS[file]
+    folder = transcript_folder(file)
+    if folder is None:return None
+    found = folder_project(folder) or next((name for name in (within(cwd, folder) for cwd in first_folders(file)) if name), None)
+    if found:TRANSCRIPTS[file] = found
+    return found
 
 
 def name_of(path):
     """The project of a folder a request ran in: the folder's last name, except a Claude worktree's repository, a
     Claude scratchpad's conversation folder, and Claude 对话 for the Claude app's scratch workspaces."""
-    path = path.strip().replace('\\', '/').rstrip('/')
-    at = path.find('/.claude/worktrees/')
-    if at >= 0:path = path[:at]
+    path = repository(path.strip().replace('\\', '/').rstrip('/'))
     if '/Library/Application Support/Claude/scratch-workspaces/' in path:return CLAUDE_CHATS
     scratch = re.match(r'(?:/private)?/tmp/claude-[0-9]+/([^/]+)', path)
     if scratch:return folder_project(scratch.group(1))

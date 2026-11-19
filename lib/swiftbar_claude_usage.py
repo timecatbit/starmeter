@@ -179,7 +179,7 @@ def read_events(files,db_path,allowed_sessions=None,start=0,end=float('inf'),arc
                 offset=old[3] if incremental else 0
                 fallback=next((part for part in reversed(path.parts) if allowed_sessions and part in allowed_sessions),path.stem)
                 # The folder Claude files the conversation under is its project, wherever it went on to work.
-                project=swiftbar_projects.transcript_project(path)
+                project=swiftbar_projects.transcript_project(path);folder=swiftbar_projects.transcript_folder(path)
                 added=[]
                 conn.execute('SAVEPOINT source')
                 try:
@@ -194,8 +194,10 @@ def read_events(files,db_path,allowed_sessions=None,start=0,end=float('inf'),arc
                                 handle.seek(position);break
                             if b'"usage"' not in line or b'"assistant"' not in line:continue
                             try:
-                                for event in records(json.loads(line),fallback,(key.hex(),position)):
+                                row=json.loads(line)
+                                for event in records(row,fallback,(key.hex(),position)):
                                     if project:event['project']=project
+                                    elif folder and isinstance(row.get('cwd'),str) and (name:=swiftbar_projects.within(row['cwd'],folder)):event['project']=name
                                     conn.execute('INSERT OR REPLACE INTO records VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                                                  (key,position,event['slot'],event['key'],event['message'],event['request'],event['session'],event['ts'],event['model'],
                                                   *event['metrics'],event['cost'],int(event['sidechain']),event['speed'],event['geo'],event['tier'],event['project']))

@@ -527,6 +527,7 @@ fn index(
         let location = hex(&key);
         // The folder Claude files the conversation under is its project, wherever it went on to work.
         let project = crate::projects::transcript_project(path);
+        let folder = crate::projects::transcript_folder(path);
         let mut added: Vec<Record> = Vec::new();
         db.execute("SAVEPOINT source")?;
         let read = (|| -> Result<i64, ReadFailure> {
@@ -547,6 +548,10 @@ fn index(
                 for mut event in found {
                     if project.is_some() {
                         event.project = project.clone();
+                    } else if let (Some(folder), Some(cwd)) = (folder, row.get("cwd").and_then(Json::as_str))
+                        && let Some(name) = crate::projects::within(cwd, folder)
+                    {
+                        event.project = Some(name);
                     }
                     let mut values = vec![
                         Value::Blob(key.clone()),

@@ -5,15 +5,27 @@
 //! in the Claude app. That folder is the project, whatever folders the conversation went on to work in (a subfolder,
 //! a scratchpad). A worktree Claude makes for a conversation (<repository>/.claude/worktrees/<name>) belongs to its
 //! repository, and the Claude app's conversations without a folder (its scratch workspaces) are Claude 对话.
+//!
+//! The written name cannot tell a '-' that was '/' from a space, a dot or a dash, and the folders themselves are never
+//! looked at (reading Documents or Desktop makes macOS ask the user for access): the path comes from the folders Claude
+//! Code lists in its own settings (only the keys of `projects` in ~/.claude.json) or from the working folders the
+//! conversation's first lines record.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::path::Path;
+use std::io::Read;
+use std::path::PathBuf;
+
+use crate::json::Json;
 
 pub const CLAUDE_CHATS: &str = "Claude 对话";
+const HEAD: usize = 256 * 1024;
+
+type Listed = ((PathBuf, Option<std::time::SystemTime>), HashMap<String, String>);
 
 thread_local! {
-    static FOLDERS: RefCell<HashMap<String, Option<String>>> = RefCell::new(HashMap::new());
+    static SETTINGS: RefCell<Option<Listed>> = const { RefCell::new(None) };
+    static TRANSCRIPTS: RefCell<HashMap<String, String>> = RefCell::new(HashMap::new());
 }
 
 /// Claude's name for a folder: every character but an ASCII letter or digit becomes '-'.
@@ -21,83 +33,117 @@ fn encoded(name: &str) -> String {
     name.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect()
 }
 
-/// The folder a name Claude gave it stands for, looked up on disk: the name alone cannot tell a '-' that was '/'
-/// from one that was a space, a dot or a dash. The longest matching name is tried first at each level.
-fn decode(name: &str) -> Option<String> {
-    let name = name.find("--claude-worktrees-").map_or(name, |at| &name[..at]);
-    let bytes = name.as_bytes();
-    let (root, rest) = if let Some(rest) = name.strip_prefix('-') {
-        ("/".to_string(), rest)
-    } else if bytes.len() > 3 && bytes[0].is_ascii_alphabetic() && &name[1..3] == "--" {
-        (format!("{}:/", &name[..1]), &name[3..])
-    } else {
+/// A path without the Claude worktree it is in (<repository>/.claude/worktrees/<name>/…).
+fn repository(path: &str) -> &str {
+    path.find("/.claude/worktrees/").map_or(path, |at| &path[..at])
+}
+
+/// The folders Claude Code has run in, by their written name: the keys of `projects` in its settings, each also under
+/// its repository's name when it is a worktree. Read again when the file changes.
+fn listed(written: &str) -> Option<String> {
+    let home = std::env::var("CLAUDE_CONFIG_DIR")
+        .ok()
+        .filter(|dir| !dir.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| std::env::var("HOME").ok().map(PathBuf::from))?;
+    let file = home.join(".claude.json");
+    let stamp = (file.clone(), std::fs::metadata(&file).ok().and_then(|meta| meta.modified().ok()));
+    SETTINGS.with(|settings| {
+        let mut settings = settings.borrow_mut();
+        if settings.as_ref().is_none_or(|(known, _)| *known != stamp) {
+            let mut folders = HashMap::new();
+            let parsed = std::fs::read(&file).ok().and_then(|data| Json::parse(&data).ok());
+            if let Some(projects) = parsed.as_ref().and_then(|value| value.get("projects")).and_then(Json::as_object) {
+                for (path, _) in projects.iter() {
+                    let path = path.replace('\\', "/");
+                    let path = path.trim_end_matches('/');
+                    let root = repository(path);
+                    folders.entry(encoded(root)).or_insert_with(|| root.to_string());
+                    folders.entry(encoded(path)).or_insert_with(|| path.to_string());
+                }
+            }
+            *settings = Some((stamp, folders));
+        }
+        settings.as_ref().and_then(|(_, folders)| folders.get(written).cloned())
+    })
+}
+
+/// The written name a conversation folder stands for, without the worktree part; None for the Claude app's
+/// conversations without a folder.
+fn target(folder: &str) -> Option<&str> {
+    if folder.contains("-Library-Application-Support-Claude-scratch-workspaces-") {
         return None;
-    };
-    if rest.is_empty() { None } else { walk(Path::new(&root), rest, 0) }
+    }
+    Some(folder.find("--claude-worktrees-").map_or(folder, |at| &folder[..at]))
 }
 
-fn walk(folder: &Path, rest: &str, depth: usize) -> Option<String> {
-    if depth > 40 {
-        return None;
+/// The project a Claude conversation folder name stands for, when Claude Code's settings list it.
+pub fn folder_project(folder: &str) -> Option<String> {
+    match target(folder) {
+        None => Some(CLAUDE_CHATS.to_string()),
+        Some(written) => listed(written).and_then(|path| name_of(&path)),
     }
-    let mut names: Vec<(String, String)> = std::fs::read_dir(folder)
-        .ok()?
-        .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
-        .map(|name| (encoded(&name), name))
-        .filter(|(code, _)| {
-            !code.is_empty()
-                && (rest == code || rest.strip_prefix(code.as_str()).is_some_and(|tail| tail.starts_with('-')))
-        })
-        .collect();
-    names.sort_by(|a, b| b.0.chars().count().cmp(&a.0.chars().count()).then_with(|| a.1.cmp(&b.1)));
-    for (code, name) in names {
-        let path = folder.join(&name);
-        if !path.is_dir() {
-            continue;
-        }
-        if code == rest {
-            return Some(path.to_string_lossy().into_owned());
-        }
-        if let Some(found) = walk(&path, &rest[code.len() + 1..], depth + 1) {
-            return Some(found);
-        }
-    }
-    None
 }
 
-/// The project a Claude conversation folder name stands for.
-pub fn folder_project(name: &str) -> Option<String> {
-    if let Some(known) = FOLDERS.with(|folders| folders.borrow().get(name).cloned()) {
-        return known;
+/// The folder of a working path that a conversation folder name stands for: the path itself or one of the folders it
+/// is in. The project's name then, without reading anything.
+pub fn within(cwd: &str, folder: &str) -> Option<String> {
+    let written = target(folder)?;
+    let path = cwd.trim().replace('\\', "/");
+    let mut end = path.trim_end_matches('/').len();
+    loop {
+        let prefix = &path[..end];
+        if !prefix.is_empty() && encoded(prefix) == written {
+            return name_of(prefix);
+        }
+        end = prefix.rfind('/')?;
     }
-    let found = if name.contains("-Library-Application-Support-Claude-scratch-workspaces-") {
-        Some(CLAUDE_CHATS.to_string())
-    } else {
-        decode(name).and_then(|path| name_of(&path))
-    };
-    FOLDERS.with(|folders| folders.borrow_mut().insert(name.to_string(), found.clone()));
-    found
 }
 
-/// The project of a Claude-format transcript, by the folder it is filed under (…/projects/<folder>/…); none when
-/// that folder no longer stands for one on disk.
-pub fn transcript_project(file: &str) -> Option<String> {
+/// The conversation folder a transcript is filed under (…/projects/<folder>/…).
+pub fn transcript_folder(file: &str) -> Option<&str> {
     let parts: Vec<&str> = file.split(['/', '\\']).collect();
     let at = parts.iter().rposition(|part| *part == "projects")?;
-    if at + 2 >= parts.len() {
-        return None;
+    (at + 2 < parts.len()).then(|| parts[at + 1])
+}
+
+/// The working folders a transcript's first lines record, in order.
+fn first_folders(file: &str) -> Vec<String> {
+    let mut data = Vec::new();
+    let Ok(handle) = std::fs::File::open(file) else { return vec![] };
+    if handle.take(HEAD as u64).read_to_end(&mut data).is_err() {
+        return vec![];
     }
-    folder_project(parts[at + 1])
+    let complete = data.len() < HEAD;
+    let mut lines: Vec<&[u8]> = data.split(|byte| *byte == b'\n').collect();
+    if !complete {
+        lines.pop();
+    }
+    lines
+        .into_iter()
+        .filter_map(|line| Json::parse(line).ok())
+        .filter_map(|row| row.get("cwd").and_then(Json::as_str).map(String::from))
+        .filter(|cwd| !cwd.trim().is_empty())
+        .collect()
+}
+
+/// The project of a Claude-format transcript, by the folder it is filed under: as Claude Code's settings list it, else
+/// as the working folders its first lines record show it; None when neither says.
+pub fn transcript_project(file: &str) -> Option<String> {
+    if let Some(known) = TRANSCRIPTS.with(|known| known.borrow().get(file).cloned()) {
+        return Some(known);
+    }
+    let folder = transcript_folder(file)?;
+    let found = folder_project(folder).or_else(|| first_folders(file).iter().find_map(|cwd| within(cwd, folder)))?;
+    TRANSCRIPTS.with(|known| known.borrow_mut().insert(file.to_string(), found.clone()));
+    Some(found)
 }
 
 /// The project of a folder a request ran in: the folder's last name, except a Claude worktree's repository, a Claude
 /// scratchpad's conversation folder, and Claude 对话 for the Claude app's scratch workspaces.
 pub fn name_of(path: &str) -> Option<String> {
     let path = path.trim().replace('\\', "/");
-    let mut path = path.trim_end_matches('/');
-    if let Some(at) = path.find("/.claude/worktrees/") {
-        path = &path[..at];
-    }
+    let path = repository(path.trim_end_matches('/'));
     if path.contains("/Library/Application Support/Claude/scratch-workspaces/") {
         return Some(CLAUDE_CHATS.to_string());
     }
@@ -115,8 +161,7 @@ fn scratchpad(path: &str) -> Option<&str> {
     if uid.is_empty() || !uid.bytes().all(|byte| byte.is_ascii_digit()) {
         return None;
     }
-    let folder = rest.split('/').next().filter(|folder| !folder.is_empty())?;
-    Some(folder)
+    rest.split('/').next().filter(|folder| !folder.is_empty())
 }
 
 #[cfg(test)]
@@ -124,24 +169,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn folders_name_their_project() {
-        let home = std::env::temp_dir().join(format!("starmeter-projects-{}", crate::runtime::random_hex(8)));
-        std::fs::create_dir_all(&home).unwrap();
-        let root = home.canonicalize().unwrap();
-        for folder in ["my app/src", "my-app.v2", "repo/.claude/worktrees"] {
-            std::fs::create_dir_all(root.join(folder)).unwrap();
-        }
-        let code = |path: &Path| encoded(&path.to_string_lossy());
-        assert_eq!(folder_project(&code(&root.join("my app"))).as_deref(), Some("my app"));
-        assert_eq!(folder_project(&code(&root.join("my-app.v2"))).as_deref(), Some("my-app.v2"));
+    fn folders_name_their_project_without_being_read() {
+        let folder = "-Users-me-Documents-my-app-v2";
+        // The working folders tell the written name apart: "my app.v2", not my/app/v2.
+        assert_eq!(within("/Users/me/Documents/my app.v2/src/ui", folder).as_deref(), Some("my app.v2"));
+        assert_eq!(within("/Users/me/Documents/other", folder), None);
         // A worktree, there or already removed, is its repository's.
-        assert_eq!(folder_project(&code(&root.join("repo/.claude/worktrees/fix-a1b2c3"))).as_deref(), Some("repo"));
-        assert_eq!(folder_project(&code(&root.join("gone"))), None);
-        let file = format!("{}/.claude/projects/{}/abc.jsonl", root.display(), code(&root.join("my app/src")));
-        assert_eq!(transcript_project(&file).as_deref(), Some("src"));
-        assert_eq!(transcript_project("/x/projects/abc.jsonl"), None);
-        let scratch = format!("/private/tmp/claude-501/{}/9f/scratchpad/build", code(&root.join("my app")));
-        assert_eq!(name_of(&scratch).as_deref(), Some("my app"));
+        let worktree = "-Users-me-repo--claude-worktrees-fix-a1b2c3";
+        assert_eq!(within("/Users/me/repo/.claude/worktrees/fix-a1b2c3/app", worktree).as_deref(), Some("repo"));
+        assert_eq!(
+            folder_project("-Users-me-Library-Application-Support-Claude-scratch-workspaces-a-b").as_deref(),
+            Some(CLAUDE_CHATS)
+        );
+        assert_eq!(transcript_folder("/h/.claude/projects/-Users-me-x/abc.jsonl"), Some("-Users-me-x"));
+        assert_eq!(transcript_folder("/h/.claude/projects/-Users-me-x/abc/subagents/a.jsonl"), Some("-Users-me-x"));
+        assert_eq!(transcript_folder("/x/projects/abc.jsonl"), None);
         assert_eq!(name_of("/r/.claude/worktrees/x/app").as_deref(), Some("r"));
         assert_eq!(
             name_of("/Users/me/Library/Application Support/Claude/scratch-workspaces/a/b/scratch-1").as_deref(),
@@ -149,6 +191,5 @@ mod tests {
         );
         assert_eq!(name_of("C:\\Users\\me\\proj\\").as_deref(), Some("proj"));
         assert_eq!(name_of(" "), None);
-        let _ = std::fs::remove_dir_all(&home);
     }
 }
