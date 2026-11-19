@@ -8,9 +8,9 @@
 <p align="center"><b>简体中文</b> · <a href="README.en.md">English</a> · <a href="https://timecatbit.github.io/starmeter/">网站</a> · <a href="#下载与安装">下载与安装</a></p>
 
 <p align="center">
-  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/home-dark.png"><img src="docs/images/home-light.png" height="420" alt="主页：今天的 API 估算、Token 和请求，趋势图、热力图和各工具卡片"></picture>
-  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/subscription-dark.png"><img src="docs/images/subscription-light.png" height="420" alt="Claude 订阅：每个窗口已用多少、何时重置、比匀速多用还是少用"></picture>
-  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/live-dark.png"><img src="docs/images/live-light.png" height="420" alt="钉住后的实时图：近 1 分钟新增的 Token"></picture>
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/home-dark.png"><img src="docs/images/home-light.png" width="250" align="top" alt="主页：今天的 API 估算、Token 和请求，趋势图、热力图和各工具卡片"></picture>
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/subscription-dark.png"><img src="docs/images/subscription-light.png" width="250" align="top" alt="Claude 订阅：每个窗口已用多少、何时重置、比匀速多用还是少用"></picture>
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/live-dark.png"><img src="docs/images/live-light.png" width="250" align="top" alt="钉住后的实时图：近 1 分钟新增的 Token"></picture>
 </p>
 
 Starmeter 是 macOS 菜单栏（独立 App 或 SwiftBar 插件）和 Windows 托盘里的一颗星星。它只读本机已有的用量记录和你启用的官方接口，不需要账号、不经过任何中转服务器。免费开源。
@@ -30,9 +30,9 @@ Starmeter 是 macOS 菜单栏（独立 App 或 SwiftBar 插件）和 Windows 托
 - **其他**：菜单栏星星旁可选显示今天的 API 估算或最紧张的订阅额度；当前范围的用量可导出成 CSV 或 JSON；可选读取 Claude、OpenAI、Cursor 的官方状态页，服务出问题时标在卡片上；API 等值估算可以改用人民币显示；Komari 服务器监控；浅色、深色或跟随系统。
 
 <p align="center">
-  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/models-dark.png"><img src="docs/images/models-light.png" height="380" alt="按模型查看：每个模型的费用、Token 和来自哪些工具"></picture>
-  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/sessions-dark.png"><img src="docs/images/sessions-light.png" height="380" alt="活跃会话：运行中和等待输入的会话，以及最近几轮的用量"></picture>
-  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/share-page-dark.png"><img src="docs/images/share-page-light.png" height="380" alt="分享用量图：选择风格，预览后复制或保存"></picture>
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/models-dark.png"><img src="docs/images/models-light.png" width="240" align="top" alt="按模型查看：每个模型的费用、Token 和来自哪些工具"></picture>
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/sessions-dark.png"><img src="docs/images/sessions-light.png" width="240" align="top" alt="活跃会话：运行中和等待输入的会话，以及最近几轮的用量"></picture>
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/share-page-dark.png"><img src="docs/images/share-page-light.png" width="240" align="top" alt="分享用量图：选择风格，预览后复制或保存"></picture>
 </p>
 
 <p align="center"><sub>截图都用测试数据生成，不是真实用量。更多截图和六种分享图见 <a href="https://timecatbit.github.io/starmeter/">网站</a>。</sub></p>

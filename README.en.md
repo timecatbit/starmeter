@@ -8,9 +8,9 @@ Each tool's tokens and API-equivalent cost, subscription limits, API balances an
 <p align="center"><a href="README.md">简体中文</a> · <b>English</b> · <a href="https://timecatbit.github.io/starmeter/">Website</a> · <a href="#download-and-install">Download and install</a></p>
 
 <p align="center">
-  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/home-dark.png"><img src="docs/images/home-light.png" height="420" alt="Home: today's API estimate, tokens and requests, the trend, the heatmap and a card per tool"></picture>
-  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/subscription-dark.png"><img src="docs/images/subscription-light.png" height="420" alt="Claude subscription: how much of each window is used, when it resets, and whether you are ahead of an even pace"></picture>
-  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/live-dark.png"><img src="docs/images/live-light.png" height="420" alt="The live chart after pinning: tokens added in the last minute"></picture>
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/home-dark.png"><img src="docs/images/home-light.png" width="250" align="top" alt="Home: today's API estimate, tokens and requests, the trend, the heatmap and a card per tool"></picture>
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/subscription-dark.png"><img src="docs/images/subscription-light.png" width="250" align="top" alt="Claude subscription: how much of each window is used, when it resets, and whether you are ahead of an even pace"></picture>
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/live-dark.png"><img src="docs/images/live-light.png" width="250" align="top" alt="The live chart after pinning: tokens added in the last minute"></picture>
 </p>
 
 Starmeter is a star in the macOS menu bar (a standalone app or a SwiftBar plugin) and the Windows tray. It reads only the usage records already on your computer and the official APIs you turn on: no account, no relay server in between. Free and open source. The interface is in Chinese.
@@ -30,9 +30,9 @@ Formerly Token Monitor. Installed copies keep receiving updates, with their sett
 - **More**: an optional figure beside the menu bar star (today's estimate or the tightest subscription window); CSV and JSON export of the range on screen; official status pages of Claude, OpenAI and Cursor marked on the cards; estimates in yuan; Komari server monitoring; light, dark or following the system.
 
 <p align="center">
-  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/models-dark.png"><img src="docs/images/models-light.png" height="380" alt="By model: each model's cost and tokens, and which tools used it"></picture>
-  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/sessions-dark.png"><img src="docs/images/sessions-light.png" height="380" alt="Active sessions: running and waiting sessions and their last few turns"></picture>
-  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/share-page-dark.png"><img src="docs/images/share-page-light.png" height="380" alt="Sharing: pick a style, preview it, then copy or save it"></picture>
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/models-dark.png"><img src="docs/images/models-light.png" width="240" align="top" alt="By model: each model's cost and tokens, and which tools used it"></picture>
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/sessions-dark.png"><img src="docs/images/sessions-light.png" width="240" align="top" alt="Active sessions: running and waiting sessions and their last few turns"></picture>
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/share-page-dark.png"><img src="docs/images/share-page-light.png" width="240" align="top" alt="Sharing: pick a style, preview it, then copy or save it"></picture>
 </p>
 
 <p align="center"><sub>All screenshots are made from test data, not real usage. More of them, and all six share pictures, are on the <a href="https://timecatbit.github.io/starmeter/">website</a>.</sub></p>
