@@ -345,6 +345,33 @@ test('settings: theme segments, switches and the module grid answer at once', as
   await expect(page.locator('.card .name')).not.toContainText(['Claude']);
 });
 
+test('全局快捷键 in 外观与设置: off at first, a choice is kept, one already taken says so and keeps the old', async ({ page }) => {
+  // 外观与设置, with the row unfolded to its choices.
+  const settings = async () => {
+    await button(page, '主页模块与设置').click();
+    await page.getByText('外观与设置', { exact: true }).click();
+    await page.getByRole('button', { name: /^全局快捷键/ }).click();
+  };
+  await open(page);
+  await settings();
+  const row = page.locator('.detail-row', { hasText: '全局快捷键' }).first();
+  await expect(row).toContainText('不使用');
+  await page.getByRole('radio', { name: '⌃⌥S', exact: true }).click();
+  await expect(page.getByRole('radio', { name: '⌃⌥S', exact: true })).toHaveAttribute('aria-checked', 'true');
+  expect(await page.evaluate(() => localStorage.getItem('starmeter.shortcut'))).toBe('ctrl-alt-s');
+  // Held elsewhere: it says so where it was asked, and the choice stays as it was.
+  await open(page, '?shortcut-taken');
+  await settings();
+  await expect(page.getByRole('radio', { name: '⌃⌥S', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await page.getByRole('radio', { name: '⌃⌥Space', exact: true }).click();
+  await expect(page.getByText('快捷键已被占用')).toBeVisible();
+  await expect(page.getByRole('radio', { name: '⌃⌥S', exact: true })).toHaveAttribute('aria-checked', 'true');
+  expect(await page.evaluate(() => localStorage.getItem('starmeter.shortcut'))).toBe('ctrl-alt-s');
+  // Off is always to be had.
+  await page.getByRole('radio', { name: '不使用', exact: true }).click();
+  await expect(page.getByRole('radio', { name: '不使用', exact: true })).toHaveAttribute('aria-checked', 'true');
+});
+
 test('a folded card unfolds where it is, and its arrow opens the tool', async ({ page }) => {
   await open(page);
   await button(page, '主页模块与设置').click();

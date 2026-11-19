@@ -12,6 +12,7 @@
   import { pageIn, pageOut } from './lib/motion';
   import { ask, show as showQuestion } from './lib/ask.svelte';
   import { chooseLanguage, localize, source, t } from './lib/i18n.svelte';
+  import { chooseShortcut, restoreShortcut } from './lib/shortcut.svelte';
   import { panel } from './lib/ui.svelte';
   import type { Dashboard as DashboardData, Entry, ShellInfo, Snapshot } from './lib/types';
   import Dashboard from './components/Dashboard.svelte';
@@ -363,6 +364,15 @@
     if (action[0] === 'panel-modules') { openSettings(); return; }
     // The language is the panel's own choice: no engine action, the page redraws in it at once.
     if (action[0] === 'set-language') { chooseLanguage(action[1]); return; }
+    // So is the global shortcut: registered by the shell, kept only when the system let us have it.
+    if (action[0] === 'set-shortcut') {
+      void chooseShortcut(action[1]).then((ok) => {
+        if (!ok) showQuestion({ kind: 'notice', id: 0, title: t('快捷键已被占用'), detail: t('这个组合键已被系统或其他程序占用，换一个试试。') }, null);
+        // Redrawn either way: a refused choice slides back to the one kept.
+        version++;
+      });
+      return;
+    }
     switch (interaction.submit(action)) {
       case 'start': void dispatch(action); break;
       case 'queued': version++; break;
@@ -568,6 +578,8 @@
       shell.onAsk((question) => showQuestion(question, interaction.active ?? null)),
       // Pinned and not in front, the page hears no pointer: the shell tells when it comes over the panel or leaves.
       shell.onHover((inside) => { if (!pinned) return; if (inside) showChrome(); else if (!cornerFrom) showChrome(700); })];
+    // The shell starts with no global shortcut; the one chosen is handed over again.
+    restoreShortcut();
     void shell.info().then((value) => {
       info = value;
       opened(value.modules);

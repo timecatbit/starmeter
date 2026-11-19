@@ -4,6 +4,7 @@
 // dictionary doesn't know (a session's title, a project's folder, a new message) stays as it is; the English test lists
 // any of the panel's own text left untranslated.
 import { phrases, rules, whole } from './en';
+import { shortcutRow } from './shortcut.svelte';
 import type { Dashboard, Entry, ProviderUsage, Snapshot } from './types';
 
 export type Language = 'zh' | 'en';
@@ -126,7 +127,7 @@ function withLanguage(list: Entry[]): Entry[] {
     const children = [...e.children], at = children.findIndex((c) => c.section && c.label === '显示');
     const radio = (label: string, key: Language): Entry => ({ label, children: [], radio: true, checked: language.current === key, action: ['set-language', key] });
     children.splice(at + 1, 0, { label: '语言 Language', symbol: 'globe', value: language.current === 'en' ? 'English' : '中文',
-      children: [radio('中文', 'zh'), radio('English', 'en')] });
+      children: [radio('中文', 'zh'), radio('English', 'en')] }, shortcutRow());
     // 帮助, last: the first-run tour, again.
     children.push({ label: '帮助', section: true, children: [] }, { label: '新手指引', symbol: 'questionmark.circle', action: ['show-guide'], children: [] });
     return { ...e, children };

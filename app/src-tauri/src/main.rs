@@ -14,6 +14,7 @@ mod host;
 #[cfg(target_os = "macos")]
 mod macos;
 mod panel;
+mod shortcut;
 mod swiftbar;
 #[cfg(windows)]
 mod win;
@@ -236,6 +237,17 @@ fn requested_modules(app: &AppHandle, args: &[String]) -> Option<bool> {
     args.iter().any(|a| a == "--modules").then_some(true)
 }
 
+/// The global shortcut: the panel opens or closes as a click on the star does; SwiftBar's star is out of this app's
+/// reach, so its panel opens at the top right.
+fn shortcut_pressed(app: &AppHandle) {
+    let swiftbar = app.state::<panel::Panel>().mode == Mode::SwiftBar;
+    #[cfg(target_os = "macos")]
+    let anchor = if swiftbar { macos::top_right() } else { star_anchor(app, None) };
+    #[cfg(not(target_os = "macos"))]
+    let anchor = if swiftbar { pointer_anchor(app) } else { star_anchor(app, None) };
+    panel::toggle(app, anchor, false);
+}
+
 /// A second launch (SwiftBar clicked again, or the app opened twice): show or hide the panel it asks for. Open on the
 /// same page, it closes; asked for the other page, it switches.
 fn relaunched(app: &AppHandle, args: Vec<String>) {
@@ -290,7 +302,8 @@ fn main() {
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| relaunched(app, args)))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_notification::init());
+        .plugin(tauri_plugin_notification::init())
+        .plugin(shortcut::plugin(shortcut_pressed));
     if mode == Mode::Standalone {
         builder = builder.plugin(autostart.build());
     }
@@ -311,6 +324,7 @@ fn main() {
             panel::drag_panel,
             panel::size_panel,
             panel::set_min_height,
+            shortcut::set_shortcut,
             panel::panel_shown,
             panel::hold_open,
             panel::set_look,

@@ -60,6 +60,10 @@ export const shell = {
     : quiet().then(() => void window.dispatchEvent(new CustomEvent('panel-resized', { detail: { width, height } })))),
   /** The least height a pinned panel keeps at its edges, for the page on screen. */
   setMinHeight: (height: number) => (inTauri ? invoke<void>('set_min_height', { height }) : quiet()),
+  /** Registers the global shortcut by its name ('none' clears it); false when the system or another app holds it.
+   *  In a browser, ?shortcut-taken makes every choice taken, for tests. */
+  setShortcut: (choice: string) => (inTauri ? invoke<boolean>('set_shortcut', { choice })
+    : Promise.resolve(choice === 'none' || !new URLSearchParams(location.search).has('shortcut-taken'))),
   /** The page has drawn what the panel opened on; a window kept clear until then shows. */
   shown: () => (inTauri ? invoke<void>('panel_shown') : quiet()),
   /** Theme (system, light, dark) and background (solid, frosted or glass) for the window and the material under it.
