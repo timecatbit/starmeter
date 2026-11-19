@@ -1,27 +1,31 @@
-// 报刊: a printed sheet. Cream paper, black rules, the estimate as a giant ultramarine figure, the hour by hour in
-// bars, and each tool with its first models in ruled rows.
+// 报刊: a printed sheet. Cream paper and black rules (by night, a dark sheet printed in cream), the estimate as a giant
+// ultramarine figure, the hour by hour in bars, and each tool with its first models in ruled rows.
 import { canvasFor, drawMark, measure, middleText, text, TOP_BAND, WIDTH } from './shareCommon';
-import { drawAmount, drawBars, drawMasthead, drawMembers, drawSignature, figures, fitAmount, GROTESK, poster, posterFont, slotCentre, tickBox, type PosterTool } from './sharePoster';
+import { drawAmount, drawBars, drawMasthead, drawMembers, drawSignature, figures, fitAmount, GROTESK, poster, posterFont, SIGNATURE, slotCentre, tickBox, type PosterTool } from './sharePoster';
 import type { Dashboard, Project } from './types';
 
 const M = 26, INNER = WIDTH - M * 2;
-const ink = '#17150F', paper = '#F6F1E6', blue = '#1A2BD8', grey = '#6E685B', hair = '#CDC5B3', orange = '#C2410C';
+const palettes = {
+  light: { ink: '#17150F', paper: '#F6F1E6', blue: '#1A2BD8', grey: '#6E685B', hair: '#CDC5B3', orange: '#C2410C', grain: 'rgba(80, 60, 20, 0.035)', qrInk: '#17150F', qrPaper: '#FFFDF7' },
+  dark: { ink: '#EFE8D8', paper: '#17160F', blue: '#8590FF', grey: '#A59E8D', hair: '#3D3A30', orange: '#F0915A', grain: 'rgba(255, 235, 190, 0.03)', qrInk: '#17160F', qrPaper: '#EFE8D8' },
+};
 const f = (size: number, weight = 700) => posterFont(size, weight, GROTESK);
 const HEAD = 30, SUB = 22, ROW = 24, AFTER = 12;
 
 const blockHeight = (t: PosterTool) => HEAD + SUB + (t.members.length ? 1 : t.models.length) * ROW + AFTER;
 
-export async function drawPaperPicture(d: Dashboard, project: Project): Promise<HTMLCanvasElement> {
+export async function drawPaperPicture(d: Dashboard, project: Project, dark: boolean): Promise<HTMLCanvasElement> {
+  const { ink, paper, blue, grey, hair, orange, grain, qrInk, qrPaper } = dark ? palettes.dark : palettes.light;
   const p = await poster(d, ink);
   const measuring = document.createElement('canvas').getContext('2d')!;
   const hero = fitAmount(measuring, p.cost, INNER, 100, 44, (s) => f(s, 900), -0.035);
-  const height = TOP_BAND + 15 + 46 + 20 + Math.round(hero * 0.78) + 18 + 12 + 66 + 14 + (p.chart ? 178 : 0) + p.tools.reduce((s, t) => s + blockHeight(t), 0) + 16 + 56 + 30;
+  const height = TOP_BAND + 15 + 46 + 20 + Math.round(hero * 0.78) + 18 + 12 + 66 + 14 + (p.chart ? 178 : 0) + p.tools.reduce((s, t) => s + blockHeight(t), 0) + 16 + 22 + SIGNATURE + 30;
   const { canvas, ctx } = canvasFor(height);
   const rule = (y: number, weight = 1.5, colour = ink) => { ctx.fillStyle = colour; ctx.fillRect(M, y, INNER, weight); };
 
   ctx.fillStyle = paper; ctx.fillRect(0, 0, WIDTH, height);
   // A faint newsprint grain.
-  ctx.fillStyle = 'rgba(80, 60, 20, 0.035)';
+  ctx.fillStyle = grain;
   for (let y = 0; y < height; y += 3) for (let x = (y * 7) % 5; x < WIDTH; x += 5) if (((x * 31 + y * 17) % 11) < 3) ctx.fillRect(x, y, 1, 1);
 
   // Masthead over a heavy rule, then the headline.
@@ -108,6 +112,6 @@ export async function drawPaperPicture(d: Dashboard, project: Project): Promise<
 
   // Signature under a heavy rule.
   rule(y + 2, 2);
-  drawSignature(ctx, p, project, y + 22, { name: f(17, 900), url: f(13, 500), ink, muted: ink });
+  drawSignature(ctx, p, project, y + 22, { name: f(17, 900), small: (s) => f(s, 500), size: 12, ink, muted: grey, qrInk, qrPaper });
   return canvas;
 }

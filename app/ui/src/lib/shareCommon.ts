@@ -116,11 +116,19 @@ export function drawSymbol(ctx: CanvasRenderingContext2D, image: HTMLImageElemen
 /** Dollars with thousands separators: the picture is read at a glance. */
 export const dollars = (value: number) => value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-/** A canvas at twice the picture's size. */
+/** Pictures are drawn at three times their size in points (1260 pixels wide): sharp on a phone that shows them across
+ *  its whole screen, where twice the size was enlarged and soft. */
+export const SCALE = 3;
+/** A canvas at the picture's scale. */
 export function canvasFor(height: number): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } {
   const canvas = document.createElement('canvas');
-  canvas.width = WIDTH * 2; canvas.height = Math.ceil(height * 2);
+  canvas.width = WIDTH * SCALE; canvas.height = Math.ceil(height * SCALE);
   const ctx = canvas.getContext('2d')!;
-  ctx.scale(2, 2);
+  ctx.scale(SCALE, SCALE);
   return { canvas, ctx };
 }
+/** A shadow or glow sized in points: the canvas sets shadows (and filters) in pixels, whatever its scale. */
+export function shadow(ctx: CanvasRenderingContext2D, colour: string, blur: number, offsetY = 0) {
+  ctx.shadowColor = colour; ctx.shadowBlur = blur * SCALE; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = offsetY * SCALE;
+}
+export const blurFilter = (points: number) => `blur(${points * SCALE}px)`;

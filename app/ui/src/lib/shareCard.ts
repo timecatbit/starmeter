@@ -5,7 +5,7 @@ import { smoothCurves, tracePath } from './chart';
 import { accent, alpha, label as labelColour, systemColor } from './colors';
 import { font, ROUNDED } from './measure';
 import { BOTTOM_BAND, canvasFor, crownSeed, drawMark, drawSymbol, fade, loadSymbols, measure, middleText, roundRect, text, TOP_BAND, WIDTH, type Box, type Fade } from './shareCommon';
-import { drawAmount, drawMasthead, drawMembers, drawSignature, figures, fitAmount, poster, tickBox, type PosterTool } from './sharePoster';
+import { drawAmount, drawMasthead, drawMembers, drawSignature, figures, fitAmount, poster, SIGNATURE, tickBox, type PosterTool } from './sharePoster';
 import type { Dashboard, Project } from './types';
 
 const INSET = 28, CHART = 150, MODEL = 20;
@@ -18,7 +18,7 @@ export async function drawCardPicture(d: Dashboard, project: Project, dark: bool
   const p = await poster(d, label);
   const width = WIDTH - INSET * 2, left = INSET, right = left + width;
   const body = 40 + 96 + 82 + (p.chart ? CHART + 14 : 0) + p.tools.reduce((s, t) => s + blockHeight(t) + 8, 0);
-  const height = TOP_BAND + 8 + body + 10 + 46 + 12 + BOTTOM_BAND;
+  const height = TOP_BAND + 8 + body + 12 + SIGNATURE + 14 + BOTTOM_BAND;
   const { canvas, ctx } = canvasFor(height);
   const teal = dark ? 'rgb(110, 201, 191)' : 'rgb(38, 120, 117)';
   const surface = dark ? 'rgb(26, 27, 29)' : 'rgb(255, 255, 255)';
@@ -157,6 +157,6 @@ export async function drawCardPicture(d: Dashboard, project: Project, dark: bool
   }
 
   // Signature: the app icon, our name and where to find us.
-  drawSignature(ctx, p, project, y + 10, { name: font(13.5, 600), url: font(10.5), ink: label, muted: secondary });
+  drawSignature(ctx, p, project, y + 12, { name: font(14, 600), small: (s) => font(s), size: 11, ink: label, muted: secondary, qrInk: 'rgb(26, 27, 29)', qrPaper: dark ? 'rgb(236, 236, 238)' : 'rgb(255, 255, 255)' });
   return canvas;
 }

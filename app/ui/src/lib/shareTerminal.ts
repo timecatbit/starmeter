@@ -4,8 +4,8 @@
 import { smoothCurves, tracePath } from './chart';
 import { accent, alpha, systemColor } from './colors';
 import { font, MONO } from './measure';
-import { BOTTOM_BAND, canvasFor, crownSeed, drawMark, fade, grain, measure, middleText, roundRect, text, TOP_BAND, WIDTH, type Box, type Fade } from './shareCommon';
-import { drawAmount, drawMasthead, drawMembers, drawSignature, figures, fitAmount, poster, posterDate, tickBox, type PosterTool } from './sharePoster';
+import { BOTTOM_BAND, canvasFor, crownSeed, drawMark, fade, grain, measure, middleText, roundRect, shadow, text, TOP_BAND, WIDTH, type Box, type Fade } from './shareCommon';
+import { drawAmount, drawMasthead, drawMembers, drawSignature, figures, fitAmount, poster, posterDate, SIGNATURE, tickBox, type PosterTool } from './sharePoster';
 import type { Dashboard, Project } from './types';
 
 const PAD = 26, CHART = 160, MODEL = 20;
@@ -28,7 +28,7 @@ export async function drawTerminalPicture(d: Dashboard, project: Project, dark: 
   p.date = posterDate(d, '-', ' → ');
   const left = PAD, width = WIDTH - PAD * 2, right = left + width;
   const body = 30 + 38 + 86 + 76 + (p.chart ? CHART : 0) + p.tools.reduce((s, t) => s + blockHeight(t), 0);
-  const height = TOP_BAND + 18 + body + 20 + 46 + 12 + BOTTOM_BAND;
+  const height = TOP_BAND + 18 + body + 20 + SIGNATURE + 14 + BOTTOM_BAND;
   const { canvas, ctx } = canvasFor(height);
   const seed = crownSeed(d);
 
@@ -118,7 +118,7 @@ export async function drawTerminalPicture(d: Dashboard, project: Project, dark: 
     ctx.fillStyle = fill; ctx.fill();
     const stroke = (curve: typeof total, colour: string, isTotal: boolean) => {
       ctx.save();
-      ctx.shadowColor = alpha(colour, isTotal ? (dark ? 0.8 : 0.45) : dark ? 0.5 : 0); ctx.shadowBlur = isTotal ? 8 : 4;
+      shadow(ctx, alpha(colour, isTotal ? (dark ? 0.8 : 0.45) : dark ? 0.5 : 0), isTotal ? 4 : 2);
       ctx.beginPath(); tracePath(ctx, curve);
       ctx.lineWidth = isTotal ? 2.2 : 1.2; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = colour; ctx.stroke();
       ctx.restore();
@@ -197,6 +197,6 @@ export async function drawTerminalPicture(d: Dashboard, project: Project, dark: 
   dashed(y);
 
   // Signature: the app icon, our name and where to find us.
-  drawSignature(ctx, p, project, y + 20, { name: ui(13.5, 600), url: mono(10), ink: c.text, muted: c.comment });
+  drawSignature(ctx, p, project, y + 20, { name: ui(14, 600), small: (s) => mono(s), size: 10.5, ink: c.text, muted: c.muted, qrInk: palettes.dark.window, qrPaper: dark ? palettes.dark.text : palettes.light.window });
   return canvas;
 }

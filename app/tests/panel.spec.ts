@@ -196,7 +196,7 @@ test('sharing previews the picture in each style, then copies or saves it', asyn
   expect(sources.size).toBe(6);
   // The picture is the poster itself: as wide as the page allows, never cropped.
   const size = await preview.evaluate((img: HTMLImageElement) => [img.naturalWidth, img.naturalHeight, img.width, img.height]);
-  expect(size[0]).toBe(840);
+  expect(size[0]).toBe(1260);
   expect(Math.abs(size[2] / size[3] - size[0] / size[1])).toBeLessThan(0.01);
   await button(page, '复制图片').click();
   await expect(page.locator('.action.primary')).toHaveText('已复制');

@@ -1,12 +1,25 @@
-// 织物: the day knitted into a scarf and sewn onto a care label. The title, the estimate and the curve are worked in
-// yarn, stitch by stitch, with the three figures on small woven tags sewn on between them; each tool and its first
-// models are printed on the care label below, with care symbols and our signature at its foot.
-import { BOTTOM_BAND, canvasFor, drawMark, measure, middleText, text, TOP_BAND, WIDTH } from './shareCommon';
-import { drawMasthead, drawMembers, drawSignature, figures, GROTESK, poster, posterFont, seeded, type PosterTool } from './sharePoster';
+// 织物: the day knitted into a scarf and sewn onto a care label, on blue cloth by day and on navy denim with a wine
+// scarf by night. The title, the estimate and the curve are worked in yarn, stitch by stitch, with the three figures on
+// small woven tags sewn on between them; each tool and its first models are printed on the care label below, with care
+// symbols and our signature at its foot.
+import { BOTTOM_BAND, canvasFor, drawMark, measure, middleText, shadow, text, TOP_BAND, WIDTH } from './shareCommon';
+import { drawMasthead, drawMembers, drawSignature, figures, GROTESK, poster, posterFont, seeded, SIGNATURE, type PosterTool } from './sharePoster';
 import type { Dashboard, Project } from './types';
 
-const yarn = { base: '#D9532A', shade: '#C24722', cream: '#F4E7CF', pink: '#F3A3C5', lilac: '#B8A5E3' };
-const thread = '#5E584D', labelInk = '#1E1B16', labelPaper = '#F4EFE3', sky = '#A9C5DC', soft = 'rgba(30, 27, 22, 0.66)', orange = '#B4410E';
+const palettes = {
+  light: {
+    yarn: { base: '#D9532A', shade: '#C24722', cream: '#F4E7CF', pink: '#F3A3C5', lilac: '#B8A5E3' },
+    sky: '#A9C5DC', weave: 'rgba(30, 60, 90, 0.05)', clothInk: '#1E1B16', drop: 'rgba(20, 40, 60, 0.28)', tagDrop: 'rgba(60, 20, 10, 0.35)',
+    labelPaper: '#F4EFE3', labelWeave: 'rgba(90, 80, 60, 0.05)', labelInk: '#1E1B16', thread: '#5E584D', soft: 'rgba(30, 27, 22, 0.66)',
+    rule: 'rgba(30, 27, 22, 0.55)', orange: '#B4410E', qrInk: '#1E1B16', qrPaper: '#FFFDF6',
+  },
+  dark: {
+    yarn: { base: '#8E2F3E', shade: '#792735', cream: '#F1E4CC', pink: '#F29BB5', lilac: '#9E8BD6' },
+    sky: '#1B2636', weave: 'rgba(255, 255, 255, 0.035)', clothInk: '#EFE6D3', drop: 'rgba(0, 0, 0, 0.5)', tagDrop: 'rgba(0, 0, 0, 0.45)',
+    labelPaper: '#2A2724', labelWeave: 'rgba(255, 255, 255, 0.03)', labelInk: '#EFE6D3', thread: '#9C9283', soft: 'rgba(239, 230, 211, 0.66)',
+    rule: 'rgba(239, 230, 211, 0.42)', orange: '#F0915A', qrInk: '#1E1B16', qrPaper: '#EFE6D3',
+  },
+};
 const CONDENSED = `'Avenir Next Condensed', 'DIN Condensed', 'Arial Narrow', ${GROTESK}`;
 const c = (size: number, weight = 700) => posterFont(size, weight, CONDENSED);
 const CELL_W = 3.4, CELL_H = 3.8;
@@ -33,7 +46,8 @@ function stitch(colour: string, w: number, h: number): HTMLCanvasElement {
   return s;
 }
 
-export async function drawKnitPicture(d: Dashboard, project: Project): Promise<HTMLCanvasElement> {
+export async function drawKnitPicture(d: Dashboard, project: Project, dark: boolean): Promise<HTMLCanvasElement> {
+  const { yarn, sky, weave, clothInk, drop, tagDrop, labelPaper, labelWeave, labelInk, thread, soft, rule, orange, qrInk, qrPaper } = dark ? palettes.dark : palettes.light;
   const p = await poster(d, labelInk);
   const random = seeded([...d.date].reduce((s, ch) => s + ch.charCodeAt(0), 0) + 7);
   const panelX = 16, panelW = WIDTH - 32, cols = Math.floor(panelW / CELL_W);
@@ -49,16 +63,16 @@ export async function drawKnitPicture(d: Dashboard, project: Project): Promise<H
   const rows = chart ? curveTop + CURVE_ROWS + TIME_ROWS : tagsRow + TAG_ROWS + 2;
   const panel = { x: panelX, y: TOP_BAND + 4, w: cols * CELL_W, h: rows * CELL_H };
   const label = { x: 24, y: panel.y + panel.h + 64, w: WIDTH - 48, h: 0 };
-  label.h = 22 + p.tools.reduce((s, t) => s + blockHeight(t), 0) + 40 + 56 + 14;
+  label.h = 22 + p.tools.reduce((s, t) => s + blockHeight(t), 0) + 40 + SIGNATURE + 18;
   const height = label.y + label.h + BOTTOM_BAND - 8;
   const { canvas, ctx } = canvasFor(height);
 
   // A blue cloth underneath, with its own weave.
   ctx.fillStyle = sky; ctx.fillRect(0, 0, WIDTH, height);
-  ctx.fillStyle = 'rgba(30, 60, 90, 0.05)';
+  ctx.fillStyle = weave;
   for (let y = 0; y < height; y += 2.5) ctx.fillRect(0, y, WIDTH, 0.6);
   for (let x = 0; x < WIDTH; x += 2.5) ctx.fillRect(x, 0, 0.5, height);
-  drawMasthead(ctx, p, project.name, { ink: labelInk, font: c, name: 19, date: 16, left: 24, right: WIDTH - 24, weight: 800 });
+  drawMasthead(ctx, p, project.name, { ink: clothInk, font: c, name: 19, date: 16, left: 24, right: WIDTH - 24, weight: 800 });
 
   const mask = document.createElement('canvas');
   mask.width = cols; mask.height = rows;
@@ -94,7 +108,7 @@ export async function drawKnitPicture(d: Dashboard, project: Project): Promise<H
   const spelled = m.getImageData(0, 0, cols, rows).data;
 
   // The scarf: its shadow, every stitch, a lilac stripe near one edge, and the fringe.
-  ctx.save(); ctx.shadowColor = 'rgba(20, 40, 60, 0.28)'; ctx.shadowBlur = 16; ctx.shadowOffsetY = 6;
+  ctx.save(); shadow(ctx, drop, 8, 3);
   ctx.fillStyle = yarn.shade; ctx.fillRect(panel.x, panel.y, panel.w, panel.h); ctx.restore();
   const stamps = Object.fromEntries(Object.entries(yarn).map(([k, v]) => [k, stitch(v, CELL_W, CELL_H)])) as Record<keyof typeof yarn, HTMLCanvasElement>;
   for (let row = 0; row < rows; row++) {
@@ -118,7 +132,7 @@ export async function drawKnitPicture(d: Dashboard, project: Project): Promise<H
   const tagY = panel.y + tagsRow * CELL_H + 4, tagH = TAG_ROWS * CELL_H - 8, gap = 10, tagW = (panel.w - 28 - gap * 2) / 3;
   figures(p).forEach(([name, value], i) => {
     const x = panel.x + 14 + i * (tagW + gap);
-    ctx.save(); ctx.shadowColor = 'rgba(60, 20, 10, 0.35)'; ctx.shadowBlur = 5; ctx.shadowOffsetY = 2;
+    ctx.save(); shadow(ctx, tagDrop, 2.5, 1);
     ctx.fillStyle = labelPaper; ctx.fillRect(x, tagY, tagW, tagH); ctx.restore();
     ctx.strokeStyle = thread; ctx.lineWidth = 1; ctx.setLineDash([3, 2.5]);
     ctx.strokeRect(x + 3.5, tagY + 3.5, tagW - 7, tagH - 7); ctx.setLineDash([]);
@@ -129,16 +143,16 @@ export async function drawKnitPicture(d: Dashboard, project: Project): Promise<H
   });
 
   // The label, sewn on: woven paper, a stitched border, then each tool.
-  ctx.save(); ctx.shadowColor = 'rgba(20, 40, 60, 0.25)'; ctx.shadowBlur = 18; ctx.shadowOffsetY = 7;
+  ctx.save(); shadow(ctx, drop, 9, 3.5);
   ctx.fillStyle = labelPaper; ctx.fillRect(label.x, label.y, label.w, label.h); ctx.restore();
-  ctx.fillStyle = 'rgba(90, 80, 60, 0.05)';
+  ctx.fillStyle = labelWeave;
   for (let y = label.y; y < label.y + label.h; y += 2) ctx.fillRect(label.x, y, label.w, 0.7);
   for (let x = label.x; x < label.x + label.w; x += 2) ctx.fillRect(x, label.y, 0.6, label.h);
   ctx.strokeStyle = thread; ctx.lineWidth = 1.2; ctx.setLineDash([6, 4]);
   ctx.strokeRect(label.x + 8, label.y + 8, label.w - 16, label.h - 16);
   ctx.setLineDash([]);
   const L = label.x + 22, R = label.x + label.w - 22, W = R - L;
-  const dashed = (y: number) => { ctx.strokeStyle = 'rgba(30, 27, 22, 0.55)'; ctx.lineWidth = 1; ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(R, y); ctx.stroke(); ctx.setLineDash([]); };
+  const dashed = (y: number) => { ctx.strokeStyle = rule; ctx.lineWidth = 1; ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(R, y); ctx.stroke(); ctx.setLineDash([]); };
 
   let y = label.y + 22;
   for (const t of p.tools) {
@@ -176,6 +190,6 @@ export async function drawKnitPicture(d: Dashboard, project: Project): Promise<H
   icon(symbolsLeft + 68, () => { ctx.strokeRect(1, 1, 20, 20); ctx.beginPath(); ctx.moveTo(8, 5); ctx.lineTo(8, 17); ctx.moveTo(14, 5); ctx.lineTo(14, 17); ctx.stroke(); });
   icon(symbolsLeft + 100, () => { ctx.beginPath(); ctx.moveTo(1, 19); ctx.lineTo(25, 19); ctx.lineTo(23, 8); ctx.quadraticCurveTo(13, 6, 7, 10); ctx.lineTo(1, 19); ctx.stroke(); ctx.beginPath(); ctx.moveTo(10, 5); ctx.lineTo(23, 5); ctx.stroke(); ctx.fillStyle = labelInk; ctx.beginPath(); ctx.arc(14, 14, 1.4, 0, Math.PI * 2); ctx.fill(); });
   icon(symbolsLeft + 136, () => { ctx.beginPath(); ctx.arc(11, 11, 10, 0, Math.PI * 2); ctx.stroke(); ctx.beginPath(); ctx.moveTo(4, 4); ctx.lineTo(18, 18); ctx.moveTo(18, 4); ctx.lineTo(4, 18); ctx.stroke(); });
-  drawSignature(ctx, p, project, y + 38, { name: c(17, 800), url: c(13.5, 600), ink: labelInk, muted: labelInk });
+  drawSignature(ctx, p, project, y + 40, { name: c(17, 800), small: (s) => c(s, 600), size: 13, ink: labelInk, muted: soft, qrInk, qrPaper });
   return canvas;
 }

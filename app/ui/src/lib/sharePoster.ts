@@ -8,7 +8,8 @@
 import starmeterMark from '../../../../assets/starmeter-mark.svg?url';
 import { chartPositions } from './chart';
 import { axisTokens, creditsText, currency, legendName, modelAmount, modelName, share, summaryPart, tokenLine, tokens } from './format';
-import { dollars, drawBrand, drawMark, load, loadMarks, measure, middleText, shownHeatmap, shownRows, tag, type Marks } from './shareCommon';
+import { dollars, drawBrand, drawMark, load, loadMarks, measure, middleText, shownHeatmap, shownRows, tag, WIDTH, type Marks } from './shareCommon';
+import { qrModules } from './qr';
 import type { Dashboard, ModelUsage, ProviderUsage } from './types';
 
 /** A sum of money split for drawing: the sign set small and raised, the figure with thousands separators. */
@@ -244,14 +245,34 @@ export function drawMembers(ctx: CanvasRenderingContext2D, p: Poster, t: PosterT
   if (shown < t.members.length) middleText(ctx, rest, at, middle, x + width - at, css, colour);
 }
 
-/** The signature at the foot: the app icon and our name, then where to find us. Returns where it ends. */
-export function drawSignature(ctx: CanvasRenderingContext2D, p: Poster, project: { name: string; url: string }, y: number,
-  s: { name: string; url: string; ink: string; muted: string; centre?: number }): number {
-  const centre = s.centre ?? 210, nameWidth = measure(ctx, project.name, s.name), row = 20 + 8 + nameWidth;
-  drawBrand(ctx, p.marks.brand, { x: centre - row / 2, y, w: 20, h: 20 });
-  middleText(ctx, project.name, centre - row / 2 + 28, y + 10, nameWidth + 2, s.name, s.ink);
-  middleText(ctx, project.url.replace(/^https?:\/\//, ''), centre - 200, y + 36, 400, s.url, s.muted, 'center');
-  return y + 46;
+/** How tall the signature is: its QR code's tile. */
+export const SIGNATURE = 66;
+/** What Starmeter is, for someone who only sees the picture. */
+const TAGLINE = '在 macOS 和 Windows 上查看 AI 编程工具的用量';
+export interface SignStyle {
+  name: string; small: (size: number) => string; ink: string; muted: string;
+  /** The QR code's modules and its tile: always dark on light, which every scanner reads. */
+  qrInk: string; qrPaper: string; size?: number;
+}
+/** The signature at the foot, centred: a QR code to the project, then the app icon and our name, what it does, and the
+ *  full address. */
+export function drawSignature(ctx: CanvasRenderingContext2D, p: Poster, project: { name: string; url: string }, y: number, s: SignStyle) {
+  const modules = qrModules(project.url), tile = modules ? SIGNATURE : 0, gap = modules ? 14 : 0, room = WIDTH - 48 - tile - gap;
+  let size = s.size ?? 11;
+  while (size > 8 && Math.max(measure(ctx, project.url, s.small(size)), measure(ctx, TAGLINE, s.small(size))) > room) size -= 0.5;
+  const nameWidth = measure(ctx, project.name, s.name), block = Math.max(26 + nameWidth, measure(ctx, project.url, s.small(size)), measure(ctx, TAGLINE, s.small(size)));
+  const left = Math.round((WIDTH - tile - gap - block) / 2), middle = y + SIGNATURE / 2;
+  if (modules) {
+    const quiet = 2, cell = tile / (modules.length + quiet * 2);
+    ctx.fillStyle = s.qrPaper; ctx.beginPath(); ctx.roundRect(left, y, tile, tile, 7); ctx.fill();
+    ctx.fillStyle = s.qrInk;
+    modules.forEach((row, my) => row.forEach((dark, mx) => { if (dark) ctx.fillRect(left + (mx + quiet) * cell, y + (my + quiet) * cell, cell + 0.02, cell + 0.02); }));
+  }
+  const x = left + tile + gap;
+  drawBrand(ctx, p.marks.brand, { x, y: middle - 28, w: 18, h: 18 });
+  middleText(ctx, project.name, x + 26, middle - 19, nameWidth + 2, s.name, s.ink);
+  middleText(ctx, TAGLINE, x, middle + 3, room, s.small(size), s.muted);
+  middleText(ctx, project.url, x, middle + 21, room, s.small(size), s.muted);
 }
 
 /** A deterministic number in [0, 1) for decorations, so a picture drawn twice looks the same. */
