@@ -3,11 +3,12 @@
 //! answers {"error": "unported"}, which the tests skip.
 
 use std::io::{Read, Write};
+use std::path::Path;
 
 use jiff::tz::TimeZone;
 use starmeter_core::json::{Format, Json, python_repr};
 use starmeter_core::time::IsoTime;
-use starmeter_core::{catalog, object, preferences};
+use starmeter_core::{catalog, files, object, preferences};
 
 fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
     let text = |index: usize| args.get(index).and_then(Json::as_str);
@@ -22,6 +23,18 @@ fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
                 "isoformat" => time.isoformat(),
             }
             .into())
+        }
+        "keep_unreadable" => {
+            let kept = files::keep_unreadable(Path::new(text(0).unwrap_or("")), files::schema_one)
+                .map_err(|error| error.to_string())?;
+            Ok(kept.map(|path| path.to_string_lossy().into_owned()).into())
+        }
+        "preferences.read" => Ok(preferences::read(Path::new(text(0).unwrap_or(""))).into()),
+        "preferences.update" => {
+            let directory = Path::new(text(0).unwrap_or(""));
+            Ok(preferences::update(directory, text(1).unwrap_or(""), text(2), text(3))
+                .map_err(|error| error.to_string())?
+                .into())
         }
         "json.roundtrip" => {
             // Parses text(0) and writes it back with the separators given, as json.dumps would.
