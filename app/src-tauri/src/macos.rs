@@ -689,7 +689,9 @@ pub fn symbol_png(name: &str, points: f64) -> Option<Vec<u8>> {
 mod tests {
     #[test]
     fn draws_the_header_symbols_and_nothing_for_an_unknown_name() {
-        for name in ["pin", "pin.fill", "gearshape", "square.and.arrow.up", "square.and.arrow.down", "doc.on.doc", "checkmark"] {
+        for name in
+            ["pin", "pin.fill", "gearshape", "square.and.arrow.up", "square.and.arrow.down", "doc.on.doc", "checkmark"]
+        {
             let png = super::symbol_png(name, 15.0).unwrap_or_else(|| panic!("{name} is drawn"));
             assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n", "{name} is a PNG");
             if let Ok(folder) = std::env::var("STARMETER_SYMBOLS_OUT") {
