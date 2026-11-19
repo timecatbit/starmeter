@@ -115,17 +115,14 @@
       const base: Sample | undefined = [...samples].reverse().find((s) => s.at <= start) ?? samples[0];
       const points = samples.filter((s) => s.at > start);
       const from = base ? feed.value(base) : 0;
-      // Token/s: the last minute's output rate as it stood at each second of the window, from zero up.
+      // Token/s: the last minute's output rate as it stood at each whole second, so a point once drawn keeps its value
+      // as the window flows past it (sampling moving instants made the drawn line jump); 0 until there is a rate.
       const rating = modeNow === 'rate';
       if (drawnMode !== modeNow) { drawnMode = modeNow; shown = null; }
       const rates: [number, number][] = [];
       if (rating) {
-        for (let k = 0; k <= 60; k++) {
-          const t = start + (k * span) / 60, r = feed.rateAt(t);
-          if (r !== null) rates.push([t, r]);
-        }
-        const r = feed.rateAt(now);
-        if (r !== null) rates.push([now, r]);
+        for (let t = Math.floor(start / 1000) * 1000; t <= now; t += 1000) rates.push([t, feed.rateAt(t) ?? 0]);
+        rates.push([now, feed.rateAt(now) ?? 0]);
       }
       const target = rating ? { lo: 0, height: nice(Math.max(5, ...rates.map(([, r]) => r * 1.15))) }
         : scaleFor(from, Math.max(from, ...points.map((s) => feed.value(s))));
@@ -244,19 +241,20 @@
         ctx.fillText(lead, W - unitWidth - figureWidth - 1, baseline);
         text('1 分钟前', plot.x, bottom + 7, 8.5, secondary);
         text('现在', plot.x + plot.w, bottom + 7, 8.5, secondary, 'right');
-        if (!base) text('正在读取第一笔数据…', plot.x + plot.w / 2, plot.y + plot.h / 2 - 6, 9, labelColour(dark, dark ? 0.25 : 0.26), 'center');
+        if (!base && !rating) text('正在读取第一笔数据…', plot.x + plot.w / 2, plot.y + plot.h / 2 - 6, 9, labelColour(dark, dark ? 0.25 : 0.26), 'center');
         ctx.restore();
       }
-      if (!base) return;
+      if (!base && !rating) return;
 
       const x = (t: number) => plot.x + ((t - start) / span) * plot.w;
       const clamped = (value: number) => bottom - Math.min(1.08, Math.max(0, (value - range.lo) / range.height)) * plot.h;
       // A line's height from a sample: the total where it stands; a tool's line from where the total stood at the
       // window's left edge, up by what that tool added.
-      const level = (id: string | null, sample: Sample) => (id ? feed.value(base) + (sample.parts[id] ?? 0) - (base.parts[id] ?? 0) : feed.value(sample));
+      // (Only drawn with a first reading: Token/s alone goes on without one, along zero.)
+      const level = (id: string | null, sample: Sample) => (id ? feed.value(base!) + (sample.parts[id] ?? 0) - (base!.parts[id] ?? 0) : feed.value(sample));
       // Steps: a line holds its value until the next reading, then rises to it.
       const path = (id: string | null) => {
-        let previous = level(id, base);
+        let previous = level(id, base!);
         ctx.beginPath(); ctx.moveTo(plot.x, clamped(previous));
         for (const s of points) {
           const next = level(id, s);
@@ -302,7 +300,7 @@
       // The end dot carries the eye between the charts: from the trend's newest point to the live line's end.
       const liveTip: [number, number] = rating
         ? [plot.x + plot.w, clamped(rateTip ? rateTip[1] : 0)]
-        : [plot.x + plot.w, clamped(level(null, [...samples].reverse().find((s) => s.at <= now) ?? base))];
+        : [plot.x + plot.w, clamped(level(null, [...samples].reverse().find((s) => s.at <= now) ?? base!))];
       const move = trendEnd ? ramp(0.1, 0.8, p) : 1;
       const tip: [number, number] = trendEnd
         ? [trendEnd[0] + (liveTip[0] - trendEnd[0]) * move, trendEnd[1] + (liveTip[1] - trendEnd[1]) * move]
