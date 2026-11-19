@@ -127,7 +127,17 @@ pub fn install(state: &str, given: Option<&str>, environment: &HashMap<String, S
             return Err(HostFailure("Claude 设置格式异常".into()));
         }
     }
-    let executable = std::env::current_exe().map_err(|_| HostFailure("找不到状态栏程序".into()))?;
+    // The engine itself under SwiftBar; an app ships the engine program beside its resources.
+    let shipped = environment
+        .get("OCX_PLUGIN_PATH")
+        .map(|plugin| {
+            Path::new(plugin).with_file_name(if cfg!(windows) { "starmeter-engine.exe" } else { "starmeter-engine" })
+        })
+        .filter(|path| path.is_file());
+    let executable = match shipped {
+        Some(path) => path,
+        None => std::env::current_exe().map_err(|_| HostFailure("找不到状态栏程序".into()))?,
+    };
     let bridge = format!("{state}/{BRIDGE}");
     let command = terminal_jobs::join(&[&bridge, "--claude-statusline", "--state-dir", &state]);
     let copy_bridge = || -> Result<(), HostFailure> {
