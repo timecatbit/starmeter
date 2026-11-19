@@ -19,8 +19,8 @@ use crate::rows::FALLBACK_SEPARATOR;
 use crate::runtime::{self, PRODUCT, RANGES, Runtime, now};
 use crate::{catalog, claude_app, cursor, object, preferences, py};
 
-pub const MENU_BAR_LABELS: [(&str, &str); 3] =
-    [("none", "只显示星星"), ("cost", "今天的 API 估算"), ("quota", "最紧张的订阅额度")];
+pub const MENU_BAR_LABELS: [(&str, &str); 4] =
+    [("none", "只显示星星"), ("cost", "今天的 API 估算"), ("quota", "最紧张的订阅额度"), ("speed", "输出速度")];
 
 /// The file browser's name where the user will look for it.
 pub const REVEAL_LABEL: &str = if cfg!(windows) { "在资源管理器中打开" } else { "在 Finder 中打开" };
@@ -209,6 +209,11 @@ pub fn panel_entries(lines: &[String]) -> Vec<Json> {
         ordered.into()
     }
     roots.iter().map(|root| build(&nodes, *root)).collect()
+}
+
+/// 42 tok/s; 1.2K tok/s from a thousand on.
+fn speed_text(rate: f64) -> String {
+    if rate < 999.5 { format!("{} tok/s", (rate + 0.5).floor() as i64) } else { format!("{:.1}K tok/s", rate / 1000.0) }
 }
 
 /// format(n, ','): thousands separated by commas.
@@ -891,43 +896,78 @@ impl Runtime {
             .into()
     }
 
-    /// The figure beside the star, or "": today's estimate or the tightest subscription window, never a state.
+    /// What Summary counts of today, source by source, and when today was read: the summaries of the sources it adds
+    /// (a gateway's carried requests counted once). None until today has been read.
+    fn today_counted(&self) -> Option<(f64, Vec<Object>)> {
+        let record = self.read_cache(&self.range_cache_name(Some("today")));
+        let bundle = record.get("payload").and_then(Json::as_object).cloned().unwrap_or_default();
+        if bundle.get("range") != Some(&Json::from("today")) {
+            return None;
+        }
+        let at = record.get("fetchedAt").and_then(Json::python_float).unwrap_or(0.0);
+        let selected: Vec<Selected> = preferences::MODULES
+            .iter()
+            .filter(|module| preferences::USAGE.contains(&module.key) && self.module_enabled(module.key))
+            .map(|module| {
+                (
+                    module.key.to_string(),
+                    module.label.clone(),
+                    bundle.get(module.key).and_then(Json::as_object).cloned().unwrap_or_default(),
+                )
+            })
+            .collect();
+        let parts = summary_usage(&selected);
+        let summaries = selected
+            .iter()
+            .filter_map(|(key, _, _)| {
+                let usage = parts.get(key)?.get("usage")?.as_object()?;
+                if !usage.get("summary").is_some_and(Json::is_truthy) || usage.get("error").is_some_and(Json::is_truthy)
+                {
+                    return None;
+                }
+                usage.get("summary")?.as_object().cloned()
+            })
+            .collect();
+        Some((at, summaries))
+    }
+
+    /// Output tokens a second: what Summary counts of today's output, between the last two readings of today (a minute
+    /// apart in the background, at most five), divided by the time between them. Worked out once per new reading and
+    /// kept beside the readings (menu_speed), so a render in between shows the same figure. None when there is no
+    /// pair of readings to compare, or the newer is over three minutes old.
+    pub fn output_speed(&self) -> Option<f64> {
+        let (at, summaries) = self.today_counted()?;
+        let output: i64 =
+            summaries.iter().map(|summary| summary.get("outputTokens").and_then(Json::integer).unwrap_or(0)).sum();
+        let mut state = self.read_cache("menu_speed");
+        if state.get("at").and_then(Json::python_float) != Some(at) {
+            let before = state.get("at").and_then(Json::python_float);
+            let written = state.get("output").and_then(Json::integer);
+            let rate = match (before, written) {
+                (Some(before), Some(written)) if at - before > 0.0 && at - before <= 300.0 && output >= written => {
+                    Json::from((output - written) as f64 / (at - before))
+                }
+                _ => Json::Null,
+            };
+            state = object! { "schema" => 1, "at" => at, "output" => output, "rate" => rate };
+            self.write_json_cache(&self.cache_path("menu_speed"), &Json::Object(state.clone()));
+        }
+        let rate = state.get("rate").and_then(Json::python_float)?;
+        (now() - at <= 180.0).then_some(rate)
+    }
+
+    /// The figure beside the star, or "": today's estimate, the tightest subscription window or the output speed, never
+    /// a state.
     pub fn menu_bar_value(&self, data: Option<&Object>) -> String {
         let choice = self.settings().get("menuBar").and_then(Json::as_str).unwrap_or("none").to_string();
+        if choice == "speed" {
+            // Nothing while the models write nothing: the star alone, not a 0 to read.
+            return self.output_speed().filter(|rate| *rate >= 0.5).map(speed_text).unwrap_or_default();
+        }
         if choice == "cost" {
-            let bundle = self
-                .read_cache(&self.range_cache_name(Some("today")))
-                .get("payload")
-                .and_then(Json::as_object)
-                .cloned()
-                .unwrap_or_default();
-            if bundle.get("range") != Some(&Json::from("today")) {
-                return String::new();
-            }
-            let selected: Vec<Selected> = preferences::MODULES
-                .iter()
-                .filter(|module| preferences::USAGE.contains(&module.key) && self.module_enabled(module.key))
-                .map(|module| {
-                    (
-                        module.key.to_string(),
-                        module.label.clone(),
-                        bundle.get(module.key).and_then(Json::as_object).cloned().unwrap_or_default(),
-                    )
-                })
-                .collect();
-            let parts = summary_usage(&selected);
-            let costs: Vec<f64> = selected
-                .iter()
-                .filter_map(|(key, _, _)| {
-                    let usage = parts.get(key)?.get("usage")?.as_object()?;
-                    if !usage.get("summary").is_some_and(Json::is_truthy)
-                        || usage.get("error").is_some_and(Json::is_truthy)
-                    {
-                        return None;
-                    }
-                    summary_cost_value(usage.get("summary")?.as_object()?)?.python_float()
-                })
-                .collect();
+            let Some((_, summaries)) = self.today_counted() else { return String::new() };
+            let costs: Vec<f64> =
+                summaries.iter().filter_map(|summary| summary_cost_value(summary)?.python_float()).collect();
             if costs.is_empty() {
                 return String::new();
             }

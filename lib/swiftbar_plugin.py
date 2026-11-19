@@ -2283,7 +2283,7 @@ def usage_ranges_due():
     weighed=[k for k in view_settings()['subscriptionPrices'] if module_enabled(k) and module_enabled(catalog.SUBSCRIPTION_USAGE[k])]
     if weighed and key!='month' and cache_due(read_cache(range_cache_name('month')),refresh_ttl(600)):due.append('month')
     # Today's estimate beside the star stays as current as the homepage would.
-    if view_settings()['menuBar']=='cost' and key!='today' and cache_due(read_cache(range_cache_name('today')),refresh_ttl(60)):due.append('today')
+    if view_settings()['menuBar'] in ('cost','speed') and key!='today' and cache_due(read_cache(range_cache_name('today')),refresh_ttl(60)):due.append('today')
     return due
 
 
@@ -2457,17 +2457,56 @@ def deepseek_balance(data):
     return "", None
 
 
-MENU_BAR_LABELS={'none':'只显示星星','cost':'今天的 API 估算','quota':'最紧张的订阅额度'}
+MENU_BAR_LABELS={'none':'只显示星星','cost':'今天的 API 估算','quota':'最紧张的订阅额度','speed':'输出速度'}
+
+def today_counted():
+    """What Summary counts of today, source by source, and when today was read, or None until it has been read."""
+    record=read_cache(range_cache_name('today'));bundle=record.get('payload') or {}
+    if bundle.get('range')!='today':return None
+    selected=[(k,label,bundle.get(k) or {}) for k,label,_ in preferences.MODULES if k in preferences.USAGE and module_enabled(k)]
+    parts=summary_usage(selected)
+    summaries=[parts[k]['usage']['summary'] for k,_,_ in selected
+               if parts[k]['usage'] and parts[k]['usage'].get('summary') and not parts[k]['usage'].get('error')]
+    at=record.get('fetchedAt')
+    return (float(at) if isinstance(at,(int,float)) else 0.0),summaries
+
+
+def output_speed():
+    """Output tokens a second between the last two readings of today (at most five minutes apart), kept beside the
+    readings so a render in between shows the same figure; None without a pair to compare, or once three minutes old."""
+    found=today_counted()
+    if not found:return None
+    at,summaries=found
+    output=sum(s['outputTokens'] for s in summaries if isinstance(s.get('outputTokens'),int))
+    state=read_cache('menu_speed')
+    before=state.get('at')
+    if not (isinstance(before,(int,float)) and float(before)==at):
+        written=state.get('output');rate=None
+        if isinstance(before,(int,float)) and isinstance(written,int) and 0<at-before<=300 and output>=written:
+            rate=(output-written)/(at-before)
+        state={'schema':1,'at':at,'output':output,'rate':rate}
+        write_json_cache(cache_path('menu_speed'),state)
+    rate=state.get('rate')
+    if not isinstance(rate,(int,float)) or time.time()-at>180:return None
+    return float(rate)
+
+
+def speed_text(rate):
+    """42 tok/s; 1.2K tok/s from a thousand on."""
+    return '%d tok/s'%int(rate+0.5) if rate<999.5 else '%.1fK tok/s'%(rate/1000)
+
 
 def menu_bar_value(data=None):
     """The figure the user chose to show beside the star, or ''. Nothing about states or failures: those stay in the panel."""
     choice=view_settings()['menuBar']
+    if choice=='speed':
+        rate=output_speed()
+        # Nothing while the models write nothing: the star alone, not a 0 to read.
+        return speed_text(rate) if rate is not None and rate>=0.5 else ''
     if choice=='cost':
-        bundle=read_cache(range_cache_name('today')).get('payload') or {}
-        if bundle.get('range')!='today':return ''
-        selected=[(k,label,bundle.get(k) or {}) for k,label,_ in preferences.MODULES if k in preferences.USAGE and module_enabled(k)]
-        costs=[summary_cost_value(part['usage'].get('summary') or {}) for part in summary_usage(selected).values()
-               if part['usage'] and part['usage'].get('summary') and not part['usage'].get('error')]
+        found=today_counted()
+        if not found:return ''
+        costs=[summary_cost_value(summary) for summary in found[1]]
         costs=[float(c) for c in costs if c is not None]
         if not costs:return ''
         unit=currency_unit(data) or {'symbol':'$','rate':1}

@@ -535,7 +535,7 @@ impl Runtime {
         {
             due.push("month".into());
         }
-        if settings.get("menuBar") == Some(&Json::from("cost"))
+        if ["cost", "speed"].iter().any(|choice| settings.get("menuBar") == Some(&Json::from(*choice)))
             && key != "today"
             && self.cache_due(&self.read_cache(&self.range_cache_name(Some("today"))), self.refresh_ttl(60.0))
         {

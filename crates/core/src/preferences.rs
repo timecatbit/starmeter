@@ -50,8 +50,9 @@ pub const THEMES: [&str; 3] = ["system", "light", "dark"];
 pub const APPEARANCES: [&str; 3] = ["solid", "frosted", "glass"];
 /// The Harness cards on the homepage, one per tool (the default), per model or per project.
 pub const GROUPINGS: [&str; 3] = ["tool", "model", "project"];
-/// Beside the menu bar star: nothing (the default), today's API-equivalent estimate, or the tightest subscription.
-pub const MENU_BAR: [&str; 3] = ["none", "cost", "quota"];
+/// Beside the menu bar star: nothing (the default), today's API-equivalent estimate, the tightest subscription, or
+/// the output tokens a second.
+pub const MENU_BAR: [&str; 4] = ["none", "cost", "quota", "speed"];
 /// API-equivalent estimates read in US dollars, or in yuan at the day's reference rate (or one the user fixed).
 pub const CURRENCIES: [&str; 2] = ["USD", "CNY"];
 /// How often a pinned panel re-reads the range on screen, in seconds.

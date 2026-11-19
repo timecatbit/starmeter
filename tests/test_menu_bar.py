@@ -21,10 +21,11 @@ class MenuBarTests(unittest.TestCase):
         self.m = types.ModuleType('menu_bar_test'); exec(compile((ROOT / 'lib/swiftbar_plugin.py').read_text(), 'plugin', 'exec'), self.m.__dict__)
         for key in ('claude', 'codex'):preferences.update(self.m.STATE_DIR, 'module', key, 'true')
 
-    def today(self, claude, codex):
+    def today(self, claude, codex, output=(0, 0), at=None):
         os.makedirs(self.m.CACHE_DIR, exist_ok=True)
-        payload = {'range': 'today', 'claude': {'summary': {'estimatedCostUsd': claude, 'requests': 2}}, 'codex': {'summary': {'estimatedCostUsd': codex, 'requests': 1}}}
-        record = {'schema': 1, 'fetchedAt': time.time(), 'day': time.strftime('%Y-%m-%d'), 'payload': payload}
+        payload = {'range': 'today', 'claude': {'summary': {'estimatedCostUsd': claude, 'requests': 2, 'outputTokens': output[0]}},
+                   'codex': {'summary': {'estimatedCostUsd': codex, 'requests': 1, 'outputTokens': output[1]}}}
+        record = {'schema': 1, 'fetchedAt': time.time() if at is None else at, 'day': time.strftime('%Y-%m-%d'), 'payload': payload}
         self.m.write_json_cache(self.m.cache_path(self.m.range_cache_name('today')), record)
 
     def test_only_the_star_by_default(self):
@@ -57,7 +58,31 @@ class MenuBarTests(unittest.TestCase):
         rows = next(o for o in self.m.module_options() if o['label'] == '外观与设置')['children']
         row = next(r for r in rows if r['label'] == '菜单栏显示')
         self.assertEqual(row['value'], '只显示星星')
-        self.assertEqual([c['action'] for c in row['children']], [['set-menu-bar', 'none'], ['set-menu-bar', 'cost'], ['set-menu-bar', 'quota']])
+        self.assertEqual([c['action'] for c in row['children']], [['set-menu-bar', 'none'], ['set-menu-bar', 'cost'], ['set-menu-bar', 'quota'],
+                                                                 ['set-menu-bar', 'speed']])
+
+    def test_output_speed_between_two_readings(self):
+        self.m.run_action('set-menu-bar', ['speed'])
+        now = time.time()
+        self.assertEqual(self.m.menu_bar_value({}), '', 'Nothing until today has been read')
+        self.today(1, 1, (1000, 0), now - 60)
+        self.assertEqual(self.m.menu_bar_value({}), '', 'One reading has nothing to compare with')
+        self.today(1, 1, (3000, 1000), now)
+        self.assertEqual(self.m.menu_bar_value({}), '50 tok/s')
+        self.assertEqual(self.m.menu_bar_value({}), '50 tok/s', 'A render between readings shows the same figure')
+        self.today(1, 1, (3000, 1000), now + 60)
+        self.assertEqual(self.m.menu_bar_value({}), '', 'Nothing written: the star alone, not a 0')
+        self.today(1, 1, (123000, 1000), now + 120)
+        self.assertEqual(self.m.menu_bar_value({}), '2.0K tok/s')
+        self.today(1, 1, (10, 0), now + 180)
+        self.assertEqual(self.m.menu_bar_value({}), '', 'A new day starts from nothing')
+        self.today(1, 1, (5000, 0), now + 900)
+        self.assertEqual(self.m.menu_bar_value({}), '', 'Readings too far apart say nothing')
+        with patch.object(self.m, 'selected_range', return_value='7d'):
+            self.assertIn('today', self.m.usage_ranges_due(), 'Today is read every minute for the figure')
+        self.today(1, 1, (5600, 0), now + 960)
+        with patch.object(self.m.time, 'time', return_value=now + 960 + 181):
+            self.assertEqual(self.m.menu_bar_value({}), '', 'A reading over three minutes old is not kept in sight')
         with self.assertRaises(ValueError):self.m.run_action('set-menu-bar', ['loud'])
 
     def test_settings_are_grouped_under_titles(self):

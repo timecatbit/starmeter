@@ -1481,6 +1481,28 @@ class PanelParityTests(BackgroundParityTests):
             for name, payload in records.items():
                 (root / (name + '.json')).write_text(json.dumps({'schema': 1, 'fetchedAt': now - 30, 'payload': payload}))
 
+    def test_output_speed_beside_the_star(self):
+        """The output speed from two readings of today, each engine with its own readings and its own kept figure."""
+        import types
+        self.settings(visible=['summary', 'claude', 'codex'], menuBar='speed')
+        places = {}
+        for name, engine in self.states.items():
+            with unittest.mock.patch.dict(os.environ, dict(self.common, **engine)):
+                plugin = types.ModuleType('names'); exec(compile((ROOT / 'lib/swiftbar_plugin.py').read_text(), 'plugin', 'exec'), plugin.__dict__)
+                places[name] = Path(plugin.cache_path(plugin.range_cache_name('today')))
+        def today(output, at):
+            payload = {'range': 'today', 'claude': {'summary': {'estimatedCostUsd': 1, 'requests': 2, 'outputTokens': output[0]}},
+                       'codex': {'summary': {'estimatedCostUsd': 2, 'requests': 1, 'outputTokens': output[1]}}}
+            for place in places.values():
+                place.parent.mkdir(parents=True, exist_ok=True)
+                place.write_text(json.dumps({'schema': 1, 'fetchedAt': at, 'day': datetime.now().strftime('%Y-%m-%d'), 'payload': payload}))
+        now = time.time()
+        seen = []
+        for output, at in (((1000, 0), now - 60.5), ((3000, 1000), now), ((3000, 1000), now), ((120000, 1000), now + 59.25)):
+            today(output, at)
+            seen.append((self.python('alert_inputs')['menuBar'], self.swift('alert_inputs')['menuBar']))
+        self.assertEqual(seen, [('', ''), ('50 tok/s', '50 tok/s'), ('50 tok/s', '50 tok/s'), ('2.0K tok/s', '2.0K tok/s')])
+
     def test_snapshot_and_alerts(self):
         codex = Path(self.common['HOME']) / '.codex'; codex.mkdir()
         (codex / 'auth.json').write_text(json.dumps({'auth_mode': 'chatgpt', 'tokens': {'access_token': 'x'}}))
@@ -1492,7 +1514,7 @@ class PanelParityTests(BackgroundParityTests):
                     (dict(visible=[k for k in everything if k != 'opencodex'], menuBar='quota', usageAlert=90, balanceAlerts={'kimi-api|CNY': 20}), keys),
                     (dict(visible=['claude', 'claude-subscription', 'chatgpt', 'sessions', 'kimi-api', 'minimax'], menuBar='cost', usageAlert=0,
                           keepCleanedUsage=False, appearance='solid'), dict(keys, KOMARI_BASE_URL='')),
-                    (dict(visible=['chatgpt', 'opencodex', 'deepseek', 'summary'], range='7d'), {'OCX_SELF_UPDATES': '0', 'DEEPSEEK_API_KEY': 'sk'}))
+                    (dict(visible=['chatgpt', 'opencodex', 'deepseek', 'summary'], range='7d', menuBar='speed'), {'OCX_SELF_UPDATES': '0', 'DEEPSEEK_API_KEY': 'sk'}))
         for values, extra in variants:
             with self.subTest(settings=values):
                 self.settings(**values)

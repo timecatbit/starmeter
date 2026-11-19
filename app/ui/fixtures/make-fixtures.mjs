@@ -665,7 +665,8 @@ function settingsRows(prefs) {
     entry('金额显示', { symbol: 'dollarsign.circle', value: '美元' }, [radio('美元（$）', ['set-currency', 'USD'], true), radio('人民币（¥）', ['set-currency', 'CNY'], false),
       separator(), entry('汇率…', { value: '每天自动更新', detail: 'API 等值估算按这个汇率换成人民币；订阅月费与 API 实际花费仍是美元', action: ['set-cny-rate'] })]),
     entry('菜单栏显示', { symbol: 'menubar.rectangle', value: '只显示星星' }, [radio('只显示星星', ['set-menu-bar', 'none'], true),
-      radio('今天的 API 估算', ['set-menu-bar', 'cost'], false), radio('最紧张的订阅额度', ['set-menu-bar', 'quota'], false)]),
+      radio('今天的 API 估算', ['set-menu-bar', 'cost'], false), radio('最紧张的订阅额度', ['set-menu-bar', 'quota'], false),
+      radio('输出速度', ['set-menu-bar', 'speed'], false)]),
     entry('钉住与提醒', { section: true }),
     entry('钉住时刷新', { symbol: 'pin', value: '每 2 秒' }, [1, 2, 5].map((s) => radio(`每 ${s} 秒`, ['set-pin-interval', String(s)], s === 2))),
     entry('用量提醒', { detail: '订阅窗口用到所选比例时通知一次', symbol: 'bell', value: '90%' }, [
