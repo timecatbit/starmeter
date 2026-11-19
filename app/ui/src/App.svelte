@@ -198,9 +198,6 @@
     }
     void shell.setPinned(value);
     clearInterval(liveTimer);
-    clearTimeout(pinHintTimer);
-    pinHint = value && !panel.arranged;
-    if (pinHint) pinHintTimer = setTimeout(() => (pinHint = false), 3200);
     if (value) {
       const live = new LiveFeed();
       if (snapshot?.dashboard) live.add(snapshot.dashboard);
@@ -243,11 +240,6 @@
     const frame = requestAnimationFrame(() => (sheetReady = true));
     return () => cancelAnimationFrame(frame);
   });
-
-  /** Pinning says, until the user has done it once, that the top moves the panel and the corner resizes it. */
-  let pinHint = $state(false);
-  let pinHintTimer: ReturnType<typeof setTimeout> | undefined;
-  $effect(() => { if (panel.arranged) pinHint = false; });
 
   // The corner handle: the size follows the pointer, the top left stays (the window's own edges resize it too).
   let cornerFrom: { x: number; y: number; width: number; height: number } | null = null;
@@ -568,9 +560,6 @@
     <!-- A question no row on screen asked (from the homepage or the grid): the panel shows it at its foot. -->
     <div class="ask-sheet"><InlineAsk question={ask.current.question} sheet /></div>
   {/if}
-  {#if pinHint}
-    <span class="pin-hint" role="status" transition:fade={{ duration: panel.reduceMotion ? 0 : 200 }}>拖动顶部移动面板 · 拖右下角调整大小</span>
-  {/if}
 </div>
 
 {#snippet dashboardView()}
@@ -651,20 +640,6 @@
     transition: stroke 0.15s;
   }
   .corner:hover path, .corner:active path { stroke: var(--secondary); }
-  .pin-hint {
-    position: absolute;
-    left: 50%;
-    top: 44px;
-    z-index: 10;
-    transform: translateX(-50%);
-    padding: 4px 12px;
-    border-radius: 6px;
-    background: var(--solid);
-    box-shadow: 0 0 0 0.5px var(--separator), 0 2px 8px rgba(0, 0, 0, 0.12);
-    font-size: 11px;
-    white-space: nowrap;
-    pointer-events: none;
-  }
   .hint-bubble {
     position: absolute;
     z-index: 10;

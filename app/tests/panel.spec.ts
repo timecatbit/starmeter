@@ -46,10 +46,10 @@ test('header buttons take clicks, and pinning turns the trend live', async ({ pa
   await button(page, '钉住面板').click();
   await expect(page.getByLabel('实时用量图')).toBeVisible();
   await expect(button(page, '取消钉住面板')).toBeVisible();
-  // Pinned, it says how to move and resize it: the grabber, the corner and, until used once, a line.
+  // Pinned, the grabber and the corner say it moves and resizes; no line of text spells it out.
   await expect(page.locator('.grabber')).toBeVisible();
   await expect(page.getByRole('separator', { name: '拖动调整大小' })).toBeVisible();
-  await expect(page.locator('.pin-hint')).toHaveText('拖动顶部移动面板 · 拖右下角调整大小');
+  await expect(page.getByText('拖动顶部移动面板')).toHaveCount(0);
   // Pinned, the panel turns to 会话 and fits the dashboard, down to just above the subscriptions.
   await expect(page.getByRole('radio', { name: '会话' })).toHaveAttribute('aria-checked', 'true');
   await expect(page.locator('.session')).toHaveCount(3);
@@ -133,7 +133,6 @@ test('a pinned panel resized at its edges lays its pages out at that width, and 
   await page.mouse.up();
   await expect(page.locator('.window')).toHaveCSS('width', '460px');
   await expect(page.locator('.window')).toHaveCSS('height', '580px');
-  await expect(page.locator('.pin-hint')).toHaveCount(0);
   await resize(560, 640);
   // A row's page takes the width too.
   await page.locator('.row').filter({ hasText: 'Claude 订阅' }).click();
