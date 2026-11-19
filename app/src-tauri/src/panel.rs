@@ -762,12 +762,13 @@ fn mica_supported() -> bool {
     })
 }
 
-/// The header's symbols as macOS draws them (pin, gear, share): base64 PNG at 3 pixels a point, or None for any other
-/// name. Elsewhere the panel draws its own.
+/// The symbols the panel takes from macOS (the header's pin, gear and share; the share page's share, copy, save and
+/// done): base64 PNG at 3 pixels a point, or None for any other name. Elsewhere the panel draws its own.
 #[cfg(target_os = "macos")]
 #[tauri::command]
 pub fn system_symbol(app: AppHandle, name: String, points: f64) -> Option<String> {
-    const SYMBOLS: [&str; 4] = ["pin", "pin.fill", "gearshape", "square.and.arrow.up"];
+    const SYMBOLS: [&str; 7] =
+        ["pin", "pin.fill", "gearshape", "square.and.arrow.up", "square.and.arrow.down", "doc.on.doc", "checkmark"];
     if !SYMBOLS.contains(&name.as_str()) {
         return None;
     }

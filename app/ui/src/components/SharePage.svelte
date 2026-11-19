@@ -101,7 +101,7 @@
   <div class="grip" class:movable={panel.pinned} aria-hidden="true"
     onpointerdown={(event) => { if (event.button === 0 && panel.pinned) { event.preventDefault(); void moveWindow(); } }}></div>
   <span class="back"><HintButton icon="chevron.left" size={17} hint="返回" label="返回" onclick={onback} /></span>
-  <span class="page-glyph"><Icon name="square.and.arrow.up" size={17} /></span>
+  <span class="page-glyph"><Icon name="square.and.arrow.up" size={17} system /></span>
   <h2 class="title">分享用量图<span class="range">{frozen.rangeLabel}</span></h2>
   <span class="rule"></span>
   <div class="body">
@@ -134,14 +134,14 @@
           {#if picture}<p class="size">{Math.round(picture.width * SCALE)} × {Math.round(picture.height * SCALE)} 像素 · PNG</p>{/if}
           <div class="actions">
             <button class="action primary pressable" class:done={copied === '已复制'} class:failed={copied === '复制失败'} disabled={!picture} onclick={copy}>
-              <Icon name={copied === '已复制' ? 'checkmark' : 'doc.on.doc'} size={14} />{copied ?? '复制图片'}
+              <Icon name={copied === '已复制' ? 'checkmark' : 'doc.on.doc'} size={14} system />{copied ?? '复制图片'}
             </button>
             <button class="action pressable" class:done={!!saved} disabled={!picture} onclick={save}>
-              <Icon name={saved ? 'checkmark' : 'square.and.arrow.down'} size={14} />{saved ?? '保存…'}
+              <Icon name={saved ? 'checkmark' : 'square.and.arrow.down'} size={14} system />{saved ?? '保存…'}
             </button>
             {#if mac && inTauri}
               <button class="action pressable" bind:this={shareButton} disabled={!picture} onclick={share}>
-                <Icon name="square.and.arrow.up" size={14} />分享…
+                <Icon name="square.and.arrow.up" size={14} system />分享…
               </button>
             {/if}
           </div>
