@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use crate::claude_usage::state_of;
 use crate::files::{self, paths};
 use crate::harness::{is_absolute, normalize};
-use crate::host::{AppleScriptHost, DesktopHost, Host};
+use crate::host::{DesktopHost, Host, PanelAskHost};
 use crate::json::{Json, Object};
 use crate::py::{self, FileError};
 use crate::{claude_app, cursor, object, platform, preferences, pricing};
@@ -107,6 +107,7 @@ impl Runtime {
             .into_owned();
         let base = detect_base(&environment, &home);
         pricing::ensure_folders(vec![lib_directory(&plugin).into(), format!("{state_dir}/pricing").into()]);
+        let host: Arc<dyn Host> = Arc::new(PanelAskHost::new(cache_dir.clone()));
         Runtime {
             environment,
             home,
@@ -118,7 +119,7 @@ impl Runtime {
             base,
             mac_app,
             host_cadence: None,
-            host: Arc::new(AppleScriptHost),
+            host,
             memo: Mutex::new(None),
         }
     }

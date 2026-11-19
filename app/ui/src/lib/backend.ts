@@ -11,7 +11,7 @@
 // same fixtures through fixtureBackend.ts, and the shell calls do nothing.
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { ActionReceipt, Dashboard, ShellInfo, Snapshot } from './types';
+import type { ActionReceipt, Dashboard, Question, ShellInfo, Snapshot } from './types';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -84,6 +84,20 @@ export const shell = {
     const stop = listen('panel-closed', closed);
     return () => void stop.then((f) => f());
   },
+  /** The core asks (a confirmation, a line of text, one of two choices) or tells (what went wrong) while an action runs;
+   *  the panel answers under the row that asked. In a browser, a test sends the same as a window event. */
+  onAsk(asked: (question: Question) => void): () => void {
+    if (!inTauri) {
+      const listener = (event: Event) => asked((event as CustomEvent<Question>).detail);
+      window.addEventListener('panel-ask', listener);
+      return () => window.removeEventListener('panel-ask', listener);
+    }
+    const stop = listen<Question>('panel-ask', (event) => asked(event.payload));
+    return () => void stop.then((f) => f());
+  },
+  /** The answer to a question: true or false, the text typed, the option's value, or null when cancelled. */
+  answer: (id: number | string, answer: unknown) => (inTauri ? invoke<void>('answer_question', { id, answer })
+    : quiet().then(() => void window.dispatchEvent(new CustomEvent('panel-answer', { detail: { id, answer } })))),
   /** The user resized the pinned panel at its edges. In a browser, a test sends the same as a window event. */
   onResized(resized: (width: number, height: number) => void): () => void {
     if (!inTauri) {

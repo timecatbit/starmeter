@@ -86,14 +86,15 @@ export const automatic = (action: string[]) => ['refresh-view', 'refresh-source'
 export const passive = (action: string[]) =>
   ['refresh-source', 'refresh-view', 'refresh', 'refresh-live', 'refresh-monitor', 'check-app-updates', 'set-range', 'set-group', 'retry-claude-usage'].includes(action[0]);
 
-/** Actions without a dialog keep the panel open so their result appears in place. */
-export function keepsPanelOpen(action: string[]): boolean {
-  const name = action[0];
-  if (!name) return false;
-  if (quietSettings.has(name)) return true;
-  // These ask before turning on, in a dialog the panel would cover; turning them off asks nothing.
-  if (['set-cursor-usage', 'set-claude-oauth', 'set-claude-local', 'set-claude-live'].includes(name) && action.at(-1) === 'false') return true;
-  if (name === 'set-keep-usage' && action.at(-1) === 'true') return true;
-  return ['refresh-view', 'refresh-source', 'refresh', 'refresh-live', 'refresh-monitor', 'check-app-updates', 'set-subscription', 'set-range', 'set-group',
-    'test-api-key', 'retry-claude-usage'].includes(name) || isPreference(action);
+/** Actions that hand the user to another app (an App, a log or the config file in an editor, Finder, a terminal). */
+const handOff = new Set(['open-claude', 'open-cli-update-log', 'open-home', 'open-settings', 'reveal-source', 'reveal-client-home', 'update-cli', 'logs', 'panel',
+  'panel-modules']);
+/** Actions that may open a file picker: in SwiftBar's panel AppleScript draws it under the panel, which steps aside. */
+const pickers = new Set(['choose-source', 'choose-client-home', 'choose-admin-token', 'configure-connection', 'export-usage']);
+
+/** The panel stays open for everything but a hand-off to another app: the core's questions (and the plugin's, in
+ *  SwiftBar's panel) are answered in it, and the app's file pickers show above it. */
+export function keepsPanelOpen(action: string[], swiftbar = false): boolean {
+  if (!action[0] || handOff.has(action[0])) return false;
+  return !(swiftbar && pickers.has(action[0]));
 }

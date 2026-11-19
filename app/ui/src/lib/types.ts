@@ -177,3 +177,17 @@ export interface ShellInfo {
   /** Opened from the star's right-click menu: the module list is the whole panel. */
   modules: boolean;
 }
+
+/** A question the core asks while an action runs, answered in the panel: confirm (true/false), text (the line typed),
+ *  choice (one option's value); a notice only tells (what went wrong) and waits for nothing. */
+export interface Question {
+  /** A number for the app's own core, a string for the SwiftBar plugin's (answered through a file). */
+  id: number | string;
+  kind: 'confirm' | 'text' | 'choice' | 'notice';
+  title: string;
+  detail?: string;
+  accept?: string;
+  value?: string;
+  hidden?: boolean;
+  options?: [string, string][];
+}

@@ -332,6 +332,8 @@ pub fn close(app: &AppHandle, return_focus: bool) {
     state.sharing.store(false, Ordering::SeqCst);
     state.held.store(false, Ordering::SeqCst);
     set_pinned_state(app, false);
+    // A question still waiting under a row is answered as cancelled.
+    crate::ask::cancel_all();
     let _ = panel.hide();
     if was_visible {
         *state.hidden_at.lock().expect("the hidden lock") = Some(Instant::now());

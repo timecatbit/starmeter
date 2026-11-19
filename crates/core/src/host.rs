@@ -65,6 +65,125 @@ pub fn local_address(base: &str) -> bool {
         .is_some_and(|host| ["127.0.0.1", "localhost", "::1"].contains(&host.as_str()))
 }
 
+// SwiftBar's panel answers in place
+
+/// The plugin's questions while SwiftBar's panel is open and says it can answer them (its `panel-state.json`, written
+/// by a running panel): the question goes to the panel in `panel-ask.json` and the answer comes back in
+/// `panel-answer.json`, so the user answers under the row that asked. Otherwise, and for files and notices the panel
+/// can't show, AppleScript's dialogs.
+pub struct PanelAskHost {
+    folder: String,
+    dialogs: AppleScriptHost,
+}
+
+impl PanelAskHost {
+    pub fn new(folder: String) -> Self {
+        PanelAskHost { folder, dialogs: AppleScriptHost }
+    }
+
+    fn file(&self, name: &str) -> std::path::PathBuf {
+        Path::new(&self.folder).join(name)
+    }
+
+    fn panel_asks(&self) -> bool {
+        let state = std::fs::read(self.file("panel-state.json"))
+            .ok()
+            .and_then(|data| Json::parse(&data).ok())
+            .and_then(|value| value.as_object().cloned())
+            .unwrap_or_default();
+        let pid = state.get("pid").and_then(Json::number).map(|pid| pid as u32);
+        state.get("visible") == Some(&Json::Bool(true))
+            && state.get("asks") == Some(&Json::Bool(true))
+            && pid.is_some_and(platform::alive)
+    }
+
+    /// The answer (null when cancelled or the panel closed), or None when the panel can't ask.
+    fn ask(&self, mut question: Object) -> Option<Json> {
+        if !self.panel_asks() {
+            return None;
+        }
+        let id = format!("{}-{}", platform::process_id(), files::time_nanoseconds());
+        question.insert("id", id.as_str());
+        let (ask, answer) = (self.file("panel-ask.json"), self.file("panel-answer.json"));
+        platform::remove(&answer);
+        let data = Json::Object(question).serialized();
+        files::replace_atomically(&ask, data.as_bytes(), ".panel-ask", || Ok(())).ok()?;
+        files::owner_only(&ask);
+        let started = Instant::now();
+        let reply = loop {
+            std::thread::sleep(Duration::from_millis(150));
+            let reply = std::fs::read(&answer).ok().and_then(|data| Json::parse(&data).ok());
+            if let Some(reply) = reply.filter(|reply| reply.get("id") == Some(&Json::from(id.as_str()))) {
+                break reply.get("answer").cloned().unwrap_or(Json::Null);
+            }
+            if !self.panel_asks() || started.elapsed() > Duration::from_secs(900) {
+                break Json::Null;
+            }
+        };
+        platform::remove(&ask);
+        platform::remove(&answer);
+        Some(reply)
+    }
+}
+
+impl Host for PanelAskHost {
+    fn confirm(&self, message: &str, detail: &str, accept: &str) -> bool {
+        let question = object! { "kind" => "confirm", "title" => message, "detail" => detail, "accept" => accept };
+        match self.ask(question) {
+            Some(answer) => answer == Json::Bool(true),
+            None => self.dialogs.confirm(message, detail, accept),
+        }
+    }
+
+    fn text_dialog(&self, message: &str, value: &str, hidden: bool, title: &str) -> Option<String> {
+        let question =
+            object! { "kind" => "text", "title" => title, "detail" => message, "value" => value, "hidden" => hidden };
+        match self.ask(question) {
+            Some(answer) => answer.as_str().map(String::from),
+            None => self.dialogs.text_dialog(message, value, hidden, title),
+        }
+    }
+
+    fn choose(&self, title: &str, prompt: &str, first: (&str, &str), second: (&str, &str)) -> Option<String> {
+        let options = Json::Array(vec![
+            Json::Array(vec![Json::from(first.0), Json::from(first.1)]),
+            Json::Array(vec![Json::from(second.0), Json::from(second.1)]),
+        ]);
+        let question = object! { "kind" => "choice", "title" => title, "detail" => prompt, "options" => options };
+        match self.ask(question) {
+            Some(answer) => answer.as_str().filter(|value| [first.1, second.1].contains(value)).map(String::from),
+            None => self.dialogs.choose(title, prompt, first, second),
+        }
+    }
+
+    fn choose_path(&self, message: &str, folder: bool) -> Option<String> {
+        self.dialogs.choose_path(message, folder)
+    }
+
+    fn save_path(&self, message: &str, name: &str) -> Option<String> {
+        self.dialogs.save_path(message, name)
+    }
+
+    fn error(&self, title: &str, detail: &str) {
+        // A notice is shown and nothing waits on it: the panel takes it as a question it answers at once.
+        if self.ask(object! { "kind" => "notice", "title" => title, "detail" => detail }).is_none() {
+            self.dialogs.error(title, detail);
+        }
+    }
+
+    fn notify(&self, message: &str, subtitle: &str) {
+        self.dialogs.notify(message, subtitle);
+    }
+
+    fn open_local(&self, path: &str, text: bool) -> Result<(), HostFailure> {
+        self.dialogs.open_local(path, text)
+    }
+
+    fn copy(&self, text: &str) {
+        self.dialogs.copy(text);
+    }
+}
+
 // Dialogs through osascript
 
 pub struct AppleScriptHost;
@@ -754,5 +873,70 @@ pub mod terminal_jobs {
             "(exit \"$token_update_status\")".into(),
         ];
         Ok(lines.join("\n"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn folder(name: &str) -> String {
+        let folder = std::env::temp_dir().join(format!("starmeter-ask-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).expect("a test folder");
+        folder.to_string_lossy().into_owned()
+    }
+
+    fn panel_state(folder: &str, visible: bool) {
+        let state = format!(r#"{{"schema": 1, "visible": {visible}, "asks": true, "pid": {}}}"#, std::process::id());
+        std::fs::write(Path::new(folder).join("panel-state.json"), state).expect("the panel state");
+    }
+
+    /// The panel's side: waits for the question, then answers it (or closes instead).
+    fn panel(folder: String, answer: Option<&'static str>) -> std::thread::JoinHandle<Option<Json>> {
+        std::thread::spawn(move || {
+            let ask = Path::new(&folder).join("panel-ask.json");
+            for _ in 0..200 {
+                if let Some(question) = std::fs::read(&ask).ok().and_then(|data| Json::parse(&data).ok()) {
+                    match answer {
+                        Some(text) => {
+                            let id = question.get("id").cloned().unwrap_or(Json::Null);
+                            let reply = Json::Object(object! { "id" => id, "answer" => text }).serialized();
+                            std::fs::write(Path::new(&folder).join("panel-answer.json"), reply).expect("the answer");
+                        }
+                        None => panel_state(&folder, false),
+                    }
+                    return Some(question);
+                }
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            None
+        })
+    }
+
+    #[test]
+    fn the_panel_answers_a_question_through_its_files() {
+        let folder = folder("answer");
+        panel_state(&folder, true);
+        let answering = panel(folder.clone(), Some("30"));
+        let host = PanelAskHost::new(folder.clone());
+        assert_eq!(host.text_dialog("每月多少美元？", "20", false, "订阅月费"), Some("30".to_string()));
+        let question = answering.join().expect("the panel").expect("a question");
+        assert_eq!(question.get("kind"), Some(&Json::from("text")));
+        assert_eq!(question.get("value"), Some(&Json::from("20")));
+        // Both files are gone once it is answered.
+        assert!(!Path::new(&folder).join("panel-ask.json").exists());
+        assert!(!Path::new(&folder).join("panel-answer.json").exists());
+        let _ = std::fs::remove_dir_all(&folder);
+    }
+
+    #[test]
+    fn a_panel_closing_under_its_question_cancels_it() {
+        let folder = folder("close");
+        panel_state(&folder, true);
+        let closing = panel(folder.clone(), None);
+        let host = PanelAskHost::new(folder.clone());
+        assert!(!host.confirm("删除这把 Key？", "", "删除"));
+        assert!(closing.join().expect("the panel").is_some());
+        let _ = std::fs::remove_dir_all(&folder);
     }
 }

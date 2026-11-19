@@ -7,7 +7,9 @@
   import { pageCurve, rowIn, rowOut } from '../lib/motion';
   import { panel } from '../lib/ui.svelte';
   import type { Entry } from '../lib/types';
+  import { ask, asks } from '../lib/ask.svelte';
   import DetailRow from './DetailRow.svelte';
+  import InlineAsk from './InlineAsk.svelte';
   import Segments from './Segments.svelte';
 
   let { entries, open, busy, rowWidth = 344, onopen, onchoose, ontoggled }: {
@@ -48,6 +50,8 @@
     return out;
   });
 
+  /** The row whose action is asking right now: the question opens under it. */
+  const asking = $derived(ask.current ? items.find((item) => item.kind === 'row' && asks(item.entry))?.id ?? null : null);
   const isBusy = (e: Entry) => !!busy && !!e.action && !toggle(e) && busy.length === e.action.length && busy.every((x, i) => x === e.action![i]);
 
   function press(id: string, entry: Entry) {
@@ -64,8 +68,11 @@
   {#each items as item (item.id)}
     <div class="item" animate:flip={{ duration: panel.reduceMotion ? 0 : 260, easing: pageCurve }} in:rowIn out:rowOut>
       {#if item.kind === 'row'}
-        <DetailRow entry={item.entry} depth={item.depth} aligned={item.aligned} open={open.has(item.id)} busy={isBusy(item.entry)} {rowWidth}
+        <DetailRow entry={item.entry} depth={item.depth} aligned={item.aligned} open={open.has(item.id)} busy={isBusy(item.entry) && asking !== item.id} {rowWidth}
           onpress={() => press(item.id, item.entry)} />
+        {#if asking === item.id && ask.current}
+          <InlineAsk question={ask.current.question} indent={left(item.depth)} />
+        {/if}
       {:else if item.kind === 'section'}
         <div class="section" style:padding-left="{left(item.depth)}px">{item.entry.label}</div>
       {:else if item.kind === 'rule'}

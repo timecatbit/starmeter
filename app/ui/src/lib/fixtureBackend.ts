@@ -1,7 +1,7 @@
 // The fixture backend for a plain browser (dev server, Playwright). It serves app/ui/fixtures/*.json and keeps the
 // choices made in the panel, as the Tauri app's fixture backend (app/src-tauri/src/fixtures.rs) does; the two follow
 // the same rules. Pick a scenario with ?fixture=failed or ?fixture=pending.
-import type { ActionReceipt, Dashboard, Entry, PresentationPreferences, ProviderUsage, Snapshot } from './types';
+import type { ActionReceipt, Dashboard, Entry, PresentationPreferences, ProviderUsage, Question, Snapshot } from './types';
 
 interface Fixture {
   snapshot: Snapshot;
@@ -155,6 +155,26 @@ export async function snapshot(): Promise<Snapshot> {
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Asks the panel as the core does in the app: a question event, then the answer the panel sends back. */
+let asked = 0;
+function askPanel(question: Omit<Question, 'id'>): Promise<unknown> {
+  const id = ++asked;
+  return new Promise((resolve) => {
+    const listener = (event: Event) => {
+      const detail = (event as CustomEvent<{ id: number; answer: unknown }>).detail;
+      if (detail.id !== id) return;
+      window.removeEventListener('panel-answer', listener);
+      resolve(detail.answer);
+    };
+    window.addEventListener('panel-answer', listener);
+    window.dispatchEvent(new CustomEvent('panel-ask', { detail: { ...question, id } }));
+  });
+}
+const findEntry = (list: Entry[], match: (e: Entry) => boolean): Entry | null => {
+  for (const e of list) { if (match(e)) return e; const inner = findEntry(e.children, match); if (inner) return inner; }
+  return null;
+};
+
 export async function action(action: string[]): Promise<ActionReceipt> {
   const f = await load(), prefs = state.prefs!;
   const [name, a, b] = action;
@@ -172,6 +192,22 @@ export async function action(action: string[]): Promise<ActionReceipt> {
     case 'reset-modules': prefs.visible = structuredClone(f.snapshot.preferences!.visible); prefs.theme = 'system'; prefs.appearance = 'solid'; return saved();
     case 'refresh-live': state.live += 1; changed(); return { status: 'done' };
     case 'test-api-key': await wait(1200); return { status: 'done' };
+    case 'set-subscription-price': {
+      const row = findEntry(f.snapshot.entries, (e) => e.action?.[0] === name && e.action[1] === a);
+      const current = row?.value?.startsWith('$') ? row.value.slice(1) : '';
+      const typed = await askPanel({ kind: 'text', title: '订阅月费', detail: '每月多少美元？用来算本月用量是订阅价的几倍。留空清除。', value: current });
+      if (typeof typed !== 'string') return { status: 'done' };
+      const value = Number(typed.trim().replace(/^\$/, ''));
+      if (typed.trim() && !(value > 0)) { window.dispatchEvent(new CustomEvent('panel-ask', { detail: { kind: 'notice', id: 0, title: '金额无效', detail: '请填写大于 0 的数字（美元），或留空清除。' } })); return { status: 'done' }; }
+      if (row) row.value = typed.trim() ? '$' + value.toFixed(2) : '未填写';
+      changed();
+      return { status: 'done' };
+    }
+    case 'remove-api-key': {
+      const yes = await askPanel({ kind: 'confirm', title: '删除这把 Key？', detail: '只删除 Starmeter 自己保存的副本，不影响服务商那边的 Key。', accept: '删除' });
+      if (yes === true) console.info('[fixtures] removed', a, b);
+      return { status: 'done' };
+    }
   }
   if (name === 'set-pin-interval') state.pinInterval = Number(a);
   if (name === 'set-menu-bar') state.menuBar = a;

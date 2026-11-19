@@ -22,6 +22,8 @@ pub struct Files {
     /// SwiftBar's name for the plugin: its file name up to the first dot (2.1.x matches nothing else).
     name: String,
     seen: Mutex<Option<SystemTime>>,
+    /// The last question the plugin asked through `panel-ask.json`, so it reaches the panel once.
+    asked: Mutex<Option<String>>,
     /// One action at a time, as the engine claims one request file.
     turn: tokio_mutex::Mutex,
 }
@@ -98,7 +100,14 @@ impl Files {
             .filter(|name| !name.is_empty())
             .unwrap_or_else(|| "starmeter".into());
         let folder = snapshot.parent().map(Path::to_path_buf).unwrap_or_default();
-        Some(Files { snapshot, folder, name, seen: Mutex::new(None), turn: tokio_mutex::Mutex::default() })
+        Some(Files {
+            snapshot,
+            folder,
+            name,
+            seen: Mutex::new(None),
+            asked: Mutex::new(None),
+            turn: tokio_mutex::Mutex::default(),
+        })
     }
 
     /// No plugin arguments: an empty panel, nothing read or sent.
@@ -108,6 +117,7 @@ impl Files {
             folder: PathBuf::new(),
             name: "starmeter".into(),
             seen: Mutex::new(None),
+            asked: Mutex::new(None),
             turn: tokio_mutex::Mutex::default(),
         }
     }
@@ -132,7 +142,8 @@ impl Files {
         }
         write_private(
             &self.folder.join("panel-state.json"),
-            &json!({"schema": 1, "visible": visible, "pid": std::process::id()}),
+            // "asks": the plugin's questions come to this panel (panel-ask.json) instead of AppleScript dialogs.
+            &json!({"schema": 1, "visible": visible, "asks": true, "pid": std::process::id()}),
         );
     }
 
@@ -156,9 +167,29 @@ impl Files {
                     if changed {
                         crate::data::changed(&app);
                     }
+                    if open {
+                        files.pass_question(&app);
+                    }
                 }
             })
             .expect("the snapshot watcher");
+    }
+
+    /// A question the plugin is waiting on (it runs the action): shown once, under the row that asked.
+    fn pass_question(&self, app: &AppHandle) {
+        let Some(question) = read(&self.folder.join("panel-ask.json")) else { return };
+        let Some(id) = question.get("id").and_then(Value::as_str).map(String::from) else { return };
+        let mut asked = self.asked.lock().expect("the asked lock");
+        if asked.as_deref() == Some(id.as_str()) {
+            return;
+        }
+        *asked = Some(id);
+        let _ = tauri::Emitter::emit(app, "panel-ask", question);
+    }
+
+    /// The panel's answer to the plugin's question.
+    pub fn answer(&self, id: &str, answer: Value) {
+        write_private(&self.folder.join("panel-answer.json"), &json!({"id": id, "answer": answer}));
     }
 
     fn wake(&self) {
@@ -169,8 +200,8 @@ impl Files {
         let _ = url;
     }
 
-    /// Queues an action for the plugin and waits for its receipt: automatic refreshes give up after 3 seconds, display
-    /// preferences after 20, others after 8 unless the engine has claimed them (a dialog may be waiting on the user).
+    /// Queues an action for the plugin and waits for its receipt: automatic refreshes give up after 3 seconds; display
+    /// preferences after 20 and others after 8 unless the engine has claimed them (a question may be waiting on the user).
     pub fn act(&self, action: &[String]) -> (String, Option<Value>) {
         if self.folder.as_os_str().is_empty() {
             return ("failed".into(), None);
@@ -217,7 +248,9 @@ impl Files {
                 woken_again = true;
                 self.wake();
             }
-            if started.elapsed() > limit && (automatic || preference || !claimed) {
+            // Once the plugin has claimed the action it may be waiting on a question answered in this panel, so the
+            // panel waits for the receipt rather than giving up under the user.
+            if started.elapsed() > limit && (automatic || !claimed) {
                 if !claimed {
                     let _ = std::fs::remove_file(&request);
                 }

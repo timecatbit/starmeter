@@ -10,11 +10,13 @@
   import { LiveFeed } from './lib/live';
   import { font, width as measure } from './lib/measure';
   import { pageIn, pageOut } from './lib/motion';
+  import { ask, show as showQuestion } from './lib/ask.svelte';
   import { panel } from './lib/ui.svelte';
   import type { Dashboard as DashboardData, Entry, ShellInfo, Snapshot } from './lib/types';
   import Dashboard from './components/Dashboard.svelte';
   import DetailPage from './components/DetailPage.svelte';
   import HomePage from './components/HomePage.svelte';
+  import InlineAsk from './components/InlineAsk.svelte';
   import ModulesPage from './components/ModulesPage.svelte';
   import SharePage from './components/SharePage.svelte';
   import ToolPage from './components/ToolPage.svelte';
@@ -199,6 +201,15 @@
   }
   $effect(() => { if (pinned) untrack(() => showChrome(3500)); });
 
+  /** A question waits a frame for its row to show it before the panel's own sheet does. */
+  let sheetReady = $state(false);
+  $effect(() => {
+    void ask.current;
+    sheetReady = false;
+    const frame = requestAnimationFrame(() => (sheetReady = true));
+    return () => cancelAnimationFrame(frame);
+  });
+
   /** Pinning says, until the user has done it once, that the top moves the panel and the corner resizes it. */
   let pinHint = $state(false);
   let pinHintTimer: ReturnType<typeof setTimeout> | undefined;
@@ -274,7 +285,7 @@
   }
 
   async function dispatch(action: string[]) {
-    const keep = keepsPanelOpen(action);
+    const keep = keepsPanelOpen(action, info.mode === 'swiftbar');
     // A dialog or another app takes over: the panel steps aside first.
     if (!keep) await shell.close(false);
     else if (!passive(action)) version++;
@@ -432,6 +443,7 @@
    *  left focused. */
   function closed() {
     setPinned(false, false);
+    ask.current = null;
     free = null;
     startOver(false);
     (document.activeElement as HTMLElement | null)?.blur?.();
@@ -445,13 +457,6 @@
   // with no way back out only surprised.
   function contextmenu(event: MouseEvent) {
     event.preventDefault();
-    if (managerOnly) return;
-    leading = new Set((snapshot?.moduleOptions ?? []).filter((e) => isModule(e) && e.checked).map(entryKey));
-    dir = 0;
-    managerOnly = true;
-    settingsFromHome = false;
-    pagePath = [];
-    gridScroll = 0;
   }
 
   onMount(() => {
@@ -465,7 +470,8 @@
     window.addEventListener('pointerup', up, true);
     window.addEventListener('pointercancel', up, true);
     const stops = [backend.onSnapshot(() => void reload()), shell.onOpened(opened), shell.onClosed(closed),
-      shell.onResized((width, height) => { if (pinned) free = { width, height }; })];
+      shell.onResized((width, height) => { if (pinned) free = { width, height }; }),
+      shell.onAsk((question) => showQuestion(question, interaction.active ?? null))];
     void shell.info().then((value) => {
       info = value;
       opened(value.modules);
@@ -523,6 +529,10 @@
       <svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><path d="M25 8V17A8 8 0 0 1 17 25H8" /></svg>
     </span>
   {/if}
+  {#if ask.current && sheetReady && ask.placed === 0}
+    <!-- A question no row on screen asked (from the homepage or the grid): the panel shows it at its foot. -->
+    <div class="ask-sheet"><InlineAsk question={ask.current.question} sheet /></div>
+  {/if}
   {#if pinHint}
     <span class="pin-hint" role="status" transition:fade={{ duration: panel.reduceMotion ? 0 : 200 }}>拖动顶部移动面板 · 拖右下角调整大小</span>
   {/if}
@@ -565,6 +575,13 @@
   .view {
     position: absolute;
     inset: 0;
+  }
+  .ask-sheet {
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    z-index: 12;
   }
   .grabber, .corner svg { transition: opacity 0.35s; }
   .grabber.faded, .corner.faded svg { opacity: 0; }

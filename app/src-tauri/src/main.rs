@@ -6,6 +6,7 @@
 //! launches or reopens this app, which then has no icon of its own.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod ask;
 mod data;
 mod engine;
 mod fixtures;
@@ -316,6 +317,7 @@ fn main() {
             host::copy_picture,
             host::share_picture,
             host::save_picture,
+            ask::answer_question,
         ])
         .setup(move |app| {
             #[cfg(target_os = "macos")]

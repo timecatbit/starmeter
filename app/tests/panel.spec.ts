@@ -90,6 +90,39 @@ test('a pinned panel resized at its edges lays its pages out at that width, and 
   await expect(page.locator('.dashboard')).toHaveCSS('width', '344px');
 });
 
+test('questions are answered in place, under the row that asked, not in a dialog', async ({ page }) => {
+  await open(page);
+  await page.locator('.row').filter({ hasText: 'ChatGPT 订阅' }).click();
+  await page.getByText('订阅月费…').click();
+  const field = page.locator('.ask .field');
+  await expect(field).toBeFocused();
+  await expect(field).toHaveValue('20.00');
+  await field.fill('30');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.ask')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /订阅月费/ })).toContainText('$30.00');
+  // Esc cancels the question, not the page.
+  await page.getByText('订阅月费…').click();
+  await expect(field).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.ask')).toHaveCount(0);
+  await expect(page.getByText('订阅月费…')).toBeVisible();
+  // A wrong amount says so in place.
+  await page.getByText('订阅月费…').click();
+  await field.fill('abc');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.ask.notice')).toContainText('金额无效');
+  await page.getByRole('button', { name: '好', exact: true }).click();
+  // Deleting a Key confirms under its row, in red.
+  await page.keyboard.press('Escape');
+  await page.locator('.row').filter({ hasText: 'Claude API' }).click();
+  await page.getByText('删除…').first().click();
+  await expect(page.locator('.ask .title')).toHaveText('删除这把 Key？');
+  await expect(page.locator('.ask .button.danger')).toHaveText('删除');
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  await expect(page.locator('.ask')).toHaveCount(0);
+});
+
 test('a header hint appears after the pointer rests', async ({ page }) => {
   await open(page);
   await button(page, '分享用量图').hover();

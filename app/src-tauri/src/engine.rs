@@ -235,11 +235,21 @@ struct AppHost {
 }
 
 impl Host for AppHost {
+    // Questions go to the panel first, answered under the row that asked; a system dialog only when it is closed.
     fn confirm(&self, message: &str, detail: &str, accept: &str) -> bool {
-        shell::confirm_now(&self.app, message, detail, accept)
+        let question = serde_json::json!({"kind": "confirm", "title": message, "detail": detail, "accept": accept});
+        match crate::ask::ask(&self.app, question) {
+            Some(answer) => answer.as_bool().unwrap_or(false),
+            None => shell::confirm_now(&self.app, message, detail, accept),
+        }
     }
 
     fn text_dialog(&self, message: &str, value: &str, hidden: bool, title: &str) -> Option<String> {
+        let question =
+            serde_json::json!({"kind": "text", "title": title, "detail": message, "value": value, "hidden": hidden});
+        if let Some(answer) = crate::ask::ask(&self.app, question) {
+            return answer.as_str().map(String::from);
+        }
         #[cfg(target_os = "macos")]
         {
             let (message, value, title) = (message.to_owned(), value.to_owned(), title.to_owned());
@@ -258,6 +268,11 @@ impl Host for AppHost {
     }
 
     fn choose(&self, title: &str, prompt: &str, first: (&str, &str), second: (&str, &str)) -> Option<String> {
+        let question = serde_json::json!({"kind": "choice", "title": title, "detail": prompt,
+            "options": [[first.0, first.1], [second.0, second.1]]});
+        if let Some(answer) = crate::ask::ask(&self.app, question) {
+            return answer.as_str().filter(|value| [first.1, second.1].contains(value)).map(String::from);
+        }
         #[cfg(target_os = "macos")]
         {
             let (title, prompt, a, b) = (title.to_owned(), prompt.to_owned(), first.0.to_owned(), second.0.to_owned());
@@ -284,29 +299,34 @@ impl Host for AppHost {
         }
     }
 
+    // The system's own pickers: the panel stays open, below them, and comes back after.
     fn choose_path(&self, message: &str, folder: bool) -> Option<String> {
         #[cfg(target_os = "macos")]
         macos::activate();
+        crate::panel::step_aside(&self.app, true);
         let dialog = self.app.dialog().file().set_title(message);
         let picked = if folder { dialog.blocking_pick_folder() } else { dialog.blocking_pick_file() };
+        crate::panel::step_aside(&self.app, false);
         picked.and_then(|path| path.into_path().ok()).map(|path| path.to_string_lossy().into_owned())
     }
 
     fn save_path(&self, message: &str, name: &str) -> Option<String> {
         #[cfg(target_os = "macos")]
         macos::activate();
+        crate::panel::step_aside(&self.app, true);
         let mut dialog = self.app.dialog().file().set_title(message).set_file_name(name);
         if let Ok(desktop) = self.app.path().desktop_dir() {
             dialog = dialog.set_directory(desktop);
         }
-        dialog
-            .blocking_save_file()
-            .and_then(|path| path.into_path().ok())
-            .map(|path| path.to_string_lossy().into_owned())
+        let picked = dialog.blocking_save_file();
+        crate::panel::step_aside(&self.app, false);
+        picked.and_then(|path| path.into_path().ok()).map(|path| path.to_string_lossy().into_owned())
     }
 
     fn error(&self, title: &str, detail: &str) {
-        shell::alert_now(&self.app, title, detail);
+        if !crate::ask::tell(&self.app, title, detail) {
+            shell::alert_now(&self.app, title, detail);
+        }
     }
 
     fn notify(&self, message: &str, subtitle: &str) {
