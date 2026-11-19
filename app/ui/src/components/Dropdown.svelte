@@ -15,6 +15,8 @@
   let lit = $state(0);
   let root: HTMLSpanElement | undefined = $state();
   let menu: HTMLDivElement | undefined = $state();
+  /** As tall as the window leaves below the button; the list scrolls inside past that. */
+  let room = $state(0);
   const current = $derived(options.find((o) => o.value === value)?.label ?? '');
 
   function outside(event: PointerEvent) {
@@ -24,14 +26,24 @@
     open = true;
     panel.menuOpen = true;
     lit = Math.max(0, options.findIndex((o) => o.value === value));
+    const bottom = root?.closest('.window')?.getBoundingClientRect().bottom ?? window.innerHeight;
+    room = root ? Math.max(96, bottom - root.getBoundingClientRect().bottom - 10) : 0;
     window.addEventListener('pointerdown', outside, true);
-    queueMicrotask(() => menu?.focus());
+    // Focusing would scroll the page to show the whole menu, jolting it up under the pointer.
+    queueMicrotask(() => { menu?.focus({ preventScroll: true }); reveal(); });
   }
   function close() {
     if (!open) return;
     open = false;
     panel.menuOpen = false;
     window.removeEventListener('pointerdown', outside, true);
+  }
+  /** Keeps the lit option in view inside the menu, never scrolling the page. */
+  function reveal() {
+    const option = menu?.children[lit] as HTMLElement | undefined;
+    if (!menu || !option) return;
+    if (option.offsetTop < menu.scrollTop) menu.scrollTop = option.offsetTop - 4;
+    else if (option.offsetTop + option.offsetHeight > menu.scrollTop + menu.clientHeight) menu.scrollTop = option.offsetTop + option.offsetHeight - menu.clientHeight + 4;
   }
   function pick(choice: string) {
     close();
@@ -42,8 +54,8 @@
     // The panel's own Esc (back) and Return stay out of it while the menu is open.
     event.stopPropagation();
     if (event.key === 'Escape') { event.preventDefault(); close(); }
-    else if (event.key === 'ArrowDown') { event.preventDefault(); lit = (lit + 1) % options.length; }
-    else if (event.key === 'ArrowUp') { event.preventDefault(); lit = (lit - 1 + options.length) % options.length; }
+    else if (event.key === 'ArrowDown') { event.preventDefault(); lit = (lit + 1) % options.length; reveal(); }
+    else if (event.key === 'ArrowUp') { event.preventDefault(); lit = (lit - 1 + options.length) % options.length; reveal(); }
     else if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); pick(options[lit].value); }
   }
   onDestroy(close);
@@ -62,7 +74,8 @@
     <svg class="chevron" width="7" height="5" viewBox="0 0 7 5" aria-hidden="true"><path d="M1 1.1 3.5 3.6 6 1.1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
   </button>
   {#if open}
-    <div class="menu" class:left={align === 'left'} bind:this={menu} role="listbox" tabindex="-1" aria-label={label} transition:drop>
+    <div class="menu" class:left={align === 'left'} bind:this={menu} role="listbox" tabindex="-1" aria-label={label} style:max-height="{room}px"
+      onwheel={(event) => event.stopPropagation()} transition:drop>
       {#each options as option, i (option.value)}
         <div class="option" class:chosen={option.value === value} class:lit={i === lit} role="option" tabindex="-1" aria-selected={option.value === value}
           onpointerenter={() => (lit = i)} onclick={() => pick(option.value)} onkeydown={() => {}}>
@@ -104,8 +117,13 @@
     background: var(--solid);
     box-shadow: 0 0 0 0.5px var(--separator), 0 8px 24px rgba(0, 0, 0, 0.16);
     outline: none;
+    box-sizing: border-box;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
     transform-origin: top right;
   }
+  .menu::-webkit-scrollbar { display: none; }
   .menu.left { right: auto; left: 0; transform-origin: top left; }
   .option {
     position: relative;

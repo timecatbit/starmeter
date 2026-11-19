@@ -352,6 +352,29 @@ test('the range picker is bare, as wide as its range, and opens its own menu und
   expect((await picker.boundingBox())!.width).toBeGreaterThan(today + 20);
 });
 
+test('the range menu opens without moving the page, and fits a small pinned panel', async ({ page }) => {
+  await open(page);
+  await button(page, '钉住面板').click();
+  await expect.poll(async () => (await page.locator('.window').boundingBox())!.height).toBeLessThan(300);
+  const viewport = page.locator('.dashboard').locator('xpath=ancestor::div[contains(@class,"viewport")]').first();
+  const before = await viewport.evaluate((node) => node.scrollTop);
+  const heading = (await page.locator('.picker .trigger').boundingBox())!.y;
+  await page.locator('.picker .trigger').click();
+  const menu = page.getByRole('listbox', { name: '统计范围' });
+  await expect(menu).toBeVisible();
+  await page.waitForTimeout(250);
+  // Nothing under the pointer moves, and the list scrolls inside a menu that ends inside the window.
+  expect(await viewport.evaluate((node) => node.scrollTop)).toBe(before);
+  expect((await page.locator('.picker .trigger').boundingBox())!.y).toBe(heading);
+  const box = (await menu.boundingBox())!, window = (await page.locator('.window').boundingBox())!;
+  expect(box.y + box.height).toBeLessThanOrEqual(window.y + window.height);
+  await page.keyboard.press('End');
+  for (let i = 0; i < 7; i++) await page.keyboard.press('ArrowDown');
+  await expect(page.getByRole('option', { name: '全部' })).toBeInViewport();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.picker .current')).toHaveText('全部');
+});
+
 test('a module cell with a note keeps its checkbox and icon in the middle', async ({ page }) => {
   await open(page);
   await button(page, '主页模块与设置').click();
