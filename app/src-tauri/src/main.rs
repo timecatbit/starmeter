@@ -150,7 +150,7 @@ fn star_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         true,
         &[
             &MenuItem::with_id(app, "changelog", format!("版本 {version} · 更新记录"), true, None::<&str>)?,
-            &MenuItem::with_id(app, "repository", "作者 minicoke · GitHub 仓库", true, None::<&str>)?,
+            &MenuItem::with_id(app, "repository", "作者 timecatbit · GitHub 仓库", true, None::<&str>)?,
         ],
     )?;
     Menu::with_items(

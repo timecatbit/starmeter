@@ -92,4 +92,4 @@ python3 scripts/package.py  # 打包发布 zip
 
 ## 许可
 
-[MIT](LICENSE) © minicoke。品牌标志归各自所有者，仅用于标识服务，图标文件的许可见 [assets/logos/LICENSE](assets/logos/LICENSE)。
+[MIT](LICENSE) © timecatbit。品牌标志归各自所有者，仅用于标识服务，图标文件的许可见 [assets/logos/LICENSE](assets/logos/LICENSE)。

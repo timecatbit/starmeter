@@ -45,7 +45,7 @@ class PanelTests(unittest.TestCase):
   self.assertNotIn('SwiftBar 管理',output);self.assertNotIn('swiftbar-folder',output)
   self.assertFalse(any(e['label']=='刷新数据' for e in snapshot['entries']))
   # A compact About submenu replaces SwiftBar's fixed-size popover, which the entry hides.
-  self.assertIn('关于 Starmeter',output);self.assertIn('--版本 '+self.m.VERSION,output);self.assertIn('--作者 minicoke',output)
+  self.assertIn('关于 Starmeter',output);self.assertIn('--版本 '+self.m.VERSION,output);self.assertIn('--作者 timecatbit',output)
   self.assertIn('href=https://github.com/timecatbit/starmeter/blob/main/CHANGELOG.md',output)
   # SwiftBar greys out rows with neither an action nor a submenu, so every right-click row needs one.
   rows=output.split('\n')[2:]

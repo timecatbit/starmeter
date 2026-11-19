@@ -17,7 +17,7 @@ use crate::{accounts, files, object, platform, py, shell};
 
 pub const REPOSITORY: &str = "https://github.com/timecatbit/starmeter";
 const RELEASES_API: &str = "https://api.github.com/repos/timecatbit/starmeter/releases/latest";
-pub const AUTHOR: &str = "minicoke";
+pub const AUTHOR: &str = "timecatbit";
 
 struct Failed(String);
 

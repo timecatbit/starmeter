@@ -88,7 +88,7 @@ KOMARI_BASE_URL = os.environ.get("KOMARI_BASE_URL", "").rstrip("/")
 VERSION = "5.26.1"
 PRODUCT = "Starmeter"
 MAC_APP = sys.platform=="darwin" and os.environ.get("OCX_MAC_APP")=="1"
-AUTHOR = "minicoke"
+AUTHOR = "timecatbit"
 REPOSITORY = "https://github.com/timecatbit/starmeter"
 # The repository regenerates its price tables daily from ccusage; plugins fetch the committed copies.
 PRICING_URL = "https://raw.githubusercontent.com/timecatbit/starmeter/main/lib/"

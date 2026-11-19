@@ -71,4 +71,4 @@ To release, keep `VERSION` in `lib/swiftbar_plugin.py`, `xbar.version` in the en
 
 ## License
 
-[MIT](LICENSE) © minicoke. Brand marks belong to their owners and only identify the services; the icon files' license is in [assets/logos/LICENSE](assets/logos/LICENSE).
+[MIT](LICENSE) © timecatbit. Brand marks belong to their owners and only identify the services; the icon files' license is in [assets/logos/LICENSE](assets/logos/LICENSE).
