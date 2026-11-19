@@ -11,8 +11,8 @@ use starmeter_core::json::{Format, Json, Object, python_repr};
 use starmeter_core::runtime::Runtime;
 use starmeter_core::time::IsoTime;
 use starmeter_core::{
-    catalog, claude_usage, cursor, files, harness, http, object, opencodex, preferences, pricing, py, range_usage,
-    sessions, tally, zstd,
+    accounts, catalog, claude_usage, cursor, files, harness, http, object, opencodex, preferences, pricing, py,
+    range_usage, sessions, tally, zstd,
 };
 
 fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
@@ -114,6 +114,29 @@ fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
                 }
                 _ => Err("unported".to_string()),
             })
+        }
+        "accounts.account" => {
+            // [source, key or null, options, environment, routes]
+            routes(args.get(4));
+            let mut environment: HashMap<String, String> = std::env::vars().collect();
+            for (name, value) in args.get(3).and_then(Json::as_object).into_iter().flat_map(|values| values.iter()) {
+                if let Some(value) = value.as_str() {
+                    environment.insert(name.clone(), value.to_string());
+                }
+            }
+            let options = args.get(2).and_then(Json::as_object).cloned().unwrap_or_default();
+            Ok(accounts::account(
+                text(0).unwrap_or(""),
+                text(1),
+                &options,
+                &environment,
+                starmeter_core::runtime::now(),
+            )
+            .into())
+        }
+        "accounts.check" => {
+            routes(args.get(2));
+            Ok(accounts::check_key(text(0).unwrap_or(""), text(1).unwrap_or("")).into())
         }
         "cursor.refresh" => {
             // [store or null, home, start, until, now, routes]

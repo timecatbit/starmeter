@@ -13,6 +13,7 @@ jiff.workspace = true
 memchr = "2"
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "native-tls", "system-proxy", "http2", "socks"] }
 rusqlite = { version = "0.37", features = ["bundled"] }
+rust_decimal = "1"
 ruzstd = "0.9.1"
 sha2 = "0.10"
 
