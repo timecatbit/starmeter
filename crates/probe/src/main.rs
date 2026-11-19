@@ -2,6 +2,7 @@
 //! so tests/test_engine.py can hold each ported function against the Python reference. A call not ported yet
 //! answers {"error": "unported"}, which the tests skip.
 
+use std::collections::HashSet;
 use std::io::{Read, Write};
 use std::path::Path;
 
@@ -59,6 +60,34 @@ fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
             .collect::<Vec<_>>()
             .into()),
         "sha256" => Ok(py::sha256_hex(text(0).unwrap_or("").as_bytes()).into()),
+        "claude.read_events" => {
+            let files: Vec<String> = strings(args.first());
+            let allowed: Option<HashSet<String>> =
+                args.get(2).and_then(Json::as_array).map(|_| strings(args.get(2)).into_iter().collect());
+            let archive = text(5).map(Path::new);
+            let (events, failures) = claude_usage::read_events(
+                &files,
+                Path::new(text(1).unwrap_or("")),
+                allowed.as_ref(),
+                args.get(3).and_then(Json::number).unwrap_or(0.0),
+                args.get(4).and_then(Json::number).unwrap_or(f64::INFINITY),
+                archive,
+            )
+            .map_err(|error| error.to_string())?;
+            let events: Vec<Json> = events
+                .into_iter()
+                .map(|event| {
+                    object! {
+                        "ts" => event.ts, "model" => event.model,
+                        "metrics" => event.metrics.iter().map(|&n| Json::Int(n)).collect::<Vec<_>>(),
+                        "cost" => event.cost, "speed" => event.speed, "geo" => event.geo, "tier" => event.tier,
+                        "session" => event.session.map(|session| claude_usage::hex(&session)), "project" => event.project,
+                    }
+                    .into()
+                })
+                .collect();
+            Ok(object! { "failures" => failures as i64, "events" => events }.into())
+        }
         "claude.digest" => {
             Ok(claude_usage::digest(args.to_vec()).iter().map(|byte| format!("{byte:02x}")).collect::<String>().into())
         }
@@ -92,6 +121,14 @@ fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
         .into()),
         _ => Err("unported".to_string()),
     }
+}
+
+/// The strings in a JSON array argument.
+fn strings(value: Option<&Json>) -> Vec<String> {
+    value
+        .and_then(Json::as_array)
+        .map(|items| items.iter().filter_map(Json::as_str).map(String::from).collect())
+        .unwrap_or_default()
 }
 
 fn main() {

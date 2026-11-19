@@ -3228,6 +3228,7 @@ dependencies = [
  "indexmap 2.14.2",
  "jiff",
  "libc",
+ "memchr",
  "reqwest",
  "rusqlite",
  "ruzstd",

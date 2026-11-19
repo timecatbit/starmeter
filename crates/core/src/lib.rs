@@ -17,3 +17,29 @@ pub mod zstd;
 
 /// The version every host reports and the update check compares.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// A failure the engine reports as text: SQLite, files, or a log it could not read.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Error(pub String);
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for Error {}
+
+impl From<database::SqlError> for Error {
+    fn from(error: database::SqlError) -> Self {
+        Error(error.to_string())
+    }
+}
+
+impl From<files::Failure> for Error {
+    fn from(error: files::Failure) -> Self {
+        Error(error.0)
+    }
+}
+
+pub type Fallible<T> = Result<T, Error>;
