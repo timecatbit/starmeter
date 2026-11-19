@@ -315,7 +315,8 @@ h2 { font-size: clamp(28px, 4vw, 40px); font-weight: 700; }
 
 /* MARK: Download */
 
-.download { position: relative; isolation: isolate; overflow: hidden; background: radial-gradient(ellipse 60% 60% at 50% 100%, var(--glow), transparent 70%); }
+/* Extra room below the files for the sky to rise from. */
+.download { position: relative; isolation: isolate; overflow: hidden; padding-bottom: 140px; background: radial-gradient(ellipse 60% 60% at 50% 100%, var(--glow), transparent 70%); }
 .download .starfield { inset: 0; height: 100%; }
 .download .starfield:not(.live) {
   -webkit-mask-image: radial-gradient(ellipse 60% 60% at 50% 100%, #000 10%, transparent 75%);

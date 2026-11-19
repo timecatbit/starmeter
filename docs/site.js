@@ -52,25 +52,45 @@
 
   function clamp(value) { return Math.min(1, Math.max(0, value)); }
 
-  // A halftone night sky like the logo's: a square grid of dots whose size and brightness follow the light under them,
-  // brightest at one edge of the section (data-sky) and fading away from it. Every dot twinkles at its own slow pace,
-  // and every few seconds a few neighbouring dots swell into a sparkle, the logo's own four-pointed star, then fade.
-  // Sparkles keep clear of the text named in data-avoid. With reduced motion, one still frame with a few sparkles.
+  // A halftone night sky like the logo's, on a square grid: about a third of the points hold a star, mostly faint and a
+  // few brighter, each twinkling at its own slow pace; the light fades away from one edge of the section (data-sky)
+  // and stays low behind the text named in data-avoid. Every few seconds the dots around one point swell into a
+  // sparkle, the logo's own four-pointed star with its soft glow, and fade again. With reduced motion, one still frame.
   function starfield(canvas, moving) {
     var context = canvas.getContext('2d');
     if (!context) return;
     var PITCH = 18, LEVELS = 12, TAU = Math.PI * 2, FRAME = 1000 / 30;
     var fromBottom = canvas.getAttribute('data-sky') === 'bottom';
-    var width = 0, height = 0, ratio = 1, columns = 0, rows = 0;
-    var xs, ys, base, swing, pace, phase, glow, bright, level, order;
-    var counts = new Int32Array(LEVELS), colours = [], stencils = {}, sparkles = [];
+    var width = 0, height = 0, ratio = 1, columns = 0, rows = 0, quiet = [];
+    var xs, ys, star, base, swing, pace, phase, glow, bright, level, order;
+    var counts = new Int32Array(LEVELS), colours = [], halo = '', stencils = {}, sparkles = [];
     var begun = performance.now(), nextSparkle = 0, previous = 0, frame = 0, inView = false;
 
-    // How much light the sky gives at (x, y): full along the bright edge's middle, half at its corners, none 85% away.
+    // How much light the sky gives at (x, y): full along the bright edge's middle, less at its corners, none 85% away.
     function sky(x, y) {
       var away = (fromBottom ? height - y : y) / height, across = (x - width / 2) / (width / 2);
-      return Math.pow(Math.max(0, 1 - away / 0.85), 1.4) * (0.45 + 0.55 * Math.exp(-across * across / 0.3));
+      return Math.pow(Math.max(0, 1 - away / 0.85), 1.2) * (0.55 + 0.45 * Math.exp(-across * across / 0.3));
     }
+
+    // The text to keep clear of, as boxes relative to the canvas (which sits at the top of its section).
+    function textBoxes() {
+      var selector = canvas.getAttribute('data-avoid'), origin = canvas.parentElement.getBoundingClientRect();
+      return selector ? Array.prototype.map.call(document.querySelectorAll(selector), function (element) {
+        var r = element.getBoundingClientRect();
+        return { left: r.left - origin.left, right: r.right - origin.left, top: r.top - origin.top, bottom: r.bottom - origin.top, empty: !r.width };
+      }).filter(function (box) { return !box.empty; }) : [];
+    }
+
+    // How far (x, y) is from the nearest of the text.
+    function distance(x, y) {
+      return quiet.reduce(function (nearest, box) {
+        var dx = Math.max(box.left - x, 0, x - box.right), dy = Math.max(box.top - y, 0, y - box.bottom);
+        return Math.min(nearest, Math.sqrt(dx * dx + dy * dy));
+      }, Infinity);
+    }
+
+    // Behind the text the stars dim to a fifth, easing back over 70 points around it.
+    function calm(x, y) { return 0.2 + 0.8 * clamp(distance(x, y) / 70); }
 
     // The logo's sparkle (scripts/make_logo.py): 1 at the centre, 0 past the tips, x and y from -1 to 1.
     function sparkle(x, y) {
@@ -98,8 +118,10 @@
         var mix = (k + 0.5) / LEVELS, part = function (n) { return from[n] + (to[n] - from[n]) * mix; };
         colours.push('rgba(' + Math.round(part(0)) + ',' + Math.round(part(1)) + ',' + Math.round(part(2)) + ',' + part(3).toFixed(3) + ')');
       }
+      halo = to.slice(0, 3).join(',');
     }
 
+    // Where the stars are and how each twinkles; drawn once per size.
     function layout() {
       width = canvas.clientWidth;
       height = canvas.clientHeight;
@@ -110,7 +132,7 @@
       columns = Math.ceil(width / PITCH) + 1;
       rows = Math.ceil(height / PITCH) + 1;
       var count = columns * rows, left = (width / 2) % PITCH;
-      xs = new Float32Array(count); ys = new Float32Array(count); base = new Float32Array(count);
+      xs = new Float32Array(count); ys = new Float32Array(count); star = new Float32Array(count); base = new Float32Array(count);
       swing = new Float32Array(count); pace = new Float32Array(count); phase = new Float32Array(count);
       glow = new Float32Array(count); bright = new Float32Array(count);
       level = new Uint8Array(count); order = new Int32Array(count);
@@ -119,47 +141,51 @@
           var i = r * columns + c;
           xs[i] = left + c * PITCH;
           ys[i] = PITCH / 2 + r * PITCH;
-          // Mostly faint, a few brighter, like distant stars; about a third twinkle deeply, the rest barely.
-          base[i] = sky(xs[i], ys[i]) * (0.1 + 0.55 * Math.pow(Math.random(), 2));
-          swing[i] = Math.random() < 0.32 ? 0.9 : 0.3;
-          pace[i] = TAU / (3 + Math.random() * 6);
+          // A third of the points hold a star: mostly faint, now and then a bright one, like distant stars.
+          star[i] = Math.random() < 0.34 ? 0.12 + 0.5 * Math.pow(Math.random(), 2.2) : 0;
+          // Half of them twinkle deeply, fading almost out; the rest only flicker.
+          swing[i] = Math.random() < 0.5 ? 0.85 : 0.3;
+          pace[i] = TAU / (2.5 + Math.random() * 5.5);
           phase[i] = Math.random() * TAU;
         }
       }
+      shade();
       // A few sparkles already on their way, so the sky isn't empty when it appears; held at their brightest if still.
       var now = performance.now();
       sparkles = [];
       for (var k = 0; k < Math.ceil(wanted() * 0.6); k++) {
-        var star = place(now);
-        if (star) {
-          star.born = now - star.life * 1000 * (moving ? Math.random() * 0.8 : 0.5);
-          sparkles.push(star);
+        var spark = place(now);
+        if (spark) {
+          spark.born = now - spark.life * 1000 * (moving ? Math.random() * 0.8 : 0.5);
+          sparkles.push(spark);
         }
       }
       return true;
     }
 
-    function wanted() { return Math.max(2, Math.min(6, Math.round(width * height / 220000))); }
+    // Each star's light where it stands: the sky's, dimmed behind the text.
+    function shade() {
+      quiet = textBoxes();
+      for (var i = 0; i < xs.length; i++) base[i] = star[i] ? star[i] * sky(xs[i], ys[i]) * calm(xs[i], ys[i]) : 0;
+    }
+
+    function wanted() { return Math.max(2, Math.min(5, Math.round(width * height / 300000))); }
 
     // Somewhere in the brighter part of the sky, clear of the text and of the other sparkles.
     function place(now) {
-      var box = canvas.parentElement.getBoundingClientRect(), selector = canvas.getAttribute('data-avoid');
-      var holes = selector ? Array.prototype.map.call(document.querySelectorAll(selector), function (element) {
-        var r = element.getBoundingClientRect();
-        return { left: r.left - box.left, right: r.right - box.left, top: r.top - box.top, bottom: r.bottom - box.top, empty: !r.width };
-      }) : [];
       for (var tries = 0; tries < 60; tries++) {
         var c = Math.floor(Math.random() * columns), r = Math.floor(Math.random() * rows), i = r * columns + c;
         var light = sky(xs[i], ys[i]);
         if (light < 0.3 || Math.random() > light * light) continue;
-        var reach = 3 + Math.floor(Math.random() * Math.random() * 4), margin = (reach + 1) * PITCH;
-        var x = xs[i], y = ys[i];
-        var blocked = holes.some(function (h) {
-          return !h.empty && x > h.left - margin && x < h.right + margin && y > h.top - margin && y < h.bottom + margin;
-        }) || sparkles.some(function (o) {
+        // The tips are faint, so they may reach a little way towards the text.
+        var reach = 3 + Math.floor(Math.random() * Math.random() * 4);
+        if (distance(xs[i], ys[i]) < reach * PITCH * 0.8) continue;
+        // Whole, not cut off by the section's edge.
+        if (r < reach || c < reach || r >= rows - reach - 1 || c >= columns - reach - 1) continue;
+        if (sparkles.some(function (o) {
           return Math.abs(o.c - c) < o.reach + reach + 3 && Math.abs(o.r - r) < o.reach + reach + 3;
-        });
-        if (!blocked) return { c: c, r: r, reach: reach, born: now, life: 5 + Math.random() * 4, peak: 0.75 + Math.random() * 0.25 };
+        })) continue;
+        return { c: c, r: r, reach: reach, born: now, life: 5 + Math.random() * 4, peak: 0.85 + Math.random() * 0.15 };
       }
       return null;
     }
@@ -167,27 +193,38 @@
     function draw(now) {
       var t = now / 1000, count = columns * rows, k, i;
       glow.fill(0);
-      sparkles = sparkles.filter(function (star) {
-        var age = (now - star.born) / 1000 / star.life;
+      context.setTransform(ratio, 0, 0, ratio, 0, 0);
+      context.clearRect(0, 0, width, height);
+      context.globalAlpha = moving ? clamp((now - begun) / 1800) : 1;
+
+      // The sparkles: the dots under each swell into the logo's star, over a soft glow like the logo's.
+      sparkles = sparkles.filter(function (spark) {
+        var age = (now - spark.born) / 1000 / spark.life;
         if (age >= 1) return false;
-        var strength = Math.pow(Math.sin(Math.PI * Math.max(0, age)), 2) * star.peak;
-        var shape = stencil(star.reach), side = star.reach * 2 + 1;
-        for (var dr = -star.reach; dr <= star.reach; dr++) {
-          var row = star.r + dr;
+        var strength = Math.pow(Math.sin(Math.PI * Math.max(0, age)), 2) * spark.peak;
+        var shape = stencil(spark.reach), side = spark.reach * 2 + 1;
+        for (var dr = -spark.reach; dr <= spark.reach; dr++) {
+          var row = spark.r + dr;
           if (row < 0 || row >= rows) continue;
-          for (var dc = -star.reach; dc <= star.reach; dc++) {
-            var column = star.c + dc;
+          for (var dc = -spark.reach; dc <= spark.reach; dc++) {
+            var column = spark.c + dc;
             if (column < 0 || column >= columns) continue;
-            var value = shape[(dr + star.reach) * side + dc + star.reach] * strength, index = row * columns + column;
+            var value = shape[(dr + spark.reach) * side + dc + spark.reach] * strength, index = row * columns + column;
             if (value > glow[index]) glow[index] = value;
           }
         }
+        var x = xs[spark.r * columns + spark.c], y = ys[spark.r * columns + spark.c], radius = spark.reach * PITCH * 1.1;
+        var light = context.createRadialGradient(x, y, 0, x, y, radius);
+        light.addColorStop(0, 'rgba(' + halo + ',' + (0.22 * strength).toFixed(3) + ')');
+        light.addColorStop(1, 'rgba(' + halo + ',0)');
+        context.fillStyle = light;
+        context.fillRect(x - radius, y - radius, radius * 2, radius * 2);
         return true;
       });
       if (moving && sparkles.length < wanted() && now >= nextSparkle) {
-        var star = place(now);
-        if (star) sparkles.push(star);
-        nextSparkle = now + 600 + Math.random() * 2400;
+        var spark = place(now);
+        if (spark) sparkles.push(spark);
+        nextSparkle = now + 800 + Math.random() * 2600;
       }
 
       // Each dot's brightness, then the dots sorted by brightness so each shade is one path.
@@ -195,7 +232,7 @@
       for (i = 0; i < count; i++) {
         var b = base[i] * (moving ? 1 + swing[i] * Math.sin(pace[i] * t + phase[i]) : 1);
         if (glow[i]) b = 1 - (1 - b) * (1 - glow[i]);
-        if (b < 0.015) { level[i] = 255; continue; }
+        if (b < 0.02) { level[i] = 255; continue; }
         b = Math.min(1, b);
         bright[i] = b;
         level[i] = Math.min(LEVELS - 1, Math.floor(b * LEVELS));
@@ -206,17 +243,14 @@
       var cursor = starts.slice();
       for (i = 0; i < count; i++) if (level[i] !== 255) order[cursor[level[i]]++] = i;
 
-      context.setTransform(ratio, 0, 0, ratio, 0, 0);
-      context.clearRect(0, 0, width, height);
-      context.globalAlpha = moving ? clamp((now - begun) / 1800) : 1;
       for (k = 0; k < LEVELS; k++) {
         if (!counts[k]) continue;
         context.fillStyle = colours[k];
         context.beginPath();
         for (var n = starts[k]; n < starts[k] + counts[k]; n++) {
           i = order[n];
-          // Halftone: the dot's area follows its brightness.
-          var radius = PITCH * (0.04 + 0.24 * Math.sqrt(bright[i]));
+          // Halftone: the brighter the dot, the larger; a faint star is a point, a sparkle's heart nearly fills its cell.
+          var radius = 0.55 + 3.7 * bright[i];
           context.moveTo(xs[i] + radius, ys[i]);
           context.arc(xs[i], ys[i], radius, 0, TAU);
         }
@@ -233,7 +267,6 @@
       draw(now);
     }
     function run() { if (moving && !frame && inView && !document.hidden) frame = requestAnimationFrame(tick); }
-    function redraw() { if (layout()) draw(performance.now()); }
 
     recolour();
     if (!layout()) return;
@@ -250,8 +283,13 @@
     new ResizeObserver(function () {
       if (canvas.clientWidth + 'x' + canvas.clientHeight === size) return;
       size = canvas.clientWidth + 'x' + canvas.clientHeight;
-      redraw();
+      if (layout()) draw(performance.now());
     }).observe(canvas);
+    // The other language's text has another shape.
+    document.querySelector('[data-switch-lang]').addEventListener('click', function () {
+      shade();
+      if (!moving) draw(performance.now());
+    });
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () {
       recolour();
       draw(performance.now());
