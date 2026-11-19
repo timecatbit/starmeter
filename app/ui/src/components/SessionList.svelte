@@ -1,0 +1,167 @@
+<script lang="ts">
+  // 会话: the Claude Code and Codex sessions of the last half hour as cards, the fourth choice beside 工具 / 模型 / 项目.
+  // A session is running or it is not. Its card leads with its tool's logo, its title and this turn's tokens (the last
+  // turn's once it has finished), read again with every pinned tick so the number moves as the session works; a click
+  // opens its last turns. Three are shown, the rest one click away; the alert switch closes the list.
+  import { panel } from '../lib/ui.svelte';
+  import type { Entry } from '../lib/types';
+  import DetailList from './DetailList.svelte';
+  import Glyph from './Glyph.svelte';
+  import StatusLight from './StatusLight.svelte';
+
+  let { entry, busy, onopen, onchoose }: {
+    entry: Entry; busy: string[] | null; onopen: (e: Entry) => void; onchoose: (e: Entry) => void;
+  } = $props();
+
+  const SHOWN = 3;
+  const sessions = $derived(entry.children.filter((c) => c.statusLight !== undefined));
+  const notes = $derived(entry.children.filter((c) => c.statusLight === undefined && !c.separator && c.checked === undefined && !c.action));
+  const settings = $derived(entry.children.filter((c) => c.checked !== undefined));
+  let all = $state(false);
+  const visible = $derived(all ? sessions : sessions.slice(0, SHOWN));
+  let opened = $state(new Set<string>());
+  let settingsOpen = $state(new Set<string>());
+
+  /** A session's turns: the heading (project · 最近 N 轮), then the turns, newest first. */
+  const turnsOf = (s: Entry) => s.children.filter((c) => c.detail !== undefined);
+  /** This turn's cost (the last part of its row) and requests and tools, under the session's state. */
+  function latest(s: Entry): string | null {
+    const turn = turnsOf(s)[0];
+    if (!turn) return null;
+    const cost = turn.label.split(' · ').at(-1) ?? '';
+    return `${s.statusLight === 'new' ? '本轮' : '上一轮'} ${cost} · ${turn.detail}`;
+  }
+
+  // A figure that changed since the last reading glows in the accent colour for a moment.
+  let previous = new Map<string, string>();
+  let glowing = $state(new Set<string>());
+  const timers = new Map<string, ReturnType<typeof setTimeout>>();
+  $effect(() => {
+    const next = new Map(sessions.map((s) => [s.label, s.value ?? '']));
+    for (const [label, value] of next) {
+      const before = previous.get(label);
+      if (before !== undefined && before !== value && !panel.reduceMotion) {
+        glowing = new Set([...glowing, label]);
+        clearTimeout(timers.get(label));
+        timers.set(label, setTimeout(() => { glowing = new Set([...glowing].filter((l) => l !== label)); }, 1600));
+      }
+    }
+    previous = next;
+  });
+
+  function toggle(label: string) {
+    const next = new Set(opened);
+    if (next.has(label)) next.delete(label);
+    else next.add(label);
+    opened = next;
+  }
+</script>
+
+<div class="session-list">
+  {#each visible as s (s.label)}
+    {@const more = latest(s)}
+    {@const open = opened.has(s.label)}
+    <div class="session" class:open>
+      <button class="head pressable" aria-expanded={open} onclick={() => toggle(s.label)}>
+        <span class="logo"><Glyph image={s.image} template={s.template} symbol={s.symbol ?? 'terminal'} size={14} /></span>
+        <span class="title">{s.label}</span>
+        <span class="value" class:glow={glowing.has(s.label)}>{s.value ?? ''}</span>
+      </button>
+      <div class="line"><StatusLight state={s.statusLight ?? 'unknown'} /><span class="text">{s.detail ?? ''}</span></div>
+      {#if more}<div class="line muted"><span class="text">{more}</span></div>{/if}
+      {#if open}
+        <div class="turns">
+          {#each s.children as turn, i (i)}
+            {#if turn.detail === undefined}
+              <div class="turn-heading">{turn.label}</div>
+            {:else}
+              <div class="turn"><span class="turn-label">{turn.label}</span><span class="turn-detail">{turn.detail}</span></div>
+            {/if}
+          {/each}
+        </div>
+      {/if}
+    </div>
+  {/each}
+  {#if sessions.length > SHOWN}
+    <button class="more pressable" onclick={() => (all = !all)}>{all ? '只看最近 3 个' : `其余 ${sessions.length - SHOWN} 个会话`}</button>
+  {/if}
+  {#each notes as note, i (i)}
+    <div class="empty">{note.label}</div>
+  {/each}
+  {#if settings.length}
+    <div class="settings">
+      <DetailList entries={settings} open={settingsOpen} {busy} rowWidth={panel.width - 16} {onopen} {onchoose} ontoggled={(next) => (settingsOpen = next)} />
+    </div>
+  {/if}
+</div>
+
+<style>
+  .session-list { padding: 0 0 4px; }
+  .session { padding: 0 0 8px; }
+  .head {
+    --press-scale: 0.985;
+    width: calc(100% - 8px);
+    margin: 0 4px;
+    height: 26px;
+    padding: 0 8px;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    border-radius: 8px;
+    text-align: left;
+  }
+  .head:hover { background: var(--hover); }
+  .head:active { background: var(--press); }
+  .logo { flex: none; display: flex; width: 14px; height: 14px; }
+  .title {
+    flex: 1;
+    min-width: 0;
+    font-size: 12.5px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .value {
+    flex: none;
+    font-size: 12.5px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    font-family: ui-rounded, -apple-system, sans-serif;
+    transition: color 1.2s ease-out;
+  }
+  .value.glow { color: var(--accent); transition: none; }
+  .line {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 12px 0 15px;
+    height: 16px;
+    font-size: 10.5px;
+    color: var(--secondary);
+  }
+  .line.muted { padding-left: 28px; color: var(--tertiary, var(--secondary)); opacity: 0.85; }
+  .text { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .turns {
+    margin: 4px 12px 0 18px;
+    padding-left: 10px;
+    border-left: 1px solid var(--separator);
+  }
+  .turn-heading { font-size: 10px; color: var(--secondary); height: 16px; line-height: 16px; }
+  .turn { display: flex; flex-direction: column; padding: 2px 0; }
+  .turn-label { font-size: 11px; font-variant-numeric: tabular-nums; }
+  .turn-detail { font-size: 10px; color: var(--secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .more {
+    --press-scale: 0.97;
+    margin: 0 12px 6px;
+    height: 22px;
+    padding: 0 8px;
+    border-radius: 7px;
+    font-size: 11px;
+    color: var(--accent);
+  }
+  .more:hover { background: var(--hover); }
+  .empty { padding: 2px 12px 10px; font-size: 10.5px; color: var(--secondary); }
+  .settings { margin-top: 2px; }
+</style>

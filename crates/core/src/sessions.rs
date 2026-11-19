@@ -542,7 +542,7 @@ impl Runtime {
                         .or(session.get("project").filter(|project| project.is_truthy()))
                         .map_or_else(|| "未知项目".to_string(), |value| py::str(Some(value)));
                     let tool = py::str(Some(session.get("tool").unwrap_or(&Json::Null)));
-                    self.post_notice("会话等待输入", &format!("{tool} · {name} 这一轮已完成"));
+                    self.post_notice("会话完成", &format!("{tool} · {name} 这一轮已完成"));
                 }
             }
             Ok((Some(object! { "sessions" => Json::Array(found) }), None))

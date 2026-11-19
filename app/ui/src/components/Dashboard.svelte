@@ -1,6 +1,6 @@
 <script lang="ts">
   // The homepage's top: the heading and its buttons, Summary's three figures, the legend and trend (or the live chart
-  // while pinned), the heatmap, the grouping tabs and the Harness cards.
+  // while pinned), the heatmap, the grouping tabs and the Harness cards, or 会话's session cards.
   import { accent, blend, label as labelColour, totalColor } from '../lib/colors';
   import { chartExtra, labelColumn, legendLabels, legendLayout, summaryProviders } from '../lib/chart';
   import { isGrouped, money, tokens } from '../lib/format';
@@ -17,16 +17,20 @@
   import HintButton from './HintButton.svelte';
   import LiveChart from './LiveChart.svelte';
   import ProviderCard from './ProviderCard.svelte';
+  import SessionList from './SessionList.svelte';
   import SummaryChart from './SummaryChart.svelte';
 
   let { data, rangeOptions, reveal, glows, summaryGlow, live, leaving = null, onleft, liveStamp, pinned, pinInterval, onrange,
-    onshare, onpin, onsettings, ongroup, ontoggle, onopentool }: {
+    onshare, onpin, onsettings, ongroup, ontoggle, onopentool, sessions = null, view = 'cards', onview, busy = null, onopen, onchoose }: {
     data: Dashboard; rangeOptions: Entry[]; reveal: number; glows: Record<string, number>; summaryGlow: number; live: LiveFeed | null;
     leaving?: number | null; onleft?: () => void;
     liveStamp: string | null; pinned: boolean; pinInterval: number;
     onrange: (action: string[]) => void; onshare: () => void; onpin: () => void;
     onsettings: () => void; ongroup: (key: string) => void; ontoggle: (id: string, expanded: boolean) => void;
     onopentool: (id: string) => void;
+    /** The 会话 module's row, when it is on the homepage: its sessions are the fourth choice beside the groupings. */
+    sessions?: Entry | null; view?: 'cards' | 'sessions'; onview?: (view: 'cards' | 'sessions') => void;
+    busy?: string[] | null; onopen?: (e: Entry) => void; onchoose?: (e: Entry) => void;
   } = $props();
 
   // 344pt between the homepage's margins, more in a pinned panel made wider.
@@ -40,10 +44,15 @@
   const heatmapLayout = $derived(data.heatmap ? new HeatmapLayout(left + column, summaryHeight + 8, right - left - column, data.heatmap.columns, heatmapRows(data.heatmap)) : null);
   const heatmapHeight = $derived(heatmapLayout && data.heatmap ? blockHeight(heatmapLayout, data.heatmap) : 0);
   const harnessHeader = $derived(!data.providers.length || !showSummary || data.heatmap ? 0 : 6);
-  const groupingHeight = $derived(!data.providers.length || (data.groupings?.length ?? 0) < 2 ? 0 : 30);
+  const tabOptions = $derived([...(data.providers.length ? data.groupings ?? [] : []), ...(sessions ? [{ key: 'sessions', label: '会话' }] : [])]);
+  const showingSessions = $derived(view === 'sessions' && !!sessions);
+  const groupingHeight = $derived(tabOptions.length < 2 ? 0 : 30);
+  let sessionsHeight = $state(0);
   const cardList = $derived(data.cards ?? data.providers);
   const collapsible = $derived(data.allowCollapse === true && !data.cards);
   const expanded = $derived(new Set(data.expandedProviders ?? []));
+  const listHeight = $derived(showingSessions ? sessionsHeight
+    : Math.max(cardList.length === 0 && data.providers.length ? 24 : 0, cardList.reduce((s, p) => s + cardHeight(p), 0)) + (data.providers.length ? 4 : 0));
 
   const counted = $derived(summaryProviders(data));
   const valid = $derived(counted.filter((p) => p.available));
@@ -91,7 +100,7 @@
   }
 </script>
 
-<div class="dashboard" style:width="{inner}px" style:height="{summaryHeight + heatmapHeight + harnessHeader + groupingHeight + Math.max(cardList.length === 0 && data.providers.length ? 24 : 0, cardList.reduce((s, p) => s + cardHeight(p), 0)) + (data.providers.length ? 4 : 0)}px">
+<div class="dashboard" style:width="{inner}px" style:height="{summaryHeight + heatmapHeight + harnessHeader + groupingHeight + listHeight}px">
   <div class="summary" style:height="{summaryHeight}px">
     <div class="grip" class:movable={panel.pinned} onpointerdown={grab} aria-hidden="true"></div>
     <h1 class="heading" style:width="{leftmost - 6 - 12}px"><span class="brand" aria-hidden="true">{@html mark}</span>Starmeter</h1>
@@ -132,16 +141,23 @@
     <Heatmap heatmap={data.heatmap} {column} top={summaryHeight} {right} current={data.rangeKey !== 'yesterday'} />
   {/if}
   <div class="cards" style:top="{summaryHeight + heatmapHeight + harnessHeader}px">
-    {#if groupingHeight && data.groupings}
-      <GroupTabs options={data.groupings} chosen={data.grouping ?? 'tool'} note={data.groupNote} onchoose={ongroup} />
+    {#if groupingHeight}
+      <GroupTabs options={tabOptions} chosen={showingSessions ? 'sessions' : data.grouping ?? 'tool'} note={showingSessions ? null : data.groupNote}
+        onchoose={(key) => { if (key === 'sessions') onview?.('sessions'); else { onview?.('cards'); if (key !== (data.grouping ?? 'tool')) ongroup(key); } }} />
     {/if}
-    {#if !cardList.length && data.providers.length}
-      <div class="no-calls">此时段暂无调用</div>
+    {#if showingSessions && sessions}
+      <div class="sessions" bind:clientHeight={sessionsHeight}>
+        <SessionList entry={sessions} {busy} onopen={(e) => onopen?.(e)} onchoose={(e) => onchoose?.(e)} />
+      </div>
+    {:else}
+      {#if !cardList.length && data.providers.length}
+        <div class="no-calls">此时段暂无调用</div>
+      {/if}
+      {#each cardList as p (p.id)}
+        <ProviderCard {p} {collapsible} expanded={expanded.has(p.id)} glow={glows[p.id] ?? 0} ontoggle={() => ontoggle(p.id, !expanded.has(p.id))}
+          onopen={isGrouped(p) ? undefined : () => onopentool(p.id)} />
+      {/each}
     {/if}
-    {#each cardList as p (p.id)}
-      <ProviderCard {p} {collapsible} expanded={expanded.has(p.id)} glow={glows[p.id] ?? 0} ontoggle={() => ontoggle(p.id, !expanded.has(p.id))}
-        onopen={isGrouped(p) ? undefined : () => onopentool(p.id)} />
-    {/each}
   </div>
 </div>
 

@@ -98,3 +98,16 @@ export function keepsPanelOpen(action: string[], swiftbar = false): boolean {
   if (!action[0] || handOff.has(action[0])) return false;
   return !(swiftbar && pickers.has(action[0]));
 }
+
+/** The 会话 module's row on the homepage (its sessions become the dashboard's fourth choice), or null. */
+export function sessionsEntry(entries: Entry[]): Entry | null {
+  return entries.find((e) => e.onOpenAction?.[0] === 'refresh-source' && e.onOpenAction[1] === 'sessions')
+    ?? entries.find((e) => e.label === '会话' && e.symbol === 'terminal') ?? null;
+}
+
+/** The homepage's rows without one of them, and without the divider it leaves doubled or dangling. */
+export function without(entries: Entry[], gone: Entry | null): Entry[] {
+  if (!gone) return entries;
+  const kept = entries.filter((e) => e !== gone);
+  return kept.filter((e, i) => !e.separator || (i > 0 && i < kept.length - 1 && !kept[i - 1].separator));
+}

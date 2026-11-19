@@ -4,7 +4,7 @@
   import { onMount, tick, untrack } from 'svelte';
   import { fade } from 'svelte/transition';
   import { backend, inTauri, shell } from './lib/backend';
-  import { automatic, entryKey, isModule, keepsPanelOpen, opening, passive } from './lib/detail';
+  import { automatic, entryKey, isModule, keepsPanelOpen, opening, passive, sessionsEntry, without } from './lib/detail';
   import { currency } from './lib/format';
   import { PanelInteraction } from './lib/interaction';
   import { LiveFeed } from './lib/live';
@@ -61,6 +61,17 @@
   // MARK: The window
 
   let pinned = $state(false);
+  // 会话 sits beside 工具 / 模型 / 项目 when its module is on the homepage, instead of among the other rows. Pinning
+  // turns to it (a pinned panel is for watching work as it happens) and unpinning turns back.
+  const sessions = $derived(snapshot ? sessionsEntry(snapshot.entries) : null);
+  const VIEW = 'starmeter.homeView';
+  let view = $state<'cards' | 'sessions'>(typeof localStorage !== 'undefined' && localStorage.getItem(VIEW) === 'sessions' ? 'sessions' : 'cards');
+  let viewBeforePin: 'cards' | 'sessions' | null = null;
+  function chooseView(next: 'cards' | 'sessions') {
+    view = next;
+    viewBeforePin = null;
+    if (typeof localStorage !== 'undefined') localStorage.setItem(VIEW, next);
+  }
   /** The size the user gave the pinned panel at its edges: the homepage and the pages take it (the module grid keeps
    *  its own) until unpinned. */
   let free = $state<{ width: number; height: number } | null>(null);
@@ -173,12 +184,16 @@
     }
     pinned = value;
     panel.pinned = value;
-    // Unpinned, the panel goes back under the star at its pages' own size. Pinned from the homepage, it starts compact:
-    // the heading, the figures and the live chart (the rest scrolls, or the corner makes it taller).
-    if (!value) free = null;
-    else if (!free && !managerOnly && !pageEntry && !sharing && !toolId) {
-      const top = (document.querySelector('.dashboard .summary') as HTMLElement | null)?.offsetHeight ?? 0;
-      if (top > 120) free = { width: panelWidth, height: Math.max(220, Math.round(8 + top + 6)) };
+    // Unpinned, the panel goes back under the star at its pages' own size, and to the cards it showed. Pinned from the
+    // homepage, it turns to 会话 and fits down to the end of the sessions shown (three); without them, to the live chart.
+    if (!value) {
+      free = null;
+      if (viewBeforePin !== null) view = viewBeforePin;
+      viewBeforePin = null;
+    } else if (!free && !managerOnly && !pageEntry && !sharing && !toolId) {
+      if (sessions && view !== 'sessions') { viewBeforePin = view; view = 'sessions'; }
+      homeScroll = 0;
+      void fitPinned();
     }
     void shell.setPinned(value);
     clearInterval(liveTimer);
@@ -197,6 +212,19 @@
       if (animate && feed && !panel.reduceMotion) leaving = Date.now();
       else { feed = null; leaving = null; }
     }
+  }
+  /** A panel just pinned from the homepage: as tall as its top down to the last session card shown (or the live chart). */
+  async function fitPinned() {
+    await tick();
+    await nextFrame();
+    if (!pinned || free) return;
+    const dashboard = document.querySelector('.dashboard') as HTMLElement | null;
+    const list = dashboard?.querySelector('.session-list');
+    const last = list ? (list.querySelector('.more') ?? [...list.querySelectorAll('.session, .empty')].at(-1)) : null;
+    const top = dashboard?.getBoundingClientRect().top ?? 0;
+    const bottom = last ? last.getBoundingClientRect().bottom - top + 8
+      : ((dashboard?.querySelector('.summary') as HTMLElement | null)?.offsetHeight ?? 0) + 6;
+    if (bottom > 120) free = { width: panelWidth, height: Math.min(info.maxHeight, Math.max(220, Math.round(8 + bottom))) };
   }
   /** The grabber and the corner show while the pointer moves over a pinned panel and fade once it rests (the corner
    *  still resizes when faded); they stay while the corner is held. */
@@ -520,7 +548,7 @@
         <ModulesPage entries={snapshot.moduleOptions ?? []} {leading} fromHome={settingsFromHome} bind:scrollTop={gridScroll}
           onback={finishModules} ondone={finishModules} onaction={perform} onopen={push} onheight={(h) => (wanted.grid = h)} />
       {:else if snapshot}
-        <HomePage entries={snapshot.entries} dashboard={shown ? dashboardView : null} bind:scrollTop={homeScroll} onactivate={activate}
+        <HomePage entries={shown ? without(snapshot.entries, sessions) : snapshot.entries} dashboard={shown ? dashboardView : null} bind:scrollTop={homeScroll} onactivate={activate}
           onheight={(h) => (wanted.home = h)} />
       {/if}
     </div>
@@ -551,7 +579,8 @@
     <Dashboard data={shown} rangeOptions={snapshot.rangeOptions ?? []} {reveal} {glows} {summaryGlow} live={pinned || leaving !== null ? feed : null} {leaving} onleft={() => { leaving = null; feed = null; }} {liveStamp} {pinned}
       {pinInterval} onrange={perform} onshare={openShare}
       onpin={() => { panel.hint = null; setPinned(!pinned); if (pinned) perform(['refresh-live']); }} onsettings={openSettings}
-      onopentool={openTool} ongroup={(key) => perform(['set-group', key])} ontoggle={(id, expanded) => perform(['set-expanded', id, expanded ? 'true' : 'false'])} />
+      onopentool={openTool} ongroup={(key) => perform(['set-group', key])} {sessions} {view} onview={chooseView} busy={interaction.active}
+      onopen={open} onchoose={choose} ontoggle={(id, expanded) => perform(['set-expanded', id, expanded ? 'true' : 'false'])} />
   {/if}
 {/snippet}
 

@@ -191,7 +191,7 @@ class PowerTests(unittest.TestCase):
         self.assertIn('Claude',groups['工具 Token 用量']);self.assertIn('OpenCodex',groups['工具 Token 用量'])
         self.assertEqual(groups['API'],[s.label for s in self.m.catalog.SERVICES if s.category=='API'])
         self.assertEqual(groups['订阅用量'],[s.label for s in self.m.catalog.SERVICES if s.category=='订阅'])
-        self.assertEqual(groups['其他'],['活跃会话','Komari 监控','Harness 更新'])
+        self.assertEqual(groups['其他'],['会话','Komari 监控','Harness 更新'])
         self.assertFalse(any(r['label']=='连接与数据' for r in rows))
     def test_hidden_modules_keep_configuration_and_native_fallback_can_toggle(self):
         self.m.preferences.update(self.m.STATE_DIR,'module','chatgpt','false')

@@ -514,28 +514,33 @@ function apiRows(state) {
 }
 
 function sessionRows(state) {
-  if (state === 'pending') return entry('活跃会话', { symbol: 'terminal', value: '没有活跃会话', onOpenAction: ['refresh-source', 'sessions'] }, [
-    entry('最近半小时没有运行中或等待输入的会话'), separator(),
-    entry('等待输入时提醒', { symbol: 'bell', detail: '运行中的会话这一轮完成时发通知', checked: false, action: ['set-session-alerts', 'true'] })]);
+  const alert = (on) => entry('这一轮完成时提醒', { symbol: 'bell', detail: '运行中的会话这一轮完成时发通知', checked: on, action: ['set-session-alerts', on ? 'false' : 'true'] });
+  if (state === 'pending') return entry('会话', { symbol: 'terminal', value: '没有会话', onOpenAction: ['refresh-source', 'sessions'] }, [
+    entry('最近半小时没有 Claude Code 或 Codex 会话'), separator(), alert(false)]);
   const round = (label, detail) => entry(label, { detail });
-  return entry('活跃会话', { symbol: 'terminal', value: '2 运行中 · 1 等待输入', onOpenAction: ['refresh-source', 'sessions'] }, [
-    entry('重做设置页的分段控件', { statusLight: 'new', value: '运行中', detail: 'Opus 5.5 · xhigh · 上下文 62% · 刚刚' }, [
+  const claude = moduleIcon('claude-subscription'), chatgpt = moduleIcon('chatgpt');
+  return entry('会话', { symbol: 'terminal', value: '3 运行中 · 1 空闲', onOpenAction: ['refresh-source', 'sessions'] }, [
+    entry('重做设置页的分段控件', { ...claude, statusLight: 'new', value: '2.41M Token', detail: '运行中 4 分钟 · Opus 5.5 · xhigh · 上下文 62%' }, [
       entry('starmeter · 最近 3 轮'),
       round('15:36 · 2.41M Token · $0.92', '9 次请求 · Edit ×6 · Bash ×4 · Read ×3 · update_plan ×1'),
       round('15:12 · 5.07M Token · $1.88', '21 次请求 · Bash ×12 · Read ×7 · Edit ×5 · Grep ×2'),
       round('更早开始 · 11.3M Token · $4.10', '44 次请求 · Bash ×30 · Write ×3 · Read ×2 · Edit ×2'),
     ]),
-    entry('harbor-api', { statusLight: 'new', value: '运行中', detail: 'gpt-5.5-codex · high · 上下文 38% · 1 分钟前' }, [
+    entry('harbor-api', { ...chatgpt, statusLight: 'new', value: '1.20M Token', detail: '运行中 · gpt-5.5-codex · high · 上下文 38%' }, [
       entry('最近 2 轮'),
       round('15:31 · 1.20M Token · $0.51', '6 次请求 · shell ×5 · apply_patch ×2'),
       round('14:58 · 3.62M Token · 已知 $1.20', '14 次请求 · shell ×9 · apply_patch ×4 · web_search ×1'),
     ]),
-    entry('迁移博客的图片目录', { statusLight: 'ok', value: '等待输入', detail: 'Fable 5.2 · medium · 上下文 21% · 6 分钟前' }, [
+    entry('修订论文的评估章节', { ...claude, statusLight: 'new', value: '318.4K Token', detail: '运行中 1 分钟 · Opus 5.5 · high · 上下文 17%' }, [
+      entry('NetServe · 最近 1 轮'),
+      round('15:35 · 318.4K Token · $0.21', '3 次请求 · Read ×4 · Grep ×1'),
+    ]),
+    entry('迁移博客的图片目录', { ...claude, statusLight: 'unknown', value: '640.2K Token', detail: '空闲 6 分钟 · Fable 5.2 · medium · 上下文 21%' }, [
       entry('field-notes · 最近 1 轮'),
       round('15:29 · 640.2K Token · $0.12', '4 次请求 · Bash ×3 · Read ×2'),
     ]),
     separator(),
-    entry('等待输入时提醒', { symbol: 'bell', detail: '运行中的会话这一轮完成时发通知', checked: true, action: ['set-session-alerts', 'false'] }),
+    alert(true),
   ]);
 }
 
@@ -584,7 +589,7 @@ const modules = [
   ['opencode', 'OpenCode', 'Harness'], ['deepseek-harness', 'DeepSeek Harness', 'Harness'], ['workbuddy', 'WorkBuddy', 'Harness'], ['qoder', 'Qoder', 'Harness'],
   ['gemini', 'Gemini CLI', 'Harness'], ['cursor', 'Cursor', 'Harness'],
   ...services.map(([key]) => [key, serviceByKey[key].label, serviceByKey[key].category]),
-  ['sessions', '活跃会话', '其他'], ['komari', 'Komari 监控', '其他'], ['updates', 'Harness 更新', '其他'],
+  ['sessions', '会话', '其他'], ['komari', 'Komari 监控', '其他'], ['updates', 'Harness 更新', '其他'],
 ];
 const groupLabels = { Harness: '工具 Token 用量', 订阅: '订阅用量', API: 'API' };
 const setupNotes = {

@@ -126,17 +126,21 @@ class SessionPanelTests(unittest.TestCase):
         data = {'sessions': {'sessions': [{'tool': 'Claude', 'state': 'running', 'project': 'starmeter', 'model': 'claude-opus-5-5-20261101', 'context': 0.38, 'at': now, 'id': 'a'},
                                           {'tool': 'ChatGPT', 'state': 'waiting', 'project': None, 'model': None, 'context': None, 'at': now - 200, 'id': 'b'}]}}
         lines = self.m.sessions_lines(data)
-        self.assertIn('badge="1 运行中 · 1 等待输入"', lines[0])
+        self.assertIn('badge="1 运行中 · 1 空闲"', lines[0])
         self.assertTrue(lines[1].startswith('--starmeter |'), 'Without a title, the project folder names it')
-        self.assertIn('paneldetail="Opus 5.5 · 上下文 38% · 刚刚"', lines[1]); self.assertIn('panelstatus=new', lines[1])
-        self.assertTrue(lines[2].startswith('--未知项目 |')); self.assertIn('3 分钟前', lines[2])
+        # Running or not: no "waiting for input"; a running one with no request yet says so where its tokens go.
+        self.assertIn('paneldetail="运行中 · Opus 5.5 · 上下文 38%"', lines[1]); self.assertIn('panelstatus=new', lines[1])
+        self.assertIn('badge=运行中', lines[1]); self.assertIn('image=', lines[1], 'Each session wears its tool\'s logo')
+        self.assertTrue(lines[2].startswith('--未知项目 |')); self.assertIn('paneldetail="空闲 3 分钟"', lines[2])
+        self.assertIn('panelstatus=unknown', lines[2])
         titled = [{'tool': 'ChatGPT', 'state': 'running', 'title': '服务器管理', 'project': 'ops', 'model': 'gpt-6.2-sol', 'effort': 'xhigh',
                    'context': 0.54, 'at': now, 'id': 'c', 'turns': [{'at': None, 'requests': 1, 'tokens': 10, 'cost': 0.0, 'unpriced': 0, 'tools': {}}]}]
         lines = self.m.sessions_lines({'sessions': {'sessions': titled}})
         self.assertTrue(lines[1].startswith('--服务器管理 |'), 'A session goes by the title its client gave it')
-        self.assertIn('paneldetail="gpt-6.2-sol · xhigh · 上下文 54% · 刚刚"', lines[1])
+        self.assertIn('paneldetail="运行中 · gpt-6.2-sol · xhigh · 上下文 54%"', lines[1])
+        self.assertIn('badge="10 Token"', lines[1], 'The live figure is this turn\'s tokens')
         self.assertTrue(lines[2].startswith('----ops · 最近 1 轮'), 'The project folder heads its turns')
-        self.assertIn('badge=没有活跃会话', self.m.sessions_lines({'sessions': {'sessions': []}})[0])
+        self.assertIn('badge=没有会话', self.m.sessions_lines({'sessions': {'sessions': []}})[0])
         self.assertIn('badge=待同步', self.m.sessions_lines({})[0])
 
     def test_a_live_auto_review_request_is_priced_by_today(self):
@@ -164,7 +168,7 @@ class SessionPanelTests(unittest.TestCase):
         self.m.invalidate_caches(['sessions'])
         with patch.object(self.m.live_sessions, 'active', return_value=[dict(running[0], state='waiting')]), patch.object(self.m, 'post_notice', return_value=True) as told:
             self.m.sessions_cached()
-        told.assert_called_once_with('会话等待输入', 'Claude · starmeter 这一轮已完成')
+        told.assert_called_once_with('会话完成', 'Claude · starmeter 这一轮已完成')
 
 
 if __name__ == '__main__':

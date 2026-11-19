@@ -259,7 +259,7 @@ impl Runtime {
                     Some("komari".into())
                 } else if label == "Harness 更新" {
                     Some("updates".into())
-                } else if label == "活跃会话" {
+                } else if label == "会话" {
                     Some("sessions".into())
                 } else if label.starts_with("OpenCodex 管理") {
                     Some("opencodex".into())

@@ -258,20 +258,20 @@ impl Runtime {
         let badge = match &found {
             Some(found) => {
                 let running = found.iter().filter(|s| s.get("state") == Some(&Json::from("running"))).count();
-                let waiting = found.len() - running;
+                let idle = found.len() - running;
                 let parts: Vec<String> = [
                     if running > 0 { format!("{running} 运行中") } else { String::new() },
-                    if waiting > 0 { format!("{waiting} 等待输入") } else { String::new() },
+                    if idle > 0 { format!("{idle} 空闲") } else { String::new() },
                 ]
                 .into_iter()
                 .filter(|part| !part.is_empty())
                 .collect();
-                if parts.is_empty() { "没有活跃会话".to_string() } else { parts.join(" · ") }
+                if parts.is_empty() { "没有会话".to_string() } else { parts.join(" · ") }
             }
             None if refresh_failed(error.as_deref()) => "读取失败".into(),
             None => "待同步".into(),
         };
-        let mut lines = vec![item("活跃会话", 0, object! { "badge" => badge, "sfimage" => "terminal" })];
+        let mut lines = vec![item("会话", 0, object! { "badge" => badge, "sfimage" => "terminal" })];
         for session in found.iter().flatten() {
             let ago = (now() - session.get("at").and_then(Json::number).unwrap_or(0.0)).max(0.0) as i64;
             let model = session
@@ -287,20 +287,7 @@ impl Runtime {
                 .map(|share| format!("上下文 {}%", (share * 100.0).round_ties_even() as i64))
                 .unwrap_or_default();
             let effort = py::str(Some(&py::or(session.get("effort"), Json::from(""))));
-            let when = if ago < 60 { "刚刚".to_string() } else { format!("{} 分钟前", ago / 60) };
-            let detail: Vec<&str> = [model.as_str(), effort.as_str(), context.as_str(), when.as_str()]
-                .into_iter()
-                .filter(|p| !p.is_empty())
-                .collect();
             let running = session.get("state") == Some(&Json::from("running"));
-            lines.push(item(
-                &session_name(session),
-                1,
-                object! {
-                    "badge" => if running { "运行中" } else { "等待输入" }, "paneldetail" => detail.join(" · "),
-                    "panelstatus" => if running { "new" } else { "ok" },
-                },
-            ));
             let turns: Vec<Object> = session
                 .get("turns")
                 .and_then(Json::as_array)
@@ -309,6 +296,37 @@ impl Runtime {
                 .filter_map(Json::as_object)
                 .cloned()
                 .collect();
+            // A session is running or it is not: running for as long as this turn has, idle since it last changed.
+            let latest = turns.iter().find(|turn| py::num(turn.get("requests")) != 0.0);
+            let state = if running {
+                let started = latest.and_then(|turn| turn.get("at")).and_then(Json::number);
+                match started.map(|at| ((now() - at).max(0.0) as i64) / 60) {
+                    Some(minutes) if minutes > 0 => format!("运行中 {minutes} 分钟"),
+                    _ => "运行中".to_string(),
+                }
+            } else if ago < 60 {
+                "空闲".to_string()
+            } else {
+                format!("空闲 {} 分钟", ago / 60)
+            };
+            let detail: Vec<&str> = [state.as_str(), model.as_str(), effort.as_str(), context.as_str()]
+                .into_iter()
+                .filter(|p| !p.is_empty())
+                .collect();
+            // The live figure: this turn's tokens (the last turn's once it has finished).
+            let badge = latest.map_or_else(
+                || if running { "运行中".to_string() } else { "空闲".to_string() },
+                |turn| format!("{} Token", fmt_tokens(turn.get("tokens"))),
+            );
+            let tool = session.get("tool").and_then(Json::as_str).unwrap_or("");
+            let options = merged(&[
+                &object! {
+                    "badge" => badge, "paneldetail" => detail.join(" · "),
+                    "panelstatus" => if running { "new" } else { "unknown" },
+                },
+                &self.brand_icon(if tool == "Claude" { "claude-subscription" } else { "chatgpt" }),
+            ]);
+            lines.push(item(&session_name(session), 1, options));
             let project = if session.get("title").is_some_and(Json::is_truthy) {
                 session.get("project").filter(|project| project.is_truthy()).map(|project| py::str(Some(project)))
             } else {
@@ -326,7 +344,7 @@ impl Runtime {
         lines.push("-----".into());
         let on = self.settings().get("sessionAlerts").is_some_and(Json::is_truthy);
         lines.push(item(
-            "等待输入时提醒",
+            "这一轮完成时提醒",
             1,
             merged(&[
                 &object! { "sfimage" => "bell", "checked" => on, "paneldetail" => "运行中的会话这一轮完成时发通知" },

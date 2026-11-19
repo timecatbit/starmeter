@@ -50,15 +50,46 @@ test('header buttons take clicks, and pinning turns the trend live', async ({ pa
   await expect(page.locator('.grabber')).toBeVisible();
   await expect(page.getByRole('separator', { name: '拖动调整大小' })).toBeVisible();
   await expect(page.locator('.pin-hint')).toHaveText('拖动顶部移动面板 · 拖右下角调整大小');
-  // Pinned, the panel starts compact: the heading, the figures and the live chart.
-  await expect.poll(async () => (await page.locator('.window').boundingBox())!.height).toBeLessThan(300);
-  expect((await page.locator('.window').boundingBox())!.height).toBeGreaterThanOrEqual(220);
+  // Pinned, the panel turns to 会话 and fits down to the last of the three sessions it shows.
+  await expect(page.getByRole('radio', { name: '会话' })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.locator('.session')).toHaveCount(3);
+  await expect.poll(async () => {
+    const window = (await page.locator('.window').boundingBox())!, more = (await page.locator('.session-list .more').boundingBox())!;
+    return window.y + window.height - (more.y + more.height);
+  }).toBeLessThan(30);
   // The live tick reads again and the figures roll up.
   const before = await page.locator('.figure').nth(1).textContent();
   await expect.poll(async () => page.locator('.figure').nth(1).textContent(), { timeout: 8000 }).not.toBe(before);
   await button(page, '取消钉住面板').click();
   await expect(page.getByLabel('实时用量图')).toHaveCount(0);
   await expect(page.locator('.grabber')).toHaveCount(0);
+  // Unpinned, the cards it showed come back.
+  await expect(page.getByRole('radio', { name: '工具' })).toHaveAttribute('aria-checked', 'true');
+});
+
+test('会话 sits beside the groupings: running or idle, this turn\'s tokens, three shown and the rest one click away', async ({ page }) => {
+  await open(page);
+  // Its row leaves the other rows for the tab.
+  await expect(page.locator('.row .title', { hasText: /^会话$/ })).toHaveCount(0);
+  await page.getByRole('radio', { name: '会话' }).click();
+  const cards = page.locator('.session');
+  await expect(cards).toHaveCount(3);
+  await expect(cards.first().locator('.title')).toHaveText('重做设置页的分段控件');
+  await expect(cards.first().locator('.value')).toHaveText('2.41M Token');
+  await expect(cards.first()).toContainText('运行中 4 分钟');
+  await expect(cards.first()).toContainText('本轮 $0.92 · 9 次请求');
+  await expect(page.locator('.session-list')).not.toContainText('等待输入');
+  await page.locator('.session-list .more').click();
+  await expect(cards).toHaveCount(4);
+  await expect(cards.last()).toContainText('空闲 6 分钟');
+  await expect(cards.last()).toContainText('上一轮 $0.12');
+  // A card opens its last turns.
+  await cards.first().locator('.head').click();
+  await expect(cards.first().locator('.turn')).toHaveCount(3);
+  await expect(page.getByRole('switch', { name: /这一轮完成时提醒/ })).toBeVisible();
+  // The choice is remembered.
+  await page.reload();
+  await expect(page.getByRole('radio', { name: '会话' })).toHaveAttribute('aria-checked', 'true');
 });
 
 test('a pinned panel resized at its edges lays its pages out at that width, and unpinning gives the size back', async ({ page }) => {
@@ -78,7 +109,7 @@ test('a pinned panel resized at its edges lays its pages out at that width, and 
   const edge = await right('.dashboard');
   expect(edge - (await right('.figure'))).toBeLessThan(16);
   expect(edge - (await right('.live'))).toBeLessThan(16);
-  expect(edge - (await right('.card .cost'))).toBeLessThan(16);
+  expect(edge - (await right('.session .value'))).toBeLessThan(16);
   // The corner handle follows the pointer, no smaller than 360 × 220.
   const corner = (await page.getByRole('separator', { name: '拖动调整大小' }).boundingBox())!;
   await page.mouse.move(corner.x + 15, corner.y + 15);
@@ -96,6 +127,7 @@ test('a pinned panel resized at its edges lays its pages out at that width, and 
   await button(page, '取消钉住面板').click();
   await expect(page.locator('.window')).toHaveCSS('width', '360px');
   await expect(page.locator('.dashboard')).toHaveCSS('width', '344px');
+  await expect(page.locator('.card .cost').first()).toBeVisible();
 });
 
 test('questions are answered in place, under the row that asked, not in a dialog', async ({ page }) => {
@@ -355,6 +387,8 @@ test('the range picker is bare, as wide as its range, and opens its own menu und
 test('the range menu opens without moving the page, and fits a small pinned panel', async ({ page }) => {
   await open(page);
   await button(page, '钉住面板').click();
+  // The panel made small at its corner.
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('panel-resized', { detail: { width: 360, height: 260 } })));
   await expect.poll(async () => (await page.locator('.window').boundingBox())!.height).toBeLessThan(300);
   const viewport = page.locator('.dashboard').locator('xpath=ancestor::div[contains(@class,"viewport")]').first();
   const before = await viewport.evaluate((node) => node.scrollTop);

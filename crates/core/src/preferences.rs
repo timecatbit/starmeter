@@ -35,7 +35,7 @@ pub static MODULES: LazyLock<Vec<Module>> = LazyLock::new(|| {
     ];
     modules.extend(SERVICES.iter().map(|s| Module { key: s.key, label: s.label(), category: s.category }));
     modules.extend([
-        module("sessions", "活跃会话", "其他"),
+        module("sessions", "会话", "其他"),
         module("komari", "Komari 监控", "其他"),
         module("updates", "Harness 更新", "其他"),
     ]);

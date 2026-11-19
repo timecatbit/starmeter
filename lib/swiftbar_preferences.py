@@ -21,7 +21,7 @@ MODULES = (
     ('gemini', 'Gemini CLI', 'Harness'),
     ('cursor', 'Cursor', 'Harness'),
 ) + tuple((s.key, s.label, s.category) for s in catalog.SERVICES) + (
-    ('sessions', '活跃会话', '其他'),
+    ('sessions', '会话', '其他'),
     ('komari', 'Komari 监控', '其他'),
     ('updates', 'Harness 更新', '其他'),
 )
