@@ -225,12 +225,12 @@ pub fn restore_focus() {
     unsafe {
         let shared: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
         let responds: bool = msg_send![shared, respondsToSelector: objc2::sel!(yieldActivationToApplication:)];
+        // macOS 14's cooperative activation: this app yields, then asks the other one forward. (NSRunningApplication's
+        // plain `activate` is Swift's shorthand; the message itself is activateWithOptions:.)
         if responds {
             let _: () = msg_send![shared, yieldActivationToApplication: &*app];
-            let _: bool = msg_send![&*app, activate];
-        } else {
-            let _: bool = msg_send![&*app, activateWithOptions: 0usize];
         }
+        let _: bool = msg_send![&*app, activateWithOptions: 0usize];
     }
 }
 
