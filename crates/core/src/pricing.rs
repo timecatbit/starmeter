@@ -20,6 +20,14 @@ pub fn set_folders(folders: Vec<PathBuf>) {
     reset();
 }
 
+/// Sets the folders unless some were set already (the probe's, or an earlier runtime's).
+pub fn ensure_folders(folders: Vec<PathBuf>) {
+    let mut current = FOLDERS.write().expect("pricing folders");
+    if current.is_empty() {
+        *current = folders;
+    }
+}
+
 pub fn reset() {
     LOADED.lock().expect("pricing cache").clear();
 }

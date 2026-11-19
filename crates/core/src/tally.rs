@@ -35,7 +35,7 @@ pub struct GatewayRequests {
 }
 
 impl GatewayRequests {
-    fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.times.is_empty()
     }
 }
@@ -193,7 +193,7 @@ pub fn requests_from(clients: &GatewayLog, agents: Option<&HashSet<String>>) -> 
 
 /// Whether a gateway logged this very request: the same token split, finished within the match window. Each logged
 /// request accounts for one local record only.
-fn carried_by(carried: &mut GatewayRequests, event: &Event) -> bool {
+pub fn carried_by(carried: &mut GatewayRequests, event: &Event) -> bool {
     let whole = |key: &str| py::num(event.get(key)).trunc() as i64;
     let (inputs, cached, writes, output) = (whole("input"), whole("cached"), whole("writes"), whole("output"));
     // Gateways report input with cache reads, and some with cache writes as well.

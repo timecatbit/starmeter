@@ -2,17 +2,22 @@
 //! the hosts only draw it and pass the user's actions back.
 
 pub mod catalog;
+pub mod claude_app;
 pub mod claude_usage;
+pub mod cursor;
 pub mod database;
 pub mod files;
 pub mod harness;
 pub mod http;
 pub mod json;
 pub mod lines;
+pub mod opencodex;
 pub mod platform;
 pub mod preferences;
 pub mod pricing;
 pub mod py;
+pub mod range_usage;
+pub mod runtime;
 pub mod sessions;
 pub mod shell;
 pub mod tally;

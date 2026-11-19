@@ -2,14 +2,18 @@
 //! so tests/test_engine.py can hold each ported function against the Python reference. A call not ported yet
 //! answers {"error": "unported"}, which the tests skip.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::path::Path;
 
 use jiff::tz::TimeZone;
-use starmeter_core::json::{Format, Json, python_repr};
+use starmeter_core::json::{Format, Json, Object, python_repr};
+use starmeter_core::runtime::Runtime;
 use starmeter_core::time::IsoTime;
-use starmeter_core::{catalog, claude_usage, files, harness, object, preferences, pricing, py, tally, zstd};
+use starmeter_core::{
+    catalog, claude_usage, cursor, files, harness, http, object, opencodex, preferences, pricing, py, range_usage,
+    tally, zstd,
+};
 
 fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
     let text = |index: usize| args.get(index).and_then(Json::as_str);
@@ -60,6 +64,75 @@ fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
             .collect::<Vec<_>>()
             .into()),
         "sha256" => Ok(py::sha256_hex(text(0).unwrap_or("").as_bytes()).into()),
+        "range.usage" => {
+            let runtime = Runtime::from_process();
+            let ttl = args.get(1).and_then(Json::number);
+            let (payload, error) = runtime.render(|| runtime.range_usage(text(0), ttl));
+            Ok(object! { "payload" => payload, "error" => error, "cache" => runtime.range_cache_name(text(0)) }.into())
+        }
+        "range.bounds" => {
+            let zone = text(2).and_then(|name| TimeZone::get(name).ok()).unwrap_or(TimeZone::UTC);
+            let (start, end) = range_usage::range_bounds(
+                text(0).unwrap_or(""),
+                args.get(1).and_then(Json::number).unwrap_or(0.0),
+                &zone,
+            );
+            Ok(Json::from(vec![start, end]))
+        }
+        "runtime" => {
+            // [what, routes, ...]: a Runtime call against the environment this probe runs in.
+            routes(args.get(1));
+            let runtime = Runtime::from_process();
+            let loaded = |(payload, error): (Option<Object>, Option<String>)| {
+                Json::from(object! { "payload" => payload, "error" => error })
+            };
+            runtime.render(|| match text(0).unwrap_or("") {
+                "provider_quotas" => Ok(loaded(runtime.provider_quotas())),
+                "komari" => Ok(loaded(runtime.komari_snapshot())),
+                "opencodex_range" => Ok(runtime
+                    .opencodex_range_usage_live(
+                        text(2).unwrap_or(""),
+                        args.get(3).and_then(Json::number).unwrap_or(0.0),
+                    )
+                    .into()),
+                "connection_parts" => Ok(Json::Array(runtime.connection_parts(text(2).unwrap_or("")))),
+                "fingerprint" => Ok(runtime.connection_fingerprint(text(2).unwrap_or("")).into()),
+                "opencodex_refresh" => {
+                    runtime.opencodex_refresh();
+                    let caches: Object = opencodex::ENDPOINTS
+                        .iter()
+                        .map(|(name, _, _)| (*name, Json::Object(runtime.read_cache(name))))
+                        .collect();
+                    Ok(caches.into())
+                }
+                _ => Err("unported".to_string()),
+            })
+        }
+        "cursor.refresh" => {
+            // [store or null, home, start, until, now, routes]
+            routes(args.get(5));
+            let environment: HashMap<String, String> = std::env::vars().collect();
+            let store = args.first().and_then(Json::as_object);
+            let number = |index: usize| args.get(index).and_then(Json::number).unwrap_or(0.0);
+            Ok(match cursor::refresh(store, text(1).unwrap_or(""), &environment, number(2), number(3), number(4)) {
+                Ok(store) => store.into(),
+                Err(failure) => object! { "failure" => failure.0 }.into(),
+            })
+        }
+        "cursor.plan" => {
+            routes(args.get(2));
+            let environment: HashMap<String, String> = std::env::vars().collect();
+            Ok(
+                match cursor::plan(
+                    text(0).unwrap_or(""),
+                    &environment,
+                    args.get(1).and_then(Json::number).unwrap_or(0.0),
+                ) {
+                    Ok(plan) => plan.into(),
+                    Err(failure) => object! { "failure" => failure.0 }.into(),
+                },
+            )
+        }
         "harness.gateway" => {
             let log = tally::gateway_requests(
                 Path::new(text(0).unwrap_or("")),
@@ -192,6 +265,15 @@ fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
         .into()),
         _ => Err("unported".to_string()),
     }
+}
+
+/// Points real hosts at the test's local server, from a {from: to} argument.
+fn routes(value: Option<&Json>) {
+    let routes = value
+        .and_then(Json::as_object)
+        .map(|routes| routes.iter().filter_map(|(from, to)| Some((from.clone(), to.as_str()?.to_string()))).collect())
+        .unwrap_or_default();
+    http::set_routes(routes);
 }
 
 /// The strings in a JSON array argument.

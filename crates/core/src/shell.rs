@@ -78,3 +78,35 @@ pub fn detach(arguments: &[&str], environment: Option<&[(String, String)]>) {
     }
     let _ = command.spawn();
 }
+
+/// The first executable of that name on PATH, as shutil.which.
+pub fn which(name: &str, environment: &std::collections::HashMap<String, String>) -> Option<String> {
+    let (separator, suffixes): (char, &[&str]) =
+        if cfg!(windows) { (';', &["", ".exe", ".cmd", ".bat"]) } else { (':', &[""]) };
+    let path = environment.get("PATH").map(String::as_str).unwrap_or("");
+    for folder in path.split(separator).filter(|folder| !folder.is_empty()) {
+        for suffix in suffixes {
+            let candidate = format!("{folder}/{name}{suffix}");
+            if executable(&candidate) {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
+
+fn executable(path: &str) -> bool {
+    let Ok(metadata) = std::fs::metadata(path) else { return false };
+    if metadata.is_dir() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        metadata.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
+}
