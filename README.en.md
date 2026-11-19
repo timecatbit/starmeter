@@ -94,7 +94,7 @@ Settings live in `%LOCALAPPDATA%\Token Monitor`.
 ## Using it
 
 - **Click the star** for the home page, showing today. On first run it reads the usage records already on this computer in the background; choose 全部 (everything) to see all that's still kept locally, without making new calls. Conversations that were deleted, never synced here or logged no tokens can't be counted.
-- Beside the heading are the gear (modules and settings), the pin, share and the range. A row with an arrow opens its page; the back button, Esc or a two-finger swipe right return home.
+- Beside the heading are the pin, the gear (modules and settings), share and the range. A row with an arrow opens its page; the back button, Esc or a two-finger swipe right return home.
 - **Right-click the star → 主页模块…** (home modules) to choose what the home page shows and set folders, keys and connections; **自动检测…** (detect) re-selects modules from the tools installed here, and changes nothing until you confirm.
 - **Gateways**: Magpie is read from its local `usage.jsonl` (`~/.config/magpie` by default), OpenCodex from its own log. With both a gateway and a client behind it selected (ChatGPT or Claude, say), the requests that went through the gateway count once in Summary, under the gateway; the client's card still shows all its own records and notes "N 次已由 Magpie 计入" (N counted by Magpie). The ChatGPT desktop app's extra calls (message predictions and the like) never reach the local Codex records, so they're only counted through Magpie, which is why Magpie may show more ChatGPT requests than the ChatGPT card.
 - **DeepSeek Harness** reads `~/.dsh/sessions` by default (the `sessions` folder under `DSH_HOME` when set), or a folder you choose.
