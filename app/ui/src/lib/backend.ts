@@ -51,7 +51,8 @@ export const shell = {
   resize: (width: number, height: number, animate: boolean) => (inTauri ? invoke<void>('resize_panel', { width, height, animate }) : quiet()),
   setPinned: (pinned: boolean) => (inTauri ? invoke<void>('set_pinned', { pinned }) : quiet()),
   /** Theme (system, light, dark) and background (glass or solid) for the window and the system material under it. */
-  setLook: (theme: string, glass: boolean) => (inTauri ? invoke<void>('set_look', { theme, glass }) : quiet()),
+  /** Returns whether the system material shows; when it doesn't, the page paints its solid background. */
+  setLook: (theme: string, glass: boolean): Promise<boolean> => (inTauri ? invoke<boolean>('set_look', { theme, glass }) : Promise.resolve(glass)),
   /** A web page comes to the front; an app opens to update itself; a swiftbar:// command runs without taking focus. */
   openLink: (href: string) => (inTauri ? invoke<void>('open_link', { href }) : Promise.resolve(void window.open(href, '_blank'))),
   /** Holds the panel open while a native menu or the share sheet has the pointer. */
@@ -60,9 +61,9 @@ export const shell = {
   /** The system share menu at a button (macOS); elsewhere a save dialog. */
   sharePicture: (png: Uint8Array, name: string, rect: { x: number; y: number; width: number; height: number }) =>
     (inTauri ? invoke<void>('share_picture', { png: base64(png), name, ...rect }) : quiet()),
-  onOpened(opened: (modules: boolean) => void): () => void {
+  onOpened(opened: (modules: boolean, maxHeight: number) => void): () => void {
     if (!inTauri) return () => {};
-    const stop = listen<{ modules: boolean }>('panel-opened', (event) => opened(event.payload.modules));
+    const stop = listen<{ modules: boolean; maxHeight: number }>('panel-opened', (event) => opened(event.payload.modules, event.payload.maxHeight));
     return () => void stop.then((f) => f());
   },
   onClosed(closed: () => void): () => void {

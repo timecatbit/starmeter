@@ -45,7 +45,7 @@
   const mid = 15.8;
   const glowing = $derived(blend(labelColour(panel.dark, 0.85), colour, glow * 0.9));
   /** A figure too wide for its column shrinks rather than cuts, down to 9pt. */
-  const fitted = (value: string, size: number, room: number) => { const w = width(value, font(size)); return w > room ? Math.max(9, (size * room) / w) : size; };
+  const fitted = (value: string, size: number, room: number) => { const w = width(value, font(size)) * 1.04; return w > room ? Math.max(8, (size * room) / w) : size; };
   const height = $derived(collapsible && !expanded ? 52 : p.available ? 52 + clientHeight + Math.max(1, p.models.length) * 18 + 8 : 52);
 </script>
 
@@ -215,6 +215,7 @@
     border-radius: 2px;
   }
   .amount {
+    text-overflow: clip !important;
     width: 58px;
     font-size: 10.5px;
     text-align: right;

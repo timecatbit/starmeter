@@ -63,12 +63,13 @@
 
   // MARK: Theme and background
 
-  const glass = $derived((snapshot?.appearance ?? 'glass') !== 'solid' && (info.platform === 'macos' || info.platform === 'windows'));
+  // The shell says whether the system material shows (not on Linux, not with Reduce Transparency).
+  let glass = $state(true);
   $effect(() => {
-    const theme = snapshot?.theme ?? 'system';
+    const theme = snapshot?.theme ?? 'system', wanted = (snapshot?.appearance ?? 'glass') !== 'solid';
     panel.theme = theme;
     if (theme === 'system') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = theme;
-    void shell.setLook(theme, (snapshot?.appearance ?? 'glass') !== 'solid');
+    void shell.setLook(theme, wanted).then((shown) => (glass = shown));
   });
 
   // MARK: The figures on screen: they roll from the last reading to the next, and a new range draws its trend in
@@ -313,7 +314,8 @@
 
   // MARK: Opening and closing
 
-  function opened(modules: boolean) {
+  function opened(modules: boolean, maxHeight?: number) {
+    if (maxHeight) info = { ...info, maxHeight };
     managerOnly = modules;
     settingsFromHome = false;
     pagePath = [];
