@@ -308,6 +308,7 @@ fn main() {
             panel::resize_panel,
             panel::set_pinned,
             panel::drag_panel,
+            panel::size_panel,
             panel::panel_shown,
             panel::hold_open,
             panel::set_look,

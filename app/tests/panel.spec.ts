@@ -34,14 +34,21 @@ test('the homepage shows Summary, the trend, the heatmap, the cards and the rows
 
 test('header buttons take clicks, and pinning turns the trend live', async ({ page }) => {
   await open(page);
+  // No refresh button: opening reads what is due, and pinning reads every few seconds.
+  await expect(button(page, '刷新数据')).toHaveCount(0);
   await button(page, '钉住面板').click();
   await expect(page.getByLabel('实时用量图')).toBeVisible();
   await expect(button(page, '取消钉住面板')).toBeVisible();
+  // Pinned, it says how to move and resize it: the grabber, the corner and, until used once, a line.
+  await expect(page.locator('.grabber')).toBeVisible();
+  await expect(page.getByRole('separator', { name: '拖动调整大小' })).toBeVisible();
+  await expect(page.locator('.pin-hint')).toHaveText('拖动顶部移动面板 · 拖右下角调整大小');
   // The live tick reads again and the figures roll up.
   const before = await page.locator('.figure').nth(1).textContent();
   await expect.poll(async () => page.locator('.figure').nth(1).textContent(), { timeout: 8000 }).not.toBe(before);
   await button(page, '取消钉住面板').click();
   await expect(page.getByLabel('实时用量图')).toHaveCount(0);
+  await expect(page.locator('.grabber')).toHaveCount(0);
 });
 
 test('a pinned panel resized at its edges lays its pages out at that width, and unpinning gives the size back', async ({ page }) => {
@@ -62,6 +69,16 @@ test('a pinned panel resized at its edges lays its pages out at that width, and 
   expect(edge - (await right('.figure'))).toBeLessThan(16);
   expect(edge - (await right('.live'))).toBeLessThan(16);
   expect(edge - (await right('.card .cost'))).toBeLessThan(16);
+  // The corner handle follows the pointer, no smaller than 360 × 280.
+  const corner = (await page.getByRole('separator', { name: '拖动调整大小' }).boundingBox())!;
+  await page.mouse.move(corner.x + 15, corner.y + 15);
+  await page.mouse.down();
+  await page.mouse.move(corner.x + 15 - 100, corner.y + 15 - 60, { steps: 6 });
+  await page.mouse.up();
+  await expect(page.locator('.window')).toHaveCSS('width', '460px');
+  await expect(page.locator('.window')).toHaveCSS('height', '580px');
+  await expect(page.locator('.pin-hint')).toHaveCount(0);
+  await resize(560, 640);
   // A row's page takes the width too.
   await page.locator('.row').filter({ hasText: 'Claude 订阅' }).click();
   await expect(page.locator('.page .rule')).toHaveCSS('width', '528px');
@@ -73,8 +90,8 @@ test('a pinned panel resized at its edges lays its pages out at that width, and 
 
 test('a header hint appears after the pointer rests', async ({ page }) => {
   await open(page);
-  await button(page, '刷新数据').hover();
-  await expect(page.getByRole('tooltip')).toHaveText('刷新数据');
+  await button(page, '分享用量图').hover();
+  await expect(page.getByRole('tooltip')).toHaveText('分享用量图');
   await page.mouse.move(10, 900);
   await expect(page.getByRole('tooltip')).toHaveCount(0);
 });
@@ -181,6 +198,9 @@ test('failures and first-run states say so', async ({ page }) => {
   await open(page, '?fixture=pending');
   await expect(page.locator('.waiting').first()).toHaveText('等待可用数据');
   await expect(page.locator('.caption')).toHaveText('待同步');
+  // Nothing read yet: the trend's grid alone, no scale or flat line that would read as no usage.
+  await expect(page.locator('.axis')).toHaveCount(0);
+  await expect(page.locator('.chart path')).toHaveCount(0);
 });
 
 test('with reduced motion, pages still change and nothing animates forever', async ({ page }) => {
@@ -198,13 +218,10 @@ test.describe('header icons', () => {
     await open(page);
     // A plain white backdrop, so ink is everything darker than it.
     await page.addStyleTag({ content: '.window { background: #fff !important; backdrop-filter: none !important } :root { --label: #000 }' });
-  // Nothing read yet: the trend's grid alone, no scale or flat line that would read as no usage.
-  await expect(page.locator('.axis')).toHaveCount(0);
-  await expect(page.locator('.chart path')).toHaveCount(0);
     await page.mouse.move(5, 1650);
     await page.waitForTimeout(400);
     const { decodePng } = await import('./png');
-    for (const label of ['主页模块与设置', '钉住面板', '自动检测', '分享用量图', '刷新数据']) {
+    for (const label of ['主页模块与设置', '钉住面板', '自动检测', '分享用量图']) {
       const shot = decodePng(await button(page, label).screenshot());
       let minX = shot.width, maxX = -1, minY = shot.height, maxY = -1, mass = 0, sumY = 0;
       for (let y = 0; y < shot.height; y++) {

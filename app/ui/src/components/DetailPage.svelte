@@ -1,7 +1,6 @@
 <script lang="ts">
   // A page inside the panel: the back button with the row's icon, name and figure (in a shorter form if the name needs
   // the room), a rule, then its rows. Esc, the back button or a two-finger swipe to the right go back.
-  import { shell } from '../lib/backend';
   import { usageColor } from '../lib/colors';
   import { font, width } from '../lib/measure';
   import type { Entry } from '../lib/types';
@@ -9,7 +8,7 @@
   import Glyph from './Glyph.svelte';
   import HintButton from './HintButton.svelte';
   import Scroller from './Scroller.svelte';
-  import { panel } from '../lib/ui.svelte';
+  import { moveWindow, panel } from '../lib/ui.svelte';
 
   let { page, open, busy, scrollTop = $bindable(0), onback, onopen, onchoose, ontoggled, onheight }: {
     page: Entry; open: Set<string>; busy: string[] | null; scrollTop?: number;
@@ -27,7 +26,8 @@
 
 <div class="page">
   <!-- Pinned, the header's free space moves the window, as a title bar would. -->
-  <div class="grip" aria-hidden="true" onpointerdown={(event) => { if (event.button === 0 && panel.pinned) { event.preventDefault(); void shell.drag(); } }}></div>
+  <div class="grip" class:movable={panel.pinned} aria-hidden="true"
+    onpointerdown={(event) => { if (event.button === 0 && panel.pinned) { event.preventDefault(); void moveWindow(); } }}></div>
   <span class="back"><HintButton icon="chevron.left" hint="返回" label="返回" onclick={onback} /></span>
   {#if hasGlyph}<span class="page-glyph"><Glyph image={page.image} template={page.template} symbol={page.symbol} size={18} /></span>{/if}
   <h2 class="title" style:left="{titleX}px" style:width="{W - 16 - valueWidth - 8 - titleX}px">{page.label}</h2>
@@ -55,6 +55,8 @@
     width: 100%;
     height: 48px;
   }
+  .grip.movable { cursor: grab; }
+  .grip.movable:active { cursor: grabbing; }
   .back { position: absolute; left: 12px; top: 13px; }
   /* The header's words let the pointer through to the strip under them. */
   .page-glyph, .title, .value { pointer-events: none; }

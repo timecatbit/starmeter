@@ -1,4 +1,5 @@
 // Panel-wide state the components share: light or dark, reduced motion, the header hint bubble and the copy toast.
+import { shell } from './backend';
 
 const media = (query: string) => (typeof matchMedia === 'function' ? matchMedia(query) : null);
 const darkQuery = media('(prefers-color-scheme: dark)');
@@ -20,6 +21,8 @@ class PanelState {
   width = $state(360);
   /** Pinned: a page's top strip moves the window. */
   pinned = $state(false);
+  /** The user has moved or resized a pinned panel: the hint saying how is no longer needed. */
+  arranged = $state(false);
 
   constructor() {
     darkQuery?.addEventListener('change', (e) => (this.systemDark = e.matches));
@@ -41,6 +44,19 @@ export function hoverHint(element: HTMLElement | null, text: string) {
     const box = element.getBoundingClientRect(), frame = element.closest('.window')?.getBoundingClientRect() ?? { left: 0, top: 0 };
     panel.hint = { text, x: box.left - frame.left, y: box.top - frame.top, width: box.width, height: box.height };
   }, 350);
+}
+
+/** Pinned: moves the window with the pointer. The window server runs the drag, so the page never sees the button come
+ *  up; the press ends here instead, or the panel would hold back its redraws (and a control its pressed look) until the
+ *  next click. */
+export async function moveWindow() {
+  panel.arranged = true;
+  panel.hint = null;
+  try {
+    await shell.drag();
+  } finally {
+    window.dispatchEvent(new Event('pointercancel'));
+  }
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined;

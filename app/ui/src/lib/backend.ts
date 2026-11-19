@@ -55,6 +55,9 @@ export const shell = {
   setPinned: (pinned: boolean) => (inTauri ? invoke<void>('set_pinned', { pinned }) : quiet()),
   /** Pinned: moves the window with the pointer, from a page's top strip. */
   drag: () => (inTauri ? invoke<void>('drag_panel') : quiet()),
+  /** Pinned: the corner handle's size, the top left kept; the size applied comes back through onResized. */
+  sizeTo: (width: number, height: number) => (inTauri ? invoke<void>('size_panel', { width, height })
+    : quiet().then(() => void window.dispatchEvent(new CustomEvent('panel-resized', { detail: { width, height } })))),
   /** The page has drawn what the panel opened on; a window kept clear until then shows. */
   shown: () => (inTauri ? invoke<void>('panel_shown') : quiet()),
   /** Theme (system, light, dark) and background (glass or solid) for the window and the system material under it. */

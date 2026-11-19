@@ -1,14 +1,13 @@
 <script lang="ts">
   // The homepage's top: the heading and its buttons, Summary's three figures, the legend and trend (or the live chart
   // while pinned), the heatmap, the grouping tabs and the Harness cards.
-  import { shell } from '../lib/backend';
   import { accent, blend, label as labelColour, totalColor } from '../lib/colors';
   import { chartExtra, labelColumn, legendLabels, legendLayout, summaryProviders } from '../lib/chart';
   import { heading, money, tokens } from '../lib/format';
   import { HeatmapLayout, rows as heatmapRows } from '../lib/heatmap';
   import type { LiveFeed } from '../lib/live';
   import { font, width } from '../lib/measure';
-  import { panel } from '../lib/ui.svelte';
+  import { moveWindow, panel } from '../lib/ui.svelte';
   import type { Dashboard, Entry } from '../lib/types';
   import Figure from './Figure.svelte';
   import GroupTabs from './GroupTabs.svelte';
@@ -18,12 +17,12 @@
   import ProviderCard from './ProviderCard.svelte';
   import SummaryChart from './SummaryChart.svelte';
 
-  let { data, rangeOptions, reveal, glows, summaryGlow, live, leaving = null, onleft, liveStamp, pinned, pinInterval, liveSince, spin, onrange,
-    onrefresh, onshare, ondetect, onpin, onsettings, ongroup, ontoggle }: {
+  let { data, rangeOptions, reveal, glows, summaryGlow, live, leaving = null, onleft, liveStamp, pinned, pinInterval, liveSince, onrange,
+    onshare, ondetect, onpin, onsettings, ongroup, ontoggle }: {
     data: Dashboard; rangeOptions: Entry[]; reveal: number; glows: Record<string, number>; summaryGlow: number; live: LiveFeed | null;
     leaving?: number | null; onleft?: () => void;
-    liveStamp: string | null; pinned: boolean; pinInterval: number; liveSince: number; spin: { from: number; until: number | null } | null;
-    onrange: (action: string[]) => void; onrefresh: () => void; onshare: (button: HTMLElement) => void; ondetect: () => void; onpin: () => void;
+    liveStamp: string | null; pinned: boolean; pinInterval: number; liveSince: number;
+    onrange: (action: string[]) => void; onshare: (button: HTMLElement) => void; ondetect: () => void; onpin: () => void;
     onsettings: () => void; ongroup: (key: string) => void; ontoggle: (id: string, expanded: boolean) => void;
   } = $props();
 
@@ -56,8 +55,9 @@
   const legendCells = $derived(legendLayout(legend, right - left).flatMap((row, r) => row.map((cell) => ({ ...cell, row: r }))));
   const note = $derived([data.chartStatus, liveStamp ?? data.updated ?? ''].filter(Boolean).join(' · '));
 
-  // Header: refresh, share, auto-detect, the pin and the gear leftward from the range picker, 2pt apart; a long heading
-  // keeps its room by leaving auto-detect out.
+  // Header: share, auto-detect, the pin and the gear leftward from the range picker, 2pt apart; a long heading keeps its
+  // room by leaving auto-detect out. (No refresh: opening reads what is due, pinning reads every few seconds, and each
+  // source's own page refreshes it.)
   // The range picker is drawn bare like the icons beside it, as wide as the range on it: 8pt, the range, 4pt, the
   // chevron, 8pt; its right edge on the content's.
   const pickerWidth = $derived(8 + width(data.rangeLabel, font(11)) + 4 + 7 + 8);
@@ -65,8 +65,8 @@
   const headingText = $derived(heading(data.showSummary));
   const headingRight = $derived(12 + width(headingText, font(14, 600)) + 6);
   const firstButton = $derived(pickerX - 6 - 27);
-  const fitsAll = $derived(firstButton - 4 * 29 >= headingRight);
-  const buttonCount = $derived(fitsAll ? 5 : 4);
+  const fitsAll = $derived(firstButton - 3 * 29 >= headingRight);
+  const buttonCount = $derived(fitsAll ? 4 : 3);
   const leftmost = $derived(firstButton - (buttonCount - 1) * 29);
   const toastWidth = $derived(panel.toast ? width(panel.toast.text, font(11, 500)) + 4 : 0);
   const toastX = $derived(leftmost - 12 - toastWidth);
@@ -88,7 +88,7 @@
   function grab(event: PointerEvent) {
     if (event.button !== 0 || !panel.pinned) return;
     event.preventDefault();
-    void shell.drag();
+    void moveWindow();
   }
   function cardHeight(p: Dashboard['providers'][number]) {
     if (collapsible && !expanded.has(p.id)) return 52;
@@ -102,17 +102,14 @@
     <div class="grip" class:movable={panel.pinned} onpointerdown={grab} aria-hidden="true"></div>
     <h1 class="heading" style:width="{inner - 233 - 18}px">{headingText}</h1>
     <div class="buttons">
-      <span class="slot" style:left="{firstButton}px">
-        <HintButton icon="arrow.clockwise" hint="刷新数据" label="刷新数据" onclick={onrefresh} spinFrom={spin?.from ?? null} spinUntil={spin?.until ?? null} />
-      </span>
-      <span class="slot" bind:this={shareButton} style:left="{firstButton - 29}px">
+      <span class="slot" bind:this={shareButton} style:left="{firstButton}px">
         <HintButton icon={panel.toast ? (panel.toast.ok ? 'checkmark' : 'exclamationmark') : 'square.and.arrow.up'} hint="分享用量图" label="分享用量图"
           tint={panel.toast ? (panel.toast.ok ? 'var(--green)' : 'var(--orange)') : 'var(--label)'} onclick={() => shareButton && onshare(shareButton)} />
       </span>
       {#if fitsAll}
-        <span class="slot" style:left="{firstButton - 58}px"><HintButton icon="sparkle.magnifyingglass" hint="自动检测" label="自动检测" onclick={ondetect} /></span>
+        <span class="slot" style:left="{firstButton - 29}px"><HintButton icon="sparkle.magnifyingglass" hint="自动检测" label="自动检测" onclick={ondetect} /></span>
       {/if}
-      <span class="slot" style:left="{firstButton - (fitsAll ? 87 : 58)}px">
+      <span class="slot" style:left="{firstButton - (fitsAll ? 58 : 29)}px">
         <HintButton icon={pinned ? 'pin.fill' : 'pin'} hint={pinned ? '取消钉住' : `钉住，每 ${pinInterval} 秒刷新`} label={pinned ? '取消钉住面板' : '钉住面板'}
           onclick={onpin} ring={pinned ? { interval: pinInterval, since: liveSince } : null} />
       </span>
@@ -187,6 +184,8 @@
     width: 100%;
     height: 40px;
   }
+  .grip.movable { cursor: grab; }
+  .grip.movable:active { cursor: grabbing; }
   .heading {
     position: absolute;
     left: 12px;

@@ -591,6 +591,35 @@ pub fn set_pinned(app: AppHandle, pinned: bool) {
     }
 }
 
+/// Pinned, the corner handle sets the size (within the limits, the top left kept, on its screen); the size the window
+/// took comes back as the user's.
+#[tauri::command]
+pub fn size_panel(app: AppHandle, width: f64, height: f64) {
+    let state = app.state::<Panel>();
+    if !state.pinned.load(Ordering::SeqCst) || !state.resizable.load(Ordering::SeqCst) {
+        return;
+    }
+    let Some(window) = window(&app) else { return };
+    let mut size = (width.clamp(MIN_SIZE.0, MAX_WIDTH).round(), height.max(MIN_SIZE.1).round());
+    #[cfg(target_os = "macos")]
+    if let Some(current) = macos::frame(&window) {
+        let frame = macos::free_frame(current, size.0, size.1);
+        size = (frame.size.width.round(), frame.size.height.round());
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = &window;
+    state.sized.store(true, Ordering::SeqCst);
+    {
+        let mut current = state.size.lock().expect("the size lock");
+        if *current == size {
+            return;
+        }
+        *current = size;
+    }
+    place(&app, false);
+    let _ = app.emit("panel-resized", Size { width: size.0, height: size.1 });
+}
+
 /// Pinned, a page's top strip moves the window with the pointer.
 #[tauri::command]
 pub fn drag_panel(app: AppHandle) {

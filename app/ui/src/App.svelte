@@ -2,6 +2,7 @@
   // The panel: which page is on screen (the homepage, a row's page, the module grid), actions and their optimistic
   // display, the window's size, the pinned live mode and the rolling figures.
   import { onMount, tick, untrack } from 'svelte';
+  import { fade } from 'svelte/transition';
   import { backend, inTauri, shell } from './lib/backend';
   import { automatic, entryKey, isModule, keepsPanelOpen, opening, passive } from './lib/detail';
   import { currency } from './lib/format';
@@ -163,6 +164,9 @@
     if (!value) free = null;
     void shell.setPinned(value);
     clearInterval(liveTimer);
+    clearTimeout(pinHintTimer);
+    pinHint = value && !panel.arranged;
+    if (pinHint) pinHintTimer = setTimeout(() => (pinHint = false), 3200);
     if (value) {
       const live = new LiveFeed();
       if (snapshot?.dashboard) live.add(snapshot.dashboard);
@@ -176,6 +180,31 @@
       else { feed = null; leaving = null; }
     }
   }
+  /** Pinning says, until the user has done it once, that the top moves the panel and the corner resizes it. */
+  let pinHint = $state(false);
+  let pinHintTimer: ReturnType<typeof setTimeout> | undefined;
+  $effect(() => { if (panel.arranged) pinHint = false; });
+
+  // The corner handle: the size follows the pointer, the top left stays (the window's own edges resize it too).
+  let cornerFrom: { x: number; y: number; width: number; height: number } | null = null;
+  let cornerFrame = 0;
+  function cornerDown(event: PointerEvent) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+    panel.arranged = true;
+    panel.hint = null;
+    cornerFrom = { x: event.clientX, y: event.clientY, width: panelWidth, height: Math.round(panelHeight) };
+  }
+  function cornerMove(event: PointerEvent) {
+    if (!cornerFrom) return;
+    const width = Math.round(Math.min(720, Math.max(360, cornerFrom.width + event.clientX - cornerFrom.x)));
+    const height = Math.round(Math.max(280, cornerFrom.height + event.clientY - cornerFrom.y));
+    cancelAnimationFrame(cornerFrame);
+    cornerFrame = requestAnimationFrame(() => void shell.sizeTo(width, height));
+  }
+  function cornerUp() { cornerFrom = null; }
+
   function schedule() {
     clearInterval(liveTimer);
     liveSince = Date.now();
@@ -190,7 +219,6 @@
   // MARK: Data
 
   let deferred = false;
-  let spin = $state<{ from: number; until: number | null } | null>(null);
 
   /** A button held down keeps its look: a data refresh waits until the press ends. */
   let pressing = false;
@@ -203,10 +231,6 @@
     } catch (error) {
       console.error('snapshot failed', error);
       return;
-    }
-    if (spin && spin.until === null && Date.now() > spin.from) {
-      const turns = Math.max(1, Math.ceil((Date.now() - spin.from) / 900));
-      spin = { from: spin.from, until: spin.from + turns * 900 };
     }
     if (pinned && interaction.source.dashboard) {
       feed?.add(interaction.source.dashboard);
@@ -311,15 +335,6 @@
     if (entry.action) perform(entry.action);
   }
 
-  function refresh() {
-    if (!panel.reduceMotion) {
-      const from = Date.now();
-      spin = { from, until: null };
-      setTimeout(() => { if (spin?.from === from && spin.until === null) spin = { from, until: from + Math.max(1, Math.ceil((Date.now() - from) / 900)) * 900 }; }, 8000);
-    }
-    perform(['refresh']);
-  }
-
   async function share(button: HTMLElement) {
     panel.hint = null;
     const dashboard = snapshot?.dashboard;
@@ -377,11 +392,13 @@
     void shell.shown();
   }
 
-  /** Closed: back to the homepage at once, so the next opening shows it rather than the page left open. */
+  /** Closed: back to the homepage at once, so the next opening shows it rather than the page left open, with nothing
+   *  left focused. */
   function closed() {
     setPinned(false, false);
     free = null;
     startOver(false);
+    (document.activeElement as HTMLElement | null)?.blur?.();
   }
 
   function keydown(event: KeyboardEvent) {
@@ -402,7 +419,10 @@
 
   onMount(() => {
     if (!inTauri) document.body.classList.add('preview');
-    const down = () => (pressing = true);
+    const down = () => { pressing = true; document.documentElement.classList.remove('keyboard'); };
+    // Focus rings belong to moving through the panel with Tab.
+    const tabbing = (event: KeyboardEvent) => { if (event.key === 'Tab') document.documentElement.classList.add('keyboard'); };
+    window.addEventListener('keydown', tabbing, true);
     const up = () => { pressing = false; if (deferred && !panel.menuOpen) { deferred = false; void reload(); } };
     window.addEventListener('pointerdown', down, true);
     window.addEventListener('pointerup', up, true);
@@ -419,6 +439,7 @@
       window.removeEventListener('pointerdown', down, true);
       window.removeEventListener('pointerup', up, true);
       window.removeEventListener('pointercancel', up, true);
+      window.removeEventListener('keydown', tabbing, true);
     };
   });
 
@@ -449,12 +470,24 @@
   {#if hint}
     <span class="hint-bubble" role="tooltip" style:left="{hint.left}px" style:top="{hint.top}px">{hint.text}</span>
   {/if}
+  {#if pinned && !grid}
+    <!-- Pinned: a grabber says the top moves the panel; a thick corner, as iOS draws one, resizes it. -->
+    <span class="grabber" transition:fade={{ duration: panel.reduceMotion ? 0 : 200 }} aria-hidden="true"></span>
+    <span class="corner" role="separator" aria-label="拖动调整大小" transition:fade={{ duration: panel.reduceMotion ? 0 : 200 }}
+      onpointerdown={cornerDown} onpointermove={cornerMove} onpointerup={cornerUp} onpointercancel={cornerUp}>
+      <!-- Its bend shares the window corner's centre (13pt in from both edges), 5pt inside the edge. -->
+      <svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><path d="M25 8V17A8 8 0 0 1 17 25H8" /></svg>
+    </span>
+  {/if}
+  {#if pinHint}
+    <span class="pin-hint" role="status" transition:fade={{ duration: panel.reduceMotion ? 0 : 200 }}>拖动顶部移动面板 · 拖右下角调整大小</span>
+  {/if}
 </div>
 
 {#snippet dashboardView()}
   {#if shown && snapshot}
     <Dashboard data={shown} rangeOptions={snapshot.rangeOptions ?? []} {reveal} {glows} {summaryGlow} live={pinned || leaving !== null ? feed : null} {leaving} onleft={() => { leaving = null; feed = null; }} {liveStamp} {pinned}
-      {pinInterval} {liveSince} {spin} onrange={perform} onrefresh={refresh} onshare={share} ondetect={() => perform(['detect-modules'])}
+      {pinInterval} {liveSince} onrange={perform} onshare={share} ondetect={() => perform(['detect-modules'])}
       onpin={() => { panel.hint = null; setPinned(!pinned); if (pinned) perform(['refresh-live']); }} onsettings={openSettings}
       ongroup={(key) => perform(['set-group', key])} ontoggle={(id, expanded) => perform(['set-expanded', id, expanded ? 'true' : 'false'])} />
   {/if}
@@ -488,6 +521,49 @@
   .view {
     position: absolute;
     inset: 0;
+  }
+  .grabber {
+    position: absolute;
+    left: 50%;
+    top: 4px;
+    width: 34px;
+    height: 4px;
+    margin-left: -17px;
+    border-radius: 2px;
+    background: var(--knob);
+    pointer-events: none;
+  }
+  .corner {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 30px;
+    height: 30px;
+    z-index: 5;
+    cursor: nwse-resize;
+    touch-action: none;
+  }
+  .corner path {
+    fill: none;
+    stroke: var(--knob);
+    stroke-width: 4;
+    stroke-linecap: round;
+    transition: stroke 0.15s;
+  }
+  .corner:hover path, .corner:active path { stroke: var(--secondary); }
+  .pin-hint {
+    position: absolute;
+    left: 50%;
+    top: 44px;
+    z-index: 10;
+    transform: translateX(-50%);
+    padding: 4px 12px;
+    border-radius: 6px;
+    background: var(--solid);
+    box-shadow: 0 0 0 0.5px var(--separator), 0 2px 8px rgba(0, 0, 0, 0.12);
+    font-size: 11px;
+    white-space: nowrap;
+    pointer-events: none;
   }
   .hint-bubble {
     position: absolute;

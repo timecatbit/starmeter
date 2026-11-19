@@ -95,8 +95,10 @@ button {
   margin: 0;
   text-align: inherit;
 }
-button:focus { outline: none; }
-button:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent); outline-offset: -2px; }
+button:focus, button:focus-visible { outline: none; }
+/* A focus ring only while the keyboard moves through the panel (Tab); a click, Esc or the window coming back never
+   leaves one on a button. */
+:root.keyboard button:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent); outline-offset: -2px; }
 /* A press you can feel: the control sinks a little while held and springs back on release. */
 .pressable {
   transition: transform 0.22s cubic-bezier(0.25, 1, 0.5, 1), background-color 0.12s;
