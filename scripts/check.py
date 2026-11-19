@@ -93,7 +93,8 @@ def python_tests(probe):
         environment = {k: v for k, v in os.environ.items() if not k.startswith(private_prefixes)}
         isolated_home = Path(scratch) / 'home'
         isolated_home.mkdir()
-        environment.update(HOME=str(isolated_home), SWIFTBAR_PLUGIN_DATA_PATH=scratch, PYTHONDONTWRITEBYTECODE='1',
+        # No real background runs: one would write into the folders a test is reading.
+        environment.update(HOME=str(isolated_home), SWIFTBAR_PLUGIN_DATA_PATH=scratch, PYTHONDONTWRITEBYTECODE='1', STARMETER_NO_BACKGROUND='1',
                            STARMETER_PROBE=str(probe))
         subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s', str(ROOT / 'tests'), '-p', 'test_*.py', '-v'],
                        check=True, env=environment)

@@ -2374,6 +2374,8 @@ def schedule_background_refresh():
 
 def launch_background(mode):
     if MAC_APP:return  # The AppKit host coalesces refresh work in its own process queue.
+    # The tests: a real background run would write into the folders a test is reading.
+    if os.environ.get('STARMETER_NO_BACKGROUND'):return
     if DESKTOP is not None:
         DESKTOP.request_refresh(mode);return
     try:
