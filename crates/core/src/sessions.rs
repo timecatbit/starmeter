@@ -121,7 +121,7 @@ fn claude(path: &str) -> Result<Option<Object>, FileError> {
     }
     Ok(Some(object! {
         "tool" => "Claude", "state" => if waiting { "waiting" } else { "running" }, "title" => named.or(made),
-        "project" => project_name(folder.as_ref()), "model" => model, "effort" => Json::Null, "context" => context,
+        "project" => claude_project(path, folder.as_ref()), "model" => model, "effort" => Json::Null, "context" => context,
     }))
 }
 
@@ -176,8 +176,8 @@ fn codex(path: &str) -> Result<Option<Object>, ReadError> {
     }))
 }
 
-/// The folder's name; none for the folders the ChatGPT app makes for a chat or a project, named by date and ID (the
-/// session already shows its title).
+/// The project's name (see projects); none for the folders the ChatGPT app makes for a chat or a project, named by
+/// date and ID, or the Claude app's conversations without a folder (the session already shows its title).
 pub fn project_name(folder: Option<&Json>) -> Json {
     if let Some(path) = folder.and_then(Json::as_str) {
         let trimmed = path.trim().trim_end_matches(['/', '\\']).replace('\\', "/");
@@ -185,7 +185,19 @@ pub fn project_name(folder: Option<&Json>) -> Json {
             return Json::Null;
         }
     }
-    py::project_name(folder)
+    chat_free(py::project_name(folder))
+}
+
+/// A Claude conversation's project: the folder Claude files it under, else the folder it last worked in.
+fn claude_project(path: &str, folder: Option<&Json>) -> Json {
+    match crate::projects::transcript_project(path) {
+        Some(name) => chat_free(Json::from(name)),
+        None => project_name(folder),
+    }
+}
+
+fn chat_free(name: Json) -> Json {
+    if name.as_str() == Some(crate::projects::CLAUDE_CHATS) { Json::Null } else { name }
 }
 
 /// …/Codex/YYYY-MM-DD/<name> or …/.chatgpt-projects/g-p-<hex>: folders the ChatGPT app makes.

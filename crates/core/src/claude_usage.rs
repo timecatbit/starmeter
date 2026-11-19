@@ -95,15 +95,9 @@ pub fn normalize(usage: Option<&Json>) -> Result<[i64; 5], Skip> {
     ])
 }
 
-/// The folder a request ran in, by its last name only.
+/// The project of the folder a request ran in (see projects), by its name only.
 pub fn project_name(value: Option<&Json>) -> Option<String> {
-    let path = value.and_then(Json::as_str)?.trim();
-    if path.is_empty() {
-        return None;
-    }
-    let trimmed = path.trim_end_matches(['/', '\\']).replace('\\', "/");
-    let name = trimmed.rsplit('/').next().unwrap_or("");
-    (!name.is_empty()).then(|| name.to_string())
+    crate::projects::name_of(value.and_then(Json::as_str)?)
 }
 
 /// The responses one transcript line holds: the reply itself and any advisor calls inside it. Fails for a line
@@ -531,6 +525,8 @@ fn index(
             .and_then(|allowed| path.split('/').rev().find(|part| allowed.contains(*part)).map(String::from))
             .unwrap_or(stem);
         let location = hex(&key);
+        // The folder Claude files the conversation under is its project, wherever it went on to work.
+        let project = crate::projects::transcript_project(path);
         let mut added: Vec<Record> = Vec::new();
         db.execute("SAVEPOINT source")?;
         let read = (|| -> Result<i64, ReadFailure> {
@@ -549,6 +545,9 @@ fn index(
                 };
                 let Ok(found) = records(&row, &fallback, (&location, position)) else { return Ok(()) };
                 for mut event in found {
+                    if project.is_some() {
+                        event.project = project.clone();
+                    }
                     let mut values = vec![
                         Value::Blob(key.clone()),
                         Value::Integer(position),

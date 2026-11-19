@@ -980,7 +980,7 @@ def claude_usage_records(root, db_path=None, now=None, range_key="today", files=
     if files is None and not root.is_dir():return None,(0,'未找到 Claude 用量记录',None)
     now=now or datetime.now(local_zone());zone=now.tzinfo
     start,end=range_bounds(range_key,now)
-    db_path=db_path or os.path.join(CACHE_DIR,'claude-app-usage-v4-'+hashlib.sha256(str(root.resolve()).encode()).hexdigest()[:12]+'.sqlite3')
+    db_path=db_path or os.path.join(CACHE_DIR,'claude-app-usage-v5-'+hashlib.sha256(str(root.resolve()).encode()).hexdigest()[:12]+'.sqlite3')
     events,failures=claude_records.read_events(files if files is not None else root.rglob('*.jsonl'),db_path,allowed_sessions,start,end,archive)
     events=[row for row in events if start<=row['ts']<=end]
     def tally(rows):
@@ -2339,7 +2339,7 @@ def background_refresh(wait=False):
 
 
 # Index generations in use; older generations, removed snapshots and stray temp files are dropped.
-CURRENT_INDEXES = ('claude-app-usage-v4-', 'harness-v4-', 'harness-v6-codex-', 'harness-v5-qoder-', 'harness-v6-magpie-', 'harness-gemini-v2-', 'harness-gateway-v2-')
+CURRENT_INDEXES = ('claude-app-usage-v5-', 'harness-v4-', 'harness-v6-codex-', 'harness-v6-qoder-', 'harness-v6-magpie-', 'harness-gemini-v2-', 'harness-gateway-v2-')
 # Indexes a source outgrew, under a prefix the current ones still match.
 RETIRED_INDEXES = ('harness-v4-magpie-', 'harness-v4-codex-', 'harness-v4-qoder-')
 INDEX_FILE = re.compile(r'(?:claude-app-usage|claude-usage|harness)-.+\.sqlite3(?:-journal|-wal|-shm)?')

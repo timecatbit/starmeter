@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 
 from urllib.parse import unquote
 import swiftbar_archive as kept
+import swiftbar_projects
 import swiftbar_sessions
 from swiftbar_time import parse_iso
 from swiftbar_runtime import activate_vendor, cli_args, quiet_subprocess
@@ -139,13 +140,13 @@ def metrics(model, inputs, output, cached=0, writes=0, cost=None):
 
 
 def project_name(path):
-    """A project's folder name, the last part of its working directory; only the name is kept, never the path.
+    """A project's name from its working directory (see swiftbar_projects); only the name is kept, never the path.
     A file:// address (the ChatGPT app writes some) is read as the path it stands for, %20 as a space."""
     if not isinstance(path, str) or not path.strip():
         return None
     path = path.strip()
     if path.startswith('file://'):path = unquote(path[7:])
-    return re.split(r'[\\/]', path.rstrip('/\\'))[-1] or None
+    return swiftbar_projects.name_of(path)
 
 
 # A ChatGPT app chat with no project folder runs in a folder the app makes for it, Documents/Codex/<day>/<slug>, named
@@ -374,7 +375,7 @@ def _stream(path):
 
 # A source's index version rises when what its events hold changes, so old indexes are rebuilt.
 # Codex and Qoder CN went to 5 when their events learned the project they ran in.
-INDEX_VERSIONS = {'magpie': 6, 'codex': 6, 'qoder': 5}
+INDEX_VERSIONS = {'magpie': 6, 'codex': 6, 'qoder': 6}
 
 
 def jsonl_usage(source, root, cache, start, end, zone, exclude_proxy=False, carriers=None, price=None, archive=None):
@@ -407,6 +408,8 @@ def jsonl_usage(source, root, cache, start, end, zone, exclude_proxy=False, carr
                 incremental = previous and previous[0] == st.st_ino and previous[1] < st.st_size and path.suffix not in ('.zstd','.zst')
                 state = json.loads(previous[4]) if incremental else {'session': path.name.removesuffix('.zst').removesuffix('.jsonl')}
                 offset = previous[3] if incremental else 0
+                # Qoder CN files a conversation under its project's folder, as Claude does.
+                folder = swiftbar_projects.transcript_project(path) if source == 'qoder' else None
                 stream, process, timer = _stream(path)
                 conn.execute('SAVEPOINT source_file')
                 try:
@@ -429,6 +432,8 @@ def jsonl_usage(source, root, cache, start, end, zone, exclude_proxy=False, carr
                             if source != 'codex' and state.get('isSeeded') and row.get('type')=='session/end-seed' and (row.get('data') or {}).get('inherited'):
                                 conn.execute('DELETE FROM events WHERE file=?', (file_key,))
                             event = parser(row, {'offset':offset} if source == 'magpie' else state)
+                            if event and folder:
+                                event['project'] = folder
                             if event:
                                 conn.execute('INSERT OR REPLACE INTO events VALUES (?,?,?,?)', (event['id'], file_key, event['timestamp'], json.dumps(event)))
                         except (KeyError, TypeError, AttributeError, json.JSONDecodeError):

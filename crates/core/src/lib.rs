@@ -32,6 +32,7 @@ pub mod panel_snapshot;
 pub mod platform;
 pub mod preferences;
 pub mod pricing;
+pub mod projects;
 pub mod py;
 pub mod range_usage;
 pub mod render;

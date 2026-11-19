@@ -12,6 +12,8 @@ import re
 from urllib.parse import unquote
 from pathlib import Path
 
+import swiftbar_projects
+
 ACTIVE = 1800   # A session waiting for input stays listed this long after its last change.
 STALLED = 600   # A running session silent this long has most likely stopped without saying so.
 TAIL = 512 * 1024
@@ -20,13 +22,18 @@ CLAUDE_WINDOWS = (200_000, 1_000_000)
 
 
 def project_name(path):
-    """The folder's name; none for the folders the ChatGPT app makes for a chat or a project, named by date and ID."""
+    """The project's name (see swiftbar_projects); none for the folders the ChatGPT app makes for a chat or a project,
+    named by date and ID, or the Claude app's conversations without a folder (the session already shows its title)."""
     if not isinstance(path, str) or not path.strip():return None
     path = path.strip()
     if path.startswith('file://'):path = unquote(path[7:])
     path = path.rstrip('/\\').replace('\\', '/')
     if re.search(r'/Codex/\d{4}-\d{2}-\d{2}/[^/]+$|/\.chatgpt-projects/g-p-[0-9a-f]+$', path):return None
-    return path.rsplit('/', 1)[-1] or None
+    return chat_free(swiftbar_projects.name_of(path))
+
+
+def chat_free(name):
+    return None if name == swiftbar_projects.CLAUDE_CHATS else name
 
 
 def rows_at_end(path, size=TAIL):
@@ -79,7 +86,9 @@ def claude(path):
         used = sum(number(usage.get(k)) for k in ('input_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens', 'output_tokens'))
         window = next((w for w in CLAUDE_WINDOWS if used <= w), CLAUDE_WINDOWS[-1])
         context = min(1.0, used / window) if used else None
-    return {'tool': 'Claude', 'state': 'waiting' if waiting else 'running', 'title': named or made, 'project': project_name(folder),
+    project = swiftbar_projects.transcript_project(path)
+    return {'tool': 'Claude', 'state': 'waiting' if waiting else 'running', 'title': named or made,
+            'project': chat_free(project) if project else project_name(folder),
             'model': model, 'effort': None, 'context': context}
 
 

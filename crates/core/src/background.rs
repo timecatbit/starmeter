@@ -146,10 +146,10 @@ pub fn key_ttl(provider: &str) -> Option<f64> {
 }
 
 const CURRENT_INDEXES: [&str; 7] = [
-    "claude-app-usage-v4-",
+    "claude-app-usage-v5-",
     "harness-v4-",
     "harness-v6-codex-",
-    "harness-v5-qoder-",
+    "harness-v6-qoder-",
     "harness-v6-magpie-",
     "harness-gemini-v2-",
     "harness-gateway-v2-",

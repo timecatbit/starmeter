@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import sqlite3
 
+import swiftbar_projects
 from swiftbar_time import parse_iso
 
 
@@ -38,9 +39,9 @@ def normalize(usage):
 
 
 def project_name(path):
-    """The folder a request ran in, by its last name only."""
-    if not isinstance(path,str) or not path.strip():return None
-    return path.strip().rstrip('/\\').replace('\\','/').rsplit('/',1)[-1] or None
+    """The project of the folder a request ran in (see swiftbar_projects), by its name only."""
+    if not isinstance(path,str):return None
+    return swiftbar_projects.name_of(path)
 
 
 def records(row,session_fallback,location):
@@ -177,6 +178,8 @@ def read_events(files,db_path,allowed_sessions=None,start=0,end=float('inf'),arc
                 incremental=bool(old and old[0]==stat.st_ino and stat.st_size>old[1])
                 offset=old[3] if incremental else 0
                 fallback=next((part for part in reversed(path.parts) if allowed_sessions and part in allowed_sessions),path.stem)
+                # The folder Claude files the conversation under is its project, wherever it went on to work.
+                project=swiftbar_projects.transcript_project(path)
                 added=[]
                 conn.execute('SAVEPOINT source')
                 try:
@@ -192,6 +195,7 @@ def read_events(files,db_path,allowed_sessions=None,start=0,end=float('inf'),arc
                             if b'"usage"' not in line or b'"assistant"' not in line:continue
                             try:
                                 for event in records(json.loads(line),fallback,(key.hex(),position)):
+                                    if project:event['project']=project
                                     conn.execute('INSERT OR REPLACE INTO records VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                                                  (key,position,event['slot'],event['key'],event['message'],event['request'],event['session'],event['ts'],event['model'],
                                                   *event['metrics'],event['cost'],int(event['sidechain']),event['speed'],event['geo'],event['tier'],event['project']))

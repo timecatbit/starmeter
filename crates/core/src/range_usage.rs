@@ -247,7 +247,7 @@ impl Runtime {
             .map(|path| path.to_string_lossy().into_owned())
             .unwrap_or_else(|| runtime::absolute(root));
         let database =
-            format!("{}/claude-app-usage-v4-{}.sqlite3", self.cache_dir, &py::sha256_hex(real.as_bytes())[..12]);
+            format!("{}/claude-app-usage-v5-{}.sqlite3", self.cache_dir, &py::sha256_hex(real.as_bytes())[..12]);
         let (all, failures) =
             claude_usage::read_events(files, Path::new(&database), None, start, end, archive.map(Path::new))?;
         let events: Vec<ClaudeEvent> = all.into_iter().filter(|event| start <= event.ts && event.ts <= end).collect();

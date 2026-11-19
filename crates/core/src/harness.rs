@@ -32,8 +32,7 @@ fn service_tier(name: &str) -> Option<&'static str> {
 /// A source's index version rises when what its events hold changes, so old indexes are rebuilt.
 pub fn index_version(source: &str) -> i64 {
     match source {
-        "magpie" | "codex" => 6,
-        "qoder" => 5,
+        "magpie" | "codex" | "qoder" => 6,
         _ => 4,
     }
 }
@@ -768,6 +767,8 @@ pub fn jsonl_usage(
                 object! { "session" => session }
             });
             let mut offset = if incremental { previous.as_ref().and_then(|p| int(p, 3)).unwrap_or(0) } else { 0 };
+            // Qoder CN files a conversation under its project's folder, as Claude does.
+            let folder = if source == "qoder" { crate::projects::transcript_project(path) } else { None };
             db.execute("SAVEPOINT source_file")?;
             let outcome = (|| -> Result<(), Stop> {
                 if !incremental {
@@ -805,7 +806,10 @@ pub fn jsonl_usage(
                         }
                     })();
                     match step {
-                        Ok(Some(event)) => {
+                        Ok(Some(mut event)) => {
+                            if let Some(folder) = &folder {
+                                event.insert("project", folder.as_str());
+                            }
                             db.run(
                                 "INSERT OR REPLACE INTO events VALUES (?,?,?,?)",
                                 &[

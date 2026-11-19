@@ -169,7 +169,7 @@ pub fn int(value: Option<&Json>) -> Result<i64, ReadError> {
     }
 }
 
-/// A project's folder name, the last part of its working directory; only the name is kept, never the path. A
+/// A project's name from its working directory (see projects); only the name is kept, never the path. A
 /// file:// address (the ChatGPT app writes some) is read as the path it stands for, %20 as a space.
 pub fn project_name(value: Option<&Json>) -> Json {
     let Some(path) = value.and_then(Json::as_str).map(str::trim).filter(|path| !path.is_empty()) else {
@@ -179,9 +179,7 @@ pub fn project_name(value: Option<&Json>) -> Json {
         Some(rest) => percent_decode(rest).unwrap_or_else(|| rest.to_string()),
         None => path.to_string(),
     };
-    let trimmed = path.trim_end_matches(['/', '\\']);
-    let name = trimmed.rsplit(['/', '\\']).next().unwrap_or("");
-    if name.is_empty() { Json::Null } else { Json::from(name) }
+    crate::projects::name_of(&path).map_or(Json::Null, Json::from)
 }
 
 /// Foundation's `removingPercentEncoding`: None when an escape is malformed or the bytes are not UTF-8.
