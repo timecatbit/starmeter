@@ -120,7 +120,7 @@ export async function poster(d: Dashboard, markColour: string, limit = SHARE_TOO
     const credits = folded.reduce((s, p) => s + (p.cost === null ? p.credits ?? 0 : 0), 0);
     const unpriced = folded.reduce((s, p) => s + (p.priceNote ? p.unpriced : 0), 0);
     tools.push({
-      id: 'other', name: tr('其他工具'), tokens: t > 0 ? tokens(t) + ' Token' : tr('Token 未记录'), tag: null, models: [],
+      id: 'other', name: tr('其他工具'), tokens: t > 0 ? tr('{n} Token', { n: tokens(t) }) : tr('Token 未记录'), tag: null, models: [],
       cost: known.length ? amountText(amount(known.reduce((s, p) => s + (p.cost ?? 0), 0))) : credits > 0 ? creditsText(credits) : '—',
       share: t > 0 && sumTokens > 0 ? tr('占 {n}', { n: share(t / sumTokens) }) : '', unpriced: unpriced > 0 ? tr('{n} 次未定价', { n: unpriced }) : null,
       members: folded.map((p) => ({ id: p.id, name: legendName(p) })),
@@ -141,7 +141,7 @@ export async function poster(d: Dashboard, markColour: string, limit = SHARE_TOO
     let middle: number | null = null;
     for (let i = 1; i < n - 1; i++) if (positions[i] >= 0.25 && positions[i] <= 0.75 && (middle === null || Math.abs(positions[i] - 0.5) < Math.abs(positions[middle] - 0.5))) middle = i;
     chart = {
-      label: d.chartUnit + ' Token', note: shownHeatmap(d)?.streak ?? '', values, series, rest, positions, ceiling,
+      label: t('{unit} Token', { unit: d.chartUnit }), note: shownHeatmap(d)?.streak ?? '', values, series, rest, positions, ceiling,
       axis: [axisTokens(0), axisTokens(ceiling / 2), axisTokens(ceiling)],
       ticks: [0, ...(middle !== null ? [middle] : []), n - 1].map((i) => ({ label: d.dates[i], at: positions[i], index: i })),
     };
@@ -161,7 +161,7 @@ export async function poster(d: Dashboard, markColour: string, limit = SHARE_TOO
 }
 
 /** The three figures under the hero, in this order in every style. */
-export const figures = (p: Poster): [string, string][] => [['Token', p.tokens], [t('请求'), p.requests], [t('缓存命中'), p.cache]];
+export const figures = (p: Poster): [string, string][] => [[t('Token'), p.tokens], [t('请求'), p.requests], [t('缓存命中'), p.cache]];
 
 // MARK: Drawing every style shares
 

@@ -38,8 +38,11 @@ export function addPhrases(more: Record<string, string>) {
 /** A piece of the engine's text in English: the whole as one phrase or by a rule for the whole (已用 本周 38% · 5 小时
  *  12%); then each part between " · " on its own; then the part before a "：" and the rest; then a rule that knows the
  *  part's shape. What none of these know stays Chinese. */
+/** A figure in tokens as the engine writes it (2.41M Token): English counts them in the plural. */
+const TOKENS = /(\d[\d.,]*[KMB]?) Token\b(?!\/)/g;
+
 export function translate(text: string): string {
-  if (!CJK.test(text)) return text;
+  if (!CJK.test(text)) return text.replace(TOKENS, '$1 tokens');
   const known = cache.get(text);
   if (known !== undefined) return known;
   const rule = (list: typeof rules) => {

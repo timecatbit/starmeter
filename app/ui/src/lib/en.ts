@@ -26,7 +26,8 @@ export const phrases: Record<string, string> = {
   客户端: 'Clients', '{n} 请求': '{n} requests', '{n} 请求|1': '{n} request', '{n} 会话': '{n} sessions', '{n} 会话|1': '{n} session', '输出 {n}': 'Output {n}', '缓存 —': 'Cache —',
   '缓存 {n}%': 'Cache {n}%', '已定价 {n}%': '{n}% priced', '{n} 次未定价': '{n} unpriced', 缓存: 'Cache', 输出: 'Output', 费用: 'Cost', 会话数: 'Sessions', 输入: 'Input', 缓存读: 'Cache read', 缓存写: 'Cache write',
   // Heatmap
-  暂无用量: 'No usage yet', 无用量: 'No usage', 部分小时数据不可用: 'Some hourly data is unavailable', 每格: 'per square',
+  暂无用量: 'No usage yet', 无用量: 'No usage', 部分小时数据不可用: 'Some hourly data is unavailable', 每格: 'per dot',
+  '{n} Token': '{n} tokens', Token: 'Tokens', '{unit} Token': '{unit} tokens',
   // Subscriptions
   来源: 'Source', 本机登录: 'local sign-in', 编程工具额度: 'coding limits', '5 小时': '5 hours', 更新时间: 'Updated',
   '订阅月费…': 'Monthly price…', 'Code 登录': 'Code sign-in', 额外用量: 'Extra usage', 立即刷新用量: 'Refresh usage now',
@@ -108,7 +109,7 @@ export const phrases: Record<string, string> = {
   昨日: 'Yesterday', 累计: 'All time', '已知 API 等值估算': 'Known API-equivalent estimate', 'API 等值估算': 'API-equivalent estimate',
   缓存命中: 'Cache hits', '等 {n} 个': 'and {n} more', '图 1 · ': 'Fig. 1 · ', 总量: 'Total',
   // The panel's own labels
-  '近 1 分钟 +{n} Token · 输出 ': 'Last minute +{n} Token · output ', '收起 {name} 明细': 'Fold {name}', '展开 {name} 明细': 'Unfold {name}',
+  '近 1 分钟 +{n} Token · 输出 ': 'Last minute +{n} tokens · output ', '收起 {name} 明细': 'Fold {name}', '展开 {name} 明细': 'Unfold {name}',
   '{name} 详情': '{name} details', 此时段暂无模型调用: 'No model calls in this range', '全部来自 {name}': 'All from {name}',
   正在进行: 'In progress', 卡片分组: 'Card grouping', 'AI 用量面板': 'AI usage panel', '在主页显示 {name}': 'Show {name} on the homepage',
   拖动调整大小: 'Drag to resize', '已知 {n}': 'Known {n}',
@@ -118,10 +119,19 @@ type Rule = [RegExp, (m: RegExpMatchArray, tr: (text: string) => string) => stri
 
 const time = (zh: string) => zh.replace(/^周([一二三四五六日天])/, (_, d: string) => WEEKDAYS[d]);
 
+/** A plan's window and its share inside “Used: …”: a window with a common name (本周, 本周期) is written in lower case
+ *  there (“Used: this week 38% · 5 hours 12%”); a model's or an account's own name keeps its capitals. */
+function windowShare(part: string, tr: (text: string) => string): string {
+  const named = part.match(/^(.+) (\d+(?:\.\d+)?%)$/);
+  if (!named || !/[\u3400-\u9fff]/.test(named[1])) return tr(part);
+  const name = tr(named[1]);
+  return `${name.charAt(0).toLowerCase()}${name.slice(1)} ${named[2]}`;
+}
+
 /** Rules for the whole text, before it is split into parts: a share used across windows or accounts, the time a
  *  chart was read. */
 export const whole: Rule[] = [
-  [/^已用 (.+ · .+)$/, (m, tr) => `Used: ${m[1].split(' · ').map(tr).join(' · ')}`],
+  [/^已用 (.+ · .+)$/, (m, tr) => `Used: ${m[1].split(' · ').map((part) => windowShare(part, tr)).join(' · ')}`],
   [/^更新时间：(.+)$/, (m) => `Updated ${m[1]}`],
 ];
 
@@ -166,8 +176,8 @@ export const rules: Rule[] = [
   [/^图表展示最近 (\d+) 天$/, (m) => `The chart shows the last ${m[1]} days`],
   [/^(.+) 不可读$/, (m) => `${m[1]} can't be read`],
   // Heatmap
-  [/^每格 (\d+) 小时$/, (m) => `${m[1]} ${plural(m[1], 'hour', 'hours')} a square`],
-  [/^每格 (\d+) 天$/, (m) => `${m[1]} ${plural(m[1], 'day', 'days')} a square`],
+  [/^每格 (\d+) 小时$/, (m) => `${m[1]} ${plural(m[1], 'hour', 'hours')} per dot`],
+  [/^每格 (\d+) 天$/, (m) => `${m[1]} ${plural(m[1], 'day', 'days')} per dot`],
   [/^(\d+)小时$/, (m) => `${m[1]}h`],
   [/^(\d+)天$/, (m) => `${m[1]}d`],
   [/^(\d+)月$/, (m) => MONTHS[Number(m[1]) - 1] ?? m[0]],

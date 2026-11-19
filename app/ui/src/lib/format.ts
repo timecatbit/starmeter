@@ -62,7 +62,7 @@ export function headline(p: ProviderUsage): string {
   return money(p.cost);
 }
 
-export const tokenLine = (p: ProviderUsage) => (p.tokens === 0 && p.credits !== null ? t('Token 未记录') : tokens(p.tokens) + ' Token');
+export const tokenLine = (p: ProviderUsage) => (p.tokens === 0 && p.credits !== null ? t('Token 未记录') : t('{n} Token', { n: tokens(p.tokens) }));
 
 export function modelAmount(m: ModelUsage): string {
   if (m.tokens === 0 && m.credits !== undefined) return creditsText(m.credits);

@@ -21,7 +21,7 @@
   const colour = $derived(accent(colourOf(p), panel.dark));
   const credits = $derived(p.tokens === 0 && p.credits !== null);
   const figures = $derived<[string, string][]>(p.available ? [
-    credits ? ['Credits', String(Math.round(p.credits ?? 0))] : ['Token', tokens(p.tokens)],
+    credits ? ['Credits', String(Math.round(p.credits ?? 0))] : [t('Token'), tokens(p.tokens)],
     [t('请求'), String(p.requests)],
     ...(credits ? [] : [[t('缓存'), p.cache === null ? '—' : (p.cache * 100).toFixed(1) + '%'], [t('输出'), tokens(p.output)]] as [string, string][]),
     [t('会话'), String(p.sessions)],
@@ -67,7 +67,7 @@
           <p class="note" class:warning>{text}</p>
         {/each}
         {#if trend}
-          <h3 class="section">{dashboard.chartUnit} Token</h3>
+          <h3 class="section">{t('{unit} Token', { unit: dashboard.chartUnit })}</h3>
           <svg class="trend" width={W} height={H} aria-hidden="true">
             <defs><linearGradient id={gradient} x1="0" y1="0" x2="0" y2="1">
               <stop offset="0" stop-color={alpha(colour, 0.22)} /><stop offset="1" stop-color={alpha(colour, 0)} />

@@ -82,6 +82,10 @@ test('English: the homepage, its pages and the card groupings', async ({ page })
   const left = new Leftovers();
   await english(page);
   await left.take(page, 'home');
+  // Tokens are counted in the plural, a plan's windows read mid-sentence, and the heatmap is made of dots.
+  await expect(page.locator('.card').first()).toContainText('7.24M tokens');
+  await expect(page.locator('.row', { hasText: 'Claude plan' })).toContainText('Used: this week 76%');
+  await expect(page.locator('.heatmap')).toContainText('1 hour per dot');
   const tabs = await page.getByRole('radiogroup', { name: 'Card grouping' }).getByRole('radio').all();
   for (const tab of tabs) {
     await tab.click();

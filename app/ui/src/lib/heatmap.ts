@@ -26,7 +26,7 @@ export function detail(h: UsageHeatmap, index: number): string {
   const n = h.requests[index] ?? 0;
   if (!active(h)[index]) return h.labels[index] + ' · ' + t('无用量');
   const parts = [h.labels[index]];
-  if (h.tokens[index] > 0) parts.push(tokens(h.tokens[index]) + ' Token');
+  if (h.tokens[index] > 0) parts.push(t('{n} Token', { n: tokens(h.tokens[index]) }));
   const cost = h.costs[index] ?? 0, partial = (h.unpriced[index] ?? 0) > 0;
   if (cost > 0) parts.push(partial ? t('已知 {n}', { n: money(cost) }) : money(cost));
   parts.push(t('{n} 请求', { n }));

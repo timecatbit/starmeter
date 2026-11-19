@@ -326,7 +326,7 @@
 <canvas bind:this={canvas} class="live" style:width="{wide + PAD}px" style:height="{H}px" aria-label={t('实时用量图')}></canvas>
 {#if leaving === null}
   <div class="modes" role="radiogroup" aria-label={t('实时图显示')}>
-    <button class="mode pressable" class:chosen={mode === 'total'} role="radio" aria-checked={mode === 'total'} onclick={() => pickMode('total')}>Token</button>
+    <button class="mode pressable" class:chosen={mode === 'total'} role="radio" aria-checked={mode === 'total'} onclick={() => pickMode('total')}>{t('Token')}</button>
     <button class="mode pressable" class:chosen={mode === 'rate'} role="radio" aria-checked={mode === 'rate'} onclick={() => pickMode('rate')}>Token/s</button>
   </div>
 {/if}
