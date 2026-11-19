@@ -42,6 +42,8 @@ export function addPhrases(more: Record<string, string>) {
 const TOKENS = /(\d[\d.,]*[KMB]?) Token\b(?!\/)/g;
 
 export function translate(text: string): string {
+  // Fields the engine leaves empty (null) pass through as they are.
+  if (typeof text !== 'string') return text;
   if (!CJK.test(text)) return text.replace(TOKENS, '$1 tokens');
   const known = cache.get(text);
   if (known !== undefined) return known;
