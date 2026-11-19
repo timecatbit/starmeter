@@ -14,6 +14,12 @@
   --dot: rgba(88, 79, 227, 0.22);
   --glow: rgba(88, 79, 227, 0.16);
   --never: #d9483b;
+  /* The starfield's dots, from the faintest to the brightest: r, g, b, alpha. */
+  --star-from: 88, 79, 227, 0.1;
+  --star-to: 88, 79, 227, 0.85;
+  --halo: rgba(88, 79, 227, 0.28);
+  --shine: #a99dff;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --radius: 18px;
   --font: -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text', 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei UI', system-ui, sans-serif;
   --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
@@ -32,6 +38,10 @@
     --dot: rgba(190, 205, 255, 0.28);
     --glow: rgba(70, 100, 220, 0.35);
     --never: #ff8a7a;
+    --star-from: 126, 166, 245, 0.2;
+    --star-to: 255, 255, 255, 1;
+    --halo: rgba(140, 170, 255, 0.4);
+    --shine: #ffffff;
   }
 }
 
@@ -71,7 +81,9 @@ p { margin: 0; }
   backdrop-filter: saturate(1.6) blur(18px);
   -webkit-backdrop-filter: saturate(1.6) blur(18px);
   border-bottom: 1px solid var(--faint);
+  transition: background-color 0.4s ease, border-color 0.4s ease, backdrop-filter 0.4s ease;
 }
+.nav.top { background-color: transparent; border-bottom-color: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; }
 .brand { display: inline-flex; align-items: center; gap: 9px; font-weight: 650; text-decoration: none; font-size: 17px; }
 .mark {
   width: 20px;
@@ -130,7 +142,17 @@ h2 { font-size: clamp(28px, 4vw, 40px); font-weight: 700; }
 }
 .button:hover { background: color-mix(in srgb, var(--accent) 16%, transparent); }
 .button:active { transform: scale(0.97); }
-.button.primary { background: var(--accent); color: var(--accent-text); box-shadow: 0 8px 24px -8px var(--accent); }
+.button.primary { position: relative; overflow: hidden; background: var(--accent); color: var(--accent-text); box-shadow: 0 8px 24px -8px var(--accent); }
+/* A glint that crosses the button under the pointer. */
+.button.primary::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, 0.38) 50%, transparent 70%);
+  transform: translateX(-110%);
+  pointer-events: none;
+}
+.button.primary:hover::after { transform: translateX(110%); transition: transform 0.9s var(--ease); }
 .button.primary:hover { background: color-mix(in srgb, var(--accent) 88%, var(--text)); }
 .button svg { width: 17px; height: 17px; }
 
@@ -145,35 +167,51 @@ h2 { font-size: clamp(28px, 4vw, 40px); font-weight: 700; }
   padding-bottom: 40px;
   background: radial-gradient(ellipse 70% 50% at 50% 0%, var(--glow), transparent 70%);
 }
-/* A halftone night sky, as in the logo: dots of two sizes, brighter near the top. */
+/* A halftone night sky, as in the logo: site.js draws it on the canvas, every dot twinkling slowly and now and then a
+   few dots swelling into a sparkle like the logo's. Until then, or without scripts, a still pattern stands in. */
 .starfield {
   position: absolute;
   inset: 0 0 auto;
-  height: 620px;
+  width: 100%;
+  height: min(100%, 1040px);
   z-index: -1;
+  pointer-events: none;
+}
+.starfield:not(.live) {
   background-image:
     radial-gradient(circle, var(--dot) 1.3px, transparent 1.8px),
     radial-gradient(circle, var(--dot) 0.8px, transparent 1.2px);
-  background-size: 34px 34px, 17px 17px;
-  background-position: 0 0, 8px 9px;
-  -webkit-mask-image: radial-gradient(ellipse 60% 75% at 50% 0%, #000 10%, transparent 75%);
-  mask-image: radial-gradient(ellipse 60% 75% at 50% 0%, #000 10%, transparent 75%);
+  background-size: 36px 36px, 18px 18px;
+  background-position: 0 0, 9px 9px;
+  -webkit-mask-image: radial-gradient(ellipse 60% 60% at 50% 0%, #000 10%, transparent 75%);
+  mask-image: radial-gradient(ellipse 60% 60% at 50% 0%, #000 10%, transparent 75%);
 }
 .hero > *:not(.starfield) { position: relative; }
-.app-icon { margin: 0 auto 28px; filter: drop-shadow(0 18px 30px rgba(14, 29, 76, 0.35)); }
+.icon-wrap { position: relative; width: 112px; margin: 0 auto 28px; }
+/* A soft light behind the icon, breathing slowly while motion is on. */
+.icon-wrap::before {
+  content: '';
+  position: absolute;
+  inset: -55%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, var(--halo), transparent);
+  z-index: -1;
+}
+.app-icon { filter: drop-shadow(0 18px 30px rgba(14, 29, 76, 0.35)); }
 .hero h1 { font-size: clamp(34px, 6vw, 60px); font-weight: 750; }
 .hero h1 em { font-style: normal; color: var(--accent); }
 .lead { max-width: 680px; margin: 24px auto 0; color: var(--muted); font-size: clamp(16px, 2.1vw, 19px); }
 .actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 34px; }
 .meta { margin-top: 16px; font-size: 13.5px; color: var(--muted); }
 
-/* Three panels: the homepage in front, a subscription and the live chart behind it. */
-.fan { position: relative; display: flex; justify-content: center; align-items: flex-start; margin-top: 48px; height: 800px; }
+/* Three panels: the homepage in front, a subscription and the live chart behind it. --fan is how far the two behind
+   have opened out, 1 unless site.js opens them as the page scrolls. */
+.fan { --fan: 1; position: relative; display: flex; justify-content: center; align-items: flex-start; margin-top: 48px; height: 800px; }
 .fan picture { position: absolute; top: 0; }
 .fan .front { z-index: 2; width: 440px; }
 .fan .side { width: 390px; }
-.fan .left { transform: translateX(-310px) translateY(70px) rotate(-5deg); }
-.fan .right { transform: translateX(310px) translateY(110px) rotate(5deg); }
+.fan .left { transform: translateX(calc(-310px * var(--fan))) translateY(calc(70px * var(--fan))) rotate(calc(-5deg * var(--fan))); }
+.fan .right { transform: translateX(calc(310px * var(--fan))) translateY(calc(110px * var(--fan))) rotate(calc(5deg * var(--fan))); }
 @media (max-width: 960px) {
   .fan { height: auto; }
   .fan picture { position: static; }
@@ -183,7 +221,7 @@ h2 { font-size: clamp(28px, 4vw, 40px); font-weight: 700; }
 
 /* MARK: Tools */
 
-.tools { padding-top: 32px; padding-bottom: 24px; text-align: center; }
+.tools { padding-top: 32px; padding-bottom: 24px; text-align: center; overflow-x: clip; }
 .chips { list-style: none; display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; padding: 0; margin: 0 auto 30px; max-width: 860px; }
 .chips li { padding: 7px 15px; border-radius: 999px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--faint); font-size: 14.5px; font-weight: 550; }
 .chips.quiet li { background: transparent; color: var(--muted); font-weight: 500; }
@@ -255,6 +293,10 @@ h2 { font-size: clamp(28px, 4vw, 40px); font-weight: 700; }
 
 /* MARK: Privacy */
 
+/* The privacy promise in large type; with motion on, it lights up word by word as it scrolls past. */
+.privacy .centered { max-width: 860px; }
+.copy > p.statement { color: var(--text); font-size: clamp(22px, 2.7vw, 30px); font-weight: 650; line-height: 1.5; margin-top: 26px; letter-spacing: -0.005em; }
+
 .privacy .columns { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 48px; }
 .privacy .card { background: var(--surface); border-radius: var(--radius); padding: 28px 30px; box-shadow: inset 0 0 0 1px var(--faint); }
 .privacy h3 { font-size: 19px; margin-bottom: 16px; }
@@ -273,7 +315,13 @@ h2 { font-size: clamp(28px, 4vw, 40px); font-weight: 700; }
 
 /* MARK: Download */
 
-.download { background: radial-gradient(ellipse 60% 60% at 50% 100%, var(--glow), transparent 70%); }
+/* Extra room below the files for the sky to rise from. */
+.download { position: relative; isolation: isolate; overflow: hidden; padding-bottom: 140px; background: radial-gradient(ellipse 60% 60% at 50% 100%, var(--glow), transparent 70%); }
+.download .starfield { inset: 0; height: 100%; }
+.download .starfield:not(.live) {
+  -webkit-mask-image: radial-gradient(ellipse 60% 60% at 50% 100%, #000 10%, transparent 75%);
+  mask-image: radial-gradient(ellipse 60% 60% at 50% 100%, #000 10%, transparent 75%);
+}
 .platforms { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 48px; }
 .platform {
   display: flex;
@@ -304,6 +352,99 @@ a.platform:hover { transform: translateY(-2px); box-shadow: inset 0 0 0 1.5px va
 }
 @media (max-width: 860px) { .platforms { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 560px) { .platforms { grid-template-columns: 1fr; } }
+
+/* MARK: Motion
+
+   Everything below runs only with html.motion, which the page sets unless the system asks to reduce motion; without
+   it each piece is simply in place. Scroll-linked values (--lift, --fade, --fan, --shift, --p) come from site.js. */
+
+@keyframes rise { from { opacity: 0; transform: translateY(26px); filter: blur(8px); } }
+@keyframes rise-far { from { opacity: 0; transform: translateY(120px); } }
+@keyframes appear { from { opacity: 0; transform: scale(0.72); filter: blur(12px); } }
+@keyframes breathe { 50% { opacity: 0.5; transform: scale(0.86); } }
+@keyframes shine { from { background-position: 100% 0; } 55%, to { background-position: 0 0; } }
+@keyframes twinkle { 50% { opacity: 0.3; } }
+@keyframes drift { to { transform: translateX(-50%); } }
+
+/* The opening: the icon lights up, the words rise one after another, and the panels come up from below. */
+html.motion .hero-copy > * { animation: rise 1.2s var(--ease) both; }
+html.motion .hero-copy > .icon-wrap { animation: appear 1.4s var(--ease) both; }
+html.motion .hero-copy > h1 { animation-delay: 0.12s; }
+html.motion .hero-copy > .lead { animation-delay: 0.24s; }
+html.motion .hero-copy > .actions { animation-delay: 0.34s; }
+html.motion .hero-copy > .meta { animation-delay: 0.42s; }
+html.motion .icon-wrap::before { animation: breathe 6s ease-in-out 1.4s infinite; }
+html.motion .fan { animation: rise-far 1.7s var(--ease) 0.35s both; }
+/* A slow glint passes along the second line of the headline. */
+html.motion .hero h1 em {
+  background: linear-gradient(100deg, var(--accent) 36%, var(--shine) 50%, var(--accent) 64%) 100% 0 / 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shine 9s ease-in-out 1.6s infinite;
+}
+/* Scrolling on, the headline drifts up a little slower than the page and fades as the panels pass it. */
+.hero-copy { translate: 0 calc(var(--lift, 0) * 1px); opacity: var(--fade, 1); }
+
+/* Further down, each piece rises into place as it comes into view: site.js adds .in, and .done once it has settled so
+   that hover effects get their own quick transitions back. */
+html.motion :where(.tools > *, .feature .copy > :not(ul), .feature li, .feature .shot, .copy.centered > *, .more > h2,
+  .gallery > a, .more .grid > div, .privacy .card, .platform, main .note):not(.in) { opacity: 0; transform: translateY(36px); }
+html.motion :where(.feature h2, .copy.centered > h2, .more > h2, .statement):not(.in) { filter: blur(10px); }
+html.motion .feature .shot:not(.in) { transform: translateY(90px) scale(0.93); }
+html.motion .in:not(.done) {
+  transition: opacity 1s var(--ease), transform 1.3s var(--ease), filter 1s var(--ease);
+  transition-delay: var(--delay, 0ms);
+}
+
+/* Each screenshot floats on a soft glow and moves a touch slower than the page. */
+.feature .shot { position: relative; isolation: isolate; translate: 0 calc(var(--shift, 0) * 1px); }
+.feature .shot::before {
+  content: '';
+  position: absolute;
+  inset: 6% -10%;
+  z-index: -1;
+  background: radial-gradient(closest-side, var(--glow), transparent);
+  transition: opacity 2s ease 0.5s;
+}
+html.motion .feature .shot:not(.in)::before { opacity: 0; }
+
+/* The little stars before each point spin in, then twinkle, each at its own pace. */
+html.motion .feature li::before {
+  transition: transform 1s var(--ease) calc(var(--delay, 0ms) + 0.25s);
+  animation: twinkle 5s ease-in-out infinite;
+}
+html.motion .feature li:nth-child(2n)::before { animation-duration: 6.5s; animation-delay: -2.2s; }
+html.motion .feature li:nth-child(3n)::before { animation-duration: 5.7s; animation-delay: -3.9s; }
+html.motion .feature li:not(.in)::before { transform: scale(0) rotate(-120deg); }
+
+/* The tool names glide past in two rows, edge to edge, in opposite directions; the pointer holds them. site.js repeats
+   the names so that half the row is wider than the screen, and the row moves by exactly that half. */
+.marquee.run {
+  overflow: hidden;
+  margin: 0 calc(50% - 50vw) 30px;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent);
+}
+.marquee.run .chips {
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  width: max-content;
+  max-width: none;
+  margin: 0;
+  padding: 2px 10px 2px 0;
+  animation: drift var(--duration, 40s) linear infinite;
+}
+.marquee.run li { flex: none; }
+.marquee.run.reverse .chips { animation-direction: reverse; }
+.marquee.run:hover .chips { animation-play-state: paused; }
+
+/* The privacy promise lights up word by word: --p is how far it has scrolled through, --i each word's place among --n. */
+.statement .w { opacity: clamp(0.16, calc((var(--p, 1) * (var(--n) + 10) - var(--i)) / 10), 1); transition: opacity 0.2s linear; }
+
+@media print {
+  html.motion * { opacity: 1 !important; transform: none !important; filter: none !important; translate: none !important; }
+}
 
 /* MARK: Footer */
 
