@@ -13,6 +13,8 @@
   const axis = $derived(chartAxis(data));
   const series = $derived(seriesOf(data));
   const providers = $derived(summaryProviders(data));
+  /** Nothing read yet (待同步): the grid alone, rather than a flat line on a made-up scale that reads as no usage. */
+  const waiting = $derived(!providers.some((p) => p.available));
   const n = $derived(data.dates.length);
   const totals = $derived(Array.from({ length: n }, (_, i) => series.reduce((s, row) => s + row[i], 0)));
   const positions = $derived(chartPositions(data));
@@ -44,7 +46,9 @@
     <line x1={plot.x} x2={plot.x + plot.w} y1={bottom - f * plot.h} y2={bottom - f * plot.h}
       stroke={panel.dark ? `rgba(255,255,255,${0.1 * (f === 0 ? 0.3 : 0.14)})` : `rgba(0,0,0,${0.1 * (f === 0 ? 0.3 : 0.14)})`} stroke-width="0.5" />
   {/each}
-  {#if n === 1}
+  {#if waiting}
+    <!-- The grid is all there is to draw. -->
+  {:else if n === 1}
     {#each series as values, i (i)}
       <circle cx={plot.x + plot.w / 2} cy={bottom - (values[0] / axis.ceiling) * plot.h} r="2.5" fill={accent(providers[i].id, panel.dark)} />
     {/each}
@@ -62,7 +66,7 @@
     </g>
   {/if}
 </svg>
-{#each axis.labels as label, i (i)}
+{#each waiting ? [] : axis.labels as label, i (i)}
   <span class="axis num" style:left="{left}px" style:top="{bottom - [0, 0.5, 1][i] * plot.h - 5}px" style:width="{column - 4}px">{label}</span>
 {/each}
 {#if note}

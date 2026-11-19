@@ -198,6 +198,9 @@ test.describe('header icons', () => {
     await open(page);
     // A plain white backdrop, so ink is everything darker than it.
     await page.addStyleTag({ content: '.window { background: #fff !important; backdrop-filter: none !important } :root { --label: #000 }' });
+  // Nothing read yet: the trend's grid alone, no scale or flat line that would read as no usage.
+  await expect(page.locator('.axis')).toHaveCount(0);
+  await expect(page.locator('.chart path')).toHaveCount(0);
     await page.mouse.move(5, 1650);
     await page.waitForTimeout(400);
     const { decodePng } = await import('./png');
