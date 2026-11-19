@@ -199,7 +199,7 @@
         const added = base ? Math.max(0, (samples.at(-1)?.total ?? base.total) - base.total) : 0;
         const rate = feed.rate(now);
         const unit = ' Token/s', figure = rateText(rate ?? 0);
-        const lead = `近 1 分钟 +${tokens(added)} Token · `;
+        const lead = `近 1 分钟 +${tokens(added)} Token · 输出 `;
         const baseline = 11;
         ctx.textBaseline = 'alphabetic';
         ctx.font = font(8); ctx.fillStyle = secondary; ctx.textAlign = 'right';

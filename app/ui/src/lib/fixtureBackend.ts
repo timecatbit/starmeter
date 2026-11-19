@@ -88,6 +88,8 @@ function bump(d: Dashboard) {
     if (!step) continue;
     const added = step * state.live * (0.6 + ((state.live * 7919) % 13) / 13);
     p.tokens += added;
+    // Most of what a request adds is context read from the cache; a sliver is what the model wrote.
+    p.output += added * 0.004;
     if (p.cost !== null) p.cost += added * 0.38e-6;
     p.requests += Math.round(state.live / 3);
     p.history[p.history.length - 1] += added;

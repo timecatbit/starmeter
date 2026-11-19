@@ -168,6 +168,8 @@ impl Fixtures {
             };
             let added = step * live * (0.6 + ((self.live * 7919) % 13) as f64 / 13.0);
             p["tokens"] = json!(p["tokens"].as_f64().unwrap_or(0.0) + added);
+            // Most of what a request adds is context read from the cache; a sliver is what the model wrote.
+            p["output"] = json!(p["output"].as_f64().unwrap_or(0.0) + added * 0.004);
             if let Some(cost) = p["cost"].as_f64() {
                 p["cost"] = json!(cost + added * 0.38e-6);
             }

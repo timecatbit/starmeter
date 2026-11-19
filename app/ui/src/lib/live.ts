@@ -3,7 +3,9 @@
 import { summaryPart } from './format';
 import type { Dashboard } from './types';
 
-export interface Sample { at: number; total: number; cost: number; parts: Record<string, number> }
+/** A reading: Summary's tokens (cache reads included, as the line and the cards count them), the output tokens the
+ *  models generated, the cost and each source's tokens. */
+export interface Sample { at: number; total: number; output: number; cost: number; parts: Record<string, number> }
 
 export class LiveFeed {
   /** The window on screen: always the last minute, so the line flows at one steady speed and the rate reads true. */
@@ -30,7 +32,10 @@ export class LiveFeed {
   add(dashboard: Dashboard, at = Date.now()) {
     if (dashboard.rangeKey !== this.rangeKey) { this.samples = []; this.rangeKey = dashboard.rangeKey; }
     const parts = dashboard.providers.map(summaryPart).filter((p) => p !== null && p.available);
-    const sample: Sample = { at, total: parts.reduce((s, p) => s + p!.tokens, 0), cost: parts.reduce((s, p) => s + (p!.cost ?? 0), 0), parts: {} };
+    // Output as Summary counts it: a source a gateway partly logged adds only its share not logged there.
+    const output = dashboard.providers.filter((p) => p.available && summaryPart(p) !== null)
+      .reduce((s, p) => s + p.output * (p.counted ? (p.tokens > 0 ? p.counted.tokens / p.tokens : 0) : 1), 0);
+    const sample: Sample = { at, total: parts.reduce((s, p) => s + p!.tokens, 0), output, cost: parts.reduce((s, p) => s + (p!.cost ?? 0), 0), parts: {} };
     for (const part of parts) sample.parts[part!.id] = part!.tokens;
     // A new day (or a source dropping out) starts the line again rather than drawing a fall.
     const last = this.samples.at(-1);
@@ -43,9 +48,11 @@ export class LiveFeed {
 
   span() { return LiveFeed.window; }
 
-  /** Tokens a second over the last minute, up to now: what was added since the window's left edge (or since pinning,
-   *  in the first minute) over the time gone by, so a burst eases off as the window moves past it. Requests are logged
-   *  whole when they finish, so a per-reading rate would mostly be 0 with an occasional spike. */
+  /** Output tokens a second over the last minute, up to now: what the models generated since the window's left edge (or
+   *  since pinning, in the first minute) over the time gone by, so a burst eases off as the window moves past it. Not
+   *  all tokens: each request re-reads its whole context from the cache, so those run to tens of thousands a second and
+   *  say nothing about speed. Requests are logged whole when they finish, so a per-reading rate would mostly be 0 with an
+   *  occasional spike. */
   rate(now: number): number | null {
     const last = this.samples.at(-1);
     if (!last) return null;
@@ -54,7 +61,7 @@ export class LiveFeed {
     const from = base ?? this.samples[0];
     const seconds = base ? LiveFeed.window / 1000 : (now - from.at) / 1000;
     if (seconds < 1) return null;
-    return Math.max(0, last.total - from.total) / seconds;
+    return Math.max(0, last.output - from.output) / seconds;
   }
 }
 
