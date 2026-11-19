@@ -101,6 +101,17 @@ impl Files {
         Some(Files { snapshot, folder, name, seen: Mutex::new(None), turn: tokio_mutex::Mutex::default() })
     }
 
+    /// No plugin arguments: an empty panel, nothing read or sent.
+    pub fn empty() -> Self {
+        Files {
+            snapshot: PathBuf::new(),
+            folder: PathBuf::new(),
+            name: "starmeter".into(),
+            seen: Mutex::new(None),
+            turn: tokio_mutex::Mutex::default(),
+        }
+    }
+
     pub fn snapshot(&self) -> Value {
         *self.seen.lock().expect("the seen lock") = modified(&self.snapshot);
         read(&self.snapshot).unwrap_or_else(|| json!({"schema": 1, "entries": []}))
@@ -116,6 +127,9 @@ impl Files {
     }
 
     pub fn publish_visibility(&self, visible: bool) {
+        if self.folder.as_os_str().is_empty() {
+            return;
+        }
         write_private(
             &self.folder.join("panel-state.json"),
             &json!({"schema": 1, "visible": visible, "pid": std::process::id()}),
@@ -158,6 +172,9 @@ impl Files {
     /// Queues an action for the plugin and waits for its receipt: automatic refreshes give up after 3 seconds, display
     /// preferences after 20, others after 8 unless the engine has claimed them (a dialog may be waiting on the user).
     pub fn act(&self, action: &[String]) -> (String, Option<Value>) {
+        if self.folder.as_os_str().is_empty() {
+            return ("failed".into(), None);
+        }
         let _turn = self.turn.lock();
         let id = format!(
             "{:x}{:x}",

@@ -33,9 +33,12 @@ struct Request {
     show: bool,
 }
 
-fn request(args: &[String]) -> Request {
+/// The SwiftBar panel's build keeps 5.x's panel id, so installed plugins (and their self-updates) find it.
+const PANEL_IDENTIFIER: &str = "cc.opencodex.swiftbar.panel";
+
+fn request(args: &[String], identifier: &str) -> Request {
     let has = |flag: &str| args.iter().any(|a| a == flag);
-    let swiftbar = has("--swiftbar-panel") || (has("--snapshot") && has("--plugin"));
+    let swiftbar = has("--swiftbar-panel") || (has("--snapshot") && has("--plugin")) || identifier == PANEL_IDENTIFIER;
     Request {
         mode: if swiftbar { Mode::SwiftBar } else { Mode::Standalone },
         modules: has("--modules"),
@@ -225,10 +228,10 @@ fn data_source(app: &AppHandle, args: &[String], mode: Mode) -> data::Data {
     if std::env::var("STARMETER_FIXTURE").is_ok_and(|name| !name.is_empty()) {
         return data::Data::Fixtures(std::sync::Mutex::new(fixtures::Fixtures::load()));
     }
-    if mode == Mode::SwiftBar
-        && let Some(files) = swiftbar::Files::from_args(args)
-    {
-        let files = std::sync::Arc::new(files);
+    // SwiftBar's panel never runs the engine itself (it would meet macOS's Documents prompts under this app's name);
+    // opened without the plugin's arguments it simply has nothing to show.
+    if mode == Mode::SwiftBar {
+        let files = std::sync::Arc::new(swiftbar::Files::from_args(args).unwrap_or_else(swiftbar::Files::empty));
         files.watch(app.clone());
         return data::Data::SwiftBar(files);
     }
@@ -241,7 +244,8 @@ fn data_source(app: &AppHandle, args: &[String], mode: Mode) -> data::Data {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let launch = request(&args);
+    let context = tauri::generate_context!();
+    let launch = request(&args, &context.config().identifier);
     let args = std::sync::Arc::new(args);
     let mode = launch.mode;
     #[allow(unused_mut)]
@@ -319,7 +323,7 @@ fn main() {
                 _ => {}
             }
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("Starmeter could not start");
     app.run(|app, event| {
         // Opening the app again (Finder, Spotlight, SwiftBar's `open -a`) shows the panel.
