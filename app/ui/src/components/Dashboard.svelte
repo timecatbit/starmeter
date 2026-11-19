@@ -48,7 +48,8 @@
   const heatmapHeight = $derived(heatmapLayout && data.heatmap ? blockHeight(heatmapLayout, data.heatmap) : 0);
   const harnessHeader = $derived(!data.providers.length || !showSummary || data.heatmap ? 0 : 6);
   const tabOptions = $derived([...(data.providers.length ? data.groupings ?? [] : []), ...(sessions ? [{ key: 'sessions', label: '会话' }] : [])]);
-  const showingSessions = $derived(view === 'sessions' && !!sessions);
+  // 会话 when chosen, and always when there are no cards to choose instead (its row has left the other rows for here).
+  const showingSessions = $derived(!!sessions && (view === 'sessions' || !data.providers.length));
   const groupingHeight = $derived(tabOptions.length < 2 ? 0 : 30);
   let sessionsHeight = $state(0);
   let sessionsBox: HTMLDivElement | undefined = $state();
