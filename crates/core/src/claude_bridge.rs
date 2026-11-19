@@ -127,12 +127,11 @@ pub fn install(state: &str, given: Option<&str>, environment: &HashMap<String, S
             return Err(HostFailure("Claude 设置格式异常".into()));
         }
     }
-    // The engine itself under SwiftBar; an app ships the engine program beside its resources.
+    // The engine itself under SwiftBar; an app ships the engine program in bin/ among its resources.
+    let name = if cfg!(windows) { "starmeter-engine.exe" } else { "starmeter-engine" };
     let shipped = environment
         .get("OCX_PLUGIN_PATH")
-        .map(|plugin| {
-            Path::new(plugin).with_file_name(if cfg!(windows) { "starmeter-engine.exe" } else { "starmeter-engine" })
-        })
+        .and_then(|plugin| Path::new(plugin).parent().map(|resources| resources.join("bin").join(name)))
         .filter(|path| path.is_file());
     let executable = match shipped {
         Some(path) => path,

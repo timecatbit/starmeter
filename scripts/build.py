@@ -87,7 +87,8 @@ def resources(engine=None):
     app/src-tauri, where Tauri reads its configuration."""
     mapping = {}
     if engine:
-        mapping[str(Path(engine).resolve())] = Path(engine).name
+        # In bin/, as in the SwiftBar plugin; Tauri can't copy a resource onto the engine cargo built beside the app.
+        mapping[str(Path(engine).resolve())] = 'bin/' + Path(engine).name
     for path in sorted((ROOT / 'lib').iterdir()):
         if path.suffix == '.json' or path.name.endswith('LICENSE'):
             mapping['../../lib/' + path.name] = 'lib/' + path.name

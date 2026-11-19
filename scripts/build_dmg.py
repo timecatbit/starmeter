@@ -28,7 +28,7 @@ def smoke(app, root):
     environment = {'HOME': str(home), 'PATH': '/usr/bin:/bin', 'OCX_SELF_UPDATES': '0', 'OCX_PRICING_UPDATES': '0',
                    'TOKEN_MONITOR_SMOKE_TEST': '1', 'OCX_MAC_APP': '1', 'OCX_PLUGIN_PATH': str(resources / 'starmeter'),
                    'OCX_STATE_DIR': str(root / 'private-state'), 'OCX_CACHE_DIR': str(root / 'private-cache')}
-    subprocess.run([str(resources / 'starmeter-engine'), '--worker', 'smoke-test'], env=environment, check=True, timeout=60)
+    subprocess.run([str(resources / 'bin' / 'starmeter-engine'), '--worker', 'smoke-test'], env=environment, check=True, timeout=60)
 
 
 def guide(release, chip, notarized):

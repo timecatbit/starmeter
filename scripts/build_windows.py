@@ -38,7 +38,7 @@ def bounded(what, command, seconds):
     subprocess.run(command, check=True, timeout=seconds)
 
 
-def smoke(folder, scratch):
+def smoke(folder, scratch, program='starmeter-engine.exe'):
     """The engine beside the program, with private settings and no automatic network checks."""
     home = scratch / 'home'
     home.mkdir(parents=True, exist_ok=True)
@@ -46,7 +46,7 @@ def smoke(folder, scratch):
                        TOKEN_MONITOR_SMOKE_TEST='1', OCX_PLUGIN_PATH=str(folder / 'starmeter'),
                        OCX_STATE_DIR=str(scratch / 'state'), OCX_CACHE_DIR=str(scratch / 'cache'))
     print(time.strftime('%H:%M:%S'), 'Engine smoke test in', folder, flush=True)
-    subprocess.run([str(folder / 'starmeter-engine.exe'), '--worker', 'smoke-test'], env=environment, check=True, timeout=120)
+    subprocess.run([str(folder / 'bin' / program), '--worker', 'smoke-test'], env=environment, check=True, timeout=120)
 
 
 def registry(name):
