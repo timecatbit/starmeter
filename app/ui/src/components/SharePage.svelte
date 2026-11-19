@@ -274,7 +274,7 @@
   }
   .action:hover:not(:disabled) { background: color-mix(in srgb, var(--label) 12%, transparent); }
   .action:disabled { opacity: 0.5; }
-  .action.primary { color: white; background: var(--accent); }
+  .action.primary { color: var(--on-accent); background: var(--accent); }
   .action.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, black); }
   .action.done { color: var(--green); }
   .action.primary.done { color: white; background: var(--green); }

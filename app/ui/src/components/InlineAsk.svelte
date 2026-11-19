@@ -106,8 +106,8 @@
     background: color-mix(in srgb, var(--label) 8%, transparent);
   }
   .button:hover { background: color-mix(in srgb, var(--label) 12%, transparent); }
-  .button.primary { color: white; background: var(--accent); }
+  .button.primary { color: var(--on-accent); background: var(--accent); }
   .button.primary:hover { background: color-mix(in srgb, var(--accent) 88%, black); }
-  .button.danger { background: var(--red); }
+  .button.danger { color: white; background: var(--red); }
   .button.danger:hover { background: color-mix(in srgb, var(--red) 88%, black); }
 </style>

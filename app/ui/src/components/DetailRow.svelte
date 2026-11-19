@@ -56,7 +56,7 @@
   <span class="lead" style:left="{leadX}px" style:top="{(plain ? 5 : 8) + lineHeight / 2}px">
     {#if entry.checked !== undefined && !isToggle}
       <span class="box" class:radio={entry.radio} class:on={entry.checked}>
-        {#if entry.checked && !entry.radio}<svg viewBox="0 0 13 13" width="13" height="13"><path d="M3 6.5 5.5 9.5 10 3.5" fill="none" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>{/if}
+        {#if entry.checked && !entry.radio}<svg viewBox="0 0 13 13" width="13" height="13"><path d="M3 6.5 5.5 9.5 10 3.5" fill="none" style="stroke: var(--on-accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>{/if}
         {#if entry.checked && entry.radio}<span class="pip"></span>{/if}
       </span>
     {:else if entry.statusLight}

@@ -31,7 +31,7 @@
 <button class="cell pressable" style:width="{cellWidth}px" style:height="{height}px" aria-label={entry.label} onclick={click}>
   {#if entry.checked !== undefined}
     <span class="box" class:on={checked} style:top="{middle - 6.5}px" role="checkbox" aria-checked={checked} aria-label="在主页显示 {entry.label}">
-      {#if checked}<svg viewBox="0 0 13 13" width="13" height="13"><path d="M3 6.5 5.5 9.5 10 3.5" fill="none" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>{/if}
+      {#if checked}<svg viewBox="0 0 13 13" width="13" height="13"><path d="M3 6.5 5.5 9.5 10 3.5" fill="none" style="stroke: var(--on-accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>{/if}
     </span>
   {/if}
   {#if entry.image || entry.symbol}

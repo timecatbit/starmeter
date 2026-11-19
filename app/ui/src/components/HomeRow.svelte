@@ -39,7 +39,7 @@
     onclick={() => onactivate(entry)}>
     {#if entry.checked !== undefined}
       <span class="box" class:radio={entry.radio} class:on={entry.checked}>
-        {#if entry.checked && !entry.radio}<svg viewBox="0 0 12 12" width="12" height="12"><path d="M2.5 6 5 8.8 9.5 3" fill="none" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>{/if}
+        {#if entry.checked && !entry.radio}<svg viewBox="0 0 12 12" width="12" height="12"><path d="M2.5 6 5 8.8 9.5 3" fill="none" style="stroke: var(--on-accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>{/if}
         {#if entry.checked && entry.radio}<span class="pip"></span>{/if}
       </span>
       {#if entry.image || entry.symbol}<span class="icon" style:left="33px"><Glyph image={entry.image} template={entry.template} symbol={entry.symbol} size={14} tint={panel.dark ? 'rgb(230,230,230)' : 'rgb(46,46,46)'} /></span>{/if}

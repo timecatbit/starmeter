@@ -16,6 +16,8 @@
   --guide: rgba(0, 0, 0, 0.16);
   --track: rgba(0, 0, 0, 0.08);
   --accent: rgb(88, 79, 227);
+  /* Text and marks on the accent: white on the light theme's indigo, deep navy on the dark theme's periwinkle. */
+  --on-accent: white;
   --orange: rgb(255, 149, 0);
   --red: rgb(255, 59, 48);
   --green: rgb(46, 125, 79);
@@ -39,6 +41,8 @@
   --guide: rgba(255, 255, 255, 0.24);
   --track: rgba(255, 255, 255, 0.12);
   --accent: rgb(165, 180, 252);
+  /* Text and marks on the accent: white on the light theme's indigo, deep navy on the dark theme's periwinkle. */
+  --on-accent: rgb(24, 26, 56);
   --orange: rgb(255, 159, 10);
   --red: rgb(255, 69, 58);
   --green: rgb(125, 201, 156);
@@ -61,6 +65,8 @@
     --guide: rgba(255, 255, 255, 0.24);
     --track: rgba(255, 255, 255, 0.12);
     --accent: rgb(165, 180, 252);
+    /* Text and marks on the accent: white on the light theme's indigo, deep navy on the dark theme's periwinkle. */
+    --on-accent: rgb(24, 26, 56);
     --orange: rgb(255, 159, 10);
     --red: rgb(255, 69, 58);
     --green: rgb(125, 201, 156);
