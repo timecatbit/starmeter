@@ -534,19 +534,25 @@ pub fn sorted_paths(mut paths: Vec<String>) -> Vec<String> {
 
 /// Every file under root, as root + relative path, without following linked folders.
 pub fn walk(root: &str) -> Vec<String> {
+    // Joined with '/', on Windows too (which takes either separator), so a file's name and its parent folders are
+    // always the parts after the last slashes.
+    let join = |folder: &str, name: &str| {
+        let base = folder.trim_end_matches(['/', '\\']);
+        format!("{base}/{name}")
+    };
     let mut found = Vec::new();
-    let mut pending = vec![PathBuf::from(root)];
+    let mut pending = vec![root.to_string()];
     while let Some(folder) = pending.pop() {
         let Ok(entries) = std::fs::read_dir(&folder) else { continue };
         let mut entries: Vec<_> = entries.filter_map(Result::ok).collect();
         entries.sort_by_key(|entry| entry.file_name());
         for entry in entries {
-            let path = entry.path();
+            let path = join(&folder, &entry.file_name().to_string_lossy());
             let Ok(kind) = entry.file_type() else { continue };
             if kind.is_dir() {
                 pending.push(path);
             } else if std::fs::metadata(&path).is_ok_and(|metadata| !metadata.is_dir()) {
-                found.push(path.to_string_lossy().into_owned());
+                found.push(path);
             }
         }
     }
