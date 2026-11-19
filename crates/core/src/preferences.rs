@@ -141,6 +141,7 @@ pub fn defaults() -> Object {
         "cursorUsage" => false, "usageAlert" => 90, "resetReminder" => false, "balanceAlerts" => Object::new(),
         "keepCleanedUsage" => true, "subscriptionPrices" => Object::new(), "groupBy" => "tool", "menuBar" => "none",
         "sessionAlerts" => false, "serviceStatus" => false, "currency" => "USD", "cnyRate" => Json::Null, "pinInterval" => 2,
+        "syncFolder" => "", "deviceName" => "",
     }
 }
 
@@ -238,6 +239,12 @@ pub fn read(directory: &Path) -> Object {
         && interval.number().is_some_and(|number| PIN_INTERVALS.iter().any(|allowed| *allowed as f64 == number))
     {
         settings.insert("pinInterval", interval.clone());
+    }
+    // 多台电脑合并: the folder picked, and this computer's name there.
+    for (name, size) in [("syncFolder", 512), ("deviceName", 64)] {
+        if let Some(text) = get(name).and_then(Json::as_str) {
+            settings.insert(name, text.chars().take(size).collect::<String>());
+        }
     }
     if exchange_rate(get("cnyRate"))
         && let Some(rate) = get("cnyRate").and_then(Json::python_float)
@@ -358,6 +365,12 @@ pub fn update(directory: &Path, kind: &str, key: Option<&str>, value: Option<&st
         }
         "reset-reminder" => flag(&mut current, "resetReminder", "invalid reset reminder")?,
         "keep-usage" => flag(&mut current, "keepCleanedUsage", "invalid keep usage setting")?,
+        "sync-folder" => {
+            current.insert("syncFolder", key.unwrap_or("").chars().take(512).collect::<String>());
+        }
+        "device-name" => {
+            current.insert("deviceName", key.unwrap_or("").trim().chars().take(64).collect::<String>());
+        }
         "pin-interval" => {
             let interval = PIN_INTERVALS.into_iter().find(|interval| Some(interval.to_string().as_str()) == key);
             current.insert("pinInterval", interval.ok_or(Error::Invalid("invalid pin interval"))?);

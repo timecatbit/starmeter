@@ -436,5 +436,7 @@ impl Runtime {
             self.notify_app_updates(&self.update_rows(&Object::new()));
         }
         self.check_usage_alerts();
+        // 多台电脑合并: this computer's figures, at most every ten minutes.
+        self.publish_device(false);
     }
 }

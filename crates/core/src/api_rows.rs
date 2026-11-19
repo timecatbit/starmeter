@@ -619,7 +619,7 @@ impl Runtime {
         let name =
             preferences::MODULES.iter().find(|module| module.key == source).map_or(String::new(), |m| m.label.clone());
         let usage = if self.module_enabled(source) {
-            self.read_cache(&self.range_cache_name(Some("month")))
+            self.with_devices("month", self.read_cache(&self.range_cache_name(Some("month"))))
                 .get("payload")
                 .and_then(|payload| payload.get(source))
                 .and_then(Json::as_object)

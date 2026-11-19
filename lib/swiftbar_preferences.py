@@ -79,7 +79,8 @@ def balance_key(key):
 
 def read(directory):
     defaults = {'schema': 1, 'visible': list(DEFAULT_VISIBLE), 'appearance': 'solid', 'theme': 'system', 'paths': {}, 'allowCollapse': False, 'expandedProviders': [], 'revision': 0, 'configuredSubscriptions': [], 'claudeLiveUsage': False, 'claudeOAuthUsage': False, 'cursorUsage': False,
-                'usageAlert': 90, 'resetReminder': False, 'balanceAlerts': {}, 'keepCleanedUsage': True, 'subscriptionPrices': {}, 'groupBy': 'tool', 'menuBar': 'none', 'sessionAlerts': False, 'serviceStatus': False, 'currency': 'USD', 'cnyRate': None, 'pinInterval': 2}
+                'usageAlert': 90, 'resetReminder': False, 'balanceAlerts': {}, 'keepCleanedUsage': True, 'subscriptionPrices': {}, 'groupBy': 'tool', 'menuBar': 'none', 'sessionAlerts': False, 'serviceStatus': False, 'currency': 'USD', 'cnyRate': None, 'pinInterval': 2,
+                'syncFolder': '', 'deviceName': ''}
     try:
         value = json.loads((Path(directory) / 'preferences.json').read_text(encoding='utf-8'))
         if not isinstance(value, dict) or value.get('schema') != 1:
@@ -113,6 +114,9 @@ def read(directory):
         if isinstance(value.get('serviceStatus'),bool):defaults['serviceStatus']=value['serviceStatus']
         if value.get('currency') in CURRENCIES:defaults['currency']=value['currency']
         if value.get('pinInterval') in PIN_INTERVALS and not isinstance(value['pinInterval'],bool):defaults['pinInterval']=value['pinInterval']
+        # 多台电脑合并: the folder picked, and this computer's name there.
+        for name,size in (('syncFolder',512),('deviceName',64)):
+            if isinstance(value.get(name),str):defaults[name]=value[name][:size]
         if exchange_rate(value.get('cnyRate')):defaults['cnyRate']=float(value['cnyRate'])
         prices=value.get('subscriptionPrices')
         if isinstance(prices,dict):
@@ -180,6 +184,10 @@ def update(directory, kind, key=None, value=None):
     elif kind == 'keep-usage':
         if key not in ('true','false'):raise ValueError('invalid keep usage setting')
         current['keepCleanedUsage']=key=='true'
+    elif kind == 'sync-folder':
+        current['syncFolder']=(key or '')[:512]
+    elif kind == 'device-name':
+        current['deviceName']=(key or '').strip()[:64]
     elif kind == 'pin-interval':
         if key not in [str(s) for s in PIN_INTERVALS]:raise ValueError('invalid pin interval')
         current['pinInterval']=int(key)

@@ -787,7 +787,7 @@ impl Runtime {
         let key = self.selected_range();
         let label = RANGES.iter().find(|(range, _)| *range == key).map_or("", |(_, label)| *label);
         let bundle = self
-            .read_cache(&self.range_cache_name(Some(&key)))
+            .with_devices(&key, self.read_cache(&self.range_cache_name(Some(&key))))
             .get("payload")
             .and_then(Json::as_object)
             .cloned()
@@ -956,6 +956,38 @@ impl Runtime {
                 }
             }
             "refresh-view" => self.schedule_background_refresh(),
+            "choose-sync-folder" => {
+                let message = "选择每台电脑都能同步到的文件夹（如 iCloud 云盘、Dropbox、OneDrive 里的一个文件夹）";
+                let Some(chosen) = self.host.choose_path(message, true) else { return Ok(0) };
+                let root = runtime::absolute(&paths::expand_user(&chosen).to_string_lossy());
+                if !Path::new(&root).is_dir() {
+                    return Ok(0);
+                }
+                // Moving to another folder takes this computer's file along.
+                self.leave_devices();
+                self.update("sync-folder", Some(&root), None)?;
+                self.publish_device(true);
+                self.schedule_background_refresh();
+            }
+            "set-device-name" => {
+                let current = self.device_name();
+                let Some(name) = self.host.text_dialog("其他电脑上显示的名字", &current, false, "本机名称")
+                else {
+                    return Ok(0);
+                };
+                self.update("device-name", Some(name.trim()), None)?;
+                self.publish_device(true);
+            }
+            "clear-sync-folder" => {
+                if self.confirm(
+                    "停止合并多台电脑？",
+                    "这台电脑的用量文件会从同步文件夹里删掉，其他电脑不再计入它；这台电脑也不再计入其他电脑。",
+                    "停止合并",
+                ) {
+                    self.leave_devices();
+                    self.update("sync-folder", Some(""), None)?;
+                }
+            }
             "refresh-source" => self.refresh_resource(&one())?,
             "choose-client-home"
             | "reset-client-connection"

@@ -84,7 +84,12 @@ impl Runtime {
             data.insert("chatgpt_error", Json::Null);
         }
         let ttl = self.refresh_ttl(60.0);
-        put(&mut data, "range_usage", self.cache_result(&self.read_cache(&self.range_cache_name(None)), ttl));
+        let shown = self.selected_range();
+        put(
+            &mut data,
+            "range_usage",
+            self.cache_result(&self.with_devices(&shown, self.read_cache(&self.range_cache_name(None))), ttl),
+        );
         // A new range and its totals appear together; the previous range stays until then, for the same sources.
         if data.get("range_usage").is_none_or(Json::is_null)
             && !refresh_failed(data.get("range_usage_error").and_then(Json::as_str))
@@ -99,7 +104,10 @@ impl Runtime {
                 && RANGES.iter().any(|(key, _)| *key == previous)
                 && previous != self.selected_range()
             {
-                let (last, error) = self.cache_result(&self.read_cache(&self.range_cache_name(Some(&previous))), ttl);
+                let (last, error) = self.cache_result(
+                    &self.with_devices(&previous, self.read_cache(&self.range_cache_name(Some(&previous)))),
+                    ttl,
+                );
                 if let Some(last) = last {
                     data.insert("range_usage", last);
                     data.insert("range_usage_error", error.map(Json::from).unwrap_or(Json::Null));

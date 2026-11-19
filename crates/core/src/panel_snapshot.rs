@@ -817,6 +817,7 @@ impl Runtime {
                     ]),
                 },
             ),
+            self.devices_row(),
             section("模块与配置"),
             with(
                 "自动检测",
@@ -887,6 +888,83 @@ impl Runtime {
             .collect()
     }
 
+    /// 多台电脑合并 in 外观与设置 → 数据: the folder, this computer's name, the other computers heard from, and the way
+    /// out. Before a folder is picked, what it does and the one way in.
+    pub fn devices_row(&self) -> Json {
+        let detail = "每台电脑都选同一个同步文件夹（iCloud 云盘、Dropbox、OneDrive…），各自写一份用量，合起来显示；文件里只有工具、模型和用量数字";
+        let Some(root) = self.devices_root() else {
+            return with(
+                "多台电脑合并",
+                object! {
+                    "symbol" => "arrow.left.arrow.right", "value" => "未设置", "detail" => detail,
+                    "children" => Json::Array(vec![
+                        with("选择同步文件夹…", object! { "symbol" => "folder", "action" => action(&["choose-sync-folder"]) }),
+                    ]),
+                },
+            );
+        };
+        let folder = root.parent().map(|folder| folder.to_string_lossy().into_owned()).unwrap_or_default();
+        let shown = folder.rsplit(['/', '\\']).find(|part| !part.is_empty()).unwrap_or(&folder).to_string();
+        let others = self.other_devices();
+        let now = now();
+        let mut children = vec![
+            with(
+                "同步文件夹",
+                object! { "symbol" => "folder", "value" => shown, "detail" => folder.as_str(), "action" => action(&["choose-sync-folder"]) },
+            ),
+            with(
+                "本机名称…",
+                object! { "symbol" => "pencil", "value" => self.device_name(), "action" => action(&["set-device-name"]) },
+            ),
+            separator(),
+        ];
+        if others.is_empty() {
+            children.push(leaf("其他电脑选同一个文件夹后会出现在这里"));
+        }
+        for device in &others {
+            let written = device.get("updatedAt").and_then(Json::number).unwrap_or(0.0);
+            let minutes = ((now - written).max(0.0) / 60.0) as i64;
+            let ago = if minutes < 1 {
+                "刚刚同步".to_string()
+            } else if minutes < 60 {
+                format!("{minutes} 分钟前同步")
+            } else if minutes < 48 * 60 {
+                format!("{} 小时前同步", minutes / 60)
+            } else {
+                format!("{} 天前同步", minutes / 1440)
+            };
+            // The tools it counted this month, by the names the homepage uses.
+            let tools: Vec<String> = device
+                .get("ranges")
+                .and_then(|ranges| ranges.get("month"))
+                .and_then(|month| month.get("sources"))
+                .and_then(Json::as_object)
+                .map(|sources| {
+                    preferences::MODULES
+                        .iter()
+                        .filter(|module| sources.get(module.key).is_some())
+                        .map(|module| module.label.clone())
+                        .collect()
+                })
+                .unwrap_or_default();
+            let fresh = now - written < 2.0 * 86400.0;
+            let detail = if tools.is_empty() { ago } else { format!("{ago} · {}", tools.join("、")) };
+            children.push(with(
+                &py::str(device.get("name")),
+                object! { "statusLight" => if fresh { "ok" } else { "unknown" }, "detail" => detail },
+            ));
+        }
+        children.push(separator());
+        children.push(with("停止合并", object! { "symbol" => "trash", "action" => action(&["clear-sync-folder"]) }));
+        with(
+            "多台电脑合并",
+            object! {
+                "symbol" => "arrow.left.arrow.right", "value" => format!("{} 台电脑", others.len() + 1), "detail" => detail,
+                "children" => Json::Array(children),
+            },
+        )
+    }
+
     pub fn presentation_settings(&self) -> Json {
         let settings = self.settings();
         ["revision", "visible", "appearance", "theme", "allowCollapse", "expandedProviders"]
@@ -897,9 +975,13 @@ impl Runtime {
     }
 
     /// What Summary counts of today, source by source, and when today was read: the summaries of the sources it adds
-    /// (a gateway's carried requests counted once). None until today has been read.
-    fn today_counted(&self) -> Option<(f64, Vec<Object>)> {
-        let record = self.read_cache(&self.range_cache_name(Some("today")));
+    /// (a gateway's carried requests counted once), with the other computers' (多台电脑合并) when `others`. None until
+    /// today has been read.
+    fn today_counted(&self, others: bool) -> Option<(f64, Vec<Object>)> {
+        let mut record = self.read_cache(&self.range_cache_name(Some("today")));
+        if others {
+            record = self.with_devices("today", record);
+        }
         let bundle = record.get("payload").and_then(Json::as_object).cloned().unwrap_or_default();
         if bundle.get("range") != Some(&Json::from("today")) {
             return None;
@@ -936,7 +1018,8 @@ impl Runtime {
     /// kept beside the readings (menu_speed), so a render in between shows the same figure. None when there is no
     /// pair of readings to compare, or the newer is over three minutes old.
     pub fn output_speed(&self) -> Option<f64> {
-        let (at, summaries) = self.today_counted()?;
+        // This computer's own: another computer's figures arrive ten minutes at a time and would read as a burst.
+        let (at, summaries) = self.today_counted(false)?;
         let output: i64 =
             summaries.iter().map(|summary| summary.get("outputTokens").and_then(Json::integer).unwrap_or(0)).sum();
         let mut state = self.read_cache("menu_speed");
@@ -965,7 +1048,7 @@ impl Runtime {
             return self.output_speed().filter(|rate| *rate >= 0.5).map(speed_text).unwrap_or_default();
         }
         if choice == "cost" {
-            let Some((_, summaries)) = self.today_counted() else { return String::new() };
+            let Some((_, summaries)) = self.today_counted(true) else { return String::new() };
             let costs: Vec<f64> =
                 summaries.iter().filter_map(|summary| summary_cost_value(summary)?.python_float()).collect();
             if costs.is_empty() {

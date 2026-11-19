@@ -127,6 +127,15 @@ export const phrases: Record<string, string> = {
     'The gear opens Home modules: tick the tools you use, and click a tool\'s name to pick its folder when its records live elsewhere. Auto-detect in Settings ticks every tool it finds on this computer.',
   输出速度: 'Output speed', 全局快捷键: 'Global shortcut', 不使用: 'Off', '在任何地方按下即可打开或收起面板': 'Opens or closes the panel from anywhere',
   快捷键已被占用: 'Shortcut taken', '这个组合键已被系统或其他程序占用，换一个试试。': 'The system or another app already uses this combination; try another.',
+  // 多台电脑合并
+  多台电脑合并: 'Combine computers', '含 {n} 台电脑': '{n} computers', 未设置: 'Not set', 选择同步文件夹: 'Choose a synced folder', '选择同步文件夹…': 'Choose a synced folder…', 同步文件夹: 'Synced folder',
+  '本机名称…': 'This computer\'s name…', 本机名称: 'This computer\'s name', 停止合并: 'Stop combining', 刚刚同步: 'Synced just now',
+  '其他电脑选同一个文件夹后会出现在这里': 'Other computers appear here once they choose the same folder',
+  '每台电脑都选同一个同步文件夹（iCloud 云盘、Dropbox、OneDrive…），各自写一份用量，合起来显示；文件里只有工具、模型和用量数字':
+    'Choose the same synced folder (iCloud Drive, Dropbox, OneDrive…) on each computer: each writes its usage there and they add up. The files hold only tools, models and counts.',
+  '停止合并多台电脑？': 'Stop combining computers?', 其他电脑上显示的名字: 'The name other computers show',
+  '这台电脑的用量文件会从同步文件夹里删掉，其他电脑不再计入它；这台电脑也不再计入其他电脑。':
+    'This computer\'s usage file leaves the synced folder, so the others stop counting it, and this computer stops counting theirs.',
   打开主页模块: 'Open Home modules', 稍后: 'Later', 尚未勾选工具: 'No tools chosen yet',
   复制图片: 'Copy picture', 已复制: 'Copied', 复制失败: 'Copy failed', '保存…': 'Save…', 已保存: 'Saved',
   '分享…': 'Share…', 没能画出来: 'Couldn\'t draw it', 正在生成: 'Drawing', 卡片: 'Card', 终端: 'Terminal', 手绘: 'Sketch', 报刊: 'Paper',
@@ -173,6 +182,10 @@ export const rules: Rule[] = [
   [/^已用 (\d+(?:\.\d+)?%) 截至 (.+)$/, (m) => `${m[1]} used as of ${m[2]}`],
   [/^已用 (.+)$/, (m, tr) => `Used: ${tr(m[1])}`],
   [/^(\d+) 个账户$/, (m) => `${m[1]} accounts`],
+  [/^(\d+) 台电脑$/, (m) => `${m[1]} ${plural(m[1], 'computer', 'computers')}`],
+  [/^(\d+) 分钟前同步$/, (m) => `Synced ${m[1]} min ago`],
+  [/^(\d+) 小时前同步$/, (m) => `Synced ${m[1]} h ago`],
+  [/^(\d+) 天前同步$/, (m) => `Synced ${m[1]} ${plural(m[1], 'day', 'days')} ago`],
   [/^(\d+) 小时$/, (m) => `${m[1]} hours`],
   [/^重置于 (.+)$/, (m) => `Resets ${time(m[1])}`],
   [/^比匀速多用 (.+)$/, (m) => `${m[1]} ahead of even pace`],

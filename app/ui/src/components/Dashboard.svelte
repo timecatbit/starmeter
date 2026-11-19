@@ -95,7 +95,9 @@
   const legend = $derived(legendLabels(data));
   const legendColours = $derived([totalColor(panel.dark), ...counted.map((p) => accent(p.id, panel.dark))]);
   const legendCells = $derived(legendLayout(legend, right - left).flatMap((row, r) => row.map((cell) => ({ ...cell, row: r }))));
-  const note = $derived([data.chartStatus, liveStamp ?? data.updated ?? ''].filter(Boolean).join(' · '));
+  // 多台电脑合并: the other computers counted in, beside the update time (this one included).
+  const note = $derived([data.chartStatus, liveStamp ?? data.updated ?? '', data.devices ? t('含 {n} 台电脑', { n: data.devices + 1 }) : '']
+    .filter(Boolean).join(' · '));
 
   // Header: the star and Starmeter, then share, the pin and the gear leftward from the range picker, 2pt apart. (No
   // refresh: opening reads what is due, pinning reads every few seconds, and each source's own page refreshes it; auto-

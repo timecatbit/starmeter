@@ -129,6 +129,8 @@ export interface Dashboard {
   cards?: ProviderUsage[] | null;
   currency?: MoneyUnit | null;
   groupNote?: string | null;
+  /** 多台电脑合并: how many other computers' figures are in this range. */
+  devices?: number;
 }
 
 export interface Project {

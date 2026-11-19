@@ -30,6 +30,7 @@ const actionSymbols: Record<string, string> = {
   'remove-api-key': 'trash', 'clear-connection': 'trash', 'reset-modules': 'arrow.counterclockwise', 'open-claude': 'macwindow',
   'set-subscription': 'checkmark.circle', 'set-claude-local': 'dot.radiowaves.left.and.right', 'set-claude-live': 'xmark.circle',
   'export-usage': 'square.and.arrow.down', 'set-cny-rate': 'arrow.left.arrow.right', 'detect-modules': 'sparkle.magnifyingglass',
+  'choose-sync-folder': 'folder', 'set-device-name': 'pencil', 'clear-sync-folder': 'trash',
 };
 
 /** Every action on a page carries an icon, so a level's text starts in one column; a web link's icon is a globe, its
@@ -47,7 +48,7 @@ export function iconed(e: Entry): Entry {
 
 /** Something to do rather than to read: tinted like a link, red when it takes something away. */
 export const command = (e: Entry) => !e.children.length && (e.action !== undefined || e.href !== undefined) && e.value === undefined && e.checked === undefined && e.statusLight === undefined;
-export const destructive = (e: Entry) => ['remove-api-key', 'clear-connection', 'stop', 'reset-modules'].includes(e.action?.[0] ?? '') || source(e).label.startsWith('删除') || source(e).label.startsWith('清除');
+export const destructive = (e: Entry) => ['remove-api-key', 'clear-connection', 'stop', 'reset-modules', 'clear-sync-folder'].includes(e.action?.[0] ?? '') || source(e).label.startsWith('删除') || source(e).label.startsWith('清除');
 
 /** "已用 38%", "已用 本周 38% · Fable 39%": the tightest share, for the bar under a usage row. */
 export function usageShare(e: Entry): number | null {
@@ -95,7 +96,7 @@ export const passive = (action: string[]) =>
 const handOff = new Set(['open-claude', 'open-cli-update-log', 'open-home', 'open-settings', 'reveal-source', 'reveal-client-home', 'update-cli', 'logs', 'panel',
   'panel-modules']);
 /** Actions that may open a file picker: in SwiftBar's panel AppleScript draws it under the panel, which steps aside. */
-const pickers = new Set(['choose-source', 'choose-client-home', 'choose-admin-token', 'configure-connection', 'export-usage']);
+const pickers = new Set(['choose-source', 'choose-client-home', 'choose-admin-token', 'configure-connection', 'export-usage', 'choose-sync-folder']);
 
 /** The panel stays open for everything but a hand-off to another app: the core's questions (and the plugin's, in
  *  SwiftBar's panel) are answered in it, and the app's file pickers show above it. */

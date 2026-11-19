@@ -2496,6 +2496,14 @@ def speed_text(rate):
     return '%d tok/s'%int(rate+0.5) if rate<999.5 else '%.1fK tok/s'%(rate/1000)
 
 
+def devices_row():
+    """多台电脑合并 in 外观与设置 → 数据. Merging the other computers' figures lives in the Rust engine only; this
+    reference draws the row as it stands before a folder is picked."""
+    return {'label':'多台电脑合并','symbol':'arrow.left.arrow.right','value':'未设置',
+            'detail':'每台电脑都选同一个同步文件夹（iCloud 云盘、Dropbox、OneDrive…），各自写一份用量，合起来显示；文件里只有工具、模型和用量数字',
+            'children':[{'label':'选择同步文件夹…','symbol':'folder','action':['choose-sync-folder'],'children':[]}]}
+
+
 def menu_bar_value(data=None):
     """The figure the user chose to show beside the star, or ''. Nothing about states or failures: those stay in the panel."""
     choice=view_settings()['menuBar']
@@ -3307,6 +3315,7 @@ def module_options(data=None):
                           {'label':'保留已清理记录的用量','detail':'工具删掉旧记录后仍计入“全部”等统计','symbol':'archivebox','checked':settings['keepCleanedUsage'],'action':['set-keep-usage','false' if settings['keepCleanedUsage'] else 'true'],'children':[]},
                           {'label':'导出用量','symbol':'square.and.arrow.up','value':RANGES[selected_range()],
                            'children':[{'label':'CSV（每天每个工具一行）…','action':['export-usage','csv'],'children':[]},{'label':'JSON…','action':['export-usage','json'],'children':[]}]},
+                          devices_row(),
                           {'label':'模块与配置','section':True,'children':[]},
                           {'label':'自动检测','symbol':'sparkle.magnifyingglass','children':detection_help_entries()},
                           {'label':'高级配置文件…','symbol':'doc.text','action':['open-settings'],'children':[]},

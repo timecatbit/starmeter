@@ -541,6 +541,17 @@ impl Runtime {
         {
             due.push("today".into());
         }
+        // 多台电脑合并: every range is kept to ten minutes for this computer's file in the folder.
+        if self.devices_root().is_some() {
+            for (range, _) in RANGES {
+                if range != key
+                    && !due.iter().any(|known| known == range)
+                    && self.cache_due(&self.read_cache(&self.range_cache_name(Some(range))), self.refresh_ttl(600.0))
+                {
+                    due.push(range.to_string());
+                }
+            }
+        }
         due
     }
 

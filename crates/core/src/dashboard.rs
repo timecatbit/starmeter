@@ -1342,7 +1342,7 @@ impl Runtime {
         } else {
             Json::Null
         };
-        object! {
+        let mut payload = object! {
             "date" => iso(day_number(now, &zone)), "dates" => Json::from(labels),
             "providers" => Json::Array(providers.into_iter().map(Json::Object).collect()),
             "rangeKey" => key.as_str(), "rangeLabel" => label, "grouping" => grouping.as_str(),
@@ -1353,6 +1353,11 @@ impl Runtime {
             "showSummary" => self.module_enabled("summary"),
             "allowCollapse" => settings.get("allowCollapse").cloned().unwrap_or(Json::Bool(false)),
             "expandedProviders" => settings.get("expandedProviders").cloned().unwrap_or(Json::Array(vec![])),
+        };
+        // 多台电脑合并: how many other computers' figures are in, said beside the update time.
+        if let Some(devices) = bundle.get("devices").and_then(Json::integer).filter(|devices| *devices > 0) {
+            payload.insert("devices", devices);
         }
+        payload
     }
 }

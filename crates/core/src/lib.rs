@@ -16,6 +16,7 @@ pub mod cursor;
 pub mod dashboard;
 pub mod database;
 pub mod desktop;
+pub mod devices;
 pub mod discovery;
 pub mod files;
 pub mod harness;
