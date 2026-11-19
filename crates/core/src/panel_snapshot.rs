@@ -832,7 +832,7 @@ impl Runtime {
             with(
                 "允许折叠",
                 object! {
-                    "detail" => "各模块独立展开", "symbol" => "rectangle.compress.vertical", "checked" => collapse,
+                    "detail" => "卡片只留费用与 Token", "symbol" => "rectangle.compress.vertical", "checked" => collapse,
                     "action" => action(&["set-collapse", if collapse { "false" } else { "true" }]),
                 },
             ),

@@ -1,7 +1,8 @@
 <script lang="ts">
   // A Harness card: the tool's mark and name with its notes, the cost on the right; then its tokens in bold and the
   // counts in grey; a gateway's clients; then each model with a short share bar. Folded (允许折叠), only the first two
-  // lines show until it is opened.
+  // lines show. A tool's card has one gesture: a click anywhere opens its page, where every model is (a fold toggle
+  // beside it meant the first click unfolded and the second went in).
   import { accent, alpha, blend, label as labelColour } from '../lib/colors';
   import { clientLine, colourOf, headline, isGrouped, modelAmount, modelName, notes, share, statsForms, tokenLine } from '../lib/format';
   import { figureWidth, font, ROUNDED, width } from '../lib/measure';
@@ -10,8 +11,7 @@
   import Figure from './Figure.svelte';
   import Glyph from './Glyph.svelte';
 
-  let { p, collapsible = false, expanded = true, glow = 0, ontoggle, onopen }:
-    { p: ProviderUsage; collapsible?: boolean; expanded?: boolean; glow?: number; ontoggle?: () => void; onopen?: () => void } = $props();
+  let { p, collapsible = false, glow = 0, onopen }: { p: ProviderUsage; collapsible?: boolean; glow?: number; onopen?: () => void } = $props();
 
   const left = 12;
   const right = $derived(panel.width - 28);
@@ -40,8 +40,8 @@
     const room = Math.max(0, right - left - 21 - leadWidth - 4), forms = statsForms(p);
     return forms.find((form) => width('· ' + form, font(10)) <= room) ?? forms[forms.length - 1];
   });
-  const showStats = $derived(!collapsible || expanded);
-  const showModels = $derived(!collapsible || expanded);
+  const showStats = $derived(!collapsible);
+  const showModels = $derived(!collapsible);
   const clients = $derived(clientLine(p));
   const clientHeight = $derived(clients ? 16 : 0);
   const single = $derived(isGrouped(p) && p.models.length === 1 && p.models[0].share >= 0.999 && !p.models[0].priceNote);
@@ -49,17 +49,15 @@
   const glowing = $derived(blend(labelColour(panel.dark, 0.85), colour, glow * 0.9));
   /** A figure too wide for its column shrinks rather than cuts, down to 9pt. */
   const fitted = (value: string, size: number, room: number) => { const w = figureWidth(value, font(size)) * 1.02; return w > room ? Math.max(8, (size * room) / w) : size; };
-  const height = $derived(collapsible && !expanded ? 52 : p.available ? 52 + clientHeight + Math.max(1, p.models.length) * 18 + 8 : 52);
+  const height = $derived(collapsible ? 52 : p.available ? 52 + clientHeight + Math.max(1, p.models.length) * 18 + 8 : 52);
 </script>
 
 <div class="card" class:opens={!!onopen} style:height="{height}px">
-  <!-- A tool's card opens its page; folded cards keep the chevron's corner for folding. -->
   {#if onopen}
     <button class="open pressable" aria-label="{p.name} 详情" onclick={onopen}></button>
   {/if}
-  {#if collapsible}
-    <button class="fold pressable" class:corner={!!onopen} aria-label="{expanded ? '收起' : '展开'} {p.name} 明细" aria-expanded={expanded} onclick={ontoggle}></button>
-    <svg class="chevron" class:open={expanded} style:left="{right - 8}px" style:top="{mid - 4}px" width="8" height="8" viewBox="0 0 8 8" aria-hidden="true">
+  {#if collapsible && onopen}
+    <svg class="chevron" style:left="{right - 8}px" style:top="{mid - 4}px" width="8" height="8" viewBox="0 0 8 8" aria-hidden="true">
       <path d="M2.5 1 5.5 4 2.5 7" fill="none" stroke="var(--tertiary)" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" />
     </svg>
   {/if}
@@ -127,26 +125,23 @@
     text-overflow: ellipsis;
     line-height: 1.2;
   }
-  .fold, .open {
+  .open {
+    --press-scale: 0.99;
     position: absolute;
     left: 4px;
     top: 2px;
     width: calc(100% - 8px);
-    height: 46px;
+    height: calc(100% - 6px);
     border-radius: 8px;
   }
-  .open { --press-scale: 0.99; height: calc(100% - 6px); }
-  .fold.corner { left: auto; right: 4px; width: 40px; }
-  .fold:hover, .open:hover { background: var(--hover); }
-  .fold:active, .open:active { background: var(--press); }
+  .open:hover { background: var(--hover); }
+  .open:active { background: var(--press); }
   /* The words let the pointer through to the card's button under them. */
   .card.opens > span, .card.opens .models { pointer-events: none; }
   .chevron {
     position: absolute;
     pointer-events: none;
-    transition: transform 0.22s var(--page-curve);
   }
-  .chevron.open { transform: rotate(90deg); }
   .mark { width: 14px; height: 14px; pointer-events: none; }
   .dot {
     position: absolute;

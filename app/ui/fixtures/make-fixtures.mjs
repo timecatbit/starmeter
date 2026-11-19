@@ -681,7 +681,7 @@ function settingsRows(prefs) {
 
 function moduleOptions(prefs, home) {
   const options = [
-    entry('允许折叠', { detail: '各模块独立展开', symbol: 'rectangle.compress.vertical', checked: prefs.allowCollapse, action: ['set-collapse', prefs.allowCollapse ? 'false' : 'true'] }),
+    entry('允许折叠', { detail: '卡片只留费用与 Token', symbol: 'rectangle.compress.vertical', checked: prefs.allowCollapse, action: ['set-collapse', prefs.allowCollapse ? 'false' : 'true'] }),
     entry('外观与设置', { symbol: 'slider.horizontal.3' }, settingsRows(prefs)), separator()];
   let group = null;
   for (const [key, label, category] of modules) {

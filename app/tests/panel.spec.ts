@@ -242,19 +242,19 @@ test('settings: theme segments, switches and the module grid answer at once', as
   await expect(page.locator('.card .name')).not.toContainText(['Claude']);
 });
 
-test('folding shows each card on two lines until it is opened', async ({ page }) => {
+test('folded cards keep two lines, and one click anywhere opens the tool', async ({ page }) => {
   await open(page);
   await button(page, '主页模块与设置').click();
   await page.getByText('允许折叠', { exact: true }).click();
   await page.keyboard.press('Escape');
-  const fold = page.getByRole('button', { name: '展开 Claude 明细' });
-  await expect(fold).toBeVisible();
   await expect(page.locator('.model-name', { hasText: 'Opus 5.5' })).toHaveCount(0);
-  await fold.click();
-  await expect(page.locator('.model-name', { hasText: 'Opus 5.5' })).toBeVisible();
-  // Folding stays on the chevron's corner; the rest of the card still opens its page.
-  await button(page, 'Claude 详情').click();
+  // No unfolding in place: the first click goes in, wherever it lands, chevron included.
+  await expect(page.getByRole('button', { name: /展开 Claude 明细/ })).toHaveCount(0);
+  const card = page.locator('.card', { hasText: 'Claude' }).first();
+  const box = (await card.boundingBox())!;
+  await page.mouse.click(box.x + box.width - 12, box.y + 16);
   await expect(page.getByRole('heading', { name: 'Claude', exact: true })).toBeVisible();
+  await expect(page.locator('.model-name', { hasText: 'Opus 5.5' }).first()).toBeVisible();
 });
 
 test('a tool card opens its page: figures, its trend, every model, then its settings', async ({ page }) => {
