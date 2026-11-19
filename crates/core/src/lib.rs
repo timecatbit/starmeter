@@ -13,6 +13,7 @@ pub mod pricing;
 pub mod py;
 pub mod shell;
 pub mod time;
+pub mod zstd;
 
 /// The version every host reports and the update check compares.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

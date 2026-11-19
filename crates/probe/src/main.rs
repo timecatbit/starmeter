@@ -8,7 +8,7 @@ use std::path::Path;
 use jiff::tz::TimeZone;
 use starmeter_core::json::{Format, Json, python_repr};
 use starmeter_core::time::IsoTime;
-use starmeter_core::{catalog, claude_usage, files, object, preferences, pricing, py};
+use starmeter_core::{catalog, claude_usage, files, object, preferences, pricing, py, zstd};
 
 fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
     let text = |index: usize| args.get(index).and_then(Json::as_str);
@@ -50,6 +50,14 @@ fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
         "python_repr" => {
             Ok(args.iter().map(|value| python_repr(value.number().unwrap_or(f64::NAN))).collect::<Vec<_>>().into())
         }
+        "zstd" => Ok(args
+            .iter()
+            .map(|path| match zstd::decompress_file(Path::new(path.as_str().unwrap_or(""))) {
+                Ok(data) => Json::from(object! { "sha256" => py::sha256_hex(&data), "size" => data.len() as i64 }),
+                Err(error) => Json::from(object! { "error" => error.to_string() }),
+            })
+            .collect::<Vec<_>>()
+            .into()),
         "sha256" => Ok(py::sha256_hex(text(0).unwrap_or("").as_bytes()).into()),
         "claude.digest" => {
             Ok(claude_usage::digest(args.to_vec()).iter().map(|byte| format!("{byte:02x}")).collect::<String>().into())
