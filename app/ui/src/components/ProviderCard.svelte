@@ -20,7 +20,7 @@
   /** A model's share bar: 44pt at the panel's own width, longer in a pinned panel made wider, so the row fills. */
   const bar = $derived(Math.round(Math.min(200, 44 + (panel.width - 360) * 0.45)));
   const colour = $derived(accent(colourOf(p), panel.dark));
-  const headerRight = $derived(collapsible ? right - 16 : right);
+  const headerRight = $derived(collapsible ? right - 21 : right);
   const cost = $derived(p.available ? headline(p) : '—');
   const costWidth = $derived(Math.min(130, figureWidth(cost.slice(0, 1), font(16 * 0.62, 500, ROUNDED)) + figureWidth(cost.slice(1), font(16, 600, ROUNDED)) + 1));
   const nameWidth = $derived(Math.min(headerRight - costWidth - 14 - (left + 21), width(p.name, font(13, 600)) + 1));
@@ -58,7 +58,8 @@
   {#if collapsible}
     <button class="open pressable" aria-label="{expanded ? '收起' : '展开'} {p.name} 明细" aria-expanded={expanded} onclick={ontoggle}></button>
     {#if onopen}
-      <button class="enter pressable" style:left="{right - 16}px" style:top="{mid - 12}px" aria-label="{p.name} 详情" onclick={onopen}>
+      <!-- Centred on the amount's digits, which sit 0.8pt above the header line's middle. -->
+      <button class="enter pressable" style:left="{right - 16}px" style:top="{mid - 12.8}px" aria-label="{p.name} 详情" onclick={onopen}>
         <svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true">
           <path d="M2.5 1 5.5 4 2.5 7" fill="none" stroke="var(--secondary)" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
