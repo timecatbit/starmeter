@@ -1,6 +1,6 @@
 # 维护约定
 
-本仓库是 Starmeter（原名 Token Monitor）的唯一维护源。入口脚本、lib/、panel/、scripts/、tests/ 和文档均直接放在仓库根目录；以下命令在仓库根目录执行。
+本仓库是 Starmeter（原名 Token Monitor）的唯一维护源。main 是正在用 Rust + Tauri 重构的 6.x，`v5` 分支是 5.x；以下命令在仓库根目录执行。
 
 ## 已确认的产品约定
 
@@ -65,6 +65,18 @@
 - 用量提醒：订阅窗口用到“外观与设置 → 用量提醒”设定的比例（70%/80%/90%/关闭，展开后是一排分段控件，默认 90%）时通知一次；余额类 API（DeepSeek、Kimi、Grok、Qoder CN）在侧栏“余额提醒…”按币种各自设金额（存为 `API|币种`，如 `kimi-api|USD`；Kimi 国际站和部分 DeepSeek 账户是美元，同一 API 的 Key 有两种币种时分成“人民币余额提醒…”“美元余额提醒…”两行，对话框按该币种问金额；5.14.0 的单一金额按该 API 的常用币种迁移），每个组织/Team、或不告诉账户的每把 Key 降到该币种的线以下时通知一次，充值回到线上才重新生效；“重置前提醒”默认关闭，开启后一天以上的窗口用了不到 85%、12 小时内重置时提醒“只用了 X%，记得用掉”。每个窗口每一轮只说一次：重置时间已过或与记下的相差超过 10 分钟才算新一轮，用量回落到线下即重新生效；已提醒记录存 SwiftBarToken/alerts.json（600），重启不重复，40 天没再读到的记录删除。读取失败或不是当前的读数（超过 15 分钟；Claude 与 Qoder CN 超过 10 分钟）既不提醒也不清除。只由后台进程在读取完成后按缓存判断，不为提醒额外发请求；通知用 SwiftBar 通知，标题 Starmeter，副标题“用量提醒/余额提醒/重置提醒”，正文写明来源与窗口（如“Claude 订阅 · 本周 已用 92%，周四 22:00 重置”），一次最多 5 条；只有通知发出后才记为已提醒，发送失败的和超出 5 条的留到下一轮。
 - 插件自身更新：后台每 6 小时 GET 一次本仓库 GitHub `releases/latest`（忽略草稿与预发布，`OCX_SELF_UPDATES=0` 关闭）。有更高版本时主页“Harness 更新”下方出现“Starmeter · 可更新 X”一行，没有就不显示；Harness 更新模块隐藏时这一行仍保留。点“更新到 X…”须二次确认（默认取消），随后由脱离菜单进程的后台进程只下载 `releases/download/vX/token-monitor-X.zip`，按 GitHub 给出的 SHA-256 digest 校验（API 受限时从发布页附件列表读取，没有 digest 就不下载），拒绝越出顶层目录的条目，用 ditto 解压后以 `--no-refresh` 运行包内 `install.py`。日志写入 `SwiftBarToken/logs/self-update.log`（600）；成功后只退出本插件面板并用 URL scheme 刷新 SwiftBar，失败在该行显示原因与重试。同一时间只运行一个更新，状态超过 15 分钟未回报视为结束。通知与确认框标题统一为 Starmeter，因此正文必须写明更新的是什么：插件自身写“插件已更新到 X / 插件更新失败”，OpenCodex 自动更新写“OpenCodex 已自动更新至 X”，不能让两个程序的更新读起来像同一个更新执行了两遍。
 - 更新列表、徽标、后台检查和通知跟随 Harness 的勾选；另一个联动来源是已配置 OpenCodex 时同时检查 ChatGPT 和 Codex CLI，无论 OpenCodex 是否显示在主页，不修改主页勾选。没有 OpenCodex 配置时只按勾选；订阅/API 勾选不触发应用更新。OpenCodex 仅选中其 Harness 时启动自动更新，已开始的更新继续确认结果；其他应用仅提醒，未接入自动检测的来源明确给出官网入口。Mac 桌面 App（Claude、ChatGPT、WorkBuddy、Qoder CN、Cursor）已安装时，点击其更新条目直接打开 App 由其自行更新（有新版本时说明“点击打开 App 更新”，WorkBuddy、Qoder CN、Cursor 状态为“在 App 内检查更新”），不跳转下载网页；未安装才用官网链接。CLI 与 OpenCode 等命令行来源保持原样。检查范围变化立即废弃旧缓存，移出范围的项目不能再提醒；关闭应用更新仍停止 ChatGPT 检查与通知。
+
+## Starmeter 6 重构（进行中）
+
+计划全文：M0 分支与骨架 → M1 基础层 → M2 Harness 用量 → M3 账户与额度 → M4 快照、动作、后台、SwiftBar 输出 → M5 Tauri 外壳 → M6 界面 → M7 打包发布与迁移 → M8 收尾（之后再做插件）。
+
+- 分支：main 是 6.x；`v5` 分支是 5.x，只修 bug、不加功能，5.x 从那里打标签发布。6.0 发布以后，5.x 的 Release 一律设 `make_latest: false`，不能把 6.x 顶掉。每完成一个阶段推送一次 main。
+- 结构：Cargo 工作区。`crates/core`（starmeter-core，全部统计与业务逻辑）、`crates/engine`（starmeter-engine，SwiftBar 入口和各宿主调用的命令行）、`crates/probe`（只供测试，不随包发布）、`app/src-tauri`（Tauri 应用：星星/托盘、面板窗口、系统集成，macOS 原生调用用 objc2）、`app/ui`（Svelte 5 + TypeScript + Vite 的面板界面）。SwiftBar 插件保留：菜单文本由 Rust 引擎输出，点开的面板是 Tauri 应用的面板模式。
+- 移植方法：`tests/test_engine.py` 用 `STARMETER_PROBE` 对 Rust 探针跑 Python 对照，整轮测试用探针旁边的 starmeter-engine。还没移植的 call 返回 `{"error": "unported"}`、引擎以 78 退出，测试跳过；跳过数只减不增。全部移植完以后把对照冻结成固定样例，删掉 `lib/*.py`。界面和核心之间的数据约定沿用 5.x 的面板快照（PanelSnapshot、Dashboard）JSON。
+- 下面“实现与验证”里写 Swift 引擎、AppKit 面板、Qt 托盘、`panel-action.json` 的条目描述的是 5.x 的实现，移植时作为行为规格照搬，对应部分移植完以后改写。上面的产品约定对 6.x 同样有效。
+- 兼容：main 上 `lib/codex-pricing.json`、`lib/model-pricing.json` 的路径不能变（已安装的 5.x 每天从 raw 地址读），`update-pricing.yml` 一直保持能用；发布附件名、设置目录、bundle id、Windows 的 AppId 等旧标识照下方条目保留。
+- 验证：`python3 scripts/check.py` 依次跑界面类型检查与构建、cargo fmt/clippy/test、未用代码扫描、Python 测试与对照；CI 在 macOS 跑全部，Windows 与 Ubuntu 跑 `--rust-only`。看界面：在 `app/` 里 `npm run tauri -- build --debug --no-bundle`，运行 `target/debug/starmeter-app`，点星星打开面板；`STARMETER_SHOW_PANEL=1` 启动时直接打开（这样打开的面板拿不到焦点，焦点相关的行为要点星星验证）。
+- 依赖：版本由 `Cargo.lock` 和 `app/package-lock.json` 锁定，只用主流库；npm 的 `@tauri-apps/*` 与 tauri crate 保持同一个小版本（tauri CLI 会检查）。工作区 `rust-version` 1.85，resolver 3 按它挑依赖版本。图标：`scripts/render_svg.swift` 画菜单栏星星 `app/src-tauri/icons/tray.png`（36 像素模板图）和 1024 像素源图，`icon.icns` 用 `make_icon.swift` 生成（32 像素及以下用小号图）。
 
 ## 实现与验证
 
