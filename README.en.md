@@ -69,14 +69,6 @@ python3 scripts/package.py  # build the release zip
 
 To release, keep `VERSION` in `lib/swiftbar_plugin.py`, `xbar.version` in the entry script and the CHANGELOG in step, then push a `v<version>` tag; GitHub Actions builds and publishes. Conventions are in [AGENTS.md](AGENTS.md) and changes in [CHANGELOG.md](CHANGELOG.md) (both in Chinese).
 
-## Thanks
-
-- [SwiftBar](https://github.com/swiftbar/SwiftBar) (MIT): the plugin's menu bar item, menu and schedule.
-- [ccusage](https://github.com/ccusage/ccusage) (MIT): usage rules and model price snapshots; see [lib/CCUSAGE_LICENSE](lib/CCUSAGE_LICENSE).
-- [models.dev](https://github.com/anomalyco/models.dev) (MIT): prices of new OpenAI models before ccusage has them.
-- [CodexBar](https://github.com/steipete/CodexBar) (MIT): reference for reading Claude usage; see [lib/CODEXBAR_LICENSE](lib/CODEXBAR_LICENSE).
-- [LobeHub Icons](https://github.com/lobehub/lobe-icons) (MIT): brand icons; see [assets/logos/LICENSE](assets/logos/LICENSE). Marks belong to their owners and only identify the services.
-
 ## License
 
-[MIT](LICENSE) © minicoke. Third-party code and icons are used under their own licenses, listed above.
+[MIT](LICENSE) © minicoke. Brand marks belong to their owners and only identify the services; the icon files' license is in [assets/logos/LICENSE](assets/logos/LICENSE).

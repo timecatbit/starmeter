@@ -90,14 +90,6 @@ python3 scripts/package.py  # 打包发布 zip
 
 发布新版本：`lib/swiftbar_plugin.py` 的 `VERSION`、入口文件的 `xbar.version` 和 CHANGELOG 版本号保持一致，然后推送 `v版本号` 标签，GitHub Actions 会自动打包并发布。维护约定见 [AGENTS.md](AGENTS.md)，更新记录见 [CHANGELOG.md](CHANGELOG.md)。
 
-## 致谢
-
-- [SwiftBar](https://github.com/swiftbar/SwiftBar)（MIT）：插件版由 SwiftBar 提供菜单栏图标、右键菜单和定时刷新。
-- [ccusage](https://github.com/ccusage/ccusage)（MIT）：用量统计规则与模型价格快照，许可见 [lib/CCUSAGE_LICENSE](lib/CCUSAGE_LICENSE)。
-- [models.dev](https://github.com/anomalyco/models.dev)（MIT）：ccusage 快照还没收录的 OpenAI 新模型价格。
-- [CodexBar](https://github.com/steipete/CodexBar)（MIT）：Claude 用量查询的参考实现，许可见 [lib/CODEXBAR_LICENSE](lib/CODEXBAR_LICENSE)。
-- [LobeHub Icons](https://github.com/lobehub/lobe-icons)（MIT）：品牌图标，许可见 [assets/logos/LICENSE](assets/logos/LICENSE)；标志归各自所有者，仅用于标识服务。
-
 ## 许可
 
-[MIT](LICENSE) © minicoke。第三方代码与图标按各自的许可证使用，见上方致谢。
+[MIT](LICENSE) © minicoke。品牌标志归各自所有者，仅用于标识服务，图标文件的许可见 [assets/logos/LICENSE](assets/logos/LICENSE)。
