@@ -70,6 +70,13 @@ fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
             let (payload, error) = runtime.render(|| runtime.range_usage(text(0), ttl));
             Ok(object! { "payload" => payload, "error" => error, "cache" => runtime.range_cache_name(text(0)) }.into())
         }
+        "dashboard" => {
+            // [data, now, range error]
+            let runtime = Runtime::from_process();
+            let data = args.first().and_then(Json::as_object).cloned().unwrap_or_default();
+            let now = args.get(1).and_then(Json::number).unwrap_or_else(starmeter_core::runtime::now);
+            Ok(runtime.render(|| runtime.dashboard_payload(&data, text(2), now)).into())
+        }
         "range.bounds" => {
             let zone = text(2).and_then(|name| TimeZone::get(name).ok()).unwrap_or(TimeZone::UTC);
             let (start, end) = range_usage::range_bounds(

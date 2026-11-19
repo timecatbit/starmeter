@@ -20,17 +20,17 @@ use crate::{claude_app, harness, object, pricing, py, shell};
 /// A wall-clock time in a zone, as an aware Python datetime is: arithmetic on the wall clock, the offset looked up
 /// when it becomes a moment.
 #[derive(Clone)]
-struct Wall {
-    year: i64,
-    month: i64,
-    day: i64,
-    seconds: i64,
-    microsecond: i64,
-    zone: TimeZone,
+pub struct Wall {
+    pub year: i64,
+    pub month: i64,
+    pub day: i64,
+    pub seconds: i64,
+    pub microsecond: i64,
+    pub zone: TimeZone,
 }
 
 impl Wall {
-    fn at(moment: f64, zone: &TimeZone) -> Wall {
+    pub fn at(moment: f64, zone: &TimeZone) -> Wall {
         let local = moment + offset_at(zone, moment) as f64;
         let whole = local.floor();
         let days = (whole / 86400.0).floor() as i64;
@@ -44,11 +44,11 @@ impl Wall {
         Wall { year, month, day, seconds, microsecond, zone: zone.clone() }
     }
 
-    fn date(year: i64, month: i64, day: i64, zone: &TimeZone) -> Wall {
+    pub fn date(year: i64, month: i64, day: i64, zone: &TimeZone) -> Wall {
         Wall { year, month, day, seconds: 0, microsecond: 0, zone: zone.clone() }
     }
 
-    fn timestamp(&self) -> f64 {
+    pub fn timestamp(&self) -> f64 {
         let time = IsoTime {
             year: self.year,
             month: self.month,
@@ -62,14 +62,14 @@ impl Wall {
         time.timestamp(&self.zone)
     }
 
-    fn adding_days(&self, count: i64) -> Wall {
+    pub fn adding_days(&self, count: i64) -> Wall {
         let mut copy = self.clone();
         (copy.year, copy.month, copy.day) =
             py::civil_from_days(days_from_civil(self.year, self.month, self.day) + count);
         copy
     }
 
-    fn adding_seconds(&self, count: i64) -> Wall {
+    pub fn adding_seconds(&self, count: i64) -> Wall {
         let total = self.seconds + count;
         let shift = (total as f64 / 86400.0).floor() as i64;
         let mut copy = self.adding_days(shift);
@@ -78,7 +78,7 @@ impl Wall {
     }
 
     /// Monday is 0, as datetime.weekday().
-    fn weekday(&self) -> i64 {
+    pub fn weekday(&self) -> i64 {
         ((days_from_civil(self.year, self.month, self.day) % 7) + 7 + 3) % 7
     }
 }

@@ -102,7 +102,7 @@ fn balance_line(value: Option<&Json>) -> bool {
 }
 
 /// Yuan to the dollar, within reason.
-fn exchange_rate(value: Option<&Json>) -> bool {
+pub fn exchange_rate(value: Option<&Json>) -> bool {
     in_range(value, 1.0, 20.0)
 }
 

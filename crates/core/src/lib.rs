@@ -5,6 +5,7 @@ pub mod catalog;
 pub mod claude_app;
 pub mod claude_usage;
 pub mod cursor;
+pub mod dashboard;
 pub mod database;
 pub mod files;
 pub mod harness;
