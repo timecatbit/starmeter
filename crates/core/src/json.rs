@@ -239,6 +239,19 @@ impl Json {
         }
     }
 
+    /// Python's truthiness: None, False, 0, 0.0, "" and empty containers are false.
+    pub fn is_truthy(&self) -> bool {
+        match self {
+            Json::Null => false,
+            Json::Bool(value) => *value,
+            Json::Int(value) => *value != 0,
+            Json::Double(value) => *value != 0.0,
+            Json::String(value) => !value.is_empty(),
+            Json::Array(items) => !items.is_empty(),
+            Json::Object(object) => !object.is_empty(),
+        }
+    }
+
     /// The value at a key of an object, or None for anything else.
     pub fn get(&self, key: &str) -> Option<&Json> {
         self.as_object().and_then(|object| object.get(key))

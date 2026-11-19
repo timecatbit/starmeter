@@ -10,3 +10,4 @@ publish.workspace = true
 [dependencies]
 indexmap = "2"
 jiff.workspace = true
+sha2 = "0.10"

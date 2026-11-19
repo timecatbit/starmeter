@@ -2891,6 +2891,7 @@ version = "6.0.0"
 dependencies = [
  "indexmap 2.14.2",
  "jiff",
+ "sha2",
 ]
 
 [[package]]

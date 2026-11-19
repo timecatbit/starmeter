@@ -8,7 +8,7 @@ use std::path::Path;
 use jiff::tz::TimeZone;
 use starmeter_core::json::{Format, Json, python_repr};
 use starmeter_core::time::IsoTime;
-use starmeter_core::{catalog, files, object, preferences};
+use starmeter_core::{catalog, claude_usage, files, object, preferences, pricing, py};
 
 fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
     let text = |index: usize| args.get(index).and_then(Json::as_str);
@@ -50,6 +50,25 @@ fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
         "python_repr" => {
             Ok(args.iter().map(|value| python_repr(value.number().unwrap_or(f64::NAN))).collect::<Vec<_>>().into())
         }
+        "sha256" => Ok(py::sha256_hex(text(0).unwrap_or("").as_bytes()).into()),
+        "claude.digest" => {
+            Ok(claude_usage::digest(args.to_vec()).iter().map(|byte| format!("{byte:02x}")).collect::<String>().into())
+        }
+        "claude.price" => {
+            let metrics: Vec<f64> = args
+                .get(1)
+                .and_then(Json::as_array)
+                .map(|items| items.iter().filter_map(Json::integer).map(|n| n as f64).collect())
+                .unwrap_or_default();
+            let cost = pricing::claude::cost(
+                text(0).unwrap_or(""),
+                &metrics,
+                text(2).unwrap_or("standard"),
+                text(3).unwrap_or("global"),
+                text(4).unwrap_or("standard"),
+            );
+            Ok(cost.into())
+        }
         "catalog" => Ok(object! {
             "manual" => catalog::manual_subscriptions(),
             "portal" => catalog::portal_apis(),
@@ -68,6 +87,9 @@ fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
 }
 
 fn main() {
+    if let Some(folder) = std::env::var_os("STARMETER_PRICING") {
+        pricing::set_folders(vec![folder.into()]);
+    }
     let mut input = Vec::new();
     let request = std::io::stdin()
         .read_to_end(&mut input)
