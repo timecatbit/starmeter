@@ -4,7 +4,7 @@
   // lines show until it is opened.
   import { accent, alpha, blend, label as labelColour } from '../lib/colors';
   import { clientLine, colourOf, headline, isGrouped, modelAmount, modelName, notes, share, statsForms, tokenLine } from '../lib/format';
-  import { font, ROUNDED, width } from '../lib/measure';
+  import { figureWidth, font, ROUNDED, width } from '../lib/measure';
   import { panel } from '../lib/ui.svelte';
   import type { ProviderUsage } from '../lib/types';
   import Figure from './Figure.svelte';
@@ -17,7 +17,7 @@
   const colour = $derived(accent(colourOf(p), panel.dark));
   const headerRight = $derived(collapsible ? right - 16 : right);
   const cost = $derived(p.available ? headline(p) : '—');
-  const costWidth = $derived(Math.min(130, width(cost.slice(0, 1), font(16 * 0.62, 500, ROUNDED)) + width(cost.slice(1), font(16, 600, ROUNDED))));
+  const costWidth = $derived(Math.min(130, figureWidth(cost.slice(0, 1), font(16 * 0.62, 500, ROUNDED)) + figureWidth(cost.slice(1), font(16, 600, ROUNDED)) + 1));
   const nameWidth = $derived(Math.min(headerRight - costWidth - 14 - (left + 21), width(p.name, font(13, 600)) + 1));
   const shownNotes = $derived.by(() => {
     let x = left + 21 + nameWidth + 7;
@@ -45,7 +45,7 @@
   const mid = 15.8;
   const glowing = $derived(blend(labelColour(panel.dark, 0.85), colour, glow * 0.9));
   /** A figure too wide for its column shrinks rather than cuts, down to 9pt. */
-  const fitted = (value: string, size: number, room: number) => { const w = width(value, font(size)) * 1.04; return w > room ? Math.max(8, (size * room) / w) : size; };
+  const fitted = (value: string, size: number, room: number) => { const w = figureWidth(value, font(size)) * 1.02; return w > room ? Math.max(8, (size * room) / w) : size; };
   const height = $derived(collapsible && !expanded ? 52 : p.available ? 52 + clientHeight + Math.max(1, p.models.length) * 18 + 8 : 52);
 </script>
 

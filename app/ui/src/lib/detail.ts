@@ -5,6 +5,8 @@ import type { Entry } from './types';
 /** A row's identity among its siblings: a module by its id, else its action, link or the first part of its label. */
 export function entryKey(e: Entry): string {
   if (e.action?.[0] === 'set-module') return e.action.slice(0, 2).join('\u001f');
+  // A switch keeps its identity when its action flips from true to false, so it slides instead of being replaced.
+  if (e.checked !== undefined && !e.radio && (e.action?.at(-1) === 'true' || e.action?.at(-1) === 'false')) return e.action.slice(0, -1).join('\u001f');
   return e.action?.join('\u001f') ?? e.href ?? e.label.split(' · ')[0] ?? e.label;
 }
 

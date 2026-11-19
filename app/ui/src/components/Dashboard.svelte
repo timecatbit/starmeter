@@ -230,12 +230,14 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  /* The chart's layer spans the header too; clicks go through to the buttons. */
   .trend {
     position: absolute;
     left: 0;
     top: 0;
     width: 344px;
     height: 230px;
+    pointer-events: none;
   }
   .cards {
     position: absolute;

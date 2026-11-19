@@ -170,9 +170,12 @@
   let deferred = false;
   let spin = $state<{ from: number; until: number | null } | null>(null);
 
+  /** A button held down keeps its look: a data refresh waits until the press ends. */
+  let pressing = false;
+
   async function reload() {
-    // A redraw while a native menu is open would close it; it waits until the menu does.
-    if (panel.menuOpen) { deferred = true; return; }
+    // A redraw while a native menu is open would close it; it waits until the menu does, or the press ends.
+    if (panel.menuOpen || pressing) { deferred = true; return; }
     try {
       interaction.source = await backend.snapshot();
     } catch (error) {
@@ -346,12 +349,23 @@
 
   onMount(() => {
     if (!inTauri) document.body.classList.add('preview');
+    const down = () => (pressing = true);
+    const up = () => { pressing = false; if (deferred && !panel.menuOpen) { deferred = false; void reload(); } };
+    window.addEventListener('pointerdown', down, true);
+    window.addEventListener('pointerup', up, true);
+    window.addEventListener('pointercancel', up, true);
     const stops = [backend.onSnapshot(() => void reload()), shell.onOpened(opened), shell.onClosed(() => setPinned(false))];
     void shell.info().then((value) => {
       info = value;
       opened(value.modules);
     });
-    return () => { stops.forEach((stop) => stop()); clearInterval(liveTimer); };
+    return () => {
+      stops.forEach((stop) => stop());
+      clearInterval(liveTimer);
+      window.removeEventListener('pointerdown', down, true);
+      window.removeEventListener('pointerup', up, true);
+      window.removeEventListener('pointercancel', up, true);
+    };
   });
 
   const hint = $derived(panel.hint ? (() => {
@@ -379,7 +393,7 @@
     </div>
   {/key}
   {#if hint}
-    <span class="hint" style:left="{hint.left}px" style:top="{hint.top}px">{hint.text}</span>
+    <span class="hint-bubble" role="tooltip" style:left="{hint.left}px" style:top="{hint.top}px">{hint.text}</span>
   {/if}
 </div>
 
@@ -421,7 +435,7 @@
     position: absolute;
     inset: 0;
   }
-  .hint {
+  .hint-bubble {
     position: absolute;
     z-index: 10;
     padding: 4px 12px;

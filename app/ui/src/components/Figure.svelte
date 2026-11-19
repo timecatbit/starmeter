@@ -2,7 +2,7 @@
   // A figure reads as one number: rounded, even-width digits, with the $ and the K/M/B unit smaller and lighter so the
   // digits carry it. Too wide for its slot, it shrinks rather than cuts.
   import { figureParts } from '../lib/format';
-  import { font, ROUNDED, width } from '../lib/measure';
+  import { figureWidth as width, font, ROUNDED } from '../lib/measure';
 
   let { value, size, room, align = 'left', weight = 600, color = 'var(--label)' }:
     { value: string; size: number; room: number; align?: 'left' | 'center' | 'right'; weight?: number; color?: string } = $props();

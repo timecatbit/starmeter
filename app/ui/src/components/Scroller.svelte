@@ -14,14 +14,21 @@
 
   $effect(() => {
     if (!content || !viewport) return;
+    // Read in the observer, applied on the next frame: the panel's new size would otherwise resize what is observed
+    // within the same notification.
+    let frame = 0;
     const observer = new ResizeObserver(() => {
-      contentHeight = content!.offsetHeight;
-      viewHeight = viewport!.clientHeight;
-      onheight?.(contentHeight);
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        if (!content || !viewport) return;
+        contentHeight = content.offsetHeight;
+        viewHeight = viewport.clientHeight;
+        onheight?.(contentHeight);
+      });
     });
     observer.observe(content);
     observer.observe(viewport);
-    return () => observer.disconnect();
+    return () => { cancelAnimationFrame(frame); observer.disconnect(); };
   });
 
   // Restoring a position (coming back to the homepage) once the content is there to scroll.

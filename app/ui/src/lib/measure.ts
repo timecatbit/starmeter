@@ -24,3 +24,6 @@ export function width(text: string, cssFont: string): number {
   cache.set(key, value);
   return value;
 }
+
+/** A figure in even-width digits (tabular-nums): every digit takes a zero's width. */
+export const figureWidth = (text: string, cssFont: string) => width(text.replace(/\d/g, '0'), cssFont);
