@@ -822,3 +822,22 @@ pub fn set_min_height(app: AppHandle, height: f64) {
         let _ = window.set_min_size(Some(LogicalSize::new(MIN_SIZE.0, height)));
     }
 }
+
+/// The pointer over the panel or off it, heard natively so it reaches a pinned panel that does not have the focus:
+/// the page shows the grabber and the resize corner. Moves are passed on at most every 150ms.
+#[cfg(target_os = "macos")]
+pub fn hovered(app: &AppHandle, inside: bool) {
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+    static LAST: Mutex<Option<Instant>> = Mutex::new(None);
+    if inside {
+        let mut last = LAST.lock().expect("the hover time lock");
+        if last.is_some_and(|at| at.elapsed() < Duration::from_millis(150)) {
+            return;
+        }
+        *last = Some(Instant::now());
+    } else {
+        *LAST.lock().expect("the hover time lock") = None;
+    }
+    let _ = app.emit("panel-hover", inside);
+}

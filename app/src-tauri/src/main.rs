@@ -332,7 +332,11 @@ fn main() {
             }
             let window = app.get_webview_window(PANEL).expect("the panel window is configured");
             #[cfg(target_os = "macos")]
-            macos::configure_panel(&window);
+            {
+                macos::configure_panel(&window);
+                let hover = handle.clone();
+                macos::track_hover(&window, move |inside| panel::hovered(&hover, inside));
+            }
             let _ = window;
             if launch.show {
                 let anchor = if mode == Mode::SwiftBar { pointer_anchor(&handle) } else { star_anchor(&handle, None) };

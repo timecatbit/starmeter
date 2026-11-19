@@ -543,7 +543,9 @@
         if (onPage) { pageHeight = height; free = { width, height: free?.height ?? height }; }
         else { fitting = false; free = { width, height }; }
       }),
-      shell.onAsk((question) => showQuestion(question, interaction.active ?? null))];
+      shell.onAsk((question) => showQuestion(question, interaction.active ?? null)),
+      // Pinned and not in front, the page hears no pointer: the shell tells when it comes over the panel or leaves.
+      shell.onHover((inside) => { if (!pinned) return; if (inside) showChrome(); else if (!cornerFrom) showChrome(700); })];
     void shell.info().then((value) => {
       info = value;
       opened(value.modules);

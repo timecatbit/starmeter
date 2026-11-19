@@ -510,6 +510,22 @@ async function lit(page: Page, selector: string) {
   }, selector);
 }
 
+test('pinned and not in front, the grabber and the corner still show when the pointer comes over the panel', async ({ page }) => {
+  await open(page);
+  await button(page, '钉住面板').click();
+  const grabber = page.locator('.grabber'), corner = page.locator('.corner');
+  // With the pointer away they fade, as they do in front.
+  await page.mouse.move(2000, 10);
+  await expect(grabber).toHaveClass(/faded/, { timeout: 6000 });
+  // The page hears no pointer while the panel is not in front; the shell does, and says so.
+  const hover = (inside: boolean) => page.evaluate((inside) => window.dispatchEvent(new CustomEvent('panel-hover', { detail: inside })), inside);
+  await hover(true);
+  await expect(grabber).not.toHaveClass(/faded/);
+  await expect(corner).not.toHaveClass(/faded/);
+  await hover(false);
+  await expect(grabber).toHaveClass(/faded/, { timeout: 2000 });
+});
+
 test('新手指引 lights up each part of the homepage in turn, Esc skips it, and 外观与设置 shows it again', async ({ page }) => {
   // In a browser only when asked; the app shows it the first time the panel opens.
   await open(page);

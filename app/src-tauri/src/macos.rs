@@ -285,6 +285,71 @@ pub fn frame(panel: &WebviewWindow) -> Option<NSRect> {
     unsafe { Some(msg_send![window.cast::<AnyObject>(), frame]) }
 }
 
+// MARK: The pointer over the panel
+
+/// Told when the pointer is over the panel (true, again as it moves) or leaves it (false).
+type HoverHandler = Box<dyn Fn(bool) + Send + Sync>;
+static HOVER_HANDLER: OnceLock<HoverHandler> = OnceLock::new();
+
+thread_local! {
+    /// The tracking area's owner: the area holds it weakly.
+    static HOVER: RefCell<Option<Retained<HoverTracker>>> = const { RefCell::new(None) };
+}
+
+define_class!(
+    #[unsafe(super(NSObject))]
+    #[name = "StarmeterHoverTracker"]
+    struct HoverTracker;
+
+    impl HoverTracker {
+        #[unsafe(method(mouseEntered:))]
+        fn mouse_entered(&self, _event: *mut AnyObject) {
+            if let Some(handler) = HOVER_HANDLER.get() {
+                handler(true);
+            }
+        }
+
+        #[unsafe(method(mouseMoved:))]
+        fn mouse_moved(&self, _event: *mut AnyObject) {
+            if let Some(handler) = HOVER_HANDLER.get() {
+                handler(true);
+            }
+        }
+
+        #[unsafe(method(mouseExited:))]
+        fn mouse_exited(&self, _event: *mut AnyObject) {
+            if let Some(handler) = HOVER_HANDLER.get() {
+                handler(false);
+            }
+        }
+    }
+);
+
+/// The web view hears the pointer only while the panel has the focus; a pinned panel mostly does not, and its grabber
+/// and resize corner should still show when the pointer comes over it. A tracking area that is always active tells.
+pub fn track_hover(panel: &WebviewWindow, handler: impl Fn(bool) + Send + Sync + 'static) {
+    let _ = HOVER_HANDLER.set(Box::new(handler));
+    let Ok(window) = panel.ns_window() else { return };
+    unsafe {
+        let content: *mut AnyObject = msg_send![window.cast::<AnyObject>(), contentView];
+        if content.is_null() {
+            return;
+        }
+        let owner: Retained<HoverTracker> = msg_send![HoverTracker::class(), new];
+        // NSTrackingMouseEnteredAndExited | NSTrackingMouseMoved | NSTrackingActiveAlways | NSTrackingInVisibleRect
+        let options: usize = 0x01 | 0x02 | 0x80 | 0x200;
+        let area: *mut AnyObject = msg_send![class!(NSTrackingArea), alloc];
+        let area: *mut AnyObject = msg_send![area, initWithRect: NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0)),
+            options: options, owner: &*owner, userInfo: ptr::null_mut::<AnyObject>()];
+        if area.is_null() {
+            return;
+        }
+        let _: () = msg_send![content, addTrackingArea: area];
+        let _: () = msg_send![area, release];
+        HOVER.with(|hover| *hover.borrow_mut() = Some(owner));
+    }
+}
+
 // MARK: The star
 
 /// What a click on the star does: true for the menu (a right click, or a click with Control held), false for the panel.

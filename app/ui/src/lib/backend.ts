@@ -103,6 +103,17 @@ export const shell = {
   /** The answer to a question: true or false, the text typed, the option's value, or null when cancelled. */
   answer: (id: number | string, answer: unknown) => (inTauri ? invoke<void>('answer_question', { id, answer })
     : quiet().then(() => void window.dispatchEvent(new CustomEvent('panel-answer', { detail: { id, answer } })))),
+  /** The pointer came over the panel (true, again as it moves) or left it (false), heard even when the panel does not
+   *  have the focus (macOS). In a browser, a test sends the same as a window event. */
+  onHover(hovered: (inside: boolean) => void): () => void {
+    if (!inTauri) {
+      const listener = (event: Event) => hovered((event as CustomEvent<boolean>).detail);
+      window.addEventListener('panel-hover', listener);
+      return () => window.removeEventListener('panel-hover', listener);
+    }
+    const stop = listen<boolean>('panel-hover', (event) => hovered(event.payload));
+    return () => void stop.then((f) => f());
+  },
   /** The user resized the pinned panel at its edges. In a browser, a test sends the same as a window event. */
   onResized(resized: (width: number, height: number) => void): () => void {
     if (!inTauri) {
