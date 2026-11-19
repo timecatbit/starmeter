@@ -215,17 +215,7 @@ impl Runtime {
     }
 
     fn dsh_sessions_root(&self) -> String {
-        let explicit = self.environment.get("DSH_SESSIONS_DIR").map(|value| value.trim()).unwrap_or("");
-        if !explicit.is_empty() {
-            return normalize(&paths::expand_user(explicit).to_string_lossy());
-        }
-        let configured = self.environment.get("DSH_HOME").map(|value| value.trim()).unwrap_or("");
-        let home = if configured.is_empty() {
-            format!("{}/.dsh", self.home)
-        } else {
-            normalize(&paths::expand_user(configured).to_string_lossy())
-        };
-        format!("{home}/sessions")
+        dsh_root(&self.home, &self.environment)
     }
 
     fn magpie_root(&self) -> String {
@@ -548,6 +538,21 @@ impl Runtime {
         let url = format!("swiftbar://notify?{}", query.join("&"));
         crate::shell::run(&["/usr/bin/open", "-g", &url], 5.0, None, None).is_some()
     }
+}
+
+/// DeepSeek Harness's sessions folder: DSH_SESSIONS_DIR, else DSH_HOME/sessions, else ~/.dsh/sessions.
+pub fn dsh_root(home: &str, environment: &HashMap<String, String>) -> String {
+    let explicit = environment.get("DSH_SESSIONS_DIR").map(|value| value.trim()).unwrap_or("");
+    if !explicit.is_empty() {
+        return normalize(&paths::expand_user(explicit).to_string_lossy());
+    }
+    let configured = environment.get("DSH_HOME").map(|value| value.trim()).unwrap_or("");
+    let root = if configured.is_empty() {
+        format!("{home}/.dsh")
+    } else {
+        normalize(&paths::expand_user(configured).to_string_lossy())
+    };
+    format!("{root}/sessions")
 }
 
 /// Percent-encodes everything but the unreserved characters, as urllib.parse.quote(value, safe='').

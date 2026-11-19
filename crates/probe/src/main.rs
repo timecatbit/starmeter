@@ -125,6 +125,17 @@ fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
                     Ok(background::service_status::read_all(&wanted, "test").into())
                 }
                 "fx" => Ok(loaded(runtime.exchange_rate_load())),
+                "snapshot" => Ok(runtime.panel_snapshot(&runtime.cached_data(), None, None, runtime::now()).into()),
+                "alert_inputs" => {
+                    let data = runtime.cached_data();
+                    let moment = runtime::now();
+                    let list = |rows: Vec<Object>| Json::Array(rows.into_iter().map(Json::Object).collect());
+                    Ok(object! {
+                        "windows" => list(runtime.alert_windows(&data, moment)), "balances" => list(runtime.alert_balances(&data, moment)),
+                        "menuBar" => runtime.menu_bar_value(Some(&data)),
+                    }
+                    .into())
+                }
                 "alert_notices" => Ok(Json::Array(
                     args.get(2)
                         .and_then(Json::as_array)

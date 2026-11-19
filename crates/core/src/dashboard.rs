@@ -134,7 +134,7 @@ fn round6(value: f64) -> f64 {
     format!("{value:.6}").parse().unwrap_or(value)
 }
 
-fn summary_cost_value(summary: &Object) -> Option<&Json> {
+pub fn summary_cost_value(summary: &Object) -> Option<&Json> {
     ["estimatedCostUsd", "costUsd", "totalCostUsd", "totalCost", "cost"]
         .iter()
         .find_map(|key| summary.get(key).filter(|value| !value.is_null() && **value != Json::from("")))
@@ -270,7 +270,7 @@ pub type Selected = (String, String, Object);
 
 /// What Summary adds for each selected source: matched request by request, a gateway counts what it carried and
 /// the client adds only the rest. "usage" is null when Summary adds nothing for it.
-fn summary_usage(selected: &[Selected]) -> HashMap<String, Object> {
+pub fn summary_usage(selected: &[Selected]) -> HashMap<String, Object> {
     let available: HashSet<&str> = selected
         .iter()
         .filter(|(_, _, usage)| {

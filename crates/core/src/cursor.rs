@@ -60,7 +60,7 @@ pub fn app_root(home: &str, environment: &HashMap<String, String>) -> String {
     }
 }
 
-fn cli_auth(home: &str, environment: &HashMap<String, String>) -> String {
+pub fn cli_auth(home: &str, environment: &HashMap<String, String>) -> String {
     let config = environment
         .get("XDG_CONFIG_HOME")
         .filter(|value| !value.is_empty())
