@@ -492,9 +492,23 @@ impl Runtime {
         self.claude_subscription_connection()
     }
 
-    /// What the update checks depend on; ported with the update checks.
+    /// What the update checks depend on.
     fn app_update_parts(&self) -> Vec<Json> {
-        Vec::new()
+        self.app_update_connection()
+    }
+
+    /// A notification titled Starmeter: the desktop host's own, else macOS's through osascript.
+    pub fn notify(&self, message: &str, subtitle: &str) {
+        if let Some(notify) = &self.notifier {
+            notify(subtitle, message);
+            return;
+        }
+        let literal = |text: &str| format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""));
+        let mut script = format!("display notification {} with title {}", literal(message), literal(PRODUCT));
+        if !subtitle.is_empty() {
+            script += &format!(" subtitle {}", literal(subtitle));
+        }
+        crate::shell::run(&["/usr/bin/osascript", "-e", &script], 5.0, None, None);
     }
 }
 

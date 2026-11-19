@@ -12,7 +12,7 @@ use starmeter_core::runtime::Runtime;
 use starmeter_core::time::IsoTime;
 use starmeter_core::{
     accounts, catalog, claude_subscription, claude_usage, client_accounts, cursor, files, harness, http, object,
-    opencodex, preferences, pricing, py, range_usage, sessions, tally, zstd,
+    opencodex, preferences, pricing, py, range_usage, sessions, tally, updates, zstd,
 };
 
 fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
@@ -156,6 +156,33 @@ fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
             let requested = args.get(2).and_then(Json::number).unwrap_or(0.0);
             let (payload, error) = claude_subscription::oauth_fetch(text(0).unwrap_or(""), true, force, requested);
             Ok(object! { "payload" => payload, "error" => error }.into())
+        }
+        "updates.pieces" => {
+            // Small pure pieces: versions, CLI output, the checker ID, appcasts and Codex's channel.
+            let list = |index: usize| args.get(index).and_then(Json::as_array).cloned().unwrap_or_default();
+            let versions: Vec<Json> = list(0)
+                .iter()
+                .map(|value| {
+                    updates::release_version(Some(value)).map_or(Json::Null, |parts| Json::from(parts.to_vec()))
+                })
+                .collect();
+            let first: Vec<Json> =
+                list(1).iter().map(|text| updates::first_version(text.as_str().unwrap_or("")).into()).collect();
+            let sparkle: Vec<Json> = list(2)
+                .iter()
+                .map(|body| {
+                    let (version, build) = updates::sparkle_release(body.as_str().unwrap_or("").as_bytes());
+                    Json::from(vec![Json::from(version), Json::from(build)])
+                })
+                .collect();
+            let channels: Vec<Json> =
+                list(3).iter().map(|binary| updates::codex_channel(binary.as_str().unwrap_or("")).into()).collect();
+            Ok(object! {
+                "versions" => Json::Array(versions), "first" => Json::Array(first),
+                "uuid" => updates::uuid5_url("opencodex-swiftbar-update-check"),
+                "sparkle" => Json::Array(sparkle), "channels" => Json::Array(channels),
+            }
+            .into())
         }
         "qoder.snapshot" => {
             let environment: HashMap<String, String> = std::env::vars().collect();
