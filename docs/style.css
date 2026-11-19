@@ -59,6 +59,9 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
+/* Glows and fanned panels may reach past the screen's edge; they are cut there rather than letting a phone scroll
+   sideways. clip, unlike hidden, leaves no scroll box behind (hidden is the fallback for older browsers). */
+main { overflow-x: hidden; overflow-x: clip; }
 a { color: inherit; }
 img { max-width: 100%; height: auto; display: block; }
 picture { display: block; }
