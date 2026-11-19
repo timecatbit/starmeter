@@ -50,6 +50,21 @@
   const showingSessions = $derived(view === 'sessions' && !!sessions);
   const groupingHeight = $derived(tabOptions.length < 2 ? 0 : 30);
   let sessionsHeight = $state(0);
+  let sessionsBox: HTMLDivElement | undefined = $state();
+  // The list's height, taken a frame after it changes: set inside the observer's own callback it would resize what
+  // other observers watch in the same frame (the browser then warns of a resize loop).
+  $effect(() => {
+    const box = sessionsBox;
+    if (!box) return;
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => { sessionsHeight = box.offsetHeight; });
+    });
+    observer.observe(box);
+    sessionsHeight = box.offsetHeight;
+    return () => { observer.disconnect(); cancelAnimationFrame(frame); };
+  });
   const cardList = $derived(data.cards ?? data.providers);
   const collapsible = $derived(data.allowCollapse === true && !data.cards);
   const expanded = $derived(new Set(data.expandedProviders ?? []));
@@ -150,7 +165,7 @@
         onchoose={(key) => { if (key === 'sessions') onview?.('sessions'); else { onview?.('cards'); if (key !== (data.grouping ?? 'tool')) ongroup(key); } }} />
     {/if}
     {#if showingSessions && sessions}
-      <div class="sessions" bind:clientHeight={sessionsHeight}>
+      <div class="sessions" bind:this={sessionsBox}>
         <SessionList entry={sessions} {busy} onopen={(e) => onopen?.(e)} onchoose={(e) => onchoose?.(e)} />
       </div>
     {:else}
