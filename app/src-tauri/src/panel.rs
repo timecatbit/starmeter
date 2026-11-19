@@ -313,16 +313,17 @@ pub fn open(app: &AppHandle, anchor: (f64, f64), modules: bool) {
 /// The page has drawn what the opening asked for: the window shows.
 fn reveal(app: &AppHandle, opening: u64) {
     let state = app.state::<Panel>();
-    if opening == 0 || state.revealing.compare_exchange(opening, 0, Ordering::SeqCst, Ordering::SeqCst).is_err() {
-        return;
-    }
+    // Only the opening that asked, once: a later page drawing for an older opening changes nothing.
+    let mine = opening != 0 && state.revealing.compare_exchange(opening, 0, Ordering::SeqCst, Ordering::SeqCst).is_ok();
     #[cfg(target_os = "macos")]
-    if let Some(window) = window(app) {
+    if mine && let Some(window) = window(app) {
         let _ = app.run_on_main_thread(move || {
             macos::set_alpha(&window, 1.0);
             macos::reshadow(&window);
         });
     }
+    #[cfg(not(target_os = "macos"))]
+    let _ = mine;
 }
 
 /// Esc or the star (return_focus): the app used before gets the focus back. A click elsewhere: it keeps it.
@@ -624,14 +625,17 @@ pub fn size_panel(app: AppHandle, width: f64, height: f64) {
         return;
     }
     let Some(window) = window(&app) else { return };
-    let mut size = (width.clamp(MIN_SIZE.0, MAX_WIDTH).round(), height.max(MIN_SIZE.1).round());
+    let asked = (width.clamp(MIN_SIZE.0, MAX_WIDTH).round(), height.max(MIN_SIZE.1).round());
     #[cfg(target_os = "macos")]
-    if let Some(current) = macos::frame(&window) {
-        let frame = macos::free_frame(current, size.0, size.1);
-        size = (frame.size.width.round(), frame.size.height.round());
-    }
+    let size = macos::frame(&window).map_or(asked, |current| {
+        let frame = macos::free_frame(current, asked.0, asked.1);
+        (frame.size.width.round(), frame.size.height.round())
+    });
     #[cfg(not(target_os = "macos"))]
-    let _ = &window;
+    let size = {
+        let _ = &window;
+        asked
+    };
     state.sized.store(true, Ordering::SeqCst);
     {
         let mut current = state.size.lock().expect("the size lock");
