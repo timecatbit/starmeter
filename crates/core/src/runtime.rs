@@ -428,27 +428,31 @@ pub fn absolute(path: &str) -> String {
 
 /// The installed lib folder beside the entry, where the price tables ship.
 pub fn lib_directory(plugin: &str) -> String {
-    let absolute_plugin = absolute(plugin);
-    let folder = absolute_plugin.rsplit_once('/').map_or("", |(folder, _)| folder).to_string();
-    installed(&folder, "lib", "model-pricing.json").unwrap_or_else(|| format!("{folder}/lib"))
+    let folder = parent_folder(&absolute(plugin));
+    installed(&folder, "lib", "model-pricing.json")
+        .unwrap_or_else(|| Path::new(&folder).join("lib").to_string_lossy().into_owned())
 }
 
-/// A folder the engine ships with (lib, assets): in the plugin's hidden folder, beside the program, or, run from a
-/// source checkout's build folder, in the checkout a few levels up.
+/// The folder a path sits in, with either separator on Windows.
+pub fn parent_folder(path: &str) -> String {
+    Path::new(path).parent().map(|parent| parent.to_string_lossy().into_owned()).unwrap_or_default()
+}
+
+/// The first folder named `name` holding `marker`: beside the entry (or in its hidden .opencodex-panel folder), or
+/// up to three levels above, as in a source checkout.
 pub fn installed(folder: &str, name: &str, marker: &str) -> Option<String> {
-    let mut level = folder.to_string();
+    let mut level = Some(Path::new(folder).to_path_buf());
     for depth in 0..4 {
-        let candidates = if depth == 0 {
-            vec![format!("{level}/.opencodex-panel/{name}"), format!("{level}/{name}")]
-        } else {
-            vec![format!("{level}/{name}")]
-        };
-        if let Some(found) =
-            candidates.into_iter().find(|candidate| Path::new(&format!("{candidate}/{marker}")).exists())
-        {
-            return Some(normalize(&found));
+        let current = level?;
+        let mut candidates = Vec::new();
+        if depth == 0 {
+            candidates.push(current.join(".opencodex-panel").join(name));
         }
-        level = level.rsplit_once('/').map_or_else(String::new, |(parent, _)| parent.to_string());
+        candidates.push(current.join(name));
+        if let Some(found) = candidates.into_iter().find(|candidate| candidate.join(marker).exists()) {
+            return Some(normalize(&found.to_string_lossy()));
+        }
+        level = current.parent().map(Path::to_path_buf);
     }
     None
 }

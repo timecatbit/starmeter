@@ -573,9 +573,9 @@ fn streak_text(days: &HashSet<String>, today: i64) -> Option<String> {
 impl Runtime {
     /// The installed assets: the hidden folder beside the entry, else one beside it.
     pub fn asset_dir(&self) -> String {
-        let plugin = runtime::absolute(&self.plugin);
-        let folder = plugin.rsplit_once('/').map_or("", |(folder, _)| folder).to_string();
-        runtime::installed(&folder, "assets", "logos").unwrap_or_else(|| format!("{folder}/assets"))
+        let folder = runtime::parent_folder(&runtime::absolute(&self.plugin));
+        runtime::installed(&folder, "assets", "logos")
+            .unwrap_or_else(|| std::path::Path::new(&folder).join("assets").to_string_lossy().into_owned())
     }
 
     pub fn logo(&self, file: &str) -> Option<String> {
