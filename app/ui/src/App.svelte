@@ -99,7 +99,7 @@
   let reveal = $state(1);
   let glows = $state<Record<string, number>>({});
   let summaryGlow = $state(0);
-  let motion = 0;
+  let motion = 0, revealing = 0;
 
   function mix(a: DashboardData, b: DashboardData, t: number): DashboardData {
     const lerp = (x: number, y: number) => x + (y - x) * t;
@@ -123,11 +123,14 @@
     if (!next) { shown = null; return; }
     const old = shown;
     cancelAnimationFrame(motion);
+    // The new range's trend draws in on a frame of its own: a reading arriving meanwhile (which restarts the roll) must
+    // not stop it, or the curve stays clipped away with only its axes showing.
     if (old && old.rangeKey !== next.rangeKey && !panel.reduceMotion) {
+      cancelAnimationFrame(revealing);
       const start = performance.now();
-      const step = (now: number) => { const t = Math.min(1, (now - start) / 600); reveal = 1 - Math.pow(1 - t, 3); if (t < 1) motion = requestAnimationFrame(step); };
+      const step = (now: number) => { const t = Math.min(1, (now - start) / 600); reveal = 1 - Math.pow(1 - t, 3); if (t < 1) revealing = requestAnimationFrame(step); };
       reveal = 0;
-      motion = requestAnimationFrame(step);
+      revealing = requestAnimationFrame(step);
     }
     if (!old || old.rangeKey !== next.rangeKey || old.grouping !== next.grouping || panel.reduceMotion) { shown = next; glows = {}; summaryGlow = 0; return; }
     const grew: Record<string, number> = {};
