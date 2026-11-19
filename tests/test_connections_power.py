@@ -187,8 +187,8 @@ class PowerTests(unittest.TestCase):
         for row in rows:
             if row.get('section'):current=row['label'];groups[current]=[]
             elif (row.get('action') or [''])[0]=='set-module':groups[current].append(row['label'])
-        self.assertEqual(list(groups),['概览','Harness Token 用量','订阅用量','API','其他'])
-        self.assertIn('Claude',groups['Harness Token 用量']);self.assertIn('OpenCodex',groups['Harness Token 用量'])
+        self.assertEqual(list(groups),['概览','工具 Token 用量','订阅用量','API','其他'])
+        self.assertIn('Claude',groups['工具 Token 用量']);self.assertIn('OpenCodex',groups['工具 Token 用量'])
         self.assertEqual(groups['API'],[s.label for s in self.m.catalog.SERVICES if s.category=='API'])
         self.assertEqual(groups['订阅用量'],[s.label for s in self.m.catalog.SERVICES if s.category=='订阅'])
         self.assertEqual(groups['其他'],['活跃会话','Komari 监控','Harness 更新'])

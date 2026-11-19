@@ -352,7 +352,7 @@ impl Fixtures {
                 self.prefs["visible"] = self.data["snapshot"]["preferences"]["visible"].clone();
                 if action[0] == "reset-modules" {
                     self.prefs["theme"] = json!("system");
-                    self.prefs["appearance"] = json!("glass");
+                    self.prefs["appearance"] = json!("solid");
                 }
                 return self.saved();
             }

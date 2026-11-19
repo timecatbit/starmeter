@@ -22,8 +22,10 @@ unsafe extern "C" {}
 thread_local! {
     /// The app that was in front when the panel opened.
     static PREVIOUS: RefCell<Option<Retained<AnyObject>>> = const { RefCell::new(None) };
-    /// The glass (or, before macOS 26, the popover material) under the web view.
+    /// The system's glass under the web view (macOS 26 and later).
     static GLASS: RefCell<Option<Retained<AnyObject>>> = const { RefCell::new(None) };
+    /// The classic frosted blur under the web view (磨砂; also 玻璃 before macOS 26).
+    static FROST: RefCell<Option<Retained<AnyObject>>> = const { RefCell::new(None) };
 }
 
 /// NSPopUpMenuWindowLevel: above ordinary windows, like the 5.x panel, so it shows in front even when macOS does not
@@ -40,8 +42,8 @@ fn ns_string(text: &str) -> Retained<AnyObject> {
     unsafe { msg_send![class!(NSString), stringWithUTF8String: bytes.as_ptr()] }
 }
 
-/// Sets the panel up as the 5.x panel was: a pop-up level window on every Space, with the system glass under the web
-/// view, whose page stays transparent.
+/// Sets the panel up as the 5.x panel was: a pop-up level window on every Space, with the system glass and a frosted
+/// blur under the web view (one shows, or neither for a solid colour the page paints), whose page stays transparent.
 pub fn configure_panel(panel: &WebviewWindow) {
     let Ok(window) = panel.ns_window() else { return };
     unsafe {
@@ -62,51 +64,56 @@ pub fn configure_panel(panel: &WebviewWindow) {
             let _: () = msg_send![content_layer, setMasksToBounds: true];
         }
         let bounds: NSRect = msg_send![content, bounds];
-        let effect: *mut AnyObject = match AnyClass::get(c"NSGlassEffectView") {
-            Some(glass) => {
-                let effect: *mut AnyObject = msg_send![glass, alloc];
-                let effect: *mut AnyObject = msg_send![effect, initWithFrame: bounds];
-                // NSGlassEffectViewStyleRegular
-                let _: () = msg_send![effect, setStyle: 0isize];
-                let _: () = msg_send![effect, setCornerRadius: CORNER_RADIUS];
-                effect
-            }
-            None => {
-                let effect: *mut AnyObject = msg_send![class!(NSVisualEffectView), alloc];
-                let effect: *mut AnyObject = msg_send![effect, initWithFrame: bounds];
-                // Popover material, blended with what is behind the window, always active.
-                let _: () = msg_send![effect, setMaterial: 6isize];
-                let _: () = msg_send![effect, setBlendingMode: 0isize];
-                let _: () = msg_send![effect, setState: 1isize];
-                let _: () = msg_send![effect, setWantsLayer: true];
-                let layer: *mut AnyObject = msg_send![effect, layer];
-                let _: () = msg_send![layer, setCornerRadius: CORNER_RADIUS];
-                let _: () = msg_send![layer, setMasksToBounds: true];
-                effect
-            }
+        // Under the web view, its size following the window's (NSWindowBelow; width and height sizable), hidden until
+        // the look picks it.
+        let place = |view: *mut AnyObject| {
+            let _: () = msg_send![view, setAutoresizingMask: 18usize];
+            let _: () = msg_send![view, setHidden: true];
+            let _: () =
+                msg_send![content, addSubview: view, positioned: -1isize, relativeTo: ptr::null_mut::<AnyObject>()];
+            Retained::retain(view)
         };
-        // Width and height follow the window.
-        let _: () = msg_send![effect, setAutoresizingMask: 18usize];
-        // NSWindowBelow: under the web view.
-        let _: () =
-            msg_send![content, addSubview: effect, positioned: -1isize, relativeTo: ptr::null_mut::<AnyObject>()];
-        let retained = Retained::retain(effect);
-        GLASS.with(|glass| *glass.borrow_mut() = retained);
+        // Popover material, blended with what is behind the window, always active: the classic frost.
+        let frost: *mut AnyObject = msg_send![class!(NSVisualEffectView), alloc];
+        let frost: *mut AnyObject = msg_send![frost, initWithFrame: bounds];
+        let _: () = msg_send![frost, setMaterial: 6isize];
+        let _: () = msg_send![frost, setBlendingMode: 0isize];
+        let _: () = msg_send![frost, setState: 1isize];
+        let _: () = msg_send![frost, setWantsLayer: true];
+        let layer: *mut AnyObject = msg_send![frost, layer];
+        let _: () = msg_send![layer, setCornerRadius: CORNER_RADIUS];
+        let _: () = msg_send![layer, setMasksToBounds: true];
+        let frost = place(frost);
+        FROST.with(|view| *view.borrow_mut() = frost);
+        if let Some(glass) = AnyClass::get(c"NSGlassEffectView") {
+            let effect: *mut AnyObject = msg_send![glass, alloc];
+            let effect: *mut AnyObject = msg_send![effect, initWithFrame: bounds];
+            // NSGlassEffectViewStyleRegular
+            let _: () = msg_send![effect, setStyle: 0isize];
+            let _: () = msg_send![effect, setCornerRadius: CORNER_RADIUS];
+            let effect = place(effect);
+            GLASS.with(|view| *view.borrow_mut() = effect);
+        }
     }
 }
 
-/// Glass or a solid background (实色背景, or the system's Reduce Transparency): the web page paints the solid one.
-/// Returns whether the glass shows.
-pub fn set_glass(glass: bool) -> bool {
-    let shown = glass && !reduce_transparency();
-    GLASS.with(|view| {
-        if let Some(view) = view.borrow().as_ref() {
+/// 实色, 磨砂 or 玻璃 (glass falls back to the frost before macOS 26). A solid colour, or the system's Reduce
+/// Transparency, shows neither: the web page paints it. Returns whether a material shows.
+pub fn set_material(material: &str) -> bool {
+    let reduce = reduce_transparency();
+    let has_glass = GLASS.with(|view| view.borrow().is_some());
+    let glass = !reduce && material == "glass" && has_glass;
+    let frost = !reduce && (material == "frosted" || (material == "glass" && !has_glass));
+    let show = |slot: &RefCell<Option<Retained<AnyObject>>>, shown: bool| {
+        if let Some(view) = slot.borrow().as_ref() {
             unsafe {
                 let _: () = msg_send![&**view, setHidden: !shown];
             }
         }
-    });
-    shown
+    };
+    GLASS.with(|view| show(view, glass));
+    FROST.with(|view| show(view, frost));
+    glass || frost
 }
 
 fn reduce_transparency() -> bool {

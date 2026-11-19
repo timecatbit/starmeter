@@ -663,10 +663,10 @@ pub fn hold_open(app: AppHandle, held: bool) {
     app.state::<Panel>().held.store(held, Ordering::SeqCst);
 }
 
-/// 跟随系统 / 浅色 / 深色 for the window (and the web page's light or dark), and glass or a solid background. Returns
-/// whether the system material shows; when it doesn't, the page paints the solid background.
+/// 跟随系统 / 浅色 / 深色 for the window (and the web page's light or dark), and its background: 实色 (solid), 磨砂
+/// (frosted) or 玻璃 (glass). Returns whether a material shows; when it doesn't, the page paints the solid background.
 #[tauri::command]
-pub fn set_look(app: AppHandle, theme: String, glass: bool) -> bool {
+pub fn set_look(app: AppHandle, theme: String, material: String) -> bool {
     let wanted = match theme.as_str() {
         "light" => Some(Theme::Light),
         "dark" => Some(Theme::Dark),
@@ -677,18 +677,25 @@ pub fn set_look(app: AppHandle, theme: String, glass: bool) -> bool {
     let _ = window.set_theme(wanted);
     #[cfg(target_os = "macos")]
     {
-        macos::on_main(&app, move || macos::set_glass(glass)).unwrap_or(false)
+        macos::on_main(&app, move || macos::set_material(&material)).unwrap_or(false)
     }
     #[cfg(windows)]
     {
+        // 磨砂 is Acrylic, 玻璃 is Mica; both need Windows 11, so Windows 10 paints the solid colour.
         use tauri::window::{Effect, EffectsBuilder};
-        let glass = glass && mica_supported();
-        let effects = glass.then(|| EffectsBuilder::new().effect(Effect::Mica).build());
-        window.set_effects(effects).is_ok() && glass
+        let effect = match material.as_str() {
+            "frosted" => Some(Effect::Acrylic),
+            "glass" => Some(Effect::Mica),
+            _ => None,
+        }
+        .filter(|_| mica_supported());
+        let shown = effect.is_some();
+        let effects = effect.map(|effect| EffectsBuilder::new().effect(effect).build());
+        window.set_effects(effects).is_ok() && shown
     }
     #[cfg(all(not(target_os = "macos"), not(windows)))]
     {
-        let _ = glass;
+        let _ = material;
         false
     }
 }

@@ -30,7 +30,7 @@ const fn service(
 }
 
 /// Category identifiers stay stable; these say what each group measures.
-pub const GROUP_LABELS: [(&str, &str); 3] = [("Harness", "Harness Token 用量"), ("订阅", "订阅用量"), ("API", "API")];
+pub const GROUP_LABELS: [(&str, &str); 3] = [("Harness", "工具 Token 用量"), ("订阅", "订阅用量"), ("API", "API")];
 
 pub const SERVICES: [Service; 16] = [
     service("chatgpt", "ChatGPT", "订阅", "https://chatgpt.com", "", "client"),

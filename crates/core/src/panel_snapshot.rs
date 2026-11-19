@@ -706,7 +706,7 @@ impl Runtime {
             .map(|(key, label)| radio(label, option("theme") == Json::from(*key), &["set-theme", key]))
             .collect();
         rows.push(separator());
-        for (key, label) in [("glass", "玻璃材质"), ("solid", "实色背景")] {
+        for (key, label) in [("solid", "实色"), ("frosted", "磨砂"), ("glass", "玻璃")] {
             rows.push(radio(label, option("appearance") == Json::from(key), &["set-appearance", key]));
         }
         let level = option("usageAlert");
@@ -976,7 +976,7 @@ impl Runtime {
             "pinInterval" => settings.get("pinInterval").cloned().unwrap_or(Json::Int(2)),
             "entries" => Json::Array(self.resource_panel_entries(data)),
             "rangeOptions" => Json::Array(self.range_options(range_key.as_deref())), "moduleOptions" => Json::Array(options),
-            "appearance" => settings.get("appearance").cloned().unwrap_or_else(|| Json::from("glass")),
+            "appearance" => settings.get("appearance").cloned().unwrap_or_else(|| Json::from("solid")),
             "theme" => settings.get("theme").cloned().unwrap_or_else(|| Json::from("system")),
             "preferences" => self.presentation_settings(),
             "updateCount" => update_attention_count(&self.update_rows(data)) as i64,

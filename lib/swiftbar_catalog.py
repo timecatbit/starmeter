@@ -7,7 +7,7 @@ report a synthetic balance.
 from typing import NamedTuple
 
 # Keep category identifiers stable while explaining what each group measures.
-GROUP_LABELS = {'Harness': 'Harness Token 用量', '订阅': '订阅用量', 'API': 'API'}
+GROUP_LABELS = {'Harness': '工具 Token 用量', '订阅': '订阅用量', 'API': 'API'}
 
 class Service(NamedTuple):
     key: str

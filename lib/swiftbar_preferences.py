@@ -27,6 +27,8 @@ MODULES = (
 )
 ALERT_LEVELS = (0, 70, 80, 90)  # Usage alert: 0 is off.
 THEMES = ('system', 'light', 'dark')  # The panel follows macOS/Windows, or stays light or dark.
+# The panel's background: a solid colour (the default), the classic frosted blur, or the system's glass.
+APPEARANCES = ('solid', 'frosted', 'glass')
 # The Harness cards on the homepage, one per tool (the default), per model or per project.
 GROUPINGS = ('tool', 'model', 'project')
 # Beside the menu bar star: nothing (the default), today's API-equivalent estimate, or the tightest subscription window.
@@ -76,7 +78,7 @@ def balance_key(key):
 
 
 def read(directory):
-    defaults = {'schema': 1, 'visible': list(DEFAULT_VISIBLE), 'appearance': 'glass', 'theme': 'system', 'paths': {}, 'allowCollapse': False, 'expandedProviders': [], 'revision': 0, 'configuredSubscriptions': [], 'claudeLiveUsage': False, 'claudeOAuthUsage': False, 'cursorUsage': False,
+    defaults = {'schema': 1, 'visible': list(DEFAULT_VISIBLE), 'appearance': 'solid', 'theme': 'system', 'paths': {}, 'allowCollapse': False, 'expandedProviders': [], 'revision': 0, 'configuredSubscriptions': [], 'claudeLiveUsage': False, 'claudeOAuthUsage': False, 'cursorUsage': False,
                 'usageAlert': 90, 'resetReminder': False, 'balanceAlerts': {}, 'keepCleanedUsage': True, 'subscriptionPrices': {}, 'groupBy': 'tool', 'menuBar': 'none', 'sessionAlerts': False, 'serviceStatus': False, 'currency': 'USD', 'cnyRate': None, 'pinInterval': 2}
     try:
         value = json.loads((Path(directory) / 'preferences.json').read_text(encoding='utf-8'))
@@ -95,7 +97,7 @@ def read(directory):
         subscriptions = value.get('configuredSubscriptions')
         if isinstance(subscriptions, list):
             defaults['configuredSubscriptions'] = [k for k in catalog.MANUAL_SUBSCRIPTIONS if k in subscriptions]
-        if value.get('appearance') in ('glass', 'solid'):
+        if value.get('appearance') in APPEARANCES:
             defaults['appearance'] = value['appearance']
         if value.get('theme') in THEMES:defaults['theme']=value['theme']
         if isinstance(value.get('allowCollapse'),bool):defaults['allowCollapse']=value['allowCollapse']
@@ -216,7 +218,7 @@ def update(directory, kind, key=None, value=None):
         chosen.add(key) if value == 'true' else chosen.discard(key)
         current['configuredSubscriptions'] = [k for k in catalog.MANUAL_SUBSCRIPTIONS if k in chosen]
     elif kind == 'appearance':
-        if key not in ('glass', 'solid'):
+        if key not in APPEARANCES:
             raise ValueError('invalid appearance')
         current['appearance'] = key
     elif kind == 'theme':
@@ -234,7 +236,7 @@ def update(directory, kind, key=None, value=None):
         current['expandedProviders']=[k for k in USAGE if k in expanded]
     elif kind == 'reset':
         current['visible'] = list(DEFAULT_VISIBLE)
-        current['appearance'] = 'glass';current['theme']='system'
+        current['appearance'] = 'solid';current['theme']='system'
         current['allowCollapse']=False;current['expandedProviders']=[]
     elif kind == 'auto-path':
         if key not in USAGE:raise ValueError('invalid data source')

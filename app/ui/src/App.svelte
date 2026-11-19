@@ -82,7 +82,7 @@
     const theme = snapshot?.theme ?? 'system', wanted = (snapshot?.appearance ?? 'glass') !== 'solid';
     panel.theme = theme;
     if (theme === 'system') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = theme;
-    void shell.setLook(theme, wanted).then((shown) => (glass = shown));
+    void shell.setLook(theme, material).then((shown) => (glass = shown));
   });
 
   // MARK: The figures on screen: they roll from the last reading to the next, and a new range draws its trend in

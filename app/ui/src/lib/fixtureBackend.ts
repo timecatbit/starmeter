@@ -169,7 +169,7 @@ export async function action(action: string[]): Promise<ActionReceipt> {
     case 'set-expanded': prefs.expandedProviders = b === 'true' ? [...new Set([...prefs.expandedProviders, a])].sort() : prefs.expandedProviders.filter((v) => v !== a); return saved();
     case 'set-theme': prefs.theme = a; return saved();
     case 'set-appearance': prefs.appearance = a; return saved();
-    case 'reset-modules': prefs.visible = structuredClone(f.snapshot.preferences!.visible); prefs.theme = 'system'; prefs.appearance = 'glass'; return saved();
+    case 'reset-modules': prefs.visible = structuredClone(f.snapshot.preferences!.visible); prefs.theme = 'system'; prefs.appearance = 'solid'; return saved();
     case 'refresh-live': state.live += 1; changed(); return { status: 'done' };
     case 'test-api-key': await wait(1200); return { status: 'done' };
   }

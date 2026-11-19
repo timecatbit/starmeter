@@ -60,9 +60,10 @@ export const shell = {
     : quiet().then(() => void window.dispatchEvent(new CustomEvent('panel-resized', { detail: { width, height } })))),
   /** The page has drawn what the panel opened on; a window kept clear until then shows. */
   shown: () => (inTauri ? invoke<void>('panel_shown') : quiet()),
-  /** Theme (system, light, dark) and background (glass or solid) for the window and the system material under it. */
-  /** Returns whether the system material shows; when it doesn't, the page paints its solid background. */
-  setLook: (theme: string, glass: boolean): Promise<boolean> => (inTauri ? invoke<boolean>('set_look', { theme, glass }) : Promise.resolve(glass)),
+  /** Theme (system, light, dark) and background (solid, frosted or glass) for the window and the material under it.
+   *  Returns whether a material shows; when it doesn't, the page paints its solid background. */
+  setLook: (theme: string, material: string): Promise<boolean> =>
+    (inTauri ? invoke<boolean>('set_look', { theme, material }) : Promise.resolve(material !== 'solid')),
   /** A web page comes to the front; an app opens to update itself; a swiftbar:// command runs without taking focus. */
   openLink: (href: string) => (inTauri ? invoke<void>('open_link', { href }) : Promise.resolve(void window.open(href, '_blank'))),
   /** Holds the panel open while a native menu or the share sheet has the pointer. */

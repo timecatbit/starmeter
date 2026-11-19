@@ -3231,7 +3231,7 @@ def module_options(data=None):
     settings=view_settings();connections=module_connections(data)
     settings_rows=[{'label':label,'checked':settings['theme']==key,'radio':True,'action':['set-theme',key],'children':[]} for key,label in [('system','跟随系统'),('light','浅色'),('dark','深色')]]
     settings_rows.append({'label':'','separator':True,'children':[]})
-    settings_rows.extend({'label':label,'checked':settings['appearance']==key,'radio':True,'action':['set-appearance',key],'children':[]} for key,label in [('glass','玻璃材质'),('solid','实色背景')])
+    settings_rows.extend({'label':label,'checked':settings['appearance']==key,'radio':True,'action':['set-appearance',key],'children':[]} for key,label in [('solid','实色'),('frosted','磨砂'),('glass','玻璃')])
     alert_rows=[{'label':'%d%%'%level if level else '关闭','checked':settings['usageAlert']==level,'radio':True,'action':['set-usage-alert',str(level)],'children':[]}
                 for level in preferences.ALERT_LEVELS[1:]+(0,)]
     alert_rows.extend([{'label':'','separator':True,'children':[]},

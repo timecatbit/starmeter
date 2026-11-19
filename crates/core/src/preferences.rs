@@ -46,6 +46,8 @@ pub static MODULES: LazyLock<Vec<Module>> = LazyLock::new(|| {
 pub const ALERT_LEVELS: [i64; 4] = [0, 70, 80, 90];
 /// The panel follows macOS/Windows, or stays light or dark.
 pub const THEMES: [&str; 3] = ["system", "light", "dark"];
+/// The panel's background: a solid colour (the default), the classic frosted blur, or the system's glass.
+pub const APPEARANCES: [&str; 3] = ["solid", "frosted", "glass"];
 /// The Harness cards on the homepage, one per tool (the default), per model or per project.
 pub const GROUPINGS: [&str; 3] = ["tool", "model", "project"];
 /// Beside the menu bar star: nothing (the default), today's API-equivalent estimate, or the tightest subscription.
@@ -132,7 +134,7 @@ fn strings(items: impl IntoIterator<Item = impl Into<String>>) -> Json {
 
 pub fn defaults() -> Object {
     object! {
-        "schema" => 1, "visible" => strings(DEFAULT_VISIBLE), "appearance" => "glass", "theme" => "system",
+        "schema" => 1, "visible" => strings(DEFAULT_VISIBLE), "appearance" => "solid", "theme" => "system",
         "paths" => Object::new(), "allowCollapse" => false, "expandedProviders" => Json::Array(vec![]), "revision" => 0,
         "configuredSubscriptions" => Json::Array(vec![]), "claudeLiveUsage" => false, "claudeOAuthUsage" => false,
         "cursorUsage" => false, "usageAlert" => 90, "resetReminder" => false, "balanceAlerts" => Object::new(),
@@ -196,7 +198,7 @@ pub fn read(directory: &Path) -> Object {
         let kept = catalog::manual_subscriptions().into_iter().filter(|key| chosen.contains(&Json::from(*key)));
         settings.insert("configuredSubscriptions", strings(kept));
     }
-    if let Some(appearance) = get("appearance").and_then(Json::as_str).filter(|v| ["glass", "solid"].contains(v)) {
+    if let Some(appearance) = get("appearance").and_then(Json::as_str).filter(|v| APPEARANCES.contains(v)) {
         settings.insert("appearance", appearance);
     }
     if let Some(theme) = get("theme").and_then(Json::as_str).filter(|v| THEMES.contains(v)) {
@@ -426,8 +428,7 @@ pub fn update(directory: &Path, kind: &str, key: Option<&str>, value: Option<&st
             );
         }
         "appearance" => {
-            let appearance =
-                key.filter(|key| ["glass", "solid"].contains(key)).ok_or(Error::Invalid("invalid appearance"))?;
+            let appearance = key.filter(|key| APPEARANCES.contains(key)).ok_or(Error::Invalid("invalid appearance"))?;
             current.insert("appearance", appearance);
         }
         "theme" => {
@@ -457,7 +458,7 @@ pub fn update(directory: &Path, kind: &str, key: Option<&str>, value: Option<&st
         }
         "reset" => {
             current.insert("visible", strings(DEFAULT_VISIBLE));
-            current.insert("appearance", "glass");
+            current.insert("appearance", "solid");
             current.insert("theme", "system");
             current.insert("allowCollapse", false);
             current.insert("expandedProviders", Json::Array(vec![]));

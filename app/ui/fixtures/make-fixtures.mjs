@@ -586,7 +586,7 @@ const modules = [
   ...services.map(([key]) => [key, serviceByKey[key].label, serviceByKey[key].category]),
   ['sessions', '活跃会话', '其他'], ['komari', 'Komari 监控', '其他'], ['updates', 'Harness 更新', '其他'],
 ];
-const groupLabels = { Harness: 'Harness Token 用量', 订阅: '订阅用量', API: 'API' };
+const groupLabels = { Harness: '工具 Token 用量', 订阅: '订阅用量', API: 'API' };
 const setupNotes = {
   minimax: '需要 MiniMax Token Plan 的 Key，显示套餐各窗口的用量', 'chatgpt-api': 'OpenAI 没有余额接口：保存或测试时校验一次 Key，只表示 Key 可用',
   'claude-api': '管理员 Key 显示本月花费；个人 Key 只校验是否可用', deepseek: '显示账户余额', 'minimax-api': '保存或测试时校验一次 Key，只表示 Key 可用',
@@ -649,7 +649,7 @@ function settingsRows(prefs) {
   return [
     radio('跟随系统', ['set-theme', 'system'], prefs.theme === 'system'), radio('浅色', ['set-theme', 'light'], prefs.theme === 'light'),
     radio('深色', ['set-theme', 'dark'], prefs.theme === 'dark'), separator(),
-    radio('玻璃材质', ['set-appearance', 'glass'], prefs.appearance === 'glass'), radio('实色背景', ['set-appearance', 'solid'], prefs.appearance === 'solid'),
+    radio('实色', ['set-appearance', 'solid'], prefs.appearance === 'solid'), radio('磨砂', ['set-appearance', 'frosted'], prefs.appearance === 'frosted'), radio('玻璃', ['set-appearance', 'glass'], prefs.appearance === 'glass'),
     entry('显示', { section: true }),
     entry('金额显示', { symbol: 'dollarsign.circle', value: '美元' }, [radio('美元（$）', ['set-currency', 'USD'], true), radio('人民币（¥）', ['set-currency', 'CNY'], false),
       separator(), entry('汇率…', { value: '每天自动更新', detail: 'API 等值估算按这个汇率换成人民币；订阅月费与 API 实际花费仍是美元', action: ['set-cny-rate'] })]),
@@ -709,7 +709,7 @@ function homeEntries(state) {
 }
 
 function scenario(state) {
-  const prefs = { revision: 1, visible, appearance: 'glass', theme: 'system', allowCollapse: false, expandedProviders: [] };
+  const prefs = { revision: 1, visible, appearance: 'solid', theme: 'system', allowCollapse: false, expandedProviders: [] };
   const { rows, keys } = homeEntries(state);
   const dashboards = {}, cards = {};
   for (const [key, label] of ranges) {
