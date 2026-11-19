@@ -18,12 +18,18 @@ const brandLogos = { ChatGPT: ['openai.svg', true], Claude: ['claude.svg', false
 const moduleLogos = { magpie: ['magpie.svg', true], claude: ['claude.svg', false], codex: ['openai.svg', true], opencode: ['opencode.svg', true],
   workbuddy: ['workbuddy.svg', true], qoder: ['qoder.svg', true], gemini: ['gemini.svg', false], cursor: ['cursor.svg', true] };
 const moduleSymbols = { summary: 'chart.xyaxis.line', heatmap: 'square.grid.3x3.fill', opencodex: 'network', komari: 'server.rack', updates: 'arrow.down.circle' };
+// In the engine's order (catalog.rs, preferences.rs): the gateways first, then every brand by its name, the same in
+// each group.
 const services = [
-  ['chatgpt', 'ChatGPT', '订阅'], ['claude-subscription', 'Claude', '订阅'], ['minimax', 'MiniMax', '订阅'], ['gemini-subscription', 'Gemini', '订阅'],
-  ['grok-subscription', 'Grok', '订阅'], ['kimi-subscription', 'Kimi', '订阅'], ['qoder-subscription', 'Qoder', '订阅'], ['cursor-subscription', 'Cursor', '订阅'],
-  ['chatgpt-api', 'ChatGPT', 'API'], ['claude-api', 'Claude', 'API'], ['deepseek', 'DeepSeek', 'API'], ['minimax-api', 'MiniMax', 'API'],
-  ['gemini-api', 'Gemini', 'API'], ['grok', 'Grok', 'API'], ['kimi-api', 'Kimi', 'API'], ['qoder-api', 'Qoder', 'API'],
+  ['chatgpt', 'ChatGPT', '订阅'], ['claude-subscription', 'Claude', '订阅'], ['cursor-subscription', 'Cursor', '订阅'], ['gemini-subscription', 'Gemini', '订阅'],
+  ['grok-subscription', 'Grok', '订阅'], ['kimi-subscription', 'Kimi', '订阅'], ['minimax', 'MiniMax', '订阅'], ['qoder-subscription', 'Qoder', '订阅'],
+  ['chatgpt-api', 'ChatGPT', 'API'], ['claude-api', 'Claude', 'API'], ['deepseek', 'DeepSeek', 'API'], ['gemini-api', 'Gemini', 'API'],
+  ['grok', 'Grok', 'API'], ['kimi-api', 'Kimi', 'API'], ['minimax-api', 'MiniMax', 'API'], ['qoder-api', 'Qoder', 'API'],
 ];
+const harnessOrder = ['opencodex', 'magpie', 'codex', 'claude', 'cursor', 'deepseek-harness', 'gemini', 'opencode', 'qoder', 'workbuddy'];
+const serviceOrder = services.map(([key]) => key);
+/** Rows of one group in that order, by the module each opens. */
+const inOrder = (rows) => [...rows].sort((a, b) => serviceOrder.indexOf(a.onOpenAction[1]) - serviceOrder.indexOf(b.onOpenAction[1]));
 const serviceByKey = Object.fromEntries(services.map(([key, brand, category]) => [key, { key, brand, category, label: brand + (category === '订阅' ? ' 订阅' : ' API') }]));
 const logo = (file) => { if (!assetExists(file)) throw new Error('missing ' + file); return 'logo:' + file; };
 function moduleIcon(key) {
@@ -260,7 +266,7 @@ function heatmap(key, start, end, selected) {
 function dashboard(key, label) {
   let [start, end] = bounds(key);
   const short = shortRanges.has(key);
-  const selected = tools;
+  const selected = [...tools].sort((a, b) => harnessOrder.indexOf(a.id) - harnessOrder.indexOf(b.id));
   let slots, labels, span, period;
   if (short) {
     const first = Math.floor(start / HOUR) * HOUR, last = Math.floor(end / HOUR) * HOUR;
@@ -585,9 +591,9 @@ function selfUpdateRow() {
 
 const modules = [
   ['summary', 'Summary', '概览'], ['heatmap', '用量热力图', '概览'],
-  ['opencodex', 'OpenCodex', 'Harness'], ['magpie', 'Magpie', 'Harness'], ['claude', 'Claude', 'Harness'], ['codex', 'ChatGPT', 'Harness'],
-  ['opencode', 'OpenCode', 'Harness'], ['deepseek-harness', 'DeepSeek Harness', 'Harness'], ['workbuddy', 'WorkBuddy', 'Harness'], ['qoder', 'Qoder', 'Harness'],
-  ['gemini', 'Gemini CLI', 'Harness'], ['cursor', 'Cursor', 'Harness'],
+  ['opencodex', 'OpenCodex', 'Harness'], ['magpie', 'Magpie', 'Harness'], ['codex', 'ChatGPT', 'Harness'], ['claude', 'Claude', 'Harness'],
+  ['cursor', 'Cursor', 'Harness'], ['deepseek-harness', 'DeepSeek Harness', 'Harness'], ['gemini', 'Gemini CLI', 'Harness'], ['opencode', 'OpenCode', 'Harness'],
+  ['qoder', 'Qoder', 'Harness'], ['workbuddy', 'WorkBuddy', 'Harness'],
   ...services.map(([key]) => [key, serviceByKey[key].label, serviceByKey[key].category]),
   ['sessions', '会话', '其他'], ['komari', 'Komari 监控', '其他'], ['updates', '工具更新', '其他'],
 ];
@@ -702,9 +708,9 @@ const visible = ['summary', 'heatmap', 'magpie', 'claude', 'codex', 'opencode', 
 function homeEntries(state) {
   const rows = [], keys = [];
   const add = (row, key) => { rows.push(row); keys.push(key); };
-  for (const row of subscriptionRows(state)) add(row, row.onOpenAction[1]);
+  for (const row of inOrder(subscriptionRows(state))) add(row, row.onOpenAction[1]);
   add(separator(), null);
-  for (const row of apiRows(state)) add(row, row.onOpenAction[1]);
+  for (const row of inOrder(apiRows(state))) add(row, row.onOpenAction[1]);
   add(separator(), null);
   add(sessionRows(state), 'sessions');
   add(komariRows(state), 'komari');

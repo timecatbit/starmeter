@@ -24,19 +24,19 @@ class Service(NamedTuple):
 SERVICES = (
     Service('chatgpt', 'ChatGPT', '订阅', 'https://chatgpt.com', capability='client'),
     Service('claude-subscription', 'Claude', '订阅', 'https://claude.ai/settings/usage', capability='desktop-usage'),
-    Service('minimax', 'MiniMax', '订阅', 'https://platform.minimax.io/user-center/payment/token-plan', 'MINIMAX_API_KEY', 'quota'),
+    Service('cursor-subscription', 'Cursor', '订阅', 'https://cursor.com/dashboard', capability='account-usage'),
     Service('gemini-subscription', 'Gemini', '订阅', 'https://gemini.google.com'),
     Service('grok-subscription', 'Grok', '订阅', 'https://grok.com'),
     Service('kimi-subscription', 'Kimi', '订阅', 'https://www.kimi.com'),
+    Service('minimax', 'MiniMax', '订阅', 'https://platform.minimax.io/user-center/payment/token-plan', 'MINIMAX_API_KEY', 'quota'),
     Service('qoder-subscription', 'Qoder', '订阅', 'https://qoder.cn/account/usage', capability='app-log'),
-    Service('cursor-subscription', 'Cursor', '订阅', 'https://cursor.com/dashboard', capability='account-usage'),
     Service('chatgpt-api', 'ChatGPT', 'API', 'https://platform.openai.com/usage', 'OPENAI_API_KEY'),
     Service('claude-api', 'Claude', 'API', 'https://platform.claude.com/usage', 'ANTHROPIC_API_KEY', 'cost'),
     Service('deepseek', 'DeepSeek', 'API', 'https://platform.deepseek.com/usage', 'DEEPSEEK_API_KEY', 'balance'),
-    Service('minimax-api', 'MiniMax', 'API', 'https://platform.minimax.io/user-center/payment/balance', 'MINIMAX_PLATFORM_API_KEY'),
     Service('gemini-api', 'Gemini', 'API', 'https://aistudio.google.com/usage', 'GEMINI_API_KEY'),
     Service('grok', 'Grok', 'API', 'https://console.x.ai', 'XAI_MANAGEMENT_API_KEY', 'balance'),
     Service('kimi-api', 'Kimi', 'API', 'https://platform.moonshot.cn/console/account', 'MOONSHOT_API_KEY', 'balance'),
+    Service('minimax-api', 'MiniMax', 'API', 'https://platform.minimax.io/user-center/payment/balance', 'MINIMAX_PLATFORM_API_KEY'),
     Service('qoder-api', 'Qoder', 'API', 'https://qoder.cn/organizations', 'QODER_CN_API_KEY', 'balance'),
 )
 BY_KEY = {s.key: s for s in SERVICES}

@@ -16,14 +16,15 @@ class CatalogTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
         self.root=Path(self.temp.name)
-        env=patch.dict(os.environ,{'OCX_STATE_DIR':str(self.root/'state'),'OCX_CACHE_DIR':str(self.root),'OCX_PLUGIN_PATH':str(ROOT/'starmeter.30s.sh')})
+        # HOME too: the plugin reads the Claude app's own files under it, which on a real Mac may hold a subscription.
+        env=patch.dict(os.environ,{'HOME':str(self.root),'OCX_STATE_DIR':str(self.root/'state'),'OCX_CACHE_DIR':str(self.root),'OCX_PLUGIN_PATH':str(ROOT/'starmeter.30s.sh')})
         env.start();self.addCleanup(env.stop)
         self.m=types.ModuleType('catalog_test')
         code=(ROOT/'lib/swiftbar_plugin.py').read_text()
         exec(compile(code,'plugin','exec'),self.m.__dict__)
     def test_catalog_exact_order_and_independent_service_ids(self):
-        self.assertEqual([s.brand for s in catalog.SERVICES if s.category=='订阅'],['ChatGPT','Claude','MiniMax','Gemini','Grok','Kimi','Qoder','Cursor'])
-        self.assertEqual([s.brand for s in catalog.SERVICES if s.category=='API'],['ChatGPT','Claude','DeepSeek','MiniMax','Gemini','Grok','Kimi','Qoder'])
+        self.assertEqual([s.brand for s in catalog.SERVICES if s.category=='订阅'],['ChatGPT','Claude','Cursor','Gemini','Grok','Kimi','MiniMax','Qoder'])
+        self.assertEqual([s.brand for s in catalog.SERVICES if s.category=='API'],['ChatGPT','Claude','DeepSeek','Gemini','Grok','Kimi','MiniMax','Qoder'])
         self.assertEqual(len(catalog.BY_KEY),16)
         self.assertNotIn('codex-quota',preferences.KNOWN)
         self.assertEqual(next(label for k,label,g in preferences.MODULES if k=='codex'),'ChatGPT')

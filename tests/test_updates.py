@@ -272,13 +272,13 @@ class UpdateTests(unittest.TestCase):
   settings['visible']=list(harnesses)+(['updates'] if updates else [])
   self.m.preferences.write(self.m.STATE_DIR,settings)
  def test_default_updates_follow_only_selected_harnesses(self):
-  self.assertEqual(self.m.selected_update_ids(),['opencodex','claude','claude-code','chatgpt','codex-cli'])
-  self.assertEqual([r['id'] for r in self.m.update_rows({})],['opencodex','claude','claude-code','chatgpt','codex-cli'])
+  self.assertEqual(self.m.selected_update_ids(),['opencodex','chatgpt','codex-cli','claude','claude-code'])
+  self.assertEqual([r['id'] for r in self.m.update_rows({})],['opencodex','chatgpt','codex-cli','claude','claude-code'])
  def test_configured_opencodex_also_checks_chatgpt_without_changing_home_selection(self):
   self.select('claude')
   before=self.m.preferences.read(self.m.STATE_DIR)
   with patch.object(self.m,'ocx_configured',return_value=True),patch.object(self.m,'app_info',return_value={}),patch.object(self.m,'app_update_probe',side_effect=lambda key:dict(self.row(),id=key,href=self.m.UPDATE_LINKS[key],status='有新版本')) as probe:
-   self.assertEqual(self.m.selected_update_ids(),['claude','claude-code','chatgpt','codex-cli'])
+   self.assertEqual(self.m.selected_update_ids(),['chatgpt','codex-cli','claude','claude-code'])
    self.m.app_updates_cached()
    self.assertCountEqual([c.args[0] for c in probe.call_args_list],['claude','claude-code','chatgpt','codex-cli'])
    self.assertNotIn('badge',self.m.external_loaders())
@@ -347,7 +347,7 @@ class UpdateTests(unittest.TestCase):
   self.select('opencode','gemini')
   with patch.object(self.m,'app_update_probe') as probe:
    rows=self.m.update_rows({});self.m.app_updates_cached()
-  self.assertEqual([r['id'] for r in rows],['opencode','gemini']);probe.assert_not_called()
+  self.assertEqual([r['id'] for r in rows],['gemini','opencode']);probe.assert_not_called()
   self.assertTrue(all(r['manual'] and not r['available'] for r in rows))
   self.assertNotIn('已是最新','\n'.join(self.m.app_update_lines({})))
  def test_installed_desktop_apps_open_the_app_instead_of_a_download_page(self):

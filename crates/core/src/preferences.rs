@@ -24,14 +24,14 @@ pub static MODULES: LazyLock<Vec<Module>> = LazyLock::new(|| {
         module("heatmap", "用量热力图", "概览"),
         module("opencodex", "OpenCodex", "Harness"),
         module("magpie", "Magpie", "Harness"),
-        module("claude", "Claude", "Harness"),
         module("codex", "ChatGPT", "Harness"),
-        module("opencode", "OpenCode", "Harness"),
-        module("deepseek-harness", "DeepSeek Harness", "Harness"),
-        module("workbuddy", "WorkBuddy", "Harness"),
-        module("qoder", "Qoder", "Harness"),
-        module("gemini", "Gemini CLI", "Harness"),
+        module("claude", "Claude", "Harness"),
         module("cursor", "Cursor", "Harness"),
+        module("deepseek-harness", "DeepSeek Harness", "Harness"),
+        module("gemini", "Gemini CLI", "Harness"),
+        module("opencode", "OpenCode", "Harness"),
+        module("qoder", "Qoder", "Harness"),
+        module("workbuddy", "WorkBuddy", "Harness"),
     ];
     modules.extend(SERVICES.iter().map(|s| Module { key: s.key, label: s.label(), category: s.category }));
     modules.extend([
@@ -66,14 +66,14 @@ const INTRODUCED_WITH: [(&str, &[&str]); 1] = [("sessions", &["claude", "codex"]
 pub const USAGE: [&str; 10] = [
     "opencodex",
     "magpie",
-    "claude",
     "codex",
-    "opencode",
-    "deepseek-harness",
-    "workbuddy",
-    "qoder",
-    "gemini",
+    "claude",
     "cursor",
+    "deepseek-harness",
+    "gemini",
+    "opencode",
+    "qoder",
+    "workbuddy",
 ];
 
 pub fn is_known(key: &str) -> bool {

@@ -35,6 +35,10 @@ pub const GROUP_LABELS: [(&str, &str); 3] = [("Harness", "工具 Token 用量"),
 pub const SERVICES: [Service; 16] = [
     service("chatgpt", "ChatGPT", "订阅", "https://chatgpt.com", "", "client"),
     service("claude-subscription", "Claude", "订阅", "https://claude.ai/settings/usage", "", "desktop-usage"),
+    service("cursor-subscription", "Cursor", "订阅", "https://cursor.com/dashboard", "", "account-usage"),
+    service("gemini-subscription", "Gemini", "订阅", "https://gemini.google.com", "", "portal"),
+    service("grok-subscription", "Grok", "订阅", "https://grok.com", "", "portal"),
+    service("kimi-subscription", "Kimi", "订阅", "https://www.kimi.com", "", "portal"),
     service(
         "minimax",
         "MiniMax",
@@ -43,14 +47,13 @@ pub const SERVICES: [Service; 16] = [
         "MINIMAX_API_KEY",
         "quota",
     ),
-    service("gemini-subscription", "Gemini", "订阅", "https://gemini.google.com", "", "portal"),
-    service("grok-subscription", "Grok", "订阅", "https://grok.com", "", "portal"),
-    service("kimi-subscription", "Kimi", "订阅", "https://www.kimi.com", "", "portal"),
     service("qoder-subscription", "Qoder", "订阅", "https://qoder.cn/account/usage", "", "app-log"),
-    service("cursor-subscription", "Cursor", "订阅", "https://cursor.com/dashboard", "", "account-usage"),
     service("chatgpt-api", "ChatGPT", "API", "https://platform.openai.com/usage", "OPENAI_API_KEY", "portal"),
     service("claude-api", "Claude", "API", "https://platform.claude.com/usage", "ANTHROPIC_API_KEY", "cost"),
     service("deepseek", "DeepSeek", "API", "https://platform.deepseek.com/usage", "DEEPSEEK_API_KEY", "balance"),
+    service("gemini-api", "Gemini", "API", "https://aistudio.google.com/usage", "GEMINI_API_KEY", "portal"),
+    service("grok", "Grok", "API", "https://console.x.ai", "XAI_MANAGEMENT_API_KEY", "balance"),
+    service("kimi-api", "Kimi", "API", "https://platform.moonshot.cn/console/account", "MOONSHOT_API_KEY", "balance"),
     service(
         "minimax-api",
         "MiniMax",
@@ -59,9 +62,6 @@ pub const SERVICES: [Service; 16] = [
         "MINIMAX_PLATFORM_API_KEY",
         "portal",
     ),
-    service("gemini-api", "Gemini", "API", "https://aistudio.google.com/usage", "GEMINI_API_KEY", "portal"),
-    service("grok", "Grok", "API", "https://console.x.ai", "XAI_MANAGEMENT_API_KEY", "balance"),
-    service("kimi-api", "Kimi", "API", "https://platform.moonshot.cn/console/account", "MOONSHOT_API_KEY", "balance"),
     service("qoder-api", "Qoder", "API", "https://qoder.cn/organizations", "QODER_CN_API_KEY", "balance"),
 ];
 

@@ -108,7 +108,7 @@ class ModuleTests(unittest.TestCase):
         old=self.m.range_cache_name()
         self.toggle('opencodex',False);self.toggle('codex',True)
         dashboard=self.m.dashboard_payload({'range_usage':{'range':'today','codex':{'summary':{'totalTokens':120,'requests':1}},'opencodex':{'summary':{'totalTokens':999,'requests':1}}}})
-        self.assertEqual([p['id'] for p in dashboard['providers']],['claude','codex'])
+        self.assertEqual([p['id'] for p in dashboard['providers']],['codex','claude'])
         self.assertEqual(sum(p['tokens'] for p in dashboard['providers']),120)
         self.assertNotEqual(old,self.m.range_cache_name())
     def test_disabled_harness_is_not_read(self):

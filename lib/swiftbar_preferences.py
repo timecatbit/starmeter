@@ -12,14 +12,14 @@ MODULES = (
     ('heatmap', '用量热力图', '概览'),
     ('opencodex', 'OpenCodex', 'Harness'),
     ('magpie', 'Magpie', 'Harness'),
-    ('claude', 'Claude', 'Harness'),
     ('codex', 'ChatGPT', 'Harness'),
-    ('opencode', 'OpenCode', 'Harness'),
-    ('deepseek-harness', 'DeepSeek Harness', 'Harness'),
-    ('workbuddy', 'WorkBuddy', 'Harness'),
-    ('qoder', 'Qoder', 'Harness'),
-    ('gemini', 'Gemini CLI', 'Harness'),
+    ('claude', 'Claude', 'Harness'),
     ('cursor', 'Cursor', 'Harness'),
+    ('deepseek-harness', 'DeepSeek Harness', 'Harness'),
+    ('gemini', 'Gemini CLI', 'Harness'),
+    ('opencode', 'OpenCode', 'Harness'),
+    ('qoder', 'Qoder', 'Harness'),
+    ('workbuddy', 'WorkBuddy', 'Harness'),
 ) + tuple((s.key, s.label, s.category) for s in catalog.SERVICES) + (
     ('sessions', '会话', '其他'),
     ('komari', 'Komari 监控', '其他'),
@@ -44,7 +44,7 @@ KNOWN = {row[0] for row in MODULES}
 INTRODUCED = ('heatmap', 'sessions')
 # A new module that only means something beside these is introduced only to those who show one of them.
 INTRODUCED_WITH = {'sessions': ('claude', 'codex')}
-USAGE = ('opencodex', 'magpie', 'claude', 'codex', 'opencode', 'deepseek-harness', 'workbuddy', 'qoder', 'gemini', 'cursor')
+USAGE = ('opencodex', 'magpie', 'codex', 'claude', 'cursor', 'deepseek-harness', 'gemini', 'opencode', 'qoder', 'workbuddy')
 
 
 def balance_line(value):
