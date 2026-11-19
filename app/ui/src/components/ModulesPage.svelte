@@ -36,7 +36,9 @@
   });
   const rows = (cells: Entry[]) => Array.from({ length: Math.ceil(cells.length / COLUMNS) }, (_, i) => cells.slice(i * COLUMNS, i * COLUMNS + COLUMNS));
   const enabled = $derived(entries.filter((e) => isModule(e) && e.checked === true).length);
-  const lead = $derived(fromHome ? 36 : 12);
+  // The header keeps the cells' columns: the back arrow centred on the checkboxes' (8pt in, 13pt wide), the title and
+  // its count on the icons' (29pt in); opened alone, with no way back, the title takes the checkboxes' column.
+  const lead = $derived(fromHome ? 29 : 8);
 </script>
 
 <div class="modules">
@@ -75,7 +77,7 @@
     width: 572px;
     padding-top: 49px;
   }
-  .back { position: absolute; left: 3px; top: 7.5px; }
+  .back { position: absolute; left: -0.5px; top: 7.5px; }
   .heading {
     position: absolute;
     top: 7px;
