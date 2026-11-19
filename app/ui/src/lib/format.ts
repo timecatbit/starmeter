@@ -84,7 +84,8 @@ export function summaryPart(p: ProviderUsage): ProviderUsage | null {
 export function statsForms(p: ProviderUsage): string[] {
   if (!p.available) return [t('等待可用数据')];
   const requests = t('{n} 请求', { n: p.requests }), sessions = t('{n} 会话', { n: p.sessions });
-  if (p.tokens === 0 && p.credits !== null) return [`${requests} · ${sessions}`, requests];
+  // A card per model or project counts no sessions, Credits or not.
+  if (p.tokens === 0 && p.credits !== null) return isGrouped(p) ? [requests] : [`${requests} · ${sessions}`, requests];
   const output = t('输出 {n}', { n: tokens(p.output) });
   const cache = (digits: number) => (p.cache === null ? t('缓存 —') : t('缓存 {n}%', { n: fixed(p.cache * 100, digits) }));
   const extras: string[] = [];
