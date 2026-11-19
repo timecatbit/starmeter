@@ -49,12 +49,15 @@ fn to_value(json: Json) -> Value {
 }
 
 /// Where the app's lib/ (price tables) and assets/ (logos) are: the bundle's resources; in a source checkout the core
-/// also looks up to three folders above, where the repository's own are.
+/// also looks up to three folders above, where the repository's own are. Failing that, the program's own folder: the
+/// build's folder is not written into the program, which is installed elsewhere.
 fn resources(app: &AppHandle) -> String {
     app.path()
         .resource_dir()
+        .ok()
+        .or_else(|| std::env::current_exe().ok()?.parent().map(Path::to_path_buf))
         .map(|path| path.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| env!("CARGO_MANIFEST_DIR").to_owned())
+        .unwrap_or_default()
 }
 
 impl Engine {
