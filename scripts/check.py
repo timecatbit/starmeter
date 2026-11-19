@@ -42,8 +42,25 @@ def unused_code():
     return problems
 
 
+def playwright_webkit():
+    """Whether Playwright's WebKit is installed: the UI tests run on it, the engine closest to the app's WKWebView."""
+    given = os.environ.get('PLAYWRIGHT_BROWSERS_PATH')
+    if given == '0':
+        return any((ROOT / 'app' / 'node_modules' / 'playwright-core' / '.local-browsers').glob('webkit-*'))
+    if given:
+        caches = [Path(given)]
+    elif sys.platform == 'darwin':
+        caches = [Path.home() / 'Library' / 'Caches' / 'ms-playwright']
+    elif os.name == 'nt':
+        caches = [Path(os.environ.get('LOCALAPPDATA', Path.home())) / 'ms-playwright']
+    else:
+        caches = [Path.home() / '.cache' / 'ms-playwright']
+    return any(any(cache.glob('webkit-*')) for cache in caches)
+
+
 def ui():
-    """The panel's web UI: type check, then the build Tauri embeds (cargo needs it before it can compile the app)."""
+    """The panel's web UI: type check, the build Tauri embeds (cargo needs it before it can compile the app), and the
+    Playwright tests against the fixtures when their browser is installed."""
     npm = shutil.which('npm')
     if not npm:
         sys.exit('Install Node.js first: https://nodejs.org')
@@ -52,6 +69,10 @@ def ui():
         subprocess.run([npm, 'ci'], cwd=app, check=True)
     subprocess.run([npm, 'run', 'check'], cwd=app, check=True)
     subprocess.run([npm, 'run', 'build'], cwd=app, check=True)
+    if playwright_webkit():
+        subprocess.run([npm, 'test'], cwd=app, check=True)
+    else:
+        print('UI tests skipped: run `npx playwright install webkit` in app/ to install their browser.')
 
 
 def rust():
