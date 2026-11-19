@@ -8,19 +8,21 @@ import { drawKnitPicture } from './shareKnit';
 import { drawMetroPicture } from './shareMetro';
 import { drawNightPicture } from './shareNight';
 import { drawPaperPicture } from './sharePaper';
+import { drawReceiptPicture } from './shareReceipt';
 import { drawTerminalPicture } from './shareTerminal';
 import type { Dashboard, Project } from './types';
 
-export type ShareStyle = 'card' | 'paper' | 'night' | 'metro' | 'knit' | 'terminal';
+export type ShareStyle = 'card' | 'paper' | 'night' | 'metro' | 'knit' | 'terminal' | 'receipt';
 
 /** In the order the page offers them. Every style has a light and a dark look; the page picks one. */
 export const shareStyles: { key: ShareStyle; name: string }[] = [
   { key: 'card', name: '卡片' }, { key: 'paper', name: '报刊' }, { key: 'night', name: '夜空' },
-  { key: 'metro', name: '地铁' }, { key: 'knit', name: '织物' }, { key: 'terminal', name: '终端' },
+  { key: 'metro', name: '地铁' }, { key: 'knit', name: '织物' }, { key: 'terminal', name: '终端' }, { key: 'receipt', name: '收据' },
 ];
 
 const draw: Record<ShareStyle, (d: Dashboard, project: Project, dark: boolean) => Promise<HTMLCanvasElement>> = {
   card: drawCardPicture, paper: drawPaperPicture, night: drawNightPicture, metro: drawMetroPicture, knit: drawKnitPicture, terminal: drawTerminalPicture,
+  receipt: drawReceiptPicture,
 };
 
 export interface Picture { png: Uint8Array; url: string; width: number; height: number }
