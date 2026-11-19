@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Starmeter · 在菜单栏一眼看清 AI 编程工具用了多少</title>
+  <meta name="description" content="Starmeter 在 macOS 菜单栏和 Windows 托盘里显示 Claude Code、Codex、Cursor、Gemini CLI 等 AI 编程工具的 Token 和 API 等值费用、订阅额度、API 余额与活跃会话。免费开源，数据留在本机。">
+  <meta property="og:title" content="Starmeter">
+  <meta property="og:description" content="在菜单栏一眼看清 AI 编程工具用了多少 · See how much your AI coding tools use, from the menu bar.">
+  <meta property="og:image" content="https://timecatbit.github.io/starmeter/images/home-light.png">
+  <meta property="og:url" content="https://timecatbit.github.io/starmeter/">
+  <meta name="theme-color" content="#FBFBFE" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#070B1F" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="images/starmeter-small.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <script>
+    // The language before anything is drawn: ?lang=, then the last choice, then the browser's.
+    (function () {
+      var asked = new URLSearchParams(location.search).get('lang'), saved = null;
+      try { saved = localStorage.getItem('starmeter-lang'); } catch (e) {}
+      var lang = asked === 'en' || asked === 'zh' ? asked : saved || ((navigator.language || '').toLowerCase().indexOf('zh') === 0 ? 'zh' : 'en');
+      if (lang === 'en') { document.documentElement.classList.add('en'); document.documentElement.lang = 'en'; }
+    })();
+  </script>
+</head>
+<body>
+  <header class="nav">
+    <a class="brand" href="#top" aria-label="Starmeter"><span class="mark" aria-hidden="true"></span>Starmeter</a>
+    <nav class="links">
+      <a href="#features"><span class="zh">功能</span><span class="en">Features</span></a>
+      <a href="#privacy"><span class="zh">隐私</span><span class="en">Privacy</span></a>
+      <a href="#download"><span class="zh">下载</span><span class="en">Download</span></a>
+      <a href="https://github.com/timecatbit/starmeter">GitHub</a>
+    </nav>
+    <button class="lang" type="button" data-switch-lang><span class="zh" lang="en">EN</span><span class="en" lang="zh-CN">中文</span></button>
+  </header>
+
+  <main id="top">
+    <section class="hero">
+      <div class="starfield" aria-hidden="true"></div>
+      <img class="app-icon" src="images/starmeter.svg" width="112" height="112" alt="">
+      <h1>
+        <span class="zh">AI 编程工具用了多少，<br><em>点一下星星就知道。</em></span>
+        <span class="en">How much your AI coding tools use,<br><em>one click on a star.</em></span>
+      </h1>
+      <p class="lead">
+        <span class="zh">Starmeter 读取本机已有的用量记录，把 Claude Code、Codex、Cursor、Gemini CLI 等工具的 Token 和 API 等值费用、订阅额度、API 余额和正在跑的会话，放进 macOS 菜单栏或 Windows 托盘里的一个面板。</span>
+        <span class="en">Starmeter reads the usage records already on your computer and puts the tokens and API-equivalent cost of Claude Code, Codex, Cursor, Gemini CLI and more, your subscription limits, API balances and running sessions into one panel in the macOS menu bar or the Windows tray.</span>
+      </p>
+      <div class="actions">
+        <a class="button primary" href="https://github.com/timecatbit/starmeter/releases/latest">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5v9m0 0L4.5 7M8 10.5 11.5 7M2.5 13.5h11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span class="zh">免费下载</span><span class="en">Download free</span>
+        </a>
+        <a class="button" href="https://github.com/timecatbit/starmeter"><span class="zh">在 GitHub 查看</span><span class="en">View on GitHub</span></a>
+      </div>
+      <p class="meta"><span class="zh">macOS 13 起 · Windows 10/11 · SwiftBar 插件 · 开源（MIT）</span><span class="en">macOS 13+ · Windows 10/11 · SwiftBar plugin · Open source (MIT)</span></p>
+
+      <div class="fan">
+        <picture class="side left"><source media="(prefers-color-scheme: dark)" srcset="images/subscription-dark.png"><img src="images/subscription-light.png" width="440" height="589" alt="" loading="eager"></picture>
+        <picture class="front"><source media="(prefers-color-scheme: dark)" srcset="images/home-dark.png"><img src="images/home-light.png" width="440" height="840" alt="Starmeter 主页 · home page" loading="eager"></picture>
+        <picture class="side right"><source media="(prefers-color-scheme: dark)" srcset="images/live-dark.png"><img src="images/live-light.png" width="440" height="640" alt="" loading="eager"></picture>
+      </div>
+      <p class="note"><span class="zh">截图都由测试数据生成，界面目前只有中文。</span><span class="en">Screenshots are made from test data. The interface is in Chinese.</span></p>
+    </section>
+
+    <section class="tools" aria-labelledby="tools-title">
+      <p class="kicker" id="tools-title"><span class="zh">读取这些工具的本机记录</span><span class="en">Reads the local records of</span></p>
+      <ul class="chips">
+        <li>Claude Code</li><li>Claude App</li><li>ChatGPT · Codex</li><li>Cursor</li><li>Gemini CLI</li><li>OpenCode</li>
+        <li>Magpie</li><li>OpenCodex</li><li>Qoder CN</li><li>DeepSeek Harness</li><li>WorkBuddy</li>
+      </ul>
+      <p class="kicker"><span class="zh">还看得到这些订阅与 API</span><span class="en">And these subscriptions and APIs</span></p>
+      <ul class="chips quiet">
+        <li>ChatGPT</li><li>Claude</li><li>Cursor</li><li>Gemini</li><li>MiniMax</li><li>Qoder CN</li><li>Grok</li><li>Kimi</li><li>DeepSeek</li>
+      </ul>
+    </section>
+
+    <div id="features">
+      <section class="feature">
+        <div class="copy">
+          <p class="kicker">01 · <span class="zh">Token 用量</span><span class="en">Token usage</span></p>
+          <h2><span class="zh">每个工具、每个模型，各用了多少。</span><span class="en">Every tool, every model, and what each used.</span></h2>
+          <p><span class="zh">Summary 写出今天（或你选的范围）的 API 等值估算、Token 和请求数，下面是趋势图、用量热力图和每个工具一张卡片：模型分布、缓存命中、输出和会话数。</span><span class="en">Summary gives the API-equivalent estimate, tokens and requests for today, or the range you pick; below are the trend, a usage heatmap and a card per tool, with its models, cache hits, output and sessions.</span></p>
+          <ul>
+            <li><b><span class="zh">只算一次</span><span class="en">Counted once</span></b><span class="zh">：Magpie、OpenCodex 等网关和经过它的客户端会各记一遍同一请求，Summary 只算一次。</span><span class="en">: a gateway such as Magpie or OpenCodex and the client behind it each log the same request; Summary counts it once.</span></li>
+            <li><b><span class="zh">按工具、模型或项目</span><span class="en">By tool, model or project</span></b><span class="zh">：一键切换卡片的分组，项目按工作目录的文件夹名。</span><span class="en">: switch how the cards are grouped; a project is the folder a request ran in.</span></li>
+            <li><b><span class="zh">八种范围</span><span class="en">Eight ranges</span></b><span class="zh">：今天到全部，热力图写出连续使用了多少天。</span><span class="en">: from today to everything, with your streak of active days under the heatmap.</span></li>
+            <li><b><span class="zh">旧记录不丢</span><span class="en">Nothing lost</span></b><span class="zh">：工具自己清理掉的日志（Claude Code 默认只留 30 天）照样计入。</span><span class="en">: logs a tool cleans up itself (Claude Code keeps 30 days) keep counting.</span></li>
+          </ul>
+        </div>
+        <picture class="shot"><source media="(prefers-color-scheme: dark)" srcset="images/models-dark.png"><img src="images/models-light.png" width="440" height="840" alt="按模型查看 · cards by model" loading="lazy"></picture>
+      </section>
+
+      <section class="feature flip">
+        <div class="copy">
+          <p class="kicker">02 · <span class="zh">订阅额度</span><span class="en">Subscription limits</span></p>
+          <h2><span class="zh">额度还剩多少，会不会提前用完。</span><span class="en">What's left of your plan, and whether it will last.</span></h2>
+          <p><span class="zh">ChatGPT、Claude、Cursor、MiniMax 订阅逐个窗口写出已用多少、何时重置；70% 起变橙，90% 起变红。Qoder 读取 Qoder CN App 自己记下的 Credits。</span><span class="en">ChatGPT, Claude, Cursor and MiniMax show each window's share used and when it resets, orange from 70% and red from 90%. Qoder reads the Credits the Qoder CN app records itself.</span></p>
+          <ul>
+            <li><b><span class="zh">匀速线</span><span class="en">Even pace</span></b><span class="zh">：额度条上的竖线标出按时间匀速该用到哪，写明比匀速多用还是少用。</span><span class="en">: a mark on each bar shows where an even pace would be, and whether you are ahead or behind.</span></li>
+            <li><b><span class="zh">回本倍数</span><span class="en">Paid back</span></b><span class="zh">：填上月费，看本月用量按 API 价值订阅价的几倍。</span><span class="en">: enter the monthly price to see how many times over this month's usage, at API prices, has paid for it.</span></li>
+            <li><b><span class="zh">提醒</span><span class="en">Alerts</span></b><span class="zh">：用到 90%（或 70%、80%）时通知；每周额度快重置还没怎么用时，也可以提醒你。</span><span class="en">: a notification at 90% (or 70%, 80%), and optionally when a weekly window is about to reset barely used.</span></li>
+          </ul>
+        </div>
+        <picture class="shot"><source media="(prefers-color-scheme: dark)" srcset="images/subscription-dark.png"><img src="images/subscription-light.png" width="440" height="589" alt="Claude 订阅 · Claude subscription" loading="lazy"></picture>
+      </section>
+
+      <section class="feature">
+        <div class="copy">
+          <p class="kicker">03 · <span class="zh">API 余额</span><span class="en">API balances</span></p>
+          <h2><span class="zh">余额和 Key，放在一处看。</span><span class="en">Balances and keys, in one place.</span></h2>
+          <p><span class="zh">DeepSeek、Kimi、Grok 显示余额，Qoder 显示组织共享的加购 Credits，Claude 显示本月花费，ChatGPT 和 Gemini 可以测试 Key 是否可用。</span><span class="en">DeepSeek, Kimi and Grok show their balance, Qoder its organisation's Credits, Claude this month's spend; ChatGPT and Gemini keys can be checked.</span></p>
+          <ul>
+            <li><b><span class="zh">多把 Key</span><span class="en">Several keys</span></b><span class="zh">：每个 API 可以存多把，主页写合计和数量，如“余额 ¥12.00 (3)”。</span><span class="en">: each API holds several; the home page shows the total and the count.</span></li>
+            <li><b><span class="zh">余额提醒</span><span class="en">Low balance</span></b><span class="zh">：按币种设一条线，低于它就通知。</span><span class="en">: set a line per currency and get notified below it.</span></li>
+            <li><b><span class="zh">只查真的</span><span class="en">Only real numbers</span></b><span class="zh">：没有余额接口的就不显示余额，绝不推算或伪造额度。</span><span class="en">: no balance API, no balance shown; limits are never guessed.</span></li>
+          </ul>
+        </div>
+        <picture class="shot"><source media="(prefers-color-scheme: dark)" srcset="images/api-dark.png"><img src="images/api-light.png" width="440" height="456" alt="DeepSeek API 与多把 Key · DeepSeek API with its keys" loading="lazy"></picture>
+      </section>
+
+      <section class="feature flip">
+        <div class="copy">
+          <p class="kicker">04 · <span class="zh">活跃会话</span><span class="en">Active sessions</span></p>
+          <h2><span class="zh">哪个会话在跑，上下文还剩多少。</span><span class="en">Which session is running, and how full its context is.</span></h2>
+          <p><span class="zh">列出正在运行和等待输入的 Claude Code 与 Codex 会话：标题、模型、推理强度和上下文用量。展开一个会话，看最近几轮各用了多少 Token、花了多少、调用了哪些工具。</span><span class="en">Running and waiting Claude Code and Codex sessions, with their title, model, reasoning effort and context used. Open one to see its last few turns: tokens, cost and the tools they called.</span></p>
+          <ul>
+            <li><b><span class="zh">等你的时候提醒</span><span class="en">Ping when it waits</span></b><span class="zh">：一轮跑完、轮到你了，发一条通知。</span><span class="en">: a notification when a turn finishes and it's your move.</span></li>
+            <li><b><span class="zh">不存内容</span><span class="en">No contents kept</span></b><span class="zh">：只记状态、标题和数字，不保存提问和回复。</span><span class="en">: only status, titles and numbers; never prompts or replies.</span></li>
+          </ul>
+        </div>
+        <picture class="shot"><source media="(prefers-color-scheme: dark)" srcset="images/sessions-dark.png"><img src="images/sessions-light.png" width="440" height="492" alt="活跃会话 · active sessions" loading="lazy"></picture>
+      </section>
+
+      <section class="feature">
+        <div class="copy">
+          <p class="kicker">05 · <span class="zh">钉住</span><span class="en">Pinned</span></p>
+          <h2><span class="zh">钉在屏幕上，看着它涨。</span><span class="en">Pin it, and watch it climb.</span></h2>
+          <p><span class="zh">点图钉，面板浮在其他窗口之上，可以挪动、拉大。趋势图放大到“现在”，换成近 1 分钟的实时图，每 1–5 秒按本机日志刷新一次，数字滚动更新。</span><span class="en">Click the pin and the panel floats above your windows, movable and resizable. The trend zooms into now, a live chart of the last minute, re-read from the local logs every 1–5 seconds as the figures roll.</span></p>
+        </div>
+        <picture class="shot"><source media="(prefers-color-scheme: dark)" srcset="images/live-dark.png"><img src="images/live-light.png" width="440" height="640" alt="钉住后的实时图 · the live chart" loading="lazy"></picture>
+      </section>
+    </div>
+
+    <section class="share" aria-labelledby="share-title">
+      <div class="copy centered">
+        <p class="kicker">06 · <span class="zh">分享图</span><span class="en">Share pictures</span></p>
+        <h2 id="share-title"><span class="zh">六种风格，晒一晒今天用了多少。</span><span class="en">Six styles to show off today's usage.</span></h2>
+        <p><span class="zh">先预览，再复制或保存，Mac 上还能直接分享。图里只有用量，不含订阅、余额和 Key。</span><span class="en">Preview it, then copy or save it, or share it straight from a Mac. Only usage goes in: no subscriptions, balances or keys.</span></p>
+      </div>
+      <div class="gallery">
+        <a href="images/share-card-light.jpg"><picture><source media="(prefers-color-scheme: dark)" srcset="images/share-card-dark.jpg"><img src="images/share-card-light.jpg" width="600" height="2743" alt="卡片风格 · card" loading="lazy"></picture><span><span class="zh">卡片</span><span class="en">Card</span></span></a>
+        <a href="images/share-paper.jpg"><img src="images/share-paper.jpg" width="600" height="2837" alt="报刊风格 · paper" loading="lazy"><span><span class="zh">报刊</span><span class="en">Paper</span></span></a>
+        <a href="images/share-night.jpg"><img src="images/share-night.jpg" width="600" height="3214" alt="夜空风格 · night sky" loading="lazy"><span><span class="zh">夜空</span><span class="en">Night sky</span></span></a>
+        <a href="images/share-metro.jpg"><img src="images/share-metro.jpg" width="600" height="2700" alt="地铁风格 · metro" loading="lazy"><span><span class="zh">地铁</span><span class="en">Metro</span></span></a>
+        <a href="images/share-knit.jpg"><img src="images/share-knit.jpg" width="600" height="2116" alt="织物风格 · knit" loading="lazy"><span><span class="zh">织物</span><span class="en">Knit</span></span></a>
+        <a href="images/share-terminal-light.jpg"><picture><source media="(prefers-color-scheme: dark)" srcset="images/share-terminal-dark.jpg"><img src="images/share-terminal-light.jpg" width="600" height="2626" alt="终端风格 · terminal" loading="lazy"></picture><span><span class="zh">终端</span><span class="en">Terminal</span></span></a>
+      </div>
+    </section>
+
+    <section class="feature flip wide">
+      <div class="copy">
+        <p class="kicker">07 · <span class="zh">主页模块</span><span class="en">Home modules</span></p>
+        <h2><span class="zh">只放你在用的。</span><span class="en">Only what you use.</span></h2>
+        <p><span class="zh">首次打开会自动勾选这台电脑上装了的工具；之后在三列网格里随时开关，点名称就地设置目录、Key 和连接。没配置的来源不发任何请求。</span><span class="en">On first run it selects the tools installed on this computer; after that, switch modules on and off in a three-column grid, and click a name to set its folder, keys or connection. A source you haven't set up makes no requests.</span></p>
+      </div>
+      <picture class="shot"><source media="(prefers-color-scheme: dark)" srcset="images/modules-dark.png"><img src="images/modules-light.png" width="668" height="779" alt="主页模块 · home modules" loading="lazy"></picture>
+    </section>
+
+    <section class="more" aria-labelledby="more-title">
+      <h2 id="more-title" class="centered"><span class="zh">还有这些</span><span class="en">And more</span></h2>
+      <div class="grid">
+        <div>
+          <p class="kicker"><span class="zh">提醒</span><span class="en">Alerts</span></p>
+          <dl>
+            <dt><span class="zh">用量提醒</span><span class="en">Usage alerts</span></dt><dd><span class="zh">订阅窗口用到你设定的比例时通知一次。</span><span class="en">Once per window when it reaches your line.</span></dd>
+            <dt><span class="zh">余额提醒</span><span class="en">Balance alerts</span></dt><dd><span class="zh">余额类 API 按币种各设一条线。</span><span class="en">A line per currency for balance APIs.</span></dd>
+            <dt><span class="zh">Harness 更新</span><span class="en">Client updates</span></dt><dd><span class="zh">客户端有新版本时提醒，Claude Code、Codex CLI 一键在终端更新。</span><span class="en">New versions of your clients; Claude Code and Codex CLI update in a terminal with one click.</span></dd>
+          </dl>
+        </div>
+        <div>
+          <p class="kicker"><span class="zh">显示</span><span class="en">Display</span></p>
+          <dl>
+            <dt><span class="zh">菜单栏数字</span><span class="en">Menu bar figure</span></dt><dd><span class="zh">星星旁可加今天的估算或最紧张的额度。</span><span class="en">Today's estimate or the tightest limit beside the star.</span></dd>
+            <dt><span class="zh">人民币显示</span><span class="en">Yuan</span></dt><dd><span class="zh">估算按欧洲央行参考汇率换算，或填固定汇率。</span><span class="en">Estimates at the ECB reference rate, or a rate you set.</span></dd>
+            <dt><span class="zh">深浅色</span><span class="en">Light and dark</span></dt><dd><span class="zh">跟随系统，或固定浅色、深色。</span><span class="en">Follow the system, or pick one.</span></dd>
+          </dl>
+        </div>
+        <div>
+          <p class="kicker"><span class="zh">数据</span><span class="en">Data</span></p>
+          <dl>
+            <dt><span class="zh">导出用量</span><span class="en">Export</span></dt><dd><span class="zh">当前范围导出成 CSV 或 JSON，只有计数。</span><span class="en">The range on screen as CSV or JSON, counts only.</span></dd>
+            <dt><span class="zh">服务状态</span><span class="en">Service status</span></dt><dd><span class="zh">可选读取 Claude、OpenAI、Cursor 的官方状态页，出问题时标在卡片上。</span><span class="en">Optional: Claude, OpenAI and Cursor status pages, marked on the cards.</span></dd>
+            <dt><span class="zh">Komari 监控</span><span class="en">Komari</span></dt><dd><span class="zh">顺便看看服务器在不在线。</span><span class="en">Your servers' status, while you're there.</span></dd>
+          </dl>
+        </div>
+      </div>
+    </section>
+
+    <section class="privacy" id="privacy" aria-labelledby="privacy-title">
+      <div class="copy centered">
+        <p class="kicker"><span class="zh">隐私</span><span class="en">Privacy</span></p>
+        <h2 id="privacy-title"><span class="zh">用量留在你的电脑上。</span><span class="en">Your usage stays on your computer.</span></h2>
+        <p><span class="zh">不用注册账号，也没有中转服务器：Starmeter 只读本机记录，只向你启用的服务的官方接口查询。</span><span class="en">No account and no relay server: Starmeter reads local records and asks only the official APIs of the services you turn on.</span></p>
+      </div>
+      <div class="columns">
+        <div class="card">
+          <h3><span class="zh">它会</span><span class="en">It does</span></h3>
+          <ul>
+            <li><span class="zh">只读本机日志，只记用量数字；项目只记文件夹名。</span><span class="en">Only read local logs, keeping usage counters and, of a project, its folder name.</span></li>
+            <li><span class="zh">把 Key 存在本机只有你能读的文件里。</span><span class="en">Keep keys on this computer, in files only you can read.</span></li>
+            <li><span class="zh">每天从 GitHub 检查一次价格表和新版本，不带 Cookie 或任何标识，可以关闭。</span><span class="en">Check GitHub daily for price tables and new versions, with no cookies or identifiers; this can be turned off.</span></li>
+            <li><span class="zh">只在你开启后读取 Claude、Cursor 的用量、服务状态页和人民币汇率。</span><span class="en">Read Claude and Cursor usage, status pages and the exchange rate only once you turn them on.</span></li>
+          </ul>
+        </div>
+        <div class="card never">
+          <h3><span class="zh">它从不</span><span class="en">It never</span></h3>
+          <ul>
+            <li><span class="zh">保存或上传对话内容。</span><span class="en">Saves or sends your prompts or replies.</span></li>
+            <li><span class="zh">在界面上显示 Key 的内容。</span><span class="en">Shows a key's contents.</span></li>
+            <li><span class="zh">保存、刷新或改写 Claude Code、Cursor 的登录令牌：令牌只在内存里。</span><span class="en">Saves, refreshes or rewrites the Claude Code or Cursor sign-in: the token stays in memory.</span></li>
+            <li><span class="zh">推算额度，或把没有价格的模型算成零。</span><span class="en">Guesses a limit, or prices an unknown model at zero.</span></li>
+          </ul>
+        </div>
+      </div>
+      <p class="note"><span class="zh">费用是按官方 API 价格算出的等值估算，不是你的账单。这个网页不加载第三方资源，也没有统计代码。</span><span class="en">Costs are API-equivalent estimates at official prices, not your bill. This page loads nothing from third parties and has no analytics.</span></p>
+    </section>
+
+    <section class="download" id="download" aria-labelledby="download-title">
+      <div class="copy centered">
+        <p class="kicker"><span class="zh">下载</span><span class="en">Download</span></p>
+        <h2 id="download-title"><span class="zh">选一个文件，装上就能用。</span><span class="en">Pick one file and you're set.</span></h2>
+        <p><span class="zh">都在 GitHub 的最新发布页上，按下面的名字找附件。</span><span class="en">All on the latest GitHub release; look for these names among the files.</span></p>
+      </div>
+      <div class="platforms">
+        <a class="platform" href="https://github.com/timecatbit/starmeter/releases/latest">
+          <span class="os">macOS</span><b>Mac · Apple Silicon</b>
+          <span><span class="zh">M 系列芯片 · DMG</span><span class="en">M-series chips · DMG</span></span>
+        </a>
+        <a class="platform" href="https://github.com/timecatbit/starmeter/releases/latest">
+          <span class="os">macOS</span><b>Mac · Intel</b>
+          <span><span class="zh">Intel 处理器 · DMG</span><span class="en">Intel processors · DMG</span></span>
+        </a>
+        <a class="platform" href="https://github.com/timecatbit/starmeter/releases/latest">
+          <span class="os">Windows</span><b>Windows · Installer</b>
+          <span><span class="zh">推荐 · 不需要管理员权限</span><span class="en">Recommended · no admin rights</span></span>
+        </a>
+        <a class="platform" href="https://github.com/timecatbit/starmeter/releases/latest">
+          <span class="os">Windows</span><b>Windows · Portable</b>
+          <span><span class="zh">免安装 · ZIP</span><span class="en">No install · ZIP</span></span>
+        </a>
+        <a class="platform" href="https://github.com/timecatbit/starmeter/releases/latest">
+          <span class="os">SwiftBar</span><b>Mac · SwiftBar plugin</b>
+          <span><span class="zh">已经在用 SwiftBar · 不分芯片</span><span class="en">Already using SwiftBar · any chip</span></span>
+        </a>
+        <div class="platform brew">
+          <span class="os">Homebrew</span>
+          <code>brew install --cask timecatbit/tap/starmeter</code>
+          <button type="button" data-copy="brew install --cask timecatbit/tap/starmeter"><span class="zh">复制</span><span class="en">Copy</span></button>
+        </div>
+      </div>
+      <p class="note">
+        <span class="zh">不确定 Mac 芯片？苹果菜单 → 关于本机：写“芯片：Apple M…”选 Apple Silicon，写“处理器：Intel…”选 Intel。Mac 独立版预览未做 Apple 公证，首次打开被拦时到“系统设置 → 隐私与安全性 → 仍要打开”。安装细节见 <a href="https://github.com/timecatbit/starmeter#下载与安装">README</a>。</span>
+        <span class="en">Not sure which Mac? Apple menu → About This Mac: "Chip: Apple M…" means Apple Silicon, "Processor: Intel…" means Intel. The Mac preview isn't notarized; if macOS blocks it at first, use System Settings → Privacy &amp; Security → Open Anyway. Full steps are in the <a href="https://github.com/timecatbit/starmeter/blob/main/README.en.md#download-and-install">README</a>.</span>
+      </p>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <img src="images/starmeter.svg" width="28" height="28" alt="">
+    <span>Starmeter · MIT © timecatbit</span>
+    <nav>
+      <a href="https://github.com/timecatbit/starmeter">GitHub</a>
+      <a href="https://github.com/timecatbit/starmeter/blob/main/CHANGELOG.md"><span class="zh">更新记录</span><span class="en">Changelog</span></a>
+      <a href="https://github.com/timecatbit/starmeter/releases/latest"><span class="zh">发布页</span><span class="en">Releases</span></a>
+    </nav>
+  </footer>
+  <script src="site.js"></script>
+</body>
+</html>
