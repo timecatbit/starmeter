@@ -6,6 +6,7 @@
   import { onDestroy, untrack } from 'svelte';
   import { inTauri, shell } from '../lib/backend';
   import { renderPicture, shareStyles, type Picture, type ShareStyle } from '../lib/share';
+  import { SCALE } from '../lib/shareCommon';
   import { moveWindow, panel } from '../lib/ui.svelte';
   import type { Dashboard, Project } from '../lib/types';
   import Dropdown from './Dropdown.svelte';
@@ -115,10 +116,10 @@
             <span class="spinner" aria-label="正在生成"></span>
           {/if}
         </div>
-        <div class="controls">
+        <div class="controls" style:min-height="{previewHeight}px">
           <div class="setting">
             <span class="setting-name">风格</span>
-            <Dropdown label="风格" value={style} size={12} align="left" options={shareStyles.map((s) => ({ value: s.key, label: s.name }))}
+            <Dropdown label="风格" value={style} size={12} align="left" field options={shareStyles.map((s) => ({ value: s.key, label: s.name }))}
               onpick={(next) => (style = next as ShareStyle)} />
           </div>
           <div class="setting">
@@ -129,6 +130,8 @@
               <button class="mode pressable" class:chosen={dark} role="radio" aria-checked={dark} onclick={() => pickMode('dark')}>深色</button>
             </div>
           </div>
+          <div class="spacer"></div>
+          {#if picture}<p class="size">{Math.round(picture.width * SCALE)} × {Math.round(picture.height * SCALE)} 像素 · PNG</p>{/if}
           <div class="actions">
             <button class="action primary pressable" class:done={copied === '已复制'} class:failed={copied === '复制失败'} disabled={!picture} onclick={copy}>
               <Icon name={copied === '已复制' ? 'checkmark' : 'doc.on.doc'} size={14} />{copied ?? '复制图片'}
@@ -193,10 +196,12 @@
     animation: spin 0.8s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
+  /* Settings at the top, what to do with the picture at the bottom, level with the picture's foot. */
   .controls { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
-  .setting { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+  .spacer { flex: 1; }
+  .setting { display: flex; flex-direction: column; align-items: stretch; gap: 5px; }
   .setting-name { font-size: 11px; color: var(--secondary); }
-  .setting :global(.dropdown) { margin-left: -8px; }
+  .size { margin: 0 0 -6px; font-size: 10px; color: var(--tertiary); font-variant-numeric: tabular-nums; }
   .modes {
     position: relative;
     display: flex;
@@ -231,7 +236,7 @@
     border-radius: 6px;
   }
   .mode.chosen { color: var(--label); font-weight: 600; }
-  .actions { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+  .actions { display: flex; flex-direction: column; gap: 8px; }
   .action {
     --press-scale: 0.97;
     height: 30px;

@@ -6,9 +6,10 @@
   import { pageCurve } from '../lib/motion';
   import { panel } from '../lib/ui.svelte';
 
-  let { options, value, label, size = 11, align = 'right', onpick }: {
+  let { options, value, label, size = 11, align = 'right', field = false, onpick }: {
     options: { value: string; label: string }[]; value: string; label: string; size?: number; align?: 'left' | 'right';
-    onpick: (value: string) => void;
+    /** Drawn as a full-width field (a soft fill, the chevron at its right end) where it sits among other controls. */
+    field?: boolean; onpick: (value: string) => void;
   } = $props();
 
   let open = $state(false);
@@ -67,7 +68,7 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions (the keys belong to the open menu) -->
-<span class="dropdown" bind:this={root} onkeydown={keydown}>
+<span class="dropdown" class:field bind:this={root} onkeydown={keydown}>
   <button class="trigger pressable" class:open style:font-size="{size}px" aria-haspopup="listbox" aria-expanded={open}
     aria-label="{label} · {current}" onclick={() => (open ? close() : show())}>
     <span class="current">{current}</span>
@@ -91,6 +92,18 @@
 
 <style>
   .dropdown { position: relative; display: inline-flex; }
+  .dropdown.field { display: flex; width: 100%; }
+  .field .trigger {
+    width: 100%;
+    justify-content: space-between;
+    padding: 0 10px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--label) 6%, transparent);
+    font-weight: 600;
+  }
+  .field .trigger:hover { background: color-mix(in srgb, var(--label) 9%, transparent); }
+  .field .trigger.open, .field .trigger:active { background: color-mix(in srgb, var(--label) 12%, transparent); }
+  .dropdown.field .menu { left: 0; right: 0; min-width: 0; }
   .trigger {
     --press-scale: 0.96;
     height: 28px;
