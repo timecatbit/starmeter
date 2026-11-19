@@ -337,6 +337,19 @@ test('pinned, the share page takes its own height and gives the panel back its s
   await expect(page.locator('.window')).toHaveCSS('width', '400px');
 });
 
+test('the share page picks its range, the homepage\'s own, and draws that range', async ({ page }) => {
+  await open(page);
+  await button(page, '分享用量图').click();
+  const preview = page.locator('.frame img');
+  await expect(preview).toBeVisible();
+  const today = await preview.getAttribute('src');
+  await choose(page, /^时间范围/, '近 7 天');
+  await expect(page.locator('.share-page .title')).toHaveText('分享用量图近 7 天');
+  await expect(preview).not.toHaveAttribute('src', today!);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.picker .current')).toHaveText('近 7 天');
+});
+
 test('sharing previews the picture in each style, then copies or saves it', async ({ page }) => {
   await open(page);
   await button(page, '分享用量图').click();

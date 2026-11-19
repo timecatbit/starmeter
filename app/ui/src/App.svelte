@@ -529,7 +529,7 @@
     <div class="view" in:pageIn={{ dir }} out:pageOut={{ dir }}>
       {#if sharing && snapshot?.dashboard}
         <SharePage dashboard={snapshot.dashboard} project={snapshot.project ?? { name: 'Starmeter', url: 'https://github.com/timecatbit/starmeter' }}
-          onback={back} onheight={(h) => (wanted.share = h)} />
+          rangeOptions={snapshot.rangeOptions ?? []} onrange={perform} onback={back} onheight={(h) => (wanted.share = h)} />
       {:else if toolId && tool && snapshot?.dashboard}
         <ToolPage p={tool} dashboard={snapshot.dashboard} settings={toolSettings} busy={interaction.active} bind:scrollTop={toolScroll} onback={back}
           onopen={open} onchoose={choose} onheight={(h) => (wanted.tool = h)} />

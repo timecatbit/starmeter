@@ -8,13 +8,16 @@
   import { renderPicture, shareStyles, type Picture, type ShareStyle } from '../lib/share';
   import { SCALE } from '../lib/shareCommon';
   import { moveWindow, panel } from '../lib/ui.svelte';
-  import type { Dashboard, Project } from '../lib/types';
+  import type { Dashboard, Entry, Project } from '../lib/types';
   import Dropdown from './Dropdown.svelte';
   import HintButton from './HintButton.svelte';
   import Icon from './Icon.svelte';
   import Scroller from './Scroller.svelte';
 
-  let { dashboard, project, onback, onheight }: { dashboard: Dashboard; project: Project; onback: () => void; onheight: (height: number) => void } = $props();
+  let { dashboard, project, rangeOptions = [], onrange, onback, onheight }: {
+    dashboard: Dashboard; project: Project; rangeOptions?: Entry[]; onrange?: (action: string[]) => void;
+    onback: () => void; onheight: (height: number) => void;
+  } = $props();
 
   const STYLE = 'starmeter.shareStyle', MODE = 'starmeter.shareMode';
   const stored = (key: string) => (typeof localStorage === 'undefined' ? null : localStorage.getItem(key));
@@ -23,7 +26,18 @@
   /** 浅色 or 深色 for the picture; until chosen, the panel's own. */
   let mode = $state<'light' | 'dark' | null>(stored(MODE) === 'light' || stored(MODE) === 'dark' ? (stored(MODE) as 'light' | 'dark') : null);
   const dark = $derived(mode ? mode === 'dark' : panel.dark);
-  const frozen = untrack(() => $state.snapshot(dashboard)) as Dashboard;
+  // The figures as they stood when the page opened (live readings don't redraw the picture under the reader); a range
+  // picked here (the homepage's own range, changed with it) brings its own once its figures arrive.
+  let frozen = $state(untrack(() => $state.snapshot(dashboard)) as Dashboard);
+  $effect(() => {
+    const next = dashboard;
+    if (next.rangeKey !== untrack(() => frozen.rangeKey)) frozen = $state.snapshot(next) as Dashboard;
+  });
+  const chosenRange = $derived(rangeOptions.find((o) => o.checked)?.action?.[1] ?? frozen.rangeKey);
+  function pickRange(key: string) {
+    const option = rangeOptions.find((o) => o.action?.[1] === key);
+    if (option?.action && key !== frozen.rangeKey) onrange?.(option.action);
+  }
   const pictures = new Map<string, Picture>();
   let picture = $state<Picture | null>(null);
   /** The style the picture on screen was drawn in: the menu changes at once, the picture once it is drawn. */
@@ -35,15 +49,15 @@
   let shareButton: HTMLButtonElement | undefined = $state();
   const mac = typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac');
 
-  // Each style drawn once per light or dark, then kept while the page is open.
+  // Each style drawn once per range and light or dark, then kept while the page is open.
   $effect(() => {
-    const key = style + (dark ? ':dark' : ':light'), wantsDark = dark;
+    const figures = frozen, key = `${figures.rangeKey}:${style}${dark ? ':dark' : ':light'}`, wantsDark = dark;
     remember(STYLE, style);
     const known = pictures.get(key);
     if (known) { picture = known; drawnStyle = style; failed = false; return; }
     let current = true;
     const wanted = style;
-    void renderPicture(wanted, frozen, project, wantsDark).then((drawn) => {
+    void renderPicture(wanted, figures, project, wantsDark).then((drawn) => {
       if (!current) return;
       if (drawn) pictures.set(key, drawn);
       picture = drawn;
@@ -130,6 +144,13 @@
               <button class="mode pressable" class:chosen={dark} role="radio" aria-checked={dark} onclick={() => pickMode('dark')}>深色</button>
             </div>
           </div>
+          {#if rangeOptions.length}
+            <div class="setting">
+              <span class="setting-name">时间范围</span>
+              <Dropdown label="时间范围" value={chosenRange} size={12} align="left" field
+                options={rangeOptions.map((o) => ({ value: o.action?.[1] ?? '', label: o.label }))} onpick={pickRange} />
+            </div>
+          {/if}
           <div class="spacer"></div>
           {#if picture}<p class="size">{Math.round(picture.width * SCALE)} × {Math.round(picture.height * SCALE)} 像素 · PNG</p>{/if}
           <div class="actions">
