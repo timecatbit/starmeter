@@ -15,11 +15,13 @@
   let text = $state(question.value ?? '');
   const destructive = $derived(/删除|清除|移除|覆盖|关闭|停止|重置/.test(question.accept ?? ''));
 
+  // Shown under a row, it tells the panel not to show its own sheet; the sheet itself must not count, or it would hide
+  // itself the moment it appears.
   onMount(() => {
-    ask.placed++;
+    if (!sheet) ask.placed++;
     if (field) { field.focus(); field.select(); }
   });
-  onDestroy(() => { ask.placed--; });
+  onDestroy(() => { if (!sheet) ask.placed--; });
 
   function keydown(event: KeyboardEvent) {
     // The panel's own Esc (back) and Return stay out of it while the question is open.
