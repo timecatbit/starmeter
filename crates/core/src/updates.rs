@@ -635,7 +635,7 @@ impl Runtime {
     }
 
     /// A client-specific rollout or download wins over anonymous metadata.
-    fn apply_chatgpt_release(&self, given: Object, info: &Object) -> Object {
+    pub fn apply_chatgpt_release(&self, given: Object, info: &Object) -> Object {
         let mut row = given;
         if info.get("CFBundleIdentifier") != Some(&Json::from("com.openai.codex")) {
             return row;

@@ -194,7 +194,7 @@ fn extra_usage(data: &Object) -> Option<Object> {
 
 // Small state files
 
-fn read_state(path: &str) -> Object {
+pub fn read_state(path: &str) -> Object {
     claude_app::read_object_limited(path, 2 * 1024 * 1024)
 }
 
@@ -819,7 +819,7 @@ impl Runtime {
         if requested > handled { requested } else { 0.0 }
     }
 
-    fn claude_subscription_load(&self) -> Loaded {
+    pub fn claude_subscription_load(&self) -> Loaded {
         let settings = self.settings();
         // Code OAuth is independent of browser cookies and does not invoke a model.
         if settings.get("claudeOAuthUsage").is_some_and(Json::is_truthy) {

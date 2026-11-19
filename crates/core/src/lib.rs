@@ -2,6 +2,9 @@
 //! the hosts only draw it and pass the user's actions back.
 
 pub mod accounts;
+pub mod alerts;
+pub mod api_rows;
+pub mod background;
 pub mod catalog;
 pub mod claude_app;
 pub mod claude_subscription;
@@ -17,6 +20,7 @@ pub mod json;
 pub mod keys;
 pub mod lines;
 pub mod menu_icons;
+pub mod module_rows;
 pub mod more_rows;
 pub mod opencodex;
 pub mod platform;
@@ -26,6 +30,7 @@ pub mod py;
 pub mod range_usage;
 pub mod rows;
 pub mod runtime;
+pub mod self_update;
 pub mod sessions;
 pub mod shell;
 pub mod tally;

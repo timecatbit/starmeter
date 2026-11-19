@@ -95,6 +95,11 @@ pub fn which(name: &str, environment: &std::collections::HashMap<String, String>
     None
 }
 
+/// A file (not a folder) this user may run.
+pub fn is_executable(path: &std::path::Path) -> bool {
+    executable(&path.to_string_lossy())
+}
+
 fn executable(path: &str) -> bool {
     std::fs::metadata(path).is_ok_and(|metadata| !metadata.is_dir() && runnable(&metadata))
 }

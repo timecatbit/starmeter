@@ -8,11 +8,11 @@ use std::path::Path;
 
 use jiff::tz::TimeZone;
 use starmeter_core::json::{Format, Json, Object, python_repr};
-use starmeter_core::runtime::Runtime;
+use starmeter_core::runtime::{self, Runtime};
 use starmeter_core::time::IsoTime;
 use starmeter_core::{
-    accounts, catalog, claude_subscription, claude_usage, client_accounts, cursor, files, harness, http, object,
-    opencodex, preferences, pricing, py, range_usage, sessions, tally, updates, zstd,
+    accounts, alerts, background, catalog, claude_subscription, claude_usage, client_accounts, cursor, files, harness,
+    http, object, opencodex, preferences, pricing, py, range_usage, sessions, tally, updates, zstd,
 };
 
 fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
@@ -111,6 +111,54 @@ fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
                         .map(|(name, _, _)| (*name, Json::Object(runtime.read_cache(name))))
                         .collect();
                     Ok(caches.into())
+                }
+                "loaders" => {
+                    Ok(Json::Array(runtime.external_loaders().into_iter().map(|(name, _)| Json::from(name)).collect()))
+                }
+                "ready" => Ok(preferences::MODULES
+                    .iter()
+                    .map(|module| (module.key, Json::Bool(runtime.default_ready(module.key))))
+                    .collect::<Object>()
+                    .into()),
+                "status" => {
+                    let wanted = strings(args.get(2));
+                    Ok(background::service_status::read_all(&wanted, "test").into())
+                }
+                "fx" => Ok(loaded(runtime.exchange_rate_load())),
+                "alert_notices" => Ok(Json::Array(
+                    args.get(2)
+                        .and_then(Json::as_array)
+                        .into_iter()
+                        .flatten()
+                        .map(|alert| {
+                            let (subtitle, body) =
+                                runtime.alert_notice(&alert.as_object().cloned().unwrap_or_default(), runtime::now());
+                            Json::Array(vec![subtitle.into(), body.into()])
+                        })
+                        .collect(),
+                )),
+                "alerts_due" => {
+                    // [windows, balances, marks, percent, reminder, now]
+                    let list = |index: usize| -> Vec<Object> {
+                        args.get(index)
+                            .and_then(Json::as_array)
+                            .into_iter()
+                            .flatten()
+                            .filter_map(Json::as_object)
+                            .cloned()
+                            .collect()
+                    };
+                    let mut marks = args.get(4).and_then(Json::as_object).cloned().unwrap_or_default();
+                    let due = alerts::due(
+                        &list(2),
+                        &list(3),
+                        &mut marks,
+                        args.get(5).and_then(Json::number).unwrap_or(0.0),
+                        args.get(6) == Some(&Json::Bool(true)),
+                        args.get(7).and_then(Json::number).unwrap_or(0.0),
+                    );
+                    Ok(object! { "due" => Json::Array(due.into_iter().map(Json::Object).collect()), "marks" => marks }
+                        .into())
                 }
                 _ => Err("unported".to_string()),
             })

@@ -89,7 +89,7 @@ pub fn entries(state: &Path, provider: &str) -> Vec<Object> {
         .unwrap_or_default()
 }
 
-fn secret_path(state: &Path, provider: &str, id: &str) -> Result<PathBuf, Error> {
+pub fn secret_path(state: &Path, provider: &str, id: &str) -> Result<PathBuf, Error> {
     let valid_provider = (2..=32).contains(&provider.len())
         && provider.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-');
     if !valid_provider || !is_id(id) {

@@ -197,7 +197,7 @@ pub fn iso(day: i64) -> String {
     format!("{year:04}-{month:02}-{day:02}")
 }
 
-fn day_from_iso(text: &str) -> Option<i64> {
+pub fn day_from_iso(text: &str) -> Option<i64> {
     let parts: Vec<&str> = text.split('-').filter(|part| !part.is_empty()).collect();
     if parts.len() != 3 {
         return None;

@@ -112,7 +112,7 @@ fn is_day(text: &str) -> bool {
 }
 
 /// A table's stamp: ccusage's commit time (or a second past the last); 0 when unknown.
-fn committed(table: &Object) -> f64 {
+pub fn committed(table: &Object) -> f64 {
     let Some(text) = table.get("source").and_then(|source| source.get("committedAt")).filter(|text| text.is_truthy())
     else {
         return 0.0;

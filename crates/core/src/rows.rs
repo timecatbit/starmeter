@@ -253,7 +253,7 @@ pub fn refresh_failed(error: Option<&str>) -> bool {
     error.is_some_and(|error| error != PENDING_READ)
 }
 
-fn credits_amount(value: f64) -> String {
+pub fn credits_amount(value: f64) -> String {
     if value < 1000.0 {
         return g(round(value, 1));
     }
