@@ -22,7 +22,8 @@
         "transparent": true,
         "resizable": false,
         "skipTaskbar": true,
-        "shadow": true
+        "shadow": true,
+        "acceptFirstMouse": true
       }
     ],
     "security": {
