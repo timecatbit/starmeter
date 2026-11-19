@@ -84,6 +84,35 @@ test('header buttons take clicks, and pinning turns the trend live', async ({ pa
   await expect(page.getByRole('radio', { name: '工具' })).toHaveAttribute('aria-checked', 'true');
 });
 
+test('a new range while pinned carries the live line on instead of starting it over', async ({ page }) => {
+  await open(page);
+  const result = await page.evaluate(async () => {
+    const { backend } = await import('/src/lib/backend.ts');
+    const { LiveFeed } = await import('/src/lib/live.ts');
+    const today = (await backend.snapshot()).dashboard!;
+    const more = (d: typeof today, by: number, key = d.rangeKey) => ({ ...d, rangeKey: key,
+      providers: d.providers.map((p) => ({ ...p, tokens: p.tokens * by, output: p.output * by })) });
+    const feed = new LiveFeed(), t = Date.now();
+    feed.add(today, t);
+    feed.add(more(today, 1.01), t + 2000);
+    const before = feed.samples.at(-1)!;
+    // 近 7 天 totals far more: its reading carries on from the last one, and what it adds after keeps adding up.
+    feed.add(more(today, 30, '7d'), t + 4000);
+    feed.add(more(today, 30.2, '7d'), t + 6000);
+    const samples = feed.samples;
+    const near = (a: number, b: number) => Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(b));
+    return { count: samples.length, carried: near(samples[2].total, before.total) && near(samples[2].output, before.output),
+      grew: samples[3].total > samples[2].total, rate: feed.rateAt(t + 6000) ?? 0,
+      ranges: near(feed.value(samples[2]), LiveFeed.latest(more(today, 30, '7d'))) };
+  });
+  expect(result.count).toBe(4);
+  expect(result.carried).toBe(true);
+  expect(result.grew).toBe(true);
+  expect(result.rate).toBeGreaterThan(0);
+  // The line's height on the axis is the new range's newest point.
+  expect(result.ranges).toBe(true);
+});
+
 test('会话 sits beside the groupings: running or idle, this turn\'s tokens, three shown and the rest one click away', async ({ page }) => {
   await open(page);
   // Its row leaves the other rows for the tab.

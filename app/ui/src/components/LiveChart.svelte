@@ -79,7 +79,7 @@
     const scale = window.devicePixelRatio || 1;
     canvas.height = H * scale;
     let shown: Scale | null = null, seen: number | null = null, ripple: number | null = null, frame = 0, last = 0, left = false;
-    let drawnMode = modeNow;
+    let drawnMode = modeNow, drawnOffset = feed.offset;
     // progress runs from 0 (the trend) to 1 (live): up when pinning, back down when unpinning.
     let zoom: { from: number; to: number; start: number; trend: Trend } | null = null;
     let progress = 1;
@@ -118,7 +118,8 @@
       // Token/s: the last minute's output rate as it stood at each whole second, so a point once drawn keeps its value
       // as the window flows past it (sampling moving instants made the drawn line jump); 0 until there is a rate.
       const rating = modeNow === 'rate';
-      if (drawnMode !== modeNow) { drawnMode = modeNow; shown = null; }
+      // A new mode, or a new range moving the line's height on the axis: the scale goes straight there, not sliding.
+      if (drawnMode !== modeNow || drawnOffset !== feed.offset) { drawnMode = modeNow; drawnOffset = feed.offset; shown = null; }
       const rates: [number, number][] = [];
       if (rating) {
         for (let t = Math.floor(start / 1000) * 1000; t <= now; t += 1000) rates.push([t, feed.rateAt(t) ?? 0]);

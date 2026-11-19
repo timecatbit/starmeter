@@ -29,18 +29,46 @@ export class LiveFeed {
 
   value(sample: Sample) { return sample.total + this.offset; }
 
+  /** What a reading of the range on screen adds to the readings before it: another range totals differently, so its
+   *  readings are shifted to carry on from where the last one stood. */
+  private shift: Omit<Sample, 'at'> = { total: 0, output: 0, cost: 0, parts: {} };
+
   add(dashboard: Dashboard, at = Date.now()) {
-    if (dashboard.rangeKey !== this.rangeKey) { this.samples = []; this.rangeKey = dashboard.rangeKey; }
     const parts = dashboard.providers.map(summaryPart).filter((p) => p !== null && p.available);
     // Output as Summary counts it: a source a gateway partly logged adds only its share not logged there.
     const output = dashboard.providers.filter((p) => p.available && summaryPart(p) !== null)
       .reduce((s, p) => s + p.output * (p.counted ? (p.tokens > 0 ? p.counted.tokens / p.tokens : 0) : 1), 0);
-    const sample: Sample = { at, total: parts.reduce((s, p) => s + p!.tokens, 0), output, cost: parts.reduce((s, p) => s + (p!.cost ?? 0), 0), parts: {} };
-    for (const part of parts) sample.parts[part!.id] = part!.tokens;
-    // A new day (or a source dropping out) starts the line again rather than drawing a fall.
+    const raw: Sample = { at, total: parts.reduce((s, p) => s + p!.tokens, 0), output, cost: parts.reduce((s, p) => s + (p!.cost ?? 0), 0), parts: {} };
+    for (const part of parts) raw.parts[part!.id] = part!.tokens;
     const last = this.samples.at(-1);
-    if (last && sample.total < last.total - 1) this.samples = [];
+    if (dashboard.rangeKey !== this.rangeKey) {
+      // A new range while pinned: the line and the rate carry on (what is added keeps adding up, nothing drops to
+      // zero); only its height on the axis moves to the new range's newest point.
+      this.rangeKey = dashboard.rangeKey;
+      const ids = new Set([...Object.keys(raw.parts), ...Object.keys(last?.parts ?? {})]);
+      this.shift = last
+        ? { total: last.total - raw.total, output: last.output - raw.output, cost: last.cost - raw.cost,
+          parts: Object.fromEntries([...ids].map((id) => [id, (last.parts[id] ?? 0) - (raw.parts[id] ?? 0)])) }
+        : { total: 0, output: 0, cost: 0, parts: {} };
+      const sample = this.shifted(raw);
+      this.offset = LiveFeed.latest(dashboard) - sample.total;
+      this.keep(sample, at);
+      return;
+    }
+    let sample = this.shifted(raw);
+    // A new day (or a source dropping out) starts the line again rather than drawing a fall.
+    if (last && sample.total < last.total - 1) { this.samples = []; this.shift = { total: 0, output: 0, cost: 0, parts: {} }; sample = raw; }
     if (!this.samples.length) this.offset = LiveFeed.latest(dashboard) - sample.total;
+    this.keep(sample, at);
+  }
+
+  private shifted(raw: Sample): Sample {
+    const parts: Record<string, number> = {};
+    for (const id of new Set([...Object.keys(raw.parts), ...Object.keys(this.shift.parts)])) parts[id] = (raw.parts[id] ?? 0) + (this.shift.parts[id] ?? 0);
+    return { at: raw.at, total: raw.total + this.shift.total, output: raw.output + this.shift.output, cost: raw.cost + this.shift.cost, parts };
+  }
+
+  private keep(sample: Sample, at: number) {
     if (this.samples.length && Math.abs(at - this.samples.at(-1)!.at) < 500) this.samples[this.samples.length - 1] = sample;
     else this.samples.push(sample);
     this.samples = this.samples.filter((s) => at - s.at <= 2 * LiveFeed.window);
