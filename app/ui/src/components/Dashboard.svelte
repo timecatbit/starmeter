@@ -4,7 +4,7 @@
   import { accent, blend, label as labelColour, totalColor } from '../lib/colors';
   import { chartExtra, labelColumn, legendLabels, legendLayout, summaryProviders } from '../lib/chart';
   import { isGrouped, money, tokens } from '../lib/format';
-  import { blockHeight, HeatmapLayout, rows as heatmapRows } from '../lib/heatmap';
+  import { blockHeight, HeatmapLayout, panelDot, rows as heatmapRows } from '../lib/heatmap';
   import type { LiveFeed } from '../lib/live';
   import { font, width } from '../lib/measure';
   import { moveWindow, panel } from '../lib/ui.svelte';
@@ -43,7 +43,8 @@
   const extra = $derived(chartExtra(data, right - left));
   const summaryHeight = $derived(showSummary ? 230 + extra : 44);
   const column = $derived(labelColumn(data));
-  const heatmapLayout = $derived(data.heatmap ? new HeatmapLayout(left + column, summaryHeight + 8, right - left - column, data.heatmap.columns, heatmapRows(data.heatmap)) : null);
+  const dot = $derived(panelDot(panel.width));
+  const heatmapLayout = $derived(data.heatmap ? new HeatmapLayout(left + column, summaryHeight + 8, right - left - column, data.heatmap.columns, heatmapRows(data.heatmap), dot) : null);
   const heatmapHeight = $derived(heatmapLayout && data.heatmap ? blockHeight(heatmapLayout, data.heatmap) : 0);
   const harnessHeader = $derived(!data.providers.length || !showSummary || data.heatmap ? 0 : 6);
   const tabOptions = $derived([...(data.providers.length ? data.groupings ?? [] : []), ...(sessions ? [{ key: 'sessions', label: '会话' }] : [])]);
@@ -170,7 +171,7 @@
     {/if}
   </div>
   {#if data.heatmap}
-    <Heatmap heatmap={data.heatmap} {column} top={summaryHeight} {right} current={data.rangeKey !== 'yesterday'} />
+    <Heatmap heatmap={data.heatmap} {column} top={summaryHeight} {right} current={data.rangeKey !== 'yesterday'} max={dot} />
   {/if}
   <div class="cards" style:top="{summaryHeight + heatmapHeight + harnessHeader}px">
     {#if groupingHeight}

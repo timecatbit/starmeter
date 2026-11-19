@@ -40,22 +40,23 @@ export function note(h: UsageHeatmap): string | null {
   return h.streak ?? null;
 }
 
-/** The squares fill each row from the label column to the right edge, 2pt apart (1.5pt from 28 columns on), as large
- *  as that makes them up to `max`; rows sit the same small gap apart. A row reads as one band, not a dotted line. */
+/** A punch card in the logo's halftone: a dot for each hour or day, its size the amount, spread across each row from
+ *  the label column to the right edge. Dots are at most `max` across (2pt apart at the least), 8pt where there are
+ *  several rows, the rows 2.5pt apart, so seven days by the hour stay low; an empty hour is a speck, as the logo's faint
+ *  background dots are. */
 export class HeatmapLayout {
   constructor(readonly x: number, readonly y: number, readonly width: number, readonly columns: number, readonly rowCount: number,
-    readonly max = 14) {}
-  get spacing() { return this.columns >= 28 ? 1.5 : 2; }
+    readonly max = 10) {}
   get size() {
     const n = Math.max(1, this.columns);
-    return Math.max(4, Math.min(this.max, (this.width - (n - 1) * this.spacing) / n));
+    return Math.max(3, Math.min(this.rowCount > 1 ? Math.min(this.max, 8) : this.max, this.width / n - 2));
   }
   get columnPitch() { return this.columns > 1 ? (this.width - this.size) / (this.columns - 1) : 0; }
-  get rowPitch() { return this.size + this.spacing; }
-  get height() { return this.rowCount * this.rowPitch - this.spacing; }
-  get radius() { return Math.min(3, this.size * 0.24); }
+  get rowPitch() { return this.size + 2.5; }
+  get height() { return this.rowCount * this.rowPitch - 2.5; }
   /** An hour axis (0 6 12 18 24) under a grid of several days by the hour; one row of hours lines up with the trend. */
   hourAxis(h: UsageHeatmap) { return h.columns === 24 && this.rowCount > 1; }
+  /** The box a dot sits in (its largest size). */
   square(index: number) {
     const columns = Math.max(1, this.columns);
     return { x: this.x + (index % columns) * this.columnPitch, y: this.y + Math.floor(index / columns) * this.rowPitch, size: this.size };
@@ -67,6 +68,16 @@ export class HeatmapLayout {
     return Math.min(this.rowCount - 1, Math.max(0, row)) * this.columns + Math.min(this.columns - 1, Math.max(0, column));
   }
 }
+
+/** A dot's radius for its shade: four sizes by rank, a speck when empty (fainter still when yet to come). */
+export function dotRadius(size: number, level: number, future: boolean): number {
+  if (future) return Math.max(0.75, size * 0.09);
+  if (level <= 0) return Math.max(0.9, size * 0.12);
+  return (size / 2) * [0.42, 0.6, 0.8, 1][Math.min(4, level) - 1];
+}
+
+/** The largest dot in a panel this wide: 10pt at its own width, up to 13 in a pinned panel made wider. */
+export const panelDot = (panelWidth: number) => Math.min(13, Math.max(10, Math.round((10 * panelWidth) / 360)));
 
 /** The block's height on the homepage: 8pt above, the squares, the hour axis when there is one, and the caption line. */
 export const blockHeight = (layout: HeatmapLayout, h: UsageHeatmap) => 8 + layout.height + (layout.hourAxis(h) ? 11 : 0) + 15;

@@ -1,19 +1,19 @@
 <script lang="ts">
-  // The squares under Summary, after the shared label column: each row filled edge to edge, so a day reads as one
-  // band; four shades of the total line's colour by rank, empty squares a faint grey and squares still to come fainter
-  // still. The square of now (this hour, or today) wears a ring. Several days by the hour get an hour axis. Pointing at a
-  // square reads it out on the line under them, where the streak (or why there's nothing yet) sits otherwise; only this
-  // block redraws as the pointer moves.
+  // A punch card under Summary, after the shared label column, in the logo's halftone: a dot for each hour or day,
+  // spread edge to edge, its size and depth of the total line's colour four steps by rank; an empty hour is a grey
+  // speck, one yet to come a fainter one. The dot of now (this hour, or today) wears a ring. Several days by the hour get
+  // an hour axis. Pointing at a dot reads it out on the line under them, where the streak (or why there's nothing yet)
+  // sits otherwise; only this block redraws as the pointer moves.
   import { heatmapFuture, heatmapShades, label, totalColor } from '../lib/colors';
-  import { detail, HeatmapLayout, levels as shadeLevels, note, past as pastCount, rows as rowCount } from '../lib/heatmap';
+  import { detail, dotRadius, HeatmapLayout, levels as shadeLevels, note, past as pastCount, rows as rowCount } from '../lib/heatmap';
   import { font, width } from '../lib/measure';
   import { panel } from '../lib/ui.svelte';
   import type { UsageHeatmap } from '../lib/types';
 
-  let { heatmap, column, top, left = 12, right = 332, current = true }:
-    { heatmap: UsageHeatmap; column: number; top: number; left?: number; right?: number; current?: boolean } = $props();
+  let { heatmap, column, top, left = 12, right = 332, current = true, max = 10 }:
+    { heatmap: UsageHeatmap; column: number; top: number; left?: number; right?: number; current?: boolean; max?: number } = $props();
 
-  const layout = $derived(new HeatmapLayout(left + column, top + 8, right - left - column, heatmap.columns, rowCount(heatmap)));
+  const layout = $derived(new HeatmapLayout(left + column, top + 8, right - left - column, heatmap.columns, rowCount(heatmap), max));
   const levels = $derived(shadeLevels(heatmap));
   const past = $derived(pastCount(heatmap));
   const shades = $derived(heatmapShades(panel.dark));
@@ -47,18 +47,18 @@
     onpointermove={move} onpointerleave={() => (pointed = null)} role="img" aria-label="用量热力图">
     <g transform="translate({2 - layout.x}, {2 - layout.y})">
       {#each squares as square, i (i)}
-        <rect class="cell" x={square.x} y={square.y} width={square.size} height={square.size} rx={layout.radius}
+        <circle class="cell" cx={square.x + square.size / 2} cy={square.y + square.size / 2} r={dotRadius(square.size, levels[i], i >= past)}
           fill={i >= past ? future : shades[levels[i]]} />
       {/each}
       {#if now !== null && squares[now]}
         {@const square = squares[now]}
-        <rect class="now" x={square.x - 1.1} y={square.y - 1.1} width={square.size + 2.2} height={square.size + 2.2} rx={layout.radius + 1}
-          fill="none" stroke={totalColor(panel.dark)} stroke-width="1.1" />
+        <circle class="now" cx={square.x + square.size / 2} cy={square.y + square.size / 2} r={square.size / 2 + 1.6}
+          fill="none" stroke={totalColor(panel.dark)} stroke-width="1" />
       {/if}
       {#if pointed !== null && squares[pointed]}
         {@const square = squares[pointed]}
-        <rect class="pointed" x={square.x - 1.1} y={square.y - 1.1} width={square.size + 2.2} height={square.size + 2.2} rx={layout.radius + 1}
-          fill="none" stroke={label(panel.dark, 0.7)} stroke-width="1.3" />
+        <circle class="pointed" cx={square.x + square.size / 2} cy={square.y + square.size / 2} r={square.size / 2 + 1.6}
+          fill="none" stroke={label(panel.dark, 0.7)} stroke-width="1.2" />
       {/if}
     </g>
   </svg>
@@ -95,7 +95,7 @@
     position: absolute;
     overflow: visible;
   }
-  .cell { transition: fill 0.3s ease-out; }
+  .cell { transition: fill 0.3s ease-out, r 0.3s ease-out; }
   .tick {
     font-size: 7.5px;
     color: var(--tertiary);
