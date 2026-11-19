@@ -169,7 +169,7 @@ export const phrases: Record<string, string> = {
   昨日: 'Yesterday', 累计: 'All time', '已知 API 等值估算': 'Known API-equivalent estimate', 'API 等值估算': 'API-equivalent estimate',
   缓存命中: 'Cache hits', '等 {n} 个': 'and {n} more', '图 1 · ': 'Fig. 1 · ', 总量: 'Total',
   // The panel's own labels
-  '近 1 分钟 +{n} Token · 输出 ': 'Last minute +{n} tokens · output ', '收起 {name} 明细': 'Fold {name}', '展开 {name} 明细': 'Unfold {name}',
+  '近 1 分钟 +{n} Token · 输出 ': 'Last min +{n} · output ', '收起 {name} 明细': 'Fold {name}', '展开 {name} 明细': 'Unfold {name}',
   '{name} 详情': '{name} details', 此时段暂无模型调用: 'No model calls in this range', '全部来自 {name}': 'All from {name}',
   正在进行: 'In progress', 卡片分组: 'Card grouping', 'AI 用量面板': 'AI usage panel', '在主页显示 {name}': 'Show {name} on the homepage',
   拖动调整大小: 'Drag to resize', '已知 {n}': 'Known {n}',
