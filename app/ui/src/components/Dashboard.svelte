@@ -77,13 +77,11 @@
     if (select) select.value = chosen;
   }
   const glowColour = $derived(blend(labelColour(panel.dark, 0.85), totalColor(panel.dark), summaryGlow * 0.85));
-  const cardTop = (index: number) => cardList.slice(0, index).reduce((s, p) => s + cardHeight(p), 0);
   function cardHeight(p: Dashboard['providers'][number]) {
     if (collapsible && !expanded.has(p.id)) return 52;
     const clients = p.available && p.clients?.length ? 16 : 0;
     return p.available ? 52 + clients + Math.max(1, p.models.length) * 18 + 8 : 52;
   }
-  void cardTop;
 </script>
 
 <div class="dashboard" style:height="{summaryHeight + heatmapHeight + harnessHeader + groupingHeight + Math.max(cardList.length === 0 && data.providers.length ? 24 : 0, cardList.reduce((s, p) => s + cardHeight(p), 0)) + (data.providers.length ? 4 : 0)}px">

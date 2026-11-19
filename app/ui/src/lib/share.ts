@@ -28,19 +28,20 @@ export async function openShareMenu(button: HTMLElement): Promise<SharePick | nu
 async function nativeMenu(box: DOMRect): Promise<SharePick | null> {
   const { Menu, MenuItem, PredefinedMenuItem } = await import('@tauri-apps/api/menu');
   const { LogicalPosition } = await import('@tauri-apps/api/dpi');
-  let picked: SharePick | null = null;
+  let settle!: (pick: SharePick | null) => void;
+  const picked = new Promise<SharePick | null>((resolve) => (settle = resolve));
   const share = navigator.userAgent.includes('Mac') ? '分享…' : '保存图片…';
   const items = [];
   for (const [index, [style, title]] of styles.entries()) {
     if (index) items.push(await PredefinedMenuItem.new({ item: 'Separator' }));
     items.push(await MenuItem.new({ text: title, enabled: false }));
-    items.push(await MenuItem.new({ text: '复制图片', action: () => (picked = { style, op: 'copy' }) }));
-    items.push(await MenuItem.new({ text: share, action: () => (picked = { style, op: 'share' }) }));
+    items.push(await MenuItem.new({ text: '复制图片', action: () => settle({ style, op: 'copy' }) }));
+    items.push(await MenuItem.new({ text: share, action: () => settle({ style, op: 'share' }) }));
   }
   const menu = await Menu.new({ items });
   await menu.popup(new LogicalPosition(box.left, box.bottom + 4));
-  // The chosen item's event arrives just after the menu closes.
-  await new Promise((resolve) => setTimeout(resolve, 60));
+  // The popup returns once the menu closes; a chosen item's event may arrive just after it.
+  setTimeout(() => settle(null), 300);
   return picked;
 }
 

@@ -3,7 +3,7 @@
 import { chartPositions, smoothCurves, tracePath } from './chart';
 import { accent, alpha, heatmapShades, label as labelColour, systemColor } from './colors';
 import { axisTokens, currency, headline, modelAmount, modelName, share, statsForms, tokenLine, tokens } from './format';
-import { font, ROUNDED, SANS } from './measure';
+import { font, ROUNDED } from './measure';
 import {
   BOTTOM_BAND, canvasFor, clientLines, countedRows, crownSeed, dollars, drawBrand, drawHeatmap, drawMark, drawSymbol, fade, heatmapGridHeight, legendNameOf,
   loadMarks, loadSymbols, measure, middleText, priceLine, roundRect, sharedRows, shownHeatmap, shownRows, tag, text, title, TOP_BAND, WIDTH, type Box, type Fade,
@@ -271,6 +271,5 @@ export async function drawCardPicture(d: Dashboard, project: Project, dark: bool
   drawBrand(ctx, marks.brand, { x: WIDTH / 2 - rowWidth / 2, y: footer, w: 20, h: 20 });
   text(ctx, project.name, { x: WIDTH / 2 - rowWidth / 2 + 28, y: footer + 1, w: signWidth + 2, h: 18 }, signFont, label);
   text(ctx, project.url, { x: 0, y: footer + 26, w: WIDTH, h: 15 }, font(10.5), secondary, 'center');
-  void SANS;
   return canvas;
 }

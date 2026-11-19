@@ -170,6 +170,15 @@ fn visible_frame(x: f64, y: f64) -> NSRect {
     }
 }
 
+/// The pointer is on the star, in the menu bar above the panel's anchor, with no right button down: that click toggles
+/// the panel itself (SwiftBar relaunches the app), so losing the focus to it is no reason to close first.
+pub fn pointer_on_star(anchor: (f64, f64)) -> bool {
+    let (x, y) = mouse_location();
+    let visible = visible_frame(x, y);
+    let buttons: usize = unsafe { msg_send![class!(NSEvent), pressedMouseButtons] };
+    buttons & 2 == 0 && (x - anchor.0).abs() <= 24.0 && y >= visible.origin.y + visible.size.height
+}
+
 /// The most the panel may grow on the screen under the anchor before it scrolls.
 pub fn max_height(anchor: (f64, f64)) -> f64 {
     visible_frame(anchor.0, anchor.1).size.height - 16.0

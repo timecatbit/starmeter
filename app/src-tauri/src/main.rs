@@ -16,7 +16,7 @@ mod panel;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
-use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
+use tauri_plugin_autostart::ManagerExt;
 
 use panel::{Mode, PANEL};
 
@@ -204,7 +204,12 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let launch = request(&args);
     let mode = launch.mode;
-    let mut autostart = tauri_plugin_autostart::Builder::new().macos_launcher(MacosLauncher::LaunchAgent);
+    #[allow(unused_mut)]
+    let mut autostart = tauri_plugin_autostart::Builder::new();
+    #[cfg(target_os = "macos")]
+    {
+        autostart = autostart.macos_launcher(tauri_plugin_autostart::MacosLauncher::LaunchAgent);
+    }
     if cfg!(windows) {
         // The login item keeps 5.x's name, so an upgrade finds and replaces it.
         autostart = autostart.app_name("TokenMonitor");

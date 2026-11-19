@@ -178,9 +178,8 @@ function modelRows(tool, part) {
 
 function card(tool, part, history, status = '已同步') {
   const card = { id: tool.id, name: tool.name, ...moduleIcon(tool.id) };
-  const available = part.requests > 0 || status !== '已同步';
   card.subtitle = '';
-  card.status = part.requests > 0 || part.tokens > 0 ? status : status;
+  card.status = status;
   card.available = true;
   card.credits = part.credits ? Math.round(part.credits * 10) / 10 : null;
   card.clients = tool.clients && part.tokens ? tool.clients.map(([agent, share]) => ({ name: { codex: 'ChatGPT', 'claude-code': 'Claude Code', pi: 'Pi' }[agent], tokens: Math.round(part.tokens * share), share })) : null;
@@ -195,7 +194,6 @@ function card(tool, part, history, status = '已同步') {
   card.models = part.requests ? modelRows(tool, part) : [];
   card.history = history;
   card.priceNote = part.unpriced > 0 && part.unpriced < part.requests && !part.credits ? `${part.unpriced} 次未定价` : null;
-  void available;
   return card;
 }
 

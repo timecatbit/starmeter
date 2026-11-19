@@ -274,6 +274,11 @@ pub fn blurred(app: &AppHandle) {
     {
         return;
     }
+    // A click on the star itself: the star toggles the panel (SwiftBar by relaunching the app), as 5.x let it.
+    #[cfg(target_os = "macos")]
+    if macos::pointer_on_star(*state.anchor.lock().expect("the anchor lock")) {
+        return;
+    }
     #[cfg(target_os = "macos")]
     macos::forget_focus();
     close(app, false);
@@ -283,6 +288,8 @@ pub fn focused(app: &AppHandle) {
     app.state::<Panel>().sharing.store(false, Ordering::SeqCst);
 }
 
+/// The share sheet (macOS) draws in another process; its clicks must not close the panel.
+#[cfg(target_os = "macos")]
 pub fn hold_for_share(app: &AppHandle) {
     app.state::<Panel>().sharing.store(true, Ordering::SeqCst);
 }
@@ -405,6 +412,7 @@ pub fn set_look(app: AppHandle, theme: String, glass: bool) -> bool {
     #[cfg(windows)]
     {
         use tauri::window::{Effect, EffectsBuilder};
+        let glass = glass && mica_supported();
         let effects = glass.then(|| EffectsBuilder::new().effect(Effect::Mica).build());
         window.set_effects(effects).is_ok() && glass
     }
@@ -413,4 +421,23 @@ pub fn set_look(app: AppHandle, theme: String, glass: bool) -> bool {
         let _ = glass;
         false
     }
+}
+
+/// Mica needs Windows 11 (build 22000); on Windows 10 the window would be see-through, so the page paints instead.
+#[cfg(windows)]
+fn mica_supported() -> bool {
+    static SUPPORTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *SUPPORTED.get_or_init(|| {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW: no console flashes up.
+        std::process::Command::new("reg")
+            .args(["query", r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion", "/v", "CurrentBuildNumber"])
+            .creation_flags(0x0800_0000)
+            .output()
+            .ok()
+            .and_then(|out| {
+                String::from_utf8_lossy(&out.stdout).split_whitespace().last().and_then(|n| n.parse::<u32>().ok())
+            })
+            .is_some_and(|build| build >= 22000)
+    })
 }
