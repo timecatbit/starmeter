@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // The website's and the READMEs' screenshots, taken from the panel's made-up fixtures (app/ui/fixtures), never from
 // a real machine: usage, accounts, keys and sessions there are all invented. Each picture comes in a light and a dark
-// copy, at 2x, into docs/images/. Run it again whenever the panel or the share picture changes:
+// copy, at 2x, into docs/images/, beside copies of the logo (Pages serves docs/ alone; scripts/make_logo.py makes the
+// originals in assets/). Run it again whenever the panel, the share pictures or the logo change:
 //
 //   node docs/screenshots.mjs
 //   node docs/screenshots.mjs live share     (only those pictures)
@@ -15,7 +16,7 @@
 // Needs app/node_modules (`npm ci` in app/) and Playwright's WebKit (`npx playwright install webkit` in app/), the
 // engine closest to the app's WKWebView.
 import { spawn } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
@@ -25,9 +26,9 @@ const { webkit } = createRequire(new URL('package.json', app))('@playwright/test
 
 const PORT = 1439;
 const SCALE = 2;
-// The browser preview leaves 24pt around the panel for its shadow; the pictures keep it, on a clear background. The
-// page is as wide as the module grid (588), the widest page.
-const MARGIN = 24;
+// Room around the panel for its shadow, on a clear background; the shadow is made to fade out within it. The page is
+// as wide as the module grid (588), the widest page.
+const MARGIN = 40;
 // What the panel looks like on a laptop screen: it scrolls past this height.
 const PANEL_HEIGHT = 760;
 // The website shows the share pictures in a row about 300pt wide each; at twice that they stay sharp and light.
@@ -54,10 +55,12 @@ async function startServer() {
 // MARK: Taking pictures
 
 // No desktop behind the panel and a solid fill instead of the browser's stand-in for glass, so the picture reads the
-// same on any page (the shadow stays); the page's root shrinks to the panel and its margin, to be cut out whole.
+// same on any page, with a shadow that ends inside the margin; the page's root shrinks to the panel and its margin, to
+// be cut out whole.
 const STILL = `
   body.preview { background: transparent !important; }
   #app { display: inline-block; }
+  .window.browser { margin: ${MARGIN}px !important; box-shadow: 0 12px 26px rgba(0, 0, 0, 0.15), 0 0 0 0.5px rgba(0, 0, 0, 0.12) !important; }
   .window.browser:not(.solid) { background: var(--solid) !important; backdrop-filter: none !important; }
   *, *::after { caret-color: transparent !important; }
 `;
@@ -225,6 +228,7 @@ const only = process.argv.slice(2);
 const unknown = only.filter((name) => !(name in shots));
 if (unknown.length) throw new Error(`Unknown picture ${unknown.join(', ')}; pick from ${Object.keys(shots).join(', ')}.`);
 mkdirSync(out, { recursive: true });
+for (const logo of ['starmeter.svg', 'starmeter-small.svg', 'starmeter-mark.svg']) copyFileSync(new URL(`../assets/${logo}`, import.meta.url), new URL(logo, out));
 const server = await startServer();
 const browser = await webkit.launch();
 try {
