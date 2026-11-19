@@ -95,7 +95,9 @@ class PowerTests(unittest.TestCase):
         calls=[]
         def request(path,**kwargs):
             calls.append(path);return (None,(0,'Connection refused',None)) if path=='/healthz' else ({'ok':True},None)
-        with patch.object(self.m,'ocx_configured',return_value=True),patch.object(self.m,'request',side_effect=request):
+        # gather() would also start a real background refresh, which reads the same cache folder and asks the real
+        # address: the test raced it.
+        with patch.object(self.m,'ocx_configured',return_value=True),patch.object(self.m,'request',side_effect=request),patch.object(self.m,'schedule_background_refresh'):
             self.m.cached_fetch('quota',lambda:({'quotas':{}},None),30)
             self.m.invalidate_caches(['quota'])
             self.m.opencodex_refresh()
