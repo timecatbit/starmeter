@@ -5,7 +5,7 @@ import type { ActionReceipt, Dashboard, Entry, PresentationPreferences, Provider
 import { addPhrases } from './i18n.svelte';
 
 // The made-up session titles in English, for the English screenshots; a real title is the user's own and stays as it is.
-addPhrases({ 重做设置页的分段控件: 'Redo the settings page segments', 修订论文的评估章节: "Revise the paper's evaluation section",
+addPhrases({ 重做设置页的分段控件: 'Redo the settings page segments', 修订论文的评估章节: 'Revise the evaluation section',
   迁移博客的图片目录: "Move the blog's image folder" });
 
 interface Fixture {

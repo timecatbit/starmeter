@@ -30,12 +30,12 @@ export const phrases: Record<string, string> = {
   // Subscriptions
   来源: 'Source', 本机登录: 'local sign-in', 编程工具额度: 'coding limits', '5 小时': '5 hours', 更新时间: 'Updated',
   '订阅月费…': 'Monthly price…', 'Code 登录': 'Code sign-in', 额外用量: 'Extra usage', 立即刷新用量: 'Refresh usage now',
-  打开订阅用量: 'Open subscription usage', 'Cursor 账户（cursor.com）': 'Cursor account (cursor.com)', 本周期: 'This cycle',
+  打开订阅用量: 'Open plan usage', 'Cursor 账户（cursor.com）': 'Cursor account (cursor.com)', 本周期: 'This cycle',
   套餐额度: 'Plan allowance', 按需用量: 'On-demand usage', 打开用量与账单: 'Open usage and billing',
   'Qoder 桌面 App 的本机日志': 'the Qoder desktop app\'s local logs', '套餐 Credits': 'Plan Credits', '加购 Credits': 'Add-on Credits',
   '在 Qoder 窗口右下角打开 Credits 用量后更新': 'Updates once you open Credits usage at the bottom right of the Qoder window',
   '手动标记，未验证套餐': 'Marked by hand; the plan isn\'t verified', 本机标记文件: 'Local mark file', 清除配置标记: 'Clear the mark',
-  打开订阅管理: 'Open subscription settings', 刚刚更新: 'Just updated', 未开启: 'Off', 未填写: 'Not set', 已标记: 'Marked',
+  打开订阅管理: 'Open subscription settings', 刚刚更新: 'Just now', 未开启: 'Off', 未填写: 'Not set', 已标记: 'Marked',
   标记为已配置: 'Mark as set up', 本月已用: 'Spent this month', 与匀速持平: 'on even pace', 未开启读取: 'Reading is off',
   // API keys
   默认: 'Default', '今天已用（UTC）': 'Spent today (UTC)', '测试 Key': 'Test key', '重命名…': 'Rename…', '删除…': 'Delete…',
@@ -144,9 +144,9 @@ export const rules: Rule[] = [
   [/^(.+) 订阅$/, (m, tr) => `${tr(m[1])} plan`],
   [/^需勾选 (.+)$/, (m, tr) => `Needs ${tr(m[1])} on`],
   // Updated and when
-  [/^(\d+) 分钟前更新$/, (m) => `Updated ${m[1]} min ago`],
-  [/^(\d+) 小时前更新$/, (m) => `Updated ${m[1]} h ago`],
-  [/^(\d+) 天前更新$/, (m) => `Updated ${m[1]} ${plural(m[1], 'day', 'days')} ago`],
+  [/^(\d+) 分钟前更新$/, (m) => `${m[1]} min ago`],
+  [/^(\d+) 小时前更新$/, (m) => `${m[1]} h ago`],
+  [/^(\d+) 天前更新$/, (m) => `${m[1]} ${plural(m[1], 'day', 'days')} ago`],
   [/^(\d+) 分钟前$/, (m) => `${m[1]} min ago`],
   [/^更新时间：(.+)$/, (m) => `Updated ${m[1]}`],
   [/^实时 (.+)$/, (m) => `Live ${m[1]}`],
