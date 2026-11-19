@@ -13,7 +13,7 @@
   <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/live-dark.png"><img src="docs/images/live-light.png" width="250" align="top" alt="钉住后的实时图：近 1 分钟新增的 Token"></picture>
 </p>
 
-Starmeter 是 macOS 菜单栏（独立 App 或 SwiftBar 插件）和 Windows 托盘里的一颗星星。它只读本机已有的用量记录和你启用的官方接口，不需要账号、不经过任何中转服务器。免费开源。
+Starmeter 是 macOS 菜单栏（独立 App 或 SwiftBar 插件）和 Windows 托盘里的一颗星星。它只读本机已有的用量记录和你启用的官方接口，不需要账号、不经过任何中转服务器。免费开源。界面有中文和英文，在“外观与设置 → 语言”切换。
 
 原名 Token Monitor。已安装的旧版照常收到更新，设置和 Key 都会保留。
 

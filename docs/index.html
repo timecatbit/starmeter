@@ -67,11 +67,14 @@
       </div>
 
       <div class="fan">
-        <picture class="side left"><source media="(prefers-color-scheme: dark)" srcset="images/subscription-dark.png"><img src="images/subscription-light.png" width="440" height="589" alt="" loading="eager"></picture>
-        <picture class="front"><source media="(prefers-color-scheme: dark)" srcset="images/home-dark.png"><img src="images/home-light.png" width="440" height="840" alt="Starmeter 主页 · home page" loading="eager"></picture>
-        <picture class="side right"><source media="(prefers-color-scheme: dark)" srcset="images/live-dark.png"><img src="images/live-light.png" width="440" height="626" alt="" loading="eager"></picture>
+        <picture class="side left zh"><source media="(prefers-color-scheme: dark)" srcset="images/subscription-dark.png"><img src="images/subscription-light.png" width="440" height="589" alt="" loading="lazy"></picture>
+        <picture class="side left en"><source media="(prefers-color-scheme: dark)" srcset="images/en/subscription-dark.png"><img src="images/en/subscription-light.png" width="440" height="589" alt="" loading="lazy"></picture>
+        <picture class="front zh"><source media="(prefers-color-scheme: dark)" srcset="images/home-dark.png"><img src="images/home-light.png" width="440" height="840" alt="Starmeter 主页" loading="lazy"></picture>
+        <picture class="front en"><source media="(prefers-color-scheme: dark)" srcset="images/en/home-dark.png"><img src="images/en/home-light.png" width="440" height="840" alt="Starmeter home page" loading="lazy"></picture>
+        <picture class="side right zh"><source media="(prefers-color-scheme: dark)" srcset="images/live-dark.png"><img src="images/live-light.png" width="440" height="626" alt="" loading="lazy"></picture>
+        <picture class="side right en"><source media="(prefers-color-scheme: dark)" srcset="images/en/live-dark.png"><img src="images/en/live-light.png" width="440" height="626" alt="" loading="lazy"></picture>
       </div>
-      <p class="note"><span class="zh">截图都由测试数据生成，界面目前只有中文。</span><span class="en">Screenshots are made from test data. The interface is in Chinese.</span></p>
+      <p class="note"><span class="zh">截图都由测试数据生成。界面有中文和英文，在设置里切换。</span><span class="en">Screenshots are made from test data. The panel speaks Chinese and English; switch in Settings.</span></p>
     </section>
 
     <section class="tools" aria-labelledby="tools-title">
@@ -103,7 +106,8 @@
             <li><b><span class="zh">旧记录不丢</span><span class="en">Nothing lost</span></b><span class="zh">：工具自己清理掉的日志（Claude Code 默认只留 30 天）照样计入。</span><span class="en">: logs a tool cleans up itself (Claude Code keeps 30 days) keep counting.</span></li>
           </ul>
         </div>
-        <picture class="shot"><source media="(prefers-color-scheme: dark)" srcset="images/models-dark.png"><img src="images/models-light.png" width="440" height="840" alt="按模型查看 · cards by model" loading="lazy"></picture>
+        <picture class="shot zh"><source media="(prefers-color-scheme: dark)" srcset="images/models-dark.png"><img src="images/models-light.png" width="440" height="840" alt="按模型查看" loading="lazy"></picture>
+        <picture class="shot en"><source media="(prefers-color-scheme: dark)" srcset="images/en/models-dark.png"><img src="images/en/models-light.png" width="440" height="840" alt="Cards by model" loading="lazy"></picture>
       </section>
 
       <section class="feature flip">
@@ -117,7 +121,8 @@
             <li><b><span class="zh">提醒</span><span class="en">Alerts</span></b><span class="zh">：用到 90%（或 70%、80%）时通知；每周额度快重置还没怎么用时，也可以提醒你。</span><span class="en">: a notification at 90% (or 70%, 80%), and optionally when a weekly window is about to reset barely used.</span></li>
           </ul>
         </div>
-        <picture class="shot"><source media="(prefers-color-scheme: dark)" srcset="images/subscription-dark.png"><img src="images/subscription-light.png" width="440" height="589" alt="Claude 订阅 · Claude subscription" loading="lazy"></picture>
+        <picture class="shot zh"><source media="(prefers-color-scheme: dark)" srcset="images/subscription-dark.png"><img src="images/subscription-light.png" width="440" height="589" alt="Claude 订阅" loading="lazy"></picture>
+        <picture class="shot en"><source media="(prefers-color-scheme: dark)" srcset="images/en/subscription-dark.png"><img src="images/en/subscription-light.png" width="440" height="589" alt="Claude subscription" loading="lazy"></picture>
       </section>
 
       <section class="feature">
@@ -131,7 +136,8 @@
             <li><b><span class="zh">只查真的</span><span class="en">Only real numbers</span></b><span class="zh">：没有余额接口的就不显示余额，绝不推算或伪造额度。</span><span class="en">: no balance API, no balance shown; limits are never guessed.</span></li>
           </ul>
         </div>
-        <picture class="shot"><source media="(prefers-color-scheme: dark)" srcset="images/api-dark.png"><img src="images/api-light.png" width="440" height="456" alt="DeepSeek API 与多把 Key · DeepSeek API with its keys" loading="lazy"></picture>
+        <picture class="shot zh"><source media="(prefers-color-scheme: dark)" srcset="images/api-dark.png"><img src="images/api-light.png" width="440" height="456" alt="DeepSeek API 与多把 Key" loading="lazy"></picture>
+        <picture class="shot en"><source media="(prefers-color-scheme: dark)" srcset="images/en/api-dark.png"><img src="images/en/api-light.png" width="440" height="456" alt="DeepSeek API with its keys" loading="lazy"></picture>
       </section>
 
       <section class="feature flip">
@@ -144,7 +150,8 @@
             <li><b><span class="zh">不存内容</span><span class="en">No contents kept</span></b><span class="zh">：只记状态、标题和数字，不保存提问和回复。</span><span class="en">: only status, titles and numbers; never prompts or replies.</span></li>
           </ul>
         </div>
-        <picture class="shot"><source media="(prefers-color-scheme: dark)" srcset="images/sessions-dark.png"><img src="images/sessions-light.png" width="440" height="700" alt="会话 · sessions" loading="lazy"></picture>
+        <picture class="shot zh"><source media="(prefers-color-scheme: dark)" srcset="images/sessions-dark.png"><img src="images/sessions-light.png" width="440" height="700" alt="会话" loading="lazy"></picture>
+        <picture class="shot en"><source media="(prefers-color-scheme: dark)" srcset="images/en/sessions-dark.png"><img src="images/en/sessions-light.png" width="440" height="700" alt="Sessions" loading="lazy"></picture>
       </section>
 
       <section class="feature">
@@ -153,7 +160,8 @@
           <h2><span class="zh">钉在屏幕上，看着它涨。</span><span class="en">Pin it, and watch it climb.</span></h2>
           <p><span class="zh">点图钉，面板浮在其他窗口之上，可以挪动、拉大。趋势图放大到“现在”，换成近 1 分钟的实时图（累计 Token 或每秒输出的 Token/s，一键切换），下面自动切到正在跑的会话，每 1–5 秒按本机日志刷新一次，数字滚动更新。</span><span class="en">Click the pin and the panel floats above your windows, movable and resizable. The trend zooms into now, a live chart of the last minute (the running total or output tokens a second, one click apart) with the running sessions under it, re-read from the local logs every 1–5 seconds as the figures roll.</span></p>
         </div>
-        <picture class="shot"><source media="(prefers-color-scheme: dark)" srcset="images/live-dark.png"><img src="images/live-light.png" width="440" height="626" alt="钉住后的实时图 · the live chart" loading="lazy"></picture>
+        <picture class="shot zh"><source media="(prefers-color-scheme: dark)" srcset="images/live-dark.png"><img src="images/live-light.png" width="440" height="626" alt="钉住后的实时图" loading="lazy"></picture>
+        <picture class="shot en"><source media="(prefers-color-scheme: dark)" srcset="images/en/live-dark.png"><img src="images/en/live-light.png" width="440" height="626" alt="The live chart" loading="lazy"></picture>
       </section>
     </div>
 
@@ -164,16 +172,26 @@
         <p><span class="zh">每种都有浅色和深色。先预览，再复制或保存，Mac 上还能直接分享。图里只有用量，不含订阅、余额和 Key。</span><span class="en">Each comes in light and dark. Preview it, then copy or save it, or share it straight from a Mac. Only usage goes in: no subscriptions, balances or keys.</span></p>
       </div>
       <div class="gallery">
-        <a href="images/share-card-light.jpg"><picture><source media="(prefers-color-scheme: dark)" srcset="images/share-card-dark.jpg"><img src="images/share-card-light.jpg" width="600" height="1946" alt="卡片风格 · card" loading="lazy"></picture><span><span class="zh">卡片</span><span class="en">Card</span></span></a>
-        <a href="images/share-terminal-light.jpg"><picture><source media="(prefers-color-scheme: dark)" srcset="images/share-terminal-dark.jpg"><img src="images/share-terminal-light.jpg" width="600" height="1946" alt="终端风格 · terminal" loading="lazy"></picture><span><span class="zh">终端</span><span class="en">Terminal</span></span></a>
-        <a href="images/share-sketch-light.jpg"><picture><source media="(prefers-color-scheme: dark)" srcset="images/share-sketch-dark.jpg"><img src="images/share-sketch-light.jpg" width="600" height="1946" alt="手绘风格 · sketch" loading="lazy"></picture><span><span class="zh">手绘</span><span class="en">Sketch</span></span></a>
-        <a href="images/share-paper-light.jpg"><picture><source media="(prefers-color-scheme: dark)" srcset="images/share-paper-dark.jpg"><img src="images/share-paper-light.jpg" width="600" height="1946" alt="报刊风格 · paper" loading="lazy"></picture><span><span class="zh">报刊</span><span class="en">Paper</span></span></a>
-        <a href="images/share-night-light.jpg"><picture><source media="(prefers-color-scheme: dark)" srcset="images/share-night-dark.jpg"><img src="images/share-night-light.jpg" width="600" height="1946" alt="夜空风格 · night sky" loading="lazy"></picture><span><span class="zh">夜空</span><span class="en">Night sky</span></span></a>
-        <a href="images/share-metro-light.jpg"><picture><source media="(prefers-color-scheme: dark)" srcset="images/share-metro-dark.jpg"><img src="images/share-metro-light.jpg" width="600" height="1946" alt="地铁风格 · metro" loading="lazy"></picture><span><span class="zh">地铁</span><span class="en">Metro</span></span></a>
-        <a href="images/share-knit-light.jpg"><picture><source media="(prefers-color-scheme: dark)" srcset="images/share-knit-dark.jpg"><img src="images/share-knit-light.jpg" width="600" height="1946" alt="织物风格 · knit" loading="lazy"></picture><span><span class="zh">织物</span><span class="en">Knit</span></span></a>
-        <a href="images/share-receipt-light.jpg"><picture><source media="(prefers-color-scheme: dark)" srcset="images/share-receipt-dark.jpg"><img src="images/share-receipt-light.jpg" width="600" height="1946" alt="收据风格 · receipt" loading="lazy"></picture><span><span class="zh">收据</span><span class="en">Receipt</span></span></a>
-        <a href="images/share-blueprint-light.jpg"><picture><source media="(prefers-color-scheme: dark)" srcset="images/share-blueprint-dark.jpg"><img src="images/share-blueprint-light.jpg" width="600" height="1946" alt="蓝图风格 · blueprint" loading="lazy"></picture><span><span class="zh">蓝图</span><span class="en">Blueprint</span></span></a>
-        <a href="images/share-neon-light.jpg"><picture><source media="(prefers-color-scheme: dark)" srcset="images/share-neon-dark.jpg"><img src="images/share-neon-light.jpg" width="600" height="1946" alt="霓虹风格 · neon" loading="lazy"></picture><span><span class="zh">霓虹</span><span class="en">Neon</span></span></a>
+        <a href="images/share-card-light.jpg" class="zh"><picture><source media="(prefers-color-scheme: dark)" srcset="images/share-card-dark.jpg"><img src="images/share-card-light.jpg" width="600" height="1946" alt="卡片风格" loading="lazy"></picture><span><span class="zh">卡片</span><span class="en">Card</span></span></a>
+        <a href="images/en/share-card-light.jpg" class="en"><picture><source media="(prefers-color-scheme: dark)" srcset="images/en/share-card-dark.jpg"><img src="images/en/share-card-light.jpg" width="600" height="1946" alt="Card" loading="lazy"></picture><span><span class="zh">卡片</span><span class="en">Card</span></span></a>
+        <a href="images/share-terminal-light.jpg" class="zh"><picture><source media="(prefers-color-scheme: dark)" srcset="images/share-terminal-dark.jpg"><img src="images/share-terminal-light.jpg" width="600" height="1946" alt="终端风格" loading="lazy"></picture><span><span class="zh">终端</span><span class="en">Terminal</span></span></a>
+        <a href="images/en/share-terminal-light.jpg" class="en"><picture><source media="(prefers-color-scheme: dark)" srcset="images/en/share-terminal-dark.jpg"><img src="images/en/share-terminal-light.jpg" width="600" height="1946" alt="Terminal" loading="lazy"></picture><span><span class="zh">终端</span><span class="en">Terminal</span></span></a>
+        <a href="images/share-sketch-light.jpg" class="zh"><picture><source media="(prefers-color-scheme: dark)" srcset="images/share-sketch-dark.jpg"><img src="images/share-sketch-light.jpg" width="600" height="1946" alt="手绘风格" loading="lazy"></picture><span><span class="zh">手绘</span><span class="en">Sketch</span></span></a>
+        <a href="images/en/share-sketch-light.jpg" class="en"><picture><source media="(prefers-color-scheme: dark)" srcset="images/en/share-sketch-dark.jpg"><img src="images/en/share-sketch-light.jpg" width="600" height="1946" alt="Sketch" loading="lazy"></picture><span><span class="zh">手绘</span><span class="en">Sketch</span></span></a>
+        <a href="images/share-paper-light.jpg" class="zh"><picture><source media="(prefers-color-scheme: dark)" srcset="images/share-paper-dark.jpg"><img src="images/share-paper-light.jpg" width="600" height="1946" alt="报刊风格" loading="lazy"></picture><span><span class="zh">报刊</span><span class="en">Paper</span></span></a>
+        <a href="images/en/share-paper-light.jpg" class="en"><picture><source media="(prefers-color-scheme: dark)" srcset="images/en/share-paper-dark.jpg"><img src="images/en/share-paper-light.jpg" width="600" height="1946" alt="Paper" loading="lazy"></picture><span><span class="zh">报刊</span><span class="en">Paper</span></span></a>
+        <a href="images/share-night-light.jpg" class="zh"><picture><source media="(prefers-color-scheme: dark)" srcset="images/share-night-dark.jpg"><img src="images/share-night-light.jpg" width="600" height="1946" alt="夜空风格" loading="lazy"></picture><span><span class="zh">夜空</span><span class="en">Night sky</span></span></a>
+        <a href="images/en/share-night-light.jpg" class="en"><picture><source media="(prefers-color-scheme: dark)" srcset="images/en/share-night-dark.jpg"><img src="images/en/share-night-light.jpg" width="600" height="1946" alt="Night sky" loading="lazy"></picture><span><span class="zh">夜空</span><span class="en">Night sky</span></span></a>
+        <a href="images/share-metro-light.jpg" class="zh"><picture><source media="(prefers-color-scheme: dark)" srcset="images/share-metro-dark.jpg"><img src="images/share-metro-light.jpg" width="600" height="1946" alt="地铁风格" loading="lazy"></picture><span><span class="zh">地铁</span><span class="en">Metro</span></span></a>
+        <a href="images/en/share-metro-light.jpg" class="en"><picture><source media="(prefers-color-scheme: dark)" srcset="images/en/share-metro-dark.jpg"><img src="images/en/share-metro-light.jpg" width="600" height="1946" alt="Metro" loading="lazy"></picture><span><span class="zh">地铁</span><span class="en">Metro</span></span></a>
+        <a href="images/share-knit-light.jpg" class="zh"><picture><source media="(prefers-color-scheme: dark)" srcset="images/share-knit-dark.jpg"><img src="images/share-knit-light.jpg" width="600" height="1946" alt="织物风格" loading="lazy"></picture><span><span class="zh">织物</span><span class="en">Knit</span></span></a>
+        <a href="images/en/share-knit-light.jpg" class="en"><picture><source media="(prefers-color-scheme: dark)" srcset="images/en/share-knit-dark.jpg"><img src="images/en/share-knit-light.jpg" width="600" height="1946" alt="Knit" loading="lazy"></picture><span><span class="zh">织物</span><span class="en">Knit</span></span></a>
+        <a href="images/share-receipt-light.jpg" class="zh"><picture><source media="(prefers-color-scheme: dark)" srcset="images/share-receipt-dark.jpg"><img src="images/share-receipt-light.jpg" width="600" height="1946" alt="收据风格" loading="lazy"></picture><span><span class="zh">收据</span><span class="en">Receipt</span></span></a>
+        <a href="images/en/share-receipt-light.jpg" class="en"><picture><source media="(prefers-color-scheme: dark)" srcset="images/en/share-receipt-dark.jpg"><img src="images/en/share-receipt-light.jpg" width="600" height="1946" alt="Receipt" loading="lazy"></picture><span><span class="zh">收据</span><span class="en">Receipt</span></span></a>
+        <a href="images/share-blueprint-light.jpg" class="zh"><picture><source media="(prefers-color-scheme: dark)" srcset="images/share-blueprint-dark.jpg"><img src="images/share-blueprint-light.jpg" width="600" height="1946" alt="蓝图风格" loading="lazy"></picture><span><span class="zh">蓝图</span><span class="en">Blueprint</span></span></a>
+        <a href="images/en/share-blueprint-light.jpg" class="en"><picture><source media="(prefers-color-scheme: dark)" srcset="images/en/share-blueprint-dark.jpg"><img src="images/en/share-blueprint-light.jpg" width="600" height="1946" alt="Blueprint" loading="lazy"></picture><span><span class="zh">蓝图</span><span class="en">Blueprint</span></span></a>
+        <a href="images/share-neon-light.jpg" class="zh"><picture><source media="(prefers-color-scheme: dark)" srcset="images/share-neon-dark.jpg"><img src="images/share-neon-light.jpg" width="600" height="1946" alt="霓虹风格" loading="lazy"></picture><span><span class="zh">霓虹</span><span class="en">Neon</span></span></a>
+        <a href="images/en/share-neon-light.jpg" class="en"><picture><source media="(prefers-color-scheme: dark)" srcset="images/en/share-neon-dark.jpg"><img src="images/en/share-neon-light.jpg" width="600" height="1946" alt="Neon" loading="lazy"></picture><span><span class="zh">霓虹</span><span class="en">Neon</span></span></a>
       </div>
     </section>
 
@@ -183,7 +201,8 @@
         <h2><span class="zh">只放你在用的。</span><span class="en">Only what you use.</span></h2>
         <p><span class="zh">首次打开会自动勾选这台电脑上装了的工具；之后在三列网格里随时开关，点名称就地设置目录、Key 和连接。没配置的来源不发任何请求。</span><span class="en">On first run it selects the tools installed on this computer; after that, switch modules on and off in a three-column grid, and click a name to set its folder, keys or connection. A source you haven't set up makes no requests.</span></p>
       </div>
-      <picture class="shot"><source media="(prefers-color-scheme: dark)" srcset="images/modules-dark.png"><img src="images/modules-light.png" width="668" height="779" alt="主页模块 · home modules" loading="lazy"></picture>
+      <picture class="shot zh"><source media="(prefers-color-scheme: dark)" srcset="images/modules-dark.png"><img src="images/modules-light.png" width="668" height="779" alt="主页模块" loading="lazy"></picture>
+      <picture class="shot en"><source media="(prefers-color-scheme: dark)" srcset="images/en/modules-dark.png"><img src="images/en/modules-light.png" width="668" height="779" alt="Home modules" loading="lazy"></picture>
     </section>
 
     <section class="more" aria-labelledby="more-title">
@@ -203,6 +222,7 @@
             <dt><span class="zh">菜单栏数字</span><span class="en">Menu bar figure</span></dt><dd><span class="zh">星星旁可加今天的估算或最紧张的额度。</span><span class="en">Today's estimate or the tightest limit beside the star.</span></dd>
             <dt><span class="zh">人民币显示</span><span class="en">Yuan</span></dt><dd><span class="zh">估算按欧洲央行参考汇率换算，或填固定汇率。</span><span class="en">Estimates at the ECB reference rate, or a rate you set.</span></dd>
             <dt><span class="zh">深浅色</span><span class="en">Light and dark</span></dt><dd><span class="zh">跟随系统，或固定浅色、深色。</span><span class="en">Follow the system, or pick one.</span></dd>
+            <dt><span class="zh">中文与英文</span><span class="en">Chinese and English</span></dt><dd><span class="zh">面板有中英文两种界面，在设置里切换。</span><span class="en">The panel speaks both; switch in Settings.</span></dd>
           </dl>
         </div>
         <div>
