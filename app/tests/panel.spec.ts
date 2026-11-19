@@ -249,18 +249,21 @@ test('sharing previews the picture in each style, then copies or saves it', asyn
   const preview = page.locator('.frame img');
   // Every style draws, each with its own picture.
   const sources = new Set<string>();
-  const styles = page.locator('.share-page select');
   for (const name of ['卡片', '报刊', '夜空', '地铁', '织物', '终端']) {
-    await styles.selectOption({ label: name });
-    await expect(page.locator('.share-page .picker-label')).toHaveText(name);
+    if (name !== (await page.locator('.share-page .trigger .current').textContent())) await choose(page, /^风格/, name);
+    await expect(page.locator('.share-page .trigger .current')).toHaveText(name);
     await expect(preview).toHaveAttribute('alt', new RegExp('^' + name));
     sources.add((await preview.getAttribute('src'))!);
   }
   expect(sources.size).toBe(6);
-  // The picture is the poster itself, shown small (about 60% of the page) and never cropped.
+  // The picture is the poster itself, shown small (enough to see its look) and never cropped; light or dark is chosen
+  // beside it.
   const size = await preview.evaluate((img: HTMLImageElement) => [img.naturalWidth, img.naturalHeight, img.width, img.height]);
   expect(size[0]).toBe(840);
-  expect(size[2]).toBeLessThanOrEqual(280);
+  expect(size[2]).toBeLessThanOrEqual(130);
+  const light = await preview.getAttribute('src');
+  await page.getByRole('radio', { name: '深色' }).click();
+  await expect(preview).not.toHaveAttribute('src', light!);
   expect(Math.abs(size[2] / size[3] - size[0] / size[1])).toBeLessThan(0.01);
   await button(page, '复制图片').click();
   await expect(page.locator('.action.primary')).toHaveText('已复制');
@@ -271,7 +274,8 @@ test('sharing previews the picture in each style, then copies or saves it', asyn
   await page.keyboard.press('Escape');
   await expect(page.locator('.dashboard')).toBeVisible();
   await button(page, '分享用量图').click();
-  await expect(styles).toHaveValue('terminal');
+  await expect(page.locator('.share-page .trigger .current')).toHaveText('终端');
+  await expect(page.getByRole('radio', { name: '深色' })).toHaveAttribute('aria-checked', 'true');
 });
 
 test('failures and first-run states say so', async ({ page }) => {

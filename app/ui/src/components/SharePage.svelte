@@ -1,21 +1,27 @@
 <script lang="ts">
-  // 分享用量图: pick a style from the menu at the top right, see the picture exactly as it will be sent (small, so most
-  // of it shows at once), then copy it, save it to the computer, or (on macOS) hand it to the share menu. The figures are those on screen when the page opened, so live readings don't
-  // redraw the picture under the reader.
+  // 分享用量图: the picture small on the left, enough to see what it will look like, and beside it the style, light or
+  // dark, and what to do with it: copy, save to the computer, or (macOS) the share menu. The page is as tall as the
+  // picture needs. The figures are those on screen when the page opened, so live readings don't redraw it under the
+  // reader.
   import { onDestroy, untrack } from 'svelte';
   import { inTauri, shell } from '../lib/backend';
   import { renderPicture, shareStyles, type Picture, type ShareStyle } from '../lib/share';
   import { moveWindow, panel } from '../lib/ui.svelte';
   import type { Dashboard, Project } from '../lib/types';
+  import Dropdown from './Dropdown.svelte';
   import HintButton from './HintButton.svelte';
   import Icon from './Icon.svelte';
   import Scroller from './Scroller.svelte';
 
   let { dashboard, project, onback, onheight }: { dashboard: Dashboard; project: Project; onback: () => void; onheight: (height: number) => void } = $props();
 
-  const KEY = 'starmeter.shareStyle';
-  const remembered = typeof localStorage === 'undefined' ? null : localStorage.getItem(KEY);
-  let style = $state<ShareStyle>(shareStyles.some((s) => s.key === remembered) ? (remembered as ShareStyle) : 'card');
+  const STYLE = 'starmeter.shareStyle', MODE = 'starmeter.shareMode';
+  const stored = (key: string) => (typeof localStorage === 'undefined' ? null : localStorage.getItem(key));
+  const remember = (key: string, value: string) => { if (typeof localStorage !== 'undefined') localStorage.setItem(key, value); };
+  let style = $state<ShareStyle>(shareStyles.some((s) => s.key === stored(STYLE)) ? (stored(STYLE) as ShareStyle) : 'card');
+  /** 浅色 or 深色 for the picture; until chosen, the panel's own. */
+  let mode = $state<'light' | 'dark' | null>(stored(MODE) === 'light' || stored(MODE) === 'dark' ? (stored(MODE) as 'light' | 'dark') : null);
+  const dark = $derived(mode ? mode === 'dark' : panel.dark);
   const frozen = untrack(() => $state.snapshot(dashboard)) as Dashboard;
   const pictures = new Map<string, Picture>();
   let picture = $state<Picture | null>(null);
@@ -26,14 +32,14 @@
   let shareButton: HTMLButtonElement | undefined = $state();
   const mac = typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac');
 
-  // Each style drawn once, in this page's theme, then kept while the page is open.
+  // Each style drawn once per light or dark, then kept while the page is open.
   $effect(() => {
-    const key = style + (panel.dark ? ':dark' : ':light');
-    if (typeof localStorage !== 'undefined') localStorage.setItem(KEY, style);
+    const key = style + (dark ? ':dark' : ':light'), wantsDark = dark;
+    remember(STYLE, style);
     const known = pictures.get(key);
     if (known) { picture = known; failed = false; return; }
     let current = true;
-    void renderPicture(style, frozen, project, panel.dark).then((drawn) => {
+    void renderPicture(style, frozen, project, wantsDark).then((drawn) => {
       if (!current) return;
       if (drawn) pictures.set(key, drawn);
       picture = drawn;
@@ -43,15 +49,13 @@
   });
   onDestroy(() => { for (const p of pictures.values()) URL.revokeObjectURL(p.url); clearTimeout(resultTimer); });
 
-  const previewWidth = $derived(Math.min(280, Math.round(panel.width * 0.62)));
+  /** Small: enough to see the picture's look and order, not to read it. */
+  const PREVIEW = 124;
+  const previewHeight = $derived(picture ? Math.round((PREVIEW * picture.height) / picture.width) : 360);
   const styleName = $derived(shareStyles.find((s) => s.key === style)?.name ?? '');
-  let picking = $state(false);
-  function pick(event: Event) {
-    style = (event.target as HTMLSelectElement).value as ShareStyle;
-    panel.menuOpen = picking = false;
-  }
-  const previewHeight = $derived(picture ? Math.round((previewWidth * picture.height) / picture.width) : 420);
-  const fileName = $derived(`Starmeter ${frozen.date} ${shareStyles.find((s) => s.key === style)?.name ?? ''}.png`);
+  const fileName = $derived(`Starmeter ${frozen.date} ${styleName}.png`);
+  // The page follows the picture: header, then the taller of the picture and the controls beside it.
+  $effect(() => onheight(58 + Math.max(previewHeight, 230) + 16));
 
   function settle(op: 'copy' | 'save', ok: boolean) {
     clearTimeout(resultTimer);
@@ -79,6 +83,10 @@
     await shell.sharePicture(picture.png, fileName, { x: box.left, y: box.top, width: box.width, height: box.height }).catch(() => {});
     busy = null;
   }
+  function pickMode(next: 'light' | 'dark') {
+    mode = next;
+    remember(MODE, next);
+  }
   const copied = $derived(result?.op === 'copy' ? (result.ok ? '已复制' : '复制失败') : null);
   const saved = $derived(result?.op === 'save' ? '已保存' : null);
 </script>
@@ -90,43 +98,49 @@
   <span class="back"><HintButton icon="chevron.left" hint="返回" label="返回" onclick={onback} /></span>
   <span class="page-glyph"><Icon name="square.and.arrow.up" size={17} /></span>
   <h2 class="title">分享用量图<span class="range">{frozen.rangeLabel}</span></h2>
-  <!-- The style, as the range picker on the homepage: bare until pointed at, the system menu when clicked. -->
-  <span class="picker" class:open={picking}>
-    <span class="picker-label">{styleName}</span>
-    <svg class="picker-arrows" width="7" height="5" viewBox="0 0 7 5" aria-hidden="true"><path d="M1 1.1 3.5 3.6 6 1.1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
-    <select aria-label="风格 · {styleName}" value={style} onchange={pick}
-      onpointerdown={() => (panel.menuOpen = picking = true)} onblur={() => (panel.menuOpen = picking = false)}>
-      {#each shareStyles as s (s.key)}
-        <option value={s.key}>{s.name}</option>
-      {/each}
-    </select>
-  </span>
   <span class="rule"></span>
-  <div class="preview">
-    <Scroller onswipeback={onback} onheight={(h) => onheight(62 + h + 64)}>
-      <div class="frame" style:width="{previewWidth}px" style:height="{previewHeight}px">
-        {#if picture}
-          <img src={picture.url} alt="{styleName}风格的用量图预览" width={previewWidth} height={previewHeight} />
-        {:else if failed}
-          <span class="note">这张图没能画出来</span>
-        {:else}
-          <span class="spinner" aria-label="正在生成"></span>
-        {/if}
+  <div class="body">
+    <Scroller onswipeback={onback}>
+      <div class="columns">
+        <div class="frame" style:width="{PREVIEW}px" style:height="{previewHeight}px">
+          {#if picture}
+            <img src={picture.url} alt="{styleName}风格的用量图预览" width={PREVIEW} height={previewHeight} />
+          {:else if failed}
+            <span class="note">没能画出来</span>
+          {:else}
+            <span class="spinner" aria-label="正在生成"></span>
+          {/if}
+        </div>
+        <div class="controls">
+          <div class="setting">
+            <span class="setting-name">风格</span>
+            <Dropdown label="风格" value={style} size={12} align="left" options={shareStyles.map((s) => ({ value: s.key, label: s.name }))}
+              onpick={(next) => (style = next as ShareStyle)} />
+          </div>
+          <div class="setting">
+            <span class="setting-name">色彩</span>
+            <div class="modes" role="radiogroup" aria-label="色彩">
+              <span class="pill" class:right={dark}></span>
+              <button class="mode pressable" class:chosen={!dark} role="radio" aria-checked={!dark} onclick={() => pickMode('light')}>浅色</button>
+              <button class="mode pressable" class:chosen={dark} role="radio" aria-checked={dark} onclick={() => pickMode('dark')}>深色</button>
+            </div>
+          </div>
+          <div class="actions">
+            <button class="action primary pressable" class:done={copied === '已复制'} class:failed={copied === '复制失败'} disabled={!picture} onclick={copy}>
+              <Icon name={copied === '已复制' ? 'checkmark' : 'doc.on.doc'} size={14} />{copied ?? '复制图片'}
+            </button>
+            <button class="action pressable" class:done={!!saved} disabled={!picture} onclick={save}>
+              <Icon name={saved ? 'checkmark' : 'square.and.arrow.down'} size={14} />{saved ?? '保存…'}
+            </button>
+            {#if mac && inTauri}
+              <button class="action pressable" bind:this={shareButton} disabled={!picture} onclick={share}>
+                <Icon name="square.and.arrow.up" size={14} />分享…
+              </button>
+            {/if}
+          </div>
+        </div>
       </div>
     </Scroller>
-  </div>
-  <div class="actions">
-    <button class="action primary pressable" class:done={copied === '已复制'} class:failed={copied === '复制失败'} disabled={!picture} onclick={copy}>
-      <Icon name={copied === '已复制' ? 'checkmark' : 'doc.on.doc'} size={14} />{copied ?? '复制图片'}
-    </button>
-    <button class="action pressable" class:done={!!saved} disabled={!picture} onclick={save}>
-      <Icon name={saved ? 'checkmark' : 'square.and.arrow.down'} size={14} />{saved ?? '保存…'}
-    </button>
-    {#if mac && inTauri}
-      <button class="action pressable" bind:this={shareButton} disabled={!picture} onclick={share}>
-        <Icon name="square.and.arrow.up" size={14} />分享…
-      </button>
-    {/if}
   </div>
 </div>
 
@@ -136,13 +150,7 @@
     width: 100%;
     height: 100%;
   }
-  .grip {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-    height: 48px;
-  }
+  .grip { position: absolute; left: 0; top: 0; width: 100%; height: 48px; }
   .grip.movable { cursor: grab; }
   .grip.movable:active { cursor: grabbing; }
   .back { position: absolute; left: 10px; top: 11px; }
@@ -157,88 +165,72 @@
     line-height: 20px;
     pointer-events: none;
   }
-  .range {
-    margin-left: 8px;
-    font-size: 11.5px;
-    font-weight: 500;
-    color: var(--secondary);
-  }
-  .picker {
-    position: absolute;
-    right: 12px;
-    top: 11px;
-    height: 28px;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    box-sizing: border-box;
-    padding: 0 8px;
-    border-radius: 7px;
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--label);
-  }
-  .picker:hover { background: var(--hover); }
-  .picker.open, .picker:active { background: var(--press); }
-  .picker-arrows { flex: none; color: var(--secondary); }
-  .picker select {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    opacity: 0;
-    font-size: 12px;
-    cursor: default;
-  }
-  .rule {
-    position: absolute;
-    left: 16px;
-    right: 16px;
-    top: 49px;
-    height: 1px;
-    background: var(--separator);
-  }
-  .preview {
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 62px;
-    bottom: 60px;
-    display: flex;
-  }
+  .range { margin-left: 8px; font-size: 11.5px; font-weight: 500; color: var(--secondary); }
+  .rule { position: absolute; left: 16px; right: 16px; top: 49px; height: 1px; background: var(--separator); }
+  .body { position: absolute; left: 0; right: 0; top: 58px; bottom: 0; display: flex; }
+  .columns { display: flex; gap: 16px; padding: 0 16px 16px; }
   .frame {
-    margin: 0 auto 4px;
-    border-radius: 8px;
+    flex: none;
+    border-radius: 6px;
     overflow: hidden;
-    box-shadow: 0 0 0 0.5px var(--separator), 0 4px 14px rgba(0, 0, 0, 0.14);
+    box-shadow: 0 0 0 0.5px var(--separator), 0 3px 10px rgba(0, 0, 0, 0.14);
     display: flex;
     align-items: center;
     justify-content: center;
   }
   .frame img { display: block; }
-  .note { font-size: 11px; color: var(--secondary); }
+  .note { font-size: 10.5px; color: var(--secondary); }
   .spinner {
-    width: 16px;
-    height: 16px;
+    width: 14px;
+    height: 14px;
     border-radius: 50%;
     border: 2px solid var(--separator);
     border-top-color: var(--secondary);
     animation: spin 0.8s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .actions {
-    position: absolute;
-    left: 16px;
-    right: 16px;
-    bottom: 14px;
-    height: 32px;
+  .controls { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+  .setting { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+  .setting-name { font-size: 11px; color: var(--secondary); }
+  .setting :global(.dropdown) { margin-left: -8px; }
+  .modes {
+    position: relative;
     display: flex;
-    gap: 8px;
+    width: 100%;
+    height: 28px;
+    padding: 2px;
+    box-sizing: border-box;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--label) 6%, transparent);
   }
-  .action {
+  .pill {
+    position: absolute;
+    top: 2px;
+    bottom: 2px;
+    left: 2px;
+    width: calc(50% - 2px);
+    border-radius: 6px;
+    background: var(--solid);
+    box-shadow: 0 0 0 0.5px var(--separator), 0 1px 3px rgba(0, 0, 0, 0.1);
+    transition: transform 0.22s var(--page-curve);
+  }
+  .pill.right { transform: translateX(100%); }
+  .mode {
     --press-scale: 0.96;
+    position: relative;
     flex: 1;
-    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11.5px;
+    color: var(--secondary);
+    border-radius: 6px;
+  }
+  .mode.chosen { color: var(--label); font-weight: 600; }
+  .actions { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+  .action {
+    --press-scale: 0.97;
+    height: 30px;
     border-radius: 8px;
     display: flex;
     align-items: center;
@@ -251,7 +243,7 @@
   }
   .action:hover:not(:disabled) { background: color-mix(in srgb, var(--label) 12%, transparent); }
   .action:disabled { opacity: 0.5; }
-  .action.primary { flex: 1.3; color: white; background: var(--accent); }
+  .action.primary { color: white; background: var(--accent); }
   .action.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, black); }
   .action.done { color: var(--green); }
   .action.primary.done { color: white; background: var(--green); }
