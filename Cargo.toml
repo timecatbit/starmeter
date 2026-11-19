@@ -13,7 +13,6 @@ publish = false
 [workspace.dependencies]
 starmeter-core = { path = "crates/core" }
 jiff = "0.2"
-serde_json = { version = "1", features = ["preserve_order"] }
 
 [profile.release]
 lto = true

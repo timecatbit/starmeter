@@ -5,52 +5,70 @@
 use std::io::{Read, Write};
 
 use jiff::tz::TimeZone;
-use serde_json::{Map, Value, json};
+use starmeter_core::json::{Format, Json, python_repr};
 use starmeter_core::time::IsoTime;
-use starmeter_core::{catalog, preferences};
+use starmeter_core::{catalog, object, preferences};
 
-fn answer(call: &str, args: &[Value]) -> Result<Value, String> {
-    let text = |index: usize| args.get(index).and_then(Value::as_str);
+fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
+    let text = |index: usize| args.get(index).and_then(Json::as_str);
     match call {
         "parse_iso" => {
             let time = IsoTime::parse(text(0).unwrap_or("")).map_err(|error| error.to_string())?;
             let zone = text(1).and_then(|name| TimeZone::get(name).ok()).unwrap_or(TimeZone::UTC);
-            Ok(json!({
-                "wall": format!("{}.{:06}", time.wall(), time.microsecond),
-                "offset": time.offset,
-                "timestamp": time.timestamp(&zone),
-                "isoformat": time.isoformat(),
-            }))
+            Ok(object! {
+                "wall" => format!("{}.{:06}", time.wall(), time.microsecond),
+                "offset" => time.offset,
+                "timestamp" => time.timestamp(&zone),
+                "isoformat" => time.isoformat(),
+            }
+            .into())
         }
-        "catalog" => Ok(json!({
-            "manual": catalog::manual_subscriptions(),
-            "portal": catalog::portal_apis(),
-            "balance": catalog::balance_apis(),
-            "keyOnly": catalog::key_only_apis(),
-            "labels": catalog::SERVICES.iter().map(|s| s.label()).collect::<Vec<_>>(),
-            "modules": preferences::MODULES.iter().map(|m| json!([m.key, m.label, m.category])).collect::<Vec<_>>(),
-            "credentials": catalog::SERVICES.iter().map(|s| catalog::credential_names(s.key)).collect::<Vec<_>>(),
-        })),
+        "json.roundtrip" => {
+            // Parses text(0) and writes it back with the separators given, as json.dumps would.
+            let value = Json::parse_str(text(0).unwrap_or("")).map_err(|error| error.to_string())?;
+            let format = Format {
+                ensure_ascii: args.get(1) == Some(&Json::Bool(true)),
+                item: text(2).unwrap_or(", "),
+                key: text(3).unwrap_or(": "),
+                sort_keys: false,
+            };
+            Ok(value.serialized_with(format).into())
+        }
+        "python_repr" => {
+            Ok(args.iter().map(|value| python_repr(value.number().unwrap_or(f64::NAN))).collect::<Vec<_>>().into())
+        }
+        "catalog" => Ok(object! {
+            "manual" => catalog::manual_subscriptions(),
+            "portal" => catalog::portal_apis(),
+            "balance" => catalog::balance_apis(),
+            "keyOnly" => catalog::key_only_apis(),
+            "labels" => catalog::SERVICES.iter().map(|s| s.label()).collect::<Vec<_>>(),
+            "modules" => preferences::MODULES
+                .iter()
+                .map(|m| Json::from(vec![Json::from(m.key), Json::from(m.label.as_str()), Json::from(m.category)]))
+                .collect::<Vec<_>>(),
+            "credentials" => catalog::SERVICES.iter().map(|s| catalog::credential_names(s.key)).collect::<Vec<_>>(),
+        }
+        .into()),
         _ => Err("unported".to_string()),
     }
 }
 
 fn main() {
-    let mut input = String::new();
+    let mut input = Vec::new();
     let request = std::io::stdin()
-        .read_to_string(&mut input)
+        .read_to_end(&mut input)
         .map_err(|error| error.to_string())
-        .and_then(|_| serde_json::from_str::<Value>(&input).map_err(|error| error.to_string()));
-    let mut output = Map::new();
+        .and_then(|_| Json::parse(&input).map_err(|error| error.to_string()));
     let reply = request.and_then(|request| {
-        let call = request.get("call").and_then(Value::as_str).ok_or("bad request")?.to_string();
-        let args = request.get("args").and_then(Value::as_array).cloned().unwrap_or_default();
+        let call = request.get("call").and_then(Json::as_str).ok_or("bad request")?.to_string();
+        let args = request.get("args").and_then(Json::as_array).cloned().unwrap_or_default();
         answer(&call, &args)
     });
-    match reply {
-        Ok(value) => output.insert("result".into(), value),
-        Err(error) => output.insert("error".into(), Value::String(error)),
+    let output = match reply {
+        Ok(value) => object! { "result" => value },
+        Err(error) => object! { "error" => error },
     };
     let mut stdout = std::io::stdout().lock();
-    let _ = writeln!(stdout, "{}", Value::Object(output));
+    let _ = writeln!(stdout, "{}", Json::Object(output));
 }
