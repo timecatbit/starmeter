@@ -437,7 +437,7 @@ test('sharing previews the picture in each style, then copies or saves it', asyn
   // beside it.
   const size = await preview.evaluate((img: HTMLImageElement) => [img.naturalWidth, img.naturalHeight, img.width, img.height]);
   expect(size[0]).toBe(1260);
-  expect(size[2]).toBeLessThanOrEqual(130);
+  expect(size[2]).toBeLessThanOrEqual(172);
   const light = await preview.getAttribute('src');
   await page.getByRole('radio', { name: '深色' }).click();
   await expect(preview).not.toHaveAttribute('src', light!);

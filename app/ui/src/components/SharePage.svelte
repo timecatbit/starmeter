@@ -68,13 +68,30 @@
   });
   onDestroy(() => { for (const p of pictures.values()) URL.revokeObjectURL(p.url); clearTimeout(resultTimer); });
 
-  /** Small: enough to see the picture's look and order, not to read it. */
-  const PREVIEW = 124;
-  const previewHeight = $derived(picture ? Math.round((PREVIEW * picture.height) / picture.width) : 360);
+  // The settings at the top of the column beside the picture and the export at its foot need this much height together;
+  // taken a frame after they change size (never inside the observer's own call).
+  let settingsBox: HTMLDivElement | undefined = $state(), footBox: HTMLDivElement | undefined = $state();
+  let natural = $state(300);
+  $effect(() => {
+    const boxes = [settingsBox, footBox];
+    if (boxes.some((b) => !b)) return;
+    let frame = 0;
+    const measure = () => { natural = settingsBox!.offsetHeight + 24 + footBox!.offsetHeight; };
+    const observer = new ResizeObserver(() => { cancelAnimationFrame(frame); frame = requestAnimationFrame(measure); });
+    boxes.forEach((b) => observer.observe(b!));
+    measure();
+    return () => { observer.disconnect(); cancelAnimationFrame(frame); };
+  });
+  /** Small: enough to see the picture's look and order, not to read it; a short picture is shown a little wider so its
+   *  foot meets the column's (124pt wide up to 172). */
+  const previewWidth = $derived(picture ? Math.min(172, Math.max(124, Math.round((natural * picture.width) / picture.height))) : 124);
+  const previewHeight = $derived(picture ? Math.round((previewWidth * picture.height) / picture.width) : natural);
+  /** The picture and the column side by side, as tall as the taller: settings at the top, the export at the foot. */
+  const columnHeight = $derived(Math.max(previewHeight, natural));
   const styleName = $derived(shareStyles.find((s) => s.key === style)?.name ?? '');
   const fileName = $derived(`Starmeter ${frozen.date} ${styleName}.png`);
-  // The page follows the picture: header, then the taller of the picture and the controls beside it.
-  $effect(() => onheight(58 + Math.max(previewHeight, 230) + 16));
+  // The page follows them: header, then the taller of the picture and the column beside it.
+  $effect(() => onheight(58 + columnHeight + 16));
 
   function settle(op: 'copy' | 'save', ok: boolean) {
     clearTimeout(resultTimer);
@@ -121,16 +138,17 @@
   <div class="body">
     <Scroller onswipeback={onback}>
       <div class="columns">
-        <div class="frame" style:width="{PREVIEW}px" style:height="{previewHeight}px">
+        <div class="frame" style:width="{previewWidth}px" style:height="{previewHeight}px">
           {#if picture}
-            <img src={picture.url} alt="{shareStyles.find((s) => s.key === drawnStyle)?.name ?? ''}风格的用量图预览" width={PREVIEW} height={previewHeight} />
+            <img src={picture.url} alt="{shareStyles.find((s) => s.key === drawnStyle)?.name ?? ''}风格的用量图预览" width={previewWidth} height={previewHeight} />
           {:else if failed}
             <span class="note">没能画出来</span>
           {:else}
             <span class="spinner" aria-label="正在生成"></span>
           {/if}
         </div>
-        <div class="controls" style:min-height="{previewHeight}px">
+        <div class="controls" style:height="{columnHeight}px">
+          <div class="settings" bind:this={settingsBox}>
           <div class="setting">
             <span class="setting-name">风格</span>
             <Dropdown label="风格" value={style} size={12} align="left" field options={shareStyles.map((s) => ({ value: s.key, label: s.name }))}
@@ -151,7 +169,9 @@
                 options={rangeOptions.map((o) => ({ value: o.action?.[1] ?? '', label: o.label }))} onpick={pickRange} />
             </div>
           {/if}
+          </div>
           <div class="spacer"></div>
+          <div class="foot" bind:this={footBox}>
           {#if picture}<p class="size">{Math.round(picture.width * SCALE)} × {Math.round(picture.height * SCALE)} 像素 · PNG</p>{/if}
           <div class="actions">
             <button class="action primary pressable" class:done={copied === '已复制'} class:failed={copied === '复制失败'} disabled={!picture} onclick={copy}>
@@ -165,6 +185,7 @@
                 <Icon name="square.and.arrow.up" size={14} system />分享…
               </button>
             {/if}
+          </div>
           </div>
         </div>
       </div>
@@ -218,7 +239,9 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
   /* Settings at the top, what to do with the picture at the bottom, level with the picture's foot. */
-  .controls { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+  .controls { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .settings { display: flex; flex-direction: column; gap: 14px; }
+  .foot { display: flex; flex-direction: column; gap: 14px; }
   .spacer { flex: 1; }
 
   .setting { display: flex; flex-direction: column; align-items: stretch; gap: 5px; }
