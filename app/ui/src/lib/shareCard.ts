@@ -5,15 +5,15 @@ import { smoothCurves, tracePath } from './chart';
 import { accent, alpha, label as labelColour, systemColor } from './colors';
 import { font, ROUNDED } from './measure';
 import { BOTTOM_BAND, canvasFor, crownSeed, drawMark, drawSymbol, fade, loadSymbols, measure, middleText, roundRect, text, WIDTH, type Box, type Fade } from './shareCommon';
-import { drawAmount, drawMasthead, drawMembers, drawSignature, figures, fitAmount, HERO_BASELINE, layout, poster, ROWS, tickBox, toolHeight } from './sharePoster';
+import { drawAmount, drawMasthead, drawMembers, drawSignature, figures, fitAmount, HERO_BASELINE, layout, poster, ROWS, tickBox, toolHeight, SHARE_TOOLS } from './sharePoster';
 import type { Dashboard, Project } from './types';
 
 const INSET = 28;
 const rounded = (size: number, weight = 600) => font(size, weight, ROUNDED);
 
-export async function drawCardPicture(d: Dashboard, project: Project, dark: boolean): Promise<HTMLCanvasElement> {
+export async function drawCardPicture(d: Dashboard, project: Project, dark: boolean, tools = SHARE_TOOLS): Promise<HTMLCanvasElement> {
   const label = labelColour(dark, 0.85), secondary = labelColour(dark, dark ? 0.55 : 0.5), tertiary = labelColour(dark, dark ? 0.3 : 0.3);
-  const p = await poster(d, label), L = layout(p), height = L.height;
+  const p = await poster(d, label, tools), L = layout(p), height = L.height;
   const width = WIDTH - INSET * 2, left = INSET, right = left + width;
   const { canvas, ctx } = canvasFor(height);
   const teal = dark ? 'rgb(110, 201, 191)' : 'rgb(38, 120, 117)';

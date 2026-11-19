@@ -4,7 +4,7 @@
 // rounded shoulders.
 import { ROUNDED } from './measure';
 import { canvasFor, drawMark, measure, middleText, text, WIDTH } from './shareCommon';
-import { drawAmount, drawBars, drawMasthead, drawMembers, drawSignature, figures, fitAmount, HERO_BASELINE, layout, poster, posterFont, ROWS, slotCentre, tickBox } from './sharePoster';
+import { drawAmount, drawBars, drawMasthead, drawMembers, drawSignature, figures, fitAmount, HERO_BASELINE, layout, poster, posterFont, ROWS, slotCentre, tickBox, SHARE_TOOLS } from './sharePoster';
 import type { Dashboard, Project } from './types';
 
 const M = 24, INNER = WIDTH - M * 2;
@@ -26,9 +26,9 @@ const lines: Record<string, [string, string]> = {
 };
 const lineOf = (id: string, dark: boolean) => (lines[id] ?? ['#2F6FD0', '#6A9BEC'])[dark ? 1 : 0];
 
-export async function drawMetroPicture(d: Dashboard, project: Project, dark: boolean): Promise<HTMLCanvasElement> {
+export async function drawMetroPicture(d: Dashboard, project: Project, dark: boolean, tools = SHARE_TOOLS): Promise<HTMLCanvasElement> {
   const c = dark ? palettes.dark : palettes.light;
-  const p = await poster(d, c.ink), L = layout(p), height = L.height;
+  const p = await poster(d, c.ink, tools), L = layout(p), height = L.height;
   const { canvas, ctx } = canvasFor(height);
   const section = (top: number, colour: string) => { ctx.fillStyle = colour; ctx.beginPath(); ctx.roundRect(0, top, WIDTH, height - top, [24, 24, 0, 0]); ctx.fill(); };
 

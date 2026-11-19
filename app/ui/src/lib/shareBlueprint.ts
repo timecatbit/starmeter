@@ -5,7 +5,7 @@
 import { alpha } from './colors';
 import { t as tr } from './i18n.svelte';
 import { canvasFor, drawMark, measure, middleText, text, WIDTH } from './shareCommon';
-import { drawAmount, drawMasthead, drawMembers, drawSignature, figures, fitAmount, GROTESK, HERO_BASELINE, layout, poster, posterFont, ROWS, tickBox } from './sharePoster';
+import { drawAmount, drawMasthead, drawMembers, drawSignature, figures, fitAmount, GROTESK, HERO_BASELINE, layout, poster, posterFont, ROWS, tickBox, SHARE_TOOLS } from './sharePoster';
 import type { Dashboard, Project } from './types';
 
 const M = 26, INNER = WIDTH - M * 2;
@@ -19,9 +19,9 @@ const palettes = {
     soft: 'rgba(18, 58, 112, 0.66)', line: 'rgb(30, 111, 217)', warn: 'rgb(194, 65, 12)' },
 };
 
-export async function drawBlueprintPicture(d: Dashboard, project: Project, dark: boolean): Promise<HTMLCanvasElement> {
+export async function drawBlueprintPicture(d: Dashboard, project: Project, dark: boolean, tools = SHARE_TOOLS): Promise<HTMLCanvasElement> {
   const c = dark ? palettes.dark : palettes.light;
-  const p = await poster(d, c.ink), L = layout(p), height = L.height;
+  const p = await poster(d, c.ink, tools), L = layout(p), height = L.height;
   const { canvas, ctx } = canvasFor(height);
   const hero = fitAmount(ctx, p.cost, INNER - 20, 84, 32, (s) => t(s, 700));
   const stroke = (colour: string, width = 1, dash: number[] = []) => { ctx.strokeStyle = colour; ctx.lineWidth = width; ctx.setLineDash(dash); };

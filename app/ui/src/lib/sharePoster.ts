@@ -3,8 +3,9 @@
 // API-equivalent estimate as the hero, Token · 请求 · 缓存命中, the trend, the tools, and the signature.
 //
 // The picture is meant to be read on a phone in a screen or so, so it says less than the panel: each tool lists its
-// first models and folds the rest into “其他 N 个模型”, tools that used little fold into “其他工具”, and a tool a
-// gateway partly counted keeps its own row with its tag, so nothing it shares with the gateway is added twice.
+// first models and folds the rest into “其他 N 个模型”, and only as many tools as the share page asks for (the ones
+// that used the most) have rows of their own; the rest fold into “其他工具”, each adding only what Summary counts of
+// it, so nothing a tool shares with a gateway is added twice.
 import starmeterMark from '../../../../assets/starmeter-mark.svg?url';
 import { t, t as tr } from './i18n.svelte';
 import { chartPositions } from './chart';
@@ -53,10 +54,10 @@ export interface Poster {
   tools: PosterTool[]; marks: Marks; star: HTMLImageElement | null;
 }
 
-/** A tool is listed alone unless it has under this share of both the tokens and the estimate. */
-const SMALL = 0.05;
-/** At most this many tools without a tag are listed alone, and this many rows of models per tool. */
-const NAMED = 5, MODELS = 3;
+/** How many tools have rows of their own: the share page offers 1 to SHARE_TOOLS_MOST, 3 until another is picked. */
+export const SHARE_TOOLS = 3, SHARE_TOOLS_MOST = 6;
+/** Rows of models per tool. */
+const MODELS = 3;
 
 const titles: Record<string, string> = { today: '今日', yesterday: '昨日', '24h': '近 24 小时', '7d': '近 7 天', '30d': '近 30 天', week: '本周', month: '本月', all: '累计' };
 
@@ -93,20 +94,20 @@ function models(p: ProviderUsage): PosterModel[] {
 
 const costText = (p: ProviderUsage) => (p.cost !== null ? amountText(amount(p.cost)) : p.credits !== null ? creditsText(p.credits) : t('费用待定价'));
 
-export async function poster(d: Dashboard, markColour: string): Promise<Poster> {
+export async function poster(d: Dashboard, markColour: string, limit = SHARE_TOOLS): Promise<Poster> {
   const rows = shownRows(d), counted = rows.map(summaryPart).filter((p): p is ProviderUsage => p !== null);
   const sumTokens = counted.reduce((s, p) => s + p.tokens, 0);
   const costs = counted.map((p) => p.cost).filter((c): c is number => c !== null), sumCost = costs.reduce((a, b) => a + b, 0);
   const partial = counted.some((p) => p.cost === null || p.unpriced > 0);
   const cached = counted.filter((p) => p.cache !== null), weight = cached.reduce((s, p) => s + p.tokens, 0);
 
-  // Which tools fold into 其他工具: those with little of both the tokens and the estimate, and any past the first few.
-  // A tagged tool always keeps its row, so its tag stays and what it shares with a gateway is never summed again.
+  // The tools that used the most (the larger of their share of the tokens and of the estimate) keep their rows, in
+  // homepage order, tagged ones too; the rest fold into 其他工具 with what Summary counts of them. One that Summary
+  // doesn't count at all (a gateway counted every request, or it is 未计入 Summary) adds nothing there and is left out.
   const size = (p: ProviderUsage) => Math.max(sumTokens > 0 ? p.tokens / sumTokens : 0, sumCost > 0 && p.cost !== null ? p.cost / sumCost : 0);
-  const ranked = rows.filter((p) => !tag(p)).sort((a, b) => size(b) - size(a));
-  let folded = ranked.filter((p, i) => i >= NAMED || size(p) < SMALL);
-  if (folded.length < 2) folded = [];
-  const listed = rows.filter((p) => !folded.includes(p));
+  const kept = new Set([...rows].sort((a, b) => size(b) - size(a)).slice(0, Math.max(1, Math.round(limit))));
+  const listed = rows.filter((p) => kept.has(p));
+  const folded = rows.filter((p) => !kept.has(p)).map(summaryPart).filter((p): p is ProviderUsage => p !== null && (p.requests > 0 || p.tokens > 0));
   const tools: PosterTool[] = listed.map((p) => {
     const why = tag(p), part = summaryPart(p);
     return {

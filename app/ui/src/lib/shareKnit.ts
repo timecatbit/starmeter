@@ -3,7 +3,7 @@
 // small woven tags sewn on between them; each tool and its first models are printed on the care label below, with care
 // symbols and our signature at its foot.
 import { canvasFor, drawMark, measure, middleText, shadow, text, WIDTH } from './shareCommon';
-import { drawMasthead, drawMembers, drawSignature, figures, GROTESK, HERO_BASELINE, layout, poster, posterFont, ROWS, seeded } from './sharePoster';
+import { drawMasthead, drawMembers, drawSignature, figures, GROTESK, HERO_BASELINE, layout, poster, posterFont, ROWS, seeded, SHARE_TOOLS } from './sharePoster';
 import type { Dashboard, Project } from './types';
 
 const palettes = {
@@ -42,9 +42,9 @@ function stitch(colour: string, w: number, h: number): HTMLCanvasElement {
   return s;
 }
 
-export async function drawKnitPicture(d: Dashboard, project: Project, dark: boolean): Promise<HTMLCanvasElement> {
+export async function drawKnitPicture(d: Dashboard, project: Project, dark: boolean, tools = SHARE_TOOLS): Promise<HTMLCanvasElement> {
   const { yarn, sky, weave, clothInk, drop, tagDrop, labelPaper, labelWeave, labelInk, thread, soft, rule, orange } = dark ? palettes.dark : palettes.light;
-  const p = await poster(d, labelInk), G = layout(p), height = G.height;
+  const p = await poster(d, labelInk, tools), G = layout(p), height = G.height;
   const random = seeded([...d.date].reduce((s, ch) => s + ch.charCodeAt(0), 0) + 7);
   const panelX = 16, panelW = WIDTH - 32, cols = Math.floor(panelW / CELL_W);
 

@@ -6,7 +6,7 @@ import { smoothCurves, tracePath } from './chart';
 import { accent, alpha } from './colors';
 import { ROUNDED } from './measure';
 import { canvasFor, drawMark, grain, measure, middleText, shadow, text, WIDTH } from './shareCommon';
-import { drawAmount, drawMasthead, drawMembers, drawSignature, figures, fitAmount, HERO_BASELINE, layout, poster, posterFont, ROWS, tickBox } from './sharePoster';
+import { drawAmount, drawMasthead, drawMembers, drawSignature, figures, fitAmount, HERO_BASELINE, layout, poster, posterFont, ROWS, tickBox, SHARE_TOOLS } from './sharePoster';
 import type { Dashboard, Project } from './types';
 
 const M = 28, INNER = WIDTH - M * 2;
@@ -33,9 +33,9 @@ function core(colour: string, amount: number): string {
   return `rgb(${lift(red)}, ${lift(green)}, ${lift(blue)})`;
 }
 
-export async function drawNeonPicture(d: Dashboard, project: Project, dark: boolean): Promise<HTMLCanvasElement> {
+export async function drawNeonPicture(d: Dashboard, project: Project, dark: boolean, tools = SHARE_TOOLS): Promise<HTMLCanvasElement> {
   const c = dark ? palettes.dark : palettes.light;
-  const p = await poster(d, c.text), L = layout(p), height = L.height;
+  const p = await poster(d, c.text, tools), L = layout(p), height = L.height;
   const { canvas, ctx } = canvasFor(height);
   const hero = fitAmount(ctx, p.cost, INNER - 40, 74, 32, (s) => r(s, 800));
   const frame = { x: M - 8, y: L.title + 4, w: INNER + 16, h: L.stats - 8 - L.title - 4 };

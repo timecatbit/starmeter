@@ -4,7 +4,7 @@
 import { smoothCurves, tracePath } from './chart';
 import { accent, alpha } from './colors';
 import { blurFilter, canvasFor, drawMark, measure, middleText, shadow, text, WIDTH } from './shareCommon';
-import { drawAmount, drawMasthead, drawMembers, drawSignature, figures, fitAmount, HERO_BASELINE, layout, poster, posterFont, ROWS, SERIF, seeded, tickBox } from './sharePoster';
+import { drawAmount, drawMasthead, drawMembers, drawSignature, figures, fitAmount, HERO_BASELINE, layout, poster, posterFont, ROWS, SERIF, seeded, tickBox, SHARE_TOOLS } from './sharePoster';
 import type { Dashboard, Project } from './types';
 
 const M = 28, INNER = WIDTH - M * 2;
@@ -35,9 +35,9 @@ function lit(id: string, dark: boolean): string {
   return `rgb(${lift(m[0])}, ${lift(m[1])}, ${lift(m[2])})`;
 }
 
-export async function drawNightPicture(d: Dashboard, project: Project, dark: boolean): Promise<HTMLCanvasElement> {
+export async function drawNightPicture(d: Dashboard, project: Project, dark: boolean, tools = SHARE_TOOLS): Promise<HTMLCanvasElement> {
   const c = dark ? palettes.dark : palettes.light;
-  const p = await poster(d, c.text), L = layout(p), height = L.height;
+  const p = await poster(d, c.text, tools), L = layout(p), height = L.height;
   const measuring = document.createElement('canvas').getContext('2d')!;
   const hero = fitAmount(measuring, p.cost, INNER - 10, 92, 44, (s) => serif(s));
   const { canvas, ctx } = canvasFor(height);

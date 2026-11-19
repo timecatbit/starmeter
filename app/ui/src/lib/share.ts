@@ -11,6 +11,7 @@ import { drawNeonPicture } from './shareNeon';
 import { drawNightPicture } from './shareNight';
 import { drawPaperPicture } from './sharePaper';
 import { drawReceiptPicture } from './shareReceipt';
+import { SHARE_TOOLS } from './sharePoster';
 import { drawSketchPicture } from './shareSketch';
 import { drawTerminalPicture } from './shareTerminal';
 import type { Dashboard, Project } from './types';
@@ -24,16 +25,17 @@ export const shareStyles: { key: ShareStyle; name: string }[] = [
   { key: 'blueprint', name: '蓝图' }, { key: 'neon', name: '霓虹' },
 ];
 
-const draw: Record<ShareStyle, (d: Dashboard, project: Project, dark: boolean) => Promise<HTMLCanvasElement>> = {
+const draw: Record<ShareStyle, (d: Dashboard, project: Project, dark: boolean, tools: number) => Promise<HTMLCanvasElement>> = {
   card: drawCardPicture, terminal: drawTerminalPicture, sketch: drawSketchPicture, paper: drawPaperPicture, night: drawNightPicture,
   metro: drawMetroPicture, knit: drawKnitPicture, receipt: drawReceiptPicture, blueprint: drawBlueprintPicture, neon: drawNeonPicture,
 };
 
 export interface Picture { png: Uint8Array; url: string; width: number; height: number }
 
-/** The picture at 3x: its PNG bytes, a URL to preview it by, and its size in points. */
-export async function renderPicture(style: ShareStyle, dashboard: Dashboard, project: Project, dark: boolean): Promise<Picture | null> {
-  const canvas = await draw[style](dashboard, project, dark);
+/** The picture at 3x: its PNG bytes, a URL to preview it by, and its size in points. `tools` is how many tools have
+ *  rows of their own; the rest fold into 其他工具. */
+export async function renderPicture(style: ShareStyle, dashboard: Dashboard, project: Project, dark: boolean, tools = SHARE_TOOLS): Promise<Picture | null> {
+  const canvas = await draw[style](dashboard, project, dark, tools);
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
   if (!blob) return null;
   return { png: new Uint8Array(await blob.arrayBuffer()), url: URL.createObjectURL(blob), width: canvas.width / SCALE, height: canvas.height / SCALE };

@@ -5,7 +5,7 @@ import { smoothCurves, tracePath } from './chart';
 import { accent, alpha, systemColor } from './colors';
 import { font, MONO } from './measure';
 import { BOTTOM_BAND, canvasFor, crownSeed, drawMark, fade, grain, measure, middleText, roundRect, shadow, text, TOP_BAND, WIDTH, type Box, type Fade } from './shareCommon';
-import { drawAmount, drawMasthead, drawMembers, drawSignature, figures, fitAmount, HERO_BASELINE, layout, poster, posterDate, ROWS, tickBox } from './sharePoster';
+import { drawAmount, drawMasthead, drawMembers, drawSignature, figures, fitAmount, HERO_BASELINE, layout, poster, posterDate, ROWS, tickBox, SHARE_TOOLS } from './sharePoster';
 import type { Dashboard, Project } from './types';
 
 const PAD = 26;
@@ -21,9 +21,9 @@ const palettes = {
     muted: rgb(0.36, 0.4, 0.44), comment: rgb(0.52, 0.56, 0.6), accent: rgb(0.02, 0.54, 0.46), rule: rgb(0, 0, 0, 0.09) },
 };
 
-export async function drawTerminalPicture(d: Dashboard, project: Project, dark: boolean): Promise<HTMLCanvasElement> {
+export async function drawTerminalPicture(d: Dashboard, project: Project, dark: boolean, tools = SHARE_TOOLS): Promise<HTMLCanvasElement> {
   const c = dark ? palettes.dark : palettes.light;
-  const p = await poster(d, c.text);
+  const p = await poster(d, c.text, tools);
   p.date = posterDate(d, '-', ' → ');
   const left = PAD, width = WIDTH - PAD * 2, right = left + width, L = layout(p), height = L.height;
   const { canvas, ctx } = canvasFor(height);

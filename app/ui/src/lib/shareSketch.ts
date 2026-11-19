@@ -4,7 +4,7 @@
 // mark in a circle of its colour and its models as hatched bars.
 import { smoothCurves, tracePath } from './chart';
 import { canvasFor, drawMark, measure, middleText, text, WIDTH } from './shareCommon';
-import { amountWidth, drawAmount, drawMasthead, drawMembers, drawSignature, figures, fitAmount, GROTESK, HERO_BASELINE, layout, poster, posterFont, ROWS, seeded, tickBox } from './sharePoster';
+import { amountWidth, drawAmount, drawMasthead, drawMembers, drawSignature, figures, fitAmount, GROTESK, HERO_BASELINE, layout, poster, posterFont, ROWS, seeded, tickBox, SHARE_TOOLS } from './sharePoster';
 import type { Dashboard, Project } from './types';
 
 const M = 26, INNER = WIDTH - M * 2;
@@ -28,9 +28,9 @@ const pens: Record<string, Pen> = {
   workbuddy: 'coral', 'deepseek-harness': 'blue', opencodex: 'blue', other: 'grey',
 };
 
-export async function drawSketchPicture(d: Dashboard, project: Project, dark: boolean): Promise<HTMLCanvasElement> {
+export async function drawSketchPicture(d: Dashboard, project: Project, dark: boolean, tools = SHARE_TOOLS): Promise<HTMLCanvasElement> {
   const c = dark ? palettes.dark : palettes.light;
-  const p = await poster(d, c.ink), L = layout(p), height = L.height;
+  const p = await poster(d, c.ink, tools), L = layout(p), height = L.height;
   const { canvas, ctx } = canvasFor(height);
   const random = seeded([...d.date].reduce((s, ch) => s + ch.charCodeAt(0), 0) + 5);
   const wobble = (amount: number) => (random() - 0.5) * 2 * amount;

@@ -467,6 +467,40 @@ test('sharing previews the picture in each style, then copies or saves it', asyn
   await expect(page.getByRole('radio', { name: '深色' })).toHaveAttribute('aria-checked', 'true');
 });
 
+test('the share picture gives rows to as many tools as asked, the ones that used the most, and folds the rest', async ({ page }) => {
+  await open(page);
+  // In the picture's own terms: the tools listed, in homepage order, and 其他工具 holding what Summary counts of the rest.
+  const posters = await page.evaluate(async () => {
+    const { backend } = await import('/src/lib/backend.ts');
+    const { poster } = await import('/src/lib/sharePoster.ts');
+    const { dashboard } = await backend.snapshot();
+    const result: Record<number, { names: string[]; other: string | null; members: string[] }> = {};
+    for (const n of [1, 3, 6]) {
+      const p = await poster(dashboard, '#000', n);
+      const other = p.tools.find((tool) => tool.id === 'other');
+      result[n] = { names: p.tools.filter((tool) => tool.id !== 'other').map((tool) => tool.name), other: other?.cost ?? null, members: other?.members.map((m) => m.name) ?? [] };
+    }
+    return result;
+  });
+  expect(posters[1].names).toEqual(['Claude']);
+  expect(posters[1].other).toBe('$9.13');
+  expect(posters[3].names).toEqual(['Magpie', 'Claude', 'ChatGPT']);
+  expect(posters[3].members).toEqual(['OpenCode', 'Qoder', 'Gemini CLI', 'Cursor']);
+  expect(posters[6].names).toHaveLength(6);
+  expect(posters[6].members).toEqual(['Qoder']);
+  // On the page: 3 until another is picked, one click redraws, and the choice is remembered.
+  await button(page, '分享用量图').click();
+  const preview = page.locator('.frame img');
+  await expect(page.getByRole('radio', { name: '3', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await expect(preview).toBeVisible();
+  const tall = await preview.evaluate((img: HTMLImageElement) => img.naturalHeight);
+  await page.getByRole('radio', { name: '1', exact: true }).click();
+  await expect.poll(() => preview.evaluate((img: HTMLImageElement) => img.naturalHeight)).toBeLessThan(tall);
+  await page.keyboard.press('Escape');
+  await button(page, '分享用量图').click();
+  await expect(page.getByRole('radio', { name: '1', exact: true })).toHaveAttribute('aria-checked', 'true');
+});
+
 test('failures and first-run states say so', async ({ page }) => {
   await open(page, '?fixture=failed');
   await expect(page.locator('.card-note', { hasText: '刷新失败 · 保留原数据' })).toBeVisible();

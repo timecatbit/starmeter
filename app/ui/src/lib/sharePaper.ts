@@ -1,7 +1,7 @@
 // 报刊: a printed sheet. Cream paper and black rules (by night, a dark sheet printed in cream), the estimate as a giant
 // ultramarine figure, the hour by hour in bars, and each tool with its first models in ruled rows.
 import { canvasFor, drawMark, measure, middleText, text, TOP_BAND, WIDTH } from './shareCommon';
-import { drawAmount, drawBars, drawMasthead, drawMembers, drawSignature, figures, fitAmount, GROTESK, HERO_BASELINE, layout, poster, posterFont, ROWS, slotCentre, tickBox } from './sharePoster';
+import { drawAmount, drawBars, drawMasthead, drawMembers, drawSignature, figures, fitAmount, GROTESK, HERO_BASELINE, layout, poster, posterFont, ROWS, slotCentre, tickBox, SHARE_TOOLS } from './sharePoster';
 import type { Dashboard, Project } from './types';
 
 const M = 26, INNER = WIDTH - M * 2;
@@ -11,9 +11,9 @@ const palettes = {
 };
 const f = (size: number, weight = 700) => posterFont(size, weight, GROTESK);
 
-export async function drawPaperPicture(d: Dashboard, project: Project, dark: boolean): Promise<HTMLCanvasElement> {
+export async function drawPaperPicture(d: Dashboard, project: Project, dark: boolean, tools = SHARE_TOOLS): Promise<HTMLCanvasElement> {
   const { ink, paper, blue, grey, hair, orange, grain } = dark ? palettes.dark : palettes.light;
-  const p = await poster(d, ink), L = layout(p), height = L.height;
+  const p = await poster(d, ink, tools), L = layout(p), height = L.height;
   const { canvas, ctx } = canvasFor(height);
   const rule = (y: number, weight = 1.5, colour = ink) => { ctx.fillStyle = colour; ctx.fillRect(M, y, INNER, weight); };
 

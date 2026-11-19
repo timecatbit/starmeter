@@ -8,6 +8,7 @@
   import { inTauri, shell } from '../lib/backend';
   import { renderPicture, shareStyles, type Picture, type ShareStyle } from '../lib/share';
   import { SCALE } from '../lib/shareCommon';
+  import { SHARE_TOOLS, SHARE_TOOLS_MOST } from '../lib/sharePoster';
   import { moveWindow, panel } from '../lib/ui.svelte';
   import type { Dashboard, Entry, Project } from '../lib/types';
   import Dropdown from './Dropdown.svelte';
@@ -20,13 +21,21 @@
     onback: () => void; onheight: (height: number) => void;
   } = $props();
 
-  const STYLE = 'starmeter.shareStyle', MODE = 'starmeter.shareMode';
+  const STYLE = 'starmeter.shareStyle', MODE = 'starmeter.shareMode', TOOLS = 'starmeter.shareTools';
   const stored = (key: string) => (typeof localStorage === 'undefined' ? null : localStorage.getItem(key));
   const remember = (key: string, value: string) => { if (typeof localStorage !== 'undefined') localStorage.setItem(key, value); };
   let style = $state<ShareStyle>(shareStyles.some((s) => s.key === stored(STYLE)) ? (stored(STYLE) as ShareStyle) : 'card');
   /** 浅色 or 深色 for the picture; until chosen, the panel's own. */
   let mode = $state<'light' | 'dark' | null>(stored(MODE) === 'light' || stored(MODE) === 'dark' ? (stored(MODE) as 'light' | 'dark') : null);
   const dark = $derived(mode ? mode === 'dark' : panel.dark);
+  /** How many tools have rows of their own in the picture (the ones that used the most); the rest fold into 其他工具. */
+  const counts = Array.from({ length: SHARE_TOOLS_MOST }, (_, i) => i + 1);
+  const storedTools = Number(stored(TOOLS));
+  let tools = $state(counts.includes(storedTools) ? storedTools : SHARE_TOOLS);
+  function pickTools(next: number) {
+    tools = next;
+    remember(TOOLS, String(next));
+  }
   // The figures as they stood when the page opened (live readings don't redraw the picture under the reader); a range
   // picked here (the homepage's own range, changed with it) brings its own once its figures arrive.
   let frozen = $state(untrack(() => $state.snapshot(dashboard)) as Dashboard);
@@ -50,15 +59,15 @@
   let shareButton: HTMLButtonElement | undefined = $state();
   const mac = typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac');
 
-  // Each style drawn once per range and light or dark, then kept while the page is open.
+  // Each style drawn once per range, light or dark and number of tools, then kept while the page is open.
   $effect(() => {
-    const figures = frozen, key = `${figures.rangeKey}:${style}${dark ? ':dark' : ':light'}`, wantsDark = dark;
+    const figures = frozen, count = tools, key = `${figures.rangeKey}:${style}${dark ? ':dark' : ':light'}:${count}`, wantsDark = dark;
     remember(STYLE, style);
     const known = pictures.get(key);
     if (known) { picture = known; drawnStyle = style; failed = false; return; }
     let current = true;
     const wanted = style;
-    void renderPicture(wanted, figures, project, wantsDark).then((drawn) => {
+    void renderPicture(wanted, figures, project, wantsDark, count).then((drawn) => {
       if (!current) return;
       if (drawn) pictures.set(key, drawn);
       picture = drawn;
@@ -161,6 +170,15 @@
               <span class="pill" class:right={dark}></span>
               <button class="mode pressable" class:chosen={!dark} role="radio" aria-checked={!dark} onclick={() => pickMode('light')}>{t('浅色')}</button>
               <button class="mode pressable" class:chosen={dark} role="radio" aria-checked={dark} onclick={() => pickMode('dark')}>{t('深色')}</button>
+            </div>
+          </div>
+          <div class="setting">
+            <span class="setting-name">{t('工具数量')}</span>
+            <div class="modes counts" role="radiogroup" aria-label={t('工具数量')} style:--segments={counts.length}>
+              <span class="pill" style:transform="translateX({(tools - 1) * 100}%)"></span>
+              {#each counts as n (n)}
+                <button class="mode pressable" class:chosen={tools === n} role="radio" aria-checked={tools === n} onclick={() => pickTools(n)}>{n}</button>
+              {/each}
             </div>
           </div>
           {#if rangeOptions.length}
@@ -270,6 +288,8 @@
     transition: transform 0.22s var(--page-curve);
   }
   .pill.right { transform: translateX(100%); }
+  .counts .pill { width: calc((100% - 4px) / var(--segments)); }
+  .counts .mode { font-variant-numeric: tabular-nums; }
   .mode {
     --press-scale: 0.96;
     position: relative;

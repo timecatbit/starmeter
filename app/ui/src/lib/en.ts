@@ -96,7 +96,7 @@ export const phrases: Record<string, string> = {
   本次读取失败: 'This read failed', '令牌已过期，请在 Claude Code 里运行 /login': 'The token expired; run /login in Claude Code',
   网络连接超时: 'The connection timed out', 保留最近一次成功的数据: 'keeping the last good data',
   // Share page
-  风格: 'Style', 色彩: 'Colours', 复制图片: 'Copy picture', 已复制: 'Copied', 复制失败: 'Copy failed', '保存…': 'Save…', 已保存: 'Saved',
+  风格: 'Style', 色彩: 'Colours', 工具数量: 'Tools', 复制图片: 'Copy picture', 已复制: 'Copied', 复制失败: 'Copy failed', '保存…': 'Save…', 已保存: 'Saved',
   '分享…': 'Share…', 没能画出来: 'Couldn\'t draw it', 正在生成: 'Drawing', 卡片: 'Card', 终端: 'Terminal', 手绘: 'Sketch', 报刊: 'Paper',
   夜空: 'Night sky', 地铁: 'Metro', 织物: 'Knit', 收据: 'Receipt', 蓝图: 'Blueprint', 霓虹: 'Neon',
   // Questions

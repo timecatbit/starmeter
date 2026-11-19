@@ -3,7 +3,7 @@
 // line item with its models under it, a barcode, and the signature. White paper by day, a dark slip by night.
 import { font, MONO } from './measure';
 import { BOTTOM_BAND, canvasFor, drawMark, measure, middleText, text, WIDTH } from './shareCommon';
-import { drawAmount, drawBars, drawMasthead, drawMembers, drawSignature, figures, fitAmount, HERO_BASELINE, layout, poster, posterDate, ROWS, seeded, slotCentre, tickBox } from './sharePoster';
+import { drawAmount, drawBars, drawMasthead, drawMembers, drawSignature, figures, fitAmount, HERO_BASELINE, layout, poster, posterDate, ROWS, seeded, slotCentre, tickBox, SHARE_TOOLS } from './sharePoster';
 import type { Dashboard, Project } from './types';
 
 const M = 28, INNER = WIDTH - M * 2;
@@ -14,9 +14,9 @@ const palettes = {
   dark: { paper: '#1E1E1C', desk: '#0D0D0C', ink: '#ECE9E2', faded: '#A19D94', rule: 'rgba(236, 233, 226, 0.4)', band: 'rgba(30, 30, 28, 0.4)', warn: '#F0915A' },
 };
 
-export async function drawReceiptPicture(d: Dashboard, project: Project, dark: boolean): Promise<HTMLCanvasElement> {
+export async function drawReceiptPicture(d: Dashboard, project: Project, dark: boolean, tools = SHARE_TOOLS): Promise<HTMLCanvasElement> {
   const c = dark ? palettes.dark : palettes.light;
-  const p = await poster(d, c.ink), L = layout(p), height = L.height;
+  const p = await poster(d, c.ink, tools), L = layout(p), height = L.height;
   p.date = posterDate(d, '-', ' ~ ');
   const { canvas, ctx } = canvasFor(height);
   const dashed = (y: number) => { ctx.strokeStyle = c.rule; ctx.lineWidth = 1; ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.moveTo(M, y); ctx.lineTo(WIDTH - M, y); ctx.stroke(); ctx.setLineDash([]); };
