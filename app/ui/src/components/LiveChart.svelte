@@ -228,6 +228,9 @@
         ctx.globalAlpha = liveAlpha;
         const added = base ? Math.max(0, (samples.at(-1)?.total ?? base.total) - base.total) : 0;
         const rate = feed.rate(now);
+        // What the top right says, for whatever reads the page rather than the pixels (tests among them).
+        canvas.dataset.added = String(Math.round(added));
+        canvas.dataset.rate = String(Math.round(rate ?? 0));
         const unit = ' Token/s', figure = rateText(rate ?? 0);
         const lead = `近 1 分钟 +${tokens(added)} Token · 输出 `;
         const baseline = 11;

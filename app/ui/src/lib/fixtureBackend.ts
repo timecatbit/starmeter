@@ -48,6 +48,8 @@ const state = {
   menuBar: 'none',
   cny: false,
   live: 0,
+  /** A just-picked range is still missing Magpie for a moment (the engine reads its sources one by one). */
+  settling: false,
 };
 const listeners = new Set<() => void>();
 export const onChange = (changed: () => void) => { listeners.add(changed); return () => listeners.delete(changed); };
@@ -79,14 +81,17 @@ function syncValues(list: Entry[]) {
   }
 }
 
-/** Today's figures creep up on each live tick, so the pinned chart has something to draw. */
+/** Every range that reaches now creeps up on each live tick (what each tick adds adds up), so the pinned chart has
+ *  something to draw whatever the range; yesterday stays as it was. */
 function bump(d: Dashboard) {
-  if (!state.live || d.rangeKey !== 'today') return;
+  if (!state.live || d.rangeKey === 'yesterday') return;
   const grow: Record<string, number> = { claude: 41_000, codex: 23_000, magpie: 9_000 };
+  let ticks = 0;
+  for (let k = 1; k <= state.live; k++) ticks += 0.6 + ((k * 7919) % 13) / 13;
   for (const p of d.providers) {
     const step = grow[p.id];
     if (!step) continue;
-    const added = step * state.live * (0.6 + ((state.live * 7919) % 13) / 13);
+    const added = step * ticks;
     p.tokens += added;
     // Most of what a request adds is context read from the cache; a sliver is what the model wrote.
     p.output += added * 0.004;
@@ -101,6 +106,13 @@ export async function dashboard(range: string): Promise<Dashboard> {
   const f = await load(), prefs = state.prefs!;
   const d = structuredClone(f.dashboards[range] ?? f.dashboards.today);
   bump(d);
+  if (state.settling) {
+    // Magpie not read yet: its card waits, and the clients it carried count all their own requests for now.
+    for (const p of d.providers) {
+      if (p.id === 'magpie') { p.available = false; p.status = '待同步'; }
+      else delete p.counted;
+    }
+  }
   d.providers = d.providers.filter((p) => prefs.visible.includes(p.id));
   d.showSummary = prefs.visible.includes('summary');
   if (!prefs.visible.includes('heatmap')) d.heatmap = null;
@@ -180,7 +192,12 @@ export async function action(action: string[]): Promise<ActionReceipt> {
   const [name, a, b] = action;
   const saved = () => { prefs.revision += 1; changed(); return { status: 'done' as const, preferences: structuredClone(prefs) }; };
   switch (name) {
-    case 'set-range': state.range = a; changed(); return { status: 'done' };
+    case 'set-range':
+      state.range = a;
+      state.settling = true;
+      changed();
+      setTimeout(() => { state.settling = false; changed(); }, 300);
+      return { status: 'done' };
     case 'set-group': state.grouping = a; changed(); return { status: 'done' };
     case 'set-module':
       prefs.visible = b === 'true' ? [...new Set([...prefs.visible, a])] : prefs.visible.filter((v) => v !== a);
