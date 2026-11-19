@@ -1,0 +1,124 @@
+<script lang="ts">
+  // A choice from a short list, drawn by the panel rather than the system: bare until pointed at, it opens a small menu
+  // right under itself (a check by the current choice, a soft highlight under the pointer), follows the arrow keys,
+  // Return and Esc, and closes on a click elsewhere. The system's own menu covered its button and looked foreign here.
+  import { onDestroy } from 'svelte';
+  import { pageCurve } from '../lib/motion';
+  import { panel } from '../lib/ui.svelte';
+
+  let { options, value, label, size = 11, align = 'right', onpick }: {
+    options: { value: string; label: string }[]; value: string; label: string; size?: number; align?: 'left' | 'right';
+    onpick: (value: string) => void;
+  } = $props();
+
+  let open = $state(false);
+  let lit = $state(0);
+  let root: HTMLSpanElement | undefined = $state();
+  let menu: HTMLDivElement | undefined = $state();
+  const current = $derived(options.find((o) => o.value === value)?.label ?? '');
+
+  function outside(event: PointerEvent) {
+    if (root && !root.contains(event.target as Node)) close();
+  }
+  function show() {
+    open = true;
+    panel.menuOpen = true;
+    lit = Math.max(0, options.findIndex((o) => o.value === value));
+    window.addEventListener('pointerdown', outside, true);
+    queueMicrotask(() => menu?.focus());
+  }
+  function close() {
+    if (!open) return;
+    open = false;
+    panel.menuOpen = false;
+    window.removeEventListener('pointerdown', outside, true);
+  }
+  function pick(choice: string) {
+    close();
+    if (choice !== value) onpick(choice);
+  }
+  function keydown(event: KeyboardEvent) {
+    if (!open) return;
+    // The panel's own Esc (back) and Return stay out of it while the menu is open.
+    event.stopPropagation();
+    if (event.key === 'Escape') { event.preventDefault(); close(); }
+    else if (event.key === 'ArrowDown') { event.preventDefault(); lit = (lit + 1) % options.length; }
+    else if (event.key === 'ArrowUp') { event.preventDefault(); lit = (lit - 1 + options.length) % options.length; }
+    else if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); pick(options[lit].value); }
+  }
+  onDestroy(close);
+
+  const drop = (_node: Element) => ({
+    duration: panel.reduceMotion ? 0 : 140, easing: pageCurve,
+    css: (t: number) => `opacity: ${t}; transform: translateY(${-4 * (1 - t)}px) scale(${0.97 + 0.03 * t})`,
+  });
+</script>
+
+<!-- svelte-ignore a11y_no_static_element_interactions (the keys belong to the open menu) -->
+<span class="dropdown" bind:this={root} onkeydown={keydown}>
+  <button class="trigger pressable" class:open style:font-size="{size}px" aria-haspopup="listbox" aria-expanded={open}
+    aria-label="{label} · {current}" onclick={() => (open ? close() : show())}>
+    <span class="current">{current}</span>
+    <svg class="chevron" width="7" height="5" viewBox="0 0 7 5" aria-hidden="true"><path d="M1 1.1 3.5 3.6 6 1.1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
+  </button>
+  {#if open}
+    <div class="menu" class:left={align === 'left'} bind:this={menu} role="listbox" tabindex="-1" aria-label={label} transition:drop>
+      {#each options as option, i (option.value)}
+        <div class="option" class:chosen={option.value === value} class:lit={i === lit} role="option" tabindex="-1" aria-selected={option.value === value}
+          onpointerenter={() => (lit = i)} onclick={() => pick(option.value)} onkeydown={() => {}}>
+          {#if option.value === value}
+            <svg class="check" width="10" height="8" viewBox="0 0 10 8" aria-hidden="true"><path d="M1 4.2 3.7 6.8 9 1.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          {/if}
+          {option.label}
+        </div>
+      {/each}
+    </div>
+  {/if}
+</span>
+
+<style>
+  .dropdown { position: relative; display: inline-flex; }
+  .trigger {
+    --press-scale: 0.96;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 8px;
+    border-radius: 7px;
+    color: var(--label);
+    white-space: nowrap;
+  }
+  .trigger:hover { background: var(--hover); }
+  .trigger.open, .trigger:active { background: var(--press); }
+  .chevron { flex: none; color: var(--secondary); transition: transform 0.18s var(--page-curve); }
+  .trigger.open .chevron { transform: rotate(180deg); }
+  .menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    z-index: 30;
+    min-width: 116px;
+    padding: 4px;
+    border-radius: 10px;
+    background: var(--solid);
+    box-shadow: 0 0 0 0.5px var(--separator), 0 8px 24px rgba(0, 0, 0, 0.16);
+    outline: none;
+    transform-origin: top right;
+  }
+  .menu.left { right: auto; left: 0; transform-origin: top left; }
+  .option {
+    position: relative;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    padding: 0 12px 0 26px;
+    border-radius: 6px;
+    font-size: 12px;
+    white-space: nowrap;
+    cursor: default;
+  }
+  .option.lit { background: var(--hover); }
+  .option.chosen { font-weight: 600; }
+  .check { position: absolute; left: 9px; color: var(--accent); }
+</style>

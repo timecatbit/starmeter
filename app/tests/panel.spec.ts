@@ -17,6 +17,11 @@ async function open(page: Page, query = '') {
   await page.waitForTimeout(300);
 }
 const button = (page: Page, label: string) => page.getByRole('button', { name: label, exact: true });
+/** The panel's own dropdown: opens under its button, then the option is clicked. */
+async function choose(page: Page, label: RegExp, option: string) {
+  await page.getByRole('button', { name: label }).click();
+  await page.getByRole('option', { name: option, exact: true }).click();
+}
 
 test('the homepage shows Summary, the trend, the heatmap, the cards and the rows', async ({ page }) => {
   await open(page);
@@ -142,8 +147,8 @@ test('pointing at a heatmap square reads it out on the line below', async ({ pag
 
 test('a new range brings its own dashboard', async ({ page }) => {
   await open(page);
-  await page.getByLabel(/统计范围/).selectOption('7d');
-  await expect(page.locator('.picker-label')).toHaveText('近 7 天');
+  await choose(page, /统计范围/, '近 7 天');
+  await expect(page.locator('.picker .current')).toHaveText('近 7 天');
   await expect(page.locator('.squares rect')).toHaveCount(168);
   await expect(page.locator('.caption')).toContainText('连续');
   await expect(page.locator('.date').last()).toHaveText('11/19');
@@ -318,13 +323,25 @@ test.describe('header icons', () => {
   });
 });
 
-test('the range picker is bare and as wide as its range', async ({ page }) => {
+test('the range picker is bare, as wide as its range, and opens its own menu under itself', async ({ page }) => {
   await open(page);
-  const picker = page.locator('.picker');
+  const picker = page.locator('.picker .trigger');
   await expect(picker).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
   const today = (await picker.boundingBox())!.width;
-  await page.getByLabel(/统计范围/).selectOption('24h');
-  await expect(page.locator('.picker-label')).toHaveText('近 24 小时');
+  await picker.click();
+  const menu = page.getByRole('listbox', { name: '统计范围' });
+  await expect(menu).toBeVisible();
+  // Under its button, never over it; the current range checked.
+  expect((await menu.boundingBox())!.y).toBeGreaterThan((await picker.boundingBox())!.y + 20);
+  await expect(page.getByRole('option', { name: '今天' })).toHaveAttribute('aria-selected', 'true');
+  // Arrow keys and Return pick; Esc and a click elsewhere close without picking.
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await picker.click();
+  await page.mouse.click(5, 600);
+  await expect(menu).toHaveCount(0);
+  await choose(page, /统计范围/, '近 24 小时');
+  await expect(page.locator('.picker .current')).toHaveText('近 24 小时');
   expect((await picker.boundingBox())!.width).toBeGreaterThan(today + 20);
 });
 

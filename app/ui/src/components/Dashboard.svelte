@@ -10,6 +10,7 @@
   import { moveWindow, panel } from '../lib/ui.svelte';
   import type { Dashboard, Entry } from '../lib/types';
   import markSvg from '../../../../assets/starmeter-mark.svg?raw';
+  import Dropdown from './Dropdown.svelte';
   import Figure from './Figure.svelte';
   import GroupTabs from './GroupTabs.svelte';
   import Heatmap from './Heatmap.svelte';
@@ -71,19 +72,12 @@
   const leftmost = $derived(firstButton - 2 * 32);
   const chosen = $derived(rangeOptions.find((o) => o.checked)?.action?.[1] ?? data.rangeKey);
 
-  /** The range menu is open: only then does the picker look pressed (other menus set panel.menuOpen too). */
-  let picking = $state(false);
-  let select: HTMLSelectElement | undefined = $state();
 
-  function pickRange(event: Event) {
-    const key = (event.target as HTMLSelectElement).value;
-    panel.menuOpen = false;
-    picking = false;
+  function pickRange(key: string) {
     const option = rangeOptions.find((o) => o.action?.[1] === key);
     if (option?.action && key !== data.rangeKey) onrange(option.action);
-    // The snapshot alone marks the range; until it arrives the old range stays chosen.
-    if (select) select.value = chosen;
   }
+
   const glowColour = $derived(blend(labelColour(panel.dark, 0.85), totalColor(panel.dark), summaryGlow * 0.85));
   /** Pinned, the header's free space moves the window, as a title bar would. */
   function grab(event: PointerEvent) {
@@ -111,15 +105,8 @@
           onclick={onpin} on={pinned} />
       </span>
       <span class="slot" style:left="{leftmost}px"><HintButton icon="gearshape" hint="主页模块与设置" label="主页模块与设置" onclick={onsettings} /></span>
-      <span class="picker" class:open={picking} style:left="{pickerX}px" style:width="{pickerWidth}px">
-        <span class="picker-label">{data.rangeLabel}</span>
-        <svg class="picker-arrows" width="7" height="5" viewBox="0 0 7 5" aria-hidden="true"><path d="M1 1.1 3.5 3.6 6 1.1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
-        <select bind:this={select} aria-label="统计范围 · {data.rangeLabel}" value={chosen} onchange={pickRange}
-          onpointerdown={() => (panel.menuOpen = picking = true)} onblur={() => (panel.menuOpen = picking = false)}>
-          {#each rangeOptions as option (option.label)}
-            <option value={option.action?.[1]}>{option.label}</option>
-          {/each}
-        </select>
+      <span class="picker" style:left="{pickerX}px" style:width="{pickerWidth}px">
+        <Dropdown label="统计范围" value={chosen} options={rangeOptions.map((o) => ({ value: o.action?.[1] ?? '', label: o.label }))} onpick={pickRange} />
       </span>
     </div>
     {#if showSummary}
@@ -210,32 +197,7 @@
     top: 6px;
     height: 28px;
     display: flex;
-    align-items: center;
-    gap: 4px;
-    box-sizing: border-box;
-    padding: 0 8px;
-    border-radius: 7px;
-    font-size: 11px;
-    color: var(--label);
-  }
-  .picker:hover { background: rgba(0, 0, 0, 0.06); }
-  .picker.open, .picker:active { background: rgba(0, 0, 0, 0.11); }
-  :global(:root[data-theme='dark']) .picker:hover { background: rgba(255, 255, 255, 0.09); }
-  :global(:root[data-theme='dark']) .picker.open, :global(:root[data-theme='dark']) .picker:active { background: rgba(255, 255, 255, 0.16); }
-  @media (prefers-color-scheme: dark) {
-    :global(:root:not([data-theme='light'])) .picker:hover { background: rgba(255, 255, 255, 0.09); }
-    :global(:root:not([data-theme='light'])) .picker.open, :global(:root:not([data-theme='light'])) .picker:active { background: rgba(255, 255, 255, 0.16); }
-  }
-  .picker-label { flex: 1; white-space: nowrap; }
-  .picker-arrows { flex: none; color: var(--secondary); }
-  .picker select {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    opacity: 0;
-    font-size: 11px;
-    cursor: default;
+    justify-content: flex-end;
   }
   .figure-label {
     top: 40px;
