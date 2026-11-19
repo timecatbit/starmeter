@@ -30,7 +30,12 @@ test('the homepage shows Summary, the trend, the heatmap, the cards and the rows
   await expect(page.locator('.legend')).toHaveCount(8);
   await expect(page.locator('.chart path')).not.toHaveCount(0);
   await expect(page.locator('.squares rect.cell')).toHaveCount(24);
+  // Three cards, those that cost most, each in its place; the rest one click away.
+  await expect(page.locator('.card .name')).toHaveText(['Magpie', 'Claude', 'ChatGPT']);
+  await page.getByRole('button', { name: '其余 4 个工具' }).click();
   await expect(page.locator('.card .name')).toHaveText(['Magpie', 'Claude', 'ChatGPT', 'OpenCode', 'Qoder', 'Gemini CLI', 'Cursor']);
+  await page.getByRole('button', { name: '只看前 3 个' }).click();
+  await expect(page.locator('.card .name')).toHaveCount(3);
   await expect(page.locator('.card-note').filter({ hasText: '次已由 Magpie 计入' })).toBeVisible();
   await expect(page.locator('.row .title')).toContainText(['ChatGPT 订阅', 'Claude 订阅', 'Cursor 订阅']);
   // Usage rows carry their 3pt bar, coloured by level.
@@ -208,9 +213,11 @@ test('grouping by model or project swaps the cards, with the pill on the choice'
   await page.getByRole('radio', { name: '模型' }).click();
   await expect(page.getByRole('radio', { name: '模型' })).toHaveAttribute('aria-checked', 'true');
   await expect(page.locator('.card .name').first()).toHaveText('Claude Opus 5.5');
+  await page.getByRole('button', { name: /^其余 \d+ 个模型$/ }).click();
   await expect(page.locator('.card .name')).toContainText(['Claude Sonnet 5.5']);
   await page.getByRole('radio', { name: '项目' }).click();
   await expect(page.locator('.tabs .note')).toHaveText('按客户端自己的记录');
+  await page.getByRole('button', { name: /^其余 \d+ 个项目$/ }).click();
   await expect(page.locator('.card .name')).toContainText(['starmeter', '未标注项目']);
 });
 
