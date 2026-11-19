@@ -21,6 +21,13 @@
       try { saved = localStorage.getItem('starmeter-lang'); } catch (e) {}
       var lang = asked === 'en' || asked === 'zh' ? asked : saved || ((navigator.language || '').toLowerCase().indexOf('zh') === 0 ? 'zh' : 'en');
       if (lang === 'en') { document.documentElement.classList.add('en'); document.documentElement.lang = 'en'; }
+      // Motion unless the system asks for less. What waits to be revealed is hidden from the first paint, so if site.js
+      // never runs, everything is shown after a moment instead.
+      if (window.matchMedia && matchMedia('(prefers-reduced-motion: no-preference)').matches && 'IntersectionObserver' in window) {
+        var root = document.documentElement;
+        root.classList.add('motion');
+        setTimeout(function () { if (!root.classList.contains('ready')) root.classList.remove('motion'); }, 2500);
+      }
     })();
   </script>
 </head>
@@ -38,24 +45,26 @@
 
   <main id="top">
     <section class="hero">
-      <div class="starfield" aria-hidden="true"></div>
-      <img class="app-icon" src="images/starmeter.svg" width="112" height="112" alt="">
-      <h1>
-        <span class="zh">AI 编程工具用了多少，<br><em>点一下星星就知道。</em></span>
-        <span class="en">How much your AI coding tools use,<br><em>one click on a star.</em></span>
-      </h1>
-      <p class="lead">
-        <span class="zh">Starmeter 读取本机已有的用量记录，把 Claude Code、Codex、Cursor、Gemini CLI 等工具的 Token 和 API 等值费用、订阅额度、API 余额和正在跑的会话，放进 macOS 菜单栏或 Windows 托盘里的一个面板。</span>
-        <span class="en">Starmeter reads the usage records already on your computer and puts the tokens and API-equivalent cost of Claude Code, Codex, Cursor, Gemini CLI and more, your subscription limits, API balances and running sessions into one panel in the macOS menu bar or the Windows tray.</span>
-      </p>
-      <div class="actions">
-        <a class="button primary" href="https://github.com/timecatbit/starmeter/releases/latest">
-          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5v9m0 0L4.5 7M8 10.5 11.5 7M2.5 13.5h11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <span class="zh">免费下载</span><span class="en">Download free</span>
-        </a>
-        <a class="button" href="https://github.com/timecatbit/starmeter"><span class="zh">在 GitHub 查看</span><span class="en">View on GitHub</span></a>
+      <canvas class="starfield" data-sky="top" data-avoid=".hero h1, .hero .lead, .hero .actions" aria-hidden="true"></canvas>
+      <div class="hero-copy">
+        <div class="icon-wrap"><img class="app-icon" src="images/starmeter.svg" width="112" height="112" alt=""></div>
+        <h1>
+          <span class="zh">AI 编程工具用了多少，<br><em>点一下星星就知道。</em></span>
+          <span class="en">How much your AI coding tools use,<br><em>one click on a star.</em></span>
+        </h1>
+        <p class="lead">
+          <span class="zh">Starmeter 读取本机已有的用量记录，把 Claude Code、Codex、Cursor、Gemini CLI 等工具的 Token 和 API 等值费用、订阅额度、API 余额和正在跑的会话，放进 macOS 菜单栏或 Windows 托盘里的一个面板。</span>
+          <span class="en">Starmeter reads the usage records already on your computer and puts the tokens and API-equivalent cost of Claude Code, Codex, Cursor, Gemini CLI and more, your subscription limits, API balances and running sessions into one panel in the macOS menu bar or the Windows tray.</span>
+        </p>
+        <div class="actions">
+          <a class="button primary" href="https://github.com/timecatbit/starmeter/releases/latest">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5v9m0 0L4.5 7M8 10.5 11.5 7M2.5 13.5h11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span class="zh">免费下载</span><span class="en">Download free</span>
+          </a>
+          <a class="button" href="https://github.com/timecatbit/starmeter"><span class="zh">在 GitHub 查看</span><span class="en">View on GitHub</span></a>
+        </div>
+        <p class="meta"><span class="zh">macOS 13 起 · Windows 10/11 · SwiftBar 插件 · 开源（MIT）</span><span class="en">macOS 13+ · Windows 10/11 · SwiftBar plugin · Open source (MIT)</span></p>
       </div>
-      <p class="meta"><span class="zh">macOS 13 起 · Windows 10/11 · SwiftBar 插件 · 开源（MIT）</span><span class="en">macOS 13+ · Windows 10/11 · SwiftBar plugin · Open source (MIT)</span></p>
 
       <div class="fan">
         <picture class="side left"><source media="(prefers-color-scheme: dark)" srcset="images/subscription-dark.png"><img src="images/subscription-light.png" width="440" height="589" alt="" loading="eager"></picture>
@@ -67,14 +76,18 @@
 
     <section class="tools" aria-labelledby="tools-title">
       <p class="kicker" id="tools-title"><span class="zh">读取这些工具的本机记录</span><span class="en">Reads the local records of</span></p>
-      <ul class="chips">
-        <li>Claude Code</li><li>Claude App</li><li>ChatGPT · Codex</li><li>Cursor</li><li>Gemini CLI</li><li>OpenCode</li>
-        <li>Magpie</li><li>OpenCodex</li><li>Qoder CN</li><li>DeepSeek Harness</li><li>WorkBuddy</li>
-      </ul>
+      <div class="marquee">
+        <ul class="chips">
+          <li>Claude Code</li><li>Claude App</li><li>ChatGPT · Codex</li><li>Cursor</li><li>Gemini CLI</li><li>OpenCode</li>
+          <li>Magpie</li><li>OpenCodex</li><li>Qoder CN</li><li>DeepSeek Harness</li><li>WorkBuddy</li>
+        </ul>
+      </div>
       <p class="kicker"><span class="zh">还看得到这些订阅与 API</span><span class="en">And these subscriptions and APIs</span></p>
-      <ul class="chips quiet">
-        <li>ChatGPT</li><li>Claude</li><li>Cursor</li><li>Gemini</li><li>MiniMax</li><li>Qoder CN</li><li>Grok</li><li>Kimi</li><li>DeepSeek</li>
-      </ul>
+      <div class="marquee reverse">
+        <ul class="chips quiet">
+          <li>ChatGPT</li><li>Claude</li><li>Cursor</li><li>Gemini</li><li>MiniMax</li><li>Qoder CN</li><li>Grok</li><li>Kimi</li><li>DeepSeek</li>
+        </ul>
+      </div>
     </section>
 
     <div id="features">
@@ -207,7 +220,7 @@
       <div class="copy centered">
         <p class="kicker"><span class="zh">隐私</span><span class="en">Privacy</span></p>
         <h2 id="privacy-title"><span class="zh">用量留在你的电脑上。</span><span class="en">Your usage stays on your computer.</span></h2>
-        <p><span class="zh">不用注册账号，也没有中转服务器：Starmeter 只读本机记录，只向你启用的服务的官方接口查询。</span><span class="en">No account and no relay server: Starmeter reads local records and asks only the official APIs of the services you turn on.</span></p>
+        <p class="statement" data-scrub><span class="zh">不用注册账号，也没有中转服务器：Starmeter 只读本机记录，只向你启用的服务的官方接口查询。</span><span class="en">No account and no relay server: Starmeter reads local records and asks only the official APIs of the services you turn on.</span></p>
       </div>
       <div class="columns">
         <div class="card">
@@ -233,6 +246,7 @@
     </section>
 
     <section class="download" id="download" aria-labelledby="download-title">
+      <canvas class="starfield" data-sky="bottom" data-avoid=".download .copy, .download .note" aria-hidden="true"></canvas>
       <div class="copy centered">
         <p class="kicker"><span class="zh">下载</span><span class="en">Download</span></p>
         <h2 id="download-title"><span class="zh">选一个文件，装上就能用。</span><span class="en">Pick one file and you're set.</span></h2>
