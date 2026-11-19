@@ -60,7 +60,7 @@ fn magpie_client_name(agent: &str) -> Option<&'static str> {
     })
 }
 
-fn brand_logo(brand: &str) -> Option<(&'static str, bool)> {
+pub fn brand_logo(brand: &str) -> Option<(&'static str, bool)> {
     Some(match brand {
         "ChatGPT" => ("openai.svg", true),
         "Claude" => ("claude.svg", false),
@@ -578,7 +578,7 @@ impl Runtime {
         runtime::installed(&folder, "assets", "logos").unwrap_or_else(|| format!("{folder}/assets"))
     }
 
-    fn logo(&self, file: &str) -> Option<String> {
+    pub fn logo(&self, file: &str) -> Option<String> {
         self.memoized(&format!("logo:{file}"), || {
             std::fs::read(format!("{}/{file}", self.asset_dir()))
                 .ok()

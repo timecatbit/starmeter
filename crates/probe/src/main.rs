@@ -12,7 +12,7 @@ use starmeter_core::runtime::Runtime;
 use starmeter_core::time::IsoTime;
 use starmeter_core::{
     catalog, claude_usage, cursor, files, harness, http, object, opencodex, preferences, pricing, py, range_usage,
-    tally, zstd,
+    sessions, tally, zstd,
 };
 
 fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
@@ -139,6 +139,36 @@ fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
                     Err(failure) => object! { "failure" => failure.0 }.into(),
                 },
             )
+        }
+        "sessions.turnLines" => {
+            // [turns, unit, project]: a session's turns as the menu lists them.
+            let runtime = Runtime::from_process();
+            let turns: Vec<Object> = args
+                .first()
+                .and_then(Json::as_array)
+                .map(|turns| turns.iter().filter_map(|turn| turn.as_object().cloned()).collect())
+                .unwrap_or_default();
+            let lines = runtime.turn_lines(&turns, args.get(1).unwrap_or(&Json::Null), text(2));
+            Ok(Json::from(lines))
+        }
+        "sessions.active" => {
+            // [claude roots, codex root, now, with prices, claude app map]
+            let runtime = Runtime::from_process();
+            let mut app: HashMap<String, (Option<String>, Option<String>)> = HashMap::new();
+            for (key, value) in args.get(4).and_then(Json::as_object).into_iter().flat_map(|map| map.iter()) {
+                let field = |name: &str| value.get(name).and_then(Json::as_str).map(String::from);
+                app.insert(key.clone(), (field("title"), field("effort")));
+            }
+            let prices = runtime.session_prices();
+            let with_prices = args.get(3) == Some(&Json::Bool(true));
+            let found = sessions::active(
+                &strings(args.first()),
+                text(1),
+                args.get(2).and_then(Json::number).unwrap_or(0.0),
+                if with_prices { Some(&prices) } else { None },
+                &app,
+            );
+            Ok(Json::Array(found))
         }
         "harness.gateway" => {
             let log = tally::gateway_requests(

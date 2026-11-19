@@ -60,6 +60,7 @@ impl From<FileError> for Thrown {
 pub type Loaded = (Option<Object>, Option<String>);
 
 type Cadence = Box<dyn Fn() -> (bool, bool) + Send + Sync>;
+type Notifier = Box<dyn Fn(&str, &str) + Send + Sync>;
 
 pub struct Runtime {
     pub environment: HashMap<String, String>,
@@ -75,6 +76,8 @@ pub struct Runtime {
     pub desktop: bool,
     /// Set by an in-process host: whether its panel is open, and on battery.
     pub host_cadence: Option<Cadence>,
+    /// A desktop host's own notifications (subtitle, body); without one, SwiftBar's or the standalone app's.
+    pub notifier: Option<Notifier>,
     /// Settings and local metadata read once per render.
     memo: Mutex<Option<HashMap<String, Box<dyn Any + Send>>>>,
 }
@@ -118,6 +121,7 @@ impl Runtime {
             mac_app,
             desktop: false,
             host_cadence: None,
+            notifier: None,
             memo: Mutex::new(None),
         }
     }
@@ -171,7 +175,7 @@ impl Runtime {
         self.environment.get(key).map(String::as_str).filter(|value| !value.is_empty())
     }
 
-    pub fn codex_home(&self) -> String {
+    fn codex_usage_home(&self) -> String {
         paths::expand_user(&self.env("CODEX_HOME").map_or_else(|| format!("{}/.codex", self.home), String::from))
             .to_string_lossy()
             .into_owned()
@@ -193,7 +197,7 @@ impl Runtime {
                 "claude" => {
                     given("CLAUDE_APP_DATA_DIR").unwrap_or_else(|| claude_app::default_root(home, &self.environment))
                 }
-                "codex" => given("CODEX_USAGE_DIR").unwrap_or_else(|| self.codex_home()),
+                "codex" => given("CODEX_USAGE_DIR").unwrap_or_else(|| self.codex_usage_home()),
                 "opencode" => given("OPENCODE_DATA_DIR").unwrap_or_else(|| {
                     let data = given("XDG_DATA_HOME").unwrap_or_else(|| format!("{home}/.local/share"));
                     format!("{}/opencode", paths::expand_user(&data).to_string_lossy())
@@ -386,7 +390,7 @@ impl Runtime {
             }
         }
         if name == "chatgpt" {
-            let codex = self.codex_home();
+            let codex = self.codex_home_absolute();
             parts.push(Json::from(codex.as_str()));
             match state_of(Path::new(&format!("{codex}/auth.json"))) {
                 Some(state) => parts.extend([Json::Int(state.mtime), Json::Int(state.size)]),
@@ -492,4 +496,69 @@ impl Runtime {
     fn app_update_parts(&self) -> Vec<Json> {
         Vec::new()
     }
+}
+
+impl Runtime {
+    /// SwiftBar's name for the plugin: the file name up to its first dot.
+    pub fn swiftbar_name(&self) -> String {
+        let file = self.plugin.rsplit(['/', '\\']).next().unwrap_or("");
+        file.split('.').next().filter(|name| !name.is_empty()).unwrap_or("starmeter").to_string()
+    }
+
+    /// A notification from Starmeter: the desktop host's own, the standalone app's, or SwiftBar's.
+    pub fn post_notice(&self, subtitle: &str, body: &str) -> bool {
+        if let Some(notify) = &self.notifier {
+            notify(subtitle, body);
+            return true;
+        }
+        if self.mac_app {
+            if self.read_cache("notifications-enabled").get("allowed") != Some(&Json::Bool(true)) {
+                return false;
+            }
+            let path = self.cache_path(&format!("notice-{}", random_hex(32)));
+            self.write_json_cache(&path, &Json::Object(object! { "subtitle" => subtitle, "body" => body }));
+            return Path::new(&path).exists();
+        }
+        let name = self.swiftbar_name();
+        let href = format!("swiftbar://refreshplugin?name={}", quote(&name));
+        let query: Vec<String> = [
+            ("plugin", name.as_str()),
+            ("title", PRODUCT),
+            ("subtitle", subtitle),
+            ("body", body),
+            ("href", href.as_str()),
+        ]
+        .iter()
+        .map(|(key, value)| format!("{key}={}", quote(value)))
+        .collect();
+        let url = format!("swiftbar://notify?{}", query.join("&"));
+        crate::shell::run(&["/usr/bin/open", "-g", &url], 5.0, None, None).is_some()
+    }
+}
+
+/// Percent-encodes everything but the unreserved characters, as urllib.parse.quote(value, safe='').
+pub fn quote(value: &str) -> String {
+    value
+        .bytes()
+        .map(|byte| {
+            if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {
+                (byte as char).to_string()
+            } else {
+                format!("%{byte:02X}")
+            }
+        })
+        .collect()
+}
+
+/// Random lowercase hex, for one-off file names.
+pub fn random_hex(length: usize) -> String {
+    use std::hash::{BuildHasher, Hasher};
+    let mut text = String::new();
+    while text.len() < length {
+        let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+        hasher.write_i64(files::time_nanoseconds());
+        text.push_str(&format!("{:016x}", hasher.finish()));
+    }
+    text.truncate(length);
+    text
 }
