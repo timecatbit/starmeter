@@ -3878,6 +3878,7 @@ name = "starmeter-app"
 version = "6.0.0"
 dependencies = [
  "block2",
+ "jiff",
  "objc2",
  "objc2-foundation",
  "serde",
@@ -3891,6 +3892,7 @@ dependencies = [
  "tauri-plugin-notification",
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
+ "windows 0.61.3",
 ]
 
 [[package]]

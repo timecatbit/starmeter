@@ -7,11 +7,15 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod data;
+mod engine;
 mod fixtures;
 mod host;
 #[cfg(target_os = "macos")]
 mod macos;
 mod panel;
+mod swiftbar;
+#[cfg(windows)]
+mod win;
 
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -192,17 +196,53 @@ fn build_star(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-/// A second launch (SwiftBar clicked again, or the app opened twice): show or hide the panel it asks for.
+/// The homepage or the module list a launch asks for: the plugin's panel-open.json in SwiftBar's panel (its
+/// right-click 主页模块… writes it before opening the app), else the launch's own --modules.
+fn requested_modules(app: &AppHandle, args: &[String]) -> Option<bool> {
+    if let data::Data::SwiftBar(files) = &*app.state::<data::Data>()
+        && let Some(modules) = files.requested_modules()
+    {
+        return Some(modules);
+    }
+    args.iter().any(|a| a == "--modules").then_some(true)
+}
+
+/// A second launch (SwiftBar clicked again, or the app opened twice): show or hide the panel it asks for. Open on the
+/// same page, it closes; asked for the other page, it switches.
 fn relaunched(app: &AppHandle, args: Vec<String>) {
-    let asked = request(&args);
-    let anchor =
-        if app.state::<panel::Panel>().mode == Mode::SwiftBar { pointer_anchor(app) } else { star_anchor(app, None) };
-    panel::toggle(app, anchor, asked.modules);
+    let swiftbar = app.state::<panel::Panel>().mode == Mode::SwiftBar;
+    let anchor = if swiftbar { pointer_anchor(app) } else { star_anchor(app, None) };
+    match requested_modules(app, &args) {
+        Some(modules) => panel::toggle(app, anchor, modules),
+        None if panel::visible(app) => panel::close(app, true),
+        None => panel::open(app, anchor, false),
+    }
+}
+
+/// Where the data comes from: the fixtures when asked (STARMETER_FIXTURE), the plugin's files in SwiftBar's panel,
+/// else the core in this process.
+fn data_source(app: &AppHandle, args: &[String], mode: Mode) -> data::Data {
+    if std::env::var("STARMETER_FIXTURE").is_ok_and(|name| !name.is_empty()) {
+        return data::Data::Fixtures(std::sync::Mutex::new(fixtures::Fixtures::load()));
+    }
+    if mode == Mode::SwiftBar
+        && let Some(files) = swiftbar::Files::from_args(args)
+    {
+        let files = std::sync::Arc::new(files);
+        files.watch(app.clone());
+        return data::Data::SwiftBar(files);
+    }
+    let engine = engine::Engine::new(app);
+    engine.prepare();
+    let clock = app.clone();
+    engine::start_clock(engine.clone(), move || panel::pinned(&clock));
+    data::Data::Engine(engine)
 }
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let launch = request(&args);
+    let args = std::sync::Arc::new(args);
     let mode = launch.mode;
     #[allow(unused_mut)]
     let mut autostart = tauri_plugin_autostart::Builder::new();
@@ -211,9 +251,11 @@ fn main() {
         autostart = autostart.macos_launcher(tauri_plugin_autostart::MacosLauncher::LaunchAgent);
     }
     if cfg!(windows) {
-        // The login item keeps 5.x's name, so an upgrade finds and replaces it.
-        autostart = autostart.app_name("TokenMonitor");
+        // The login item keeps 5.x's name and argument, so an upgrade finds and replaces it.
+        autostart = autostart.app_name("TokenMonitor").args(["--background"]);
     }
+    #[cfg(windows)]
+    win::claim_identity();
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| relaunched(app, args)))
         .plugin(tauri_plugin_dialog::init())
@@ -228,7 +270,6 @@ fn main() {
     }
     let app = builder
         .manage(panel::Panel::new(mode))
-        .manage(data::Data::new())
         .invoke_handler(tauri::generate_handler![
             data::snapshot,
             data::dashboard,
@@ -247,6 +288,7 @@ fn main() {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             let handle = app.handle().clone();
+            app.manage(data_source(&handle, &args, mode));
             if mode == Mode::Standalone {
                 build_star(&handle)?;
                 host::ask_for_notifications(&handle);
@@ -257,7 +299,8 @@ fn main() {
             let _ = window;
             if launch.show {
                 let anchor = if mode == Mode::SwiftBar { pointer_anchor(&handle) } else { star_anchor(&handle, None) };
-                panel::open(&handle, anchor, launch.modules);
+                let modules = requested_modules(&handle, &args).unwrap_or(launch.modules);
+                panel::open(&handle, anchor, modules);
             }
             Ok(())
         })

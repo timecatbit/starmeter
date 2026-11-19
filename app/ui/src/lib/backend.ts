@@ -1,8 +1,9 @@
 // The one door between the panel and everything outside it. Two halves:
 //
 //  - Data (the core): `snapshot`, `dashboard` and `action`. Inside the app these are the Tauri commands of the same
-//    names in app/src-tauri/src/data.rs, which documents the contract; today they serve fixtures, later starmeter-core.
-//    The JSON is the 5.x engine's PanelSnapshot and Dashboard (types.ts). `onSnapshot` fires when the data changed
+//    names in app/src-tauri/src/data.rs, which documents the contract: starmeter-core in the standalone app, the
+//    plugin's snapshot and action files in SwiftBar's panel, the fixtures with STARMETER_FIXTURE. The JSON is the
+//    engine's PanelSnapshot and Dashboard (types.ts). `onSnapshot` fires when the data changed
 //    in the background (a live tick, a file the core watches), and the panel then asks for a fresh snapshot.
 //  - Shell (the window and the system): closing, resizing and pinning the panel, its look, links, the share picture.
 //

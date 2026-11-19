@@ -266,6 +266,51 @@ pub fn confirm(title: &str, message: &str, proceed: &str) -> bool {
     }
 }
 
+/// A question with a text field: the text typed, or None when cancelled. Hidden for a secret (a Key).
+pub fn prompt(title: &str, message: &str, value: &str, hidden: bool) -> Option<String> {
+    unsafe {
+        activate();
+        let alert: Retained<AnyObject> = msg_send![class!(NSAlert), new];
+        let _: () = msg_send![&*alert, setMessageText: &*ns_string(title)];
+        let _: () = msg_send![&*alert, setInformativeText: &*ns_string(message)];
+        let _: *mut AnyObject = msg_send![&*alert, addButtonWithTitle: &*ns_string("保存")];
+        let _: *mut AnyObject = msg_send![&*alert, addButtonWithTitle: &*ns_string("取消")];
+        let class = if hidden { class!(NSSecureTextField) } else { class!(NSTextField) };
+        let field: *mut AnyObject = msg_send![class, alloc];
+        let field: *mut AnyObject =
+            msg_send![field, initWithFrame: NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(300.0, 24.0))];
+        let _: () = msg_send![field, setStringValue: &*ns_string(value)];
+        let _: () = msg_send![&*alert, setAccessoryView: field];
+        let window: *mut AnyObject = msg_send![&*alert, window];
+        let _: () = msg_send![window, setInitialFirstResponder: field];
+        let answer: isize = msg_send![&*alert, runModal];
+        if answer != 1000 {
+            return None;
+        }
+        let text: Retained<AnyObject> = msg_send![field, stringValue];
+        let utf8: *const std::ffi::c_char = msg_send![&*text, UTF8String];
+        (!utf8.is_null()).then(|| std::ffi::CStr::from_ptr(utf8).to_string_lossy().into_owned())
+    }
+}
+
+/// One of two choices, or None when cancelled (the default button).
+pub fn choose(title: &str, message: &str, first: &str, second: &str) -> Option<usize> {
+    unsafe {
+        activate();
+        let alert: Retained<AnyObject> = msg_send![class!(NSAlert), new];
+        let _: () = msg_send![&*alert, setMessageText: &*ns_string(title)];
+        let _: () = msg_send![&*alert, setInformativeText: &*ns_string(message)];
+        let _: *mut AnyObject = msg_send![&*alert, addButtonWithTitle: &*ns_string("取消")];
+        let _: *mut AnyObject = msg_send![&*alert, addButtonWithTitle: &*ns_string(first)];
+        let _: *mut AnyObject = msg_send![&*alert, addButtonWithTitle: &*ns_string(second)];
+        match msg_send![&*alert, runModal] {
+            1001isize => Some(0),
+            1002isize => Some(1),
+            _ => None,
+        }
+    }
+}
+
 pub fn alert(title: &str, message: &str) {
     unsafe {
         activate();

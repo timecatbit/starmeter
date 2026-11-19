@@ -65,6 +65,20 @@ pub fn visible(app: &AppHandle) -> bool {
     window(app).is_some_and(|w| w.is_visible().unwrap_or(false))
 }
 
+pub fn pinned(app: &AppHandle) -> bool {
+    app.state::<Panel>().pinned.load(Ordering::SeqCst)
+}
+
+/// The core relaxes its pace while the panel is closed; SwiftBar's plugin reads it from panel-state.json.
+fn publish_open(app: &AppHandle, open: bool) {
+    crate::engine::PANEL_OPEN.store(open, Ordering::SeqCst);
+    if let Some(data) = app.try_state::<crate::data::Data>()
+        && let crate::data::Data::SwiftBar(files) = &*data
+    {
+        files.publish_visibility(open);
+    }
+}
+
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct Opened {
@@ -210,6 +224,7 @@ pub fn open(app: &AppHandle, anchor: (f64, f64), modules: bool) {
     let _ = panel.set_focus();
     #[cfg(target_os = "macos")]
     macos::activate();
+    publish_open(app, true);
     let _ = app.emit("panel-opened", Opened { modules, max_height: max_height(app) });
 }
 
@@ -224,6 +239,7 @@ pub fn close(app: &AppHandle, return_focus: bool) {
     let _ = panel.hide();
     if was_visible {
         *state.hidden_at.lock().expect("the hidden lock") = Some(Instant::now());
+        publish_open(app, false);
         let _ = app.emit("panel-closed", ());
     }
     if return_focus {

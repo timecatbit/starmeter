@@ -12,40 +12,46 @@ use tauri_plugin_dialog::{MessageDialogButtons, MessageDialogKind, MessageDialog
 use crate::macos;
 use crate::panel;
 
-/// A question whose default answer is no: the panel's 自动检测, removing a Key, deleting the archive.
+/// A question whose default answer is no: the panel's 自动检测, removing a Key, deleting the archive. Blocking: it runs
+/// on a worker thread (the core's actions) and puts the alert on the main thread.
+pub fn confirm_now(app: &AppHandle, title: &str, message: &str, proceed: &str) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        let (title, message, proceed) = (title.to_owned(), message.to_owned(), proceed.to_owned());
+        macos::on_main(app, move || macos::confirm(&title, &message, &proceed)).unwrap_or(false)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let answer = app
+            .dialog()
+            .message(message)
+            .title(title)
+            .kind(MessageDialogKind::Warning)
+            .buttons(MessageDialogButtons::OkCancelCustom(proceed.to_owned(), "取消".into()))
+            .blocking_show_with_result();
+        matches!(answer, MessageDialogResult::Ok)
+            || matches!(answer, MessageDialogResult::Custom(ref label) if label == proceed)
+    }
+}
+
 pub async fn confirm(app: &AppHandle, title: &str, message: &str, proceed: &str) -> bool {
     let (app, title, message, proceed) = (app.clone(), title.to_owned(), message.to_owned(), proceed.to_owned());
-    tauri::async_runtime::spawn_blocking(move || {
-        #[cfg(target_os = "macos")]
-        {
-            macos::on_main(&app, move || macos::confirm(&title, &message, &proceed)).unwrap_or(false)
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            let answer = app
-                .dialog()
-                .message(message)
-                .title(title)
-                .kind(MessageDialogKind::Warning)
-                .buttons(MessageDialogButtons::OkCancelCustom(proceed.clone(), "取消".into()))
-                .blocking_show_with_result();
-            matches!(answer, MessageDialogResult::Ok)
-                || matches!(answer, MessageDialogResult::Custom(ref label) if *label == proceed)
-        }
-    })
-    .await
-    .unwrap_or(false)
+    tauri::async_runtime::spawn_blocking(move || confirm_now(&app, &title, &message, &proceed)).await.unwrap_or(false)
+}
+
+pub fn alert_now(app: &AppHandle, title: &str, message: &str) {
+    #[cfg(target_os = "macos")]
+    {
+        let (title, message) = (title.to_owned(), message.to_owned());
+        macos::on_main(app, move || macos::alert(&title, &message));
+    }
+    #[cfg(not(target_os = "macos"))]
+    app.dialog().message(message).title(title).blocking_show();
 }
 
 pub async fn alert(app: &AppHandle, title: &str, message: &str) {
     let (app, title, message) = (app.clone(), title.to_owned(), message.to_owned());
-    let _ = tauri::async_runtime::spawn_blocking(move || {
-        #[cfg(target_os = "macos")]
-        macos::on_main(&app, move || macos::alert(&title, &message));
-        #[cfg(not(target_os = "macos"))]
-        app.dialog().message(message).title(title).blocking_show();
-    })
-    .await;
+    let _ = tauri::async_runtime::spawn_blocking(move || alert_now(&app, &title, &message)).await;
 }
 
 /// Where an export or a picture goes: a file name picked in the system's save dialog, on the desktop by default.
@@ -211,7 +217,6 @@ pub fn notification_settings(app: &AppHandle) {
 }
 
 /// A notice from the engine (a usage, balance or reset alert): title Starmeter, a subtitle saying which kind.
-#[allow(dead_code)]
 pub fn notify(app: &AppHandle, subtitle: &str, body: &str) {
     #[cfg(target_os = "macos")]
     {
