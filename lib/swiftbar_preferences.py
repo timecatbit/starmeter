@@ -23,7 +23,7 @@ MODULES = (
 ) + tuple((s.key, s.label, s.category) for s in catalog.SERVICES) + (
     ('sessions', '会话', '其他'),
     ('komari', 'Komari 监控', '其他'),
-    ('updates', 'Harness 更新', '其他'),
+    ('updates', '工具更新', '其他'),
 )
 ALERT_LEVELS = (0, 70, 80, 90)  # Usage alert: 0 is off.
 THEMES = ('system', 'light', 'dark')  # The panel follows macOS/Windows, or stays light or dark.

@@ -524,7 +524,7 @@ impl Runtime {
             Json::Null
         };
         let mut lines = vec![item(
-            "Harness 更新",
+            "工具更新",
             0,
             object! { "badge" => status, "panelattention" => count > 0, "sfimage" => "arrow.down.circle" },
         )];

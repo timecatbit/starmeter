@@ -73,11 +73,11 @@ class UpdateTests(unittest.TestCase):
   self.assertEqual(release({'tag_name':'v99.0.0','html_url':'https://evil.test/x'})['page'],self.m.REPOSITORY+'/releases')
   self.assertEqual(self.m.self_update_lines({'self_update':{'latest':self.m.VERSION}}),[])
   self.assertEqual(self.m.self_update_lines({}),[])
-  # Under Harness 更新 on the homepage, with the new version and a link to its notes.
+  # Under 工具更新 on the homepage, with the new version and a link to its notes.
   with patch.object(self.m,'update_rows',return_value=[]),patch.object(self.m.terminal_jobs,'latest_log',return_value=None):
    entries=self.m.resource_panel_entries({'self_update':newer})
   labels=[e['label'] for e in entries if not e.get('separator')]
-  self.assertEqual(labels[labels.index('Harness 更新')+1],'Starmeter')
+  self.assertEqual(labels[labels.index('工具更新')+1],'Starmeter')
   row=next(e for e in entries if e['label']=='Starmeter')
   self.assertEqual(row['value'],'可更新 99.0.0');self.assertTrue(row['attention'])
   self.assertTrue(any(c.get('href')==newer['page'] for c in row['children']))

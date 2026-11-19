@@ -562,7 +562,7 @@ function komariRows(state) {
 }
 
 function updateRows() {
-  return entry('Harness 更新', { symbol: 'arrow.down.circle', attention: true, value: '3 项待更新', fallbacks: ['3 项'], onOpenAction: ['refresh-source', 'updates'] }, [
+  return entry('工具更新', { symbol: 'arrow.down.circle', attention: true, value: '3 项待更新', fallbacks: ['3 项'], onOpenAction: ['refresh-source', 'updates'] }, [
     entry('Claude', { statusLight: 'new', detail: '6.6395.1 → 6.7012.0 · 点击打开 App 更新', href: 'file:///Applications/Claude.app' }),
     entry('Claude Code', { statusLight: 'new', detail: '2.1.327 → 2.1.330 · Claude 官方 · 点击运行 claude update', action: ['update-cli', 'claude-code'] }),
     entry('Codex', { statusLight: 'new', detail: '0.170.0 → 0.171.2 · Homebrew Cask · 点击运行 codex update', action: ['update-cli', 'codex-cli'] }),
@@ -589,7 +589,7 @@ const modules = [
   ['opencode', 'OpenCode', 'Harness'], ['deepseek-harness', 'DeepSeek Harness', 'Harness'], ['workbuddy', 'WorkBuddy', 'Harness'], ['qoder', 'Qoder', 'Harness'],
   ['gemini', 'Gemini CLI', 'Harness'], ['cursor', 'Cursor', 'Harness'],
   ...services.map(([key]) => [key, serviceByKey[key].label, serviceByKey[key].category]),
-  ['sessions', '会话', '其他'], ['komari', 'Komari 监控', '其他'], ['updates', 'Harness 更新', '其他'],
+  ['sessions', '会话', '其他'], ['komari', 'Komari 监控', '其他'], ['updates', '工具更新', '其他'],
 ];
 const groupLabels = { Harness: '工具 Token 用量', 订阅: '订阅用量', API: 'API' };
 const setupNotes = {

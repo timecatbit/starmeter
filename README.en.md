@@ -19,14 +19,14 @@ Formerly Token Monitor. Installed copies keep receiving updates, with their sett
 
 ## What it shows
 
-- **Harness token usage**: Claude (the desktop app and Claude Code in VS Code, JetBrains and the terminal), ChatGPT (Codex), OpenCodex, Magpie, OpenCode, DeepSeek Harness, WorkBuddy, Qoder (the China edition, Qoder CN), Gemini CLI and Cursor (desktop and CLI). Tokens, requests, cache hits, models, a trend chart and a usage heatmap, with the API-equivalent cost estimated at each model's official price. Ranges: today, yesterday, the last 24 hours, 7 or 30 days, this week, this month or everything; the cards can be grouped by tool, by model or by project (the project folder a session belongs to). A gateway (Magpie, OpenCodex) and the clients behind it each log the same request; Summary counts it once. Usage that a tool cleans up itself (Claude Code keeps 30 days by default) keeps counting; this can be turned off.
+- **Tool token usage**: Claude (the desktop app and Claude Code in VS Code, JetBrains and the terminal), ChatGPT (Codex), OpenCodex, Magpie, OpenCode, DeepSeek Harness, WorkBuddy, Qoder (the China edition, Qoder CN), Gemini CLI and Cursor (desktop and CLI). Tokens, requests, cache hits, models, a trend chart and a usage heatmap, with the API-equivalent cost estimated at each model's official price. Ranges: today, yesterday, the last 24 hours, 7 or 30 days, this week, this month or everything; the cards can be grouped by tool, by model or by project (the project folder a session belongs to). A gateway (Magpie, OpenCodex) and the clients behind it each log the same request; Summary counts it once. Usage that a tool cleans up itself (Claude Code keeps 30 days by default) keeps counting; this can be turned off.
 - **Subscription limits**: ChatGPT, Claude, MiniMax and Cursor show the share used and when it resets, orange from 70% and red from 90%, and whether you are ahead of or behind an even pace. Qoder reads the Credits the Qoder CN app records locally. Gemini, Grok and Kimi can be marked by hand. With a monthly price entered, the detail page shows how many times over this month's usage has paid for the plan (at API prices).
 - **API balances and spend**: DeepSeek, Kimi and Grok balances; Qoder's organisation Credits (team and enterprise plans); Claude's spend this month (needs an admin key); key checks for ChatGPT and Gemini. Each API can hold several keys; the home page shows the total and how many keys, like "余额 ¥12.00 (3)".
 - **Sessions**: a fourth choice beside tool, model and project. Each Claude Code and Codex session is a card: whether it is running, this turn's tokens (live while pinned) and how much of its context is used; open one for the tokens, cost and tools of its last few turns. Optionally a notification when a turn finishes.
 - **Pin it and watch live**: the pin beside the heading keeps the panel above other windows, movable and resizable, turns the trend into a live chart of the last minute (the running total, or output tokens a second) with the running sessions under it, re-read from the local logs every 1–5 seconds.
 - **Share pictures**: ten styles (card, terminal, sketch, paper, night sky, metro, knit, receipt, blueprint and neon), each in light and dark, previewed first, then copied or saved (or shared, on a Mac). They hold only what Summary counts: no subscriptions, balances or keys.
 - **Alerts**: a notification when a subscription window reaches 90% (or 70%, 80%, or never), when a balance drops below your line, and optionally when a weekly window is about to reset barely used.
-- **Harness updates**: new versions of the selected clients; Claude Code and Codex CLI update in a terminal with one click.
+- **Tool updates**: new versions of the selected clients; Claude Code and Codex CLI update in a terminal with one click.
 - **More**: an optional figure beside the menu bar star (today's estimate or the tightest subscription window); CSV and JSON export of the range on screen; official status pages of Claude, OpenAI and Cursor marked on the cards; estimates in yuan; Komari server monitoring; light, dark or following the system.
 
 <p align="center">
@@ -87,7 +87,7 @@ Settings live in `%LOCALAPPDATA%\Token Monitor`.
 
 ## Updates
 
-- **SwiftBar plugin**: when a new version is out, a **Starmeter · 可更新** row appears under Harness updates. Confirm the update and the plugin downloads, verifies and installs it, keeping settings, keys and statistics. The row isn't there when there's nothing new.
+- **SwiftBar plugin**: when a new version is out, a **Starmeter · 可更新** row appears under 工具更新 (tool updates). Confirm the update and the plugin downloads, verifies and installs it, keeping settings, keys and statistics. The row isn't there when there's nothing new.
 - **Standalone app**: when there's a new version for your chip, the panel links to the release page; quit the app and replace it with the new disk image for the same chip. With Homebrew, run `brew upgrade --cask starmeter`.
 - **Price tables** update daily on their own, so new models don't wait for a release.
 

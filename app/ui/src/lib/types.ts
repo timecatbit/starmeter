@@ -13,7 +13,7 @@ export interface Entry {
   symbol?: string;
   /** A small group title. */
   section?: boolean;
-  /** The value draws as an accent pill (Harness 更新). */
+  /** The value draws as an accent pill (工具更新). */
   attention?: boolean;
   checked?: boolean;
   radio?: boolean;

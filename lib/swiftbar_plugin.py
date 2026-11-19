@@ -1347,7 +1347,7 @@ def send_update_notification(rows):
     if MAC_APP:return post_notice('应用有新版本',body)
     if DESKTOP is not None:return DESKTOP.notice('应用有新版本',body)
     url='swiftbar://notify?'+urllib.parse.urlencode({'plugin':SWIFTBAR_NAME,'title':'应用有新版本',
-         'body':body,'subtitle':'打开星星 → Harness 更新查看','silent':'true',
+         'body':body,'subtitle':'打开星星 → 工具更新查看','silent':'true',
          'href':'swiftbar://refreshplugin?name='+urllib.parse.quote(SWIFTBAR_NAME)})
     try:return subprocess.run(['/usr/bin/open','-g',url],capture_output=True,timeout=5).returncode==0
     except (OSError,subprocess.TimeoutExpired):return False
@@ -1471,7 +1471,7 @@ def set_self_update_state(**values):
 
 
 def self_update_lines(data):
-    """A homepage row under Harness 更新, present only while a newer Starmeter release exists."""
+    """A homepage row under 工具更新, present only while a newer Starmeter release exists."""
     release=plugin_update(data);state=self_update_state()
     if not release:return []
     if MAC_APP or DESKTOP is not None:
@@ -1568,7 +1568,7 @@ def app_update_lines(data):
     rows=sorted(update_rows(data),key=lambda row:not row.get('available'));count=update_attention_count(rows)
     running=any(r['id']=='opencodex' for r in rows) and auto_update_state().get('status')=='running'
     status=('%d 项待更新'%count) if count else ('自动更新中' if running else None)
-    lines=[item('Harness 更新',badge=status,panelattention=bool(count),sfimage='arrow.down.circle')]
+    lines=[item('工具更新',badge=status,panelattention=bool(count),sfimage='arrow.down.circle')]
     if not rows:lines.append(item('尚未勾选 Harness',level=1,color=MUTED,size=11))
     for row in rows:
         label=row['name']+' · '+row['status'].replace('自动更新已开启 · ','')
@@ -2810,7 +2810,7 @@ def management_lines(data):
             if result and result[-1]!='---':result.append(row)
             continue
         if not row.startswith('--'):
-            key=next((key for prefix,key in [('OpenCodex 管理','opencodex'),('Komari 监控','komari'),('Harness 更新','updates')] if row.startswith(prefix)),None)
+            key=next((key for prefix,key in [('OpenCodex 管理','opencodex'),('Komari 监控','komari'),('工具更新','updates')] if row.startswith(prefix)),None)
             keep=key is None or module_enabled(key)
         if keep:result.append(row)
     while result and result[-1]=='---':result.pop()
@@ -3965,7 +3965,7 @@ def resource_panel_entries(data):
     for entry in entries:
         if entry.get('separator'):continue
         label=entry['label'];service=services.get(label)
-        source=service.key if service else ('komari' if label.startswith('Komari 监控') else 'updates' if label=='Harness 更新'
+        source=service.key if service else ('komari' if label.startswith('Komari 监控') else 'updates' if label=='工具更新'
             else 'sessions' if label=='会话' else 'opencodex' if label.startswith('OpenCodex 管理') else None)
         if entry.get('children') and resource_cache_names(source,loaders):
             entry['onOpenAction']=['refresh-source',source]

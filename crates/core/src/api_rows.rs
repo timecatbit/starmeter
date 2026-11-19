@@ -806,7 +806,7 @@ impl Runtime {
                 continue;
             }
             if !row.starts_with("--") {
-                let key = [("OpenCodex 管理", "opencodex"), ("Komari 监控", "komari"), ("Harness 更新", "updates")]
+                let key = [("OpenCodex 管理", "opencodex"), ("Komari 监控", "komari"), ("工具更新", "updates")]
                     .iter()
                     .find(|(prefix, _)| row.starts_with(prefix))
                     .map(|(_, key)| *key);

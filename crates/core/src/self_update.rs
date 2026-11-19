@@ -357,7 +357,7 @@ impl Runtime {
             ("plugin", name.as_str()),
             ("title", "应用有新版本"),
             ("body", body.as_str()),
-            ("subtitle", "打开星星 → Harness 更新查看"),
+            ("subtitle", "打开星星 → 工具更新查看"),
             ("silent", "true"),
             ("href", refresh.as_str()),
         ]

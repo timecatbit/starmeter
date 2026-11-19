@@ -257,7 +257,7 @@ impl Runtime {
             let source = service.map(|service| service.key.to_string()).or_else(|| {
                 if label.starts_with("Komari 监控") {
                     Some("komari".into())
-                } else if label == "Harness 更新" {
+                } else if label == "工具更新" {
                     Some("updates".into())
                 } else if label == "会话" {
                     Some("sessions".into())
