@@ -1,0 +1,11 @@
+[package]
+name = "starmeter-engine"
+description = "The program every host runs: the SwiftBar entry, the standalone app's worker and the Windows tray."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+starmeter-core.workspace = true

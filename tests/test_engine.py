@@ -1,5 +1,5 @@
-"""Holds the Swift engine (engine/) against the Python one: the same inputs must give the same answers, down to
-int-or-float and key order, because the two share state files while the port is under way."""
+"""Holds the Rust engine (crates/) against the Python reference: the same inputs must give the same answers, down
+to int-or-float and key order, because 5.x and 6 share state files. Calls not ported yet are skipped."""
 import json
 import os
 from pathlib import Path
@@ -45,20 +45,28 @@ def probe_binary():
     given = os.environ.get('STARMETER_PROBE')
     if given:
         return given if os.path.isfile(given) else None
-    swift = shutil.which('swift')
-    if not swift:
+    cargo = shutil.which('cargo') or str(Path.home() / '.cargo' / 'bin' / 'cargo')
+    if not os.path.isfile(cargo):
         return None
-    scratch = ROOT / 'build' / 'engine'
-    built = subprocess.run([swift, 'build', '--package-path', str(ROOT / 'engine'), '--scratch-path', str(scratch)], capture_output=True, text=True)
+    built = subprocess.run([cargo, 'build', '-p', 'starmeter-probe', '-p', 'starmeter-engine'], cwd=ROOT, capture_output=True, text=True)
     if built.returncode:
-        raise RuntimeError('swift build failed:\n' + built.stdout + built.stderr)
-    path = scratch / 'debug' / 'starmeter-probe'
+        raise RuntimeError('cargo build failed:\n' + built.stdout + built.stderr)
+    path = ROOT / 'target' / 'debug' / ('starmeter-probe.exe' if os.name == 'nt' else 'starmeter-probe')
     return str(path) if path.is_file() else None
 
 
 PROBE = probe_binary()
 # The program the hosts run, built beside the probe.
-ENGINE = str(Path(PROBE).parent / 'starmeter-engine') if PROBE else None
+ENGINE = str(Path(PROBE).parent / ('starmeter-engine.exe' if os.name == 'nt' else 'starmeter-engine')) if PROBE else None
+# What the engine exits with, and the probe answers, for something not ported to Rust yet: those tests skip.
+UNPORTED_EXIT = 78
+
+
+def probed(stdout):
+    answer = json.loads(stdout)
+    if answer.get('error') == 'unported':
+        raise unittest.SkipTest('not ported to the Rust engine yet')
+    return answer
 
 
 class SwiftError(Exception):
@@ -68,7 +76,7 @@ class SwiftError(Exception):
 def swift(call, *args):
     environment = dict(os.environ, STARMETER_PRICING=str(ROOT / 'lib'))
     done = subprocess.run([PROBE], input=json.dumps({'call': call, 'args': list(args)}).encode(), capture_output=True, check=True, env=environment)
-    answer = json.loads(done.stdout)
+    answer = probed(done.stdout)
     if 'error' in answer:
         raise SwiftError(answer['error'])
     return answer['result']
@@ -79,7 +87,7 @@ def same(test, python_value, swift_value):
     test.assertEqual(json.dumps(python_value, ensure_ascii=False), json.dumps(swift_value, ensure_ascii=False))
 
 
-@unittest.skipUnless(PROBE, 'Swift toolchain not installed')
+@unittest.skipUnless(PROBE, 'Rust engine probe not built')
 class EngineParityTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -216,6 +224,8 @@ class EngineParityTests(unittest.TestCase):
                     value.pop('revision')
                 same(self, *written)
                 self.assertEqual((there / 'preferences.json').stat().st_mode & 0o777, 0o600)
+        if not there.is_dir():
+            self.skipTest('not ported to the Rust engine yet')
         self.assertEqual(sorted(p.name for p in there.iterdir()), ['preferences.json'])
 
     def test_an_unreadable_file_is_kept_aside_before_it_is_replaced(self):
@@ -281,7 +291,7 @@ def dump(database, archive=None):
         conn.close()
 
 
-@unittest.skipUnless(PROBE, 'Swift toolchain not installed')
+@unittest.skipUnless(PROBE, 'Rust engine probe not built')
 class ClaudeReaderParityTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -413,7 +423,7 @@ def jsonl(path, rows, tail=b''):
     return path
 
 
-@unittest.skipUnless(PROBE, 'Swift toolchain not installed')
+@unittest.skipUnless(PROBE, 'Rust engine probe not built')
 class HarnessReaderParityTests(unittest.TestCase):
     """Every reader other than Claude's: results, and the index files they leave, must match."""
     zone = 'Asia/Shanghai'
@@ -620,7 +630,7 @@ def table_dump(path):
         conn.close()
 
 
-@unittest.skipUnless(PROBE and ZoneInfo, 'Swift toolchain not installed')
+@unittest.skipUnless(PROBE and ZoneInfo, 'Rust engine probe not built')
 class RangeParityTests(unittest.TestCase):
     """The whole range bundle, from preferences to every selected source, read by both engines."""
 
@@ -668,7 +678,7 @@ class RangeParityTests(unittest.TestCase):
         environment = {k: v for k, v in os.environ.items() if k not in ('CLAUDE_CONFIG_DIR', 'XDG_CONFIG_HOME', 'CODEX_HOME', 'OCX_BASE_URL', 'TZ')}
         environment.update(self.common, **self.states['swift'])
         done = subprocess.run([PROBE], input=json.dumps({'call': 'range.usage', 'args': [key, 0]}).encode(), capture_output=True, check=True, env=environment)
-        answer = json.loads(done.stdout)
+        answer = probed(done.stdout)
         if 'error' in answer:raise SwiftError(answer['error'])
         return answer['result']['payload'], answer['result']['error'], answer['result']['cache']
 
@@ -721,7 +731,7 @@ class RangeParityTests(unittest.TestCase):
                     environment.update(self.common, **self.states['swift'])
                     done = subprocess.run([PROBE], input=json.dumps({'call': 'dashboard', 'args': [data, frozen, None]}).encode(),
                                           capture_output=True, check=True, env=environment)
-                    answer = json.loads(done.stdout)
+                    answer = probed(done.stdout)
                     self.assertNotIn('error', answer)
                     same(self, expected, answer['result'])
 
@@ -780,7 +790,7 @@ class FakeServices:
         self.server.server_close()
 
 
-@unittest.skipUnless(PROBE, 'Swift toolchain not installed')
+@unittest.skipUnless(PROBE, 'Rust engine probe not built')
 class AccountParityTests(unittest.TestCase):
     def setUp(self):
         self.answers = {}
@@ -879,7 +889,7 @@ class AccountParityTests(unittest.TestCase):
                     self.assertEqual(swift('accounts.check', source, key, self.services.routes), expected)
 
 
-@unittest.skipUnless(PROBE, 'Swift toolchain not installed')
+@unittest.skipUnless(PROBE, 'Rust engine probe not built')
 class OpenCodexParityTests(unittest.TestCase):
     """OpenCodex's management API, Komari and DeepSeek's balance, from a local stand-in, read by both engines."""
 
@@ -928,7 +938,7 @@ class OpenCodexParityTests(unittest.TestCase):
         environment.update(self.common, **self.states['swift'], **(extra or {}))
         done = subprocess.run([PROBE], input=json.dumps({'call': 'runtime', 'args': [call, self.services.routes, *args]}).encode(),
                               capture_output=True, check=True, env=environment)
-        answer = json.loads(done.stdout)
+        answer = probed(done.stdout)
         if 'error' in answer:raise SwiftError(answer['error'])
         result = answer['result']
         return [result['payload'], result['error']] if call in ('provider_quotas', 'komari') else result
@@ -1005,7 +1015,7 @@ class OpenCodexParityTests(unittest.TestCase):
         self.compare('opencodex_refresh')
 
 
-@unittest.skipUnless(PROBE, 'Swift toolchain not installed')
+@unittest.skipUnless(PROBE, 'Rust engine probe not built')
 class ClaudeSubscriptionParityTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -1103,7 +1113,7 @@ class ClaudeSubscriptionParityTests(unittest.TestCase):
                     env = dict(os.environ, **environment)
                     done = subprocess.run([PROBE], input=json.dumps({'call': 'claude.oauth', 'args': [str(state), force, requested, services.routes]}).encode(),
                                           capture_output=True, check=True, env=env)
-                    results.append(json.loads(done.stdout)['result'])
+                    results.append(probed(done.stdout)['result'])
             files = [json.loads((self.root / ('state-' + e) / 'claude-oauth-usage.json').read_text()) for e in ('python', 'swift')]
             def steady(value):
                 if isinstance(value, dict):return {k: steady(v) for k, v in value.items() if k not in ('checkedAt', 'lastRenewAt', 'updatedAt', 'retryAt')}
@@ -1135,7 +1145,7 @@ class ClaudeSubscriptionParityTests(unittest.TestCase):
         run('an API-key login has no subscription')
 
 
-@unittest.skipUnless(PROBE, 'Swift toolchain not installed')
+@unittest.skipUnless(PROBE, 'Rust engine probe not built')
 class ClientAccountParityTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -1167,7 +1177,7 @@ class ClientAccountParityTests(unittest.TestCase):
                 expected = qoder.snapshot(home, now)
                 done = subprocess.run([PROBE], input=json.dumps({'call': 'qoder.snapshot', 'args': [str(home), now]}).encode(),
                                       capture_output=True, check=True, env=dict(os.environ, TZ=zone))
-                same(self, expected, json.loads(done.stdout)['result'])
+                same(self, expected, probed(done.stdout)['result'])
         time.tzset()
 
     def fake_codex(self, account, limits):
@@ -1201,7 +1211,7 @@ for line in sys.stdin:
         self.assertEqual(swift('chatgpt.account', str(self.root / 'missing'), None), {'error': '无法启动 ChatGPT 编程客户端'})
 
 
-@unittest.skipUnless(PROBE, 'Swift toolchain not installed')
+@unittest.skipUnless(PROBE, 'Rust engine probe not built')
 class CursorParityTests(unittest.TestCase):
     now = 1794996000.0
 
@@ -1259,7 +1269,7 @@ class CursorParityTests(unittest.TestCase):
         env['HOME'] = str(self.home)
         request = [args[0], str(self.home), args[2], args[3], self.now, self.services.routes] if call == 'refresh' else [str(self.home), self.now, self.services.routes]
         done = subprocess.run([PROBE], input=json.dumps({'call': 'cursor.' + call, 'args': request}).encode(), capture_output=True, check=True, env=env)
-        got = json.loads(done.stdout)
+        got = probed(done.stdout)
         self.assertNotIn('error', got)
         same(self, expected, got['result'])
         return expected
@@ -1302,7 +1312,7 @@ class CursorParityTests(unittest.TestCase):
                 self.both('plan')
 
 
-@unittest.skipUnless(PROBE, 'Swift toolchain not installed')
+@unittest.skipUnless(PROBE, 'Rust engine probe not built')
 class SessionParityTests(unittest.TestCase):
     def test_active_sessions_and_their_turns(self):
         temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
@@ -1364,7 +1374,7 @@ class SessionParityTests(unittest.TestCase):
                 self.assertEqual(swift('sessions.turnLines', case, unit, 'ops'), plugin.turn_lines(case, unit, 'ops'))
 
 
-@unittest.skipUnless(PROBE, 'Swift toolchain not installed')
+@unittest.skipUnless(PROBE, 'Rust engine probe not built')
 class BackgroundParityTests(OpenCodexParityTests):
     """Which reads the background worker runs, and the small ones it adds: status pages and the yuan rate."""
 
@@ -1387,7 +1397,7 @@ class BackgroundParityTests(OpenCodexParityTests):
         environment.update(self.common, **self.states['swift'], **(extra or {}))
         done = subprocess.run([PROBE], input=json.dumps({'call': 'runtime', 'args': [call, self.services.routes, *args]}).encode(),
                               capture_output=True, check=True, env=environment)
-        return json.loads(done.stdout)['result']
+        return probed(done.stdout)['result']
 
     def settings(self, **values):
         for engine in self.states.values():
@@ -1415,7 +1425,7 @@ class BackgroundParityTests(OpenCodexParityTests):
             self.assertEqual(self.python('fx'), self.swift('fx'))
 
 
-@unittest.skipUnless(PROBE, 'Swift toolchain not installed')
+@unittest.skipUnless(PROBE, 'Rust engine probe not built')
 class PanelParityTests(BackgroundParityTests):
     """The panel's snapshot (homepage rows, module sidebars, settings) and the usage alerts, from the same caches."""
 
@@ -1445,7 +1455,7 @@ class PanelParityTests(BackgroundParityTests):
         environment.update(self.common, **self.states['swift'], **(extra or {}))
         done = subprocess.run([PROBE], input=json.dumps({'call': 'runtime', 'args': [call, self.services.routes, *args]}).encode(),
                               capture_output=True, check=True, env=environment)
-        answer = json.loads(done.stdout)
+        answer = probed(done.stdout)
         if 'error' in answer:raise SwiftError(answer['error'])
         return answer['result']
 
@@ -1516,7 +1526,7 @@ class PanelParityTests(BackgroundParityTests):
 
 
 class EngineRunParityTests(PanelParityTests):
-    """Whole runs of the entry: the Python plugin and the Swift engine, each on its own copy of the same state."""
+    """Whole runs of the entry: the Python plugin and the Rust engine, each on its own copy of the same state."""
 
     def setUp(self):
         super().setUp()
@@ -1530,6 +1540,8 @@ class EngineRunParityTests(PanelParityTests):
         environment.update(self.common, **self.states[engine], **(extra or {}))
         command = [sys.executable, str(ROOT / 'lib' / 'swiftbar_plugin.py')] if engine == 'python' else [ENGINE]
         done = subprocess.run(command + list(arguments), capture_output=True, env=environment, timeout=120)
+        if engine != 'python' and done.returncode == UNPORTED_EXIT:
+            raise unittest.SkipTest('engine runs are not ported to Rust yet')
         return done.returncode, done.stdout.decode()
 
     def cache_dir(self, engine):

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Package a release zip with a prebuilt panel, so users install without git or a Swift toolchain."""
+"""Package a release zip with a prebuilt panel and engine, so users install without git or a Rust toolchain."""
 import argparse
 from pathlib import Path
 import re
@@ -21,10 +21,10 @@ ENGINE = Path('build/starmeter-engine')
 
 def version():
     plugin = re.search(r'^VERSION = "([^"]+)"$', (ROOT / 'lib/swiftbar_plugin.py').read_text(), re.M)
-    engine = re.search(r'static let version = "([^"]+)"', (ROOT / 'engine/Sources/StarmeterCore/Runtime.swift').read_text())
+    engine = re.search(r'^version = "([^"]+)"$', (ROOT / 'Cargo.toml').read_text(), re.M)
     entry = re.search(r'<xbar.version>([^<]+)</xbar.version>', (ROOT / ENTRY).read_text())
     if not plugin or not entry or not engine or len({plugin.group(1), entry.group(1), engine.group(1)}) != 1:
-        raise SystemExit('VERSION in lib/swiftbar_plugin.py, Runtime.version in the engine and xbar.version in %s must match.' % ENTRY)
+        raise SystemExit('VERSION in lib/swiftbar_plugin.py, the workspace version in Cargo.toml and xbar.version in %s must match.' % ENTRY)
     return plugin.group(1)
 
 

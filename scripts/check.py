@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Syntax checks, an unused-code scan (lib, scripts and the Windows app) and isolated unit tests;
-does not run the live plugin."""
+"""Checks Starmeter: Rust format, lints and tests; an unused-code scan of lib/ and scripts/; and the Python
+tests, which also hold the Rust engine's probe against the Python reference. Does not run the live plugin.
+--rust-only stops after the Rust checks (the Windows runner: the Python reference is written for macOS)."""
+import argparse
 import ast
 import os
-import hashlib
 from pathlib import Path
 import shutil
 import subprocess
@@ -15,10 +16,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def unused_code():
     """No linter dependency: top-level functions, classes and imports nothing refers to."""
-    # The Windows app is scanned too: without PySide6 its panel and host never load in the tests here,
-    # so parsing them is what catches a syntax error before the Windows build does.
-    files = sorted(ROOT.glob('lib/*.py')) + sorted(ROOT.glob('scripts/*.py')) + sorted(ROOT.glob('windows/*.py')) + sorted(ROOT.glob('macos/*.py'))
-    trees = {path: ast.parse(path.read_text(), str(path)) for path in files}
+    files = sorted(ROOT.glob('lib/*.py')) + sorted(ROOT.glob('scripts/*.py'))
+    trees = {path: ast.parse(path.read_text(encoding='utf-8'), str(path)) for path in files}
     used = {'main'}
     for tree in trees.values():
         for node in ast.walk(tree):
@@ -42,33 +41,39 @@ def unused_code():
     return problems
 
 
-subprocess.run(['/bin/bash', '-p', '-n', str(ROOT / 'starmeter.30s.sh')], check=True)
-problems = unused_code()
-if problems:
-    sys.exit('Unused code:\n' + '\n'.join(problems))
-with tempfile.TemporaryDirectory(prefix='starmeter-tests-') as scratch:
-    private_prefixes = ('OCX_', 'KOMARI_', 'DEEPSEEK_', 'XAI_', 'MINIMAX_', 'CLAUDE_',
-                        'OPENAI_', 'ANTHROPIC_', 'MOONSHOT_', 'GOOGLE_', 'KIMI_', 'CODEX_', 'GEMINI_', 'WORKBUDDY_', 'QODER_', 'QODERCN_', 'OPENCODE_', 'DSH_', 'MAGPIE_')
-    environment = {k:v for k,v in os.environ.items() if not k.startswith(private_prefixes)}
-    isolated_home = Path(scratch) / 'home'
-    isolated_home.mkdir()
-    environment['HOME'] = str(isolated_home)
-    environment['SWIFTBAR_PLUGIN_DATA_PATH'] = scratch
-    environment['PYTHONDONTWRITEBYTECODE'] = '1'
-    # The Swift engine's test probe, so tests/test_engine.py can hold it against the Python engine.
-    # Built with the real environment: SwiftPM keeps its caches under the real home.
-    swift = shutil.which('swift')
-    if swift:
-        subprocess.run([swift, 'build', '--package-path', str(ROOT / 'engine'), '--scratch-path', str(ROOT / 'build' / 'engine')], check=True)
-        environment['STARMETER_PROBE'] = str(ROOT / 'build' / 'engine' / 'debug' / 'starmeter-probe')
-    subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s',
-                    str(ROOT / 'tests'), '-p', 'test_*.py', '-v'],
-                   check=True, env=environment)
-    if os.uname().sysname == 'Darwin':
-        declarations=(ROOT/'panel/Panel.swift').read_text().split('// Application entry point.',1)[0]
-        test_main=Path(scratch)/'main.swift'
-        test_main.write_text(declarations+'\n'+(ROOT/'tests/PanelInteractionTests.swift').read_text())
-        binary=Path(scratch)/'panel-interaction-tests'
-        cache=ROOT/'build'/('swift-module-cache-' + hashlib.sha256(os.fsencode(ROOT)).hexdigest()[:10]);cache.mkdir(parents=True,exist_ok=True)
-        subprocess.run(['xcrun','swiftc','-module-cache-path',str(cache),str(test_main),'-o',str(binary)],check=True,env=environment)
-        subprocess.run([str(binary)],check=True,env=environment)
+def rust():
+    """Built with the real environment: cargo keeps its registry and toolchains under the real home."""
+    cargo = shutil.which('cargo') or str(Path.home() / '.cargo' / 'bin' / 'cargo')
+    if not os.path.isfile(cargo):
+        sys.exit('Install Rust first: https://rustup.rs')
+    for command in (['fmt', '--all', '--check'], ['clippy', '--workspace', '--all-targets', '--locked', '--', '-D', 'warnings'],
+                    ['test', '--workspace', '--locked'], ['build', '--locked', '-p', 'starmeter-probe', '-p', 'starmeter-engine']):
+        subprocess.run([cargo] + command, cwd=ROOT, check=True)
+    return ROOT / 'target' / 'debug' / ('starmeter-probe.exe' if os.name == 'nt' else 'starmeter-probe')
+
+
+def python_tests(probe):
+    with tempfile.TemporaryDirectory(prefix='starmeter-tests-') as scratch:
+        private_prefixes = ('OCX_', 'KOMARI_', 'DEEPSEEK_', 'XAI_', 'MINIMAX_', 'CLAUDE_', 'OPENAI_', 'ANTHROPIC_', 'MOONSHOT_',
+                            'GOOGLE_', 'KIMI_', 'CODEX_', 'GEMINI_', 'WORKBUDDY_', 'QODER_', 'QODERCN_', 'OPENCODE_', 'DSH_', 'MAGPIE_')
+        environment = {k: v for k, v in os.environ.items() if not k.startswith(private_prefixes)}
+        isolated_home = Path(scratch) / 'home'
+        isolated_home.mkdir()
+        environment.update(HOME=str(isolated_home), SWIFTBAR_PLUGIN_DATA_PATH=scratch, PYTHONDONTWRITEBYTECODE='1',
+                           STARMETER_PROBE=str(probe))
+        subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s', str(ROOT / 'tests'), '-p', 'test_*.py', '-v'],
+                       check=True, env=environment)
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--rust-only', action='store_true', help='Run only the Rust checks.')
+    args = parser.parse_args()
+    if os.path.isfile('/bin/bash'):
+        subprocess.run(['/bin/bash', '-p', '-n', str(ROOT / 'starmeter.30s.sh')], check=True)
+    problems = unused_code()
+    if problems:
+        sys.exit('Unused code:\n' + '\n'.join(problems))
+    probe = rust()
+    if not args.rust_only:
+        python_tests(probe)

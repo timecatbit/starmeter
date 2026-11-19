@@ -1,0 +1,21 @@
+# Starmeter 6: one Rust engine for the macOS app, the SwiftBar plugin, the Windows tray and Linux.
+[workspace]
+resolver = "3"
+members = ["crates/core", "crates/engine", "crates/probe"]
+
+[workspace.package]
+version = "6.0.0"
+edition = "2024"
+license = "MIT"
+rust-version = "1.85"
+publish = false
+
+[workspace.dependencies]
+starmeter-core = { path = "crates/core" }
+jiff = "0.2"
+serde_json = { version = "1", features = ["preserve_order"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

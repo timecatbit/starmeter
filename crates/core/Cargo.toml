@@ -1,0 +1,11 @@
+[package]
+name = "starmeter-core"
+description = "Starmeter's data engine: sources, indexes, prices, quotas, preferences and the panel's snapshot."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+jiff.workspace = true
