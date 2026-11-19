@@ -3896,6 +3896,7 @@ name = "starmeter-app"
 version = "6.0.0"
 dependencies = [
  "block2",
+ "getrandom 0.3.4",
  "jiff",
  "objc2",
  "objc2-foundation",

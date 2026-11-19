@@ -116,6 +116,23 @@ for (const [name, query] of [['with usage', '?guide'], ['while reading', '?fixtu
   });
 }
 
+test('English: the phone view and its public link', async ({ page }) => {
+  const left = new Leftovers();
+  await english(page, '?no-cloudflared');
+  await page.getByRole('button', { name: 'Modules and settings', exact: true }).click();
+  await page.getByText('Settings', { exact: true }).first().click();
+  await page.getByRole('button', { name: /^View on your phone/ }).click();
+  await expect(page.locator('.phone-page svg[role="img"]')).toBeVisible();
+  await left.take(page, 'phone');
+  await page.getByRole('radio', { name: 'Any network' }).click();
+  await expect(page.locator('.phone-page .ask')).toBeVisible();
+  await left.take(page, 'phone › public');
+  await page.getByRole('button', { name: 'Download and make it' }).click();
+  await expect(page.locator('.phone-page .address')).toContainText('trycloudflare');
+  await left.take(page, 'phone › public on');
+  expect(left.list).toEqual([]);
+});
+
 test('English: the module grid and every module\'s settings', async ({ page }) => {
   const left = new Leftovers();
   await english(page);

@@ -22,12 +22,15 @@
   import SummaryChart from './SummaryChart.svelte';
 
   let { data, rangeOptions, reveal, glows, summaryGlow, live, leaving = null, onleft, liveStamp, pinned, pinInterval, onrange,
-    onshare, onpin, onsettings, ongroup, ontoggle, onopentool, onsize, onfloor, sessions = null, view = 'cards', onview, busy = null, onopen, onchoose }: {
+    onshare, onpin, onsettings, ongroup, ontoggle, onopentool, onsize, onfloor, sessions = null, view = 'cards', onview, busy = null, onopen, onchoose,
+    readonly = false }: {
     data: Dashboard; rangeOptions: Entry[]; reveal: number; glows: Record<string, number>; summaryGlow: number; live: LiveFeed | null;
     leaving?: number | null; onleft?: () => void;
     liveStamp: string | null; pinned: boolean; pinInterval: number;
     onrange: (action: string[]) => void; onshare: () => void; onpin: () => void;
     onsettings: () => void; ongroup: (key: string) => void; ontoggle: (id: string, expanded: boolean) => void;
+    /** On a phone (在手机上看): no pin, settings or share, the range alone in the header. */
+    readonly?: boolean;
     /** How tall a pinned panel that fits the homepage is: down to the end of the third card or session. */
     onsize?: (height: number) => void;
     /** The least a pinned panel shows of the homepage: down to the end of the heatmap. */
@@ -137,6 +140,7 @@
     <div class="grip" class:movable={panel.pinned} onpointerdown={grab} aria-hidden="true"></div>
     <h1 class="heading" style:width="{leftmost - 6 - 12}px"><span class="brand" aria-hidden="true">{@html mark}</span>Starmeter</h1>
     <div class="buttons">
+      {#if !readonly}
       <!-- The pin first, then settings and share; on a Mac the symbols are the system's own. -->
       <span class="slot" style:left="{leftmost}px">
         <HintButton icon={pinned ? 'pin.fill' : 'pin'} system hint={pinned ? t('取消钉住') : t('钉住，每 {n} 秒刷新', { n: pinInterval })} label={pinned ? t('取消钉住面板') : t('钉住面板')}
@@ -146,6 +150,7 @@
       <span class="slot" style:left="{firstButton}px">
         <HintButton icon="square.and.arrow.up" system hint={t('分享用量图')} label={t('分享用量图')} onclick={onshare} />
       </span>
+      {/if}
       <span class="picker" style:left="{pickerX}px" style:width="{pickerWidth}px">
         <Dropdown label={t('统计范围')} value={chosen} options={rangeOptions.map((o) => ({ value: o.action?.[1] ?? '', label: o.label }))} onpick={pickRange} />
       </span>

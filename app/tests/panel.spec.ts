@@ -1,5 +1,6 @@
 // The panel against the fixtures: what each page shows and how its controls answer, so a regression in the port shows
 // up before anyone opens the app.
+import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 
 const errors: string[] = [];
@@ -370,6 +371,78 @@ test('全局快捷键 in 外观与设置: off at first, a choice is kept, one al
   // Off is always to be had.
   await page.getByRole('radio', { name: '不使用', exact: true }).click();
   await expect(page.getByRole('radio', { name: '不使用', exact: true })).toHaveAttribute('aria-checked', 'true');
+});
+
+test('在手机上看: a code for the same network, a public link only after a yes, and 停止 turns it off', async ({ page }) => {
+  await open(page);
+  await button(page, '主页模块与设置').click();
+  await page.getByText('外观与设置', { exact: true }).click();
+  const row = page.getByRole('button', { name: /^在手机上看/ });
+  await expect(row).toContainText('未开启');
+  await row.click();
+  const phone = page.locator('.phone-page');
+  await expect(phone.locator('svg[role="img"]')).toBeVisible();
+  // The address without its key, which stays in the code.
+  await expect(phone.locator('.address')).toHaveText('http://192.168.1.20:51234/');
+  // Any network: asked first, nothing opened until the yes.
+  await page.getByRole('radio', { name: '任何网络' }).click();
+  await expect(phone.locator('.ask')).toContainText('经 Cloudflare 生成外网链接？');
+  await expect(phone.locator('svg[role="img"]')).toHaveCount(0);
+  await button(page, '取消').click();
+  await expect(page.getByRole('radio', { name: '同一个网络' })).toHaveAttribute('aria-checked', 'true');
+  await page.getByRole('radio', { name: '任何网络' }).click();
+  await button(page, '生成链接').click();
+  await expect(phone.locator('.address')).toHaveText('https://quiet-river-1234.trycloudflare.com/');
+  await button(page, '关闭外网链接').click();
+  await expect(phone.locator('.address')).toHaveText('http://192.168.1.20:51234/');
+  // Left while on: the row says so; 停止 turns it off.
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: /^在手机上看/ })).toContainText('开着');
+  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  await button(page, '停止').click();
+  await expect(page.getByRole('button', { name: /^在手机上看/ })).toContainText('未开启');
+});
+
+test('在手机上看 the first time says cloudflared is downloaded first', async ({ page }) => {
+  await open(page, '?no-cloudflared');
+  await button(page, '主页模块与设置').click();
+  await page.getByText('外观与设置', { exact: true }).click();
+  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  await page.getByRole('radio', { name: '任何网络' }).click();
+  await expect(page.locator('.phone-page .ask')).toContainText('cloudflared');
+  await expect(button(page, '下载并生成')).toBeVisible();
+});
+
+test('on the phone: the homepage read-only, its figures asked for with the key, a range of its own', async ({ page }) => {
+  const fixture = JSON.parse(readFileSync(new URL('../ui/fixtures/default.json', import.meta.url), 'utf8'));
+  const key = '0123456789abcdef0123456789abcdef';
+  const asked: string[] = [];
+  await page.route('**/api/**', async (route) => {
+    const request = route.request();
+    if (request.headers()['x-starmeter-key'] !== key) return route.fulfill({ status: 403, body: 'key needed' });
+    const url = new URL(request.url());
+    asked.push(url.pathname + url.search);
+    const range = url.searchParams.get('range') ?? 'today';
+    const snapshot = { ...fixture.snapshot, dashboard: fixture.dashboards[range], moduleOptions: [],
+      entries: fixture.snapshot.entries.map((e: { children: unknown[] }) => ({ ...e, children: [], onOpenAction: undefined })),
+      rangeOptions: fixture.snapshot.rangeOptions.map((o: { action: string[] }) => ({ ...o, checked: o.action[1] === range })) };
+    // The fixtures name their logos; the app sends the files themselves: a blank one stands in.
+    const body = JSON.stringify(url.pathname.endsWith('dashboard') ? fixture.dashboards[range] : snapshot)
+      .replace(/"logo:[^"]*"/g, JSON.stringify(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>').toString('base64')));
+    return route.fulfill({ contentType: 'application/json', body });
+  });
+  await page.goto('/#k=' + key);
+  await expect(page.locator('.dashboard')).toBeVisible();
+  await expect(page.locator('.window.phone')).toBeVisible();
+  // No pin, settings or share on the phone; the range is there.
+  await expect(button(page, '钉住面板')).toHaveCount(0);
+  await expect(button(page, '主页模块与设置')).toHaveCount(0);
+  await expect(button(page, '分享用量图')).toHaveCount(0);
+  await expect(page.locator('.card').first()).toBeVisible();
+  await page.getByRole('button', { name: /^统计范围/ }).click();
+  await page.getByRole('option', { name: '近 7 天' }).click();
+  await expect.poll(() => asked.some((path) => path.includes('range=7d'))).toBe(true);
+  await expect(page.getByRole('button', { name: /^统计范围/ })).toContainText('近 7 天');
 });
 
 test('a folded card unfolds where it is, and its arrow opens the tool', async ({ page }) => {

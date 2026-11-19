@@ -128,6 +128,26 @@ export const phrases: Record<string, string> = {
   输出速度: 'Output speed', 全局快捷键: 'Global shortcut', 不使用: 'Off', '在任何地方按下即可打开或收起面板': 'Opens or closes the panel from anywhere',
   快捷键已被占用: 'Shortcut taken', '这个组合键已被系统或其他程序占用，换一个试试。': 'The system or another app already uses this combination; try another.',
   // 多台电脑合并
+  // 在手机上看
+  在手机上看: 'View on your phone', '扫二维码，在手机浏览器里看主页；只读': 'Scan a QR code to see the homepage in your phone\'s browser; read-only',
+  开着: 'On', 手机在哪: 'Where the phone is', 同一个网络: 'Same network', 任何网络: 'Any network',
+  '经 Cloudflare 生成外网链接？': 'Make a public link through Cloudflare?',
+  '手机不在同一个网络时用：Cloudflare 给一个临时的 https 地址，转到这台电脑。主页的数字会经过 Cloudflare；链接带一次性口令，停止或一小时后失效。':
+    'For a phone on another network: Cloudflare gives a temporary https address that leads to this computer. The homepage\'s figures pass through Cloudflare; the link carries a one-time key and stops working when you stop it, or after an hour.',
+  '第一次要从 Cloudflare 的 GitHub 发布页下载 cloudflared（约 20 MB），校验后存在 App 的数据文件夹。':
+    'The first time, cloudflared (about 20 MB) is downloaded from Cloudflare\'s GitHub releases, checked, and kept in the app\'s data folder.',
+  下载并生成: 'Download and make it', 生成链接: 'Make the link', '正在向 Cloudflare 要链接…': 'Asking Cloudflare for a link…',
+  手机扫这个二维码: 'Scan this with your phone', 这台电脑没有连上网络: 'This computer isn\'t on a network', 正在开启: 'Starting',
+  已复制链接: 'Link copied', '任何网络都能打开，链接带一次性口令': 'Opens from any network; the link carries a one-time key',
+  '手机和电脑连同一个网络（Wi-Fi）后扫码；第一次打开时系统可能问是否允许 Starmeter 接收连接，选允许':
+    'Put the phone on the same network (Wi-Fi) as this computer, then scan; the first time, the system may ask whether Starmeter may accept incoming connections: allow it.',
+  '只读：手机上只能看主页和工具页，不能改设置。还能看 {n} 分钟。': 'Read-only: the phone sees the homepage and tool pages and changes nothing. {n} min left.',
+  关闭外网链接: 'Close the public link', 停止: 'Stop', 先打开手机查看: 'Turn on the phone view first', 手机查看已经关闭: 'The phone view was stopped',
+  这台电脑的系统没有对应的: 'No cloudflared for this system', '连不上 GitHub，没能下载 cloudflared': 'Couldn\'t reach GitHub to download cloudflared',
+  'GitHub 的发布信息读不懂': 'GitHub\'s release information couldn\'t be read', '最新发布里没有这台电脑用的 cloudflared': 'The latest release has no cloudflared for this computer',
+  'cloudflared 的下载信息不完整，没有下载': 'cloudflared\'s download information was incomplete; nothing downloaded', '下载 cloudflared 失败': 'Downloading cloudflared failed',
+  '下载的 cloudflared 校验不通过，已丢弃': 'The downloaded cloudflared failed its check and was thrown away', 'cloudflared 解压失败': 'cloudflared couldn\'t be unpacked',
+  'Cloudflare 这次没有给出链接，稍后再试': 'Cloudflare gave no link this time; try again later', '这台电脑的系统没有对应的 cloudflared': 'No cloudflared for this system',
   多台电脑合并: 'Combine computers', '含 {n} 台电脑': '{n} computers', 未设置: 'Not set', 选择同步文件夹: 'Choose a synced folder', '选择同步文件夹…': 'Choose a synced folder…', 同步文件夹: 'Synced folder',
   '本机名称…': 'This computer\'s name…', 本机名称: 'This computer\'s name', 停止合并: 'Stop combining', 刚刚同步: 'Synced just now',
   '其他电脑选同一个文件夹后会出现在这里': 'Other computers appear here once they choose the same folder',
@@ -183,6 +203,7 @@ export const rules: Rule[] = [
   [/^已用 (.+)$/, (m, tr) => `Used: ${tr(m[1])}`],
   [/^(\d+) 个账户$/, (m) => `${m[1]} accounts`],
   [/^(\d+) 台电脑$/, (m) => `${m[1]} ${plural(m[1], 'computer', 'computers')}`],
+  [/^还剩 (\d+) 分钟$/, (m) => `${m[1]} min left`],
   [/^(\d+) 分钟前同步$/, (m) => `Synced ${m[1]} min ago`],
   [/^(\d+) 小时前同步$/, (m) => `Synced ${m[1]} h ago`],
   [/^(\d+) 天前同步$/, (m) => `Synced ${m[1]} ${plural(m[1], 'day', 'days')} ago`],

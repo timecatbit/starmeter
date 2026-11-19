@@ -1,0 +1,196 @@
+<script lang="ts">
+  // 在手机上看: a QR code a phone scans to open the homepage in its browser, read-only. On the same network the app
+  // serves it itself; 任何网络 opens a public link through Cloudflare (the user's yes first, and a download of
+  // cloudflared the first time). The server stays on after this page is left, an hour at most, until 停止.
+  import { onDestroy, onMount } from 'svelte';
+  import { language, t } from '../lib/i18n.svelte';
+  import { shell } from '../lib/backend';
+  import { phone } from '../lib/phone.svelte';
+  import { qrModules } from '../lib/qr';
+  import { moveWindow, panel } from '../lib/ui.svelte';
+  import HintButton from './HintButton.svelte';
+  import Icon from './Icon.svelte';
+  import Scroller from './Scroller.svelte';
+
+  let { onback, onheight }: { onback: () => void; onheight: (height: number) => void } = $props();
+
+  /** 同一网络 or 任何网络: which address the code holds. */
+  let reach = $state<'local' | 'public'>('local');
+  let failed = $state<string | null>(null);
+  let busy = $state(false);
+  /** The public link's yes, asked in place before anything leaves the computer. */
+  let asking = $state<null | { download: boolean }>(null);
+  let copied = $state(false);
+  let copiedTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const view = $derived(phone.view);
+  // The phone opens in this panel's language.
+  const address = $derived.by(() => {
+    const base = reach === 'public' ? view?.public ?? null : view?.local ?? null;
+    return base ? `${base}&l=${language.current}` : null;
+  });
+  const modules = $derived(address ? qrModules(address, 'M') : null);
+  const minutes = $derived(view ? Math.max(1, Math.round(view.secondsLeft / 60)) : 0);
+
+  async function start() {
+    failed = null;
+    try { phone.view = await shell.phoneStart(); } catch (error) { failed = String(error); }
+  }
+  let tick: ReturnType<typeof setInterval> | undefined;
+  onMount(() => {
+    void start();
+    tick = setInterval(async () => { phone.view = await shell.phoneStatus().catch(() => phone.view); }, 30_000);
+  });
+  onDestroy(() => { clearInterval(tick); clearTimeout(copiedTimer); });
+
+  async function choose(next: 'local' | 'public') {
+    reach = next;
+    if (next === 'public' && !view?.public) asking = { download: !(await shell.tunnelReady().catch(() => false)) };
+    else asking = null;
+  }
+  async function openPublic() {
+    asking = null;
+    busy = true;
+    failed = null;
+    try { phone.view = await shell.phonePublic(); } catch (error) { failed = String(error); reach = 'local'; }
+    busy = false;
+  }
+  async function closePublic() {
+    phone.view = await shell.phonePrivate().catch(() => phone.view);
+    reach = 'local';
+  }
+  async function stop() {
+    await shell.phoneStop();
+    phone.view = null;
+    onback();
+  }
+  async function copy() {
+    if (!address) return;
+    await navigator.clipboard?.writeText(address).catch(() => {});
+    copied = true;
+    clearTimeout(copiedTimer);
+    copiedTimer = setTimeout(() => (copied = false), 2000);
+  }
+
+  let body: HTMLDivElement | undefined = $state();
+  $effect(() => {
+    const box = body;
+    if (!box) return;
+    let frame = 0;
+    const observer = new ResizeObserver(() => { cancelAnimationFrame(frame); frame = requestAnimationFrame(() => onheight(58 + box.offsetHeight + 8)); });
+    observer.observe(box);
+    return () => { observer.disconnect(); cancelAnimationFrame(frame); };
+  });
+</script>
+
+<div class="phone-page">
+  <div class="grip" class:movable={panel.pinned} aria-hidden="true"
+    onpointerdown={(event) => { if (event.button === 0 && panel.pinned) { event.preventDefault(); void moveWindow(); } }}></div>
+  <span class="back"><HintButton icon="chevron.left" size={17} hint={t('返回')} label={t('返回')} onclick={onback} /></span>
+  <span class="page-glyph"><Icon name="iphone" size={17} /></span>
+  <h2 class="title">{t('在手机上看')}</h2>
+  <span class="rule"></span>
+  <div class="scroll">
+    <Scroller onswipeback={onback}>
+      <div class="content" bind:this={body}>
+        <div class="reach" role="radiogroup" aria-label={t('手机在哪')}>
+          <span class="pill" class:right={reach === 'public'}></span>
+          <button class="choice pressable" class:chosen={reach === 'local'} role="radio" aria-checked={reach === 'local'} onclick={() => choose('local')}>{t('同一个网络')}</button>
+          <button class="choice pressable" class:chosen={reach === 'public'} role="radio" aria-checked={reach === 'public'} onclick={() => choose('public')}>{t('任何网络')}</button>
+        </div>
+
+        {#if asking}
+          <div class="ask">
+            <p class="ask-title">{t('经 Cloudflare 生成外网链接？')}</p>
+            <p class="ask-detail">{t('手机不在同一个网络时用：Cloudflare 给一个临时的 https 地址，转到这台电脑。主页的数字会经过 Cloudflare；链接带一次性口令，停止或一小时后失效。')}</p>
+            {#if asking.download}<p class="ask-detail">{t('第一次要从 Cloudflare 的 GitHub 发布页下载 cloudflared（约 20 MB），校验后存在 App 的数据文件夹。')}</p>{/if}
+            <div class="ask-actions">
+              <button class="button pressable" onclick={() => { asking = null; reach = 'local'; }}>{t('取消')}</button>
+              <button class="button primary pressable" onclick={openPublic}>{t(asking.download ? '下载并生成' : '生成链接')}</button>
+            </div>
+          </div>
+        {:else}
+          <div class="code">
+            {#if busy}
+              <span class="spinner" aria-label={t('生成链接')}></span>
+              <span class="wait">{t('正在向 Cloudflare 要链接…')}</span>
+            {:else if modules}
+              <svg viewBox="-4 -4 {modules.length + 8} {modules.length + 8}" width="188" height="188" role="img" aria-label={t('手机扫这个二维码')}>
+                <rect x="-4" y="-4" width={modules.length + 8} height={modules.length + 8} rx="3" fill="#fff" />
+                {#each modules as row, y (y)}
+                  {#each row as dark, x (x)}
+                    {#if dark}<rect {x} {y} width="1.02" height="1.02" fill="#10132a" />{/if}
+                  {/each}
+                {/each}
+              </svg>
+            {:else if view && !view.local && reach === 'local'}
+              <span class="wait">{t('这台电脑没有连上网络')}</span>
+            {:else if !failed}
+              <span class="spinner" aria-label={t('正在开启')}></span>
+            {/if}
+          </div>
+          {#if address}
+            <button class="address pressable" onclick={copy} title={address}>{copied ? t('已复制链接') : address.replace(/#.*/, '')}</button>
+          {/if}
+        {/if}
+
+        {#if failed}<p class="failed">{t(failed)}</p>{/if}
+
+        {#if view}
+          <p class="note">
+            {reach === 'public' ? t('任何网络都能打开，链接带一次性口令') : t('手机和电脑连同一个网络（Wi-Fi）后扫码；第一次打开时系统可能问是否允许 Starmeter 接收连接，选允许')}
+          </p>
+          <p class="note">{t('只读：手机上只能看主页和工具页，不能改设置。还能看 {n} 分钟。', { n: minutes })}</p>
+          <div class="actions">
+            {#if view.public}<button class="action pressable" onclick={closePublic}>{t('关闭外网链接')}</button>{/if}
+            <button class="action danger pressable" onclick={stop}>{t('停止')}</button>
+          </div>
+        {/if}
+      </div>
+    </Scroller>
+  </div>
+</div>
+
+<style>
+  .phone-page { position: relative; width: 100%; height: 100%; }
+  .grip { position: absolute; left: 0; top: 0; width: 100%; height: 48px; }
+  .grip.movable { cursor: grab; }
+  .back { position: absolute; left: 10px; top: 11px; }
+  .page-glyph { position: absolute; left: 48px; top: 16px; pointer-events: none; }
+  .title { position: absolute; left: 73px; top: 15px; margin: 0; font-size: 14px; font-weight: 600; line-height: 20px; pointer-events: none; }
+  .rule { position: absolute; left: 16px; right: 16px; top: 49px; height: 1px; background: var(--separator); }
+  .scroll { position: absolute; left: 0; right: 0; top: 58px; bottom: 0; display: flex; }
+  .content { padding: 0 16px 12px; display: flex; flex-direction: column; align-items: stretch; gap: 12px; }
+  .reach {
+    position: relative; display: flex; height: 28px; padding: 2px; box-sizing: border-box; border-radius: 8px;
+    background: color-mix(in srgb, var(--label) 6%, transparent);
+  }
+  .pill {
+    position: absolute; top: 2px; bottom: 2px; left: 2px; width: calc(50% - 2px); border-radius: 6px; background: var(--solid);
+    box-shadow: 0 0 0 0.5px var(--separator), 0 1px 3px rgba(0, 0, 0, 0.1); transition: transform 0.22s var(--page-curve);
+  }
+  .pill.right { transform: translateX(100%); }
+  .choice { --press-scale: 0.96; position: relative; flex: 1; display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--secondary); border-radius: 6px; }
+  .choice.chosen { color: var(--label); font-weight: 600; }
+  .code { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 196px; }
+  .code svg { display: block; border-radius: 10px; box-shadow: 0 0 0 0.5px var(--separator); }
+  .wait { font-size: 11.5px; color: var(--secondary); }
+  .address {
+    --press-scale: 0.98; align-self: center; max-width: 100%; padding: 4px 8px; border-radius: 7px; font-size: 11px;
+    color: var(--secondary); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .address:hover { background: var(--hover); }
+  .note { margin: 0; font-size: 11px; line-height: 1.5; color: var(--secondary); }
+  .failed { margin: 0; padding: 8px 10px; border-radius: 8px; font-size: 11.5px; color: var(--label); background: color-mix(in srgb, var(--orange) 18%, transparent); }
+  .ask { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--label) 5%, transparent); }
+  .ask-title { margin: 0; font-size: 12.5px; font-weight: 600; }
+  .ask-detail { margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--secondary); }
+  .ask-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 4px; }
+  .button { --press-scale: 0.96; height: 26px; padding: 0 12px; border-radius: 7px; font-size: 12px; font-weight: 600; background: color-mix(in srgb, var(--label) 8%, transparent); }
+  .button.primary { color: var(--on-accent); background: var(--accent); }
+  .actions { display: flex; gap: 8px; justify-content: flex-end; }
+  .action { --press-scale: 0.97; height: 28px; padding: 0 14px; border-radius: 8px; font-size: 12px; font-weight: 600; background: color-mix(in srgb, var(--label) 8%, transparent); }
+  .action.danger { color: var(--red, #e5484d); }
+  .spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--separator); border-top-color: var(--secondary); animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>

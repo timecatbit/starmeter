@@ -14,11 +14,15 @@ import { listen } from '@tauri-apps/api/event';
 import type { ActionReceipt, Dashboard, Question, ShellInfo, Snapshot } from './types';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+/** On a phone (在手机上看): the computer's app served this page, with its key in the address's fragment. */
+export const onPhone = !inTauri && typeof location !== 'undefined' && /(^#|&)k=[0-9a-f]{32}/.test(location.hash);
 
 type Fixtures = typeof import('./fixtureBackend');
 let fixtures: Promise<Fixtures> | null = null;
-// Only the dev server (and the tests on it) carries the fixtures; a release build serves the app alone.
-const browser = () => (fixtures ??= import.meta.env.DEV ? import('./fixtureBackend') : Promise.reject(new Error('no backend outside the app')));
+// A phone reads the computer's figures; only the dev server (and the tests on it) carries the fixtures; a release
+// build opened anywhere else has nothing to show.
+const browser = () => (fixtures ??= onPhone ? import('./phoneBackend')
+  : import.meta.env.DEV ? import('./fixtureBackend') : Promise.reject(new Error('no backend outside the app')));
 
 export const backend = {
   snapshot: (): Promise<Snapshot> => (inTauri ? invoke('snapshot') : browser().then((f) => f.snapshot())),
@@ -36,6 +40,19 @@ export const backend = {
 };
 
 const quiet = () => Promise.resolve();
+
+/** Where a phone can open the homepage, and for how much longer. */
+export interface PhoneView { local: string | null; public: string | null; secondsLeft: number }
+/** The browser's stand-in for the phone server, for the tests and the dev server. */
+const browserPhone = (() => {
+  let on = false, open = false;
+  const view = (): PhoneView | null => (on ? { local: 'http://192.168.1.20:51234/#k=0123456789abcdef0123456789abcdef',
+    public: open ? 'https://quiet-river-1234.trycloudflare.com/#k=0123456789abcdef0123456789abcdef' : null, secondsLeft: 3540 } : null);
+  return {
+    view, start: () => { on = true; return view()!; }, stop: () => { on = false; open = false; },
+    open: () => { open = true; return view()!; }, close: () => { open = false; return view(); },
+  };
+})();
 const base64 = (bytes: Uint8Array) => {
   let text = '';
   for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
@@ -64,6 +81,15 @@ export const shell = {
    *  In a browser, ?shortcut-taken makes every choice taken, for tests. */
   setShortcut: (choice: string) => (inTauri ? invoke<boolean>('set_shortcut', { choice })
     : Promise.resolve(choice === 'none' || !new URLSearchParams(location.search).has('shortcut-taken'))),
+  /** 在手机上看: the read-only server for a phone, started (or its hour started again), asked after, and stopped; the
+   *  public link through Cloudflare opened and closed. In a browser, made-up addresses for the tests. */
+  phoneStart: (): Promise<PhoneView> => (inTauri ? invoke<PhoneView>('phone_start') : Promise.resolve(browserPhone.start())),
+  phoneStatus: (): Promise<PhoneView | null> => (inTauri ? invoke<PhoneView | null>('phone_status') : Promise.resolve(browserPhone.view())),
+  phoneStop: () => (inTauri ? invoke<void>('phone_stop') : quiet().then(() => browserPhone.stop())),
+  phonePublic: (): Promise<PhoneView> => (inTauri ? invoke<PhoneView>('phone_public') : Promise.resolve(browserPhone.open())),
+  phonePrivate: (): Promise<PhoneView | null> => (inTauri ? invoke<PhoneView | null>('phone_private') : Promise.resolve(browserPhone.close())),
+  /** Whether the public link needs cloudflared downloaded first. */
+  tunnelReady: (): Promise<boolean> => (inTauri ? invoke<boolean>('tunnel_ready') : Promise.resolve(!new URLSearchParams(location.search).has('no-cloudflared'))),
   /** The page has drawn what the panel opened on; a window kept clear until then shows. */
   shown: () => (inTauri ? invoke<void>('panel_shown') : quiet()),
   /** Theme (system, light, dark) and background (solid, frosted or glass) for the window and the material under it.

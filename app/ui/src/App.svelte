@@ -3,7 +3,7 @@
   // display, the window's size, the pinned live mode and the rolling figures.
   import { onMount, tick, untrack } from 'svelte';
   import { fade } from 'svelte/transition';
-  import { backend, inTauri, shell } from './lib/backend';
+  import { backend, inTauri, onPhone, shell } from './lib/backend';
   import { automatic, entryKey, isModule, keepsPanelOpen, opening, passive, sessionsEntry, without } from './lib/detail';
   import { currency } from './lib/format';
   import { PanelInteraction } from './lib/interaction';
@@ -18,6 +18,7 @@
   import Dashboard from './components/Dashboard.svelte';
   import DetailPage from './components/DetailPage.svelte';
   import Guide, { type GuideState } from './components/Guide.svelte';
+  import PhonePage from './components/PhonePage.svelte';
   import HomePage from './components/HomePage.svelte';
   import InlineAsk from './components/InlineAsk.svelte';
   import ModulesPage from './components/ModulesPage.svelte';
@@ -56,11 +57,13 @@
   $effect(() => { if (pagePath.length && snapshot && !pageEntry) { pagePath = []; pageOpen = new Set(); } });
   /** The share page: the picture previewed before it is copied or saved. */
   let sharing = $state(false);
+  /** 在手机上看: its page, over whatever opened it. */
+  let phoneOpen = $state(false);
   /** A tool's page, opened from its card: its usage and its settings. */
   let toolId = $state<string | null>(null);
   const tool = $derived(toolId ? snapshot?.dashboard?.providers.find((p) => p.id === toolId) ?? null : null);
   const toolSettings = $derived(toolId ? (snapshot?.moduleOptions ?? []).find((e) => e.action?.[0] === 'set-module' && e.action[1] === toolId) ?? null : null);
-  const viewKey = $derived(sharing ? 'share' : toolId ? 'tool:' + toolId : pageEntry ? (managerOnly ? 'grid:' : 'home:') + pagePath.join('/') : managerOnly ? 'grid' : 'home');
+  const viewKey = $derived(phoneOpen ? 'phone' : sharing ? 'share' : toolId ? 'tool:' + toolId : pageEntry ? (managerOnly ? 'grid:' : 'home:') + pagePath.join('/') : managerOnly ? 'grid' : 'home');
 
   // MARK: The window
 
@@ -79,13 +82,16 @@
   /** The size the user gave the pinned panel at its edges: the homepage and the pages take it (the module grid keeps
    *  its own) until unpinned. */
   let free = $state<{ width: number; height: number } | null>(null);
-  let wanted = $state({ home: 400, page: 300, grid: 400, share: 600, tool: 500 });
-  const grid = $derived(managerOnly && !pageEntry && !sharing && !toolId);
-  const panelWidth = $derived(grid ? 588 : free?.width ?? 360);
+  let wanted = $state({ home: 400, page: 300, grid: 400, share: 600, tool: 500, phone: 420 });
+  const grid = $derived(managerOnly && !pageEntry && !sharing && !toolId && !phoneOpen);
+  /** On a phone (在手机上看): the page fills the screen's width, between 320 and 480. */
+  let screenWidth = $state(typeof window === 'undefined' ? 360 : window.innerWidth);
+  const phoneWidth = $derived(Math.min(480, Math.max(320, screenWidth)));
+  const panelWidth = $derived(onPhone ? phoneWidth : grid ? 588 : free?.width ?? 360);
   // Pinned, the homepage keeps the size the panel was given (fitted, or the user's); every other page fits its own
   // content (a share page its picture, a tool's or a row's page its rows), unless the user sizes it at its edges while
   // on it, which holds until they leave it.
-  const onPage = $derived(!grid && !!(sharing || toolId || pageEntry));
+  const onPage = $derived(!grid && !!(phoneOpen || sharing || toolId || pageEntry));
   let pageHeight = $state<number | null>(null);
   $effect(() => { void viewKey; pageHeight = null; });
   // Pinned, the homepage is never shorter than its top down to the heatmap, whatever size it was given.
@@ -94,8 +100,8 @@
   $effect(() => { if (pinned) void shell.setMinHeight(onPage || grid ? 220 : homeFloor); });
   const panelHeight = $derived(free && !grid && !onPage ? Math.max(free.height, homeFloor)
     : free && onPage && pageHeight !== null ? pageHeight
-    : Math.min(sharing ? wanted.share : toolId ? wanted.tool : pageEntry ? wanted.page : managerOnly ? wanted.grid : wanted.home, info.maxHeight));
-  $effect(() => { panel.width = free?.width ?? 360; });
+    : Math.min(phoneOpen ? wanted.phone : sharing ? wanted.share : toolId ? wanted.tool : pageEntry ? wanted.page : managerOnly ? wanted.grid : wanted.home, info.maxHeight));
+  $effect(() => { panel.width = onPhone ? phoneWidth : free?.width ?? 360; });
   let lastSize = '';
   /** The latest size asked of the shell, for an opening to wait on. */
   let sizing: Promise<void> = Promise.resolve();
@@ -358,6 +364,8 @@
   }
 
   function perform(action: string[]) {
+    // 在手机上看 from 外观与设置: its page slides in over the settings.
+    if (action[0] === 'show-phone') { panel.hint = null; dir = 1; phoneOpen = true; return; }
     // 新手指引 from 外观与设置: back to the homepage, then the tour.
     if (action[0] === 'show-guide') { startOver(false); dir = -1; guideWanted = true; return; }
     // 选择工具… opens the module grid in place.
@@ -417,6 +425,11 @@
 
   function back() {
     panel.hint = null;
+    if (phoneOpen) {
+      dir = -1;
+      phoneOpen = false;
+      return;
+    }
     if (sharing || toolId) {
       dir = -1;
       sharing = false;
@@ -497,6 +510,7 @@
   /** The page the panel opens on, without sliding: the homepage, or the module grid. */
   function startOver(modules: boolean) {
     panel.hint = null;
+    phoneOpen = false;
     sharing = false;
     toolId = null;
     managerOnly = modules;
@@ -538,6 +552,7 @@
   /** Closed: back to the homepage at once, so the next opening shows it rather than the page left open, with nothing
    *  left focused. */
   function closed() {
+    phoneOpen = false;
     // A tour left halfway is shown again next time.
     guiding = false;
     guideWanted = false;
@@ -600,14 +615,16 @@
   })() : null);
 </script>
 
-<svelte:window onkeydown={keydown} />
+<svelte:window onkeydown={keydown} onresize={() => (screenWidth = window.innerWidth)} />
 
-<div class="window" bind:this={windowBox} class:solid={!glass} class:browser={!inTauri} oncontextmenu={contextmenu} role="application" aria-label={t('AI 用量面板')}
+<div class="window" bind:this={windowBox} class:solid={!glass} class:browser={!inTauri && !onPhone} class:phone={onPhone} oncontextmenu={contextmenu} role="application" aria-label={t('AI 用量面板')}
   onpointermove={() => { if (pinned) showChrome(); }} onpointerleave={() => { if (pinned && !cornerFrom) showChrome(700); }}
-  style:width={inTauri ? '100vw' : `${panelWidth}px`} style:height={inTauri ? '100vh' : `${panelHeight}px`}>
+  style:width={inTauri ? '100vw' : `${panelWidth}px`} style:height={inTauri ? '100vh' : onPhone ? '100dvh' : `${panelHeight}px`}>
   {#key viewKey}
     <div class="view" in:pageIn={{ dir }} out:pageOut={{ dir }}>
-      {#if sharing && snapshot?.dashboard}
+      {#if phoneOpen}
+        <PhonePage onback={back} onheight={(h) => (wanted.phone = h)} />
+      {:else if sharing && snapshot?.dashboard}
         <SharePage dashboard={snapshot.dashboard} project={snapshot.project ?? { name: 'Starmeter', url: 'https://github.com/timecatbit/starmeter' }}
           rangeOptions={snapshot.rangeOptions ?? []} onrange={perform} onback={back} onheight={(h) => (wanted.share = h)} />
       {:else if toolId && tool && snapshot?.dashboard}
@@ -654,7 +671,7 @@
       onpin={() => { panel.hint = null; setPinned(!pinned); if (pinned) perform(['refresh-live']); }} onsettings={openSettings}
       onopentool={openTool} ongroup={(key) => perform(['set-group', key])} {sessions} {view} onview={chooseView} busy={interaction.active}
       onsize={(h) => (dashboardHeight = h)} onfloor={(h) => (floorHeight = h)} ontoggle={(id, expanded) => perform(['set-expanded', id, expanded ? 'true' : 'false'])}
-      onopen={open} onchoose={choose} />
+      onopen={open} onchoose={choose} readonly={onPhone} />
   {/if}
 {/snippet}
 
@@ -674,6 +691,9 @@
     pointer-events: none;
   }
   .window.solid { background: var(--solid); }
+  /* On a phone the page is the screen: no edge, no shadow, the width centred on a wide one. */
+  .window.phone { margin: 0 auto; border-radius: 0; background: var(--solid); }
+  .window.phone::after { display: none; }
   .window.browser {
     margin: 24px;
     box-shadow: 0 18px 50px rgba(0, 0, 0, 0.22), 0 0 0 0.5px rgba(0, 0, 0, 0.12);

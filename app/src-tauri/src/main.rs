@@ -14,8 +14,10 @@ mod host;
 #[cfg(target_os = "macos")]
 mod macos;
 mod panel;
+mod phone;
 mod shortcut;
 mod swiftbar;
+mod tunnel;
 #[cfg(windows)]
 mod win;
 
@@ -325,6 +327,12 @@ fn main() {
             panel::size_panel,
             panel::set_min_height,
             shortcut::set_shortcut,
+            phone::phone_start,
+            phone::phone_status,
+            phone::phone_stop,
+            phone::phone_public,
+            phone::phone_private,
+            tunnel::tunnel_ready,
             panel::panel_shown,
             panel::hold_open,
             panel::set_look,
@@ -340,6 +348,14 @@ fn main() {
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             let handle = app.handle().clone();
             app.manage(data_source(&handle, &args, mode));
+            app.manage(phone::Phone::default());
+            // A check of the phone view without the panel: STARMETER_PHONE starts it at launch and prints where.
+            if std::env::var_os("STARMETER_PHONE").is_some() {
+                match phone::phone_start(handle.clone()) {
+                    Ok(view) => eprintln!("phone: {}", serde_json::to_string(&view).unwrap_or_default()),
+                    Err(error) => eprintln!("phone: {error}"),
+                }
+            }
             if mode == Mode::Standalone {
                 build_star(&handle)?;
                 host::ask_for_notifications(&handle);
@@ -386,6 +402,9 @@ fn main() {
         if let RunEvent::ExitRequested { api, code: None, .. } = event {
             // Hiding the last window is not quitting: the star stays.
             api.prevent_exit();
+        } else if let RunEvent::Exit = event {
+            // Quitting stops the phone view, and cloudflared with it.
+            phone::phone_stop(app.clone());
         }
         let _ = app;
     });
