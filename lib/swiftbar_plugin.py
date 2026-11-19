@@ -3272,7 +3272,7 @@ def module_options(data=None):
                           {'label':'自动检测','symbol':'sparkle.magnifyingglass','children':detection_help_entries()},
                           {'label':'高级配置文件…','symbol':'doc.text','action':['open-settings'],'children':[]},
                           {'label':'恢复默认模块','action':['reset-modules'],'children':[]}])
-    options=[{'label':'允许折叠','detail':'卡片只留费用与 Token','symbol':'rectangle.compress.vertical','checked':settings['allowCollapse'],'action':['set-collapse','false' if settings['allowCollapse'] else 'true'],'children':[]},
+    options=[{'label':'允许折叠','detail':'点卡片就地展开','symbol':'rectangle.compress.vertical','checked':settings['allowCollapse'],'action':['set-collapse','false' if settings['allowCollapse'] else 'true'],'children':[]},
              {'label':'外观与设置','symbol':'slider.horizontal.3','children':settings_rows},
              {'label':'','separator':True,'children':[]}];group=None
     for key,label,category in preferences.MODULES:

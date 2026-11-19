@@ -185,7 +185,8 @@
     pinned = value;
     panel.pinned = value;
     // Unpinned, the panel goes back under the star at its pages' own size, and to the cards it showed. Pinned from the
-    // homepage, it turns to 会话 and fits down to the end of the sessions shown (three); without them, to the live chart.
+    // homepage, it turns to 会话 and fits the dashboard: down to just above the subscriptions, whatever is chosen.
+    fitting = false;
     if (!value) {
       free = null;
       if (viewBeforePin !== null) view = viewBeforePin;
@@ -193,7 +194,7 @@
     } else if (!free && !managerOnly && !pageEntry && !sharing && !toolId) {
       if (sessions && view !== 'sessions') { viewBeforePin = view; view = 'sessions'; }
       homeScroll = 0;
-      void fitPinned();
+      fitting = true;
     }
     void shell.setPinned(value);
     clearInterval(liveTimer);
@@ -213,19 +214,16 @@
       else { feed = null; leaving = null; }
     }
   }
-  /** A panel just pinned from the homepage: as tall as its top down to the last session card shown (or the live chart). */
-  async function fitPinned() {
-    await tick();
-    await nextFrame();
-    if (!pinned || free) return;
-    const dashboard = document.querySelector('.dashboard') as HTMLElement | null;
-    const list = dashboard?.querySelector('.session-list');
-    const last = list ? (list.querySelector('.more') ?? [...list.querySelectorAll('.session, .empty')].at(-1)) : null;
-    const top = dashboard?.getBoundingClientRect().top ?? 0;
-    const bottom = last ? last.getBoundingClientRect().bottom - top + 8
-      : ((dashboard?.querySelector('.summary') as HTMLElement | null)?.offsetHeight ?? 0) + 6;
-    if (bottom > 120) free = { width: panelWidth, height: Math.min(info.maxHeight, Math.max(220, Math.round(8 + bottom))) };
-  }
+  /** Pinned from the homepage, the panel follows the dashboard's height (the tab chosen, a session or card opened, the
+   *  rest shown) down to just above the subscriptions, within the screen, until the user sizes it at its edges. */
+  let fitting = $state(false);
+  let dashboardHeight = $state(0);
+  $effect(() => {
+    if (!pinned || !fitting || grid || pageEntry || sharing || toolId || dashboardHeight <= 0) return;
+    const height = Math.min(info.maxHeight, Math.max(220, Math.round(8 + dashboardHeight + 10)));
+    const now = untrack(() => free);
+    if (now?.height !== height) free = { width: now?.width ?? 360, height };
+  });
   /** The grabber and the corner show while the pointer moves over a pinned panel and fade once it rests (the corner
    *  still resizes when faded); they stay while the corner is held. */
   let chromeShown = $state(true);
@@ -259,6 +257,7 @@
     event.preventDefault();
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
     panel.arranged = true;
+    fitting = false;
     panel.hint = null;
     cornerFrom = { x: event.clientX, y: event.clientY, width: panelWidth, height: Math.round(panelHeight) };
   }
@@ -506,7 +505,7 @@
     window.addEventListener('pointerup', up, true);
     window.addEventListener('pointercancel', up, true);
     const stops = [backend.onSnapshot(() => void reload()), shell.onOpened(opened), shell.onClosed(closed),
-      shell.onResized((width, height) => { if (pinned) free = { width, height }; }),
+      shell.onResized((width, height) => { if (pinned) { fitting = false; free = { width, height }; } }),
       shell.onAsk((question) => showQuestion(question, interaction.active ?? null))];
     void shell.info().then((value) => {
       info = value;
@@ -580,6 +579,7 @@
       {pinInterval} onrange={perform} onshare={openShare}
       onpin={() => { panel.hint = null; setPinned(!pinned); if (pinned) perform(['refresh-live']); }} onsettings={openSettings}
       onopentool={openTool} ongroup={(key) => perform(['set-group', key])} {sessions} {view} onview={chooseView} busy={interaction.active}
+      onsize={(h) => (dashboardHeight = h)} ontoggle={(id, expanded) => perform(['set-expanded', id, expanded ? 'true' : 'false'])}
       onopen={open} onchoose={choose} />
   {/if}
 {/snippet}

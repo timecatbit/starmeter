@@ -50,13 +50,23 @@ test('header buttons take clicks, and pinning turns the trend live', async ({ pa
   await expect(page.locator('.grabber')).toBeVisible();
   await expect(page.getByRole('separator', { name: '拖动调整大小' })).toBeVisible();
   await expect(page.locator('.pin-hint')).toHaveText('拖动顶部移动面板 · 拖右下角调整大小');
-  // Pinned, the panel turns to 会话 and fits down to the last of the three sessions it shows.
+  // Pinned, the panel turns to 会话 and fits the dashboard, down to just above the subscriptions.
   await expect(page.getByRole('radio', { name: '会话' })).toHaveAttribute('aria-checked', 'true');
   await expect(page.locator('.session')).toHaveCount(3);
-  await expect.poll(async () => {
-    const window = (await page.locator('.window').boundingBox())!, more = (await page.locator('.session-list .more').boundingBox())!;
-    return window.y + window.height - (more.y + more.height);
-  }).toBeLessThan(30);
+  const gap = async () => {
+    const window = (await page.locator('.window').boundingBox())!, dashboard = (await page.locator('.dashboard').boundingBox())!;
+    return window.y + window.height - (dashboard.y + dashboard.height);
+  };
+  await expect.poll(gap).toBeLessThan(24);
+  expect(await gap()).toBeGreaterThanOrEqual(0);
+  // Opening a session, or turning to the cards, refits it (within the screen).
+  const tall = async () => (await page.locator('.window').boundingBox())!.height;
+  const compact = await tall();
+  await page.locator('.session .head').first().click();
+  await expect.poll(tall).toBeGreaterThan(compact + 40);
+  await expect.poll(gap).toBeLessThan(24);
+  await page.locator('.session .head').first().click();
+  await expect.poll(tall).toBeLessThan(compact + 4);
   // The live tick reads again and the figures roll up.
   const before = await page.locator('.figure').nth(1).textContent();
   await expect.poll(async () => page.locator('.figure').nth(1).textContent(), { timeout: 8000 }).not.toBe(before);
@@ -247,19 +257,22 @@ test('settings: theme segments, switches and the module grid answer at once', as
   await expect(page.locator('.card .name')).not.toContainText(['Claude']);
 });
 
-test('folded cards keep two lines, and one click anywhere opens the tool', async ({ page }) => {
+test('a folded card unfolds where it is, and its arrow opens the tool', async ({ page }) => {
   await open(page);
   await button(page, '主页模块与设置').click();
   await page.getByText('允许折叠', { exact: true }).click();
   await page.keyboard.press('Escape');
   await expect(page.locator('.model-name', { hasText: 'Opus 5.5' })).toHaveCount(0);
-  // No unfolding in place: the first click goes in, wherever it lands, chevron included.
-  await expect(page.getByRole('button', { name: /展开 Claude 明细/ })).toHaveCount(0);
-  const card = page.locator('.card', { hasText: 'Claude' }).first();
-  const box = (await card.boundingBox())!;
-  await page.mouse.click(box.x + box.width - 12, box.y + 16);
+  // A click on the card unfolds it, the same click again folds it: never a second meaning.
+  const fold = page.getByRole('button', { name: '展开 Claude 明细' });
+  await fold.click();
+  await expect(page.locator('.model-name', { hasText: 'Opus 5.5' })).toBeVisible();
+  await page.getByRole('button', { name: '收起 Claude 明细' }).click();
+  await expect(page.locator('.model-name', { hasText: 'Opus 5.5' })).toHaveCount(0);
+  await expect(page.locator('.dashboard')).toBeVisible();
+  // The arrow is the page's own button.
+  await button(page, 'Claude 详情').click();
   await expect(page.getByRole('heading', { name: 'Claude', exact: true })).toBeVisible();
-  await expect(page.locator('.model-name', { hasText: 'Opus 5.5' }).first()).toBeVisible();
 });
 
 test('a tool card opens its page: figures, its trend, every model, then its settings', async ({ page }) => {

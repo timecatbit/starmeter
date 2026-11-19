@@ -21,12 +21,14 @@
   import SummaryChart from './SummaryChart.svelte';
 
   let { data, rangeOptions, reveal, glows, summaryGlow, live, leaving = null, onleft, liveStamp, pinned, pinInterval, onrange,
-    onshare, onpin, onsettings, ongroup, onopentool, sessions = null, view = 'cards', onview, busy = null, onopen, onchoose }: {
+    onshare, onpin, onsettings, ongroup, ontoggle, onopentool, onsize, sessions = null, view = 'cards', onview, busy = null, onopen, onchoose }: {
     data: Dashboard; rangeOptions: Entry[]; reveal: number; glows: Record<string, number>; summaryGlow: number; live: LiveFeed | null;
     leaving?: number | null; onleft?: () => void;
     liveStamp: string | null; pinned: boolean; pinInterval: number;
     onrange: (action: string[]) => void; onshare: () => void; onpin: () => void;
-    onsettings: () => void; ongroup: (key: string) => void;
+    onsettings: () => void; ongroup: (key: string) => void; ontoggle: (id: string, expanded: boolean) => void;
+    /** The dashboard's height, for a pinned panel that fits it. */
+    onsize?: (height: number) => void;
     onopentool: (id: string) => void;
     /** The 会话 module's row, when it is on the homepage: its sessions are the fourth choice beside the groupings. */
     sessions?: Entry | null; view?: 'cards' | 'sessions'; onview?: (view: 'cards' | 'sessions') => void;
@@ -50,8 +52,11 @@
   let sessionsHeight = $state(0);
   const cardList = $derived(data.cards ?? data.providers);
   const collapsible = $derived(data.allowCollapse === true && !data.cards);
+  const expanded = $derived(new Set(data.expandedProviders ?? []));
   const listHeight = $derived(showingSessions ? sessionsHeight
     : Math.max(cardList.length === 0 && data.providers.length ? 24 : 0, cardList.reduce((s, p) => s + cardHeight(p), 0)) + (data.providers.length ? 4 : 0));
+  const total = $derived(summaryHeight + heatmapHeight + harnessHeader + groupingHeight + listHeight);
+  $effect(() => onsize?.(total));
 
   const counted = $derived(summaryProviders(data));
   const valid = $derived(counted.filter((p) => p.available));
@@ -93,13 +98,13 @@
     void moveWindow();
   }
   function cardHeight(p: Dashboard['providers'][number]) {
-    if (collapsible) return 52;
+    if (collapsible && !expanded.has(p.id)) return 52;
     const clients = p.available && p.clients?.length ? 16 : 0;
     return p.available ? 52 + clients + Math.max(1, p.models.length) * 18 + 8 : 52;
   }
 </script>
 
-<div class="dashboard" style:width="{inner}px" style:height="{summaryHeight + heatmapHeight + harnessHeader + groupingHeight + listHeight}px">
+<div class="dashboard" style:width="{inner}px" style:height="{total}px">
   <div class="summary" style:height="{summaryHeight}px">
     <div class="grip" class:movable={panel.pinned} onpointerdown={grab} aria-hidden="true"></div>
     <h1 class="heading" style:width="{leftmost - 6 - 12}px"><span class="brand" aria-hidden="true">{@html mark}</span>Starmeter</h1>
@@ -153,7 +158,8 @@
         <div class="no-calls">此时段暂无调用</div>
       {/if}
       {#each cardList as p (p.id)}
-        <ProviderCard {p} {collapsible} glow={glows[p.id] ?? 0} onopen={isGrouped(p) ? undefined : () => onopentool(p.id)} />
+        <ProviderCard {p} {collapsible} expanded={expanded.has(p.id)} glow={glows[p.id] ?? 0} ontoggle={() => ontoggle(p.id, !expanded.has(p.id))}
+          onopen={isGrouped(p) ? undefined : () => onopentool(p.id)} />
       {/each}
     {/if}
   </div>
