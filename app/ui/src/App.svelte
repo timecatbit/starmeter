@@ -78,7 +78,8 @@
   let wanted = $state({ home: 400, page: 300, grid: 400, share: 600, tool: 500 });
   const grid = $derived(managerOnly && !pageEntry && !sharing && !toolId);
   const panelWidth = $derived(grid ? 588 : free?.width ?? 360);
-  const panelHeight = $derived(free && !grid ? free.height
+  // The share page is as tall as its picture even in a pinned panel the user sized: it has nothing to scroll to.
+  const panelHeight = $derived(free && !grid && !sharing ? free.height
     : Math.min(sharing ? wanted.share : toolId ? wanted.tool : pageEntry ? wanted.page : managerOnly ? wanted.grid : wanted.home, info.maxHeight));
   $effect(() => { panel.width = free?.width ?? 360; });
   let lastSize = '';

@@ -294,6 +294,20 @@ test('a tool card opens its page: figures, its trend, every model, then its sett
   await expect(page.locator('.card .open')).toHaveCount(0);
 });
 
+test('pinned, the share page takes its own height and gives the panel back its size', async ({ page }) => {
+  await open(page);
+  await button(page, '钉住面板').click();
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('panel-resized', { detail: { width: 400, height: 300 } })));
+  await expect(page.locator('.window')).toHaveCSS('height', '300px');
+  await button(page, '分享用量图').click();
+  await page.locator('.share-page .frame img').waitFor();
+  // As tall as the picture beside its controls, not the 300 the panel was sized to.
+  await expect.poll(async () => (await page.locator('.window').boundingBox())!.height).toBeGreaterThan(330);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.window')).toHaveCSS('height', '300px');
+  await expect(page.locator('.window')).toHaveCSS('width', '400px');
+});
+
 test('sharing previews the picture in each style, then copies or saves it', async ({ page }) => {
   await open(page);
   await button(page, '分享用量图').click();
