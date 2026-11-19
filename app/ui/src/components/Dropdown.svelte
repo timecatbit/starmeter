@@ -59,6 +59,10 @@
     else if (event.key === 'ArrowDown') { event.preventDefault(); lit = (lit + 1) % options.length; reveal(); }
     else if (event.key === 'ArrowUp') { event.preventDefault(); lit = (lit - 1 + options.length) % options.length; reveal(); }
     else if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); pick(options[lit].value); }
+    // The ends of the list (and its pages) are the menu's, not the page's: left to the browser, they scrolled what is
+    // around the menu, and the menu with it, out of sight.
+    else if (event.key === 'Home' || event.key === 'PageUp') { event.preventDefault(); lit = 0; reveal(); }
+    else if (event.key === 'End' || event.key === 'PageDown') { event.preventDefault(); lit = options.length - 1; reveal(); }
   }
   onDestroy(close);
 

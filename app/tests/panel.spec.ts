@@ -556,9 +556,12 @@ test('the range menu opens without moving the page, and fits a small pinned pane
   expect((await page.locator('.picker .trigger').boundingBox())!.y).toBe(heading);
   const box = (await menu.boundingBox())!, window = (await page.locator('.window').boundingBox())!;
   expect(box.y + box.height).toBeLessThanOrEqual(window.y + window.height);
+  // End goes to the list's last range and leaves the page where it is; the arrows walk the list round.
   await page.keyboard.press('End');
-  for (let i = 0; i < 7; i++) await page.keyboard.press('ArrowDown');
   await expect(page.getByRole('option', { name: '全部' })).toBeInViewport();
+  expect(await viewport.evaluate((node) => node.scrollTop)).toBe(before);
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowUp');
   await page.keyboard.press('Enter');
   await expect(page.locator('.picker .current')).toHaveText('全部');
 });
