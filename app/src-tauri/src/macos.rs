@@ -49,7 +49,18 @@ pub fn configure_panel(panel: &WebviewWindow) {
         let _: () = msg_send![window, setLevel: POPUP_MENU_LEVEL];
         let _: () = msg_send![window, setCollectionBehavior: PANEL_BEHAVIOR];
         let _: () = msg_send![window, setHidesOnDeactivate: false];
+        let clear: *mut AnyObject = msg_send![class!(NSColor), clearColor];
+        let _: () = msg_send![window, setBackgroundColor: clear];
+        let _: () = msg_send![window, setOpaque: false];
         let content: *mut AnyObject = msg_send![window, contentView];
+        // The window's shape is what its content leaves opaque; clipping the content to the panel's corners keeps the
+        // corners clear even while the web view paints its first frame, so the system shadow and edge follow them.
+        let _: () = msg_send![content, setWantsLayer: true];
+        let content_layer: *mut AnyObject = msg_send![content, layer];
+        if !content_layer.is_null() {
+            let _: () = msg_send![content_layer, setCornerRadius: CORNER_RADIUS];
+            let _: () = msg_send![content_layer, setMasksToBounds: true];
+        }
         let bounds: NSRect = msg_send![content, bounds];
         let effect: *mut AnyObject = match AnyClass::get(c"NSGlassEffectView") {
             Some(glass) => {
@@ -198,6 +209,16 @@ pub fn set_frame(panel: &WebviewWindow, frame: NSRect) {
     let Ok(window) = panel.ns_window() else { return };
     unsafe {
         let _: () = msg_send![window.cast::<AnyObject>(), setFrame: frame, display: true];
+        let _: () = msg_send![window.cast::<AnyObject>(), invalidateShadow];
+    }
+}
+
+/// The system draws a borderless window's shadow and edge from the shape it had when last asked; asked again once the
+/// panel has drawn, they follow its rounded corners instead of the square it had before.
+pub fn reshadow(panel: &WebviewWindow) {
+    let Ok(window) = panel.ns_window() else { return };
+    unsafe {
+        let _: () = msg_send![window.cast::<AnyObject>(), invalidateShadow];
     }
 }
 

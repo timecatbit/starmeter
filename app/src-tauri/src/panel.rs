@@ -223,7 +223,19 @@ pub fn open(app: &AppHandle, anchor: (f64, f64), modules: bool) {
     let _ = panel.show();
     let _ = panel.set_focus();
     #[cfg(target_os = "macos")]
-    macos::activate();
+    {
+        macos::activate();
+        // Once the page has drawn into the shown window, the shadow is taken from its rounded shape.
+        let window = panel.clone();
+        let handle = app.clone();
+        std::thread::spawn(move || {
+            for delay in [60, 240] {
+                std::thread::sleep(Duration::from_millis(delay));
+                let window = window.clone();
+                let _ = handle.run_on_main_thread(move || macos::reshadow(&window));
+            }
+        });
+    }
     publish_open(app, true);
     let _ = app.emit("panel-opened", Opened { modules, max_height: max_height(app) });
 }
