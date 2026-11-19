@@ -114,7 +114,6 @@ export function clientLine(p: ProviderUsage): string | null {
 /** Legend names drop suffixes the cards below already show. */
 export const legendName = (p: ProviderUsage) => (p.id === 'claude' ? 'Claude' : p.name.endsWith(' Harness') ? p.name.slice(0, -8) : p.name);
 
-export const heading = (showSummary: boolean | undefined) => (showSummary === false ? 'Harness 用量' : 'Summary');
 
 /** The figure split for drawing: the currency sign and K/M/B unit are set smaller and lighter than the digits. */
 export function figureParts(value: string): { sign: string; body: string; unit: string } {

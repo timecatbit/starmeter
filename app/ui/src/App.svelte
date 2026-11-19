@@ -180,6 +180,17 @@
       else { feed = null; leaving = null; }
     }
   }
+  /** The grabber and the corner show while the pointer moves over a pinned panel and fade once it rests (the corner
+   *  still resizes when faded); they stay while the corner is held. */
+  let chromeShown = $state(true);
+  let chromeTimer: ReturnType<typeof setTimeout> | undefined;
+  function showChrome(rest = 2500) {
+    chromeShown = true;
+    clearTimeout(chromeTimer);
+    chromeTimer = setTimeout(() => { if (!cornerFrom) chromeShown = false; }, rest);
+  }
+  $effect(() => { if (pinned) untrack(() => showChrome(3500)); });
+
   /** Pinning says, until the user has done it once, that the top moves the panel and the corner resizes it. */
   let pinHint = $state(false);
   let pinHintTimer: ReturnType<typeof setTimeout> | undefined;
@@ -203,7 +214,7 @@
     cancelAnimationFrame(cornerFrame);
     cornerFrame = requestAnimationFrame(() => void shell.sizeTo(width, height));
   }
-  function cornerUp() { cornerFrom = null; }
+  function cornerUp() { cornerFrom = null; showChrome(); }
 
   function schedule() {
     clearInterval(liveTimer);
@@ -452,6 +463,7 @@
 <svelte:window onkeydown={keydown} />
 
 <div class="window" class:solid={!glass} class:browser={!inTauri} oncontextmenu={contextmenu} role="application" aria-label="AI 用量面板"
+  onpointermove={() => { if (pinned) showChrome(); }} onpointerleave={() => { if (pinned && !cornerFrom) showChrome(700); }}
   style:width={inTauri ? '100vw' : `${panelWidth}px`} style:height={inTauri ? '100vh' : `${panelHeight}px`}>
   {#key viewKey}
     <div class="view" in:pageIn={{ dir }} out:pageOut={{ dir }}>
@@ -472,8 +484,8 @@
   {/if}
   {#if pinned && !grid}
     <!-- Pinned: a grabber says the top moves the panel; a thick corner, as iOS draws one, resizes it. -->
-    <span class="grabber" transition:fade={{ duration: panel.reduceMotion ? 0 : 200 }} aria-hidden="true"></span>
-    <span class="corner" role="separator" aria-label="拖动调整大小" transition:fade={{ duration: panel.reduceMotion ? 0 : 200 }}
+    <span class="grabber" class:faded={!chromeShown} transition:fade={{ duration: panel.reduceMotion ? 0 : 200 }} aria-hidden="true"></span>
+    <span class="corner" class:faded={!chromeShown} role="separator" aria-label="拖动调整大小" transition:fade={{ duration: panel.reduceMotion ? 0 : 200 }}
       onpointerdown={cornerDown} onpointermove={cornerMove} onpointerup={cornerUp} onpointercancel={cornerUp}>
       <!-- Its bend shares the window corner's centre (13pt in from both edges), 5pt inside the edge. -->
       <svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><path d="M25 8V17A8 8 0 0 1 17 25H8" /></svg>
@@ -487,7 +499,7 @@
 {#snippet dashboardView()}
   {#if shown && snapshot}
     <Dashboard data={shown} rangeOptions={snapshot.rangeOptions ?? []} {reveal} {glows} {summaryGlow} live={pinned || leaving !== null ? feed : null} {leaving} onleft={() => { leaving = null; feed = null; }} {liveStamp} {pinned}
-      {pinInterval} {liveSince} onrange={perform} onshare={share} ondetect={() => perform(['detect-modules'])}
+      {pinInterval} {liveSince} onrange={perform} onshare={share}
       onpin={() => { panel.hint = null; setPinned(!pinned); if (pinned) perform(['refresh-live']); }} onsettings={openSettings}
       ongroup={(key) => perform(['set-group', key])} ontoggle={(id, expanded) => perform(['set-expanded', id, expanded ? 'true' : 'false'])} />
   {/if}
@@ -522,6 +534,8 @@
     position: absolute;
     inset: 0;
   }
+  .grabber, .corner svg { transition: opacity 0.35s; }
+  .grabber.faded, .corner.faded svg { opacity: 0; }
   .grabber {
     position: absolute;
     left: 50%;

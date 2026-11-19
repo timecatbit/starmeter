@@ -7,9 +7,10 @@
   import { panel } from '../lib/ui.svelte';
   import type { UsageHeatmap } from '../lib/types';
 
-  let { heatmap, column, top, left = 12, right = 332 }: { heatmap: UsageHeatmap; column: number; top: number; left?: number; right?: number } = $props();
+  let { heatmap, column, top, left = 12, right = 332, size = HeatmapLayout.cell }:
+    { heatmap: UsageHeatmap; column: number; top: number; left?: number; right?: number; size?: number } = $props();
 
-  const layout = $derived(new HeatmapLayout(left + column, top + 8, right - left - column, heatmap.columns, rowCount(heatmap)));
+  const layout = $derived(new HeatmapLayout(left + column, top + 8, right - left - column, heatmap.columns, rowCount(heatmap), size));
   const levels = $derived(shadeLevels(heatmap));
   const past = $derived(pastCount(heatmap));
   const shades = $derived(heatmapShades(panel.dark));
@@ -32,7 +33,7 @@
 <div class="heatmap" style:top="{top}px" style:height="{8 + layout.height + 15}px">
   {#each heatmap.rowLabels ?? [] as name, row (row)}
     {#if row < layout.rowCount && name}
-      <span class="row-name" style:left="{left}px" style:top="{8 + row * layout.rowPitch + HeatmapLayout.cell / 2 - 6}px" style:width="{column - 4}px">{name}</span>
+      <span class="row-name" style:left="{left}px" style:top="{8 + row * layout.rowPitch + layout.size / 2 - 6}px" style:width="{column - 4}px">{name}</span>
     {/if}
   {/each}
   <svg bind:this={box} class="squares" style:left="{layout.x - 2}px" style:top="{8 - 2}px" width={layout.width + 4} height={layout.height + 4}

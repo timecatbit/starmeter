@@ -40,6 +40,9 @@ export function note(h: UsageHeatmap): string | null {
   return h.streak ?? null;
 }
 
+/** The panel's square: 8pt at its own width, growing with a pinned panel made wider (to 14pt) so the gaps don't. */
+export const panelSquare = (panelWidth: number) => Math.min(14, Math.max(HeatmapLayout.cell, Math.round((HeatmapLayout.cell * panelWidth) / 360 * 2) / 2));
+
 /** Every square is the same size in every range; the gap stretches so each row runs the full width, and rows sit that
  *  same gap apart. */
 export class HeatmapLayout {

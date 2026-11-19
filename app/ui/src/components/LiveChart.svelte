@@ -21,6 +21,8 @@
 
   /** The canvas sits where the trend's plot is, so the two line up exactly while one turns into the other. */
   const H = 122, ZOOM = 750, STRETCH = 16;
+  /** Room past the line's end, so its dot and the ripple of a new reading aren't cut off. */
+  const PAD = 16;
   // Read by the drawing each frame: a pinned panel's edges change it.
   let W = 320;
   $effect(() => { W = wide; });
@@ -77,7 +79,7 @@
       frame = requestAnimationFrame(draw);
       if (time - last < (panel.reduceMotion ? 1000 : 33)) return;
       last = time;
-      if (canvas.width !== Math.round(W * scale)) canvas.width = Math.round(W * scale);
+      if (canvas.width !== Math.round((W + PAD) * scale)) canvas.width = Math.round((W + PAD) * scale);
       const now = Date.now(), dark = panel.dark;
       // Unpinning: zoom back out from wherever the chart stands, then hand back to the trend.
       if (leavingAt !== null && !left && (!zoom || zoom.to !== 0)) {
@@ -110,7 +112,7 @@
       const secondary = labelColour(dark, dark ? 0.55 : 0.5), tertiary = labelColour(dark, dark ? 0.25 : 0.26);
       const accentColour = starAccent(dark), total = totalColor(dark);
       ctx.setTransform(scale, 0, 0, scale, 0, 0);
-      ctx.clearRect(0, 0, W, H);
+      ctx.clearRect(0, 0, W + PAD, H);
       const text = (value: string, x: number, top: number, size: number, colour: string, align: CanvasTextAlign = 'left', weight = 400, family = SANS) => {
         ctx.font = font(size, weight, family); ctx.fillStyle = colour; ctx.textAlign = align; ctx.textBaseline = 'top';
         ctx.fillText(value, x, top + 1);
@@ -268,7 +270,7 @@
   }
 </script>
 
-<canvas bind:this={canvas} class="live" style:width="{wide}px" style:height="{H}px" aria-label="实时用量图"></canvas>
+<canvas bind:this={canvas} class="live" style:width="{wide + PAD}px" style:height="{H}px" aria-label="实时用量图"></canvas>
 
 <style>
   .live {

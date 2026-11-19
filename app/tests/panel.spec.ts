@@ -20,7 +20,7 @@ const button = (page: Page, label: string) => page.getByRole('button', { name: l
 
 test('the homepage shows Summary, the trend, the heatmap, the cards and the rows', async ({ page }) => {
   await open(page);
-  await expect(page.locator('.heading')).toHaveText('Summary');
+  await expect(page.locator('.heading')).toHaveText('Starmeter');
   await expect(page.locator('.figure-label').first()).toHaveText('已知 API 估算');
   await expect(page.locator('.legend')).toHaveCount(8);
   await expect(page.locator('.chart path')).not.toHaveCount(0);
@@ -34,8 +34,10 @@ test('the homepage shows Summary, the trend, the heatmap, the cards and the rows
 
 test('header buttons take clicks, and pinning turns the trend live', async ({ page }) => {
   await open(page);
-  // No refresh button: opening reads what is due, and pinning reads every few seconds.
+  // No refresh or auto-detect in the header: opening reads what is due, pinning reads every few seconds, and
+  // auto-detect lives in 外观与设置.
   await expect(button(page, '刷新数据')).toHaveCount(0);
+  await expect(button(page, '自动检测')).toHaveCount(0);
   await button(page, '钉住面板').click();
   await expect(page.getByLabel('实时用量图')).toBeVisible();
   await expect(button(page, '取消钉住面板')).toBeVisible();
@@ -221,7 +223,7 @@ test.describe('header icons', () => {
     await page.mouse.move(5, 1650);
     await page.waitForTimeout(400);
     const { decodePng } = await import('./png');
-    for (const label of ['主页模块与设置', '钉住面板', '自动检测', '分享用量图']) {
+    for (const label of ['主页模块与设置', '钉住面板', '分享用量图']) {
       const shot = decodePng(await button(page, label).screenshot());
       let minX = shot.width, maxX = -1, minY = shot.height, maxY = -1, mass = 0, sumY = 0;
       for (let y = 0; y < shot.height; y++) {

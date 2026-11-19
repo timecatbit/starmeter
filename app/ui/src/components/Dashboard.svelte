@@ -3,12 +3,13 @@
   // while pinned), the heatmap, the grouping tabs and the Harness cards.
   import { accent, blend, label as labelColour, totalColor } from '../lib/colors';
   import { chartExtra, labelColumn, legendLabels, legendLayout, summaryProviders } from '../lib/chart';
-  import { heading, money, tokens } from '../lib/format';
-  import { HeatmapLayout, rows as heatmapRows } from '../lib/heatmap';
+  import { money, tokens } from '../lib/format';
+  import { HeatmapLayout, panelSquare, rows as heatmapRows } from '../lib/heatmap';
   import type { LiveFeed } from '../lib/live';
   import { font, width } from '../lib/measure';
   import { moveWindow, panel } from '../lib/ui.svelte';
   import type { Dashboard, Entry } from '../lib/types';
+  import markSvg from '../../../../assets/starmeter-mark.svg?raw';
   import Figure from './Figure.svelte';
   import GroupTabs from './GroupTabs.svelte';
   import Heatmap from './Heatmap.svelte';
@@ -18,11 +19,11 @@
   import SummaryChart from './SummaryChart.svelte';
 
   let { data, rangeOptions, reveal, glows, summaryGlow, live, leaving = null, onleft, liveStamp, pinned, pinInterval, liveSince, onrange,
-    onshare, ondetect, onpin, onsettings, ongroup, ontoggle }: {
+    onshare, onpin, onsettings, ongroup, ontoggle }: {
     data: Dashboard; rangeOptions: Entry[]; reveal: number; glows: Record<string, number>; summaryGlow: number; live: LiveFeed | null;
     leaving?: number | null; onleft?: () => void;
     liveStamp: string | null; pinned: boolean; pinInterval: number; liveSince: number;
-    onrange: (action: string[]) => void; onshare: (button: HTMLElement) => void; ondetect: () => void; onpin: () => void;
+    onrange: (action: string[]) => void; onshare: (button: HTMLElement) => void; onpin: () => void;
     onsettings: () => void; ongroup: (key: string) => void; ontoggle: (id: string, expanded: boolean) => void;
   } = $props();
 
@@ -34,7 +35,8 @@
   const extra = $derived(chartExtra(data, right - left));
   const summaryHeight = $derived(showSummary ? 230 + extra : 44);
   const column = $derived(labelColumn(data));
-  const heatmapLayout = $derived(data.heatmap ? new HeatmapLayout(left + column, summaryHeight + 8, right - left - column, data.heatmap.columns, heatmapRows(data.heatmap)) : null);
+  const square = $derived(panelSquare(panel.width));
+  const heatmapLayout = $derived(data.heatmap ? new HeatmapLayout(left + column, summaryHeight + 8, right - left - column, data.heatmap.columns, heatmapRows(data.heatmap), square) : null);
   const heatmapHeight = $derived(heatmapLayout ? 8 + heatmapLayout.height + 15 : 0);
   const harnessHeader = $derived(!data.providers.length || !showSummary || data.heatmap ? 0 : 6);
   const groupingHeight = $derived(!data.providers.length || (data.groupings?.length ?? 0) < 2 ? 0 : 30);
@@ -55,29 +57,31 @@
   const legendCells = $derived(legendLayout(legend, right - left).flatMap((row, r) => row.map((cell) => ({ ...cell, row: r }))));
   const note = $derived([data.chartStatus, liveStamp ?? data.updated ?? ''].filter(Boolean).join(' · '));
 
-  // Header: share, auto-detect, the pin and the gear leftward from the range picker, 2pt apart; a long heading keeps its
-  // room by leaving auto-detect out. (No refresh: opening reads what is due, pinning reads every few seconds, and each
-  // source's own page refreshes it.)
+  // Header: the star and Starmeter, then share, the pin and the gear leftward from the range picker, 2pt apart. (No
+  // refresh: opening reads what is due, pinning reads every few seconds, and each source's own page refreshes it; auto-
+  // detect lives in 外观与设置 and the star's menu.)
   // The range picker is drawn bare like the icons beside it, as wide as the range on it: 8pt, the range, 4pt, the
   // chevron, 8pt; its right edge on the content's.
   const pickerWidth = $derived(8 + width(data.rangeLabel, font(11)) + 4 + 7 + 8);
   const pickerX = $derived(inner - 12 - pickerWidth);
-  const headingText = $derived(heading(data.showSummary));
-  const headingRight = $derived(12 + width(headingText, font(14, 600)) + 6);
+  /** The menu bar's star, drawn in the heading's colour. */
+  const mark = markSvg.replace(/fill="#000000"/g, 'fill="currentColor"').replace(/width="24" height="24"/, 'width="15" height="15"');
+  const headingRight = 12 + 15 + 5 + width('Starmeter', font(14, 600)) + 6;
   const firstButton = $derived(pickerX - 6 - 27);
-  const fitsAll = $derived(firstButton - 3 * 29 >= headingRight);
-  const buttonCount = $derived(fitsAll ? 4 : 3);
-  const leftmost = $derived(firstButton - (buttonCount - 1) * 29);
+  const leftmost = $derived(firstButton - 2 * 29);
   const toastWidth = $derived(panel.toast ? width(panel.toast.text, font(11, 500)) + 4 : 0);
   const toastX = $derived(leftmost - 12 - toastWidth);
   const chosen = $derived(rangeOptions.find((o) => o.checked)?.action?.[1] ?? data.rangeKey);
 
   let shareButton: HTMLSpanElement | undefined = $state();
+  /** The range menu is open: only then does the picker look pressed (other menus set panel.menuOpen too). */
+  let picking = $state(false);
   let select: HTMLSelectElement | undefined = $state();
 
   function pickRange(event: Event) {
     const key = (event.target as HTMLSelectElement).value;
     panel.menuOpen = false;
+    picking = false;
     const option = rangeOptions.find((o) => o.action?.[1] === key);
     if (option?.action && key !== data.rangeKey) onrange(option.action);
     // The snapshot alone marks the range; until it arrives the old range stays chosen.
@@ -100,16 +104,13 @@
 <div class="dashboard" style:width="{inner}px" style:height="{summaryHeight + heatmapHeight + harnessHeader + groupingHeight + Math.max(cardList.length === 0 && data.providers.length ? 24 : 0, cardList.reduce((s, p) => s + cardHeight(p), 0)) + (data.providers.length ? 4 : 0)}px">
   <div class="summary" style:height="{summaryHeight}px">
     <div class="grip" class:movable={panel.pinned} onpointerdown={grab} aria-hidden="true"></div>
-    <h1 class="heading" style:width="{inner - 233 - 18}px">{headingText}</h1>
+    <h1 class="heading" style:width="{leftmost - 6 - 12}px"><span class="brand" aria-hidden="true">{@html mark}</span>Starmeter</h1>
     <div class="buttons">
       <span class="slot" bind:this={shareButton} style:left="{firstButton}px">
         <HintButton icon={panel.toast ? (panel.toast.ok ? 'checkmark' : 'exclamationmark') : 'square.and.arrow.up'} hint="分享用量图" label="分享用量图"
           tint={panel.toast ? (panel.toast.ok ? 'var(--green)' : 'var(--orange)') : 'var(--label)'} onclick={() => shareButton && onshare(shareButton)} />
       </span>
-      {#if fitsAll}
-        <span class="slot" style:left="{firstButton - 29}px"><HintButton icon="sparkle.magnifyingglass" hint="自动检测" label="自动检测" onclick={ondetect} /></span>
-      {/if}
-      <span class="slot" style:left="{firstButton - (fitsAll ? 58 : 29)}px">
+      <span class="slot" style:left="{firstButton - 29}px">
         <HintButton icon={pinned ? 'pin.fill' : 'pin'} hint={pinned ? '取消钉住' : `钉住，每 ${pinInterval} 秒刷新`} label={pinned ? '取消钉住面板' : '钉住面板'}
           onclick={onpin} ring={pinned ? { interval: pinInterval, since: liveSince } : null} />
       </span>
@@ -117,11 +118,11 @@
       {#if panel.toast && toastX >= headingRight}
         <span class="toast" class:ok={panel.toast.ok} style:left="{toastX}px" style:width="{toastWidth}px" role="status">{panel.toast.text}</span>
       {/if}
-      <span class="picker" class:open={panel.menuOpen} style:left="{pickerX}px" style:width="{pickerWidth}px">
+      <span class="picker" class:open={picking} style:left="{pickerX}px" style:width="{pickerWidth}px">
         <span class="picker-label">{data.rangeLabel}</span>
         <svg class="picker-arrows" width="7" height="5" viewBox="0 0 7 5" aria-hidden="true"><path d="M1 1.1 3.5 3.6 6 1.1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
         <select bind:this={select} aria-label="统计范围 · {data.rangeLabel}" value={chosen} onchange={pickRange}
-          onpointerdown={() => (panel.menuOpen = true)} onblur={() => (panel.menuOpen = false)}>
+          onpointerdown={() => (panel.menuOpen = picking = true)} onblur={() => (panel.menuOpen = picking = false)}>
           {#each rangeOptions as option (option.label)}
             <option value={option.action?.[1]}>{option.label}</option>
           {/each}
@@ -149,7 +150,7 @@
     {/if}
   </div>
   {#if data.heatmap}
-    <Heatmap heatmap={data.heatmap} {column} top={summaryHeight} {right} />
+    <Heatmap heatmap={data.heatmap} {column} top={summaryHeight} {right} size={square} />
   {/if}
   <div class="cards" style:top="{summaryHeight + heatmapHeight + harnessHeader}px">
     {#if groupingHeight && data.groupings}
@@ -198,6 +199,15 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .brand {
+    flex: none;
+    display: flex;
+    width: 15px;
+    height: 15px;
   }
   .buttons { position: absolute; left: 0; top: 0; width: 100%; height: 40px; pointer-events: none; }
   .buttons > * { pointer-events: auto; }

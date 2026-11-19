@@ -15,6 +15,8 @@
 
   const left = 12;
   const right = $derived(panel.width - 28);
+  /** A model's share bar: 44pt at the panel's own width, longer in a pinned panel made wider, so the row fills. */
+  const bar = $derived(Math.round(Math.min(200, 44 + (panel.width - 360) * 0.45)));
   const colour = $derived(accent(colourOf(p), panel.dark));
   const headerRight = $derived(collapsible ? right - 16 : right);
   const cost = $derived(p.available ? headline(p) : '—');
@@ -88,17 +90,17 @@
         <span class="empty from">全部来自 {modelName(p.models[0].name)}</span>
       {:else}
         {#each p.models as m, i (m.name + i)}
-          {@const barX = right - 34 - 62 - 48}
+          {@const barX = right - 34 - 62 - bar - 4}
           {@const room = barX - left - 21 - 10}
           {@const noteWidth = m.priceNote ? Math.min(room * 0.55, width(m.priceNote, font(9)) + 1) : 0}
           {@const nameRoom = m.priceNote ? Math.min(room - noteWidth - 5, width(modelName(m.name), font(10.5)) + 1) : room}
           <div class="model" style:top="{i * 18}px">
             <span class="model-name" style:width="{nameRoom}px">{modelName(m.name)}</span>
             {#if m.priceNote}<span class="model-note" style:left="{nameRoom + 5}px" style:width="{noteWidth}px">{m.priceNote}</span>{/if}
-            <span class="track" style:left="{barX - left - 21}px" style:background={labelColour(panel.dark, panel.dark ? 0.1 : 0.07)}>
-              <span class="fill" style:width="{Math.max(4, 44 * Math.min(1, m.share))}px" style:background={alpha(colour, 0.85)}></span>
+            <span class="track" style:left="{barX - left - 21}px" style:width="{bar}px" style:background={labelColour(panel.dark, panel.dark ? 0.1 : 0.07)}>
+              <span class="fill" style:width="{Math.max(4, bar * Math.min(1, m.share))}px" style:background={alpha(colour, 0.85)}></span>
             </span>
-            <span class="amount num" style:left="{barX + 48 - left - 21}px" style:font-size="{fitted(modelAmount(m), 10.5, 58)}px">{modelAmount(m)}</span>
+            <span class="amount num" style:left="{barX + bar + 4 - left - 21}px" style:font-size="{fitted(modelAmount(m), 10.5, 58)}px">{modelAmount(m)}</span>
             <span class="share num" style:left="{right - 34 - left - 21}px" style:font-size="{fitted(share(m.share), 10, 34)}px">{share(m.share)}</span>
           </div>
         {/each}
@@ -204,7 +206,6 @@
   .model-note { font-size: 9px; color: var(--orange); top: 1.5px; }
   .track {
     top: 4.3px;
-    width: 44px;
     height: 4px;
     border-radius: 2px;
   }
