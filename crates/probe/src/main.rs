@@ -11,8 +11,8 @@ use starmeter_core::json::{Format, Json, Object, python_repr};
 use starmeter_core::runtime::Runtime;
 use starmeter_core::time::IsoTime;
 use starmeter_core::{
-    accounts, catalog, claude_usage, client_accounts, cursor, files, harness, http, object, opencodex, preferences,
-    pricing, py, range_usage, sessions, tally, zstd,
+    accounts, catalog, claude_subscription, claude_usage, client_accounts, cursor, files, harness, http, object,
+    opencodex, preferences, pricing, py, range_usage, sessions, tally, zstd,
 };
 
 fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
@@ -133,6 +133,29 @@ fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
                 starmeter_core::runtime::now(),
             )
             .into())
+        }
+        "claude.parse" => {
+            let now = args.get(1).and_then(Json::number).unwrap_or(0.0);
+            claude_subscription::parse_usage(args.first().unwrap_or(&Json::Null), now)
+                .map(Json::from)
+                .map_err(|error| error.0)
+        }
+        "claude.desktop" => {
+            Ok(claude_subscription::desktop(text(0).unwrap_or(""), args.get(1).and_then(Json::number).unwrap_or(0.0))
+                .into())
+        }
+        "claude.local" => Ok(claude_subscription::local_snapshot(
+            text(0).unwrap_or(""),
+            args.get(1).and_then(Json::number).unwrap_or(0.0),
+        )
+        .into()),
+        "claude.oauth" => {
+            // [state, force, requestedAt, routes]
+            routes(args.get(3));
+            let force = args.get(1) == Some(&Json::Bool(true));
+            let requested = args.get(2).and_then(Json::number).unwrap_or(0.0);
+            let (payload, error) = claude_subscription::oauth_fetch(text(0).unwrap_or(""), true, force, requested);
+            Ok(object! { "payload" => payload, "error" => error }.into())
         }
         "qoder.snapshot" => {
             let environment: HashMap<String, String> = std::env::vars().collect();

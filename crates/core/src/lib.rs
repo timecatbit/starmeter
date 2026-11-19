@@ -4,6 +4,7 @@
 pub mod accounts;
 pub mod catalog;
 pub mod claude_app;
+pub mod claude_subscription;
 pub mod claude_usage;
 pub mod client_accounts;
 pub mod cursor;

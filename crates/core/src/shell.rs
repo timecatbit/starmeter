@@ -96,17 +96,16 @@ pub fn which(name: &str, environment: &std::collections::HashMap<String, String>
 }
 
 fn executable(path: &str) -> bool {
-    let Ok(metadata) = std::fs::metadata(path) else { return false };
-    if metadata.is_dir() {
-        return false;
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        metadata.permissions().mode() & 0o111 != 0
-    }
-    #[cfg(not(unix))]
-    {
-        true
-    }
+    std::fs::metadata(path).is_ok_and(|metadata| !metadata.is_dir() && runnable(&metadata))
+}
+
+#[cfg(unix)]
+fn runnable(metadata: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    metadata.permissions().mode() & 0o111 != 0
+}
+
+#[cfg(not(unix))]
+fn runnable(_metadata: &std::fs::Metadata) -> bool {
+    true
 }

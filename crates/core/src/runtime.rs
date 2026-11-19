@@ -487,9 +487,9 @@ fn detect_base(environment: &HashMap<String, String>, home: &str) -> String {
 }
 
 impl Runtime {
-    /// What the Claude subscription cache depends on; ported with the subscription loaders.
+    /// What the Claude subscription cache depends on.
     fn claude_subscription_parts(&self) -> Vec<Json> {
-        Vec::new()
+        self.claude_subscription_connection()
     }
 
     /// What the update checks depend on; ported with the update checks.
