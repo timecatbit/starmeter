@@ -132,7 +132,7 @@
       {/each}
       <div class="trend" style:transform="translateY({extra}px)">
         {#if live}
-          <LiveChart feed={live} {column} {counted} />
+          <LiveChart feed={live} {column} {counted} {data} />
         {:else}
           <SummaryChart {data} {note} {reveal} />
         {/if}
