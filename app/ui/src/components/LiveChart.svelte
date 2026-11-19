@@ -1,32 +1,49 @@
 <script lang="ts">
-  // The pinned chart. The line carries on from the trend's newest point and steps up at each reading, flowing left at
-  // 30 frames a second; its axis starts where the window starts. Pinning doesn't swap charts: over 0.9 s the trend's
-  // scale zooms in on its end (the trend line and fill stretch and fade, the old marks slide away, the new ones open
-  // out), the end dot staying put between the two. A new reading lands with a ripple, and 实时 breathes.
+  // The pinned chart: what Summary's tools added in the last minute, read every couple of seconds. The line carries on
+  // from the trend's newest point and steps up at each reading, flowing left at 30 frames a second over a fixed one-minute
+  // axis whose bottom is where the window starts. Pinning zooms into now: the trend stretches away from its end and
+  // fades, its end dot settles where the live line ends, and the live line opens out leftward from that dot while the
+  // live marks come in. Unpinning plays the same in reverse and hands back to the trend. A new reading lands with a
+  // ripple, 实时 breathes, and the last minute's rate reads at the top right in Token/s.
   import { accent, alpha, label as labelColour, starAccent, totalColor } from '../lib/colors';
-  import { chartAxis, chartPositions, seriesOf, smoothCurves, tracePath } from '../lib/chart';
+  import { chartAxis, chartPositions, seriesOf, smoothCurves, summaryProviders, tracePath } from '../lib/chart';
   import { tokens } from '../lib/format';
-  import { baseLabel, compact, easeInOut, scaleFor, zoom, type LiveFeed, type Sample, type Scale } from '../lib/live';
+  import { baseLabel, compact, rateText, scaleFor, type LiveFeed, type Sample, type Scale } from '../lib/live';
   import { font, MONO, SANS, width } from '../lib/measure';
   import { untrack } from 'svelte';
   import { panel } from '../lib/ui.svelte';
   import type { Dashboard, ProviderUsage } from '../lib/types';
 
-  let { feed, column, counted, data }: { feed: LiveFeed; column: number; counted: ProviderUsage[]; data: Dashboard } = $props();
+  let { feed, column, counted, data, note = '', leaving = null, onleft }: {
+    feed: LiveFeed; column: number; counted: ProviderUsage[]; data: Dashboard; note?: string; leaving?: number | null; onleft?: () => void;
+  } = $props();
 
-  const W = 320, H = 122, ZOOM = 900;
+  /** The canvas sits where the trend's plot is, so the two line up exactly while one turns into the other. */
+  const W = 320, H = 122, ZOOM = 750, STRETCH = 16;
   let canvas: HTMLCanvasElement | undefined = $state();
   const born = Date.now();
 
-  /** The trend on screen when the panel was pinned: its scale and marks and its total line, to zoom in from. */
+  type Trend = ReturnType<typeof trendNow>;
+  /** The trend as SummaryChart draws it, to zoom in from or back out to. */
   function trendNow() {
-    const axis = chartAxis(data), n = data.dates.length, series = seriesOf(data);
-    return { ceiling: axis.ceiling, labels: axis.labels, positions: chartPositions(data), totals: Array.from({ length: n }, (_, i) => series.reduce((s, row) => s + row[i], 0)) };
+    const axis = chartAxis(data), n = data.dates.length, series = seriesOf(data), positions = chartPositions(data);
+    const totals = Array.from({ length: n }, (_, i) => series.reduce((s, row) => s + row[i], 0));
+    let middle: number | null = null;
+    for (let i = 1; i < n - 1; i++) {
+      if (positions[i] >= 0.25 && positions[i] <= 0.75 && (middle === null || Math.abs(positions[i] - 0.5) < Math.abs(positions[middle] - 0.5))) middle = i;
+    }
+    return {
+      ceiling: axis.ceiling, labels: axis.labels, positions, series, totals, ids: summaryProviders(data).map((p) => p.id),
+      dates: data.dates.slice(), dateIndices: n > 1 ? [0, ...(middle !== null ? [middle] : []), n - 1] : [], note,
+    };
   }
 
   // The tools' lines, kept current without restarting the drawing (the figures roll every frame after a reading).
   let order: string[] = [];
   $effect(() => { order = counted.filter((p) => p.available).map((p) => p.id); });
+  // Read by the drawing each frame.
+  let leavingAt: number | null = null;
+  $effect(() => { leavingAt = leaving; });
 
   // The drawing runs for as long as the canvas is there; it reads the feed each frame, never the props reactively.
   $effect(() => {
@@ -34,120 +51,173 @@
     return untrack(() => start(canvas!));
   });
 
+  const clamp = (t: number) => Math.min(1, Math.max(0, t));
+  /** 0 before a, 1 after b, straight in between (the zoom's own easing shapes it). */
+  const ramp = (a: number, b: number, x: number) => clamp((x - a) / (b - a));
+  /** Quick to start, gentle to land: the chart answers the click at once. */
+  const easeOut = (t: number) => 1 - Math.pow(1 - clamp(t), 3);
+
   function start(canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext('2d')!;
     const scale = window.devicePixelRatio || 1;
     canvas.width = W * scale; canvas.height = H * scale;
-    let shown: Scale | null = null, seen: number | null = null, ripple: number | null = null, frame = 0, last = 0;
-    let intro: { trend: ReturnType<typeof trendNow>; start: number } | null = null;
+    let shown: Scale | null = null, seen: number | null = null, ripple: number | null = null, frame = 0, last = 0, left = false;
+    // progress runs from 0 (the trend) to 1 (live): up when pinning, back down when unpinning.
+    let zoom: { from: number; to: number; start: number; trend: Trend } | null = null;
+    let progress = 1;
     if (!feed.zoomed) {
       feed.zoomed = true;
-      if (!panel.reduceMotion) intro = { trend: trendNow(), start: Date.now() };
+      if (!panel.reduceMotion) { zoom = { from: 0, to: 1, start: Date.now(), trend: trendNow() }; progress = 0; }
     }
     const draw = (time: number) => {
       frame = requestAnimationFrame(draw);
       if (time - last < (panel.reduceMotion ? 1000 : 33)) return;
       last = time;
-      const now = Date.now(), dark = panel.dark, span = feed.span(now), start = now - span;
-      const plot = { x: column, y: 24, w: W - column, h: H - 46 }, bottom = plot.y + plot.h;
+      const now = Date.now(), dark = panel.dark;
+      // Unpinning: zoom back out from wherever the chart stands, then hand back to the trend.
+      if (leavingAt !== null && !left && (!zoom || zoom.to !== 0)) {
+        if (panel.reduceMotion) { left = true; onleft?.(); return; }
+        zoom = { from: progress, to: 0, start: leavingAt, trend: zoom?.trend ?? trendNow() };
+      }
+      if (zoom) {
+        const t = clamp((now - zoom.start) / (ZOOM * Math.max(0.35, Math.abs(zoom.to - zoom.from))));
+        progress = zoom.from + (zoom.to - zoom.from) * easeOut(t);
+        if (t >= 1) {
+          if (zoom.to === 0) { if (!left) { left = true; onleft?.(); } return; }
+          zoom = null; progress = 1;
+        }
+      }
+      const p = progress, trend = zoom?.trend ?? null;
+      const span = feed.span(), start = now - span;
+      const plot = { x: column, y: 23, w: W - column, h: 78 }, bottom = plot.y + plot.h;
       const samples = feed.samples;
       const newest = samples.at(-1)?.at ?? null;
       if (newest !== null && newest !== seen) { if (seen !== null) ripple = now; seen = newest; }
       const base: Sample | undefined = [...samples].reverse().find((s) => s.at <= start) ?? samples[0];
       const points = samples.filter((s) => s.at > start);
-      const from = base ? feed.value(base) : 0, end = samples.length ? feed.value(samples.at(-1)!) : from;
+      const from = base ? feed.value(base) : 0;
       const target = scaleFor(from, Math.max(from, ...points.map((s) => feed.value(s))));
-      // Pinning: the trend's scale zooms in on the line's end over a moment, then the scale eases to each new window.
-      let progress = 1;
-      const trend = intro && base ? intro.trend : null;
-      if (intro && base) { progress = easeInOut((now - intro.start) / ZOOM); if (progress >= 1) intro = null; }
-      const range: Scale = trend && progress < 1 ? zoom({ lo: 0, height: trend.ceiling }, target, end, progress)
-        : shown ? { lo: shown.lo + (target.lo - shown.lo) * 0.12, height: shown.height + (target.height - shown.height) * 0.12 } : target;
+      // While zooming the live scale stands still; afterwards it eases to each new window.
+      const range: Scale = zoom || !shown ? target
+        : { lo: shown.lo + (target.lo - shown.lo) * 0.12, height: shown.height + (target.height - shown.height) * 0.12 };
       shown = range;
       const y = (value: number) => bottom - ((value - range.lo) / range.height) * plot.h;
+      const secondary = labelColour(dark, dark ? 0.55 : 0.5), tertiary = labelColour(dark, dark ? 0.25 : 0.26);
+      const accentColour = starAccent(dark), total = totalColor(dark);
       ctx.setTransform(scale, 0, 0, scale, 0, 0);
       ctx.clearRect(0, 0, W, H);
-      const secondary = labelColour(dark, dark ? 0.55 : 0.5), accentColour = starAccent(dark), total = totalColor(dark);
       const text = (value: string, x: number, top: number, size: number, colour: string, align: CanvasTextAlign = 'left', weight = 400, family = SANS) => {
         ctx.font = font(size, weight, family); ctx.fillStyle = colour; ctx.textAlign = align; ctx.textBaseline = 'top';
         ctx.fillText(value, x, top + 1);
       };
-
-      // Marks at round values: as the scale zooms in, the trend's slide away and fade (first half) and the live ones
-      // open out from the line's end (second half); afterwards they glide to new heights as the scale eases.
-      ctx.save();
-      ctx.beginPath(); ctx.rect(0, plot.y - 6, W, plot.h + 12); ctx.clip();
-      const mark = (label: string, value: number, isBottom: boolean, strength: number, labelStrength = 1) => {
-        if (strength <= 0.01) return;
-        const at = y(value);
-        if (at < plot.y - 12 || at > bottom + 12) return;
-        if (labelStrength > 0.01) {
-          ctx.globalAlpha = strength * labelStrength;
-          text(label, 0, at - 5, 8, secondary);
-        }
-        ctx.globalAlpha = 1;
+      const grid = (at: number, isBottom: boolean, strength: number) => {
         ctx.strokeStyle = labelColour(dark, 0.1 * (isBottom ? 0.3 : 0.14) * strength); ctx.lineWidth = 0.5;
         ctx.beginPath(); ctx.moveTo(plot.x, at); ctx.lineTo(plot.x + plot.w, at); ctx.stroke();
       };
-      const leaving = Math.max(0, 1 - progress * 2), opening = Math.min(1, Math.max(0, progress * 2 - 1));
-      if (trend && progress < 1) trend.labels.forEach((label, i) => mark(label, trend.ceiling * [0, 0.5, 1][i], i === 0, leaving));
-      mark(baseLabel(target.lo, (label) => width(label, font(8)) <= column - 4), target.lo, true, opening);
-      // The upper marks' labels wait until they have opened far enough apart to be read.
-      const apart = Math.min(1, Math.max(0, (Math.abs(y(target.lo) - y(target.lo + target.height / 2)) - 8) / 6));
-      mark('+' + compact(target.height / 2), target.lo + target.height / 2, false, opening, apart);
-      mark('+' + compact(target.height), target.lo + target.height, false, opening, apart);
-      // The trend's total line zooms with the scale, stretched toward now at the right edge, fading as the live line comes in.
-      if (trend && progress < 1 && trend.positions.length >= 2 && trend.positions.length === trend.totals.length) {
-        ctx.beginPath(); ctx.rect(plot.x, plot.y - 6, plot.w, plot.h + 12); ctx.clip();
-        const stretch = Math.pow(40, progress), positions = trend.positions.map((p) => 1 - (1 - p) * stretch);
-        const box = { x: plot.x, y: bottom + (range.lo / range.height) * plot.h - plot.h, w: plot.w, h: plot.h };
-        const curve = smoothCurves([trend.totals], positions, box, range.height).at(-1);
-        if (curve) {
-          const floor = Math.min(bottom, y(0));
-          ctx.beginPath(); tracePath(ctx, curve);
-          ctx.lineTo(box.x + positions.at(-1)! * box.w, floor); ctx.lineTo(box.x + positions[0] * box.w, floor); ctx.closePath();
-          const fill = ctx.createLinearGradient(0, plot.y, 0, bottom);
-          fill.addColorStop(0, alpha(total, (dark ? 0.16 : 0.11) * (1 - progress))); fill.addColorStop(1, alpha(total, 0));
-          ctx.fillStyle = fill; ctx.fill();
-          ctx.beginPath(); tracePath(ctx, curve);
-          ctx.lineWidth = 1.8; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.strokeStyle = alpha(total, 1 - progress); ctx.stroke();
+
+      // The trend, stretched away from its end (its last hour's point stays at the right edge) and fading.
+      const trendAlpha = trend ? 1 - ramp(0.05, 0.6, p) : 0;
+      const stretch = Math.pow(STRETCH, p);
+      const at = (position: number) => plot.x + (1 - (1 - position) * stretch) * plot.w;
+      let trendEnd: [number, number] | null = null;
+      if (trend && trend.positions.length) {
+        const n = trend.positions.length;
+        const trendY = (value: number) => bottom - (value / trend.ceiling) * plot.h;
+        trendEnd = [at(trend.positions[n - 1]), trendY(trend.totals[n - 1])];
+        if (trendAlpha > 0.01) {
+          ctx.save();
+          ctx.globalAlpha = trendAlpha;
+          trend.labels.forEach((label, i) => {
+            const level = bottom - [0, 0.5, 1][i] * plot.h;
+            text(label, 0, level - 5, 8, secondary);
+            grid(level, i === 0, 1);
+          });
+          if (trend.note) text(trend.note, W, 3, 7.5, tertiary, 'right');
+          ctx.save();
+          ctx.beginPath(); ctx.rect(plot.x - 1, plot.y - 10, plot.w + 12, plot.h + 20); ctx.clip();
+          if (n > 1) {
+            const positions = trend.positions.map((position) => 1 - (1 - position) * stretch);
+            const curves = smoothCurves(trend.series, positions, plot, trend.ceiling);
+            const totalCurve = curves.at(-1)!;
+            ctx.beginPath(); tracePath(ctx, totalCurve);
+            ctx.lineTo(plot.x + positions[n - 1] * plot.w, bottom); ctx.lineTo(plot.x + positions[0] * plot.w, bottom); ctx.closePath();
+            const fill = ctx.createLinearGradient(0, plot.y, 0, bottom);
+            fill.addColorStop(0, alpha(total, dark ? 0.16 : 0.11)); fill.addColorStop(1, alpha(total, 0));
+            ctx.fillStyle = fill; ctx.fill();
+            curves.slice(0, -1).forEach((curve, i) => {
+              ctx.beginPath(); tracePath(ctx, curve);
+              ctx.lineWidth = 1.2; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.strokeStyle = alpha(accent(trend.ids[i] ?? '', dark), 0.8); ctx.stroke();
+            });
+            ctx.beginPath(); tracePath(ctx, totalCurve);
+            ctx.lineWidth = 1.8; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.strokeStyle = total; ctx.stroke();
+          }
+          ctx.restore();
+          // The dates ride with the stretch: the first ones slide off to the left, the last stays at the right edge.
+          ctx.save();
+          ctx.beginPath(); ctx.rect(plot.x - 2, 0, plot.w + 2, H); ctx.clip();
+          for (const i of trend.dateIndices) {
+            const x = at(trend.positions[i]), last = i === n - 1;
+            text(trend.dates[i], last ? W : x, plot.y + plot.h + 7, 8.5, secondary, last ? 'right' : i === 0 ? 'left' : 'center');
+          }
+          ctx.restore();
+          ctx.restore();
         }
       }
-      ctx.restore();
 
-      // Everything live comes in with the zoom, except the dot at the line's end, which stays where the trend's newest
-      // point was and carries the eye from one chart to the other.
-      ctx.save();
-      ctx.globalAlpha = progress;
-      const added = base ? (samples.at(-1)?.total ?? base.total) - base.total : 0;
-      const minutes = Math.round(span / 60_000);
-      let head = `近 ${minutes} 分钟 +${tokens(added)} Token`;
-      const rate = feed.rate(now);
-      if (rate !== null && rate > 0) head += ` · ${tokens(rate)}/分`;
-      text(head, W, 2, 8, secondary, 'right');
-      const badgeWidth = width('实时', font(8, 500, MONO)) + 10;
-      const pulse = 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(((now - born) / 1600) * 2 * Math.PI));
-      ctx.fillStyle = alpha(accentColour, dark ? 0.22 : 0.14);
-      ctx.beginPath(); ctx.roundRect(0, 1, badgeWidth + 8, 13, 6.5); ctx.fill();
-      ctx.fillStyle = alpha(accentColour, panel.reduceMotion ? 1 : pulse);
-      ctx.beginPath(); ctx.arc(7, 7.5, 2, 0, Math.PI * 2); ctx.fill();
-      text('实时', 12, 2, 8, accentColour, 'left', 500);
-      text(minutes <= 1 ? '1 分钟前' : `${minutes} 分钟前`, plot.x, bottom + 7, 8.5, secondary);
-      text('现在', plot.x + plot.w, bottom + 7, 8.5, secondary, 'right');
-      if (!base) {
-        text('正在读取第一笔数据…', plot.x + plot.w / 2, plot.y + plot.h / 2 - 6, 9, labelColour(dark, dark ? 0.25 : 0.26), 'center');
+      // The live chart comes in as the trend goes.
+      const liveAlpha = trend ? ramp(0.4, 1, p) : 1;
+      const reach = trend ? ramp(0.3, 1, p) : 1;
+      if (liveAlpha > 0.01) {
+        ctx.save();
+        ctx.globalAlpha = liveAlpha;
+        // Marks at round values: the bottom says where the window starts, the two above what it has added.
+        const mark = (label: string, value: number, isBottom: boolean, labelStrength = 1) => {
+          const level = y(value);
+          if (level < plot.y - 12 || level > bottom + 12) return;
+          if (labelStrength > 0.01) { ctx.globalAlpha = liveAlpha * labelStrength; text(label, 0, level - 5, 8, secondary); ctx.globalAlpha = liveAlpha; }
+          grid(level, isBottom, 1);
+        };
+        mark(baseLabel(range.lo, (label) => width(label, font(8)) <= column - 4), range.lo, true);
+        const apart = Math.min(1, Math.max(0, (Math.abs(y(range.lo) - y(range.lo + range.height / 2)) - 8) / 6));
+        mark('+' + compact(target.height / 2), range.lo + range.height / 2, false, apart);
+        mark('+' + compact(target.height), range.lo + range.height, false, apart);
+        // 实时, breathing, at the top left; the last minute's additions and its rate at the top right.
+        const badgeWidth = width('实时', font(8, 500, MONO)) + 10;
+        const pulse = 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(((now - born) / 1600) * 2 * Math.PI));
+        ctx.fillStyle = alpha(accentColour, dark ? 0.22 : 0.14);
+        ctx.beginPath(); ctx.roundRect(0, 1, badgeWidth + 8, 13, 6.5); ctx.fill();
+        ctx.fillStyle = alpha(accentColour, panel.reduceMotion ? 1 : pulse);
+        ctx.beginPath(); ctx.arc(7, 7.5, 2, 0, Math.PI * 2); ctx.fill();
+        text('实时', 12, 2, 8, accentColour, 'left', 500);
+        const added = base ? Math.max(0, (samples.at(-1)?.total ?? base.total) - base.total) : 0;
+        const rate = feed.rate(now);
+        const unit = ' Token/s', figure = rateText(rate ?? 0);
+        const lead = `近 1 分钟 +${tokens(added)} Token · `;
+        const baseline = 11;
+        ctx.textBaseline = 'alphabetic';
+        ctx.font = font(8); ctx.fillStyle = secondary; ctx.textAlign = 'right';
+        ctx.fillText(unit, W, baseline);
+        const unitWidth = width(unit, font(8));
+        ctx.font = font(11, 600, MONO); ctx.fillStyle = total;
+        ctx.fillText(figure, W - unitWidth, baseline);
+        const figureWidth = width(figure, font(11, 600, MONO));
+        ctx.font = font(8); ctx.fillStyle = secondary;
+        ctx.fillText(lead, W - unitWidth - figureWidth - 1, baseline);
+        text('1 分钟前', plot.x, bottom + 7, 8.5, secondary);
+        text('现在', plot.x + plot.w, bottom + 7, 8.5, secondary, 'right');
+        if (!base) text('正在读取第一笔数据…', plot.x + plot.w / 2, plot.y + plot.h / 2 - 6, 9, labelColour(dark, dark ? 0.25 : 0.26), 'center');
         ctx.restore();
-        return;
       }
+      if (!base) return;
+
       const x = (t: number) => plot.x + ((t - start) / span) * plot.w;
       const clamped = (value: number) => bottom - Math.min(1.08, Math.max(0, (value - range.lo) / range.height)) * plot.h;
       // A line's height from a sample: the total where it stands; a tool's line from where the total stood at the
       // window's left edge, up by what that tool added.
       const level = (id: string | null, sample: Sample) => (id ? feed.value(base) + (sample.parts[id] ?? 0) - (base.parts[id] ?? 0) : feed.value(sample));
-      const atStart = [...samples].reverse().find((s) => s.at <= start) ?? base;
       // Steps: a line holds its value until the next reading, then rises to it.
       const path = (id: string | null) => {
-        let previous = level(id, atStart);
+        let previous = level(id, base);
         ctx.beginPath(); ctx.moveTo(plot.x, clamped(previous));
         for (const s of points) {
           const next = level(id, s);
@@ -159,20 +229,28 @@
         }
         ctx.lineTo(plot.x + plot.w, clamped(previous));
       };
-      ctx.save();
-      ctx.beginPath(); ctx.rect(plot.x, plot.y - 6, plot.w, plot.h + 12); ctx.clip();
-      path(null);
-      ctx.lineTo(plot.x + plot.w, bottom); ctx.lineTo(plot.x, bottom); ctx.closePath();
-      const fill = ctx.createLinearGradient(0, plot.y, 0, bottom);
-      fill.addColorStop(0, alpha(total, dark ? 0.28 : 0.18)); fill.addColorStop(1, alpha(total, 0));
-      ctx.fillStyle = fill; ctx.fill();
-      for (const id of order) { path(id); ctx.lineWidth = 1.1; ctx.lineJoin = 'round'; ctx.strokeStyle = alpha(accent(id, dark), 0.85); ctx.stroke(); }
-      path(null); ctx.lineWidth = 1.8; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.strokeStyle = total; ctx.stroke();
-      ctx.restore();
-      ctx.restore();
-      // The newest reading lands with a ripple at the line's end.
-      const tip = [plot.x + plot.w, clamped(level(null, [...samples].reverse().find((s) => s.at <= now) ?? base))];
-      if (ripple !== null && now - ripple < 1100 && !panel.reduceMotion) {
+      if (reach > 0.001) {
+        // The live line opens out leftward from the end dot as the zoom finishes.
+        ctx.save();
+        ctx.globalAlpha = trend ? ramp(0.3, 0.7, p) : 1;
+        const opened = plot.w * reach;
+        ctx.beginPath(); ctx.rect(plot.x + plot.w - opened, plot.y - 6, opened, plot.h + 12); ctx.clip();
+        path(null);
+        ctx.lineTo(plot.x + plot.w, bottom); ctx.lineTo(plot.x, bottom); ctx.closePath();
+        const fill = ctx.createLinearGradient(0, plot.y, 0, bottom);
+        fill.addColorStop(0, alpha(total, dark ? 0.28 : 0.18)); fill.addColorStop(1, alpha(total, 0));
+        ctx.fillStyle = fill; ctx.fill();
+        for (const id of order) { path(id); ctx.lineWidth = 1.1; ctx.lineJoin = 'round'; ctx.strokeStyle = alpha(accent(id, dark), 0.85); ctx.stroke(); }
+        path(null); ctx.lineWidth = 1.8; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.strokeStyle = total; ctx.stroke();
+        ctx.restore();
+      }
+      // The end dot carries the eye between the charts: from the trend's newest point to the live line's end.
+      const liveTip: [number, number] = [plot.x + plot.w, clamped(level(null, [...samples].reverse().find((s) => s.at <= now) ?? base))];
+      const move = trendEnd ? ramp(0.1, 0.8, p) : 1;
+      const tip: [number, number] = trendEnd
+        ? [trendEnd[0] + (liveTip[0] - trendEnd[0]) * move, trendEnd[1] + (liveTip[1] - trendEnd[1]) * move]
+        : liveTip;
+      if (!zoom && ripple !== null && now - ripple < 1100 && !panel.reduceMotion) {
         const t = (now - ripple) / 1100, radius = 3 + 13 * (1 - Math.pow(1 - t, 2));
         ctx.strokeStyle = alpha(total, 0.6 * (1 - t)); ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.arc(tip[0], tip[1], radius, 0, Math.PI * 2); ctx.stroke();

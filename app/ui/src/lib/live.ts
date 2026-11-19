@@ -1,13 +1,13 @@
 // Pinned, the panel is watched while the user works, so the chart zooms in on now: what Summary's tools added in the
-// last minutes, read every couple of seconds. The feed keeps the readings; LiveChart.svelte draws them.
+// last minute, read every couple of seconds. The feed keeps the readings; LiveChart.svelte draws them.
 import { summaryPart } from './format';
 import type { Dashboard } from './types';
 
 export interface Sample { at: number; total: number; cost: number; parts: Record<string, number> }
 
 export class LiveFeed {
-  static readonly longest = 600_000;
-  static readonly shortest = 60_000;
+  /** The window on screen: always the last minute, so the line flows at one steady speed and the rate reads true. */
+  static readonly window = 60_000;
   samples: Sample[] = [];
   started = Date.now();
   /** The pinning zoom plays once per pin, not each time the homepage comes back. */
@@ -38,19 +38,32 @@ export class LiveFeed {
     if (!this.samples.length) this.offset = LiveFeed.latest(dashboard) - sample.total;
     if (this.samples.length && Math.abs(at - this.samples.at(-1)!.at) < 500) this.samples[this.samples.length - 1] = sample;
     else this.samples.push(sample);
-    this.samples = this.samples.filter((s) => at - s.at <= LiveFeed.longest + 60_000);
+    this.samples = this.samples.filter((s) => at - s.at <= 2 * LiveFeed.window);
   }
 
-  /** The window on screen: from the pin's first minute, widening to the last ten. */
-  span(now: number) { return Math.min(LiveFeed.longest, Math.max(LiveFeed.shortest, now - this.started)); }
+  span() { return LiveFeed.window; }
 
-  /** Tokens per minute over the last minute of samples. */
+  /** Tokens a second over the last minute, up to now: what was added since the window's left edge (or since pinning,
+   *  in the first minute) over the time gone by, so a burst eases off as the window moves past it. Requests are logged
+   *  whole when they finish, so a per-reading rate would mostly be 0 with an occasional spike. */
   rate(now: number): number | null {
     const last = this.samples.at(-1);
-    const first = [...this.samples].reverse().find((s) => now - s.at >= 60_000) ?? this.samples[0];
-    if (!last || !first || last.at <= first.at) return null;
-    return ((last.total - first.total) / (last.at - first.at)) * 60_000;
+    if (!last) return null;
+    const start = now - LiveFeed.window;
+    const base = [...this.samples].reverse().find((s) => s.at <= start);
+    const from = base ?? this.samples[0];
+    const seconds = base ? LiveFeed.window / 1000 : (now - from.at) / 1000;
+    if (seconds < 1) return null;
+    return Math.max(0, last.total - from.total) / seconds;
   }
+}
+
+/** A rate as the header writes it: 1.2K, 340, 12, 3.4, 0. */
+export function rateText(value: number): string {
+  if (value >= 1000) return compact(Math.round(value / 100) * 100);
+  if (value >= 10) return String(Math.round(value));
+  if (value > 0) return value.toFixed(1).replace(/\.0$/, '');
+  return '0';
 }
 
 /** A round top for the scale, close above the highest value so the line fills the chart. */

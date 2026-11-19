@@ -17,9 +17,10 @@
   import ProviderCard from './ProviderCard.svelte';
   import SummaryChart from './SummaryChart.svelte';
 
-  let { data, rangeOptions, reveal, glows, summaryGlow, live, liveStamp, pinned, pinInterval, liveSince, spin, onrange, onrefresh, onshare, ondetect,
-    onpin, onsettings, ongroup, ontoggle }: {
+  let { data, rangeOptions, reveal, glows, summaryGlow, live, leaving = null, onleft, liveStamp, pinned, pinInterval, liveSince, spin, onrange,
+    onrefresh, onshare, ondetect, onpin, onsettings, ongroup, ontoggle }: {
     data: Dashboard; rangeOptions: Entry[]; reveal: number; glows: Record<string, number>; summaryGlow: number; live: LiveFeed | null;
+    leaving?: number | null; onleft?: () => void;
     liveStamp: string | null; pinned: boolean; pinInterval: number; liveSince: number; spin: { from: number; until: number | null } | null;
     onrange: (action: string[]) => void; onrefresh: () => void; onshare: (button: HTMLElement) => void; ondetect: () => void; onpin: () => void;
     onsettings: () => void; ongroup: (key: string) => void; ontoggle: (id: string, expanded: boolean) => void;
@@ -132,7 +133,7 @@
       {/each}
       <div class="trend" style:transform="translateY({extra}px)">
         {#if live}
-          <LiveChart feed={live} {column} {counted} {data} />
+          <LiveChart feed={live} {column} {counted} {data} {note} {leaving} {onleft} />
         {:else}
           <SummaryChart {data} {note} {reveal} />
         {/if}

@@ -137,22 +137,33 @@
 
   let pinned = $state(false);
   let feed = $state<LiveFeed | null>(null);
+  /** Unpinned at this moment: the live chart zooms back out to the trend, then lets go of the feed. */
+  let leaving = $state<number | null>(null);
   let liveSince = $state(Date.now());
   let liveStamp = $state<string | null>(null);
   let liveTimer: ReturnType<typeof setInterval> | undefined;
   const pinInterval = $derived(Math.max(1, snapshot?.pinInterval ?? 2));
 
-  function setPinned(value: boolean) {
-    if (value === pinned) return;
+  function setPinned(value: boolean, animate = true) {
+    if (value === pinned) {
+      if (!value && !animate) { feed = null; leaving = null; }
+      return;
+    }
     pinned = value;
     void shell.setPinned(value);
     clearInterval(liveTimer);
     if (value) {
       const live = new LiveFeed();
       if (snapshot?.dashboard) live.add(snapshot.dashboard);
+      leaving = null;
       feed = live;
       schedule();
-    } else { feed = null; liveStamp = null; }
+    } else {
+      liveStamp = null;
+      // Zooms back out on screen; a closed panel just lets go.
+      if (animate && feed && !panel.reduceMotion) leaving = Date.now();
+      else { feed = null; leaving = null; }
+    }
   }
   function schedule() {
     clearInterval(liveTimer);
@@ -354,7 +365,7 @@
     window.addEventListener('pointerdown', down, true);
     window.addEventListener('pointerup', up, true);
     window.addEventListener('pointercancel', up, true);
-    const stops = [backend.onSnapshot(() => void reload()), shell.onOpened(opened), shell.onClosed(() => setPinned(false))];
+    const stops = [backend.onSnapshot(() => void reload()), shell.onOpened(opened), shell.onClosed(() => setPinned(false, false))];
     void shell.info().then((value) => {
       info = value;
       opened(value.modules);
@@ -399,7 +410,7 @@
 
 {#snippet dashboardView()}
   {#if shown && snapshot}
-    <Dashboard data={shown} rangeOptions={snapshot.rangeOptions ?? []} {reveal} {glows} {summaryGlow} live={pinned ? feed : null} {liveStamp} {pinned}
+    <Dashboard data={shown} rangeOptions={snapshot.rangeOptions ?? []} {reveal} {glows} {summaryGlow} live={pinned || leaving !== null ? feed : null} {leaving} onleft={() => { leaving = null; feed = null; }} {liveStamp} {pinned}
       {pinInterval} {liveSince} {spin} onrange={perform} onrefresh={refresh} onshare={share} ondetect={() => perform(['detect-modules'])}
       onpin={() => { panel.hint = null; setPinned(!pinned); if (pinned) perform(['refresh-live']); }} onsettings={openSettings}
       ongroup={(key) => perform(['set-group', key])} ontoggle={(id, expanded) => perform(['set-expanded', id, expanded ? 'true' : 'false'])} />
