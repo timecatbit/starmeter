@@ -13,6 +13,8 @@
   const room = $derived(cellWidth - 54 - (entry.children.length ? 18 : 6) - (configured ? 12 : 0));
   const nameWidth = $derived(Math.min(room, width(entry.label, font(12.5, 500)) + 1));
   const line = $derived(entry.detail === undefined ? height / 2 : 15);
+  // A cell with a note under its name keeps its checkbox and icon in the cell's middle, level with its row's others.
+  const middle = $derived(height / 2);
   // Shown at once; the saved list confirms it.
   let checked = $state(false);
   $effect(() => { checked = entry.checked === true; });
@@ -28,12 +30,12 @@
 
 <button class="cell pressable" style:width="{cellWidth}px" style:height="{height}px" aria-label={entry.label} onclick={click}>
   {#if entry.checked !== undefined}
-    <span class="box" class:on={checked} style:top="{line - 6.5}px" role="checkbox" aria-checked={checked} aria-label="在主页显示 {entry.label}">
+    <span class="box" class:on={checked} style:top="{middle - 6.5}px" role="checkbox" aria-checked={checked} aria-label="在主页显示 {entry.label}">
       {#if checked}<svg viewBox="0 0 13 13" width="13" height="13"><path d="M3 6.5 5.5 9.5 10 3.5" fill="none" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>{/if}
     </span>
   {/if}
   {#if entry.image || entry.symbol}
-    <span class="icon" style:top="{line - 8}px"><Glyph image={entry.image} template={entry.template} symbol={entry.symbol} size={16} tint={panel.dark ? 'rgb(230,230,230)' : 'rgb(46,46,46)'} /></span>
+    <span class="icon" style:top="{middle - 8}px"><Glyph image={entry.image} template={entry.template} symbol={entry.symbol} size={16} tint={panel.dark ? 'rgb(230,230,230)' : 'rgb(46,46,46)'} /></span>
   {/if}
   <span class="name" style:top="{line - 8}px" style:width="{nameWidth}px">{entry.label}</span>
   {#if configured}<span class="dot" style:left="{54 + nameWidth + 6}px" style:top="{line - 3}px"></span>{/if}

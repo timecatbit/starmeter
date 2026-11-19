@@ -53,7 +53,9 @@
 
   // Header: refresh, share, auto-detect, the pin and the gear leftward from the range picker, 2pt apart; a long heading
   // keeps its room by leaving auto-detect out.
-  const pickerWidth = $derived(Math.ceil(Math.max(52, ...rangeOptions.map((o) => width(o.label, font(11))))) + 34);
+  // The range picker is drawn bare like the icons beside it, as wide as the range on it: 8pt, the range, 4pt, the
+  // chevron, 8pt; its right edge on the content's.
+  const pickerWidth = $derived(8 + width(data.rangeLabel, font(11)) + 4 + 7 + 8);
   const pickerX = $derived(inner - 12 - pickerWidth);
   const headingText = $derived(heading(data.showSummary));
   const headingRight = $derived(12 + width(headingText, font(14, 600)) + 6);
@@ -106,9 +108,9 @@
       {#if panel.toast && toastX >= headingRight}
         <span class="toast" class:ok={panel.toast.ok} style:left="{toastX}px" style:width="{toastWidth}px" role="status">{panel.toast.text}</span>
       {/if}
-      <span class="picker" style:left="{pickerX}px" style:width="{pickerWidth}px">
+      <span class="picker" class:open={panel.menuOpen} style:left="{pickerX}px" style:width="{pickerWidth}px">
         <span class="picker-label">{data.rangeLabel}</span>
-        <svg class="picker-arrows" width="8" height="6" viewBox="0 0 8 6" aria-hidden="true"><path d="M1 1.5 4 4.5 7 1.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" /></svg>
+        <svg class="picker-arrows" width="7" height="5" viewBox="0 0 7 5" aria-hidden="true"><path d="M1 1.1 3.5 3.6 6 1.1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
         <select bind:this={select} aria-label="统计范围 · {data.rangeLabel}" value={chosen} onchange={pickRange}
           onpointerdown={() => (panel.menuOpen = true)} onblur={() => (panel.menuOpen = false)}>
           {#each rangeOptions as option (option.label)}
@@ -188,20 +190,27 @@
   }
   .toast.ok { color: var(--green); }
   .picker {
-    top: 10px;
-    height: 20px;
+    top: 7.5px;
+    height: 25px;
     display: flex;
     align-items: center;
+    gap: 4px;
     box-sizing: border-box;
-    padding: 0 7px 0 9px;
-    border-radius: 6px;
-    background: var(--control);
-    box-shadow: 0 0 0 0.5px var(--control-rim), 0 0.5px 1.5px rgba(0, 0, 0, 0.08);
+    padding: 0 8px;
+    border-radius: 7px;
     font-size: 11px;
+    color: var(--label);
   }
-  .picker:active { filter: brightness(0.94); }
-  .picker-label { flex: 1; overflow: hidden; text-overflow: ellipsis; }
-  .picker-arrows { flex: none; color: var(--label); }
+  .picker:hover { background: rgba(0, 0, 0, 0.06); }
+  .picker.open, .picker:active { background: rgba(0, 0, 0, 0.11); }
+  :global(:root[data-theme='dark']) .picker:hover { background: rgba(255, 255, 255, 0.09); }
+  :global(:root[data-theme='dark']) .picker.open, :global(:root[data-theme='dark']) .picker:active { background: rgba(255, 255, 255, 0.16); }
+  @media (prefers-color-scheme: dark) {
+    :global(:root:not([data-theme='light'])) .picker:hover { background: rgba(255, 255, 255, 0.09); }
+    :global(:root:not([data-theme='light'])) .picker.open, :global(:root:not([data-theme='light'])) .picker:active { background: rgba(255, 255, 255, 0.16); }
+  }
+  .picker-label { flex: 1; white-space: nowrap; }
+  .picker-arrows { flex: none; color: var(--secondary); }
   .picker select {
     position: absolute;
     inset: 0;

@@ -1,7 +1,7 @@
 <script lang="ts">
   // A bare header icon, as magpie's: a soft rounded fill under the pointer that deepens while pressed, and a short hint
   // drawn by the panel below it (the system tooltip only shows once the app is active). The refresh arrow can turn; the
-  // pin can show its live ring.
+  // pin can show its live ring. Each icon sits by its centre as the eye sees it, and the arrow turns about that point.
   import { hoverHint, panel } from '../lib/ui.svelte';
   import Icon from './Icon.svelte';
 
@@ -38,7 +38,7 @@
 <button bind:this={button} class="hint-button pressable" style:width="{width}px" aria-label={label}
   onpointerenter={() => hoverHint(button ?? null, hint)} onpointerleave={() => hoverHint(null, '')}
   onpointerdown={() => hoverHint(null, '')} onclick={onclick}>
-  <span class="glyph" style:color={tint} style:transform="rotate({angle}deg)"><Icon name={icon} size={15} /></span>
+  <span class="glyph" style:color={tint} style:transform="rotate({angle}deg)"><Icon name={icon} size={15} eye /></span>
   {#if ring}
     {#key ring.since}
       <svg class="ring" viewBox="0 0 {width} 25" aria-hidden="true">

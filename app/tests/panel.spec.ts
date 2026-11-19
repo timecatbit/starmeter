@@ -164,3 +164,48 @@ test('with reduced motion, pages still change and nothing animates forever', asy
   await page.keyboard.press('Escape');
   await expect(page.locator('.dashboard')).toBeVisible();
 });
+
+test.describe('header icons', () => {
+  test.use({ deviceScaleFactor: 2 });
+  test('sit on one line by the centre the eye sees (shape and ink), within 0.25pt', async ({ page }) => {
+    await open(page);
+    // A plain white backdrop, so ink is everything darker than it.
+    await page.addStyleTag({ content: '.window { background: #fff !important; backdrop-filter: none !important } :root { --label: #000 }' });
+    await page.mouse.move(5, 1650);
+    await page.waitForTimeout(400);
+    const { decodePng } = await import('./png');
+    for (const label of ['主页模块与设置', '钉住面板', '自动检测', '分享用量图', '刷新数据']) {
+      const shot = decodePng(await button(page, label).screenshot());
+      let minX = shot.width, maxX = -1, minY = shot.height, maxY = -1, mass = 0, sumY = 0;
+      for (let y = 0; y < shot.height; y++) {
+        for (let x = 0; x < shot.width; x++) {
+          const i = (y * shot.width + x) * 4, ink = 1 - (shot.pixels[i] + shot.pixels[i + 1] + shot.pixels[i + 2]) / 765;
+          if (ink <= 0.02) continue;
+          minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+          mass += ink; sumY += ink * (y + 0.5);
+        }
+      }
+      const eyeX = (minX + maxX + 1) / 2 / 2, eyeY = ((minY + maxY + 1) / 2 + sumY / mass) / 2 / 2;
+      expect.soft(Math.abs(eyeX - shot.width / 4), `${label} across`).toBeLessThanOrEqual(0.25);
+      expect.soft(Math.abs(eyeY - shot.height / 4), `${label} down`).toBeLessThanOrEqual(0.25);
+    }
+  });
+});
+
+test('the range picker is bare and as wide as its range', async ({ page }) => {
+  await open(page);
+  const picker = page.locator('.picker');
+  await expect(picker).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  const today = (await picker.boundingBox())!.width;
+  await page.getByLabel(/统计范围/).selectOption('24h');
+  await expect(page.locator('.picker-label')).toHaveText('近 24 小时');
+  expect((await picker.boundingBox())!.width).toBeGreaterThan(today + 20);
+});
+
+test('a module cell with a note keeps its checkbox and icon in the middle', async ({ page }) => {
+  await open(page);
+  await button(page, '主页模块与设置').click();
+  const cell = page.getByRole('button', { name: '允许折叠', exact: true });
+  const box = (await cell.boundingBox())!, check = (await cell.locator('.box').boundingBox())!;
+  expect(Math.abs(check.y + check.height / 2 - (box.y + box.height / 2))).toBeLessThanOrEqual(0.5);
+});

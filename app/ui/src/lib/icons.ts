@@ -77,3 +77,41 @@ export function iconImage(name: string, colour: string): HTMLImageElement {
   image.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
   return image;
 }
+
+const centres = new Map<string, Promise<[number, number]>>();
+
+/** Where an icon's middle is as the eye sees it, in its 20×20 box: across, its shape's middle; down, halfway between its
+ *  shape's middle and its ink's weight, so a tall shape with a heavy base (the share box) doesn't sit low and the pin
+ *  doesn't sit high. Measured once per icon. */
+export function eyeCentre(name: string): Promise<[number, number]> {
+  let known = centres.get(name);
+  if (!known) {
+    known = measureEye(name).catch(() => [10, 10] as [number, number]);
+    centres.set(name, known);
+  }
+  return known;
+}
+
+async function measureEye(name: string): Promise<[number, number]> {
+  const scale = 8, side = 20 * scale;
+  const image = new Image();
+  image.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="${side}" height="${side}">${iconSvg(name).replaceAll('currentColor', '#000')}</svg>`);
+  await image.decode();
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = side;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return [10, 10];
+  ctx.drawImage(image, 0, 0, side, side);
+  const data = ctx.getImageData(0, 0, side, side).data;
+  let minX = side, maxX = -1, minY = side, maxY = -1, mass = 0, sumY = 0;
+  for (let y = 0; y < side; y++) {
+    for (let x = 0; x < side; x++) {
+      const alpha = data[(y * side + x) * 4 + 3] / 255;
+      if (alpha <= 0.02) continue;
+      minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+      mass += alpha; sumY += alpha * (y + 0.5);
+    }
+  }
+  if (maxX < 0 || !mass) return [10, 10];
+  return [(minX + maxX + 1) / 2 / scale, ((minY + maxY + 1) / 2 + sumY / mass) / 2 / scale];
+}
