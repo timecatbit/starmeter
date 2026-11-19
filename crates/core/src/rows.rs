@@ -33,7 +33,7 @@ pub fn sanitize(value: &str) -> String {
     format!("{}{stripped}", "‑".repeat(hyphens))
 }
 
-fn as_option(key: &str, value: &Json) -> String {
+pub fn as_option(key: &str, value: &Json) -> String {
     if let Some(flag) = value.as_bool() {
         return format!("{key}={}", if flag { "true" } else { "false" });
     }

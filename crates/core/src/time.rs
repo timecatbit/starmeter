@@ -222,6 +222,25 @@ fn utf8_length(lead: u8) -> usize {
     }
 }
 
+/// datetime.fromtimestamp(seconds, timezone.utc).isoformat(): microseconds only when there are any.
+pub fn utc_string(seconds: f64) -> String {
+    let mut whole = seconds.floor();
+    let mut micros = ((seconds - whole) * 1e6).round_ties_even();
+    if micros >= 1e6 {
+        whole += 1.0;
+        micros -= 1e6;
+    }
+    let total = whole as i64;
+    let days = total.div_euclid(86400);
+    let rest = total - days * 86400;
+    let (year, month, day) = crate::py::civil_from_days(days);
+    let mut text = format!("{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}", rest / 3600, rest % 3600 / 60, rest % 60);
+    if micros > 0.0 {
+        text += &format!(".{:06}", micros as i64);
+    }
+    text + "+00:00"
+}
+
 /// Days from 1970-01-01 to a date in the proleptic Gregorian calendar.
 pub fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
     let y = if month <= 2 { year - 1 } else { year };

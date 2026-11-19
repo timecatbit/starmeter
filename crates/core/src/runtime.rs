@@ -4,11 +4,12 @@
 use std::any::Any;
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use crate::claude_usage::state_of;
 use crate::files::{self, paths};
 use crate::harness::{is_absolute, normalize};
+use crate::host::{AppleScriptHost, DesktopHost, Host};
 use crate::json::{Json, Object};
 use crate::py::{self, FileError};
 use crate::{claude_app, cursor, object, platform, preferences, pricing};
@@ -60,7 +61,6 @@ impl From<FileError> for Thrown {
 pub type Loaded = (Option<Object>, Option<String>);
 
 type Cadence = Box<dyn Fn() -> (bool, bool) + Send + Sync>;
-type Notifier = Box<dyn Fn(&str, &str) + Send + Sync>;
 
 pub struct Runtime {
     pub environment: HashMap<String, String>,
@@ -72,12 +72,10 @@ pub struct Runtime {
     pub plugin: String,
     pub base: String,
     pub mac_app: bool,
-    /// A desktop host (the Windows tray, the Tauri app) keeps the range with its settings, not in the cache.
-    pub desktop: bool,
     /// Set by an in-process host: whether its panel is open, and on battery.
     pub host_cadence: Option<Cadence>,
-    /// A desktop host's own notifications (subtitle, body); without one, SwiftBar's or the standalone app's.
-    pub notifier: Option<Notifier>,
+    /// Dialogs, notices and files for actions; a desktop host also takes over refreshes and settings.
+    pub host: Arc<dyn Host>,
     /// Settings and local metadata read once per render.
     memo: Mutex<Option<HashMap<String, Box<dyn Any + Send>>>>,
 }
@@ -119,9 +117,8 @@ impl Runtime {
             plugin,
             base,
             mac_app,
-            desktop: false,
             host_cadence: None,
-            notifier: None,
+            host: Arc::new(AppleScriptHost),
             memo: Mutex::new(None),
         }
     }
@@ -133,7 +130,7 @@ impl Runtime {
             environment.insert(key.clone(), value.clone());
         }
         let mut next = Runtime::new(environment, &self.plugin);
-        next.desktop = self.desktop;
+        next.host = self.host.clone();
         next
     }
 
@@ -487,18 +484,18 @@ impl Runtime {
         self.app_update_connection()
     }
 
-    /// A notification titled Starmeter: the desktop host's own, else macOS's through osascript.
+    /// A notification titled Starmeter, through the host.
     pub fn notify(&self, message: &str, subtitle: &str) {
-        if let Some(notify) = &self.notifier {
-            notify(subtitle, message);
-            return;
-        }
-        let literal = |text: &str| format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""));
-        let mut script = format!("display notification {} with title {}", literal(message), literal(PRODUCT));
-        if !subtitle.is_empty() {
-            script += &format!(" subtitle {}", literal(subtitle));
-        }
-        crate::shell::run(&["/usr/bin/osascript", "-e", &script], 5.0, None, None);
+        self.host.notify(message, subtitle);
+    }
+
+    /// The host when it has its own windows and refresh queue.
+    pub fn desktop(&self) -> Option<&dyn DesktopHost> {
+        self.host.desktop()
+    }
+
+    pub fn is_desktop(&self) -> bool {
+        self.desktop().is_some()
     }
 }
 
@@ -511,8 +508,8 @@ impl Runtime {
 
     /// A notification from Starmeter: the desktop host's own, the standalone app's, or SwiftBar's.
     pub fn post_notice(&self, subtitle: &str, body: &str) -> bool {
-        if let Some(notify) = &self.notifier {
-            notify(subtitle, body);
+        if let Some(desktop) = self.desktop() {
+            desktop.notify(body, subtitle);
             return true;
         }
         if self.mac_app {

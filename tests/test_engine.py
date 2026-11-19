@@ -1555,8 +1555,10 @@ class EngineRunParityTests(PanelParityTests):
         return values
 
     def same_text(self, python, swift):
-        # The plugin path differs only by which engine's state it names; nothing else may.
-        self.assertEqual(python.splitlines(), swift.splitlines())
+        # The plugin path differs only by which engine's state it names, and the 6.x engine names its own version
+        # where the 5.x reference names 5.x; nothing else may differ.
+        def steady(text):return re.sub(r'版本 \d+\.\d+\.\d+ ·', '版本 X ·', text).splitlines()
+        self.assertEqual(steady(python), steady(swift))
 
     def test_menu_text_and_snapshot(self):
         codex = Path(self.common['HOME']) / '.codex'; codex.mkdir()

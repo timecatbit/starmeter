@@ -347,8 +347,8 @@ impl Runtime {
         if self.mac_app {
             return self.post_notice("应用有新版本", &body);
         }
-        if let Some(notifier) = &self.notifier {
-            notifier("应用有新版本", &body);
+        if let Some(desktop) = self.desktop() {
+            desktop.notify(&body, "应用有新版本");
             return true;
         }
         let name = self.swiftbar_name();

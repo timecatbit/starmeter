@@ -319,7 +319,7 @@ impl Runtime {
 
     // Module options and their connection pages
 
-    fn source_locations(&self, key: &str) -> Vec<String> {
+    pub fn source_locations(&self, key: &str) -> Vec<String> {
         let root = self.source_path(key);
         let is_dir = |path: &str| Path::new(path).is_dir();
         if key == "claude" {
@@ -882,7 +882,7 @@ impl Runtime {
             .collect()
     }
 
-    fn presentation_settings(&self) -> Json {
+    pub fn presentation_settings(&self) -> Json {
         let settings = self.settings();
         ["revision", "visible", "appearance", "theme", "allowCollapse", "expandedProviders"]
             .iter()

@@ -2,11 +2,13 @@
 //! the hosts only draw it and pass the user's actions back.
 
 pub mod accounts;
+pub mod actions;
 pub mod alerts;
 pub mod api_rows;
 pub mod background;
 pub mod catalog;
 pub mod claude_app;
+pub mod claude_bridge;
 pub mod claude_subscription;
 pub mod claude_usage;
 pub mod client_accounts;
@@ -16,6 +18,7 @@ pub mod database;
 pub mod discovery;
 pub mod files;
 pub mod harness;
+pub mod host;
 pub mod http;
 pub mod json;
 pub mod keys;
@@ -30,6 +33,7 @@ pub mod preferences;
 pub mod pricing;
 pub mod py;
 pub mod range_usage;
+pub mod render;
 pub mod rows;
 pub mod runtime;
 pub mod self_update;

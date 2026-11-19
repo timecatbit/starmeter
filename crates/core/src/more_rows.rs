@@ -340,14 +340,7 @@ impl Runtime {
 
     /// Whether OpenCodex updates itself here: a desktop host only for an OpenCodex on this machine.
     pub fn automatic_opencodex(&self) -> bool {
-        !self.desktop || self.base_is_local_proxy()
-    }
-
-    fn base_is_local_proxy(&self) -> bool {
-        reqwest::Url::parse(&self.base).ok().and_then(|url| url.host_str().map(String::from)).is_some_and(|host| {
-            let host = host.trim_start_matches('[').trim_end_matches(']').to_string();
-            ["127.0.0.1", "localhost", "::1"].contains(&host.as_str())
-        })
+        self.desktop().is_none_or(|desktop| desktop.local_proxy(&self.base))
     }
 
     pub fn update_rows(&self, data: &Object) -> Vec<Object> {
@@ -447,7 +440,7 @@ impl Runtime {
         }
         for row in rows.iter_mut() {
             let id = row.get("id").and_then(Json::as_str).unwrap_or("").to_string();
-            if self.desktop && (id == "claude" || id == "chatgpt") {
+            if self.is_desktop() && (id == "claude" || id == "chatgpt") {
                 row.insert("status", "在 App 内检查更新");
                 row.insert("available", false);
                 row.insert("manual", true);
@@ -612,7 +605,7 @@ impl Runtime {
             let chip = if updates::machine() == "arm64" { "apple-silicon" } else { "intel" };
             format!("token-monitor-{version}-macos-{chip}.dmg")
         } else {
-            format!("token-monitor-{version}{}.zip", if self.desktop { "-windows-x64" } else { "" })
+            format!("token-monitor-{version}{}.zip", if self.is_desktop() { "-windows-x64" } else { "" })
         }
     }
 
@@ -620,7 +613,7 @@ impl Runtime {
         let Some(release) = self.plugin_update(data) else { return vec![] };
         let latest = py::str(release.get("latest"));
         let state = self.self_update_state();
-        if self.mac_app || self.desktop {
+        if self.mac_app || self.is_desktop() {
             let asset = self.update_asset_name(&latest);
             let listed = release
                 .get("assets")

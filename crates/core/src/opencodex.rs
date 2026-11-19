@@ -58,7 +58,7 @@ impl Runtime {
             || std::path::Path::new(&format!("{}/runtime-port.json", self.ocx_home)).exists()
     }
 
-    fn admin_token(&self) -> Option<String> {
+    pub fn admin_token(&self) -> Option<String> {
         for key in ["OPENCODEX_ADMIN_AUTH_TOKEN", "OCX_ADMIN_TOKEN"] {
             if let Some(value) = self.environment.get(key).map(|value| value.trim()).filter(|value| !value.is_empty()) {
                 return Some(value.to_string());

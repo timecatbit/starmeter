@@ -645,7 +645,7 @@ impl Runtime {
 
     /// Asks SwiftBar to redraw the menu; the standalone app and desktop hosts redraw on their own.
     pub fn refresh_swiftbar(&self) {
-        if self.mac_app || self.desktop {
+        if self.mac_app || self.is_desktop() {
             return;
         }
         let address = format!("swiftbar://refreshplugin?name={}", runtime::quote(&self.swiftbar_name()));

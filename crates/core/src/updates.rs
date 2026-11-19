@@ -569,7 +569,7 @@ impl Runtime {
 
     pub fn live_app_update_ids(&self) -> Vec<String> {
         // A desktop host checks only the CLIs; its desktop apps update themselves.
-        if self.desktop {
+        if self.is_desktop() {
             return self
                 .selected_update_ids()
                 .into_iter()

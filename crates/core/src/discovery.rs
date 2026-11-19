@@ -263,7 +263,7 @@ impl Runtime {
             home: &self.home,
             configured_proxy: self.opencodex_configured(),
             komari_url: &komari,
-            app_roots: if self.desktop {
+            app_roots: if self.is_desktop() {
                 Vec::new()
             } else {
                 vec![format!("{}/Applications", self.home), "/Applications".into()]

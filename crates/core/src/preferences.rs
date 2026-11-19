@@ -121,7 +121,7 @@ fn in_range(value: Option<&Json>, low: f64, high: f64) -> bool {
 }
 
 /// A balance alert is kept per API and currency, as "kimi-api|USD".
-fn balance_key(key: &str) -> bool {
+pub fn balance_key(key: &str) -> bool {
     let (api, currency) = key.split_once('|').unwrap_or((key, ""));
     catalog::balance_apis().contains(&api) && catalog::CURRENCIES.contains(&currency)
 }

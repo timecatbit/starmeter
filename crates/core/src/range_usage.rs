@@ -98,7 +98,7 @@ impl Runtime {
     }
 
     pub fn selected_range(&self) -> String {
-        let record = if self.desktop {
+        let record = if self.is_desktop() {
             claude_app::read_object(&format!("{}/view-range.json", self.state_dir))
         } else {
             self.read_cache("view-range")
