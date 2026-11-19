@@ -282,7 +282,7 @@ class UpdateTests(unittest.TestCase):
    self.m.app_updates_cached()
    self.assertCountEqual([c.args[0] for c in probe.call_args_list],['claude','claude-code','chatgpt','codex-cli'])
    self.assertNotIn('badge',self.m.external_loaders())
-   self.assertIn('选择 Harness…','\n'.join(self.m.app_update_lines({})))
+   self.assertIn('选择工具…','\n'.join(self.m.app_update_lines({})))
   self.assertEqual(self.m.preferences.read(self.m.STATE_DIR),before)
  def test_configured_opencodex_adds_chatgpt_once_even_with_no_selected_harness(self):
   with patch.object(self.m,'ocx_configured',return_value=True):

@@ -578,7 +578,7 @@ function updateRows() {
     separator(),
     entry('立即检查更新', { symbol: 'arrow.clockwise', action: ['check-app-updates'] }),
     entry('查看最近 CLI 更新日志', { symbol: 'doc.text', action: ['open-cli-update-log'] }),
-    entry('选择 Harness…', { symbol: 'slider.horizontal.3', action: ['panel-modules'] }),
+    entry('选择工具…', { symbol: 'slider.horizontal.3', action: ['panel-modules'] }),
   ]);
 }
 

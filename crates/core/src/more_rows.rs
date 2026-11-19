@@ -592,7 +592,7 @@ impl Runtime {
             ));
         }
         lines.push(item(
-            "选择 Harness…",
+            "选择工具…",
             1,
             merged(&[&object! { "sfimage" => "square.grid.2x2" }, &self.act("panel-modules", &[])]),
         ));

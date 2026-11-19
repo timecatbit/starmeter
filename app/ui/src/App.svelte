@@ -316,7 +316,7 @@
   });
 
   function perform(action: string[]) {
-    // 选择 Harness… opens the module grid in place.
+    // 选择工具… opens the module grid in place.
     if (action[0] === 'panel-modules') { openSettings(); return; }
     // The language is the panel's own choice: no engine action, the page redraws in it at once.
     if (action[0] === 'set-language') { chooseLanguage(action[1]); return; }

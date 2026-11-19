@@ -1586,7 +1586,7 @@ def app_update_lines(data):
     if any(not r.get('manual') for r in rows):lines.append(item('立即检查更新',level=1,sfimage='arrow.clockwise',**act('check-app-updates')))
     if terminal_jobs.latest_log(STATE_DIR,[r['id'] for r in rows]):
         lines.append(item('查看最近 CLI 更新日志',level=1,sfimage='doc.text',**act('open-cli-update-log')))
-    lines.append(item('选择 Harness…',level=1,sfimage='square.grid.2x2',**act('panel-modules')))
+    lines.append(item('选择工具…',level=1,sfimage='square.grid.2x2',**act('panel-modules')))
     return lines
 
 
