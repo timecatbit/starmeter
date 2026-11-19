@@ -58,7 +58,9 @@ export function blend(from: string, to: string, t: number): string {
 }
 
 /** The heatmap's five steps: empty, then four of the total's colour. */
-export const heatmapShades = (dark: boolean) => [label(dark, dark ? 0.075 : 0.06), ...[0.3, 0.52, 0.76, 1].map((a) => alpha(totalColor(dark), a))];
+export const heatmapShades = (dark: boolean) => [label(dark, dark ? 0.085 : 0.065), ...[0.28, 0.5, 0.74, 1].map((a) => alpha(totalColor(dark), a))];
+/** A square still to come: barely there, so the row runs on without the future reading as empty hours. */
+export const heatmapFuture = (dark: boolean) => label(dark, dark ? 0.04 : 0.03);
 
 /** A level's bar: the accent, orange from 70%, red from 90%. */
 export const barColor = (level: string | undefined, dark: boolean) =>

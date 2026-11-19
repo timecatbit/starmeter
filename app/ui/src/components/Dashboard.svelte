@@ -4,7 +4,7 @@
   import { accent, blend, label as labelColour, totalColor } from '../lib/colors';
   import { chartExtra, labelColumn, legendLabels, legendLayout, summaryProviders } from '../lib/chart';
   import { isGrouped, money, tokens } from '../lib/format';
-  import { HeatmapLayout, panelSquare, rows as heatmapRows } from '../lib/heatmap';
+  import { blockHeight, HeatmapLayout, rows as heatmapRows } from '../lib/heatmap';
   import type { LiveFeed } from '../lib/live';
   import { font, width } from '../lib/measure';
   import { moveWindow, panel } from '../lib/ui.svelte';
@@ -37,9 +37,8 @@
   const extra = $derived(chartExtra(data, right - left));
   const summaryHeight = $derived(showSummary ? 230 + extra : 44);
   const column = $derived(labelColumn(data));
-  const square = $derived(panelSquare(panel.width));
-  const heatmapLayout = $derived(data.heatmap ? new HeatmapLayout(left + column, summaryHeight + 8, right - left - column, data.heatmap.columns, heatmapRows(data.heatmap), square) : null);
-  const heatmapHeight = $derived(heatmapLayout ? 8 + heatmapLayout.height + 15 : 0);
+  const heatmapLayout = $derived(data.heatmap ? new HeatmapLayout(left + column, summaryHeight + 8, right - left - column, data.heatmap.columns, heatmapRows(data.heatmap)) : null);
+  const heatmapHeight = $derived(heatmapLayout && data.heatmap ? blockHeight(heatmapLayout, data.heatmap) : 0);
   const harnessHeader = $derived(!data.providers.length || !showSummary || data.heatmap ? 0 : 6);
   const groupingHeight = $derived(!data.providers.length || (data.groupings?.length ?? 0) < 2 ? 0 : 30);
   const cardList = $derived(data.cards ?? data.providers);
@@ -130,7 +129,7 @@
     {/if}
   </div>
   {#if data.heatmap}
-    <Heatmap heatmap={data.heatmap} {column} top={summaryHeight} {right} size={square} />
+    <Heatmap heatmap={data.heatmap} {column} top={summaryHeight} {right} current={data.rangeKey !== 'yesterday'} />
   {/if}
   <div class="cards" style:top="{summaryHeight + heatmapHeight + harnessHeader}px">
     {#if groupingHeight && data.groupings}

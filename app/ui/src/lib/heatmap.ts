@@ -40,20 +40,22 @@ export function note(h: UsageHeatmap): string | null {
   return h.streak ?? null;
 }
 
-/** The panel's square: 8pt at its own width, growing with a pinned panel made wider (to 14pt) so the gaps don't. */
-export const panelSquare = (panelWidth: number) => Math.min(14, Math.max(HeatmapLayout.cell, Math.round((HeatmapLayout.cell * panelWidth) / 360 * 2) / 2));
-
-/** Every square is the same size in every range; the gap stretches so each row runs the full width, and rows sit that
- *  same gap apart. */
+/** The squares fill each row from the label column to the right edge, 2pt apart (1.5pt from 28 columns on), as large
+ *  as that makes them up to `max`; rows sit the same small gap apart. A row reads as one band, not a dotted line. */
 export class HeatmapLayout {
-  static readonly cell = 8;
-  static readonly rowGap = 1.6;
   constructor(readonly x: number, readonly y: number, readonly width: number, readonly columns: number, readonly rowCount: number,
-    readonly size = HeatmapLayout.cell) {}
+    readonly max = 14) {}
+  get spacing() { return this.columns >= 28 ? 1.5 : 2; }
+  get size() {
+    const n = Math.max(1, this.columns);
+    return Math.max(4, Math.min(this.max, (this.width - (n - 1) * this.spacing) / n));
+  }
   get columnPitch() { return this.columns > 1 ? (this.width - this.size) / (this.columns - 1) : 0; }
-  get gap() { return this.columns > 1 ? this.columnPitch - this.size : HeatmapLayout.rowGap; }
-  get rowPitch() { return this.size + this.gap; }
-  get height() { return this.rowCount * this.rowPitch - this.gap; }
+  get rowPitch() { return this.size + this.spacing; }
+  get height() { return this.rowCount * this.rowPitch - this.spacing; }
+  get radius() { return Math.min(3, this.size * 0.24); }
+  /** An hour axis (0 6 12 18 24) under a grid of several days by the hour; one row of hours lines up with the trend. */
+  hourAxis(h: UsageHeatmap) { return h.columns === 24 && this.rowCount > 1; }
   square(index: number) {
     const columns = Math.max(1, this.columns);
     return { x: this.x + (index % columns) * this.columnPitch, y: this.y + Math.floor(index / columns) * this.rowPitch, size: this.size };
@@ -65,3 +67,6 @@ export class HeatmapLayout {
     return Math.min(this.rowCount - 1, Math.max(0, row)) * this.columns + Math.min(this.columns - 1, Math.max(0, column));
   }
 }
+
+/** The block's height on the homepage: 8pt above, the squares, the hour axis when there is one, and the caption line. */
+export const blockHeight = (layout: HeatmapLayout, h: UsageHeatmap) => 8 + layout.height + (layout.hourAxis(h) ? 11 : 0) + 15;

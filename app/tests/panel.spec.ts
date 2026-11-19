@@ -29,7 +29,7 @@ test('the homepage shows Summary, the trend, the heatmap, the cards and the rows
   await expect(page.locator('.figure-label').first()).toHaveText('已知 API 估算');
   await expect(page.locator('.legend')).toHaveCount(8);
   await expect(page.locator('.chart path')).not.toHaveCount(0);
-  await expect(page.locator('.squares rect')).toHaveCount(24);
+  await expect(page.locator('.squares rect.cell')).toHaveCount(24);
   await expect(page.locator('.card .name')).toHaveText(['Magpie', 'Claude', 'ChatGPT', 'OpenCode', 'Qoder', 'Gemini CLI', 'Cursor']);
   await expect(page.locator('.card-note').filter({ hasText: '次已由 Magpie 计入' })).toBeVisible();
   await expect(page.locator('.row .title')).toContainText(['ChatGPT 订阅', 'Claude 订阅', 'Cursor 订阅']);
@@ -142,7 +142,7 @@ test('a header hint appears after the pointer rests', async ({ page }) => {
 test('pointing at a heatmap square reads it out on the line below', async ({ page }) => {
   await open(page);
   await expect(page.locator('.caption')).toHaveCount(0);
-  const square = page.locator('.squares rect').nth(10);
+  const square = page.locator('.squares rect.cell').nth(10);
   await square.hover();
   await expect(page.locator('.caption')).toContainText('11月19日 Thu 10:00');
   await expect(page.locator('.caption')).toContainText('Token');
@@ -152,7 +152,7 @@ test('a new range brings its own dashboard', async ({ page }) => {
   await open(page);
   await choose(page, /统计范围/, '近 7 天');
   await expect(page.locator('.picker .current')).toHaveText('近 7 天');
-  await expect(page.locator('.squares rect')).toHaveCount(168);
+  await expect(page.locator('.squares rect.cell')).toHaveCount(168);
   await expect(page.locator('.caption')).toContainText('连续');
   await expect(page.locator('.date').last()).toHaveText('11/19');
 });
