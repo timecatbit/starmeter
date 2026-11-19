@@ -1,6 +1,7 @@
 // The share pictures: their own layouts, never the panel's glass (what shows through depends on each desktop), in six
 // styles picked on the share page, which previews the picture before it is copied, saved or shared. They cover what
-// Summary counts; subscriptions, balances and keys never appear.
+// Summary counts; subscriptions, balances and keys never appear. Every style says the same things in the same order
+// (sharePoster.ts works them out); a new style is a drawing function registered below.
 import { drawCardPicture } from './shareCard';
 import { drawKnitPicture } from './shareKnit';
 import { drawMetroPicture } from './shareMetro';
