@@ -1,0 +1,51 @@
+# Checks every push to main and every pull request on macOS, Windows and Linux: the web UI, the Rust workspace
+# (format, lints, tests) and, on macOS, the Python reference with the parity tests that hold Rust against it.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: check (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-26
+            args: ''
+          # The Python reference is written for macOS; the other two check the UI and the Rust workspace.
+          - os: ubuntu-22.04
+            args: --rust-only
+          - os: windows-2022
+            args: --rust-only
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the libraries Tauri builds against on Linux
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      # A recent Python too: newer versions close database cursors differently, as AGENTS.md notes.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - run: python scripts/check.py ${{ matrix.args }}
