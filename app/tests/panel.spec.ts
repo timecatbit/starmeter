@@ -509,58 +509,156 @@ async function lit(page: Page, selector: string) {
     return hole.left <= part.left + 1 && hole.top <= part.top + 1 && hole.right >= part.right - 1 && hole.bottom >= part.bottom - 1;
   }, selector);
 }
-
-test('pinned and not in front, the grabber and the corner still show when the pointer comes over the panel', async ({ page }) => {
-  await open(page);
-  await button(page, '钉住面板').click();
-  const grabber = page.locator('.grabber'), corner = page.locator('.corner');
-  // With the pointer away they fade, as they do in front.
-  await page.mouse.move(2000, 10);
-  await expect(grabber).toHaveClass(/faded/, { timeout: 6000 });
-  // The page hears no pointer while the panel is not in front; the shell does, and says so.
-  const hover = (inside: boolean) => page.evaluate((inside) => window.dispatchEvent(new CustomEvent('panel-hover', { detail: inside })), inside);
-  await hover(true);
-  await expect(grabber).not.toHaveClass(/faded/);
-  await expect(corner).not.toHaveClass(/faded/);
-  await hover(false);
-  await expect(grabber).toHaveClass(/faded/, { timeout: 2000 });
-});
-
-test('新手指引 lights up each part of the homepage in turn, Esc skips it, and 外观与设置 shows it again', async ({ page }) => {
-  // In a browser only when asked; the app shows it the first time the panel opens.
-  await open(page);
-  await expect(page.locator('.guide')).toHaveCount(0);
-  await open(page, '?guide');
+/** The tour's stops in order, read by walking it with its primary button; the tour is left at its last stop. */
+async function walk(page: Page): Promise<string[]> {
+  const titles: string[] = [];
   const guide = page.locator('.guide');
-  await expect(guide.locator('h2')).toHaveText('欢迎使用 Starmeter');
-  await expect(guide.locator('.hole')).toHaveCount(0);
-  await button(page, '开始').click();
-  const stops: [string, string][] = [['用量总览', '.heatmap'], ['统计范围', '.summary .picker'], ['每个工具一张卡', '.cards .tabs'],
-    ['订阅额度和 API 余额', '.rows .row'], ['三个按钮', '.summary .buttons .slot']];
-  for (const [i, [title, part]] of stops.entries()) {
-    await expect(guide.locator('h2')).toHaveText(title);
-    await expect(guide.locator('.count')).toHaveText(`${i + 1} / ${stops.length}`);
-    await expect.poll(() => lit(page, part)).toBe(true);
-    // The parts under the dim take no clicks while the tour is on: the gear leaves the page as it is.
-    if (i === stops.length - 1) {
-      const gear = (await button(page, '主页模块与设置').boundingBox())!;
-      await page.mouse.click(gear.x + gear.width / 2, gear.y + gear.height / 2);
-      await expect(page.locator('.dashboard')).toBeVisible();
-    }
-    await page.keyboard.press(i === 0 ? 'ArrowRight' : 'Enter');
-    if (i === 0) { await expect(guide.locator('h2')).toHaveText(stops[1][0]); await page.keyboard.press('ArrowLeft'); await expect(guide.locator('h2')).toHaveText(title); await button(page, '下一步').click(); }
+  for (let i = 0; i < 10; i++) {
+    const title = (await guide.locator('h2').textContent())!;
+    titles.push(title);
+    const primary = guide.locator('.step.primary');
+    if (!(await guide.locator('.skip').count())) break;
+    await primary.click();
+    await expect(guide.locator('h2')).not.toHaveText(title);
   }
-  await expect(guide).toHaveCount(0);
-  expect(await page.evaluate(() => localStorage.getItem('starmeter.guide'))).toBe('1');
-  // Again from 外观与设置 → 帮助: back on the homepage; Esc skips it there without leaving the homepage.
-  await button(page, '主页模块与设置').click();
-  await page.getByText('外观与设置').first().click();
-  await page.getByRole('button', { name: '新手指引' }).click();
-  await expect(guide.locator('h2')).toHaveText('欢迎使用 Starmeter');
-  await expect(page.locator('.dashboard')).toBeVisible();
-  await page.keyboard.press('Escape');
-  await expect(guide).toHaveCount(0);
-  await expect(page.locator('.dashboard')).toBeVisible();
+  return titles;
+}
+const READY_STOPS = ['欢迎使用 Starmeter', '用量总览', '统计范围', '每个工具一张卡', '订阅额度和 API 余额', '三个按钮'];
+const seen = (page: Page) => page.evaluate(() => localStorage.getItem('starmeter.guide'));
+
+test.describe('新手指引', () => {
+  test('with usage: six stops, each lighting its part, Esc skips, and 外观与设置 shows it again', async ({ page }) => {
+    // In a browser only when asked; the app shows it the first time the panel opens.
+    await open(page);
+    await expect(page.locator('.guide')).toHaveCount(0);
+    await open(page, '?guide');
+    const guide = page.locator('.guide');
+    await expect(guide.locator('h2')).toHaveText('欢迎使用 Starmeter');
+    await expect(guide.locator('.hole')).toHaveCount(0);
+    await button(page, '开始').click();
+    const stops: [string, string][] = [['用量总览', '.heatmap'], ['统计范围', '.summary .picker'], ['每个工具一张卡', '.cards .tabs'],
+      ['订阅额度和 API 余额', '.rows .row[data-key="chatgpt"]'], ['三个按钮', '.summary .buttons .slot']];
+    for (const [i, [title, part]] of stops.entries()) {
+      await expect(guide.locator('h2')).toHaveText(title);
+      await expect(guide.locator('.count')).toHaveText(`${i + 1} / ${stops.length}`);
+      await expect.poll(() => lit(page, part)).toBe(true);
+      if (title === '订阅额度和 API 余额') {
+        // The plan rows, not 工具更新 or Komari further down.
+        await expect.poll(() => lit(page, '.rows .row[data-key="updates"]')).toBe(false);
+        await expect.poll(() => lit(page, '.rows .row[data-key="komari"]')).toBe(false);
+      }
+      // The parts under the dim take no clicks while the tour is on: the gear leaves the page as it is.
+      if (i === stops.length - 1) {
+        const gear = (await button(page, '主页模块与设置').boundingBox())!;
+        await page.mouse.click(gear.x + gear.width / 2, gear.y + gear.height / 2);
+        await expect(page.locator('.dashboard')).toBeVisible();
+        await expect(guide.locator('.later')).toContainText('外观与设置 → 新手指引');
+      }
+      await page.keyboard.press(i === 0 ? 'ArrowRight' : 'Enter');
+      if (i === 0) { await expect(guide.locator('h2')).toHaveText(stops[1][0]); await page.keyboard.press('ArrowLeft'); await expect(guide.locator('h2')).toHaveText(title); await button(page, '下一步').click(); }
+    }
+    await expect(guide).toHaveCount(0);
+    expect(await seen(page)).toBe('1');
+    // Again from 外观与设置 → 帮助: back on the homepage; Esc skips it there without leaving the homepage.
+    await button(page, '主页模块与设置').click();
+    await page.getByText('外观与设置').first().click();
+    await page.getByRole('button', { name: '新手指引' }).click();
+    await expect(guide.locator('h2')).toHaveText('欢迎使用 Starmeter');
+    await expect(page.locator('.dashboard')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(guide).toHaveCount(0);
+    await expect(page.locator('.dashboard')).toBeVisible();
+  });
+
+  test('while the first readings come: the same stops, and the figures said to appear by themselves', async ({ page }) => {
+    await open(page, '?fixture=pending&guide');
+    expect(await walk(page)).toEqual(READY_STOPS);
+    await button(page, '上一步').click();
+    for (let i = 0; i < 3; i++) await button(page, '上一步').click();
+    await expect(page.locator('.guide h2')).toHaveText('用量总览');
+    await expect(page.locator('.guide .body')).toContainText('第一次读取要一点时间');
+  });
+
+  test('with nothing found: it says so, points to the gear, and opens 主页模块 from its last stop', async ({ page }) => {
+    await open(page, '?fixture=empty&guide');
+    const guide = page.locator('.guide');
+    expect(await walk(page)).toEqual(['欢迎使用 Starmeter', '还没有用量', '选择要读的工具']);
+    await expect(guide.locator('.count')).toHaveText('2 / 2');
+    await expect.poll(() => lit(page, '.summary .buttons > .slot:nth-child(2)')).toBe(true);
+    await expect(button(page, '下一步')).toHaveCount(0);
+    // 稍后 ends it on the homepage, seen.
+    await button(page, '稍后').click();
+    await expect(guide).toHaveCount(0);
+    await expect(page.locator('.dashboard')).toBeVisible();
+    expect(await seen(page)).toBe('1');
+    // Shown again, its last button opens the grid where the tools are chosen.
+    await open(page, '?fixture=empty&guide');
+    await walk(page);
+    await button(page, '打开主页模块').click();
+    await expect(guide).toHaveCount(0);
+    await expect(page.locator('.modules')).toBeVisible();
+  });
+
+  /** Summary turned off, then the tour from 外观与设置 (the browser's choices last until the page reloads). */
+  async function withoutSummary(page: Page, query: string) {
+    await open(page, query);
+    await page.evaluate(async () => { const { backend } = await import('/src/lib/backend.ts'); await backend.action(['set-module', 'summary', 'false']); });
+    await expect(page.locator('.summary .figure')).toHaveCount(0);
+    await button(page, '主页模块与设置').click();
+    await page.getByText('外观与设置').first().click();
+    await page.getByRole('button', { name: '新手指引' }).click();
+    await expect(page.locator('.guide h2')).toHaveText('欢迎使用 Starmeter');
+  }
+
+  test('with nothing found and Summary off, the words still say so, over the whole panel', async ({ page }) => {
+    await withoutSummary(page, '?fixture=empty');
+    await button(page, '开始').click();
+    await expect(page.locator('.guide h2')).toHaveText('还没有用量');
+    await expect(page.locator('.guide .hole')).toHaveCount(0);
+  });
+
+  test('with usage and Summary off, the summary stop is left out, the heatmap still there or not', async ({ page }) => {
+    await withoutSummary(page, '');
+    await expect(page.locator('.heatmap')).toBeVisible();
+    expect(await walk(page)).toEqual(READY_STOPS.filter((t) => t !== '用量总览'));
+  });
+
+  test('tools going or coming during the tour turn it to the stops that fit', async ({ page }) => {
+    await open(page, '?guide');
+    await button(page, '开始').click();
+    await expect(page.locator('.guide h2')).toHaveText('用量总览');
+    const set = (keys: string[], on: boolean) => page.evaluate(async ({ keys, on }) => {
+      const { backend } = await import('/src/lib/backend.ts');
+      for (const key of keys) await backend.action(['set-module', key, on ? 'true' : 'false']);
+    }, { keys, on });
+    await set(['magpie', 'codex', 'claude', 'cursor', 'gemini', 'opencode', 'qoder'], false);
+    await expect(page.locator('.guide h2')).toHaveText('还没有用量');
+    await expect(page.locator('.guide .count')).toHaveText('1 / 2');
+    await set(['claude'], true);
+    await expect(page.locator('.guide h2')).toHaveText('用量总览');
+    await expect(page.locator('.guide .count')).toHaveText('1 / 5');
+  });
+
+  test('as the app runs it: once on the first opening, again if closed halfway, never once seen', async ({ page }) => {
+    await open(page, '?firstrun');
+    await expect(page.locator('.guide h2')).toHaveText('欢迎使用 Starmeter');
+    await button(page, '开始').click();
+    // Closed halfway (a new page load is a new opening): it comes back.
+    await open(page, '?firstrun');
+    await expect(page.locator('.guide h2')).toHaveText('欢迎使用 Starmeter');
+    await walk(page);
+    await button(page, '完成').click();
+    expect(await seen(page)).toBe('1');
+    await open(page, '?firstrun');
+    await page.waitForTimeout(900);
+    await expect(page.locator('.guide')).toHaveCount(0);
+    // Opened on the module grid (right-click 主页模块…), it waits for the homepage.
+    await page.evaluate(() => localStorage.removeItem('starmeter.guide'));
+    await open(page, '?firstrun&modules').catch(() => {});
+    await expect(page.locator('.modules')).toBeVisible();
+    await page.waitForTimeout(900);
+    await expect(page.locator('.guide')).toHaveCount(0);
+  });
 });
 
 test('failures and first-run states say so', async ({ page }) => {

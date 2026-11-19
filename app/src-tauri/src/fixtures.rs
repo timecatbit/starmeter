@@ -1,13 +1,14 @@
 //! Stand-in data until starmeter-core is wired in: the synthetic fixtures in app/ui/fixtures, with the choices made in
 //! the panel kept, as app/ui/src/lib/fixtureBackend.ts keeps them for the browser preview. Pick a scenario with
-//! STARMETER_FIXTURE=failed or pending.
+//! STARMETER_FIXTURE=failed, pending or empty.
 
 use serde_json::{Map, Value, json};
 
-const SCENARIOS: [(&str, &str); 3] = [
+const SCENARIOS: [(&str, &str); 4] = [
     ("default", include_str!("../../ui/fixtures/default.json")),
     ("failed", include_str!("../../ui/fixtures/failed.json")),
     ("pending", include_str!("../../ui/fixtures/pending.json")),
+    ("empty", include_str!("../../ui/fixtures/empty.json")),
 ];
 
 /// The logos the fixtures name as logo:<file>; the engine sends the files themselves, base64.

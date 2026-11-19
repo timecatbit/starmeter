@@ -116,7 +116,17 @@ export const phrases: Record<string, string> = {
   三个按钮: 'Three buttons',
   '图钉：钉住后面板浮在最上层并实时刷新，可以拖动、调大小。齿轮：选择主页显示哪些模块，设置目录、Key、语言和外观。分享：把用量做成一张图。':
     'Pin: keep the panel on top, refreshing live; drag it and resize it. Gear: choose what the homepage shows, and set folders, keys, language and look. Share: turn your usage into a picture.',
-  '以后可以在 外观与设置 → 新手指引 再看一遍。': 'You can take this tour again from Settings → Quick tour.', 复制图片: 'Copy picture', 已复制: 'Copied', 复制失败: 'Copy failed', '保存…': 'Save…', 已保存: 'Saved',
+  '以后可以在 外观与设置 → 新手指引 再看一遍。': 'You can take this tour again from Settings → Quick tour.',
+  '最上面是这段时间的 API 等值估算、Token 和请求数，下面是趋势和热力图。第一次读取要一点时间，读到以后数字会自己出现。':
+    'At the top: the API-equivalent estimate, tokens and requests for the range; below, the trend and the heatmap. The first reading takes a moment; the figures appear by themselves.',
+  还没有用量: 'No usage yet',
+  '这台电脑上还没找到 AI 编程工具的用量记录。Starmeter 读的是 Claude Code、Codex、Cursor、Gemini CLI 等工具自己留在本机的记录：装好其中一个、用过一次，这里就会出现数字。':
+    'No AI coding tool has left usage records on this computer yet. Starmeter reads the records Claude Code, Codex, Cursor, Gemini CLI and others keep here: install one and use it once, and the figures appear.',
+  选择要读的工具: 'Choose your tools',
+  '点齿轮打开“主页模块”，勾选你在用的工具；工具的记录不在默认位置时，点它的名字选文件夹。“外观与设置”里的“自动检测”会把这台电脑上找得到的都勾上。':
+    'The gear opens Home modules: tick the tools you use, and click a tool\'s name to pick its folder when its records live elsewhere. Auto-detect in Settings ticks every tool it finds on this computer.',
+  打开主页模块: 'Open Home modules', 稍后: 'Later', 尚未勾选工具: 'No tools chosen yet',
+  复制图片: 'Copy picture', 已复制: 'Copied', 复制失败: 'Copy failed', '保存…': 'Save…', 已保存: 'Saved',
   '分享…': 'Share…', 没能画出来: 'Couldn\'t draw it', 正在生成: 'Drawing', 卡片: 'Card', 终端: 'Terminal', 手绘: 'Sketch', 报刊: 'Paper',
   夜空: 'Night sky', 地铁: 'Metro', 织物: 'Knit', 收据: 'Receipt', 蓝图: 'Blueprint', 霓虹: 'Neon',
   // Questions

@@ -529,7 +529,7 @@ impl Runtime {
             object! { "badge" => status, "panelattention" => count > 0, "sfimage" => "arrow.down.circle" },
         )];
         if rows.is_empty() {
-            lines.push(item("尚未勾选 Harness", 1, object! { "color" => MUTED_COLOR, "size" => 11 }));
+            lines.push(item("尚未勾选工具", 1, object! { "color" => MUTED_COLOR, "size" => 11 }));
         }
         for row in &rows {
             let id = py::str(row.get("id"));

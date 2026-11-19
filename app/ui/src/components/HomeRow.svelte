@@ -34,7 +34,7 @@
 {#if entry.section}
   <div class="section" style:padding-left="{left}px">{entry.label}</div>
 {:else}
-  <button class="row pressable" class:detailed={entry.detail !== undefined} class:tall={canAct} disabled={!canAct}
+  <button class="row pressable" class:detailed={entry.detail !== undefined} class:tall={canAct} disabled={!canAct} data-key={entry.onOpenAction?.[1]}
     style:padding-left="{left}px" style:padding-right="{trailing}px" style:--title-size={canAct ? '12px' : '10.5px'}
     onclick={() => onactivate(entry)}>
     {#if entry.checked !== undefined}

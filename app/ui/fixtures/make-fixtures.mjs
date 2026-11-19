@@ -719,9 +719,20 @@ function homeEntries(state) {
   return { rows, keys };
 }
 
+/** A first run on a computer where nothing was found: Summary, the heatmap and 工具更新 with no tool to check. */
+function emptyHomeEntries() {
+  const updates = entry('工具更新', { symbol: 'arrow.down.circle', onOpenAction: ['refresh-source', 'updates'] }, [
+    entry('尚未勾选工具'), separator(),
+    entry('立即检查更新', { symbol: 'arrow.clockwise', action: ['check-app-updates'] }),
+    entry('选择工具…', { symbol: 'slider.horizontal.3', action: ['panel-modules'] }),
+  ]);
+  return { rows: [updates], keys: ['updates'] };
+}
+
 function scenario(state) {
-  const prefs = { revision: 1, visible, appearance: 'solid', theme: 'system', allowCollapse: false, expandedProviders: [] };
-  const { rows, keys } = homeEntries(state);
+  const empty = state === 'empty';
+  const prefs = { revision: 1, visible: empty ? ['summary', 'heatmap', 'updates'] : visible, appearance: 'solid', theme: 'system', allowCollapse: false, expandedProviders: [] };
+  const { rows, keys } = empty ? emptyHomeEntries() : homeEntries(state);
   const dashboards = {}, cards = {};
   for (const [key, label] of ranges) {
     const d = dashboard(key, label);
@@ -732,6 +743,11 @@ function scenario(state) {
       d.heatmap = { ...d.heatmap, tokens: d.heatmap.tokens.map(() => 0), requests: d.heatmap.requests.map(() => 0), costs: d.heatmap.costs.map(() => 0),
         unpriced: d.heatmap.unpriced.map(() => 0), status: '待同步', streak: null };
     }
+    if (empty) {
+      d.providers = []; d.chartStatus = ''; d.updated = ''; d.chartPositions = null;
+      d.heatmap = { ...d.heatmap, tokens: d.heatmap.tokens.map(() => 0), requests: d.heatmap.requests.map(() => 0), costs: d.heatmap.costs.map(() => 0),
+        unpriced: d.heatmap.unpriced.map(() => 0), status: null, streak: null };
+    }
     if (state === 'failed') {
       d.chartStatus = '部分图表数据不可用'; d.updated = '更新时间：15:25';
       d.providers = d.providers.map((p) => p.id === 'gemini' ? { ...p, available: false, status: '读取失败：~/.gemini/tmp 不可读', cost: null, models: [], priceNote: null }
@@ -739,12 +755,13 @@ function scenario(state) {
     }
     for (const p of d.providers) if (p.counted === undefined) delete p.counted;
     dashboards[key] = d;
-    cards[key] = state === 'pending' ? { model: [], project: [] } : groupCards(key);
+    cards[key] = state === 'pending' || empty ? { model: [], project: [] } : groupCards(key);
   }
   return {
     snapshot: { schema: 1, project: { name: 'Starmeter', url: 'https://github.com/timecatbit/starmeter' }, dashboard: null, menuBarText: '', pinInterval: 2,
       entries: rows, rangeOptions: ranges.map(([key, label]) => entry(label, { action: ['set-range', key], checked: key === 'today' })),
-      moduleOptions: moduleOptions(prefs, rows), appearance: prefs.appearance, theme: prefs.theme, preferences: prefs, updateCount: 3 },
+      moduleOptions: moduleOptions(prefs, rows).map((o) => (empty && o.value === '已配置' ? { ...o, value: '未配置' } : o)), appearance: prefs.appearance,
+      theme: prefs.theme, preferences: prefs, updateCount: empty ? 0 : 3 },
     // Fixture-only: which module each homepage row belongs to (null for separators and the self-update row), so the
     // fixture backends can hide a row when its module is turned off, as the engine does.
     entryModules: keys,
@@ -753,7 +770,7 @@ function scenario(state) {
   };
 }
 
-for (const state of ['default', 'failed', 'pending']) {
+for (const state of ['default', 'failed', 'pending', 'empty']) {
   writeFileSync(new URL(state + '.json', out), JSON.stringify(scenario(state)) + '\n');
   console.log('wrote', state + '.json');
 }

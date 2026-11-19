@@ -1,6 +1,6 @@
 // The fixture backend for a plain browser (dev server, Playwright). It serves app/ui/fixtures/*.json and keeps the
 // choices made in the panel, as the Tauri app's fixture backend (app/src-tauri/src/fixtures.rs) does; the two follow
-// the same rules. Pick a scenario with ?fixture=failed or ?fixture=pending.
+// the same rules. Pick a scenario with ?fixture=failed, ?fixture=pending or ?fixture=empty (a first run that found nothing).
 import type { ActionReceipt, Dashboard, Entry, PresentationPreferences, ProviderUsage, Question, Snapshot } from './types';
 import { addPhrases } from './i18n.svelte';
 

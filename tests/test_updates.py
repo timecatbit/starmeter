@@ -318,7 +318,7 @@ class UpdateTests(unittest.TestCase):
    self.m.app_updates_cached();loaders=self.m.external_loaders()
   probe.assert_not_called();proxy.assert_not_called()
   self.assertNotIn('app_updates',loaders);self.assertNotIn('badge',loaders)
-  self.assertIn('尚未勾选 Harness','\n'.join(self.m.app_update_lines({})))
+  self.assertIn('尚未勾选工具','\n'.join(self.m.app_update_lines({})))
  def test_selected_harness_is_the_only_network_probe(self):
   self.select('claude')
   with patch.object(self.m,'app_update_probe',return_value=self.row()) as probe:

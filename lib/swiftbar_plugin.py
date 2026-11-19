@@ -1569,7 +1569,7 @@ def app_update_lines(data):
     running=any(r['id']=='opencodex' for r in rows) and auto_update_state().get('status')=='running'
     status=('%d 项待更新'%count) if count else ('自动更新中' if running else None)
     lines=[item('工具更新',badge=status,panelattention=bool(count),sfimage='arrow.down.circle')]
-    if not rows:lines.append(item('尚未勾选 Harness',level=1,color=MUTED,size=11))
+    if not rows:lines.append(item('尚未勾选工具',level=1,color=MUTED,size=11))
     for row in rows:
         label=row['name']+' · '+row['status'].replace('自动更新已开启 · ','')
         detail='尚未接入自动版本检查' if row.get('manual') else (row.get('current') or '版本待确认')

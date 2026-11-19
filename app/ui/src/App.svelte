@@ -11,12 +11,12 @@
   import { font, width as measure } from './lib/measure';
   import { pageIn, pageOut } from './lib/motion';
   import { ask, show as showQuestion } from './lib/ask.svelte';
-  import { chooseLanguage, localize, t } from './lib/i18n.svelte';
+  import { chooseLanguage, localize, source, t } from './lib/i18n.svelte';
   import { panel } from './lib/ui.svelte';
   import type { Dashboard as DashboardData, Entry, ShellInfo, Snapshot } from './lib/types';
   import Dashboard from './components/Dashboard.svelte';
   import DetailPage from './components/DetailPage.svelte';
-  import Guide from './components/Guide.svelte';
+  import Guide, { type GuideState } from './components/Guide.svelte';
   import HomePage from './components/HomePage.svelte';
   import InlineAsk from './components/InlineAsk.svelte';
   import ModulesPage from './components/ModulesPage.svelte';
@@ -317,10 +317,29 @@
   });
 
   // 新手指引: once, the first time the panel opens on its homepage (the web view keeps that it was seen); again from
-  // 外观与设置 → 新手指引. In a browser (the fixtures, the screenshots) only when the address asks for it with ?guide.
+  // 外观与设置 → 新手指引. In a browser (the fixtures, the screenshots) only when the address asks: ?guide shows it
+  // every time, ?firstrun as the app does.
   const GUIDE = 'starmeter.guide';
+  const address = typeof location === 'undefined' ? new URLSearchParams() : new URLSearchParams(location.search);
+  const firstRuns = inTauri || address.has('firstrun');
   let guiding = $state(false);
-  let guideWanted = $state(!inTauri && typeof location !== 'undefined' && new URLSearchParams(location.search).has('guide'));
+  let guideWanted = $state(!inTauri && address.has('guide'));
+  /** What the tour has to show: no tool on the homepage yet, tools still being read, or usage. */
+  const guideState = $derived.by((): GuideState => {
+    const providers = snapshot?.dashboard?.providers ?? [];
+    if (!providers.length) return 'empty';
+    return providers.every((p) => !p.available) ? 'loading' : 'ready';
+  });
+  /** The modules of the plan and API rows (the 订阅用量 and API groups of 主页模块), by their Chinese names. */
+  const planKeys = $derived.by(() => {
+    const keys = new Set<string>();
+    let inside = false;
+    for (const e of snapshot?.moduleOptions ?? []) {
+      if (e.section) { const name = source(e).label; inside = name === '订阅用量' || name === 'API'; continue; }
+      if (inside && e.action?.[0] === 'set-module' && e.action[1]) keys.add(e.action[1]);
+    }
+    return keys;
+  });
   let windowBox: HTMLDivElement | undefined = $state();
   const guideSeen = () => { try { return localStorage.getItem(GUIDE) === '1'; } catch { return false; } };
   // Ready once the homepage is there; a yes or no, so the readings that keep arriving on a first run (each a new
@@ -485,7 +504,7 @@
     startOver(modules);
     void reload();
     if (!modules) perform(['refresh-view']);
-    if (!modules && inTauri && !guideSeen()) guideWanted = true;
+    if (!modules && firstRuns && !guideSeen()) guideWanted = true;
     void revealWhenDrawn();
   }
 
@@ -607,7 +626,8 @@
     </span>
   {/if}
   {#if guiding && windowBox}
-    <Guide container={windowBox} onfinish={endGuide} />
+    <Guide container={windowBox} stage={guideState} rowKeys={planKeys} onfinish={endGuide}
+      onmodules={() => { endGuide(); openSettings(); }} />
   {/if}
   {#if ask.current && sheetReady && ask.placed === 0}
     <!-- A question no row on screen asked (from the homepage or the grid): the panel shows it at its foot. -->
