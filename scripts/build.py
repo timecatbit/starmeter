@@ -10,6 +10,7 @@ import plistlib
 import shutil
 import subprocess
 import sys
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 MAC_TARGETS = ('aarch64-apple-darwin', 'x86_64-apple-darwin')
@@ -127,24 +128,31 @@ def build_app(output, flavor='app', universal=False, target=None, bundles=None, 
         shutil.rmtree(output)
     if sys.platform == 'darwin':
         built = release / 'bundle' / 'macos' / (names['productName'] + '.app')
-        # ditto merges into an existing bundle, so a file the new build no longer has would stay and break its seal.
-        subprocess.run(['ditto', '--norsrc', '--noextattr', str(built), str(output)], check=True)
-        info = output / 'Contents' / 'Info.plist'
-        metadata = plistlib.loads(info.read_bytes())
-        # A menu bar app: no Dock icon, and the panel opens over the app the user was in.
-        metadata.update(LSUIElement=True, CFBundleDisplayName='Starmeter')
-        if flavor == 'app':
-            metadata.update(TokenMonitorStandalone=True, NSAppleEventsUsageDescription='在你点击更新 CLI 时打开终端并显示结果。')
-        info.write_bytes(plistlib.dumps(metadata))
-        # codesign --deep leaves programs among the resources alone; the engine is signed on its own first.
-        for file in sorted((output / 'Contents' / 'Resources').rglob('*')):
-            if file.is_file() and not file.is_symlink():
-                with file.open('rb') as stream:
-                    magic = stream.read(4)
-                if magic in MACH_O:
-                    sign(file, identity)
-        sign(output, identity)
-        subprocess.run(['codesign', '--verify', '--deep', '--strict', str(output)], check=True)
+        # Put together, signed and checked in a folder of its own outside the checkout, then copied where it was asked
+        # for: a synced folder (iCloud's 文稿 and 桌面) gives a new bundle Finder information within seconds, which the
+        # strict check refuses though the seal is sound.
+        with tempfile.TemporaryDirectory() as scratch:
+            bundle = Path(scratch) / output.name
+            subprocess.run(['ditto', '--norsrc', '--noextattr', str(built), str(bundle)], check=True)
+            info = bundle / 'Contents' / 'Info.plist'
+            metadata = plistlib.loads(info.read_bytes())
+            # A menu bar app: no Dock icon, and the panel opens over the app the user was in.
+            metadata.update(LSUIElement=True, CFBundleDisplayName='Starmeter')
+            if flavor == 'app':
+                metadata.update(TokenMonitorStandalone=True, NSAppleEventsUsageDescription='在你点击更新 CLI 时打开终端并显示结果。')
+            info.write_bytes(plistlib.dumps(metadata))
+            # codesign --deep leaves programs among the resources alone; the engine is signed on its own first.
+            for file in sorted((bundle / 'Contents' / 'Resources').rglob('*')):
+                if file.is_file() and not file.is_symlink():
+                    with file.open('rb') as stream:
+                        magic = stream.read(4)
+                    if magic in MACH_O:
+                        sign(file, identity)
+            sign(bundle, identity)
+            subprocess.run(['codesign', '--verify', '--deep', '--strict', str(bundle)], check=True)
+            # The old bundle was removed above: ditto would merge into it, and a file the new build no longer has
+            # would stay and break its seal.
+            subprocess.run(['ditto', '--norsrc', '--noextattr', str(bundle), str(output)], check=True)
     else:
         program = names['mainBinaryName'] + ('.exe' if os.name == 'nt' else '')
         output.mkdir(parents=True)
