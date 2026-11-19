@@ -10,10 +10,10 @@ use crate::claude_usage::state_of;
 use crate::files::{self, paths};
 use crate::harness::is_absolute;
 use crate::http::{self, Request};
-use crate::json::{Format, Json, Object};
+use crate::json::{Json, Object};
 use crate::runtime::{Loaded, Runtime, now};
 use crate::time::IsoTime;
-use crate::{claude_app, object, platform, py, shell};
+use crate::{claude_app, object, platform, py};
 
 const FIVE_HOURS: f64 = 5.0 * 3600.0;
 const WEEK: f64 = 7.0 * 86400.0;
@@ -561,8 +561,10 @@ fn query_usage(token: &str) -> Result<Object, OAuthError> {
     Ok(result)
 }
 
+#[cfg(target_os = "macos")]
 const RENEW_SECONDS: f64 = 30.0;
 
+#[cfg(target_os = "macos")]
 fn renewed(before: &str) -> bool {
     credentials().is_ok_and(|(_, expires, owner)| owner != before && expires > now() + 30.0)
 }
@@ -573,6 +575,9 @@ fn renewed(before: &str) -> bool {
 fn renew_with_claude(before: Option<&str>) -> Result<(), OAuthError> {
     use std::os::unix::process::CommandExt;
     use std::time::{Duration, Instant};
+
+    use crate::json::Format;
+    use crate::shell;
     let environment: std::collections::HashMap<String, String> = std::env::vars().collect();
     let binary = shell::which("claude", &environment)
         .ok_or_else(|| oauth_error("expired", "登录已过期，请安装并登录 Claude Code"))?;
