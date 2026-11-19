@@ -56,6 +56,14 @@ pub struct Panel {
     /// When the shell last set the window's size, to tell the user's resizing from it (Windows, Linux).
     #[cfg(not(target_os = "macos"))]
     sized_at: Mutex<Instant>,
+    /// Pinned and moved: the left edge the user chose, and where (and when) the shell last put it.
+    left: Mutex<Left>,
+}
+
+#[derive(Default)]
+struct Left {
+    chosen: Option<f64>,
+    placed: Option<(f64, Instant)>,
 }
 
 impl Panel {
@@ -77,6 +85,7 @@ impl Panel {
             openings: AtomicU64::new(0),
             #[cfg(not(target_os = "macos"))]
             sized_at: Mutex::new(Instant::now()),
+            left: Mutex::new(Left::default()),
         }
     }
 }
@@ -139,6 +148,25 @@ fn work_area(app: &AppHandle, point: (f64, f64)) -> Option<(f64, f64, f64, f64)>
 }
 
 /// The user moved or resized the pinned panel: it keeps its place instead of going back under the star.
+/// A moved panel's left edge for a page: where the user put it. A wider page (the module grid) slides it left to stay
+/// on its screen, and the narrower pages after it go back to the user's place instead of staying where the wide one
+/// left them. The window standing elsewhere than the shell put it, once any animation is over, means the user moved it.
+fn chosen_left(state: &Panel, now: f64) -> f64 {
+    let mut left = state.left.lock().expect("the left lock");
+    let moved = match left.placed {
+        Some((x, at)) => at.elapsed() > Duration::from_millis(400) && (x - now).abs() > 0.5,
+        None => true,
+    };
+    if moved || left.chosen.is_none() {
+        left.chosen = Some(now);
+    }
+    left.chosen.unwrap_or(now)
+}
+
+fn placed_left(state: &Panel, x: f64) {
+    state.left.lock().expect("the left lock").placed = Some((x, Instant::now()));
+}
+
 fn free(state: &Panel) -> bool {
     state.moved.load(Ordering::SeqCst) || state.sized.load(Ordering::SeqCst)
 }
@@ -157,7 +185,13 @@ fn place(app: &AppHandle, animate: bool) {
     {
         let current = macos::frame(&window);
         let target = match current.filter(|_| free(&state)) {
-            Some(current) => macos::free_frame(current, width, height),
+            Some(current) => {
+                let mut chosen = current;
+                chosen.origin.x = chosen_left(&state, current.origin.x);
+                let target = macos::free_frame(chosen, width, height);
+                placed_left(&state, target.origin.x);
+                target
+            }
             None => macos::panel_frame(anchor, width, height),
         };
         let start = if animate { current } else { None };
@@ -188,7 +222,8 @@ fn place(app: &AppHandle, animate: bool) {
             // Moved by the user: the top left stays, the bottom no lower than its screen's working area.
             Some(start) => {
                 let Some(area) = work_area(app, (start.x + 1.0, start.y + 1.0)) else { return };
-                let x = start.x.min(area.0 + area.2 - width).max(area.0);
+                let x = chosen_left(&state, start.x).min(area.0 + area.2 - width).max(area.0);
+                placed_left(&state, x);
                 let y = start.y.max(area.1);
                 (x, y, height.min(area.1 + area.3 - y))
             }
@@ -440,6 +475,7 @@ fn set_pinned_state(app: &AppHandle, pinned: bool) {
     if !pinned {
         state.moved.store(false, Ordering::SeqCst);
         state.sized.store(false, Ordering::SeqCst);
+        *state.left.lock().expect("the left lock") = Left::default();
         set_resizable(app, false);
     }
     #[cfg(target_os = "macos")]
@@ -744,4 +780,23 @@ pub fn system_symbol(app: AppHandle, name: String, points: f64) -> Option<String
 pub fn system_symbol(name: String, points: f64) -> Option<String> {
     let _ = (name, points);
     None
+}
+
+#[cfg(test)]
+mod left_tests {
+    use super::*;
+
+    #[test]
+    fn a_wide_page_slides_a_moved_panel_and_the_next_page_puts_it_back() {
+        let state = Panel::new(Mode::Standalone);
+        // The user's place, then the module grid slides it 228pt left to fit on screen.
+        assert_eq!(chosen_left(&state, 1000.0), 1000.0);
+        placed_left(&state, 772.0);
+        // Back on a narrower page, the window still where the grid left it: the user's place again.
+        assert_eq!(chosen_left(&state, 772.0), 1000.0);
+        placed_left(&state, 1000.0);
+        // The user drags it elsewhere (some time after the shell last placed it): that is their place now.
+        state.left.lock().unwrap().placed = Some((1000.0, Instant::now() - Duration::from_secs(2)));
+        assert_eq!(chosen_left(&state, 500.0), 500.0);
+    }
 }
