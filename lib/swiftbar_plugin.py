@@ -4392,7 +4392,7 @@ def run_action(name, extra):
         key=extra[0] if len(extra)==1 else ''
         if key not in preferences.MENU_BAR:raise ValueError('invalid menu bar value')
         preferences.update(STATE_DIR,'menu-bar',key)
-        if key=='cost':schedule_background_refresh()
+        if key in ('cost','speed'):schedule_background_refresh()
     elif name == "set-group":
         key=extra[0] if len(extra)==1 else ''
         if key not in GROUPINGS:raise ValueError('invalid grouping')
