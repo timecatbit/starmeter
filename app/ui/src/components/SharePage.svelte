@@ -5,8 +5,6 @@
   // reader.
   import { onDestroy, untrack } from 'svelte';
   import { inTauri, shell } from '../lib/backend';
-  import { summaryProviders } from '../lib/chart';
-  import { money, tokens } from '../lib/format';
   import { renderPicture, shareStyles, type Picture, type ShareStyle } from '../lib/share';
   import { SCALE } from '../lib/shareCommon';
   import { moveWindow, panel } from '../lib/ui.svelte';
@@ -26,17 +24,6 @@
   let mode = $state<'light' | 'dark' | null>(stored(MODE) === 'light' || stored(MODE) === 'dark' ? (stored(MODE) as 'light' | 'dark') : null);
   const dark = $derived(mode ? mode === 'dark' : panel.dark);
   const frozen = untrack(() => $state.snapshot(dashboard)) as Dashboard;
-  // What the picture says, beside it, so the reader knows what they share before they share it (and what never goes in).
-  const counted = summaryProviders(frozen).filter((p) => p.available);
-  const known = counted.some((p) => p.cost === null || p.unpriced > 0);
-  const cost = counted.map((p) => p.cost).filter((c) => c !== null);
-  const used = counted.filter((p) => p.tokens > 0 || p.requests > 0);
-  const toolNames = used.length > 3 ? `${used.slice(0, 3).map((p) => p.name).join('、')} 等 ${used.length} 个` : used.map((p) => p.name).join('、');
-  const contents = [
-    `${frozen.rangeLabel} · ${known ? '已知 ' : ''}API 等值估算 ${money(cost.length ? cost.reduce((a, b) => a + b, 0) : null)}`,
-    `${tokens(counted.reduce((s, p) => s + p.tokens, 0))} Token · ${counted.reduce((s, p) => s + p.requests, 0)} 次请求`,
-    ...(used.length ? [`工具：${toolNames}`] : []),
-  ];
   const pictures = new Map<string, Picture>();
   let picture = $state<Picture | null>(null);
   /** The style the picture on screen was drawn in: the menu changes at once, the picture once it is drawn. */
@@ -143,12 +130,6 @@
               <button class="mode pressable" class:chosen={dark} role="radio" aria-checked={dark} onclick={() => pickMode('dark')}>深色</button>
             </div>
           </div>
-          <div class="contents">
-            <span class="setting-name">图里有</span>
-            {#each contents as line (line)}<p>{line}</p>{/each}
-            <span class="setting-name">不含</span>
-            <p>订阅、余额、Key 和对话内容</p>
-          </div>
           <div class="spacer"></div>
           {#if picture}<p class="size">{Math.round(picture.width * SCALE)} × {Math.round(picture.height * SCALE)} 像素 · PNG</p>{/if}
           <div class="actions">
@@ -218,16 +199,7 @@
   /* Settings at the top, what to do with the picture at the bottom, level with the picture's foot. */
   .controls { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
   .spacer { flex: 1; }
-  .contents {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    padding-top: 12px;
-    border-top: 0.5px solid var(--separator);
-  }
-  .contents .setting-name { margin-top: 4px; }
-  .contents .setting-name:first-child { margin-top: 0; }
-  .contents p { margin: 0; font-size: 11.5px; line-height: 1.45; color: var(--label); overflow-wrap: anywhere; }
+
   .setting { display: flex; flex-direction: column; align-items: stretch; gap: 5px; }
   .setting-name { font-size: 11px; color: var(--secondary); }
   .size { margin: 0 0 -6px; font-size: 10px; color: var(--tertiary); font-variant-numeric: tabular-nums; }
