@@ -7,6 +7,10 @@
 
 <p align="center"><b>简体中文</b> · <a href="README.en.md">English</a> · <a href="https://timecatbit.github.io/starmeter/">网站</a> · <a href="#下载与安装">下载与安装</a></p>
 
+> [!IMPORTANT]
+> **Mac 用户请先用 SwiftBar 插件版。**
+> 我还没有加入 Apple 开发者计划，独立版 DMG 暂时没有经过苹果签名和公证：第一次打开会被 macOS 拦下，要到“系统设置 → 隐私与安全性”里手动放行，之后的更新也可能要再放行一次。SwiftBar 插件版用的是同一个面板和同一套统计，装起来没有这一步，所以现在推荐先用它（[安装方法](#下载与安装)）。等我加入开发者计划、DMG 完成公证，会在这里更新，到时再换成独立版也不迟。
+
 <p align="center">
   <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/home-dark.png"><img src="docs/images/home-light.png" width="250" align="top" alt="主页：今天的 API 估算、Token 和请求，趋势图、热力图和各工具卡片"></picture>
   <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/subscription-dark.png"><img src="docs/images/subscription-light.png" width="250" align="top" alt="Claude 订阅：每个窗口已用多少、何时重置、比匀速多用还是少用"></picture>
@@ -43,11 +47,11 @@ Starmeter 是 macOS 菜单栏（独立 App 或 SwiftBar 插件）和 Windows 托
 
 | 你的电脑 | 发布页上的名字 | 文件名 |
 | --- | --- | --- |
-| Mac，Apple M 系列芯片 | **Mac · Apple Silicon** | `token-monitor-X.Y.Z-macos-apple-silicon.dmg` |
-| Mac，Intel 处理器 | **Mac · Intel** | `token-monitor-X.Y.Z-macos-intel.dmg` |
+| Mac，Apple M 系列芯片（未公证） | **Mac · Apple Silicon** | `token-monitor-X.Y.Z-macos-apple-silicon.dmg` |
+| Mac，Intel 处理器（未公证） | **Mac · Intel** | `token-monitor-X.Y.Z-macos-intel.dmg` |
 | Windows 10/11（推荐） | **Windows · Installer** | `token-monitor-X.Y.Z-windows-x64-setup.exe` |
 | Windows 10/11，不想安装 | **Windows · Portable** | `token-monitor-X.Y.Z-windows-x64.zip` |
-| Mac，已经在用 SwiftBar | **Mac · SwiftBar plugin** | `token-monitor-X.Y.Z.zip`，不分芯片 |
+| Mac，现在推荐（需先装 SwiftBar） | **Mac · SwiftBar plugin** | `token-monitor-X.Y.Z.zip`，不分芯片 |
 
 不确定 Mac 芯片？点屏幕左上角的苹果菜单 → **关于本机**：显示「芯片：Apple M…」选 Apple Silicon，显示「处理器：Intel…」选 Intel。每个文件旁的 `sha256:` 是 GitHub 给出的校验值，需要时可以和下载的文件比对。
 

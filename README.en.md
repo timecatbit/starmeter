@@ -7,6 +7,10 @@ Each tool's tokens and API-equivalent cost, subscription limits, API balances an
 
 <p align="center"><a href="README.md">简体中文</a> · <b>English</b> · <a href="https://timecatbit.github.io/starmeter/">Website</a> · <a href="#download-and-install">Download and install</a></p>
 
+> [!IMPORTANT]
+> **On a Mac, start with the SwiftBar plugin for now.**
+> I haven't joined the Apple Developer Program yet, so the standalone DMG isn't signed or notarized by Apple: macOS blocks it the first time, you have to allow it in System Settings → Privacy & Security, and an update may need that again. The SwiftBar plugin runs the same panel and counts the same way without that step, so it's the recommended way for now ([how to install](#download-and-install)). Once I've joined and the DMG is notarized, this note will say so, and you can switch then.
+
 <p align="center">
   <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/en/home-dark.png"><img src="docs/images/en/home-light.png" width="250" align="top" alt="Home: today's API estimate, tokens and requests, the trend, the heatmap and a card per tool"></picture>
   <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/en/subscription-dark.png"><img src="docs/images/en/subscription-light.png" width="250" align="top" alt="Claude subscription: how much of each window is used, when it resets, and whether you are ahead of an even pace"></picture>
@@ -43,11 +47,11 @@ Download one file from the [latest release](https://github.com/timecatbit/starme
 
 | Your computer | Name on the release page | File name |
 | --- | --- | --- |
-| Mac with Apple silicon | **Mac · Apple Silicon** | `token-monitor-X.Y.Z-macos-apple-silicon.dmg` |
-| Mac with an Intel processor | **Mac · Intel** | `token-monitor-X.Y.Z-macos-intel.dmg` |
+| Mac with Apple silicon (not notarized) | **Mac · Apple Silicon** | `token-monitor-X.Y.Z-macos-apple-silicon.dmg` |
+| Mac with an Intel processor (not notarized) | **Mac · Intel** | `token-monitor-X.Y.Z-macos-intel.dmg` |
 | Windows 10/11 (recommended) | **Windows · Installer** | `token-monitor-X.Y.Z-windows-x64-setup.exe` |
 | Windows 10/11, without installing | **Windows · Portable** | `token-monitor-X.Y.Z-windows-x64.zip` |
-| Mac already using SwiftBar | **Mac · SwiftBar plugin** | `token-monitor-X.Y.Z.zip`, any chip |
+| Mac, recommended for now (needs SwiftBar) | **Mac · SwiftBar plugin** | `token-monitor-X.Y.Z.zip`, any chip |
 
 Not sure which Mac you have? Apple menu → **About This Mac**: "Chip: Apple M…" means Apple Silicon, "Processor: Intel…" means Intel. The `sha256:` beside each file is GitHub's checksum, to compare with your download if you like.
 
