@@ -576,6 +576,10 @@
     void revealWhenDrawn();
   }
 
+  // The shell knows when a menu is open: the panel hidden like that, its window still holds the open menu as last
+  // drawn, so the next opening waits for the page to draw it folded.
+  $effect(() => { void shell.menuOpen(panel.menuOpen); });
+
   const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
   /** Opening on another page than the closed panel drew (the module grid), the shell keeps the window clear until the
    *  window has the page's size and the page has drawn into it. */

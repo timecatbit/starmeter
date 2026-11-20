@@ -963,6 +963,39 @@ test('the range menu closes when Tab or Shift+Tab leaves it, or the panel goes a
   expect(await menuOpen()).toBe(false);
 });
 
+test('the range menu is gone at once when the panel goes away, so it does not flash as the panel opens again (MENU-4)', async ({ page }) => {
+  await open(page);
+  const trigger = page.getByRole('button', { name: /^统计范围/ });
+  // The panel hidden (a click on the desktop): its window loses the focus. The menu is gone in that same moment, not
+  // fading out: a hidden window stops the fade halfway, and the rest of it played as the panel opened again.
+  await trigger.click();
+  await expect(page.getByRole('listbox')).toBeVisible();
+  const left = await page.evaluate(async () => {
+    window.dispatchEvent(new Event('blur'));
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return [...document.querySelectorAll('.dropdown .menu')].filter((menu) => getComputedStyle(menu).display !== 'none').length;
+  });
+  expect(left).toBe(0);
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  // The host's closing (it lets go of the focus) does the same.
+  await trigger.click();
+  await expect(page.getByRole('listbox')).toBeVisible();
+  const after = await page.evaluate(async () => {
+    (document.activeElement as HTMLElement | null)?.blur();
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return [...document.querySelectorAll('.dropdown .menu')].filter((menu) => getComputedStyle(menu).display !== 'none').length;
+  });
+  expect(after).toBe(0);
+  // Opened again, it opens as ever; a choice made in the panel still folds it with its short fade.
+  await trigger.click();
+  await expect(page.getByRole('listbox')).toBeVisible();
+  await page.getByRole('option', { name: '昨天' }).click();
+  await expect(trigger).toContainText('昨天');
+  await expect(page.getByRole('listbox')).toHaveCount(0);
+});
+
 test('the range menu gives the focus back to its button when Esc or Return closes it, so Return opens it again (MENU-3)', async ({ page }) => {
   await open(page);
   const trigger = page.getByRole('button', { name: /^统计范围/ });

@@ -54,6 +54,10 @@ pub struct Panel {
     /// An opening waiting for the page to draw before the window shows (its number), 0 when none.
     revealing: AtomicU64,
     openings: AtomicU64,
+    /// One of the page's menus (a dropdown) is open, as the page says.
+    menu: AtomicBool,
+    /// Hidden with a menu open: the window still holds that last drawing, so the next opening waits for the page.
+    stale: AtomicBool,
     /// When the shell last set the window's size, to tell the user's resizing from it (Windows, Linux).
     #[cfg(not(target_os = "macos"))]
     sized_at: Mutex<Instant>,
@@ -86,6 +90,8 @@ impl Panel {
             resizable: AtomicBool::new(false),
             revealing: AtomicU64::new(0),
             openings: AtomicU64::new(0),
+            menu: AtomicBool::new(false),
+            stale: AtomicBool::new(false),
             #[cfg(not(target_os = "macos"))]
             sized_at: Mutex::new(Instant::now()),
             left: Mutex::new(Left::default()),
@@ -315,15 +321,19 @@ fn page_curve(x: f64) -> f64 {
 ///
 /// A closed panel has gone back to its homepage, but the window shows what its page last drew until the page draws
 /// again; opening on the module list, the window stays clear until the page says it has drawn it (or a moment
-/// passes), so the homepage never flashes first.
+/// passes), so the homepage never flashes first. So it does when the panel was hidden with a menu open: the page
+/// folds the menu as the panel goes, but the window had last drawn it open, and it flashed over the homepage.
 pub fn open(app: &AppHandle, anchor: (f64, f64), modules: bool) {
     let Some(panel) = window(app) else { return };
     let state = app.state::<Panel>();
     *state.anchor.lock().expect("the anchor lock") = anchor;
     state.modules.store(modules, Ordering::SeqCst);
     let opening = state.openings.fetch_add(1, Ordering::SeqCst) + 1;
+    let stale = state.stale.swap(false, Ordering::SeqCst);
+    #[cfg(not(target_os = "macos"))]
+    let _ = stale;
     #[cfg(target_os = "macos")]
-    if modules && !visible(app) {
+    if (modules || stale) && !visible(app) {
         state.revealing.store(opening, Ordering::SeqCst);
         let clear = panel.clone();
         let _ = macos::on_main(app, move || macos::set_alpha(&clear, 0.0));
@@ -386,6 +396,7 @@ pub fn close(app: &AppHandle, return_focus: bool) {
     crate::ask::cancel_all();
     let _ = panel.hide();
     if was_visible {
+        state.stale.store(state.menu.swap(false, Ordering::SeqCst), Ordering::SeqCst);
         *state.hidden_at.lock().expect("the hidden lock") = Some(Instant::now());
         publish_open(app, false);
         let _ = app.emit("panel-closed", ());
@@ -716,6 +727,12 @@ pub fn drag_panel(app: AppHandle) {
 pub fn panel_shown(app: AppHandle) {
     let opening = app.state::<Panel>().revealing.load(Ordering::SeqCst);
     reveal(&app, opening);
+}
+
+/// The page opened or folded one of its menus.
+#[tauri::command]
+pub fn panel_menu(app: AppHandle, open: bool) {
+    app.state::<Panel>().menu.store(open, Ordering::SeqCst);
 }
 
 #[tauri::command]

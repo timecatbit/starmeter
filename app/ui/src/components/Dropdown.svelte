@@ -25,6 +25,9 @@
     if (root && !root.contains(event.target as Node)) close();
   }
   function show() {
+    // Opened again before the menu that went away was taken out, the same menu comes back: shown again.
+    quick = false;
+    menu?.style.removeProperty('display');
     open = true;
     panel.menuOpen = true;
     lit = Math.max(0, options.findIndex((o) => o.value === value));
@@ -34,7 +37,7 @@
     window.addEventListener('pointerdown', outside, true);
     // The panel going away (a click on the desktop hides it) closes the menu too, as a system menu would: opened again,
     // the panel shows the range as it was, folded, and refreshes again.
-    window.addEventListener('blur', close);
+    window.addEventListener('blur', away);
     // Focusing would scroll the page to show the whole menu, jolting it up under the pointer.
     queueMicrotask(() => { menu?.focus({ preventScroll: true }); reveal(); });
   }
@@ -43,8 +46,19 @@
     open = false;
     panel.menuOpen = false;
     window.removeEventListener('pointerdown', outside, true);
-    window.removeEventListener('blur', close);
+    window.removeEventListener('blur', away);
   }
+  /** The panel going away (hidden, or the host letting go of the focus as it closes): the menu goes at once, with no
+   *  fade. A hidden window stops the fade halfway, and the rest of it played as the panel opened again, a flash of
+   *  the menu over the homepage. */
+  function away() {
+    if (!open) return;
+    quick = true;
+    menu?.style.setProperty('display', 'none');
+    close();
+  }
+  /** The next fold has no fade (the panel is going away). */
+  let quick = false;
   /** Keeps the lit option in view inside the menu, never scrolling the page. */
   function reveal() {
     const option = menu?.children[lit] as HTMLElement | undefined;
@@ -81,7 +95,7 @@
   onDestroy(close);
 
   const drop = (_node: Element) => ({
-    duration: panel.reduceMotion ? 0 : 140, easing: pageCurve,
+    duration: panel.reduceMotion || quick ? 0 : 140, easing: pageCurve,
     css: (t: number) => `opacity: ${t}; transform: translateY(${-4 * (1 - t)}px) scale(${0.97 + 0.03 * t})`,
   });
 </script>
@@ -90,7 +104,13 @@
 <!-- The focus leaving closes the menu. Pressing its button while it is open keeps the focus where it is: WebKit let go
      of the focus on the press, so the menu closed there and the click opened it again. -->
 <span class="dropdown" class:field bind:this={root} onkeydown={keydown}
-  onfocusout={(event) => { if (open && root && !root.contains(event.relatedTarget as Node | null)) close(); }}>
+  onfocusout={(event) => {
+    if (!open || !root || root.contains(event.relatedTarget as Node | null)) return;
+    // The focus going nowhere: the window let go of it (the panel hidden or closing). Tab and a click elsewhere in the
+    // panel hand it on, or fold the menu before it moves.
+    if (event.relatedTarget === null) away();
+    else close();
+  }}>
   <button class="trigger pressable" class:open bind:this={trigger} style:font-size="{size}px" aria-haspopup="listbox" aria-expanded={open}
     aria-label="{label} · {current}" onclick={() => (open ? close() : show())}
     onpointerdown={(event) => { if (open) event.preventDefault(); }}>

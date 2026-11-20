@@ -100,6 +100,8 @@ export const shell = {
   tunnelReady: (): Promise<boolean> => (inTauri ? invoke<boolean>('tunnel_ready') : Promise.resolve(!new URLSearchParams(location.search).has('no-cloudflared'))),
   /** The page has drawn what the panel opened on; a window kept clear until then shows. */
   shown: () => (inTauri ? invoke<void>('panel_shown') : quiet()),
+  /** One of the page's menus opened or folded: hidden with one open, the next opening waits for the page to draw. */
+  menuOpen: (open: boolean) => (inTauri ? invoke<void>('panel_menu', { open }) : quiet()),
   /** Theme (system, light, dark) and background (solid, frosted or glass) for the window and the material under it.
    *  Returns whether a material shows; when it doesn't, the page paints its solid background. */
   setLook: (theme: string, material: string): Promise<boolean> =>

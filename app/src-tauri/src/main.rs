@@ -337,6 +337,7 @@ fn main() {
             phone::phone_private,
             tunnel::tunnel_ready,
             panel::panel_shown,
+            panel::panel_menu,
             panel::hold_open,
             panel::set_look,
             panel::system_symbol,
