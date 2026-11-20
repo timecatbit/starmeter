@@ -67,6 +67,11 @@ class PowerTests(unittest.TestCase):
         self.assertEqual(self.m.refresh_ttl(30),30)
         self.assertEqual(self.m.refresh_ttl(21600),21600)
         with patch.object(self.m.os,'kill',side_effect=ProcessLookupError):self.assertEqual(self.m.refresh_ttl(30),300)
+        # A phone looking at the homepage keeps the open panel's pace until the time it was given.
+        self.write('panel-state',{'visible':False,'pid':os.getpid(),'phoneUntil':self.m.time.time()+60})
+        self.assertEqual(self.m.refresh_ttl(30),30)
+        self.write('panel-state',{'visible':False,'pid':os.getpid(),'phoneUntil':self.m.time.time()-1})
+        self.assertEqual(self.m.refresh_ttl(30),300)
     def test_unchanged_snapshot_is_not_republished(self):
         self.write('panel-view',{'schema':1,'entries':[]});path=Path(self.m.cache_path('panel-view'));before=path.stat().st_mtime_ns
         self.write('panel-view',{'schema':1,'entries':[]});self.assertEqual(before,path.stat().st_mtime_ns)

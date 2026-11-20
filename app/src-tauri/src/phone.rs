@@ -9,7 +9,7 @@
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{IpAddr, TcpListener, TcpStream, UdpSocket};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -258,6 +258,7 @@ fn answer(app: &AppHandle, mut stream: TcpStream, key: &str) -> std::io::Result<
         }
         let range =
             query.split('&').find_map(|pair| pair.strip_prefix("range=")).filter(|range| RANGES.contains(range));
+        looking(app);
         let body = match call {
             "snapshot" => phone_snapshot(app, range),
             "dashboard" => dashboard(app, range.unwrap_or("today")),
@@ -274,6 +275,25 @@ fn answer(app: &AppHandle, mut stream: TcpStream, key: &str) -> std::io::Result<
     match app.asset_resolver().get(file.to_string()) {
         Some(asset) => respond(&mut stream, 200, &asset.mime_type, &asset.bytes, false),
         None => respond(&mut stream, 404, "text/plain; charset=utf-8", b"not here", false),
+    }
+}
+
+/// A phone is reading: for the next minute the figures keep the open panel's pace (a monitor's status is current
+/// only for a minute and a half), and what is due is read now, at most every 30 seconds, so the phone's next look
+/// finds it fresh.
+fn looking(app: &AppHandle) {
+    static ASKED: AtomicU64 = AtomicU64::new(0);
+    let now = starmeter_core::runtime::now() as u64;
+    crate::engine::PHONE_READ.store(now, Ordering::SeqCst);
+    if now.saturating_sub(ASKED.load(Ordering::SeqCst)) < 30 {
+        return;
+    }
+    ASKED.store(now, Ordering::SeqCst);
+    match &*app.state::<Data>() {
+        Data::Engine(engine) => engine.refresh(),
+        // The plugin reads its pace from panel-state.json at its run each minute.
+        Data::SwiftBar(files) => files.phone_looking(now as f64 + 60.0),
+        Data::Fixtures(_) => {}
     }
 }
 

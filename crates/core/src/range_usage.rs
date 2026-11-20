@@ -417,7 +417,10 @@ impl Runtime {
             return (self.environment.get("OCX_PANEL_VISIBLE").map(String::as_str) == Some("1"), false);
         }
         let state = self.read_cache("panel-state");
-        if state.get("visible") == Some(&Json::Bool(true))
+        // A phone looking at the homepage (在手机上看) keeps the open panel's pace while it reads.
+        let watched = state.get("visible") == Some(&Json::Bool(true))
+            || state.get("phoneUntil").and_then(Json::python_float).is_some_and(|until| until > now());
+        if watched
             && let Some(pid) = state.get("pid").filter(|pid| pid.as_bool().is_none()).and_then(Json::integer)
             && pid > 0
             && crate::platform::alive(pid as u32)

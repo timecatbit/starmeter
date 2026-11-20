@@ -24,6 +24,8 @@ pub struct Files {
     seen: Mutex<Option<SystemTime>>,
     /// The last question the plugin asked through `panel-ask.json`, so it reaches the panel once.
     asked: Mutex<Option<String>>,
+    /// What panel-state.json says: whether the panel is on screen, and until when a phone is looking.
+    state: Mutex<(bool, f64)>,
     /// One action at a time, as the engine claims one request file.
     turn: tokio_mutex::Mutex,
 }
@@ -106,6 +108,7 @@ impl Files {
             name,
             seen: Mutex::new(None),
             asked: Mutex::new(None),
+            state: Mutex::new((false, 0.0)),
             turn: tokio_mutex::Mutex::default(),
         })
     }
@@ -118,6 +121,7 @@ impl Files {
             name: "starmeter".into(),
             seen: Mutex::new(None),
             asked: Mutex::new(None),
+            state: Mutex::new((false, 0.0)),
             turn: tokio_mutex::Mutex::default(),
         }
     }
@@ -137,13 +141,27 @@ impl Files {
     }
 
     pub fn publish_visibility(&self, visible: bool) {
+        let mut state = self.state.lock().expect("the state lock");
+        state.0 = visible;
+        self.publish_state(*state);
+    }
+
+    /// A phone is looking at the homepage (在手机上看) until then: the plugin keeps the open panel's pace meanwhile,
+    /// without sending its questions here.
+    pub fn phone_looking(&self, until: f64) {
+        let mut state = self.state.lock().expect("the state lock");
+        state.1 = until;
+        self.publish_state(*state);
+    }
+
+    fn publish_state(&self, (visible, phone_until): (bool, f64)) {
         if self.folder.as_os_str().is_empty() {
             return;
         }
         write_private(
             &self.folder.join("panel-state.json"),
             // "asks": the plugin's questions come to this panel (panel-ask.json) instead of AppleScript dialogs.
-            &json!({"schema": 1, "visible": visible, "asks": true, "pid": std::process::id()}),
+            &json!({"schema": 1, "visible": visible, "asks": true, "pid": std::process::id(), "phoneUntil": phone_until}),
         );
     }
 

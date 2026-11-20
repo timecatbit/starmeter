@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, RwLock};
 use std::time::Duration;
 
@@ -23,6 +23,13 @@ use crate::macos;
 
 /// Whether the panel is on screen, for the core's refresh cadence.
 pub static PANEL_OPEN: AtomicBool = AtomicBool::new(false);
+/// When a phone last read the homepage (在手机上看), in seconds: for a minute after, the core keeps the open panel's
+/// pace, so a monitor's status or an account's figure is current on the phone too.
+pub static PHONE_READ: AtomicU64 = AtomicU64::new(0);
+
+fn watched() -> bool {
+    PANEL_OPEN.load(Ordering::SeqCst) || (now() as u64).saturating_sub(PHONE_READ.load(Ordering::SeqCst)) < 60
+}
 
 /// Work waiting for the background, merged while it waits: one range read, the key checks asked for, one refresh.
 /// Range reads and key checks are local and quick; a refresh may wait on the network, so it has its own thread and a
@@ -93,7 +100,7 @@ impl Engine {
         let mut runtime = Runtime::new(environment, &argv0);
         runtime.host =
             Arc::new(AppHost { app: self.app.clone(), state: runtime.state_dir.clone(), engine: Arc::downgrade(self) });
-        runtime.host_cadence = Some(Box::new(|| (PANEL_OPEN.load(Ordering::SeqCst), false)));
+        runtime.host_cadence = Some(Box::new(|| (watched(), false)));
         *self.runtime.write().expect("the runtime lock") = Arc::new(runtime);
     }
 

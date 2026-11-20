@@ -1380,7 +1380,7 @@ class BackgroundParityTests(OpenCodexParityTests):
     """Which reads the background worker runs, and the small ones it adds: status pages and the yuan rate."""
 
     def python(self, call, *args, extra=None):
-        if call not in ('loaders', 'ready', 'status', 'fx'):return super().python(call, *args, extra=extra)
+        if call not in ('loaders', 'ready', 'status', 'fx', 'ttl'):return super().python(call, *args, extra=extra)
         import types
         environment = dict(self.common, **self.states['python'], **(extra or {}))
         with unittest.mock.patch.dict(os.environ, environment):
@@ -1389,11 +1389,12 @@ class BackgroundParityTests(OpenCodexParityTests):
             if call == 'loaders':return list(plugin.external_loaders())
             if call == 'ready':return {m[0]: bool(plugin.default_ready(m[0])) for m in preferences.MODULES}
             if call == 'status':return service_status.read_all(args[0], 'test')
+            if call == 'ttl':return float(plugin.refresh_ttl(args[0]))
             payload, error = plugin.exchange_rate_load()
             return {'payload': payload, 'error': error[1] if error else None}
 
     def swift(self, call, *args, extra=None):
-        if call not in ('loaders', 'ready', 'status', 'fx'):return super().swift(call, *args, extra=extra)
+        if call not in ('loaders', 'ready', 'status', 'fx', 'ttl'):return super().swift(call, *args, extra=extra)
         environment = {k: v for k, v in os.environ.items() if k not in ('DEEPSEEK_API_KEY', 'DEEPSEEK_API_KEY_FILE', 'TZ', 'OCX_BASE_URL')}
         environment.update(self.common, **self.states['swift'], **(extra or {}))
         done = subprocess.run([PROBE], input=json.dumps({'call': 'runtime', 'args': [call, self.services.routes, *args]}).encode(),
@@ -1415,6 +1416,22 @@ class BackgroundParityTests(OpenCodexParityTests):
                 self.settings(**values)
                 self.assertEqual(self.python('loaders', extra=extra), self.swift('loaders', extra=extra))
                 self.assertEqual(self.python('ready', extra=extra), self.swift('ready', extra=extra))
+
+    def test_a_phone_looking_keeps_the_open_panels_pace(self):
+        import types
+        def write(name, value):
+            for engine in self.states.values():
+                with unittest.mock.patch.dict(os.environ, dict(self.common, **engine)):
+                    plugin = types.ModuleType('plugin_cadence')
+                    exec(compile((ROOT / 'lib/swiftbar_plugin.py').read_text(), 'plugin', 'exec'), plugin.__dict__)
+                    plugin.write_json_cache(plugin.cache_path(name), dict(schema=1, **value))
+        write('power-state', {'battery': False, 'checkedAt': time.time()})
+        now = time.time()
+        for state, ttl in (({'visible': False, 'pid': os.getpid()}, 180), ({'visible': False, 'pid': os.getpid(), 'phoneUntil': now + 60}, 30),
+                           ({'visible': False, 'pid': os.getpid(), 'phoneUntil': now - 1}, 180), ({'visible': True, 'pid': os.getpid(), 'phoneUntil': 0}, 30)):
+            with self.subTest(state=state):
+                write('panel-state', state)
+                self.assertEqual((self.python('ttl', 30), self.swift('ttl', 30)), (ttl, ttl))
 
     def test_status_pages_and_rate(self):
         self.answers = {'/status.claude.com/': self.ok({'status': {'indicator': 'minor', 'description': 'Elevated errors' * 30}}),
