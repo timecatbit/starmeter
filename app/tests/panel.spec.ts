@@ -543,7 +543,7 @@ test('the share page: the picture beside its settings, level when it is short, a
   await open(page);
   await button(page, '分享用量图').click();
   await expect(page.locator('.frame img')).toBeVisible();
-  await page.getByRole('radio', { name: '1', exact: true }).click();
+  while (await button(page, '少一个').isEnabled()) await button(page, '少一个').click();
   await expect(async () => {
     const frame = (await page.locator('.frame').boundingBox())!, foot = (await page.locator('.foot').boundingBox())!;
     const actions = (await page.locator('.actions').boundingBox())!, controls = (await page.locator('.controls').boundingBox())!;
@@ -558,7 +558,6 @@ test('the share page: the picture beside its settings, level when it is short, a
     const widths = await page.locator('.actions .action').evaluateAll((all) => all.map((b) => Math.round(b.getBoundingClientRect().width)));
     expect(new Set(widths).size).toBe(1);
   }).toPass();
-  await page.getByRole('radio', { name: '3', exact: true }).click();
 });
 
 test('a folded card unfolds where it is, and its arrow opens the tool', async ({ page }) => {
@@ -707,17 +706,32 @@ test('the share picture gives rows to as many tools as asked, the ones that used
   expect(posters[3].members).toEqual(['Cursor', 'Gemini CLI', 'OpenCode', 'Qoder']);
   expect(posters[6].names).toHaveLength(6);
   expect(posters[6].members).toEqual(['Qoder']);
-  // On the page: 3 until another is picked, one click redraws, and the choice is remembered.
+  // On the page: a stepper, 3 until changed, each click redraws, no further than the tools used (7 here, six at most),
+  // and the choice is remembered.
   await button(page, '分享用量图').click();
-  const preview = page.locator('.frame img');
-  await expect(page.getByRole('radio', { name: '3', exact: true })).toHaveAttribute('aria-checked', 'true');
+  const preview = page.locator('.frame img'), count = page.locator('.stepper .count');
+  const fewer = button(page, '少一个'), more = button(page, '多一个');
+  await expect(count).toHaveText('3');
   await expect(preview).toBeVisible();
   const tall = await preview.evaluate((img: HTMLImageElement) => img.naturalHeight);
-  await page.getByRole('radio', { name: '1', exact: true }).click();
+  await fewer.click();
+  await fewer.click();
+  await expect(count).toHaveText('1');
+  await expect(fewer).toBeDisabled();
   await expect.poll(() => preview.evaluate((img: HTMLImageElement) => img.naturalHeight)).toBeLessThan(tall);
+  for (let i = 0; i < 7; i++) if (await more.isEnabled()) await more.click();
+  await expect(count).toHaveText('6');
+  await expect(more).toBeDisabled();
+  await fewer.click();
   await page.keyboard.press('Escape');
   await button(page, '分享用量图').click();
-  await expect(page.getByRole('radio', { name: '1', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await expect(count).toHaveText('5');
+  // A range with a single tool: one, and nothing to step to.
+  await choose(page, /^时间范围/, '昨天');
+  await expect(async () => {
+    const used = await page.evaluate(async () => { const { backend } = await import('/src/lib/backend.ts'); return (await backend.snapshot()).dashboard?.providers.filter((p) => p.tokens > 0 || p.requests > 0).length; });
+    expect(await count.textContent()).toBe(String(Math.min(5, used ?? 0)));
+  }).toPass();
 });
 
 /** Whether the tour's lit area lies over the first element the selector finds. */

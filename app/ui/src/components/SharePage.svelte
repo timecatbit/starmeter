@@ -8,7 +8,7 @@
   import { inTauri, onPhone, shell } from '../lib/backend';
   import * as web from '../lib/webShare';
   import { renderPicture, shareStyles, type Picture, type ShareStyle } from '../lib/share';
-  import { SCALE } from '../lib/shareCommon';
+  import { SCALE, shownRows } from '../lib/shareCommon';
   import { SHARE_TOOLS, SHARE_TOOLS_MOST } from '../lib/sharePoster';
   import { moveWindow, panel } from '../lib/ui.svelte';
   import type { Dashboard, Entry, Project } from '../lib/types';
@@ -30,16 +30,19 @@
   let mode = $state<'light' | 'dark' | null>(stored(MODE) === 'light' || stored(MODE) === 'dark' ? (stored(MODE) as 'light' | 'dark') : null);
   const dark = $derived(mode ? mode === 'dark' : panel.dark);
   /** How many tools have rows of their own in the picture (the ones that used the most); the rest fold into 其他工具. */
-  const counts = Array.from({ length: SHARE_TOOLS_MOST }, (_, i) => i + 1);
-  const storedTools = Number(stored(TOOLS));
-  let tools = $state(counts.includes(storedTools) ? storedTools : SHARE_TOOLS);
+  const storedTools = Math.round(Number(stored(TOOLS)));
+  let tools = $state(storedTools >= 1 && storedTools <= SHARE_TOOLS_MOST ? storedTools : SHARE_TOOLS);
   function pickTools(next: number) {
-    tools = next;
+    tools = Math.max(1, Math.min(most, next));
     remember(TOOLS, String(next));
   }
   // The figures as they stood when the page opened (live readings don't redraw the picture under the reader); a range
   // picked here (the homepage's own range, changed with it) brings its own once its figures arrive.
   let frozen = $state(untrack(() => $state.snapshot(dashboard)) as Dashboard);
+  /** No more than the tools used in the range (six at most): a number past them would change nothing. The choice kept is
+   *  the reader's; a range with fewer tools shows fewer. */
+  const most = $derived(Math.max(1, Math.min(SHARE_TOOLS_MOST, shownRows(frozen).length)));
+  const shownTools = $derived(Math.min(tools, most));
   $effect(() => {
     const next = dashboard;
     if (next.rangeKey !== untrack(() => frozen.rangeKey)) frozen = $state.snapshot(next) as Dashboard;
@@ -65,7 +68,7 @@
 
   // Each style drawn once per range, light or dark and number of tools, then kept while the page is open.
   $effect(() => {
-    const figures = frozen, count = tools, key = `${figures.rangeKey}:${style}${dark ? ':dark' : ':light'}:${count}`, wantsDark = dark;
+    const figures = frozen, count = shownTools, key = `${figures.rangeKey}:${style}${dark ? ':dark' : ':light'}:${count}`, wantsDark = dark;
     remember(STYLE, style);
     const known = pictures.get(key);
     if (known) { picture = known; drawnStyle = style; failed = false; return; }
@@ -182,11 +185,11 @@
           </div>
           <div class="setting">
             <span class="setting-name">{t('工具数量')}</span>
-            <div class="modes counts" role="radiogroup" aria-label={t('工具数量')} style:--segments={counts.length}>
-              <span class="pill" style:transform="translateX({(tools - 1) * 100}%)"></span>
-              {#each counts as n (n)}
-                <button class="mode pressable" class:chosen={tools === n} role="radio" aria-checked={tools === n} onclick={() => pickTools(n)}>{n}</button>
-              {/each}
+            <!-- One less or one more, in the same field as the menus above and below. -->
+            <div class="stepper" role="group" aria-label={t('工具数量')}>
+              <button class="step pressable" disabled={shownTools <= 1} aria-label={t('少一个')} onclick={() => pickTools(shownTools - 1)}><Icon name="minus" size={13} /></button>
+              <span class="count" aria-live="polite">{shownTools}</span>
+              <button class="step pressable" disabled={shownTools >= most} aria-label={t('多一个')} onclick={() => pickTools(shownTools + 1)}><Icon name="plus" size={13} /></button>
             </div>
           </div>
           {#if rangeOptions.length}
@@ -304,8 +307,29 @@
     transition: transform 0.22s var(--page-curve);
   }
   .pill.right { transform: translateX(100%); }
-  .counts .pill { width: calc((100% - 4px) / var(--segments)); }
-  .counts .mode { font-variant-numeric: tabular-nums; }
+  .stepper {
+    display: flex;
+    align-items: center;
+    height: 28px;
+    padding: 2px;
+    box-sizing: border-box;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--label) 6%, transparent);
+  }
+  .step {
+    --press-scale: 0.92;
+    flex: none;
+    width: 30px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    color: var(--label);
+  }
+  .step:hover:not(:disabled) { background: var(--hover); }
+  .step:disabled { color: var(--tertiary); }
+  .count { flex: 1; text-align: center; font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
   .mode {
     --press-scale: 0.96;
     position: relative;

@@ -166,7 +166,7 @@ export const phrases: Record<string, string> = {
     'This computer\'s usage file leaves the synced folder, so the others stop counting it, and this computer stops counting theirs.',
   打开主页模块: 'Open Home modules', 稍后: 'Later', 尚未勾选工具: 'No tools chosen yet',
   复制图片: 'Copy picture', 已复制: 'Copied', 复制失败: 'Copy failed', '保存…': 'Save…', 已保存: 'Saved',
-  '分享…': 'Share…', 保存图片: 'Save picture', 长按左边的图也能存到相册: 'Or long-press the picture to save it to Photos', 没能画出来: 'Couldn\'t draw it', 正在生成: 'Drawing', 卡片: 'Card', 终端: 'Terminal', 手绘: 'Sketch', 报刊: 'Paper',
+  '分享…': 'Share…', 少一个: 'One fewer', 多一个: 'One more', 保存图片: 'Save picture', 长按左边的图也能存到相册: 'Or long-press the picture to save it to Photos', 没能画出来: 'Couldn\'t draw it', 正在生成: 'Drawing', 卡片: 'Card', 终端: 'Terminal', 手绘: 'Sketch', 报刊: 'Paper',
   夜空: 'Night sky', 地铁: 'Metro', 织物: 'Knit', 收据: 'Receipt', 蓝图: 'Blueprint', 霓虹: 'Neon',
   // Questions
   取消: 'Cancel', 确定: 'OK', 好: 'OK', 继续: 'Continue',
