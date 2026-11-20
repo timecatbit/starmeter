@@ -153,7 +153,10 @@ export const phrases: Record<string, string> = {
   '手机和电脑连同一个网络（Wi-Fi）后扫码；第一次打开时系统可能问是否允许 Starmeter 接收连接，选允许':
     'Put the phone on the same network (Wi-Fi) as this computer, then scan; the first time, the system may ask whether Starmeter may accept incoming connections: allow it.',
   '只读：手机上只能看主页和工具页，不能改设置。点“停止”或退出 App 前一直开着。': 'Read-only: the phone sees the homepage and tool pages and changes nothing. It stays on until you stop it or quit the app.',
-  关闭外网链接: 'Close the public link', 停止: 'Stop', 先打开手机查看: 'Turn on the phone view first', 手机查看已经关闭: 'The phone view was stopped',
+  关闭外网链接: 'Close the public link', 停止: 'Stop', 已停止: 'Stopped', 重新开始: 'Start again',
+  手机上的页面已断开: "The phone's page is disconnected",
+  '原来的二维码和链接已失效。点“重新开始”生成新的二维码，手机再扫一次就能看。': 'The old code and link no longer open. Start again for a new code, and scan it once more.',
+  先打开手机查看: 'Turn on the phone view first', 手机查看已经关闭: 'The phone view was stopped',
   这台电脑的系统没有对应的: 'No cloudflared for this system', '连不上 GitHub，没能下载 cloudflared': 'Couldn\'t reach GitHub to download cloudflared',
   'GitHub 的发布信息读不懂': 'GitHub\'s release information couldn\'t be read', '最新发布里没有这台电脑用的 cloudflared': 'The latest release has no cloudflared for this computer',
   'cloudflared 的下载信息不完整，没有下载': 'cloudflared\'s download information was incomplete; nothing downloaded', '下载 cloudflared 失败': 'Downloading cloudflared failed',

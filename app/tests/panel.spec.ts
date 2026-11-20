@@ -591,7 +591,25 @@ test('在手机上看: a code for the same network, a public link only after a y
   await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: /^在手机上看/ }).locator('.dot')).toBeVisible();
   await page.getByRole('button', { name: /^在手机上看/ }).click();
+  // The code in the logo's look: dots, the three rounded eyes and the app icon in the middle.
+  const code = phone.locator('svg.qr');
+  await expect(code.locator('image')).toHaveCount(1);
+  expect(await code.locator('circle').count()).toBeGreaterThan(100);
+  // 停止 stays on the page: the code's place says it has stopped, and 重新开始 is the way on.
   await button(page, '停止').click();
+  await expect(phone.getByRole('status')).toContainText('已停止');
+  await expect(phone.locator('svg.qr')).toHaveCount(0);
+  await expect(phone.locator('.address')).toHaveCount(0);
+  await expect(phone.locator('.note')).toHaveText(['原来的二维码和链接已失效。点“重新开始”生成新的二维码，手机再扫一次就能看。']);
+  await expect(page.getByRole('radio', { name: '任何网络' })).toBeDisabled();
+  await expect(button(page, '停止')).toHaveCount(0);
+  await button(page, '重新开始').click();
+  await expect(phone.locator('svg.qr')).toBeVisible();
+  await expect(phone.locator('.address')).toHaveText('http://192.168.1.20:51234/');
+  await expect(button(page, '停止')).toBeVisible();
+  // Stopped and left: the cell has no dot.
+  await button(page, '停止').click();
+  await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: /^在手机上看/ }).locator('.dot')).toHaveCount(0);
 });
 

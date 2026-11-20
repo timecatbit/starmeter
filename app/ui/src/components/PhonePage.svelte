@@ -1,7 +1,8 @@
 <script lang="ts">
   // 在手机上看: a QR code a phone scans to open the homepage in its browser, read-only. On the same network the app
   // serves it itself; 任何网络 opens a public link through Cloudflare (the user's yes first, and a download of
-  // cloudflared the first time). The server stays on after this page is left, an hour at most, until 停止.
+  // cloudflared the first time). The server stays on after this page is left, an hour at most, until 停止. Stopped, the
+  // page stays, saying so in the code's place, with 重新开始 for a new code (the old one's key no longer opens).
   import { onDestroy, onMount } from 'svelte';
   import { language, t } from '../lib/i18n.svelte';
   import { shell } from '../lib/backend';
@@ -18,6 +19,8 @@
   let reach = $state<'local' | 'public'>('local');
   let failed = $state<string | null>(null);
   let busy = $state(false);
+  /** 停止 pressed: the server is off and its code no longer opens, until 重新开始. */
+  let stopped = $state(false);
   /** The public link's yes, asked in place before anything leaves the computer. */
   let asking = $state<null | { download: boolean }>(null);
   /** The link copied, or the clipboard refused it (the full link is then shown, selected, to copy by hand). */
@@ -42,6 +45,7 @@
     void start();
     // Asked after while the page is open: a public link whose cloudflared has ended is taken down, and said so.
     tick = setInterval(async () => {
+      if (stopped) return;
       const had = !!phone.view?.public;
       setPhone(await shell.phoneStatus().catch(() => phone.view));
       if (had && !phone.view?.public && reach === 'public') { reach = 'local'; failed = '外网链接断开了，可以重新生成'; }
@@ -78,7 +82,15 @@
   async function stop() {
     await shell.phoneStop();
     setPhone(null);
-    onback();
+    choosing++;
+    asking = null;
+    failed = null;
+    reach = 'local';
+    stopped = true;
+  }
+  async function restart() {
+    stopped = false;
+    await start();
   }
   async function copy() {
     if (!address) return;
@@ -114,13 +126,26 @@
   <div class="scroll">
     <Scroller onswipeback={onback}>
       <div class="content" bind:this={body}>
-        <div class="reach" role="radiogroup" aria-label={t('手机在哪')}>
+        <div class="reach" class:off={stopped} role="radiogroup" aria-label={t('手机在哪')} aria-disabled={stopped}>
           <span class="pill" class:right={reach === 'public'}></span>
-          <button class="choice pressable" class:chosen={reach === 'local'} role="radio" aria-checked={reach === 'local'} onclick={() => choose('local')}>{t('同一个网络')}</button>
-          <button class="choice pressable" class:chosen={reach === 'public'} role="radio" aria-checked={reach === 'public'} onclick={() => choose('public')}>{t('任何网络')}</button>
+          <button class="choice pressable" class:chosen={reach === 'local'} role="radio" aria-checked={reach === 'local'} disabled={stopped} onclick={() => choose('local')}>{t('同一个网络')}</button>
+          <button class="choice pressable" class:chosen={reach === 'public'} role="radio" aria-checked={reach === 'public'} disabled={stopped} onclick={() => choose('public')}>{t('任何网络')}</button>
         </div>
 
-        {#if asking}
+        {#if stopped}
+          <!-- In the code's place, as large: the page keeps its shape, and what was there says it is over. -->
+          <div class="code">
+            <div class="stopped" role="status">
+              <span class="stopped-glyph"><Icon name="iphone" size={22} /></span>
+              <span class="stopped-title">{t('已停止')}</span>
+              <span class="stopped-detail">{t('手机上的页面已断开')}</span>
+            </div>
+          </div>
+          <p class="note">{t('原来的二维码和链接已失效。点“重新开始”生成新的二维码，手机再扫一次就能看。')}</p>
+          <div class="actions">
+            <button class="action primary pressable" onclick={restart}>{t('重新开始')}</button>
+          </div>
+        {:else if asking}
           <div class="ask">
             <p class="ask-title">{t('经 Cloudflare 生成外网链接？')}</p>
             <p class="ask-detail">{t('手机不在同一个网络时用：Cloudflare 给一个临时的 https 地址，转到这台电脑。主页的数字会经过 Cloudflare；链接带一次性口令，停止或一小时后失效。')}</p>
@@ -154,7 +179,7 @@
 
         {#if failed}<p class="failed">{t(failed)}</p>{/if}
 
-        {#if view}
+        {#if view && !stopped}
           <!-- What the code is for: on the same network until 停止; the public link, while it is up, for its hour. -->
           {#if !asking && !busy}
             <p class="note">
@@ -195,6 +220,15 @@
   .choice { --press-scale: 0.96; position: relative; flex: 1; display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--secondary); border-radius: 6px; }
   .choice.chosen { color: var(--label); font-weight: 600; }
   .code { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 196px; }
+  .stopped {
+    width: 188px; height: 188px; box-sizing: border-box; border-radius: 30px; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 4px; border: 1px dashed color-mix(in srgb, var(--label) 22%, transparent);
+    color: var(--secondary);
+  }
+  .stopped-glyph { opacity: 0.7; margin-bottom: 4px; }
+  .stopped-title { font-size: 14px; font-weight: 600; color: var(--label); }
+  .stopped-detail { font-size: 11px; }
+  .reach.off { opacity: 0.45; }
   .wait { font-size: 11.5px; color: var(--secondary); }
   .address {
     --press-scale: 0.98; align-self: center; max-width: 100%; padding: 4px 8px; border-radius: 7px; font-size: 11px;
@@ -217,6 +251,7 @@
   .actions { display: flex; gap: 8px; justify-content: flex-end; }
   .action { --press-scale: 0.97; height: 28px; padding: 0 14px; border-radius: 8px; font-size: 12px; font-weight: 600; background: color-mix(in srgb, var(--label) 8%, transparent); }
   .action.danger { color: var(--red, #e5484d); }
+  .action.primary { color: var(--on-accent); background: var(--accent); }
   .spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--separator); border-top-color: var(--secondary); animation: spin 0.8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 </style>
