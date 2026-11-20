@@ -55,6 +55,8 @@ const state = {
   live: 0,
   /** A just-picked range is still missing Magpie for a moment (the engine reads its sources one by one). */
   settling: false,
+  /** ?pending-fails: once a range's figures have come in, Magpie's reading ended without any (暂不可用). */
+  pendingFailed: false,
 };
 const listeners = new Set<() => void>();
 export const onChange = (changed: () => void) => { listeners.add(changed); return () => listeners.delete(changed); };
@@ -111,10 +113,11 @@ export async function dashboard(range: string): Promise<Dashboard> {
   const f = await load(), prefs = state.prefs!;
   const d = structuredClone(f.dashboards[range] ?? f.dashboards.today);
   bump(d);
-  if (state.settling) {
-    // Magpie not read yet: its card waits, and the clients it carried count all their own requests for now.
+  if (state.settling || state.pendingFailed) {
+    // Magpie not read yet (or its reading failed): its card waits, and the clients it carried count all their own
+    // requests for now.
     for (const p of d.providers) {
-      if (p.id === 'magpie') { p.available = false; p.status = '待同步'; }
+      if (p.id === 'magpie') { p.available = false; p.status = state.settling ? '待同步' : '暂不可用'; }
       else delete p.counted;
     }
   }
@@ -211,7 +214,11 @@ export async function action(action: string[]): Promise<ActionReceipt> {
         state.range = a;
         state.settling = true;
         changed();
-        setTimeout(() => { state.settling = false; changed(); }, 300);
+        setTimeout(() => {
+          state.settling = false;
+          state.pendingFailed = new URLSearchParams(location.search).has('pending-fails');
+          changed();
+        }, 300);
       }, read);
       return { status: 'done' };
     }

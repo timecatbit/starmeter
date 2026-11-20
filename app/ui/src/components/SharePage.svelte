@@ -40,7 +40,8 @@
   // picked here (the homepage's own range, changed with it) brings its own once its figures arrive.
   let frozen = $state(untrack(() => $state.snapshot(dashboard)) as Dashboard);
   /** Which sources the figures hold and how each counts: changes as a range's figures come in, not with live readings. */
-  const shape = (d: Dashboard) => d.providers.map((p) => `${p.id}:${p.available ? 1 : 0}:${p.counted ? 1 : 0}:${p.summaryIncluded === false ? 0 : 1}`).join('|');
+  const pending = (p: Dashboard['providers'][number]) => !p.available && reads(p.status, '待同步');
+  const shape = (d: Dashboard) => d.providers.map((p) => `${p.id}:${p.available ? 1 : 0}:${pending(p) ? 1 : 0}:${p.counted ? 1 : 0}:${p.summaryIncluded === false ? 0 : 1}`).join('|');
   /** No more than the tools used in the range (six at most): a number past them would change nothing. The choice kept is
    *  the reader's; a range with fewer tools shows fewer. */
   const most = $derived(Math.max(1, Math.min(SHARE_TOOLS_MOST, shownRows(frozen).length)));
@@ -129,8 +130,9 @@
   });
   /** Copy, save and share give the picture of what the page says: the range picked (its figures arrived), the style,
    *  the colours and the number of tools. Until it is drawn they wait, rather than give the last one away. */
-  // A source still on its way (待同步 while a range's figures come in one by one) would be missing from the picture.
-  const settling = $derived(frozen.providers.some((p) => !p.available && reads(p.status, '待同步')));
+  // A source still on its way (待同步 while a range's figures come in one by one) would be missing from the picture;
+  // one whose reading ended without figures (暂不可用) is not waited for.
+  const settling = $derived(frozen.providers.some(pending));
   const ready = $derived(picture !== null && !settling && frozen.rangeKey === chosenRange && drawnKey === pictureKey(chosenRange));
   let closed = false;
   onDestroy(() => {

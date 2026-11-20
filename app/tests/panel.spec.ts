@@ -897,6 +897,19 @@ test('back on a range seen before, the share page draws its figures as they are 
   expect(await bytes()).toBe(exported);
 });
 
+test('a source whose reading ends without figures is not waited for: the share page exports what came (SHARE-4)', async ({ page }) => {
+  await open(page, '?pending-fails');
+  await button(page, '分享用量图').click();
+  const copy = page.getByRole('button', { name: '复制图片' });
+  await expect(copy).toBeEnabled();
+  // Magpie waits (待同步) as the week's figures come in, then its reading ends unavailable: the rest can go, on this
+  // page, without opening it again.
+  await page.getByRole('button', { name: /^时间范围/ }).click();
+  await page.getByRole('option', { name: '近 7 天', exact: true }).click();
+  await expect(page.locator('.share-page .title')).toHaveText('分享用量图近 7 天');
+  await expect(copy).toBeEnabled();
+});
+
 test('the share page picks its range, the homepage\'s own, and draws that range', async ({ page }) => {
   await open(page);
   await button(page, '分享用量图').click();
