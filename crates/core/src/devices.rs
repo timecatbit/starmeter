@@ -30,12 +30,12 @@ const STALE: f64 = 2.0 * 86400.0;
 /// What a usage record keeps for another computer: its counts.
 const KEPT: [&str; 5] = ["summary", "models", "days", "hours", "firstActivityAt"];
 
-/// The calendar day a range starts on, where the computer that read it is: today's or yesterday's date, the first day
-/// of 7 or 30 days, of the week or of the month. Two computers' ranges are the same when their days are, whatever their
-/// time zones.
-fn range_day(bundle: &Object) -> Option<String> {
+/// The calendar day a range starts on, in the zone the ranges are counted in (the computer's, or OCX_TIMEZONE): today's
+/// or yesterday's date, the first day of 7 or 30 days, of the week or of the month. Two computers' ranges are the same
+/// when their days are, whatever their time zones.
+fn range_day(bundle: &Object, zone: &jiff::tz::TimeZone) -> Option<String> {
     let start = bundle.get("start").and_then(Json::number)?;
-    Some(crate::tally::local_day(start, &jiff::tz::TimeZone::system()))
+    Some(crate::tally::local_day(start, zone))
 }
 
 /// How far another computer's range may sit from this one's and still be the same range (a file from before the
@@ -144,8 +144,12 @@ fn usable(entry: &Object, key: &str, start: f64, day: Option<&str>, written: f64
     }
     match (entry.get("day").and_then(Json::as_str), day) {
         (Some(theirs), Some(mine)) => theirs == mine,
-        // A file from before the day was written down: within a day of this range's start, and written since it began.
-        _ => (theirs - start).abs() <= allowed_shift(key) && written >= start,
+        // A file from before the day was written down: within a day of this range's start, and this range's record
+        // read since it began (a file written again after midnight can still hold yesterday's today).
+        _ => {
+            let read = entry.get("end").and_then(Json::number).unwrap_or(written);
+            (theirs - start).abs() <= allowed_shift(key) && read >= start
+        }
     }
 }
 
@@ -218,6 +222,7 @@ impl Runtime {
             return false;
         }
         let mut ranges = Object::new();
+        let zone = self.local_zone();
         for (key, _) in RANGES {
             let record = self.read_cache(&self.range_cache_name(Some(key)));
             let Some(bundle) = record.get("payload").and_then(Json::as_object) else { continue };
@@ -262,7 +267,7 @@ impl Runtime {
                 object! {
                     "start" => bundle.get("start").cloned().unwrap_or(Json::Null),
                     "end" => bundle.get("end").cloned().unwrap_or(Json::Null),
-                    "day" => range_day(bundle).map_or(Json::Null, Json::from),
+                    "day" => range_day(bundle, &zone).map_or(Json::Null, Json::from),
                     "sources" => sources,
                 },
             );
@@ -316,7 +321,7 @@ impl Runtime {
             return record;
         }
         let start = bundle.get("start").and_then(Json::number).unwrap_or(0.0);
-        let day = range_day(&bundle);
+        let day = range_day(&bundle, &self.local_zone());
         let now = now();
         let mut merged = 0;
         for device in &devices {
@@ -511,10 +516,13 @@ mod tests {
             !usable(&entry, "today", 1000.0 + 2.0 * day, Some("2026-11-21"), written, written + 100.0),
             "another day is not"
         );
-        // A file from before the day was written down: within a day, and written since this range began.
+        // A file from before the day was written down: within a day, and its record of the range read since it began.
         let old = parse(r#"{"start": 1000.0}"#);
         assert!(usable(&old, "today", today, Some("2026-11-19"), written, written + 100.0));
         assert!(!usable(&old, "today", 1000.0 + day, Some("2026-11-20"), 1000.0 + day - 2.0, 1000.0 + day + 3600.0));
+        // Written again just after midnight, its today still read before it: yesterday's.
+        let stale = parse(r#"{"start": 1000.0, "end": 86998.0}"#);
+        assert!(!usable(&stale, "today", 1000.0 + day, Some("2026-11-20"), 1000.0 + day + 2.0, 1000.0 + day + 3600.0));
         assert!(!usable(&entry, "24h", 1000.0 + 3.0 * 3600.0, None, written, written + 100.0));
         assert!(usable(&entry, "all", 0.0, None, 5000.0, 5100.0));
         assert!(!usable(&entry, "all", 0.0, None, 5000.0, 5000.0 + 3.0 * day), "a file two days old is left out");
