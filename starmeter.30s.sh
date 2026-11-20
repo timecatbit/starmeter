@@ -1,6 +1,6 @@
 #!/bin/bash -p
 # <xbar.title>Starmeter</xbar.title>
-# <xbar.version>6.0.6</xbar.version>
+# <xbar.version>6.0.7</xbar.version>
 # <xbar.author>timecatbit</xbar.author>
 # <xbar.author.github>timecatbit/starmeter</xbar.author.github>
 # <xbar.desc>可选 AI 客户端用量、账户资源与 Komari 监控，使用原生 macOS 面板。</xbar.desc>

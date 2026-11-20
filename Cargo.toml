@@ -4,7 +4,7 @@ resolver = "3"
 members = ["crates/core", "crates/engine", "crates/probe", "app/src-tauri"]
 
 [workspace.package]
-version = "6.0.6"
+version = "6.0.7"
 edition = "2024"
 license = "MIT"
 rust-version = "1.89"
