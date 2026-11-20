@@ -158,13 +158,13 @@ export async function snapshot(): Promise<Snapshot> {
       option.checked = on;
       option.action = ['set-module', option.action[1], on ? 'false' : 'true'];
     }
-    if (option.action?.[0] === 'set-collapse') { option.checked = prefs.allowCollapse; option.action = ['set-collapse', prefs.allowCollapse ? 'false' : 'true']; }
   }
   const pages = (s.moduleOptions ?? []).filter((o) => ['外观', '通用', '提醒', '数据'].includes(o.label));
   const settings = pages.flatMap((page) => page.children);
   for (const row of settings) {
     if (row.action?.[0] === 'set-theme') row.checked = row.action[1] === prefs.theme;
     if (row.action?.[0] === 'set-appearance') row.checked = row.action[1] === prefs.appearance;
+    if (row.action?.[0] === 'set-collapse') { row.checked = prefs.allowCollapse; row.action = ['set-collapse', prefs.allowCollapse ? 'false' : 'true']; }
   }
   const exporting = settings.find((row) => row.label === '导出用量');
   if (exporting) exporting.value = s.dashboard.rangeLabel;

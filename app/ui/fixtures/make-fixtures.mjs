@@ -662,6 +662,7 @@ function settingsPages(prefs) {
     radio('跟随系统', ['set-theme', 'system'], prefs.theme === 'system'), radio('浅色', ['set-theme', 'light'], prefs.theme === 'light'),
     radio('深色', ['set-theme', 'dark'], prefs.theme === 'dark'), separator(),
     radio('实色', ['set-appearance', 'solid'], prefs.appearance === 'solid'), radio('磨砂', ['set-appearance', 'frosted'], prefs.appearance === 'frosted'), radio('玻璃', ['set-appearance', 'glass'], prefs.appearance === 'glass'), separator(),
+    entry('允许折叠', { detail: '卡片折成两行，点卡片就地展开', symbol: 'rectangle.compress.vertical', checked: prefs.allowCollapse, action: ['set-collapse', prefs.allowCollapse ? 'false' : 'true'] }),
     entry('金额显示', { symbol: 'dollarsign.circle', value: '美元' }, [radio('美元（$）', ['set-currency', 'USD'], true), radio('人民币（¥）', ['set-currency', 'CNY'], false),
       separator(), entry('汇率…', { value: '每天自动更新', detail: 'API 等值估算按这个汇率换成人民币；订阅月费与 API 实际花费仍是美元', action: ['set-cny-rate'] })]),
   ];
@@ -697,8 +698,8 @@ function settingsPages(prefs) {
 
 function moduleOptions(prefs, home) {
   const options = [
-    entry('允许折叠', { detail: '点卡片就地展开', symbol: 'rectangle.compress.vertical', checked: prefs.allowCollapse, action: ['set-collapse', prefs.allowCollapse ? 'false' : 'true'] }),
-    ...settingsPages(prefs), separator()];
+    // The settings first, a group of their own like the modules' below.
+    entry('设置', { section: true }), ...settingsPages(prefs)];
   let group = null;
   for (const [key, label, category] of modules) {
     if (category !== group) { options.push(entry(groupLabels[category] ?? category, { section: true })); group = category; }

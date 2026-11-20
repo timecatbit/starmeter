@@ -3292,6 +3292,8 @@ def module_options(data=None):
     appearance.append({'label':'','separator':True,'children':[]})
     appearance.extend({'label':label,'checked':settings['appearance']==key,'radio':True,'action':['set-appearance',key],'children':[]} for key,label in [('solid','实色'),('frosted','磨砂'),('glass','玻璃')])
     appearance.append({'label':'','separator':True,'children':[]})
+    # How the cards show: folded to two lines, each opened where it is.
+    appearance.append({'label':'允许折叠','detail':'卡片折成两行，点卡片就地展开','symbol':'rectangle.compress.vertical','checked':settings['allowCollapse'],'action':['set-collapse','false' if settings['allowCollapse'] else 'true'],'children':[]})
     alert_rows=[{'label':'%d%%'%level if level else '关闭','checked':settings['usageAlert']==level,'radio':True,'action':['set-usage-alert',str(level)],'children':[]}
                 for level in preferences.ALERT_LEVELS[1:]+(0,)]
     alert_rows.extend([{'label':'','separator':True,'children':[]},
@@ -3320,12 +3322,12 @@ def module_options(data=None):
                           {'label':'导出用量','symbol':'square.and.arrow.up','value':RANGES[selected_range()],
                            'children':[{'label':'CSV（每天每个工具一行）…','action':['export-usage','csv'],'children':[]},{'label':'JSON…','action':['export-usage','json'],'children':[]}]},
                           devices_row()]
-    options=[{'label':'允许折叠','detail':'点卡片就地展开','symbol':'rectangle.compress.vertical','checked':settings['allowCollapse'],'action':['set-collapse','false' if settings['allowCollapse'] else 'true'],'children':[]},
+    # The settings first, a group of their own like the modules' below.
+    options=[{'label':'设置','section':True,'children':[]},
              {'label':'外观','symbol':'circle.lefthalf.filled','children':appearance},
              {'label':'通用','symbol':'slider.horizontal.3','children':general},
              {'label':'提醒','symbol':'bell','children':alert_page},
-             {'label':'数据','symbol':'externaldrive','children':data_rows},
-             {'label':'','separator':True,'children':[]}];group=None
+             {'label':'数据','symbol':'externaldrive','children':data_rows}];group=None
     for key,label,category in preferences.MODULES:
         if category!=group:
             options.append({'label':catalog.GROUP_LABELS.get(category,category),'section':True,'children':[]});group=category

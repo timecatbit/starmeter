@@ -22,9 +22,8 @@ export function secondsLeft(): number {
   return phone.view ? Math.max(0, phone.view.secondsLeft - (Date.now() - phone.at) / 1000) : 0;
 }
 
-/** 在手机上看 in the module grid, a cell of its own beside the settings: the panel's own, like 语言. */
+/** 在手机上看 in the module grid, a cell of its own beside the settings: the panel's own, like 语言. While it is on, a
+ *  green dot after its name, as a module that is set up has; how long is left is on its page. */
 export function phoneRow(): Entry {
-  const left = secondsLeft();
-  return { label: '在手机上看', symbol: 'iphone', detail: left > 0 ? `开着 · 还剩 ${Math.max(1, Math.round(left / 60))} 分钟` : '扫码在手机浏览器里看',
-    action: ['show-phone'], children: [] };
+  return { label: '在手机上看', symbol: 'iphone', ...(secondsLeft() > 0 ? { statusLight: 'ok' as const } : {}), action: ['show-phone'], children: [] };
 }

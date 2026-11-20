@@ -90,10 +90,11 @@ class MenuBarTests(unittest.TestCase):
 
     def test_settings_are_pages_by_what_they_are_for(self):
         options = self.m.module_options()
-        top = [o['label'] for o in options[:options.index(next(o for o in options if o.get('separator')))]]
-        self.assertEqual(top, ['允许折叠', '外观', '通用', '提醒', '数据'])
+        self.assertEqual((options[0]['label'], options[0].get('section')), ('设置', True))
+        top = [o['label'] for o in options[1:next(i for i, o in enumerate(options) if i and o.get('section'))]]
+        self.assertEqual(top, ['外观', '通用', '提醒', '数据'])
         pages = {o['label']: [r['label'] for r in o['children'] if not r.get('separator') and not r.get('radio')] for o in options[1:5]}
-        self.assertEqual(pages, {'外观': ['金额显示'], '通用': ['菜单栏显示', '钉住时刷新', '模块与配置', '自动检测', '高级配置文件…', '恢复默认模块'],
+        self.assertEqual(pages, {'外观': ['允许折叠', '金额显示'], '通用': ['菜单栏显示', '钉住时刷新', '模块与配置', '自动检测', '高级配置文件…', '恢复默认模块'],
                                  '提醒': ['用量提醒', '服务状态'], '数据': ['保留已清理记录的用量', '导出用量', '多台电脑合并']})
         self.assertTrue(next(r for r in options[2]['children'] if r['label'] == '模块与配置').get('section'))
 

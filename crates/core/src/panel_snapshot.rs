@@ -715,6 +715,15 @@ impl Runtime {
             appearance.push(radio(label, option("appearance") == Json::from(key), &["set-appearance", key]));
         }
         appearance.push(separator());
+        // How the cards show: folded to two lines, each opened where it is.
+        let collapse = option("allowCollapse").is_truthy();
+        appearance.push(with(
+            "允许折叠",
+            object! {
+                "detail" => "卡片折成两行，点卡片就地展开", "symbol" => "rectangle.compress.vertical", "checked" => collapse,
+                "action" => action(&["set-collapse", if collapse { "false" } else { "true" }]),
+            },
+        ));
         let level = option("usageAlert");
         let mut alert_rows: Vec<Json> = preferences::ALERT_LEVELS[1..]
             .iter()
@@ -835,20 +844,13 @@ impl Runtime {
             ),
             self.devices_row(),
         ];
-        let collapse = option("allowCollapse").is_truthy();
+        // The settings first, a group of their own like the modules' below.
         let mut options = vec![
-            with(
-                "允许折叠",
-                object! {
-                    "detail" => "点卡片就地展开", "symbol" => "rectangle.compress.vertical", "checked" => collapse,
-                    "action" => action(&["set-collapse", if collapse { "false" } else { "true" }]),
-                },
-            ),
+            section("设置"),
             with("外观", object! { "symbol" => "circle.lefthalf.filled", "children" => Json::Array(appearance) }),
             with("通用", object! { "symbol" => "slider.horizontal.3", "children" => Json::Array(general) }),
             with("提醒", object! { "symbol" => "bell", "children" => Json::Array(alerts) }),
             with("数据", object! { "symbol" => "externaldrive", "children" => Json::Array(data_rows) }),
-            separator(),
         ];
         let mut group: Option<&str> = None;
         let visible = settings.get("visible").and_then(Json::as_array).cloned().unwrap_or_default();

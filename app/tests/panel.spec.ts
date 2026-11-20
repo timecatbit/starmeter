@@ -382,10 +382,12 @@ test('settings: theme segments, switches and the module grid answer at once', as
   await open(page);
   await button(page, '主页模块与设置').click();
   await expect(page.locator('.modules .heading')).toHaveText('主页模块');
-  // The settings are pages by what they are for: 外观, 通用, 提醒, 数据, then the phone.
-  await expect(page.locator('.modules .cell').first()).toHaveAccessibleName('允许折叠');
-  expect(await page.locator('.modules .cell').evaluateAll((cells) => cells.slice(0, 6).map((c) => c.getAttribute('aria-label'))))
-    .toEqual(['允许折叠', '外观', '通用', '提醒', '数据', '在手机上看']);
+  // The settings are pages by what they are for, a group titled 设置 like the modules' below: 外观, 通用, 提醒, 数据,
+  // then the phone; each cell an icon and a name, as tall as the others.
+  await expect(page.locator('.modules .section').first()).toHaveText('设置');
+  expect(await page.locator('.modules .cell').evaluateAll((cells) => cells.slice(0, 5).map((c) => c.getAttribute('aria-label'))))
+    .toEqual(['外观', '通用', '提醒', '数据', '在手机上看']);
+  expect(new Set(await page.locator('.modules .cell').evaluateAll((cells) => cells.slice(0, 5).map((c) => c.getBoundingClientRect().height)))).toEqual(new Set([32]));
   await page.getByText('外观', { exact: true }).click();
   await page.getByRole('radio', { name: '深色' }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
@@ -434,7 +436,7 @@ test('在手机上看: a code for the same network, a public link only after a y
   await button(page, '主页模块与设置').click();
   // A cell of its own in the module grid, beside the settings.
   const row = page.getByRole('button', { name: /^在手机上看/ });
-  await expect(row).toContainText('扫码在手机浏览器里看');
+  await expect(row.locator('.dot')).toHaveCount(0);
   await row.click();
   const phone = page.locator('.phone-page');
   await expect(phone.locator('svg[role="img"]')).toBeVisible();
@@ -451,12 +453,12 @@ test('在手机上看: a code for the same network, a public link only after a y
   await expect(phone.locator('.address')).toHaveText('https://quiet-river-1234.trycloudflare.com/');
   await button(page, '关闭外网链接').click();
   await expect(phone.locator('.address')).toHaveText('http://192.168.1.20:51234/');
-  // Left while on: the cell says so, with the minutes left; 停止 turns it off.
+  // Left while on: the cell has a green dot, as a module set up has; 停止 turns it off.
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('button', { name: /^在手机上看/ })).toContainText(/开着 · 还剩 \d+ 分钟/);
+  await expect(page.getByRole('button', { name: /^在手机上看/ }).locator('.dot')).toBeVisible();
   await page.getByRole('button', { name: /^在手机上看/ }).click();
   await button(page, '停止').click();
-  await expect(page.getByRole('button', { name: /^在手机上看/ })).toContainText('扫码在手机浏览器里看');
+  await expect(page.getByRole('button', { name: /^在手机上看/ }).locator('.dot')).toHaveCount(0);
 });
 
 test('在手机上看 the first time says cloudflared is downloaded first', async ({ page }) => {
@@ -540,7 +542,10 @@ test('on the phone: one reading at a time, and a computer out of reach or a stal
 test('a folded card unfolds where it is, and its arrow opens the tool', async ({ page }) => {
   await open(page);
   await button(page, '主页模块与设置').click();
-  await page.getByText('允许折叠', { exact: true }).click();
+  // 允许折叠 is a switch in 外观.
+  await page.getByText('外观', { exact: true }).click();
+  await page.getByRole('switch', { name: /^允许折叠/ }).click();
+  await page.keyboard.press('Escape');
   await page.keyboard.press('Escape');
   await expect(page.locator('.model-name', { hasText: 'Opus 5.5' })).toHaveCount(0);
   // A click on the card unfolds it, the same click again folds it: never a second meaning.
@@ -954,10 +959,16 @@ test('the range menu opens without moving the page, and fits a small pinned pane
   await expect(page.locator('.picker .current')).toHaveText('全部');
 });
 
-test('a module cell with a note keeps its checkbox and icon in the middle', async ({ page }) => {
+test('in the module grid a checkbox, an icon and a name sit on one line, in the columns of the header', async ({ page }) => {
   await open(page);
   await button(page, '主页模块与设置').click();
-  const cell = page.getByRole('button', { name: '允许折叠', exact: true });
-  const box = (await cell.boundingBox())!, check = (await cell.locator('.box').boundingBox())!;
+  const cell = page.getByRole('button', { name: 'Claude', exact: true });
+  const box = (await cell.boundingBox())!, check = (await cell.locator('.box').boundingBox())!, name = (await cell.locator('.name').boundingBox())!;
   expect(Math.abs(check.y + check.height / 2 - (box.y + box.height / 2))).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(name.y + name.height / 2 - (box.y + box.height / 2))).toBeLessThanOrEqual(1);
+  // The settings' names start in the modules' name column (measured once the page has slid in).
+  const setting = page.getByRole('button', { name: '外观', exact: true }), module = page.getByRole('button', { name: 'Summary', exact: true });
+  await expect(async () => {
+    expect(Math.abs((await setting.locator('.name').boundingBox())!.x - (await module.locator('.name').boundingBox())!.x)).toBeLessThanOrEqual(0.5);
+  }).toPass();
 });
