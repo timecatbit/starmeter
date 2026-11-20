@@ -637,7 +637,7 @@
       // The shell says only in and out (not every move): in, they stay until the pointer leaves.
       shell.onHover((inside) => { if (!pinned) return; if (inside) showChrome(null); else if (!cornerFrom) showChrome(700); })];
     // The shell starts with no global shortcut; the one chosen is handed over again.
-    restoreShortcut();
+    void restoreShortcut();
     void shell.info().then((value) => {
       info = value;
       opened(value.modules);

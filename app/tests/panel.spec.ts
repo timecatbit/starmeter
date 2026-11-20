@@ -460,8 +460,11 @@ test('全局快捷键 in 通用: off at first, a choice is kept, one already tak
   await expect(page.getByText('快捷键已被占用')).toBeVisible();
   await expect(page.getByRole('radio', { name: '⌃⌥S', exact: true })).toHaveAttribute('aria-checked', 'true');
   expect(await page.evaluate(() => localStorage.getItem('starmeter.shortcut'))).toBe('ctrl-alt-s');
+  // Taken by the time the panel loads again: the choice is kept, and the row says it does nothing for now.
+  await expect(row).toContainText('当前被占用');
   // Off is always to be had.
   await page.getByRole('radio', { name: '不使用', exact: true }).click();
+  await expect(row).not.toContainText('当前被占用');
   await expect(page.getByRole('radio', { name: '不使用', exact: true })).toHaveAttribute('aria-checked', 'true');
 });
 

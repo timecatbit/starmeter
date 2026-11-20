@@ -126,7 +126,8 @@ export const phrases: Record<string, string> = {
   '点齿轮打开“主页模块”，勾选你在用的工具；工具的记录不在默认位置时，点它的名字选文件夹。“通用”里的“自动检测”会把这台电脑上找得到的都勾上。':
     'The gear opens Home modules: tick the tools you use, and click a tool\'s name to pick its folder when its records live elsewhere. Auto-detect in General ticks every tool it finds on this computer.',
   全局快捷键: 'Global shortcut', 不使用: 'Off', '在任何地方按下即可打开或收起面板': 'Opens or closes the panel from anywhere',
-  快捷键已被占用: 'Shortcut taken', '这个组合键已被系统或其他程序占用，换一个试试。': 'The system or another app already uses this combination; try another.',
+  快捷键已被占用: 'Shortcut taken', 当前被占用: 'taken by another app',
+  '这个组合键现在被系统或其他程序占用，按了没反应；换一个，或退出占用它的程序后再打开面板': 'The system or another app holds this combination now, so it does nothing; pick another, or quit that app and open the panel again', '这个组合键已被系统或其他程序占用，换一个试试。': 'The system or another app already uses this combination; try another.',
   // 多台电脑合并
   // 在手机上看
   // Short enough for its cell in the module grid.

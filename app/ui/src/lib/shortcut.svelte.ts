@@ -26,7 +26,8 @@ function stored(): ShortcutChoice {
   }
 }
 
-export const shortcut = $state({ current: stored() });
+/** current: the choice kept; taken: the system or another app holds it now, so it does nothing until it is let go. */
+export const shortcut = $state({ current: stored(), taken: false });
 
 /** The choice made in 通用: registered first, kept only if the system let us have it. */
 export async function chooseShortcut(next: string): Promise<boolean> {
@@ -34,19 +35,24 @@ export async function chooseShortcut(next: string): Promise<boolean> {
   const ok = await shell.setShortcut(next).catch(() => false);
   if (!ok) return false;
   shortcut.current = next as ShortcutChoice;
+  shortcut.taken = false;
   try { localStorage.setItem(KEY, next); } catch { /* registered for this run */ }
   return true;
 }
 
-/** As the panel loads: the shell starts with no shortcut, so the kept one is handed over again. */
-export function restoreShortcut() {
-  if (shortcut.current !== 'none') void shell.setShortcut(shortcut.current).catch(() => false);
+/** As the panel loads: the shell starts with no shortcut, so the kept one is handed over again. Taken meanwhile by
+ *  another app, the choice stays (it is tried again each time the panel loads) and 通用 says it is taken for now. */
+export async function restoreShortcut() {
+  if (shortcut.current === 'none') { shortcut.taken = false; return; }
+  shortcut.taken = !(await shell.setShortcut(shortcut.current).catch(() => false));
 }
 
 /** The 全局快捷键 row in 通用, the panel's own like 语言. */
 export function shortcutRow(): Entry {
   const radio = (choice: ShortcutChoice): Entry => ({ label: shortcutLabel(choice), children: [], radio: true, checked: shortcut.current === choice,
     action: ['set-shortcut', choice] });
-  return { label: '全局快捷键', symbol: 'keyboard', value: shortcutLabel(shortcut.current), detail: '在任何地方按下即可打开或收起面板',
+  const taken = shortcut.taken && shortcut.current !== 'none';
+  return { label: '全局快捷键', symbol: 'keyboard', value: taken ? `${shortcutLabel(shortcut.current)} · 当前被占用` : shortcutLabel(shortcut.current),
+    detail: taken ? '这个组合键现在被系统或其他程序占用，按了没反应；换一个，或退出占用它的程序后再打开面板' : '在任何地方按下即可打开或收起面板',
     children: SHORTCUTS.map(radio) };
 }
