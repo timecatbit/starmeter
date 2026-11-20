@@ -340,7 +340,6 @@
   // 新手指引: once, the first time the panel opens on its homepage (the web view keeps that it was seen); again from
   // 通用 → 新手指引. In a browser (the fixtures, the screenshots) only when the address asks: ?guide shows it
   // every time, ?firstrun as the app does.
-  const GUIDE = 'starmeter.guide';
   const address = typeof location === 'undefined' ? new URLSearchParams() : new URLSearchParams(location.search);
   const firstRuns = inTauri || address.has('firstrun');
   let guiding = $state(false);
@@ -362,19 +361,19 @@
     return keys;
   });
   let windowBox: HTMLDivElement | undefined = $state();
-  const guideSeen = () => { try { return localStorage.getItem(GUIDE) === '1'; } catch { return false; } };
   // Ready once the homepage is there; a yes or no, so the readings that keep arriving on a first run (each a new
   // snapshot) don't put the tour off again and again.
   const guideReady = $derived(guideWanted && !guiding && !!snapshot?.dashboard && !managerOnly && !onPage);
   $effect(() => {
     if (!guideReady) return;
     // A moment for the homepage to draw (and the page change to finish) before its parts are lit.
-    const timer = setTimeout(() => { guideWanted = false; guiding = true; }, panel.reduceMotion ? 0 : 420);
+    // Shown is seen: a panel closed halfway, or the other panel (the app's or SwiftBar's), doesn't bring it back.
+    const timer = setTimeout(() => { guideWanted = false; guiding = true; void shell.markGuideShown(); }, panel.reduceMotion ? 0 : 420);
     return () => clearTimeout(timer);
   });
   function endGuide() {
     guiding = false;
-    try { localStorage.setItem(GUIDE, '1'); } catch { /* shown again next time */ }
+    void shell.markGuideShown();
   }
 
   function perform(action: string[]) {
@@ -553,7 +552,14 @@
     void reload();
     if (modules) void phoneStatus();
     if (!modules) perform(['refresh-view']);
-    if (!modules && firstRuns && !guideSeen()) guideWanted = true;
+    if (!modules && firstRuns) void shell.guideShown().then((shown) => {
+      if (shown) return;
+      // Seen before this panel kept it in the shared folder (its own storage said so): noted there, not shown again.
+      let before = false;
+      try { before = localStorage.getItem('starmeter.guide') === '1'; } catch { /* not known */ }
+      if (before) void shell.markGuideShown();
+      else guideWanted = true;
+    });
     void revealWhenDrawn();
   }
 
@@ -578,7 +584,7 @@
    *  left focused. */
   function closed() {
     phoneOpen = false;
-    // A tour left halfway is shown again next time.
+    // A tour left halfway was still seen: it starts again only from 通用 → 新手指引.
     guiding = false;
     guideWanted = false;
     setPinned(false, false);

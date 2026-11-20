@@ -10,6 +10,7 @@ mod ask;
 mod data;
 mod engine;
 mod fixtures;
+mod guide;
 mod host;
 #[cfg(target_os = "macos")]
 mod macos;
@@ -327,6 +328,8 @@ fn main() {
             panel::size_panel,
             panel::set_min_height,
             shortcut::set_shortcut,
+            guide::guide_shown,
+            guide::mark_guide_shown,
             phone::phone_start,
             phone::phone_status,
             phone::phone_stop,

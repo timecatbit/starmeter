@@ -830,19 +830,21 @@ test.describe('新手指引', () => {
     await expect(page.locator('.guide .count')).toHaveText('1 / 5');
   });
 
-  test('as the app runs it: once on the first opening, again if closed halfway, never once seen', async ({ page }) => {
+  test('as the app runs it: once, on the first opening; shown is seen, even closed halfway', async ({ page }) => {
     await open(page, '?firstrun');
     await expect(page.locator('.guide h2')).toHaveText('欢迎使用 Starmeter');
-    await button(page, '开始').click();
-    // Closed halfway (a new page load is a new opening): it comes back.
-    await open(page, '?firstrun');
-    await expect(page.locator('.guide h2')).toHaveText('欢迎使用 Starmeter');
-    await walk(page);
-    await button(page, '完成').click();
+    // Noted as soon as it shows (the app keeps it where both panels read it).
     expect(await seen(page)).toBe('1');
+    await button(page, '开始').click();
+    // Closed halfway (a new page load is a new opening): it doesn't come back.
     await open(page, '?firstrun');
     await page.waitForTimeout(900);
     await expect(page.locator('.guide')).toHaveCount(0);
+    // Asked for again, it shows again.
+    await button(page, '主页模块与设置').click();
+    await page.getByText('通用', { exact: true }).click();
+    await page.getByRole('button', { name: '新手指引' }).click();
+    await expect(page.locator('.guide h2')).toHaveText('欢迎使用 Starmeter');
     // Opened on the module grid (right-click 主页模块…), it waits for the homepage.
     await page.evaluate(() => localStorage.removeItem('starmeter.guide'));
     await open(page, '?firstrun&modules').catch(() => {});
