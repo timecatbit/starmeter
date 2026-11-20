@@ -4,7 +4,7 @@
 
 use super::figures;
 use super::report::{Quota, Report, Row, Tone};
-use super::terminal::{fit, pad, width};
+use super::terminal::{fit, pad, width, wrap};
 
 /// What to show.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -98,6 +98,13 @@ impl Writer<'_> {
 
     fn money(&self, usd: Option<f64>) -> String {
         usd.map_or("—".into(), |usd| format!("{}{}", self.report.symbol, figures::money(self.report.converted(usd))))
+    }
+
+    /// A note under a table or in place of one, dimmed and wrapped to the terminal under its indent.
+    fn note(&mut self, text: &str) {
+        for line in wrap(text, self.width.saturating_sub(2)) {
+            self.lines.push(format!("  {}", self.paint.dim(&line)));
+        }
     }
 
     fn blank(&mut self) {
@@ -229,7 +236,7 @@ impl Writer<'_> {
             } else {
                 self.say("此时段暂无调用")
             };
-            self.lines.push(format!("  {}", self.paint.dim(&message)));
+            self.note(&message);
             return;
         }
         let name_room = shown.iter().map(|row| width(&row.name)).max().unwrap_or(4).clamp(6, 20);
@@ -370,12 +377,9 @@ impl Writer<'_> {
         let report = self.report;
         if report.quotas.is_empty() {
             if detail {
-                self.lines.push(format!(
-                    "  {}",
-                    self.paint.dim(self.own(
-                        "主页还没有订阅或 API：在 Starmeter 面板的“主页模块”里勾选",
-                        "No plans or APIs are on the homepage yet: choose them under Home modules in the Starmeter panel"
-                    ))
+                self.note(self.own(
+                    "主页还没有订阅或 API：在 Starmeter 面板的“主页模块”里勾选",
+                    "No plans or APIs are on the homepage yet: choose them under Home modules in the Starmeter panel",
                 ));
             }
             return;
@@ -436,7 +440,7 @@ pub fn render(report: &Report, view: View, width: usize, paint: &Paint) -> Strin
                     let heading = words.say(if report.grouping == "model" { "模型" } else { "项目" }, &[]);
                     writer.table(groups, &heading, true, detail);
                     if report.grouping == "project" {
-                        writer.lines.push(format!("  {}", paint.dim(&words.say("按客户端自己的记录", &[]))));
+                        writer.note(&words.say("按客户端自己的记录", &[]));
                     }
                 }
                 _ => writer.table(&report.tools, &words.say("工具", &[]), false, detail),

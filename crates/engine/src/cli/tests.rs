@@ -281,3 +281,26 @@ fn a_reader_that_stops_early_ends_the_run_quietly() {
     assert_eq!(emit(&mut written, "figures\n", 0), 0);
     assert_eq!(written, b"figures\n");
 }
+
+#[test]
+fn a_note_without_a_table_wraps_to_a_narrow_terminal() {
+    // CLI-6: with no plans or APIs, quota's English note ran 97 columns on a 40-column terminal.
+    let (dashboard, _) = fixture("today");
+    for english in [true, false] {
+        let report = build(&dashboard, &[], "Asia/Shanghai", Words { english });
+        for columns in [40, 32] {
+            let text = render(&report, View::Quota, columns, &Paint { colour: true });
+            assert!(text.lines().all(|line| visible(line) <= columns), "{columns}: {text}");
+            assert!(text.lines().count() >= 4, "{text}");
+        }
+    }
+    let (mut nothing, _) = fixture("today");
+    nothing.insert("providers", Json::Array(vec![]));
+    let text = render(
+        &build(&nothing, &[], "Asia/Shanghai", Words { english: true }),
+        View::Overview,
+        40,
+        &Paint { colour: false },
+    );
+    assert!(text.lines().all(|line| visible(line) <= 40), "{text}");
+}

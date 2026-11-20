@@ -171,6 +171,52 @@ pub fn fit(text: &str, room: usize) -> String {
     out
 }
 
+/// The text in lines of at most `room` columns: broken between words where it has spaces, anywhere between Chinese
+/// characters, and inside a word only when the word alone is wider than the room.
+pub fn wrap(text: &str, room: usize) -> Vec<String> {
+    let room = room.max(1);
+    // Pieces that stay together: a word with the spaces after it, or one wide character.
+    let mut pieces: Vec<String> = Vec::new();
+    for c in text.chars() {
+        let continues = |last: &String| {
+            // Spaces stay with the piece before them; a narrow character continues a word not yet ended.
+            c.is_whitespace()
+                || (char_width(c) < 2
+                    && last.chars().last().is_some_and(|end| char_width(end) < 2 && !end.is_whitespace()))
+        };
+        match pieces.last_mut() {
+            Some(last) if continues(last) => last.push(c),
+            _ => pieces.push(c.to_string()),
+        }
+    }
+    let mut lines: Vec<String> = Vec::new();
+    let mut line = String::new();
+    for piece in pieces {
+        let piece = if line.is_empty() { piece.trim_start().to_string() } else { piece };
+        if !line.is_empty() && width(line.trim_end()) + width(piece.trim_end()) > room {
+            lines.push(line.trim_end().to_string());
+            line = piece.trim_start().to_string();
+        } else {
+            line.push_str(&piece);
+        }
+        while width(line.trim_end()) > room {
+            let mut head = String::new();
+            for c in line.chars() {
+                if width(&head) + char_width(c) > room {
+                    break;
+                }
+                head.push(c);
+            }
+            line = line[head.len()..].trim_start().to_string();
+            lines.push(head.trim_end().to_string());
+        }
+    }
+    if !line.trim().is_empty() {
+        lines.push(line.trim_end().to_string());
+    }
+    lines
+}
+
 /// Spaces to bring the text to `room` columns, on the left (right-aligned) or the right.
 pub fn pad(text: &str, room: usize, right_align: bool) -> String {
     let gap = " ".repeat(room.saturating_sub(width(text)));
@@ -190,6 +236,22 @@ mod tests {
         assert_eq!(fit("未标注项目", 7), "未标注…");
         assert_eq!(width(&fit("未标注项目", 6)), 5);
         assert_eq!(pad("模型", 6, true), "  模型");
+    }
+
+    #[test]
+    fn notes_wrap_between_words_and_between_chinese_characters() {
+        let english = "No plans or APIs are on the homepage yet: choose them under Home modules in the Starmeter panel";
+        let lines = wrap(english, 38);
+        assert!(lines.iter().all(|line| width(line) <= 38), "{lines:?}");
+        assert_eq!(lines.join(" "), english);
+        assert_eq!(lines[0], "No plans or APIs are on the homepage");
+        let chinese = "主页还没有订阅或 API：在 Starmeter 面板的“主页模块”里勾选";
+        let lines = wrap(chinese, 20);
+        assert!(lines.iter().all(|line| width(line) <= 20), "{lines:?}");
+        assert_eq!(lines.concat().replace(' ', ""), chinese.replace(' ', ""));
+        assert_eq!(wrap("abcdefghij", 4), vec!["abcd", "efgh", "ij"]);
+        assert_eq!(wrap("short", 40), vec!["short"]);
+        assert!(wrap("", 10).is_empty());
     }
 
     #[test]
