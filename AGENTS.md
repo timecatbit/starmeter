@@ -1,5 +1,7 @@
 # 维护约定
 
+Claude 和 Codex 共用 [开发交接](DEVELOPMENT.md)。开始或继续开发、审查时先读主工作树里的最新队列，按同一编号登记发现、修复提交和复测结果。
+
 本仓库是 Starmeter（原名 Token Monitor）的唯一维护源。main 是正在用 Rust + Tauri 重构的 6.x，`v5` 分支是 5.x；以下命令在仓库根目录执行。
 
 ## 已确认的产品约定
