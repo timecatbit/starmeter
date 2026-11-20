@@ -2710,11 +2710,13 @@ def sessions_lines(data):
         turns=s.get('turns') or []
         # A session is running or it is not: running for as long as this turn has, idle since it last changed.
         latest=next((t for t in turns if t['requests']),None)
+        # 12 分钟; 3 小时 from an hour on (a session stays listed a day).
+        def lasted(seconds):return '%d 分钟'%(seconds//60) if seconds<3600 else '%d 小时'%(seconds//3600)
         if running:
             started=latest.get('at') if latest else None
-            minutes=int(max(0,time.time()-started))//60 if isinstance(started,(int,float)) else 0
-            state='运行中 %d 分钟'%minutes if minutes>0 else '运行中'
-        else:state='空闲' if ago<60 else '空闲 %d 分钟'%(ago//60)
+            seconds=int(max(0,time.time()-started)) if isinstance(started,(int,float)) else 0
+            state='运行中 '+lasted(seconds) if seconds>=60 else '运行中'
+        else:state='空闲' if ago<60 else '空闲 '+lasted(ago)
         detail=' · '.join(part for part in (state,model,s.get('effort') or '',
                                               '上下文 %d%%'%round(100*s['context']) if s.get('context') is not None else '') if part)
         # The live figure: what the whole session has cost, rising as it works; this turn's tokens until that is read.
@@ -2725,7 +2727,7 @@ def sessions_lines(data):
         lines.append(item(session_name(s),level=1,badge=live,paneldetail=detail,panelstatus='new' if running else 'unknown',
                           **brand_icon('claude-subscription' if s['tool']=='Claude' else 'chatgpt')))
         lines.extend(turn_lines(turns,currency_unit(data),s.get('project') if s.get('title') else None))
-    if found is not None and not found:lines.append(item('最近半小时没有 Claude Code 或 Codex 会话',level=1,color=MUTED,size=11))
+    if found is not None and not found:lines.append(item('最近一天没有 Claude Code 或 Codex 会话',level=1,color=MUTED,size=11))
     lines.append('-----')
     alerts_on=view_settings()['sessionAlerts']
     lines.append(item('这一轮完成时提醒',level=1,sfimage='bell',checked=alerts_on,paneldetail='运行中的会话这一轮完成时发通知',

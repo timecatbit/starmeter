@@ -1,5 +1,5 @@
-//! Claude Code and Codex sessions running or waiting for input now. Only the end of each transcript changed in the
-//! last half hour is read. Of a session nothing is kept but its state, the title its client gave it, its project
+//! Claude Code and Codex sessions running or idle now. Only the end of each transcript changed in the last day is
+//! read, and only when it has changed since the last reading. Of a session nothing is kept but its state, the title its client gave it, its project
 //! folder's name, model, reasoning effort, how full its context is, and when it last changed; never prompts, replies
 //! or paths.
 
@@ -18,7 +18,9 @@ use crate::tally::add;
 use crate::time::IsoTime;
 use crate::{claude_app, object, pricing};
 
-pub const ACTIVE: f64 = 1800.0;
+/// A session stays listed a day after its last change.
+pub const ACTIVE: f64 = 86400.0;
+/// A running session silent this long has most likely stopped without saying so: it is idle.
 const STALLED: f64 = 600.0;
 const TAIL: usize = 512 * 1024;
 const DETAIL: usize = 2 * 1024 * 1024;
@@ -497,9 +499,11 @@ fn recent(root: &str, depth: usize, since: f64, matching: &dyn Fn(&str) -> bool)
     found
 }
 
-/// Sessions changed in the last half hour, the running ones first, then the most recent; a running one silent for ten
-/// minutes is dropped. With prices, each carries its last turns and what the whole session has cost; `tallies`, kept
-/// between readings by session, lets the cost be read from where the last reading stopped.
+/// Sessions changed in the last day, the running ones first, then the most recent; a running one silent for ten minutes
+/// has stopped without saying so and is idle. With prices, each carries its last turns and what the whole session has
+/// cost. `tallies`, kept between readings by session, lets the cost be read from where the last reading stopped, and a
+/// transcript unchanged since (a pinned panel reads every second or two, a day of sessions is many files) is not read
+/// again: what was read then serves.
 pub fn active(
     claude_roots: &[String],
     codex_root: Option<&str>,
@@ -530,10 +534,20 @@ pub fn active(
     for (tool, path) in candidates {
         let Some(state) = state_of(Path::new(&path)) else { continue };
         let changed = state.mtime as f64 / 1e9;
-        let read = if tool == "Claude" { claude(&path).ok().flatten() } else { codex(&path).ok().flatten() };
-        let Some(mut session) = read else { continue };
+        let id = py::sha256_hex(path.as_bytes())[..16].to_string();
+        let print = Json::from(format!("{}:{}:{}", state.inode, state.size, state.mtime));
+        let unchanged = previous.get(&id).and_then(Json::as_object).filter(|before| {
+            before.get("print") == Some(&print) && before.get("read").and_then(Json::as_object).is_some()
+        });
+        let read = match unchanged {
+            Some(before) => before.get("read").and_then(Json::as_object).cloned(),
+            None if tool == "Claude" => claude(&path).ok().flatten(),
+            None => codex(&path).ok().flatten(),
+        };
+        let Some(raw) = read else { continue };
+        let mut session = raw.clone();
         if session.get("state") == Some(&Json::from("running")) && now - changed > STALLED {
-            continue;
+            session.insert("state", "waiting");
         }
         let stem = Path::new(&path).file_stem().map(|stem| stem.to_string_lossy().into_owned()).unwrap_or_default();
         if tool == "Claude" {
@@ -547,19 +561,34 @@ pub fn active(
             let tail: String = stem.chars().rev().take(36).collect::<Vec<_>>().into_iter().rev().collect();
             session.insert("title", names.get(&tail).cloned());
         }
-        let id = py::sha256_hex(path.as_bytes())[..16].to_string();
         session.insert("id", id.as_str());
         session.insert("at", changed);
         // The turns and the whole session's cost are read here, so the path itself never leaves this function.
         if let Some(price) = prices.and_then(|prices| prices.get(tool)) {
-            let turns = if tool == "Claude" { claude_turns(&path, price) } else { codex_turns(&path, price) };
-            session.insert("turns", Json::Array(turns.unwrap_or_default()));
-            match spent(&path, tool, price, previous.get(&id).and_then(Json::as_object)) {
-                Ok((cost, tally)) => {
-                    session.insert("spent", cost);
-                    kept.insert(id.as_str(), tally);
+            if let Some(before) = unchanged.filter(|before| before.get("turns").and_then(Json::as_array).is_some()) {
+                session.insert("turns", before.get("turns").cloned().unwrap_or(Json::Null));
+                let field = |name: &str| before.get(name).cloned().unwrap_or(Json::Null);
+                session.insert(
+                    "spent",
+                    object! { "requests" => field("requests"), "cost" => field("cost"), "unpriced" => field("unpriced") },
+                );
+                kept.insert(id.as_str(), Json::Object(before.clone()));
+            } else {
+                let turns = Json::Array(
+                    if tool == "Claude" { claude_turns(&path, price) } else { codex_turns(&path, price) }
+                        .unwrap_or_default(),
+                );
+                session.insert("turns", turns.clone());
+                match spent(&path, tool, price, previous.get(&id).and_then(Json::as_object)) {
+                    Ok((cost, mut tally)) => {
+                        session.insert("spent", cost);
+                        tally.insert("print", print);
+                        tally.insert("read", Json::Object(raw));
+                        tally.insert("turns", turns);
+                        kept.insert(id.as_str(), Json::Object(tally));
+                    }
+                    Err(_) => session.insert("spent", Json::Null),
                 }
-                Err(_) => session.insert("spent", Json::Null),
             }
         }
         found.push((changed, session));
@@ -646,11 +675,15 @@ impl Runtime {
             // Each session's cost read so far, by session, kept beside the sessions to go on from.
             let mut tallies =
                 self.read_cache("session-spent").get("sessions").and_then(Json::as_object).cloned().unwrap_or_default();
+            let before = tallies.clone();
             let found = active(&roots, Some(&codex_root), now, Some(&prices), &app, Some(&mut tallies));
-            self.write_json_cache(
-                &self.cache_path("session-spent"),
-                &object! { "schema" => 1, "sessions" => tallies }.into(),
-            );
+            // Written only when something changed: unchanged transcripts leave it as it was.
+            if tallies != before {
+                self.write_json_cache(
+                    &self.cache_path("session-spent"),
+                    &object! { "schema" => 1, "sessions" => tallies }.into(),
+                );
+            }
             if self.settings().get("sessionAlerts").is_some_and(Json::is_truthy) {
                 for session in newly_waiting(&previous, &found, now, 180.0).into_iter().take(3) {
                     let name = session
@@ -679,8 +712,9 @@ impl Runtime {
 
 #[cfg(test)]
 mod tests {
-    use super::{Price, spent};
-    use crate::json::Json;
+    use super::{Price, active, spent};
+    use crate::json::{Json, Object};
+    use std::collections::HashMap;
 
     fn line(id: &str, output: i64) -> String {
         format!(
@@ -710,6 +744,37 @@ mod tests {
         let (fresh, _) = spent(&path, "Claude", &price, None).unwrap();
         assert_eq!(resumed.serialized(), fresh.serialized());
         assert_eq!(fresh.get("requests").and_then(Json::integer), Some(3));
+        let _ = std::fs::remove_dir_all(&folder);
+    }
+
+    #[test]
+    fn an_unchanged_transcript_is_not_read_again() {
+        let folder = std::env::temp_dir().join(format!("starmeter-unchanged-{}", std::process::id()));
+        let path = folder.join("p").join("session.jsonl");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let turn = |stop: &str| {
+            format!(
+                "{{\"type\":\"user\",\"message\":{{\"content\":\"go\"}}}}\n{{\"type\":\"assistant\",\"message\":{{\"id\":\"a\",\"stop_reason\":\"{stop}\"}}}}\n"
+            )
+        };
+        std::fs::write(&path, turn("end_turn")).unwrap();
+        let written = std::fs::metadata(&path).unwrap().modified().unwrap();
+        let price: Price = Box::new(|_, _| Some(0.0));
+        let prices = HashMap::from([("Claude", price)]);
+        let roots = [folder.to_string_lossy().into_owned()];
+        let now = crate::runtime::now();
+        let state = |found: &[Json]| found[0].get("state").and_then(Json::as_str).map(String::from);
+        let mut tallies = Object::new();
+        let first = active(&roots, None, now, Some(&prices), &HashMap::new(), Some(&mut tallies));
+        assert_eq!(state(&first).as_deref(), Some("waiting"));
+        // Rewritten in place to the same length and time: taken for unchanged, what was read before serves.
+        std::fs::write(&path, turn("tool_use")).unwrap();
+        std::fs::File::options().write(true).open(&path).unwrap().set_modified(written).unwrap();
+        let again = active(&roots, None, now, Some(&prices), &HashMap::new(), Some(&mut tallies));
+        assert_eq!(state(&again).as_deref(), Some("waiting"));
+        assert_eq!(again[0].get("spent"), first[0].get("spent"));
+        let fresh = active(&roots, None, now, Some(&prices), &HashMap::new(), None);
+        assert_eq!(state(&fresh).as_deref(), Some("running"));
         let _ = std::fs::remove_dir_all(&folder);
     }
 }

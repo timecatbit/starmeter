@@ -65,12 +65,13 @@ class SessionReaderTests(unittest.TestCase):
         found = sessions.active([], self.codex, time.time())
         self.assertEqual([(s['title'], s['project'], s['effort'], s['state']) for s in found], [('服务器管理', 'ops', 'ultra', 'running')])
 
-    def test_quiet_or_old_sessions_drop_out(self):
+    def test_a_day_of_sessions_and_a_quiet_running_one_is_idle(self):
         self.write(self.claude / 'p' / 'stalled.jsonl', [assistant('tool_use')], age=sessions.STALLED + 5)
         self.write(self.claude / 'p' / 'old.jsonl', [assistant('end_turn')], age=sessions.ACTIVE + 5)
-        self.write(self.claude / 'p' / 'idle.jsonl', [assistant('end_turn')], age=sessions.STALLED + 5)
+        self.write(self.claude / 'p' / 'idle.jsonl', [assistant('end_turn')], age=3 * 3600)
         self.write(self.claude / 'p' / 'subagents' / 'x.jsonl', [assistant('tool_use')])
-        self.assertEqual([s['state'] for s in sessions.active([self.claude], None, time.time())], ['waiting'])
+        found = sessions.active([self.claude], None, time.time())
+        self.assertEqual([s['state'] for s in found], ['waiting', 'waiting'], 'Older than a day: left out; silent while running: idle')
 
     def test_codex_runs_between_task_started_and_complete(self):
         day = self.codex / 'sessions' / time.strftime('%Y/%m/%d')
@@ -133,6 +134,8 @@ class SessionPanelTests(unittest.TestCase):
         self.assertIn('paneldetail="运行中 · Opus 5.5 · 上下文 38%"', lines[1]); self.assertIn('panelstatus=new', lines[1])
         self.assertIn('badge=运行中', lines[1]); self.assertIn('image=', lines[1], 'Each session wears its tool\'s logo')
         self.assertTrue(lines[2].startswith('--未知项目 |')); self.assertIn('paneldetail="空闲 3 分钟"', lines[2])
+        data['sessions']['sessions'][1]['at'] = now - 3 * 3600 - 200
+        self.assertIn('paneldetail="空闲 3 小时"', self.m.sessions_lines(data)[2], 'From an hour on, in hours')
         self.assertIn('panelstatus=unknown', lines[2])
         titled = [{'tool': 'ChatGPT', 'state': 'running', 'title': '服务器管理', 'project': 'ops', 'model': 'gpt-6.2-sol', 'effort': 'xhigh',
                    'context': 0.54, 'at': now, 'id': 'c', 'turns': [{'at': None, 'requests': 1, 'tokens': 10, 'cost': 0.0, 'unpriced': 0, 'tools': {}}]}]

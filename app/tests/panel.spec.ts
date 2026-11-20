@@ -217,7 +217,7 @@ test('会话 sits beside the groupings: running first, what each has cost, five 
   await page.getByRole('button', { name: '查看更多 2 个会话' }).click();
   await expect(cards).toHaveCount(7);
   await expect(page.getByRole('button', { name: /查看更多/ })).toHaveCount(0);
-  await expect(cards.last()).toContainText('空闲 25 分钟');
+  await expect(cards.last()).toContainText('空闲 5 小时');
   // A card opens its last turns.
   await cards.first().locator('.head').click();
   await expect(cards.first().locator('.turn')).toHaveCount(3);

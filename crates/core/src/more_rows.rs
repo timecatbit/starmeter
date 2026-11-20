@@ -298,16 +298,20 @@ impl Runtime {
                 .collect();
             // A session is running or it is not: running for as long as this turn has, idle since it last changed.
             let latest = turns.iter().find(|turn| py::num(turn.get("requests")) != 0.0);
+            // 12 分钟; 3 小时 from an hour on (a session stays listed a day).
+            let lasted = |seconds: i64| {
+                if seconds < 3600 { format!("{} 分钟", seconds / 60) } else { format!("{} 小时", seconds / 3600) }
+            };
             let state = if running {
                 let started = latest.and_then(|turn| turn.get("at")).and_then(Json::number);
-                match started.map(|at| ((now() - at).max(0.0) as i64) / 60) {
-                    Some(minutes) if minutes > 0 => format!("运行中 {minutes} 分钟"),
+                match started.map(|at| (now() - at).max(0.0) as i64) {
+                    Some(seconds) if seconds >= 60 => format!("运行中 {}", lasted(seconds)),
                     _ => "运行中".to_string(),
                 }
             } else if ago < 60 {
                 "空闲".to_string()
             } else {
-                format!("空闲 {} 分钟", ago / 60)
+                format!("空闲 {}", lasted(ago))
             };
             let detail: Vec<&str> = [state.as_str(), model.as_str(), effort.as_str(), context.as_str()]
                 .into_iter()
@@ -350,7 +354,7 @@ impl Runtime {
         }
         if found.as_ref().is_some_and(Vec::is_empty) {
             lines.push(item(
-                "最近半小时没有 Claude Code 或 Codex 会话",
+                "最近一天没有 Claude Code 或 Codex 会话",
                 1,
                 object! { "color" => MUTED_COLOR, "size" => 11 },
             ));

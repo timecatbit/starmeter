@@ -14,8 +14,8 @@ from pathlib import Path
 
 import swiftbar_projects
 
-ACTIVE = 1800   # A session waiting for input stays listed this long after its last change.
-STALLED = 600   # A running session silent this long has most likely stopped without saying so.
+ACTIVE = 86400  # A session stays listed a day after its last change.
+STALLED = 600   # A running session silent this long has most likely stopped without saying so: it is idle.
 TAIL = 512 * 1024
 # Claude's context window: 200K, unless a request already went past it (the 1M window).
 CLAUDE_WINDOWS = (200_000, 1_000_000)
@@ -235,7 +235,8 @@ def recent(root, pattern, since):
 
 
 def active(claude_roots, codex_root, now, prices=None, claude_app=None):
-    """Sessions changed in the last half hour, the most recent first. A running one silent for ten minutes is dropped.
+    """Sessions changed in the last day, the running ones first, then the most recent. A running one silent for ten
+    minutes has stopped without saying so: it is idle.
     With prices (tool -> price(model, usage)), each carries its last turns as well. claude_app maps a transcript's
     session ID to the Claude App's title and effort for it."""
     found = []; titles = None
@@ -247,7 +248,8 @@ def active(claude_roots, codex_root, now, prices=None, claude_app=None):
         try:
             changed = path.stat().st_mtime; session = read(path)
         except (OSError, ValueError, TypeError, AttributeError):continue
-        if not session or (session['state'] == 'running' and now - changed > STALLED):continue
+        if not session:continue
+        if session['state'] == 'running' and now - changed > STALLED:session['state'] = 'waiting'
         if session['tool'] == 'Claude':
             app = (claude_app or {}).get(path.stem) or {}
             session['title'] = session['title'] or app.get('title'); session['effort'] = app.get('effort')

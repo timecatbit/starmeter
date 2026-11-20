@@ -50,7 +50,7 @@ export const phrases: Record<string, string> = {
     'Teams and Enterprise only: an organisation admin\'s OpenAPI key and organisation ID, showing the organisation\'s shared add-on Credits; personal accounts have no API',
   // Sessions
   更早开始: 'Started earlier', 这一轮完成时提醒: 'Notify when a turn finishes', 运行中的会话这一轮完成时发通知: 'A notification when a running session finishes its turn',
-  没有会话: 'No sessions', '最近半小时没有 Claude Code 或 Codex 会话': 'No Claude Code or Codex sessions in the last half hour',
+  没有会话: 'No sessions', '最近一天没有 Claude Code 或 Codex 会话': 'No Claude Code or Codex sessions in the last day',
   运行中: 'Running', 空闲: 'Idle', 本轮: 'This turn', 上一轮: 'Last turn', 等待输入: 'Waiting',
   // Monitoring and updates
   'Komari 监控': 'Komari status', '打开 Komari 面板': 'Open the Komari panel', 刷新监控数据: 'Refresh monitoring data', 在线: 'Online',
@@ -216,7 +216,7 @@ export const rules: Rule[] = [
   [/^(\d+) 分钟前同步$/, (m) => `Synced ${m[1]} min ago`],
   [/^(\d+) 小时前同步$/, (m) => `Synced ${m[1]} h ago`],
   [/^(\d+) 天前同步$/, (m) => `Synced ${m[1]} ${plural(m[1], 'day', 'days')} ago`],
-  [/^(\d+) 小时$/, (m) => `${m[1]} hours`],
+  [/^(\d+) 小时$/, (m) => `${m[1]} ${plural(m[1], 'hour', 'hours')}`],
   [/^重置于 (.+)$/, (m) => `Resets ${time(m[1])}`],
   [/^比匀速多用 (.+)$/, (m) => `${m[1]} ahead of even pace`],
   [/^比匀速少用 (.+)$/, (m) => `${m[1]} behind even pace`],

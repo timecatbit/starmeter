@@ -522,7 +522,7 @@ function apiRows(state) {
 function sessionRows(state) {
   const alert = (on) => entry('这一轮完成时提醒', { symbol: 'bell', detail: '运行中的会话这一轮完成时发通知', checked: on, action: ['set-session-alerts', on ? 'false' : 'true'] });
   if (state === 'pending') return entry('会话', { symbol: 'terminal', value: '没有会话', onOpenAction: ['refresh-source', 'sessions'] }, [
-    entry('最近半小时没有 Claude Code 或 Codex 会话'), separator(), alert(false)]);
+    entry('最近一天没有 Claude Code 或 Codex 会话'), separator(), alert(false)]);
   const round = (label, detail) => entry(label, { detail });
   const claude = moduleIcon('claude-subscription'), chatgpt = moduleIcon('chatgpt');
   // Seven sessions, the running ones first: five show, the rest behind 查看更多. Each card's figure is what the whole
@@ -551,12 +551,12 @@ function sessionRows(state) {
       entry('最近 1 轮'),
       round('15:23 · 402.7K Token · $0.48', '5 次请求 · shell ×2'),
     ]),
-    entry('dotfiles', { ...claude, statusLight: 'unknown', value: '$1.04', detail: '空闲 18 分钟 · Fable 5.2 · medium · 上下文 14%' }, [
+    entry('dotfiles', { ...claude, statusLight: 'unknown', value: '$1.04', detail: '空闲 2 小时 · Fable 5.2 · medium · 上下文 14%' }, [
       entry('最近 2 轮'),
       round('15:17 · 520.1K Token · $0.31', '6 次请求 · Edit ×3 · Bash ×2'),
       round('15:02 · 1.31M Token · $0.73', '11 次请求 · Bash ×6 · Read ×4'),
     ]),
-    entry('修好 CI 的缓存', { ...claude, statusLight: 'unknown', value: '$3.12', detail: '空闲 25 分钟 · Opus 5.5 · high · 上下文 44%' }, [
+    entry('修好 CI 的缓存', { ...claude, statusLight: 'unknown', value: '$3.12', detail: '空闲 5 小时 · Opus 5.5 · high · 上下文 44%' }, [
       entry('harbor-api · 最近 1 轮'),
       round('15:10 · 2.02M Token · $0.86', '12 次请求 · Bash ×9 · Edit ×2'),
     ]),
