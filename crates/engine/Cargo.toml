@@ -1,6 +1,6 @@
 [package]
 name = "starmeter-engine"
-description = "The program every host runs: the SwiftBar entry, the standalone app's worker and the Windows tray."
+description = "The program every host runs: the SwiftBar entry, the standalone app's worker, the Windows tray, and the starmeter command line."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,3 +9,11 @@ publish.workspace = true
 
 [dependencies]
 starmeter-core.workspace = true
+jiff.workspace = true
+regex = "1"
+
+[target."cfg(unix)".dependencies]
+libc = "0.2"
+
+[target."cfg(windows)".dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Globalization", "Win32_System_Console"] }

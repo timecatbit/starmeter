@@ -622,6 +622,28 @@ impl Runtime {
         }
     }
 
+    /// The command line's read beyond the local logs, as an opened panel would make it: the plans' and APIs'
+    /// figures, OpenCodex, service status and the yuan rate that are due, and the price tables. The follow-up work of
+    /// the app's own refresh (alerts, update checks and notices, the other computers' file) stays with the app.
+    pub fn refresh_quotas(&self, wait: bool) -> bool {
+        const LEFT_TO_THE_APP: [&str; 4] = ["komari", "app_updates", "self_update", "sessions"];
+        self.with_lock("refresh.lock", wait, || {
+            let mut work: Vec<Box<dyn FnOnce() + Send + '_>> = Vec::new();
+            for (name, job) in self.external_loaders() {
+                if !LEFT_TO_THE_APP.contains(&name.as_str()) && self.loader_due(&name) {
+                    work.push(job);
+                }
+            }
+            if self.pricing_due(now()) {
+                work.push(Box::new(|| self.refresh_pricing(now())));
+            }
+            let started = !work.is_empty();
+            run_concurrently(work, 4);
+            started
+        })
+        .unwrap_or(false)
+    }
+
     /// Hourly at most; only this engine's own cache folder.
     pub fn collect_cache_garbage(&self, now: f64) {
         let age = now - self.read_cache("cache-cleanup").get("cleanedAt").and_then(Json::python_float).unwrap_or(0.0);
