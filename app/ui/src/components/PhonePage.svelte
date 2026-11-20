@@ -50,14 +50,22 @@
   });
   onDestroy(() => { clearInterval(tick); clearTimeout(copiedTimer); });
 
+  /** The latest choice. 任何网络 asks the host whether cloudflared is there before its question; an answer that comes
+   *  back after a later choice (同一个网络 again, or the link asked for) is dropped, so it can't take the local code
+   *  away or open the question under the wrong radio. */
+  let choosing = 0;
   async function choose(next: 'local' | 'public') {
+    const mine = ++choosing;
     // A new choice starts afresh: the last one's failure is not left under it.
     failed = null;
     reach = next;
-    if (next === 'public' && !view?.public) asking = { download: !(await shell.tunnelReady().catch(() => false)) };
-    else asking = null;
+    if (next !== 'public' || view?.public) { asking = null; return; }
+    const ready = await shell.tunnelReady().catch(() => false);
+    if (mine !== choosing) return;
+    asking = { download: !ready };
   }
   async function openPublic() {
+    choosing++;
     asking = null;
     busy = true;
     failed = null;
@@ -119,7 +127,7 @@
             <p class="ask-detail">{t('手机不在同一个网络时用：Cloudflare 给一个临时的 https 地址，转到这台电脑。主页的数字会经过 Cloudflare；链接带一次性口令，停止或一小时后失效。')}</p>
             {#if asking.download}<p class="ask-detail">{t('第一次要从 Cloudflare 的 GitHub 发布页下载 cloudflared（约 20 MB），校验后存在 App 的数据文件夹。')}</p>{/if}
             <div class="ask-actions">
-              <button class="button pressable" onclick={() => { asking = null; reach = 'local'; }}>{t('取消')}</button>
+              <button class="button pressable" onclick={() => choose('local')}>{t('取消')}</button>
               <button class="button primary pressable" onclick={openPublic}>{t(asking.download ? '下载并生成' : '生成链接')}</button>
             </div>
           </div>
