@@ -596,16 +596,16 @@ test('on the phone: one reading at a time, and a computer out of reach or a stal
   errors.splice(0, errors.length, ...errors.filter((line) => !expected(line)));
 });
 
-test('the share page: the picture on a stage across the page, the settings two a row, the actions in their columns', async ({ page }) => {
+test('the share page: the picture on the left, the settings and actions in a column beside it, level at both ends', async ({ page }) => {
   await open(page, '?mac');
   await button(page, '分享用量图').click();
   await expect(page.locator('.stage img')).toBeVisible();
   const box = async (selector: string) => (await page.locator(selector).first().boundingBox())!;
   const layout = async () => {
-    const stage = await box('.stage'), picture = await box('.stage img');
+    const stage = await box('.stage'), picture = await box('.stage img'), rule = await box('.share-page .rule');
     const settings = await page.locator('.setting').evaluateAll((all) => all.map((e) => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width]; }));
-    const actions = await page.locator('.action').evaluateAll((all) => all.map((e) => { const r = e.getBoundingClientRect(); return [r.x, r.right]; }));
-    return { stage, picture, settings, actions };
+    const actions = await page.locator('.action').evaluateAll((all) => all.map((e) => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.bottom]; }));
+    return { stage, picture, rule, settings, actions };
   };
   // Measured once the page has slid in and stopped moving.
   let before = await layout();
@@ -615,31 +615,38 @@ test('the share page: the picture on a stage across the page, the settings two a
     before = now;
     expect(still).toBe(true);
   }).toPass({ intervals: [150] });
-  // The picture whole and centred on the stage, which spans the page's content.
-  expect(Math.abs(before.picture.x + before.picture.width / 2 - (before.stage.x + before.stage.width / 2))).toBeLessThanOrEqual(1);
-  expect(Math.abs(before.picture.y + before.picture.height / 2 - (before.stage.y + before.stage.height / 2))).toBeLessThanOrEqual(1);
-  expect(before.picture.height).toBeLessThanOrEqual(before.stage.height);
-  // Two settings a row, in two columns that meet the stage's edges.
-  const [left, right] = [before.settings[0], before.settings[1]];
-  expect(Math.abs(left[0] - before.stage.x)).toBeLessThanOrEqual(0.5);
-  expect(Math.abs(right[0] + right[2] - (before.stage.x + before.stage.width))).toBeLessThanOrEqual(0.5);
-  expect(Math.abs(before.settings[2][0] - left[0])).toBeLessThanOrEqual(0.5);
-  // Copy, the left column; save and share sharing the right.
-  expect(before.actions).toHaveLength(3);
-  expect(Math.abs(before.actions[0][0] - left[0])).toBeLessThanOrEqual(0.5);
-  expect(Math.abs(before.actions[0][1] - (left[0] + left[2]))).toBeLessThanOrEqual(0.5);
-  expect(Math.abs(before.actions[1][0] - right[0])).toBeLessThanOrEqual(0.5);
-  expect(Math.abs(before.actions[2][1] - (right[0] + right[2]))).toBeLessThanOrEqual(0.5);
+  const { stage, picture, rule, settings, actions } = before;
+  // The picture whole and centred on its stage.
+  expect(Math.abs(picture.x + picture.width / 2 - (stage.x + stage.width / 2))).toBeLessThanOrEqual(1);
+  expect(Math.abs(picture.y + picture.height / 2 - (stage.y + stage.height / 2))).toBeLessThanOrEqual(1);
+  expect(picture.height).toBeLessThanOrEqual(stage.height);
+  expect(picture.width).toBeLessThanOrEqual(stage.width);
+  // The stage from the rule's left end, the column to its right end; level at the top with the first setting and at
+  // the foot with the last action.
+  expect(Math.abs(stage.x - rule.x)).toBeLessThanOrEqual(0.5);
+  expect(settings).toHaveLength(4);
+  const [column, top, width] = settings[0];
+  expect(Math.abs(column + width - (rule.x + rule.width))).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(top - stage.y)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(actions[actions.length - 1][3] - (stage.y + stage.height))).toBeLessThanOrEqual(0.5);
+  // One under another, all of them on the column's edges: copy first and strongest, then save and share.
+  for (const [x, , w] of [...settings, ...actions]) {
+    expect(Math.abs(x - column)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(w - width)).toBeLessThanOrEqual(0.5);
+  }
+  expect(actions).toHaveLength(3);
+  for (let i = 1; i < actions.length; i++) expect(actions[i][1]).toBeGreaterThan(actions[i - 1][3]);
+  await expect(page.locator('.action').first()).toHaveClass(/primary/);
+  await expect(page.locator('.action').first()).toContainText('复制图片');
   // Fewer tools change the picture and nothing around it.
-  const tall = before.picture.height;
   await button(page, '少一个').click();
   await button(page, '少一个').click();
   await expect(async () => {
     const after = await layout();
-    expect(after.stage).toEqual(before.stage);
-    expect(after.settings).toEqual(before.settings);
-    expect(after.actions).toEqual(before.actions);
-    expect(after.picture.width / after.picture.height).not.toBeCloseTo(before.picture.width / tall, 2);
+    expect(after.stage).toEqual(stage);
+    expect(after.settings).toEqual(settings);
+    expect(after.actions).toEqual(actions);
+    expect(after.picture.width / after.picture.height).not.toBeCloseTo(picture.width / picture.height, 2);
   }).toPass();
 });
 

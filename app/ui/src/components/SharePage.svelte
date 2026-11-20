@@ -1,8 +1,8 @@
 <script lang="ts">
   // 分享用量图: the picture small on the left, enough to see what it will look like, and beside it the style, light or
-  // dark, and what to do with it: copy, save to the computer, or (macOS) the share menu. The page is as tall as the
-  // picture needs. The figures are those on screen when the page opened, so live readings don't redraw it under the
-  // reader.
+  // dark, how many tools, the range, and what to do with it: copy, save to the computer, or (macOS) the share menu.
+  // The page is as tall as the column beside the picture, whatever the picture: changing a setting changes only the
+  // picture. The figures are those on screen when the page opened, so live readings don't redraw it under the reader.
   import { onDestroy, untrack } from 'svelte';
   import { t } from '../lib/i18n.svelte';
   import { inTauri, onPhone, shell } from '../lib/backend';
@@ -86,17 +86,16 @@
   });
   onDestroy(() => { for (const p of pictures.values()) URL.revokeObjectURL(p.url); clearTimeout(resultTimer); });
 
-  // The picture on a stage of fixed height across the page, fitted whole (never cut): changing the style, the colours
+  // The picture on a stage as tall as the column beside it, fitted whole (never cut): changing the style, the colours
   // or the number of tools changes only the picture, nothing around it moves.
-  const STAGE = 330, INSET = 12;
-  const stageWidth = $derived(panel.width - 32);
+  const INSET = 10;
+  let stageWidth = $state(0), stageHeight = $state(0);
   const thumb = $derived.by(() => {
-    if (!picture) return { width: 0, height: 0 };
-    const high = STAGE - 2 * INSET, wide = stageWidth - 2 * INSET;
-    const scale = Math.min(high / picture.height, wide / picture.width);
+    if (!picture || stageWidth <= 2 * INSET || stageHeight <= 2 * INSET) return { width: 0, height: 0 };
+    const scale = Math.min((stageHeight - 2 * INSET) / picture.height, (stageWidth - 2 * INSET) / picture.width);
     return { width: Math.round(picture.width * scale), height: Math.round(picture.height * scale) };
   });
-  // The page follows its sheet: the header, then the stage, the settings and the actions.
+  // The page follows its sheet: the header, then the stage beside its column.
   let sheet: HTMLDivElement | undefined = $state();
   $effect(() => {
     const box = sheet;
@@ -110,7 +109,6 @@
   });
   const styleName = $derived(shareStyles.find((s) => s.key === style)?.name ?? '');
   const fileName = $derived(`Starmeter ${frozen.date} ${styleName}.png`);
-  // The page follows them: header, the taller of the picture and the column beside it, then the row of actions.
 
   function settle(op: 'copy' | 'save', ok: boolean) {
     clearTimeout(resultTimer);
@@ -157,17 +155,17 @@
   const saved = $derived(result?.op === 'save' ? '已保存' : null);
 </script>
 
-{#snippet act(which: 'share' | 'copy' | 'save', primary: boolean, whole: boolean)}
+{#snippet act(which: 'share' | 'copy' | 'save', primary: boolean)}
   {#if which === 'share'}
-    <button class="action pressable" class:primary class:whole bind:this={shareButton} disabled={!picture} onclick={share}>
+    <button class="action pressable" class:primary bind:this={shareButton} disabled={!picture} onclick={share}>
       <Icon name="square.and.arrow.up" size={14} system />{t('分享…')}
     </button>
   {:else if which === 'copy'}
-    <button class="action pressable" class:primary class:whole class:done={copied === '已复制'} class:failed={copied === '复制失败'} disabled={!picture} onclick={copy}>
+    <button class="action pressable" class:primary class:done={copied === '已复制'} class:failed={copied === '复制失败'} disabled={!picture} onclick={copy}>
       <Icon name={copied === '已复制' ? 'checkmark' : 'doc.on.doc'} size={14} system />{t(copied ?? '复制图片')}
     </button>
   {:else}
-    <button class="action pressable" class:primary class:whole class:done={!!saved} disabled={!picture} onclick={save}>
+    <button class="action pressable" class:primary class:done={!!saved} disabled={!picture} onclick={save}>
       <Icon name={saved ? 'checkmark' : 'square.and.arrow.down'} size={14} system />{t(saved ?? (onPhone ? '保存图片' : '保存…'))}
     </button>
   {/if}
@@ -184,8 +182,8 @@
   <div class="body">
     <Scroller onswipeback={onback}>
       <div class="sheet" bind:this={sheet}>
-      <div class="stage" style:height="{STAGE}px">
-        {#if picture}
+      <div class="stage" bind:clientWidth={stageWidth} bind:clientHeight={stageHeight}>
+        {#if picture && thumb.width}
           <img src={picture.url} alt={t('{style}风格的用量图预览', { style: t(shareStyles.find((s) => s.key === drawnStyle)?.name ?? '') })} width={thumb.width} height={thumb.height} />
         {:else if failed}
           <span class="note">{t('没能画出来')}</span>
@@ -193,12 +191,9 @@
           <span class="spinner" aria-label={t('正在生成')}></span>
         {/if}
       </div>
-      <p class="size">
-        {#if picture}{Math.round(picture.width * SCALE)} × {Math.round(picture.height * SCALE)} {t('像素')} · PNG{/if}
-        {#if onPhone}<span class="hint">{picture ? ' · ' : ''}{t('长按图片也能存到相册')}</span>{/if}
-      </p>
-      <!-- Two settings a row, each half the page. -->
-      <div class="settings">
+      <!-- Beside the picture, one under another: the settings, then the size and what to do with the picture, the
+           strongest action first; the column sets the page's height, the stage takes it. -->
+      <div class="side">
         <div class="setting">
           <span class="setting-name">{t('风格')}</span>
           <Dropdown label={t('风格')} value={style} size={12} align="left" field options={shareStyles.map((s) => ({ value: s.key, label: t(s.name) }))}
@@ -228,14 +223,13 @@
               options={rangeOptions.map((o) => ({ value: o.action?.[1] ?? '', label: o.label }))} onpick={pickRange} />
           </div>
         {/if}
-      </div>
-      <!-- What to do with the picture, under the settings and in their columns: the first action the left half, the
-           others sharing the right. -->
-      <div class="actions">
-        {@render act(actions[0], true, actions.length === 1)}
-        {#if actions.length > 1}
-          <div class="others">{#each actions.slice(1) as which (which)}{@render act(which, false, false)}{/each}</div>
-        {/if}
+        <div class="export">
+          <p class="size">{#if picture}{Math.round(picture.width * SCALE)} × {Math.round(picture.height * SCALE)} {t('像素')} · PNG{/if}</p>
+          {#if onPhone}<p class="hint">{t('长按图片也能存到相册')}</p>{/if}
+          <div class="actions">
+            {#each actions as which, i (which)}{@render act(which, i === 0)}{/each}
+          </div>
+        </div>
       </div>
       </div>
     </Scroller>
@@ -266,9 +260,11 @@
   .range { margin-left: 8px; font-size: 11.5px; font-weight: 500; color: var(--secondary); }
   .rule { position: absolute; left: 16px; right: 16px; top: 49px; height: 1px; background: var(--separator); }
   .body { position: absolute; left: 0; right: 0; top: 58px; bottom: 0; display: flex; }
-  /* The stage, the settings and the actions, one under another across the page, its edges the page's. */
-  .sheet { display: flex; flex-direction: column; padding: 0 16px 16px; }
+  /* The stage on the left takes what the column beside it leaves, and its height: its own content has no say
+     (contain: size), so a taller or shorter picture moves nothing. */
+  .sheet { display: grid; grid-template-columns: minmax(0, 1fr) 166px; gap: 12px; min-height: 300px; padding: 0 16px 16px; }
   .stage {
+    contain: size;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -286,12 +282,14 @@
     animation: spin 0.8s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
-  /* Two a row, each half the page. */
-  .settings { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
-
+  .side { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
   .setting { display: flex; flex-direction: column; align-items: stretch; gap: 5px; min-width: 0; }
   .setting-name { font-size: 11px; color: var(--secondary); }
-  .size { margin: 6px 0 0; min-height: 13px; text-align: center; font-size: 10px; line-height: 13px; color: var(--tertiary); font-variant-numeric: tabular-nums; }
+  /* The size and the actions at the column's foot, level with the stage's bottom edge. */
+  .export { margin-top: auto; padding-top: 4px; display: flex; flex-direction: column; gap: 6px; }
+  .size, .hint { margin: 0; font-size: 10px; line-height: 13px; color: var(--tertiary); font-variant-numeric: tabular-nums; }
+  .size { min-height: 13px; }
+  .actions { display: flex; flex-direction: column; gap: 8px; }
   .modes {
     position: relative;
     display: flex;
@@ -349,13 +347,9 @@
     border-radius: 6px;
   }
   .mode.chosen { color: var(--label); font-weight: 600; }
-  /* In the settings' two columns: the strongest action the left one, the others sharing the right; alone, both. */
-  .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
-  .others { display: flex; gap: 8px; min-width: 0; }
-  .action.whole { grid-column: 1 / -1; }
   .action {
     --press-scale: 0.97;
-    flex: 1;
+    flex: none;
     min-width: 0;
     white-space: nowrap;
     height: 30px;
