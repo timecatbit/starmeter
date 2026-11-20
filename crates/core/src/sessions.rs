@@ -390,7 +390,43 @@ fn claude_turns(path: &str, price: &Price) -> Result<Vec<Json>, FileError> {
 
 /// The last turns of a Codex session, newest first: from task_started to task_complete; each change of the running
 /// token total is one request.
-fn codex_turns(path: &str, price: &Price) -> Result<Vec<Json>, FileError> {
+/// A Codex session's last turns, newest first, across the files of a thread written in segments (oldest first): read
+/// from the newest back until there are enough whole turns; a turn that runs on into the next segment is one turn.
+fn codex_turns(files: &[String], price: &Price) -> Result<Vec<Json>, FileError> {
+    let mut turns: Vec<Object> = Vec::new();
+    for (index, file) in files.iter().rev().enumerate() {
+        let mut earlier = match codex_file_turns(file, price) {
+            Ok(turns) => turns,
+            Err(error) if index == 0 => return Err(error),
+            Err(_) => break,
+        };
+        // What the later segment did before its first task_started finishes the earlier segment's last turn.
+        if index > 0
+            && let Some(carried) = turns.first().filter(|first| first.get("at").is_none_or(Json::is_null)).cloned()
+        {
+            turns.remove(0);
+            let last = earlier.last_mut().expect("a turn");
+            for key in ["requests", "tokens", "cost", "unpriced"] {
+                bump(last, key, carried.get(key).cloned().unwrap_or(Json::Int(0)));
+            }
+            for (name, count) in carried.get("tools").and_then(Json::as_object).cloned().unwrap_or_default() {
+                let mut tools = last.get("tools").and_then(Json::as_object).cloned().unwrap_or_default();
+                let current = tools.get(&name).cloned().unwrap_or(Json::Int(0));
+                tools.insert(name.as_str(), add(&current, &count));
+                last.insert("tools", tools);
+            }
+        }
+        earlier.extend(turns);
+        turns = earlier;
+        if turns.iter().filter(|turn| !turn.get("at").is_none_or(Json::is_null)).count() >= TURNS {
+            break;
+        }
+    }
+    Ok(last_turns(turns))
+}
+
+/// One Codex file's turns, oldest first; the first holds what came before its first task_started.
+fn codex_file_turns(path: &str, price: &Price) -> Result<Vec<Object>, FileError> {
     let mut turns = vec![turn(Json::Null)];
     let mut model = Json::Null;
     let mut total: Option<Option<Json>> = None;
@@ -437,7 +473,7 @@ fn codex_turns(path: &str, price: &Price) -> Result<Vec<Json>, FileError> {
             }
         }
     }
-    Ok(last_turns(turns))
+    Ok(turns)
 }
 
 /// How many of a Claude session's last reply IDs are kept between readings, so a reply streamed across the point where
@@ -670,7 +706,7 @@ pub fn active(
                 match unchanged.and_then(|before| before.get("turns")).filter(|turns| turns.as_array().is_some()) {
                     Some(turns) => turns.clone(),
                     None => Json::Array(
-                        if tool == "Claude" { claude_turns(&path, price) } else { codex_turns(&path, price) }
+                        if tool == "Claude" { claude_turns(&path, price) } else { codex_turns(&files, price) }
                             .unwrap_or_default(),
                     ),
                 };

@@ -217,9 +217,30 @@ def claude_turns(path, price):
     return [t for t in turns if t['at'] is not None or t['requests']][-TURNS:][::-1]
 
 
-def codex_turns(path, price):
+def codex_turns(files, price):
     """The last turns of a Codex session, newest first: from task_started to task_complete, its requests (each
-    change of the running token total), tokens, estimated cost and the tools it called. price(model, usage)."""
+    change of the running token total), tokens, estimated cost and the tools it called. price(model, usage).
+    A thread written in segments (files, oldest first) is read from the newest back until there are enough whole
+    turns; a turn that runs on into the next segment is one turn."""
+    files = files if isinstance(files, list) else [files]
+    turns = []
+    for index, path in enumerate(reversed(files)):
+        try:earlier = codex_file_turns(path, price)
+        except (OSError, ValueError):
+            if index == 0:raise
+            break
+        # What the later segment did before its first task_started finishes the earlier segment's last turn.
+        if index and turns and turns[0]['at'] is None:
+            carried = turns.pop(0); last = earlier[-1]
+            for key in ('requests', 'tokens', 'cost', 'unpriced'):last[key] += carried[key]
+            for name, count in carried['tools'].items():last['tools'][name] = last['tools'].get(name, 0) + count
+        turns = earlier + turns
+        if sum(1 for t in turns if t['at'] is not None) >= TURNS:break
+    return [t for t in turns if t['at'] is not None or t['requests']][-TURNS:][::-1]
+
+
+def codex_file_turns(path, price):
+    """One Codex file's turns, oldest first; the first holds what came before its first task_started."""
     turns = [turn(None)]; current = turns[0]; model = None; total = None
     for row in rows_at_end(path, DETAIL):
         data = row.get('payload') if isinstance(row.get('payload'), dict) else {}
@@ -238,7 +259,7 @@ def codex_turns(path, price):
             cost = price(model, last)
             if cost is None:current['unpriced'] += 1
             else:current['cost'] += cost
-    return [t for t in turns if t['at'] is not None or t['requests']][-TURNS:][::-1]
+    return turns
 
 
 def spent(path, tool, price):
@@ -317,7 +338,7 @@ def active(claude_roots, codex_root, now, prices=None, claude_app=None):
         entry = dict(session, id=ident, at=changed)
         # The turns and the whole session's cost are read here, so the path itself never leaves this function.
         if prices:
-            entry['turns'] = detail(path, session['tool'], prices)
+            entry['turns'] = detail(path if session['tool'] == 'Claude' else files, session['tool'], prices)
             try:
                 parts = [spent(segment, session['tool'], prices[session['tool']]) for segment in files]
                 cost = 0.0

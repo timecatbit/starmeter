@@ -1361,9 +1361,11 @@ class SessionParityTests(unittest.TestCase):
                            'last_token_usage': {'input_tokens': 100 * n, 'output_tokens': 10}}}}
         write(codex / 'sessions' / '2026' / '11' / '01' / ('rollout-2026-11-01T09-00-00-%s_019a1111-0000-7000-8000-000000000001.jsonl' % long), [
             meta, {'type': 'turn_context', 'payload': {'model': 'gpt-6.2-sol'}}, {'type': 'event_msg', 'payload': {'type': 'task_started'}},
-            count(1), count(2), {'type': 'event_msg', 'payload': {'type': 'task_complete'}}], age=3 * 86400)
+            count(1)], age=3 * 86400)
+        # The turn the older segment started finishes in the newer one: one turn of two requests.
         write(codex / 'sessions' / '2026' / '11' / '18' / ('rollout-2026-11-18T09-00-00-%s_019a1111-0000-7000-8000-000000000002.jsonl' % long), [
-            meta, {'type': 'event_msg', 'payload': {'type': 'task_started'}}, {'type': 'turn_context', 'payload': {'model': 'gpt-6.2-astra', 'effort': 'high'}},
+            meta, count(2), {'type': 'response_item', 'payload': {'type': 'function_call', 'name': 'exec'}}, {'type': 'event_msg', 'payload': {'type': 'task_complete'}},
+            {'type': 'event_msg', 'payload': {'type': 'task_started'}}, {'type': 'turn_context', 'payload': {'model': 'gpt-6.2-astra', 'effort': 'high'}},
             {'type': 'response_item', 'payload': {'type': 'message', 'content': 'x' * 600_000}}, count(3),
             {'type': 'event_msg', 'payload': {'type': 'task_complete'}}], age=3)
         # A long tool output pushes the turn's start, or every whole line, out of the usual tail: still running.
@@ -1389,7 +1391,9 @@ class SessionParityTests(unittest.TestCase):
                 self.assertEqual([(s['state'], s['tool']) for s in got], [('running', 'Claude'), ('running', 'Claude'), ('running', 'ChatGPT'), ('running', 'ChatGPT'),
                                                                            ('waiting', 'ChatGPT'), ('waiting', 'Claude'), ('waiting', 'Claude')])
                 self.assertEqual((got[4]['title'], got[4]['model'], got[4]['effort']), ('长对话', 'gpt-6.2-astra', 'high'))
-                if prices:self.assertEqual(got[4]['spent']['requests'], 3)
+                if prices:
+                    self.assertEqual(got[4]['spent']['requests'], 3)
+                    self.assertEqual([(t['requests'], t['tools']) for t in got[4]['turns']], [(1, {}), (2, {'exec': 1})], 'Across segments, a turn that runs on is one')
         # The turns as listed: one with no request left out, MCP tools by their own name.
         turns = [{'at': None, 'requests': 4, 'tokens': 1200, 'cost': 0.4, 'unpriced': 1,
                   'tools': {'mcp__ccd_turn__update_plan': 2, 'mcp__other__update_plan': 1, 'Bash': 3, 'mcp__a___b': 1, 'mcp__x__': 1}},
