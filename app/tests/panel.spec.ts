@@ -347,6 +347,54 @@ test('a click on ChatGPT 订阅 opens its page at once, also right after the pan
   }
 });
 
+test('figures that come in while a row is pressed wait for its click, so the row stays under the pointer (HOME-1)', async ({ page }) => {
+  await open(page);
+  await expect(page.locator('.window')).not.toHaveCSS('height', '400px');
+  const row = page.locator('.home button.row').filter({ hasText: 'ChatGPT 订阅' });
+  const heading = page.getByRole('heading', { level: 2, name: 'ChatGPT 订阅', exact: true });
+  const top = async () => (await row.boundingBox())!.y;
+  const full = await top();
+  // The homepage drawn short first (each tool's card with one model), as a reading still filling in draws it; the
+  // next reading, the full one, is asked for and held back until let go.
+  await page.evaluate(async () => {
+    // The panel's own copy of the module (a dev server that has reloaded it serves it under a new address).
+    const loaded = performance.getEntriesByType('resource').map((entry) => entry.name).filter((name) => name.includes('/src/lib/backend.ts'));
+    const { backend } = await import(/* @vite-ignore */ loaded.at(-1) ?? '/src/lib/backend.ts');
+    (window as unknown as { backend: typeof backend }).backend = backend;
+    const real = backend.snapshot;
+    const w = window as unknown as { short: boolean; gate: Promise<void> | null; letGo: () => void };
+    w.short = true;
+    w.gate = null;
+    backend.snapshot = async () => {
+      const answer = await real();
+      if (w.short && answer.dashboard) for (const card of [...answer.dashboard.providers, ...(answer.dashboard.cards ?? [])]) card.models = card.models?.slice(0, 1);
+      if (w.gate) await w.gate;
+      return answer;
+    };
+    await backend.action(['set-group', 'tool']);
+  });
+  await expect.poll(top).toBeLessThan(full - 40);
+  const short = await top();
+  await page.evaluate(async () => {
+    const w = window as unknown as { short: boolean; gate: Promise<void> | null; letGo: () => void };
+    w.short = false;
+    w.gate = new Promise((resolve) => (w.letGo = resolve));
+    await (window as unknown as { backend: { action: (action: string[]) => Promise<unknown> } }).backend.action(['set-group', 'tool']);
+  });
+  // A person's click on the row: the full figures come in between the press and the release.
+  const box = (await row.boundingBox())!;
+  expect(box.y).toBe(short);
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.evaluate(() => (window as unknown as { letGo: () => void }).letGo());
+  await page.waitForTimeout(150);
+  await page.mouse.up();
+  await expect(heading).toBeVisible({ timeout: 1000 });
+  // The click done, the figures it waited for are on the homepage.
+  await page.keyboard.press('Escape');
+  await expect.poll(top).toBe(full);
+});
+
 test('questions are answered in place, under the row that asked, not in a dialog', async ({ page }) => {
   await open(page);
   await page.locator('.row').filter({ hasText: 'ChatGPT 订阅' }).click();

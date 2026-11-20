@@ -310,6 +310,8 @@
 
   /** A button held down keeps its look: a data refresh waits until the press ends. */
   let pressing = false;
+  /** A reading that answered during a press or with a menu open, taken once they end (with the picks it was asked at). */
+  let held: { answer: Snapshot; mine: number } | null = null;
 
   /** Counts the range and grouping picks: a reading asked before the last pick (a phone's slow reading of the range it
    *  had before) is left unused when it answers, so it never takes the page back. Readings between picks all count,
@@ -330,6 +332,12 @@
       return;
     }
     if (mine !== picks) return;
+    // Asked before a press, answered during it: the new figures could move the row under the pointer (a card above it
+    // filling in its models), and the release would land elsewhere, the click lost. They wait for the press to end.
+    if (pressing || panel.menuOpen) { held = { answer, mine }; return; }
+    take(answer);
+  }
+  function take(answer: Snapshot) {
     interaction.source = answer;
     phoneProblem = null;
     if (pinned && interaction.source.dashboard) {
@@ -344,8 +352,19 @@
   $effect(() => {
     if (panel.menuOpen) return;
     pressing = false;
-    if (deferred) { deferred = false; void reload(); }
+    released();
   });
+  /** The press or the menu over: the reading that waited is taken, or the one put off asked for, after the click the
+   *  release makes, so the click goes to what was pressed. */
+  function released() {
+    setTimeout(() => {
+      if (pressing || panel.menuOpen) return;
+      const waiting = held;
+      held = null;
+      if (waiting && waiting.mine === picks) take(waiting.answer);
+      if (deferred) { deferred = false; void reload(); }
+    }, 0);
+  }
 
   // 新手指引: once, the first time the panel opens on its homepage (the web view keeps that it was seen); again from
   // 通用 → 新手指引. In a browser (the fixtures, the screenshots) only when the address asks: ?guide shows it
@@ -560,6 +579,9 @@
   function opened(modules: boolean, maxHeight?: number) {
     if (maxHeight) info = { ...info, maxHeight };
     startOver(modules);
+    // A press the closing cut short never came up: no press is on as the panel opens, and its reading is fresh.
+    pressing = false;
+    held = null;
     void reload();
     // A shortcut another app held: tried again each time the panel opens, so quitting that app is enough.
     if (shortcut.taken) void restoreShortcut();
@@ -627,7 +649,7 @@
     // Focus rings belong to moving through the panel with Tab.
     const tabbing = (event: KeyboardEvent) => { if (event.key === 'Tab') document.documentElement.classList.add('keyboard'); };
     window.addEventListener('keydown', tabbing, true);
-    const up = () => { pressing = false; if (deferred && !panel.menuOpen) { deferred = false; void reload(); } };
+    const up = () => { pressing = false; released(); };
     window.addEventListener('pointerdown', down, true);
     window.addEventListener('pointerup', up, true);
     window.addEventListener('pointercancel', up, true);
