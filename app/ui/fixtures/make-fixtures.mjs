@@ -491,12 +491,12 @@ function apiRows(state) {
       entry('添加 Key…', { symbol: 'plus', action: ['add-api-key', 'claude-api'] }),
       entry('打开用量与账单', { symbol: 'arrow.up.right', href: 'https://platform.claude.com/usage' }),
     ]),
-    entry('DeepSeek API', { ...moduleIcon('deepseek'), value: value(failed ? '余额 ¥224.05 · 刷新失败' : '余额 ¥227.07 (2)'), fallbacks: ['余额 ¥227.07'],
+    entry('DeepSeek API', { ...moduleIcon('deepseek'), value: value(failed ? '余额 ¥186.40 · 刷新失败' : '余额 ¥229.15 (2)'), fallbacks: ['余额 ¥229.15'],
       onOpenAction: ['refresh-source', 'deepseek'] }, [
-      apiKey('deepseek', 'default', '默认', value('余额 ¥224.05'), [
+      apiKey('deepseek', 'default', '默认', value('余额 ¥186.40'), [
         failed ? entry('更新时间', { value: '1 小时前更新', detail: '本次读取失败：网络连接超时 · 保留最近一次成功的数据 · 14:31' }) : entry('更新时间', { value: '4 分钟前更新' }),
       ], false),
-      apiKey('deepseek', '7c41e2aa', 'lab', value('余额 ¥3.02'), [entry('更新时间', { value: '4 分钟前更新' })]),
+      apiKey('deepseek', '7c41e2aa', 'demo', value('余额 ¥42.75'), [entry('更新时间', { value: '4 分钟前更新' })]),
       entry('添加 Key…', { symbol: 'plus', action: ['add-api-key', 'deepseek'] }),
       entry('余额提醒…', { symbol: 'bell', value: '¥20.00', action: ['set-balance-alert', 'deepseek', 'CNY'] }),
       entry('打开用量与账单', { symbol: 'arrow.up.right', href: 'https://platform.deepseek.com/usage' }),

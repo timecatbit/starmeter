@@ -320,7 +320,7 @@ test('a Key opens in place on its guide line', async ({ page }) => {
   await open(page);
   await page.locator('.row', { hasText: 'DeepSeek API' }).click();
   await expect(page.locator('.detail-row', { hasText: '重命名…' })).toHaveCount(0);
-  const key = page.locator('.detail-row', { hasText: 'lab' });
+  const key = page.locator('.detail-row', { has: page.getByText('demo', { exact: true }) });
   await key.click();
   await expect(key).toHaveAttribute('aria-expanded', 'true');
   await expect(page.locator('.detail-row', { hasText: '删除…' })).toBeVisible();
