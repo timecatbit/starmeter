@@ -237,6 +237,11 @@ export async function action(action: string[]): Promise<ActionReceipt> {
       changed();
       return { status: 'done' };
     }
+    case 'set-cny-rate': {
+      const typed = await askPanel({ kind: 'text', title: '汇率', detail: '1 美元合多少人民币？留空则每天按欧洲央行参考汇率自动更新。', value: '' });
+      if (typeof typed === 'string') console.info('[fixtures] rate', typed);
+      return { status: 'done' };
+    }
     case 'remove-api-key': {
       const yes = await askPanel({ kind: 'confirm', title: '删除这把 Key？', detail: '只删除 Starmeter 自己保存的副本，不影响服务商那边的 Key。', accept: '删除' });
       if (yes === true) console.info('[fixtures] removed', a, b);

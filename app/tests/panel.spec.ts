@@ -263,6 +263,26 @@ test('a pinned panel resized at its edges lays its pages out at that width, and 
   await expect(page.locator('.card .cost').first()).toBeVisible();
 });
 
+test('a question under its row goes with its page: back is 取消, and nothing is left at the foot', async ({ page }) => {
+  await open(page);
+  await button(page, '主页模块与设置').click();
+  await page.getByText('外观', { exact: true }).click();
+  await page.getByText('汇率…').click();
+  await expect(page.locator('.ask .field')).toBeFocused();
+  // Back by the button: the question is gone, from its row and from the foot.
+  await button(page, '返回').click();
+  await expect(page.locator('.modules')).toBeVisible();
+  await expect(page.locator('.ask')).toHaveCount(0);
+  await expect(page.locator('.ask-sheet')).toHaveCount(0);
+  // And the action it belonged to is over: the same row asks again, afresh.
+  await page.getByText('外观', { exact: true }).click();
+  await page.getByText('汇率…').click();
+  await expect(page.locator('.ask .field')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.ask')).toHaveCount(0);
+  await expect(page.getByText('汇率…')).toBeVisible();
+});
+
 test('questions are answered in place, under the row that asked, not in a dialog', async ({ page }) => {
   await open(page);
   await page.locator('.row').filter({ hasText: 'ChatGPT 订阅' }).click();

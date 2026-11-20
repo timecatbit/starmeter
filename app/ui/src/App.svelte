@@ -10,7 +10,7 @@
   import { LiveFeed } from './lib/live';
   import { font, width as measure } from './lib/measure';
   import { pageIn, pageOut } from './lib/motion';
-  import { ask, show as showQuestion } from './lib/ask.svelte';
+  import { answer as answerQuestion, ask, show as showQuestion } from './lib/ask.svelte';
   import { chooseLanguage, localize, source, t } from './lib/i18n.svelte';
   import { phoneStatus } from './lib/phone.svelte';
   import { chooseShortcut, restoreShortcut } from './lib/shortcut.svelte';
@@ -424,7 +424,14 @@
 
   // MARK: Pages
 
+  /** A question answered under its row goes with its page: leaving the page (back, Esc, a swipe, another page) is the
+   *  same as 取消. One the homepage or the grid asked, at the panel's foot, stays. */
+  function leavePage() {
+    if (ask.current && ask.placed > 0) answerQuestion(null);
+  }
+
   function push(entry: Entry) {
+    leavePage();
     const check = entry.onOpenAction;
     if (check?.length === 2 && Date.now() - (sourceChecks.get(check[1]) ?? 0) >= 5000) {
       sourceChecks.set(check[1], Date.now());
@@ -439,6 +446,7 @@
   }
 
   function back() {
+    leavePage();
     panel.hint = null;
     if (phoneOpen) {
       dir = -1;
