@@ -354,11 +354,15 @@ fn phone_snapshot(app: &AppHandle, range: Option<&str>, group: Option<&str>) -> 
             }
         }
     }
-    // The plugin's panel has the computer's grouping only: no choices on the phone that would do nothing.
-    if matches!(&*app.state::<Data>(), Data::SwiftBar(_))
-        && let Some(groupings) = snapshot.pointer_mut("/dashboard/groupings").and_then(Value::as_array_mut)
-    {
-        groupings.retain(|grouping| grouping.get("key").and_then(Value::as_str) == Some("tool"));
+    // The plugin's panel has the computer's range and grouping only: no choices on the phone that would do nothing
+    // (a range it cannot read would leave the phone waiting, and its share page with nothing to save).
+    if matches!(&*app.state::<Data>(), Data::SwiftBar(_)) {
+        if let Some(groupings) = snapshot.pointer_mut("/dashboard/groupings").and_then(Value::as_array_mut) {
+            groupings.retain(|grouping| grouping.get("key").and_then(Value::as_str) == Some("tool"));
+        }
+        if let Some(options) = snapshot.get_mut("rangeOptions").and_then(Value::as_array_mut) {
+            options.retain(|option| option.get("checked") == Some(&json!(true)));
+        }
     }
     snapshot["moduleOptions"] = json!([]);
     if let Some(entries) = snapshot.get_mut("entries").and_then(Value::as_array_mut) {
