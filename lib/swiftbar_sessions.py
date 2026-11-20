@@ -51,6 +51,33 @@ def rows_at_end(path, size=TAIL):
     return rows
 
 
+def rows_at_start(path, size=TAIL):
+    """The complete JSON lines in the first `size` bytes of a file, in order."""
+    with open(path, 'rb') as handle:data = handle.read(size)
+    lines = data.split(b'\n')
+    if len(data) >= size:lines = lines[:-1]  # The last line was cut.
+    rows = []
+    for line in lines:
+        try:
+            row = json.loads(line)
+            if isinstance(row, dict):rows.append(row)
+        except ValueError:continue
+    return rows
+
+
+UUID = re.compile(r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}')
+
+
+def codex_thread(path):
+    """A rollout's thread, from its name: rollout-<time>-<thread>.jsonl, or rollout-<time>-<thread>_<segment>.jsonl for
+    a long thread written in segments, each going on from the one before. None for a name of neither shape."""
+    stem = Path(path).stem
+    if not stem.startswith('rollout-'):return None
+    rest = stem[len('rollout-'):]
+    if len(rest) >= 56 and rest[19] == '-' and UUID.fullmatch(rest[20:56]):return rest[20:56]
+    return stem[-36:] if len(stem) >= 36 and UUID.fullmatch(stem[-36:]) else None
+
+
 def first_row(path):
     with open(path, 'rb') as handle:
         try:return json.loads(handle.readline(TAIL))
@@ -111,6 +138,12 @@ def codex(path):
             used = number(last.get('input_tokens')) + number(last.get('output_tokens'))
             if window and used:context = min(1.0, used / window)
     if state is None:return None
+    # A segment opens with the history it goes on from: its turn context can sit far before the end.
+    if model is None:
+        for row in rows_at_start(path):
+            if row.get('type') == 'turn_context':
+                data = row.get('payload') if isinstance(row.get('payload'), dict) else {}
+                model = data.get('model') or model; effort = text(data.get('effort')) or effort
     return {'tool': 'ChatGPT', 'state': state, 'title': None, 'project': project_name(folder), 'model': model, 'effort': effort,
             'context': context}
 
@@ -236,15 +269,28 @@ def recent(root, pattern, since):
 
 def active(claude_roots, codex_root, now, prices=None, claude_app=None):
     """Sessions changed in the last day, the running ones first, then the most recent. A running one silent for ten
-    minutes has stopped without saying so: it is idle.
-    With prices (tool -> price(model, usage)), each carries its last turns as well. claude_app maps a transcript's
-    session ID to the Claude App's title and effort for it."""
+    minutes has stopped without saying so: it is idle. A long Codex thread written in segments is one session.
+    With prices (tool -> price(model, usage)), each carries its last turns and what the whole session has cost.
+    claude_app maps a transcript's session ID to the Claude App's title and effort for it."""
     found = []; titles = None
-    candidates = [(claude, p) for root in claude_roots for p in recent(root, '*/*.jsonl', now - ACTIVE) if 'subagents' not in p.parts]
+    def digest(text):return hashlib.sha256(str(text).encode()).hexdigest()[:16]
+    candidates = [(claude, p, [p], digest(p), None) for root in claude_roots for p in recent(root, '*/*.jsonl', now - ACTIVE)
+                  if 'subagents' not in p.parts]
     if codex_root:
-        # A rollout is filed under the day its thread started, and a thread can still be going days later.
-        candidates += [(codex, p) for p in recent(Path(codex_root) / 'sessions', '*/*/*/rollout-*.jsonl', now - ACTIVE)]
-    for read, path in candidates:
+        # A rollout is filed under the day its thread started, and a thread can still be going days later. A long
+        # thread is written in segments, each going on from the one before: one session, in the state of its newest
+        # segment, its cost all of theirs.
+        threads = {}
+        for p in recent(Path(codex_root) / 'sessions', '*/*/*/rollout-*.jsonl', 0):
+            try:changed = p.stat().st_mtime
+            except OSError:continue
+            thread = codex_thread(p)
+            threads.setdefault(thread or str(p), (thread, []))[1].append((changed, p))
+        for key, (thread, segments) in threads.items():
+            segments.sort(key=lambda item: (item[0], str(item[1])))
+            if segments[-1][0] < now - ACTIVE:continue
+            candidates.append((codex, segments[-1][1], [p for _, p in segments], digest(key), thread))
+    for read, path, files, ident, thread in candidates:
         try:
             changed = path.stat().st_mtime; session = read(path)
         except (OSError, ValueError, TypeError, AttributeError):continue
@@ -254,14 +300,17 @@ def active(claude_roots, codex_root, now, prices=None, claude_app=None):
             app = (claude_app or {}).get(path.stem) or {}
             session['title'] = session['title'] or app.get('title'); session['effort'] = app.get('effort')
         else:
-            # rollout-<started>-<thread ID>.jsonl
             titles = codex_titles(codex_root) if titles is None else titles
-            session['title'] = titles.get(path.stem[-36:])
-        entry = dict(session, id=hashlib.sha256(str(path).encode()).hexdigest()[:16], at=changed)
+            session['title'] = titles.get(thread) if thread else None
+        entry = dict(session, id=ident, at=changed)
         # The turns and the whole session's cost are read here, so the path itself never leaves this function.
         if prices:
             entry['turns'] = detail(path, session['tool'], prices)
-            try:entry['spent'] = spent(path, session['tool'], prices[session['tool']])
+            try:
+                parts = [spent(segment, session['tool'], prices[session['tool']]) for segment in files]
+                cost = 0.0
+                for part in parts:cost += part['cost']
+                entry['spent'] = {'requests': sum(part['requests'] for part in parts), 'cost': cost, 'unpriced': sum(part['unpriced'] for part in parts)}
             except (OSError, ValueError, TypeError, AttributeError, KeyError):entry['spent'] = None
         found.append(entry)
     # The running ones first, then the most recent.

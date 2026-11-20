@@ -62,6 +62,39 @@ fn rows_at_end(path: &str, size: usize) -> Result<Vec<Object>, FileError> {
         .collect())
 }
 
+/// The complete JSON lines in the first `size` bytes of a file, in order.
+fn rows_at_start(path: &str, size: usize) -> Result<Vec<Object>, FileError> {
+    let file = File::open(path).map_err(|_| FileError::of_kind("unreadable", "OSError"))?;
+    let mut data = Vec::new();
+    file.take(size as u64).read_to_end(&mut data).map_err(|_| FileError::of_kind("unreadable", "OSError"))?;
+    let mut lines: Vec<&[u8]> = data.split(|&byte| byte == b'\n').collect();
+    if data.len() >= size && !lines.is_empty() {
+        lines.pop();
+    }
+    Ok(lines
+        .into_iter()
+        .filter_map(|line| Json::parse_selected(line, &Selection::All, true).ok())
+        .filter_map(|value| value.as_object().cloned())
+        .collect())
+}
+
+/// A rollout's thread, from its name: rollout-<time>-<thread>.jsonl, or rollout-<time>-<thread>_<segment>.jsonl for a
+/// long thread written in segments, each going on from the one before. None for a name of neither shape.
+pub fn codex_thread(path: &str) -> Option<String> {
+    let stem = Path::new(path).file_stem()?.to_str()?;
+    let uuid = |text: &str| {
+        text.len() == 36
+            && text.bytes().enumerate().all(|(index, byte)| {
+                if [8, 13, 18, 23].contains(&index) { byte == b'-' } else { byte.is_ascii_hexdigit() }
+            })
+    };
+    let rest = stem.strip_prefix("rollout-")?;
+    if let Some(thread) = rest.get(20..56).filter(|thread| uuid(thread) && rest.as_bytes().get(19) == Some(&b'-')) {
+        return Some(thread.to_string());
+    }
+    stem.get(stem.len().checked_sub(36)?..).filter(|thread| uuid(thread)).map(String::from)
+}
+
 fn first_row(path: &str) -> Result<Json, FileError> {
     let mut file = File::open(path).map_err(|_| FileError::of_kind("unreadable", "OSError"))?;
     let mut line = Vec::new();
@@ -172,6 +205,16 @@ fn codex(path: &str) -> Result<Option<Object>, ReadError> {
         }
     }
     let Some(state) = state else { return Ok(None) };
+    // A segment opens with the history it goes on from: its turn context can sit far before the end.
+    if model.is_null() {
+        for row in rows_at_start(path, TAIL)? {
+            if kind_is(&row, "turn_context") {
+                let data = row.get("payload").and_then(Json::as_object).cloned().unwrap_or_default();
+                model = py::or(data.get("model"), model);
+                effort = text(data.get("effort")).or(effort);
+            }
+        }
+    }
     Ok(Some(object! {
         "tool" => "ChatGPT", "state" => state, "title" => Json::Null, "project" => project_name(folder.as_ref()),
         "model" => model, "effort" => effort, "context" => context,
@@ -499,9 +542,21 @@ fn recent(root: &str, depth: usize, since: f64, matching: &dyn Fn(&str) -> bool)
     found
 }
 
+/// A session to read: its tool, its file (a long Codex thread's newest segment), all its files, its ID and its thread.
+struct Candidate {
+    tool: &'static str,
+    path: String,
+    files: Vec<String>,
+    id: String,
+    thread: Option<String>,
+}
+
+/// A Codex thread's files as found: its ID when the names give it, and each file with when it last changed.
+type Thread = (Option<String>, Vec<(f64, String)>);
+
 /// Sessions changed in the last day, the running ones first, then the most recent; a running one silent for ten minutes
-/// has stopped without saying so and is idle. With prices, each carries its last turns and what the whole session has
-/// cost. `tallies`, kept between readings by session, lets the cost be read from where the last reading stopped, and a
+/// has stopped without saying so and is idle. A long Codex thread written in segments is one session. With prices,
+/// each carries its last turns and what the whole session has cost. `tallies`, kept between readings by session, lets the cost be read from where the last reading stopped, and a
 /// transcript unchanged since (a pinned panel reads every second or two, a day of sessions is many files) is not read
 /// again: what was read then serves.
 pub fn active(
@@ -514,29 +569,53 @@ pub fn active(
 ) -> Vec<Json> {
     let previous = tallies.as_deref().cloned().unwrap_or_default();
     let mut kept = Object::new();
-    let mut candidates: Vec<(&str, String)> = Vec::new();
+    let hash = |text: &str| py::sha256_hex(text.as_bytes())[..16].to_string();
+    let mut candidates: Vec<Candidate> = Vec::new();
     for root in claude_roots {
         for path in recent(root, 1, now - ACTIVE, &|name: &str| name.ends_with(".jsonl")) {
             if !path.split('/').any(|part| part == "subagents") {
-                candidates.push(("Claude", path));
+                candidates.push(Candidate {
+                    tool: "Claude",
+                    path: path.clone(),
+                    files: vec![path.clone()],
+                    id: hash(&path),
+                    thread: None,
+                });
             }
         }
     }
     if let Some(codex_root) = codex_root {
-        // A rollout is filed under the day its thread started, and a thread can still be going days later.
+        // A rollout is filed under the day its thread started, and a thread can still be going days later. A long
+        // thread is written in segments, each going on from the one before: one session, in the state of its newest
+        // segment, its cost all of theirs.
         let matching = |name: &str| name.starts_with("rollout-") && name.ends_with(".jsonl");
-        for path in recent(&format!("{codex_root}/sessions"), 3, now - ACTIVE, &matching) {
-            candidates.push(("ChatGPT", path));
+        let mut threads: indexmap::IndexMap<String, Thread> = indexmap::IndexMap::new();
+        for path in recent(&format!("{codex_root}/sessions"), 3, 0.0, &matching) {
+            let Some(state) = state_of(Path::new(&path)) else { continue };
+            let thread = codex_thread(&path);
+            let group = threads.entry(thread.clone().unwrap_or_else(|| path.clone())).or_insert((thread, Vec::new()));
+            group.1.push((state.mtime as f64 / 1e9, path));
+        }
+        for (key, (thread, mut segments)) in threads {
+            segments.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+            let Some((changed, newest)) = segments.last().cloned() else { continue };
+            if changed < now - ACTIVE {
+                continue;
+            }
+            let files = segments.into_iter().map(|(_, path)| path).collect();
+            candidates.push(Candidate { tool: "ChatGPT", path: newest, files, id: hash(&key), thread });
         }
     }
     let mut titles: Option<HashMap<String, String>> = None;
     let mut found: Vec<(f64, Object)> = Vec::new();
-    for (tool, path) in candidates {
+    for Candidate { tool, path, files, id, thread } in candidates {
         let Some(state) = state_of(Path::new(&path)) else { continue };
         let changed = state.mtime as f64 / 1e9;
-        let id = py::sha256_hex(path.as_bytes())[..16].to_string();
-        let print = Json::from(format!("{}:{}:{}", state.inode, state.size, state.mtime));
-        let unchanged = previous.get(&id).and_then(Json::as_object).filter(|before| {
+        let print_of =
+            |state: &claude_usage::FileState| Json::from(format!("{}:{}:{}", state.inode, state.size, state.mtime));
+        let print = print_of(&state);
+        let file = hash(&path);
+        let unchanged = previous.get(&file).and_then(Json::as_object).filter(|before| {
             before.get("print") == Some(&print) && before.get("read").and_then(Json::as_object).is_some()
         });
         let read = match unchanged {
@@ -558,38 +637,60 @@ pub fn active(
             session.insert("effort", app.and_then(|(_, effort)| effort.clone()));
         } else {
             let names = titles.get_or_insert_with(|| codex_titles(Path::new(codex_root.unwrap_or(""))));
-            let tail: String = stem.chars().rev().take(36).collect::<Vec<_>>().into_iter().rev().collect();
-            session.insert("title", names.get(&tail).cloned());
+            session.insert("title", thread.as_ref().and_then(|thread| names.get(thread)).cloned());
         }
         session.insert("id", id.as_str());
         session.insert("at", changed);
         // The turns and the whole session's cost are read here, so the path itself never leaves this function.
         if let Some(price) = prices.and_then(|prices| prices.get(tool)) {
-            if let Some(before) = unchanged.filter(|before| before.get("turns").and_then(Json::as_array).is_some()) {
-                session.insert("turns", before.get("turns").cloned().unwrap_or(Json::Null));
-                let field = |name: &str| before.get(name).cloned().unwrap_or(Json::Null);
-                session.insert(
-                    "spent",
-                    object! { "requests" => field("requests"), "cost" => field("cost"), "unpriced" => field("unpriced") },
-                );
-                kept.insert(id.as_str(), Json::Object(before.clone()));
-            } else {
-                let turns = Json::Array(
-                    if tool == "Claude" { claude_turns(&path, price) } else { codex_turns(&path, price) }
-                        .unwrap_or_default(),
-                );
-                session.insert("turns", turns.clone());
-                match spent(&path, tool, price, previous.get(&id).and_then(Json::as_object)) {
-                    Ok((cost, mut tally)) => {
-                        session.insert("spent", cost);
-                        tally.insert("print", print);
-                        tally.insert("read", Json::Object(raw));
-                        tally.insert("turns", turns);
-                        kept.insert(id.as_str(), Json::Object(tally));
-                    }
-                    Err(_) => session.insert("spent", Json::Null),
+            let turns =
+                match unchanged.and_then(|before| before.get("turns")).filter(|turns| turns.as_array().is_some()) {
+                    Some(turns) => turns.clone(),
+                    None => Json::Array(
+                        if tool == "Claude" { claude_turns(&path, price) } else { codex_turns(&path, price) }
+                            .unwrap_or_default(),
+                    ),
+                };
+            session.insert("turns", turns.clone());
+            // Each file's count, kept by file: an unchanged one is not read again, a grown one from where it stopped.
+            let (mut requests, mut cost, mut unpriced, mut whole) = (Json::Int(0), 0.0, Json::Int(0), true);
+            for segment in &files {
+                let key = hash(segment);
+                let before = previous.get(&key).and_then(Json::as_object);
+                let Some(now_print) = state_of(Path::new(segment)).map(|state| print_of(&state)) else {
+                    whole = false;
+                    continue;
+                };
+                let mut tally = match before.filter(|before| before.get("print") == Some(&now_print)) {
+                    Some(before) => before.clone(),
+                    None => match spent(segment, tool, price, before) {
+                        Ok((_, mut tally)) => {
+                            tally.insert("print", now_print);
+                            tally
+                        }
+                        Err(_) => {
+                            whole = false;
+                            continue;
+                        }
+                    },
+                };
+                requests = add(&requests, tally.get("requests").unwrap_or(&Json::Int(0)));
+                cost += tally.get("cost").and_then(Json::python_float).unwrap_or(0.0);
+                unpriced = add(&unpriced, tally.get("unpriced").unwrap_or(&Json::Int(0)));
+                if *segment == path {
+                    tally.insert("read", Json::Object(raw.clone()));
+                    tally.insert("turns", turns.clone());
                 }
+                kept.insert(key.as_str(), Json::Object(tally));
             }
+            session.insert(
+                "spent",
+                if whole {
+                    object! { "requests" => requests, "cost" => cost, "unpriced" => unpriced }.into()
+                } else {
+                    Json::Null
+                },
+            );
         }
         found.push((changed, session));
     }
@@ -686,11 +787,7 @@ impl Runtime {
             }
             if self.settings().get("sessionAlerts").is_some_and(Json::is_truthy) {
                 for session in newly_waiting(&previous, &found, now, 180.0).into_iter().take(3) {
-                    let name = session
-                        .get("title")
-                        .filter(|title| title.is_truthy())
-                        .or(session.get("project").filter(|project| project.is_truthy()))
-                        .map_or_else(|| "未知项目".to_string(), |value| py::str(Some(value)));
+                    let name = crate::more_rows::session_name(&session);
                     let tool = py::str(Some(session.get("tool").unwrap_or(&Json::Null)));
                     self.post_notice("会话完成", &format!("{tool} · {name} 这一轮已完成"));
                 }

@@ -1353,7 +1353,20 @@ class SessionParityTests(unittest.TestCase):
              'last_token_usage': {'input_tokens': 300, 'output_tokens': 50}}}}], age=2)
         write(codex / 'sessions' / '2026' / '11' / '18' / 'rollout-guardian.jsonl', [
             {'type': 'session_meta', 'payload': {'source': {'subagent': {'other': 'guardian'}}}}, {'type': 'event_msg', 'payload': {'type': 'task_started'}}], age=1)
-        (codex / 'session_index.jsonl').write_text(json.dumps({'id': thread, 'thread_name': '服务器管理'}) + '\n')
+        # A long thread written in segments, each going on from the one before: one session, named by its thread, its
+        # cost all of theirs; the newer segment opens with the history it goes on from, so its model sits far before the end.
+        long = '019a1111-2222-7333-8444-555566667777'
+        meta = {'type': 'session_meta', 'payload': {'id': long, 'cwd': '/w/Documents/Codex/2026-11-01/chat'}}
+        count = lambda n: {'type': 'event_msg', 'payload': {'type': 'token_count', 'info': {'model_context_window': 1000, 'total_token_usage': {'t': n},
+                           'last_token_usage': {'input_tokens': 100 * n, 'output_tokens': 10}}}}
+        write(codex / 'sessions' / '2026' / '11' / '01' / ('rollout-2026-11-01T09-00-00-%s_019a1111-0000-7000-8000-000000000001.jsonl' % long), [
+            meta, {'type': 'turn_context', 'payload': {'model': 'gpt-6.2-sol'}}, {'type': 'event_msg', 'payload': {'type': 'task_started'}},
+            count(1), count(2), {'type': 'event_msg', 'payload': {'type': 'task_complete'}}], age=3 * 86400)
+        write(codex / 'sessions' / '2026' / '11' / '18' / ('rollout-2026-11-18T09-00-00-%s_019a1111-0000-7000-8000-000000000002.jsonl' % long), [
+            meta, {'type': 'event_msg', 'payload': {'type': 'task_started'}}, {'type': 'turn_context', 'payload': {'model': 'gpt-6.2-astra', 'effort': 'high'}},
+            {'type': 'response_item', 'payload': {'type': 'message', 'content': 'x' * 600_000}}, count(3),
+            {'type': 'event_msg', 'payload': {'type': 'task_complete'}}], age=3)
+        (codex / 'session_index.jsonl').write_text(json.dumps({'id': thread, 'thread_name': '服务器管理'}) + '\n' + json.dumps({'id': long, 'thread_name': '长对话'}) + '\n')
         app = {'7a5d1c2e-0000-4000-8000-000000000001': {'title': 'App 名字', 'effort': 'xhigh'}, 'busy': {'title': 'Busy', 'effort': None}}
         plugin = __import__('types').ModuleType('plugin_sessions')
         with unittest.mock.patch.dict(os.environ, {'OCX_PLUGIN_PATH': str(ROOT / 'starmeter.30s.sh')}):
@@ -1363,8 +1376,10 @@ class SessionParityTests(unittest.TestCase):
                 expected = live_sessions.active([claude], codex, now, plugin.session_prices() if prices else None, app)
                 got = swift('sessions.active', [str(claude)], str(codex), now, prices, app)
                 same(self, expected, got)
-                # Within the day, the running one gone quiet as idle; the one older than a day left out.
-                self.assertEqual([(s['state'], s['tool']) for s in got], [('running', 'Claude'), ('running', 'ChatGPT'), ('waiting', 'Claude'), ('waiting', 'Claude')])
+                # Within the day, the running one gone quiet as idle; the one older than a day left out; the segments one session.
+                self.assertEqual([(s['state'], s['tool']) for s in got], [('running', 'Claude'), ('running', 'ChatGPT'), ('waiting', 'ChatGPT'), ('waiting', 'Claude'), ('waiting', 'Claude')])
+                self.assertEqual((got[2]['title'], got[2]['model'], got[2]['effort']), ('长对话', 'gpt-6.2-astra', 'high'))
+                if prices:self.assertEqual(got[2]['spent']['requests'], 3)
         # The turns as listed: one with no request left out, MCP tools by their own name.
         turns = [{'at': None, 'requests': 4, 'tokens': 1200, 'cost': 0.4, 'unpriced': 1,
                   'tools': {'mcp__ccd_turn__update_plan': 2, 'mcp__other__update_plan': 1, 'Bash': 3, 'mcp__a___b': 1, 'mcp__x__': 1}},
