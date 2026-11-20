@@ -189,7 +189,8 @@ class PowerTests(unittest.TestCase):
         for row in rows:
             if row.get('section'):current=row['label'];groups[current]=[]
             elif (row.get('action') or [''])[0]=='set-module':groups[current].append(row['label'])
-        self.assertEqual(list(groups),['概览','工具 Token 用量','订阅用量','API','其他'])
+        # The settings lead, a group of their own with no modules in it.
+        self.assertEqual(list(groups),['设置','概览','工具 Token 用量','订阅用量','API','其他']);self.assertEqual(groups['设置'],[])
         self.assertIn('Claude',groups['工具 Token 用量']);self.assertIn('OpenCodex',groups['工具 Token 用量'])
         self.assertEqual(groups['API'],[s.label for s in self.m.catalog.SERVICES if s.category=='API'])
         self.assertEqual(groups['订阅用量'],[s.label for s in self.m.catalog.SERVICES if s.category=='订阅'])

@@ -36,8 +36,9 @@ class SessionReaderTests(unittest.TestCase):
         self.write(self.claude / 'p' / 'busy.jsonl', [assistant('tool_use', 300_000), {'type': 'user', 'message': {'content': []}}, {'type': 'api-request'}], age=5)
         self.write(self.claude / 'p' / 'side.jsonl', [dict(assistant('tool_use'), isSidechain=True)])
         found = sessions.active([self.claude], None, time.time())
-        self.assertEqual([(s['state'], s['project']) for s in found], [('waiting', 'starmeter'), ('running', 'starmeter')])
-        self.assertAlmostEqual(found[0]['context'], 0.25); self.assertAlmostEqual(found[1]['context'], 0.3, msg='Past 200K the window is 1M')
+        # The running one first, though the finished one changed more recently.
+        self.assertEqual([(s['state'], s['project']) for s in found], [('running', 'starmeter'), ('waiting', 'starmeter')])
+        self.assertAlmostEqual(found[1]['context'], 0.25); self.assertAlmostEqual(found[0]['context'], 0.3, msg='Past 200K the window is 1M')
         self.assertNotIn('Users', json.dumps(found), 'Only the folder name of a project is kept')
 
     def test_a_session_goes_by_the_title_its_client_gave_it(self):
