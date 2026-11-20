@@ -15,6 +15,7 @@
   let open = $state(false);
   let lit = $state(0);
   let root: HTMLSpanElement | undefined = $state();
+  let trigger: HTMLButtonElement | undefined = $state();
   let menu: HTMLDivElement | undefined = $state();
   /** As tall as the window leaves below the button; the list scrolls inside past that. */
   let room = $state(0);
@@ -55,14 +56,21 @@
     close();
     if (choice !== value) onpick(choice);
   }
+  /** Esc or Return closes the menu with the focus back on its button, so Return opens it again; left on the menu as it
+   *  went away, the focus fell to the page. Leaving by Tab, a click elsewhere or the window going keeps its own way. */
+  function settle(choice?: string) {
+    if (choice === undefined) close();
+    else pick(choice);
+    trigger?.focus({ preventScroll: true });
+  }
   function keydown(event: KeyboardEvent) {
     if (!open) return;
     // The panel's own Esc (back) and Return stay out of it while the menu is open.
     event.stopPropagation();
-    if (event.key === 'Escape') { event.preventDefault(); close(); }
+    if (event.key === 'Escape') { event.preventDefault(); settle(); }
     else if (event.key === 'ArrowDown') { event.preventDefault(); lit = (lit + 1) % options.length; reveal(); }
     else if (event.key === 'ArrowUp') { event.preventDefault(); lit = (lit - 1 + options.length) % options.length; reveal(); }
-    else if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); pick(options[lit].value); }
+    else if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); settle(options[lit].value); }
     // Tab or Shift+Tab leaves the menu: it closes with the choice as it was, and the focus goes on its way.
     else if (event.key === 'Tab') close();
     // The ends of the list (and its pages) are the menu's, not the page's: left to the browser, they scrolled what is
@@ -79,10 +87,13 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions (the keys belong to the open menu) -->
+<!-- The focus leaving closes the menu. Pressing its button while it is open keeps the focus where it is: WebKit let go
+     of the focus on the press, so the menu closed there and the click opened it again. -->
 <span class="dropdown" class:field bind:this={root} onkeydown={keydown}
   onfocusout={(event) => { if (open && root && !root.contains(event.relatedTarget as Node | null)) close(); }}>
-  <button class="trigger pressable" class:open style:font-size="{size}px" aria-haspopup="listbox" aria-expanded={open}
-    aria-label="{label} · {current}" onclick={() => (open ? close() : show())}>
+  <button class="trigger pressable" class:open bind:this={trigger} style:font-size="{size}px" aria-haspopup="listbox" aria-expanded={open}
+    aria-label="{label} · {current}" onclick={() => (open ? close() : show())}
+    onpointerdown={(event) => { if (open) event.preventDefault(); }}>
     <span class="current">{current}</span>
     <svg class="chevron" width="7" height="5" viewBox="0 0 7 5" aria-hidden="true"><path d="M1 1.1 3.5 3.6 6 1.1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
   </button>

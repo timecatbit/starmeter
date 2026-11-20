@@ -938,6 +938,37 @@ test('the range menu closes when Tab or Shift+Tab leaves it, or the panel goes a
   expect(await menuOpen()).toBe(false);
 });
 
+test('the range menu gives the focus back to its button when Esc or Return closes it, so Return opens it again (MENU-3)', async ({ page }) => {
+  await open(page);
+  const trigger = page.getByRole('button', { name: /^统计范围/ });
+  await trigger.focus();
+  await page.keyboard.press('Enter');
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+  await page.keyboard.press('Escape');
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  await expect(trigger).toContainText('今天');
+  await expect(trigger).toBeFocused();
+  // Return opens it again straight away; the arrows and Return choose 昨天, and the focus is back on the button.
+  await page.keyboard.press('Enter');
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  await expect(trigger).toContainText('昨天');
+  await expect(trigger).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+  await page.keyboard.press('Escape');
+  await expect(trigger).toBeFocused();
+  // A click on the button closes the menu it opened, and it stays closed.
+  await trigger.click();
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+  await trigger.click();
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  await page.waitForTimeout(200);
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+});
+
 test('the share page picks its range, the homepage\'s own, and draws that range', async ({ page }) => {
   await open(page);
   await button(page, '分享用量图').click();
