@@ -187,3 +187,36 @@ fn the_figures_are_the_ones_the_app_reads_for_the_range() {
     }
     let _ = std::fs::remove_dir_all(folder);
 }
+
+/// The fixture's dashboard for a range with its cards grouped by model or project, as the core gives them.
+fn grouped(range: &str, grouping: &str) -> (Object, Vec<Json>) {
+    let (mut dashboard, entries) = fixture(range);
+    let path = format!("{}/../../app/ui/fixtures/default.json", env!("CARGO_MANIFEST_DIR"));
+    let value = Json::parse(&std::fs::read(path).expect("the fixture")).expect("JSON");
+    let cards = value.get("cards").and_then(|c| c.get(range)).and_then(|c| c.get(grouping)).cloned().expect("cards");
+    dashboard.insert("grouping", grouping);
+    dashboard.insert("cards", cards);
+    (dashboard, entries)
+}
+
+#[test]
+fn the_overview_draws_the_grouping_asked_for_and_keeps_the_plans() {
+    // CLI-1: starmeter -g model printed the tools.
+    let (dashboard, entries) = grouped("7d", "model");
+    let report = build(&dashboard, &entries, "Asia/Shanghai", Words { english: false });
+    let first =
+        report.groups.as_ref().and_then(|groups| groups.first()).map(|row| row.name.clone()).expect("a model card");
+    let text = render(&report, View::Overview, 100, &Paint { colour: false });
+    let table = text.split("订阅与额度").next().expect("the cards");
+    assert!(table.contains("  模型"), "{text}");
+    assert!(table.contains(&first), "{text}");
+    assert!(!table.contains("  工具 "), "{text}");
+    assert!(text.contains("ChatGPT 订阅"), "{text}");
+    let (dashboard, entries) = grouped("7d", "project");
+    let report = build(&dashboard, &entries, "Asia/Shanghai", Words { english: true });
+    let text = render(&report, View::Overview, 100, &Paint { colour: false });
+    assert!(
+        text.contains("  Project") && text.contains("Clients' own logs") && text.contains("Plans and balances"),
+        "{text}"
+    );
+}

@@ -420,8 +420,9 @@ pub fn render(report: &Report, view: View, width: usize, paint: &Paint) -> Strin
             writer.blank();
             let detail = matches!(view, View::Usage { detail: true });
             let words = report.words;
+            // A grouping asked for (-g model or project) draws its cards in the overview too.
             match &report.groups {
-                Some(groups) if view != View::Overview => {
+                Some(groups) => {
                     let heading = words.say(if report.grouping == "model" { "模型" } else { "项目" }, &[]);
                     writer.table(groups, &heading, true, detail);
                     if report.grouping == "project" {
