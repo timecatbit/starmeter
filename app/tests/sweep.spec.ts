@@ -20,6 +20,10 @@ test('every part of the panel opens what it should and comes back', async ({ pag
   page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
   await page.goto('/?mac');
   await expect(page.locator('.dashboard')).toBeVisible();
+  // The panel opens 400pt tall and grows to fit the homepage once it is measured, a moment after the dashboard shows.
+  // A click before then scrolls a viewport about to grow, and the growth pulls the scroll back from under the pointer;
+  // so the first click waits for the fit.
+  await expect(page.locator('.window')).not.toHaveCSS('height', '400px');
   for (let round = 0; round < ROUNDS; round++) {
     // Every homepage row with a page: its page, then back.
     const rows = await page.locator('.home button.row:not([disabled]) .title').allTextContents();
@@ -66,23 +70,34 @@ test('every part of the panel opens what it should and comes back', async ({ pag
       await expect(page.getByRole('button', { name: /^统计范围/ })).toContainText(range);
       await expect(page.locator('.summary .reading')).toHaveCount(0);
     }
-    // Every cell of the module grid: a settings page, a module's page, or (a module with nothing to set) a switch
-    // flipped and flipped back.
+    // Every cell of the module grid, by what the cell does (its arrow says). One with an arrow (a settings page, a
+    // module with a connection to set, 在手机上看) opens a page titled with the cell's name; Esc comes back to the grid.
+    // One without (a module with nothing to set) is a switch: its name flips the checkbox, and flips it back.
     await button(page, '主页模块与设置').click();
     await expect(page.locator('.modules')).toBeVisible();
-    const cells = await page.locator('.modules .name').allTextContents();
+    const cells = await page.locator('.modules .cell').evaluateAll((all) =>
+      all.map((cell) => ({ name: cell.getAttribute('aria-label') ?? '', opens: cell.querySelector('.arrow') !== null })));
     expect(cells.length).toBeGreaterThan(20);
-    for (const name of cells) {
-      const cell = page.locator('.modules .name', { hasText: name }).first();
-      await cell.click();
-      await page.waitForTimeout(80);
-      if (await page.locator('.modules').count() && await page.locator('.view').count() === 1) {
-        await cell.click();
-      } else {
+    expect(cells.filter((cell) => !cell.opens).map((cell) => cell.name)).toEqual(['Summary', '用量热力图', '会话', '工具更新']);
+    for (const { name, opens } of cells) {
+      const cell = page.locator('.modules').getByRole('button', { name, exact: true });
+      if (opens) {
+        await cell.locator('.name').click();
+        const heading = page.getByRole('heading', { level: 2, name, exact: true });
+        await expect(heading).toBeVisible();
         await expect(page.locator('.view')).toHaveCount(1);
         await page.keyboard.press('Escape');
+        await expect(heading).toHaveCount(0);
         await expect(page.locator('.view')).toHaveCount(1);
         await expect(page.locator('.modules')).toBeVisible();
+      } else {
+        const box = cell.getByRole('checkbox');
+        const was = await box.getAttribute('aria-checked');
+        expect(was).toMatch(/^(true|false)$/);
+        await cell.locator('.name').click();
+        await expect(box).toHaveAttribute('aria-checked', was === 'true' ? 'false' : 'true');
+        await cell.locator('.name').click();
+        await expect(box).toHaveAttribute('aria-checked', was!);
       }
     }
     await home(page);
