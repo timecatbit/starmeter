@@ -846,13 +846,43 @@ test('leaving the share page before its picture is drawn leaves no picture in me
     await expect(page.locator('.share-page')).toHaveCount(0);
   }
   await page.waitForTimeout(2500);
-  expect(await held()).toBe(before);
+  await expect.poll(held).toBe(before);
   // Chosen again while the page is open, a picture drawn meanwhile is kept, and released when the page goes.
   await button(page, '分享用量图').click();
   await expect(page.locator('.share-page .stage img')).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.locator('.share-page')).toHaveCount(0);
-  expect(await held()).toBe(before);
+  await expect.poll(held).toBe(before);
+  // A style picked, another, and the first again before either is drawn: the two drawings of the first are one too
+  // many, and the spare goes.
+  await button(page, '分享用量图').click();
+  await expect(page.locator('.share-page .stage img')).toBeVisible();
+  for (const style of ['报刊', '卡片', '报刊']) {
+    await page.getByRole('button', { name: /^风格/ }).click();
+    await page.getByRole('option', { name: style, exact: true }).click();
+  }
+  await page.waitForTimeout(3000);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.share-page')).toHaveCount(0);
+  await expect.poll(held).toBe(before);
+});
+
+test('back on a range seen before, the share page draws its figures as they are now', async ({ page }) => {
+  await open(page);
+  await button(page, '分享用量图').click();
+  const preview = page.locator('.stage img');
+  await expect(preview).toBeVisible();
+  const first = await preview.getAttribute('src');
+  await page.getByRole('button', { name: /^时间范围/ }).click();
+  await page.getByRole('option', { name: '近 7 天', exact: true }).click();
+  await expect(page.locator('.share-page .title')).toHaveText('分享用量图近 7 天');
+  // Today grows meanwhile (pinned readings add to it in the fixtures), then today is picked again.
+  await page.evaluate(async () => { const { backend } = await import('/src/lib/backend.ts'); await backend.action(['refresh-live']); });
+  await page.getByRole('button', { name: /^时间范围/ }).click();
+  await page.getByRole('option', { name: '今天', exact: true }).click();
+  await expect(page.locator('.share-page .title')).toHaveText('分享用量图今天');
+  await expect(page.getByRole('button', { name: '复制图片' })).toBeEnabled();
+  await expect(preview).not.toHaveAttribute('src', first!);
 });
 
 test('the share page picks its range, the homepage\'s own, and draws that range', async ({ page }) => {

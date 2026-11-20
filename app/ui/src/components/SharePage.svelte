@@ -45,7 +45,15 @@
   const shownTools = $derived(Math.min(tools, most));
   $effect(() => {
     const next = dashboard;
-    if (next.rangeKey !== untrack(() => frozen.rangeKey)) frozen = $state.snapshot(next) as Dashboard;
+    if (next.rangeKey === untrack(() => frozen.rangeKey)) return;
+    frozen = $state.snapshot(next) as Dashboard;
+    // New figures: the pictures drawn from the last ones are spent (back on a range seen before, its figures may have
+    // grown since), all but the one on screen, which stays until the new one is drawn.
+    untrack(() => {
+      generation++;
+      for (const kept of pictures.values()) if (kept !== picture) release(kept);
+      pictures.clear();
+    });
   });
   const chosenRange = $derived(rangeOptions.find((o) => o.checked)?.action?.[1] ?? frozen.rangeKey);
   function pickRange(key: string) {
@@ -67,27 +75,45 @@
   // ?mac draws the Mac's share button in a browser too (the fixtures, the screenshots).
   const canShare = onPhone ? web.canSharePicture() : mac && (inTauri || (typeof location !== 'undefined' && new URLSearchParams(location.search).has('mac')));
 
-  // Each style drawn once per range, light or dark and number of tools, then kept while the page is open.
-  const pictureKey = (range: string) => `${range}:${style}${dark ? ':dark' : ':light'}:${shownTools}`;
+  // Each style drawn once per set of figures, light or dark and number of tools, then kept while the page is open.
+  /** Counts the sets of figures the page has had: a picture is of one of them. */
+  let generation = $state(0);
+  const pictureKey = (range: string) => `${generation}:${range}:${style}${dark ? ':dark' : ':light'}:${shownTools}`;
+  /** Lets a picture go once nothing can still be showing it: the preview swaps to the next one, the page slides away. */
+  const release = (one: Picture) => setTimeout(() => URL.revokeObjectURL(one.url), 1500);
+  // Read untracked: the drawing effect calls these, and a picture it read and then set would draw again.
+  const held = (one: Picture) => one === untrack(() => picture) || [...pictures.values()].includes(one);
+  /** Kept under its key; one already there for the same key (a style chosen again while it was drawing) is let go. */
+  function keep(key: string, drawn: Picture) {
+    const before = pictures.get(key);
+    pictures.set(key, drawn);
+    if (before && before !== drawn && !held(before)) release(before);
+  }
+  /** On screen; the one it replaces is let go unless it is kept for later. */
+  function show(drawn: Picture | null) {
+    const before = untrack(() => picture);
+    picture = drawn;
+    if (before && before !== drawn && !held(before)) release(before);
+  }
   /** Which picture is on screen: until the one for the current choices is drawn, the last one stays in sight. */
   let drawnKey = $state<string | null>(null);
   $effect(() => {
     const figures = frozen, count = shownTools, key = pictureKey(figures.rangeKey), wantsDark = dark;
     remember(STYLE, style);
-    const known = pictures.get(key);
-    if (known) { picture = known; drawnStyle = style; drawnKey = key; failed = false; return; }
+    const known = pictures.get(key), born = generation;
+    if (known) { show(known); drawnStyle = style; drawnKey = key; failed = false; return; }
     let current = true;
     const wanted = style;
     void renderPicture(wanted, figures, project, wantsDark, count).then((drawn) => {
       // A picture no longer wanted is kept for when it is chosen again (and released with the others), or released
       // now if the page has gone: its image would otherwise stay in memory as long as the app runs.
       if (!current) {
-        if (drawn && !closed && !pictures.has(key)) pictures.set(key, drawn);
-        else if (drawn && pictures.get(key) !== drawn) URL.revokeObjectURL(drawn.url);
+        if (drawn && !closed && !pictures.has(key) && born === untrack(() => generation)) keep(key, drawn);
+        else if (drawn && !held(drawn)) release(drawn);
         return;
       }
-      if (drawn) pictures.set(key, drawn);
-      picture = drawn;
+      if (drawn) keep(key, drawn);
+      show(drawn);
       drawnStyle = wanted;
       drawnKey = drawn ? key : null;
       failed = !drawn;
@@ -98,7 +124,13 @@
    *  the colours and the number of tools. Until it is drawn they wait, rather than give the last one away. */
   const ready = $derived(picture !== null && frozen.rangeKey === chosenRange && drawnKey === pictureKey(chosenRange));
   let closed = false;
-  onDestroy(() => { closed = true; for (const p of pictures.values()) URL.revokeObjectURL(p.url); pictures.clear(); clearTimeout(resultTimer); });
+  onDestroy(() => {
+    closed = true;
+    if (picture && ![...pictures.values()].includes(picture)) release(picture);
+    for (const p of pictures.values()) release(p);
+    pictures.clear();
+    clearTimeout(resultTimer);
+  });
 
   // The picture on a stage as tall as the column beside it, fitted whole (never cut): changing the style, the colours
   // or the number of tools changes only the picture, nothing around it moves.
