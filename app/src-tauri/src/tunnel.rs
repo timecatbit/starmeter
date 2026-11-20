@@ -116,6 +116,9 @@ fn asset_name() -> Option<&'static str> {
         ("macos", "x86_64") => Some("cloudflared-darwin-amd64.tgz"),
         ("windows", "x86_64") => Some("cloudflared-windows-amd64.exe"),
         ("windows", "aarch64") => Some("cloudflared-windows-arm64.exe"),
+        // Linux: the program itself, made executable once checked.
+        ("linux", "x86_64") => Some("cloudflared-linux-amd64"),
+        ("linux", "aarch64") => Some("cloudflared-linux-arm64"),
         _ => None,
     }
 }
