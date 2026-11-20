@@ -1,6 +1,7 @@
 <script lang="ts">
   // The homepage's top: the heading and its buttons, Summary's three figures, the legend and trend (or the live chart
   // while pinned), the heatmap, the grouping tabs and the Harness cards, or 会话's session cards.
+  import { byUsage } from '../lib/order';
   import { accent, blend, label as labelColour, totalColor } from '../lib/colors';
   import { t } from '../lib/i18n.svelte';
   import { chartExtra, labelColumn, legendLabels, legendLayout, summaryProviders } from '../lib/chart';
@@ -75,7 +76,8 @@
     sessionsHeight = box.offsetHeight;
     return () => { observer.disconnect(); cancelAnimationFrame(frame); };
   });
-  const cardList = $derived(data.cards ?? data.providers);
+  // By tool, the tools that used the most first, as the models and projects are.
+  const cardList = $derived(data.cards ?? byUsage(data.providers));
   const collapsible = $derived(data.allowCollapse === true && !data.cards);
   const expanded = $derived(new Set(data.expandedProviders ?? []));
   const listHeight = $derived(showingSessions ? sessionsHeight

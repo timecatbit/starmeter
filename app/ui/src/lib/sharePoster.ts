@@ -6,6 +6,7 @@
 // first models and folds the rest into “其他 N 个模型”, and only as many tools as the share page asks for (the ones
 // that used the most) have rows of their own; the rest fold into “其他工具”, each adding only what Summary counts of
 // it, so nothing a tool shares with a gateway is added twice.
+import { byUsage } from './order';
 import starmeterMark from '../../../../assets/starmeter-mark.svg?url';
 import { t, t as tr } from './i18n.svelte';
 import { chartPositions } from './chart';
@@ -102,11 +103,11 @@ export async function poster(d: Dashboard, markColour: string, limit = SHARE_TOO
   const cached = counted.filter((p) => p.cache !== null), weight = cached.reduce((s, p) => s + p.tokens, 0);
 
   // The tools that used the most (the larger of their share of the tokens and of the estimate) keep their rows, in
-  // homepage order, tagged ones too; the rest fold into 其他工具 with what Summary counts of them. One that Summary
+  // the homepage's order (the costliest first), tagged ones too; the rest fold into 其他工具 with what Summary counts of them. One that Summary
   // doesn't count at all (a gateway counted every request, or it is 未计入 Summary) adds nothing there and is left out.
   const size = (p: ProviderUsage) => Math.max(sumTokens > 0 ? p.tokens / sumTokens : 0, sumCost > 0 && p.cost !== null ? p.cost / sumCost : 0);
   const kept = new Set([...rows].sort((a, b) => size(b) - size(a)).slice(0, Math.max(1, Math.round(limit))));
-  const listed = rows.filter((p) => kept.has(p));
+  const listed = byUsage(rows.filter((p) => kept.has(p)));
   const folded = rows.filter((p) => !kept.has(p)).map(summaryPart).filter((p): p is ProviderUsage => p !== null && (p.requests > 0 || p.tokens > 0));
   const tools: PosterTool[] = listed.map((p) => {
     const why = tag(p), part = summaryPart(p);

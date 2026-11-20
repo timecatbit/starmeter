@@ -461,8 +461,12 @@ pub fn active(
         }
         found.push((changed, session));
     }
+    // The running ones first, then the most recent.
+    let running = |session: &Object| session.get("state") == Some(&Json::from("running"));
     let mut indexed: Vec<(usize, (f64, Object))> = found.into_iter().enumerate().collect();
-    indexed.sort_by(|(a_index, (a, _)), (b_index, (b, _))| b.total_cmp(a).then(a_index.cmp(b_index)));
+    indexed.sort_by(|(a_index, (a, a_session)), (b_index, (b, b_session))| {
+        running(b_session).cmp(&running(a_session)).then(b.total_cmp(a)).then(a_index.cmp(b_index))
+    });
     indexed.into_iter().map(|(_, (_, session))| Json::Object(session)).collect()
 }
 

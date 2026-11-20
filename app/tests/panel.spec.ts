@@ -60,7 +60,8 @@ test('the homepage shows Summary, the trend, the heatmap, the cards and the rows
   await expect(page.locator('.legend')).toHaveCount(8);
   await expect(page.locator('.chart path')).not.toHaveCount(0);
   await expect(page.locator('.squares .cell')).toHaveCount(24);
-  await expect(page.locator('.card .name')).toHaveText(['Magpie', 'ChatGPT', 'Claude', 'Cursor', 'Gemini CLI', 'OpenCode', 'Qoder']);
+  // The tools that used the most first (as the models and projects are): the costliest, then tokens, then Credits.
+  await expect(page.locator('.card .name')).toHaveText(['Claude', 'ChatGPT', 'Magpie', 'Cursor', 'Gemini CLI', 'OpenCode', 'Qoder']);
   await expect(page.getByRole('button', { name: /^其余 \d+ 个/ })).toHaveCount(0);
   await expect(page.locator('.card-note').filter({ hasText: '次已由 Magpie 计入' })).toBeVisible();
   await expect(page.locator('.row .title')).toContainText(['ChatGPT 订阅', 'Claude 订阅', 'Cursor 订阅']);
@@ -675,7 +676,7 @@ test('the share picture gives rows to as many tools as asked, the ones that used
   });
   expect(posters[1].names).toEqual(['Claude']);
   expect(posters[1].other).toBe('$9.13');
-  expect(posters[3].names).toEqual(['Magpie', 'ChatGPT', 'Claude']);
+  expect(posters[3].names).toEqual(['Claude', 'ChatGPT', 'Magpie']);
   expect(posters[3].members).toEqual(['Cursor', 'Gemini CLI', 'OpenCode', 'Qoder']);
   expect(posters[6].names).toHaveLength(6);
   expect(posters[6].members).toEqual(['Qoder']);

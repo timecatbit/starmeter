@@ -233,7 +233,8 @@ def active(claude_roots, codex_root, now, prices=None, claude_app=None):
         # The turns are read here, so the path itself never leaves this function.
         if prices:entry['turns'] = detail(path, session['tool'], prices)
         found.append(entry)
-    return sorted(found, key=lambda s: -s['at'])
+    # The running ones first, then the most recent.
+    return sorted(found, key=lambda s: (s['state'] != 'running', -s['at']))
 
 
 def newly_waiting(previous, current, now, recent=180):
