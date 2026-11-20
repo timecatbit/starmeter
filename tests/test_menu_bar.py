@@ -88,6 +88,18 @@ class MenuBarTests(unittest.TestCase):
             self.assertEqual(self.m.menu_bar_value({}), '', 'A reading over three minutes old is not kept in sight')
         with self.assertRaises(ValueError):self.m.run_action('set-menu-bar', ['loud'])
 
+    def test_output_speed_over_the_minute_just_past_when_read_every_ten_seconds(self):
+        self.m.run_action('set-menu-bar', ['speed'])
+        now = time.time() - 100
+        # Read every ten seconds, the star drawn after each: the speed over the last minute, from the reading 60 s back.
+        for step in range(8):
+            self.today(1, 1, (step * 600, 0), now + step * 10)
+            figure = self.m.menu_bar_value({})
+        self.assertEqual(figure, '60 tok/s')
+        self.today(1, 1, (7 * 600 + 6000, 0), now + 80)
+        self.assertEqual(self.m.menu_bar_value({}), '150 tok/s', 'A burst moves the figure at the next reading, spread over the minute')
+        self.assertLessEqual(len(self.m.read_cache('menu_speed')['samples']), 8, 'Only the minute or so in use is kept')
+
     def test_settings_are_pages_by_what_they_are_for(self):
         options = self.m.module_options()
         self.assertEqual((options[0]['label'], options[0].get('section')), ('设置', True))

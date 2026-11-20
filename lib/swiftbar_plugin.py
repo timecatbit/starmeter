@@ -2474,19 +2474,29 @@ def today_counted():
 
 
 def output_speed():
-    """Output tokens a second between the last two readings of today (at most five minutes apart), kept beside the
-    readings so a render in between shows the same figure; None without a pair to compare, or once three minutes old."""
+    """Output tokens a second over the minute just past: from the latest reading of today at least 55 seconds back (or,
+    with less read so far, the earliest, ten seconds back at least) to the newest, so a reading every ten seconds while
+    the models write moves the figure without making it jump. Readings more than five minutes apart, or fewer tokens
+    (a new day), start over. Kept beside the readings so a render in between shows the same figure; None without a
+    pair to compare, or once the newest is three minutes old."""
     found=today_counted()
     if not found:return None
     at,summaries=found
     output=sum(s['outputTokens'] for s in summaries if isinstance(s.get('outputTokens'),int))
     state=read_cache('menu_speed')
-    before=state.get('at')
-    if not (isinstance(before,(int,float)) and float(before)==at):
-        written=state.get('output');rate=None
-        if isinstance(before,(int,float)) and isinstance(written,int) and 0<at-before<=300 and output>=written:
-            rate=(output-written)/(at-before)
-        state={'schema':1,'at':at,'output':output,'rate':rate}
+    samples=state.get('samples') if isinstance(state.get('samples'),list) else []
+    samples=[s for s in samples if isinstance(s,list) and len(s)==2 and isinstance(s[0],(int,float)) and isinstance(s[1],int)]
+    last=samples[-1] if samples else None
+    if last is None or float(last[0])!=at:
+        if last is None or output<last[1] or not 0<at-last[0]<=300:
+            samples=[[at,output]];rate=None
+        else:
+            samples=samples+[[at,output]]
+            older=[s for s in samples[:-1] if at-s[0]>=55]
+            base=older[-1] if older else samples[0]
+            rate=(output-base[1])/(at-base[0]) if at-base[0]>=10 else None
+            samples=samples[samples.index(base):]
+        state={'schema':1,'samples':samples,'rate':rate}
         write_json_cache(cache_path('menu_speed'),state)
     rate=state.get('rate')
     if not isinstance(rate,(int,float)) or time.time()-at>180:return None

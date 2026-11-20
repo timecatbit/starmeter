@@ -1024,26 +1024,61 @@ impl Runtime {
     /// apart in the background, at most five), divided by the time between them. Worked out once per new reading and
     /// kept beside the readings (menu_speed), so a render in between shows the same figure. None when there is no
     /// pair of readings to compare, or the newer is over three minutes old.
+    /// Output tokens a second over the minute just past: from the latest reading of today at least 55 seconds back (or,
+    /// with less read so far, the earliest, ten seconds back at least) to the newest, so a reading every ten seconds
+    /// while the models write moves the figure without making it jump. Readings more than five minutes apart, or fewer
+    /// tokens (a new day), start over. Kept beside the readings so a render in between shows the same figure; None
+    /// without a pair to compare, or once the newest is three minutes old.
     pub fn output_speed(&self) -> Option<f64> {
         // This computer's own: another computer's figures arrive ten minutes at a time and would read as a burst.
         let (at, summaries) = self.today_counted(false)?;
         let output: i64 =
             summaries.iter().map(|summary| summary.get("outputTokens").and_then(Json::integer).unwrap_or(0)).sum();
         let mut state = self.read_cache("menu_speed");
-        if state.get("at").and_then(Json::python_float) != Some(at) {
-            let before = state.get("at").and_then(Json::python_float);
-            let written = state.get("output").and_then(Json::integer);
-            let rate = match (before, written) {
-                (Some(before), Some(written)) if at - before > 0.0 && at - before <= 300.0 && output >= written => {
-                    Json::from((output - written) as f64 / (at - before))
+        let mut samples: Vec<(f64, i64)> = state
+            .get("samples")
+            .and_then(Json::as_array)
+            .map(|list| {
+                list.iter()
+                    .filter_map(|sample| {
+                        let pair = sample.as_array().filter(|pair| pair.len() == 2)?;
+                        Some((pair[0].python_float()?, pair[1].integer()?))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        if samples.last().is_none_or(|last| last.0 != at) {
+            let rate = match samples.last().copied() {
+                Some(last) if output >= last.1 && at - last.0 > 0.0 && at - last.0 <= 300.0 => {
+                    samples.push((at, output));
+                    let base = samples[..samples.len() - 1]
+                        .iter()
+                        .rev()
+                        .find(|sample| at - sample.0 >= 55.0)
+                        .copied()
+                        .unwrap_or(samples[0]);
+                    let start = samples.iter().position(|sample| *sample == base).unwrap_or(0);
+                    samples.drain(..start);
+                    if at - base.0 >= 10.0 { Json::from((output - base.1) as f64 / (at - base.0)) } else { Json::Null }
                 }
-                _ => Json::Null,
+                _ => {
+                    samples = vec![(at, output)];
+                    Json::Null
+                }
             };
-            state = object! { "schema" => 1, "at" => at, "output" => output, "rate" => rate };
+            let list =
+                samples.iter().map(|(at, output)| Json::Array(vec![Json::from(*at), Json::Int(*output)])).collect();
+            state = object! { "schema" => 1, "samples" => Json::Array(list), "rate" => rate };
             self.write_json_cache(&self.cache_path("menu_speed"), &Json::Object(state.clone()));
         }
         let rate = state.get("rate").and_then(Json::python_float)?;
         (now() - at <= 180.0).then_some(rate)
+    }
+
+    /// Whether the models are writing now, by the last figure: the star's speed is then read every ten seconds.
+    pub fn speed_active(&self) -> bool {
+        self.settings().get("menuBar") == Some(&Json::from("speed"))
+            && self.read_cache("menu_speed").get("rate").and_then(Json::python_float).is_some_and(|rate| rate >= 0.5)
     }
 
     /// The figure beside the star, or "": today's estimate, the tightest subscription window or the output speed, never
