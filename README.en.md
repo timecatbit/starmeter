@@ -17,7 +17,7 @@ Each tool's tokens and API-equivalent cost, subscription limits, API balances an
   <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/en/live-dark.png"><img src="docs/images/en/live-light.png" width="250" align="top" alt="The live chart after pinning: tokens added in the last minute"></picture>
 </p>
 
-Starmeter is a star in the macOS menu bar (a standalone app or a SwiftBar plugin) and the Windows tray. It reads only the usage records already on your computer and the official APIs you turn on: no account, no relay server in between. Free and open source. The panel is in Chinese or English: switch under the gear → General → Language.
+Starmeter is a star in the macOS menu bar (a standalone app or a SwiftBar plugin) and the Windows or Linux tray, with a `starmeter` command for the terminal too. It reads only the usage records already on your computer and the official APIs you turn on: no account, no relay server in between. Free and open source. The panel is in Chinese or English: switch under the gear → General → Language.
 
 Formerly Token Monitor; settings and keys carry over. From 6.0.2 the downloads are named `starmeter-…`, and 6.0.1 or earlier doesn't pick up this update on its own: update once by hand as in [Updating from 6.0.1 or earlier](#updating-from-601-or-earlier), and updates come as usual after that.
 
