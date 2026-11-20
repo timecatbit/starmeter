@@ -490,6 +490,19 @@ mod tests {
     }
 
     #[test]
+    fn a_ranges_day_is_in_the_counting_time_zone() {
+        // Taipei's midnight of 2026-11-20 is 16:00 the day before in UTC: the day is the zone's the ranges use.
+        let bundle = parse(r#"{"start": 1795104000.0}"#);
+        let taipei = jiff::tz::TimeZone::get("Asia/Taipei").unwrap();
+        assert_eq!(range_day(&bundle, &taipei).as_deref(), Some("2026-11-20"));
+        assert_eq!(range_day(&bundle, &jiff::tz::TimeZone::UTC).as_deref(), Some("2026-11-19"));
+        // Two computers counting in Taipei, one with a UTC system clock: the same day, so 100 and 40 add up.
+        let theirs = parse(r#"{"start": 1795104000.0, "day": "2026-11-20"}"#);
+        let mine = range_day(&bundle, &taipei);
+        assert!(usable(&theirs, "today", 1795104000.0, mine.as_deref(), 1795110000.0, 1795110100.0));
+    }
+
+    #[test]
     fn a_failed_read_here_still_counts_the_others() {
         let mut mine = parse(r#"{"error": "无法读取：权限不足"}"#);
         let theirs = parse(r#"{"summary": {"totalTokens": 100, "requests": 2}}"#);
