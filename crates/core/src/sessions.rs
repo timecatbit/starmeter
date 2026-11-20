@@ -66,9 +66,9 @@ fn rows_at_end(path: &str, size: usize) -> Result<Vec<Object>, FileError> {
 
 /// The complete JSON lines at a file's end: the usual tail, else twice as far back each time (up to FAR) until `enough`
 /// finds what it needs among them. A long tool output can push a turn's start, or every whole line, out of the tail.
-fn rows_back(path: &str, enough: impl Fn(&[Object]) -> bool) -> Result<Vec<Object>, FileError> {
+fn rows_back(path: &str, first: usize, enough: impl Fn(&[Object]) -> bool) -> Result<Vec<Object>, FileError> {
     let length = std::fs::metadata(path).map_err(|_| FileError::of_kind("unreadable", "OSError"))?.len();
-    let mut size = TAIL;
+    let mut size = first;
     loop {
         let rows = rows_at_end(path, size)?;
         if enough(&rows) || size as u64 >= length || size >= FAR {
@@ -132,7 +132,7 @@ fn claude(path: &str) -> Result<Option<Object>, FileError> {
     let said = |row: &Object| {
         (kind_is(row, "assistant") || kind_is(row, "user")) && !row.get("isSidechain").is_some_and(Json::is_truthy)
     };
-    for row in rows_back(path, |rows| rows.iter().any(said))? {
+    for row in rows_back(path, TAIL, |rows| rows.iter().any(said))? {
         if kind_is(&row, "custom-title") {
             named = text(row.get("customTitle")).or(named);
         } else if kind_is(&row, "ai-title") {
@@ -190,7 +190,7 @@ fn codex(path: &str) -> Result<Option<Object>, ReadError> {
         let kind = row.get("payload").and_then(|payload| payload.get("type")).and_then(Json::as_str);
         matches!(kind, Some("task_started" | "task_complete" | "turn_aborted"))
     };
-    for row in rows_back(path, |rows| rows.iter().any(marks))? {
+    for row in rows_back(path, TAIL, |rows| rows.iter().any(marks))? {
         let data = row.get("payload").and_then(Json::as_object).cloned().unwrap_or_default();
         let kind = data.get("type").and_then(Json::as_str);
         if kind_is(&row, "turn_context") {
@@ -426,7 +426,19 @@ fn codex_file_turns(path: &str, price: &Price) -> Result<Vec<Object>, FileError>
     let mut turns = vec![turn(Json::Null)];
     let mut model = Json::Null;
     let mut total: Option<Option<Json>> = None;
-    for row in rows_at_end(path, DETAIL)? {
+    // Back far enough that a turn starts before the first request read: a long tool output can push a turn's
+    // start out, and its requests would read as the turn before's.
+    let opened = |rows: &[Object]| {
+        for row in rows {
+            match row.get("payload").and_then(|payload| payload.get("type")).and_then(Json::as_str) {
+                Some("task_started") => return true,
+                Some("token_count") => return false,
+                _ => {}
+            }
+        }
+        true
+    };
+    for row in rows_back(path, DETAIL, opened)? {
         let data = row.get("payload").and_then(Json::as_object).cloned().unwrap_or_default();
         let kind = data.get("type").and_then(Json::as_str);
         if kind_is(&row, "turn_context") {

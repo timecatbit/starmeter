@@ -52,11 +52,11 @@ def rows_at_end(path, size=TAIL):
     return rows
 
 
-def rows_back(path, enough):
+def rows_back(path, enough, size=TAIL):
     """The complete JSON lines at a file's end: the usual tail, else twice as far back each time (up to FAR) until
     `enough` finds what it needs among them. A long tool output can push a turn's start, or every whole line, out of
     the tail."""
-    length = os.path.getsize(path); size = TAIL
+    length = os.path.getsize(path)
     while True:
         rows = rows_at_end(path, size)
         if enough(rows) or size >= length or size >= FAR:return rows
@@ -242,7 +242,15 @@ def codex_turns(files, price):
 def codex_file_turns(path, price):
     """One Codex file's turns, oldest first; the first holds what came before its first task_started."""
     turns = [turn(None)]; current = turns[0]; model = None; total = None
-    for row in rows_at_end(path, DETAIL):
+    # Back far enough that a turn starts before the first request read: a long tool output can push a turn's
+    # start out, and its requests would read as the turn before's.
+    def opened(rows):
+        for row in rows:
+            kind = row.get('payload', {}).get('type') if isinstance(row.get('payload'), dict) else None
+            if kind == 'task_started':return True
+            if kind == 'token_count':return False
+        return True
+    for row in rows_back(path, opened, DETAIL):
         data = row.get('payload') if isinstance(row.get('payload'), dict) else {}
         kind = data.get('type')
         if row.get('type') == 'turn_context':model = data.get('model') or model

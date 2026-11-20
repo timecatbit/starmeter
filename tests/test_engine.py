@@ -1366,7 +1366,8 @@ class SessionParityTests(unittest.TestCase):
         write(codex / 'sessions' / '2026' / '11' / '18' / ('rollout-2026-11-18T09-00-00-%s_019a1111-0000-7000-8000-000000000002.jsonl' % long), [
             meta, count(2), {'type': 'response_item', 'payload': {'type': 'function_call', 'name': 'exec'}}, {'type': 'event_msg', 'payload': {'type': 'task_complete'}},
             {'type': 'event_msg', 'payload': {'type': 'task_started'}}, {'type': 'turn_context', 'payload': {'model': 'gpt-6.2-astra', 'effort': 'high'}},
-            {'type': 'response_item', 'payload': {'type': 'message', 'content': 'x' * 600_000}}, count(3),
+            # More than the 2 MB the turns are read from: the turn's start is found further back.
+            {'type': 'response_item', 'payload': {'type': 'message', 'content': 'x' * 2_300_000}}, count(3),
             {'type': 'event_msg', 'payload': {'type': 'task_complete'}}], age=3)
         # A long tool output pushes the turn's start, or every whole line, out of the usual tail: still running.
         busy = '019a2222-3333-7444-8555-666677778888'
