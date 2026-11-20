@@ -499,7 +499,9 @@ pub fn update_star(app: &AppHandle) {
     let text = data::menu_bar_text(app);
     #[cfg(target_os = "macos")]
     {
-        let _ = tray.set_title(if text.is_empty() { None } else { Some(text.as_str()) });
+        // An empty title, not none: tray-icon leaves the button's old title in place when given none, so a figure
+        // turned off (只显示星星) stayed beside the star.
+        let _ = tray.set_title(Some(text.as_str()));
         let _ = tray.with_inner_tray_icon(|inner| {
             if let Some(item) = inner.ns_status_item() {
                 use objc2::msg_send;
