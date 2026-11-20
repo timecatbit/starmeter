@@ -263,11 +263,16 @@ pub fn live_resize_size(panel: &WebviewWindow) -> Option<(f64, f64)> {
     frame(panel).map(|frame| (frame.size.width, frame.size.height))
 }
 
-pub fn set_frame(panel: &WebviewWindow, frame: NSRect) {
+/// Sets the window's frame. Within an animation (`last` false) the page draws at the next display cycle and the shadow
+/// waits: redrawing at once and working the shadow out again at every step made the resize stutter. The last step
+/// draws and settles the shadow.
+pub fn set_frame(panel: &WebviewWindow, frame: NSRect, last: bool) {
     let Ok(window) = panel.ns_window() else { return };
     unsafe {
-        let _: () = msg_send![window.cast::<AnyObject>(), setFrame: frame, display: true];
-        let _: () = msg_send![window.cast::<AnyObject>(), invalidateShadow];
+        let _: () = msg_send![window.cast::<AnyObject>(), setFrame: frame, display: last];
+        if last {
+            let _: () = msg_send![window.cast::<AnyObject>(), invalidateShadow];
+        }
     }
 }
 
@@ -309,13 +314,6 @@ define_class!(
             }
         }
 
-        #[unsafe(method(mouseMoved:))]
-        fn mouse_moved(&self, _event: *mut AnyObject) {
-            if let Some(handler) = HOVER_HANDLER.get() {
-                handler(true);
-            }
-        }
-
         #[unsafe(method(mouseExited:))]
         fn mouse_exited(&self, _event: *mut AnyObject) {
             if let Some(handler) = HOVER_HANDLER.get() {
@@ -336,8 +334,10 @@ pub fn track_hover(panel: &WebviewWindow, handler: impl Fn(bool) + Send + Sync +
             return;
         }
         let owner: Retained<HoverTracker> = msg_send![HoverTracker::class(), new];
-        // NSTrackingMouseEnteredAndExited | NSTrackingMouseMoved | NSTrackingActiveAlways | NSTrackingInVisibleRect
-        let options: usize = 0x01 | 0x02 | 0x80 | 0x200;
+        // NSTrackingMouseEnteredAndExited | NSTrackingActiveAlways | NSTrackingInVisibleRect: in and out only. With the
+        // pointer's every move as well, AppKit set the cursor again at each one, which with a custom pointer (colour or
+        // size in Accessibility) draws it anew with a blur on the main thread, and the panel's animations dropped frames.
+        let options: usize = 0x01 | 0x80 | 0x200;
         let area: *mut AnyObject = msg_send![class!(NSTrackingArea), alloc];
         let area: *mut AnyObject = msg_send![area, initWithRect: NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0)),
             options: options, owner: &*owner, userInfo: ptr::null_mut::<AnyObject>()];

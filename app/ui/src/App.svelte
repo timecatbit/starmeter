@@ -257,10 +257,11 @@
    *  still resizes when faded); they stay while the corner is held. */
   let chromeShown = $state(true);
   let chromeTimer: ReturnType<typeof setTimeout> | undefined;
-  function showChrome(rest = 2500) {
+  /** Shows the grabber and the corner; they fade after `rest` ms, or (null) stay until told otherwise. */
+  function showChrome(rest: number | null = 2500) {
     chromeShown = true;
     clearTimeout(chromeTimer);
-    chromeTimer = setTimeout(() => { if (!cornerFrom) chromeShown = false; }, rest);
+    if (rest !== null) chromeTimer = setTimeout(() => { if (!cornerFrom) chromeShown = false; }, rest);
   }
   $effect(() => { if (pinned) untrack(() => showChrome(3500)); });
 
@@ -623,7 +624,8 @@
       }),
       shell.onAsk((question) => showQuestion(question, interaction.active ?? null)),
       // Pinned and not in front, the page hears no pointer: the shell tells when it comes over the panel or leaves.
-      shell.onHover((inside) => { if (!pinned) return; if (inside) showChrome(); else if (!cornerFrom) showChrome(700); })];
+      // The shell says only in and out (not every move): in, they stay until the pointer leaves.
+      shell.onHover((inside) => { if (!pinned) return; if (inside) showChrome(null); else if (!cornerFrom) showChrome(700); })];
     // The shell starts with no global shortcut; the one chosen is handed over again.
     restoreShortcut();
     void shell.info().then((value) => {

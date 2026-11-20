@@ -200,10 +200,10 @@ fn place(app: &AppHandle, animate: bool) {
         };
         let start = if animate { current } else { None };
         let Some(start) = start.filter(|_| visible(app)) else {
-            let _ = app.run_on_main_thread(move || macos::set_frame(&window, target));
+            let _ = app.run_on_main_thread(move || macos::set_frame(&window, target, true));
             return;
         };
-        animate_frame(app.clone(), generation, move |t| {
+        animate_frame(app.clone(), generation, move |t, last| {
             let mix = |a: f64, b: f64| a + (b - a) * t;
             let top = mix(start.origin.y + start.size.height, target.origin.y + target.size.height);
             let (w, h) = (mix(start.size.width, target.size.width), mix(start.size.height, target.size.height));
@@ -212,7 +212,7 @@ fn place(app: &AppHandle, animate: bool) {
                 objc2_foundation::NSSize::new(w, h),
             );
             let window = window.clone();
-            move || macos::set_frame(&window, frame)
+            move || macos::set_frame(&window, frame, last)
         });
     }
     #[cfg(not(target_os = "macos"))]
@@ -248,7 +248,7 @@ fn place(app: &AppHandle, animate: bool) {
             let _ = window.set_position(LogicalPosition::new(x, y));
             return;
         };
-        animate_frame(app.clone(), generation, move |t| {
+        animate_frame(app.clone(), generation, move |t, _| {
             let mix = |a: f64, b: f64| a + (b - a) * t;
             let (w, h, px, py) = (mix(size.width, width), mix(size.height, height), mix(start.x, x), mix(start.y, y));
             let window = window.clone();
@@ -263,24 +263,37 @@ fn place(app: &AppHandle, animate: bool) {
 }
 
 /// Steps a frame animation at 60 frames a second on the panel's curve (cubic-bezier 0.22, 1, 0.36, 1).
+/// Eases the window to its new frame over 0.3 s. One step waits on the main thread at a time, and each takes the time
+/// as it runs: a busy main thread skips steps instead of playing a queue of them late, all at once.
 fn animate_frame<F, G>(app: AppHandle, generation: u64, step: F)
 where
-    F: Fn(f64) -> G + Send + 'static,
+    F: Fn(f64, bool) -> G + Send + Sync + 'static,
     G: FnOnce() + Send + 'static,
 {
     std::thread::spawn(move || {
         let start = Instant::now();
         let duration = Duration::from_millis(300);
+        let step = std::sync::Arc::new(step);
+        let waiting = std::sync::Arc::new(AtomicBool::new(false));
         loop {
             if app.state::<Panel>().generation.load(Ordering::SeqCst) != generation {
                 return;
             }
-            let t = (start.elapsed().as_secs_f64() / duration.as_secs_f64()).min(1.0);
-            let _ = app.run_on_main_thread(step(page_curve(t)));
-            if t >= 1.0 {
+            let done = start.elapsed() >= duration;
+            if done || !waiting.swap(true, Ordering::SeqCst) {
+                let (step, waiting, current) = (step.clone(), waiting.clone(), app.clone());
+                let _ = app.run_on_main_thread(move || {
+                    if current.state::<Panel>().generation.load(Ordering::SeqCst) == generation {
+                        let t = (start.elapsed().as_secs_f64() / duration.as_secs_f64()).min(1.0);
+                        (step(page_curve(t), t >= 1.0))();
+                    }
+                    waiting.store(false, Ordering::SeqCst);
+                });
+            }
+            if done {
                 return;
             }
-            std::thread::sleep(Duration::from_millis(16));
+            std::thread::sleep(Duration::from_millis(8));
         }
     });
 }

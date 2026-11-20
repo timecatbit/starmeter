@@ -82,6 +82,12 @@ test('header buttons take clicks, and pinning turns the trend live', async ({ pa
   await expect(page.locator('.grabber')).toBeVisible();
   await expect(page.getByRole('separator', { name: '拖动调整大小' })).toBeVisible();
   await expect(page.getByText('拖动顶部移动面板')).toHaveCount(0);
+  // Not in front, the shell says when the pointer comes in and goes out (not each move): in, they stay; out, they fade.
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('panel-hover', { detail: true })));
+  await page.waitForTimeout(3000);
+  await expect(page.locator('.grabber')).not.toHaveClass(/faded/);
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('panel-hover', { detail: false })));
+  await expect(page.locator('.grabber')).toHaveClass(/faded/);
   // Pinned, the panel turns to 会话 and fits down to the end of the third session; the rest is below, to scroll to or
   // to make the panel taller for.
   await expect(page.getByRole('radio', { name: '会话' })).toHaveAttribute('aria-checked', 'true');
