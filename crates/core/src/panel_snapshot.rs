@@ -706,14 +706,15 @@ impl Runtime {
         let radio = |label: &str, checked: bool, parts: &[&str]| {
             with(label, object! { "checked" => checked, "radio" => true, "action" => action(parts) })
         };
-        let mut rows: Vec<Json> = [("system", "跟随系统"), ("light", "浅色"), ("dark", "深色")]
+        let mut appearance: Vec<Json> = [("system", "跟随系统"), ("light", "浅色"), ("dark", "深色")]
             .iter()
             .map(|(key, label)| radio(label, option("theme") == Json::from(*key), &["set-theme", key]))
             .collect();
-        rows.push(separator());
+        appearance.push(separator());
         for (key, label) in [("solid", "实色"), ("frosted", "磨砂"), ("glass", "玻璃")] {
-            rows.push(radio(label, option("appearance") == Json::from(key), &["set-appearance", key]));
+            appearance.push(radio(label, option("appearance") == Json::from(key), &["set-appearance", key]));
         }
+        appearance.push(separator());
         let level = option("usageAlert");
         let mut alert_rows: Vec<Json> = preferences::ALERT_LEVELS[1..]
             .iter()
@@ -747,25 +748,24 @@ impl Runtime {
         };
         let selected = self.selected_range();
         let range_label = RANGES.iter().find(|(key, _)| *key == selected).map_or("", |(_, label)| *label);
-        // Grouped by what they are for, each group under a small title: what the panel shows, pinning and alerts,
-        // the data kept and exported, and the module setup.
-        rows.extend([
-            section("显示"),
-            with(
-                "金额显示",
-                object! {
-                    "symbol" => if cny { "yensign.circle" } else { "dollarsign.circle" }, "value" => if cny { "人民币" } else { "美元" },
-                    "children" => Json::Array(vec![
-                        radio("美元（$）", option("currency") == Json::from("USD"), &["set-currency", "USD"]),
-                        radio("人民币（¥）", cny, &["set-currency", "CNY"]),
-                        separator(),
-                        with("汇率…", object! {
-                            "value" => rate_text, "detail" => "API 等值估算按这个汇率换成人民币；订阅月费与 API 实际花费仍是美元",
-                            "action" => action(&["set-cny-rate"]),
-                        }),
-                    ]),
-                },
-            ),
+        // The settings by what they are for, each a page of its own: how the panel looks, how it opens and is set up,
+        // what it tells of, and the data it keeps and exports.
+        appearance.push(with(
+            "金额显示",
+            object! {
+                "symbol" => if cny { "yensign.circle" } else { "dollarsign.circle" }, "value" => if cny { "人民币" } else { "美元" },
+                "children" => Json::Array(vec![
+                    radio("美元（$）", option("currency") == Json::from("USD"), &["set-currency", "USD"]),
+                    radio("人民币（¥）", cny, &["set-currency", "CNY"]),
+                    separator(),
+                    with("汇率…", object! {
+                        "value" => rate_text, "detail" => "API 等值估算按这个汇率换成人民币；订阅月费与 API 实际花费仍是美元",
+                        "action" => action(&["set-cny-rate"]),
+                    }),
+                ]),
+            },
+        ));
+        let general = vec![
             with(
                 "菜单栏显示",
                 object! {
@@ -774,7 +774,6 @@ impl Runtime {
                     "children" => Json::Array(MENU_BAR_LABELS.iter().map(|(key, label)| radio(label, menu_bar == *key, &["set-menu-bar", key])).collect()),
                 },
             ),
-            section("钉住与提醒"),
             with(
                 "钉住时刷新",
                 object! {
@@ -784,6 +783,22 @@ impl Runtime {
                     }).collect()),
                 },
             ),
+            section("模块与配置"),
+            with(
+                "自动检测",
+                object! {
+                    "symbol" => "sparkle.magnifyingglass",
+                    "children" => Json::Array(vec![
+                        leaf("确认后覆盖当前模块选择；不读取对话正文，不显示 Key"),
+                        separator(),
+                        with("开始检测…", object! { "symbol" => "sparkle.magnifyingglass", "action" => action(&["detect-modules"]) }),
+                    ]),
+                },
+            ),
+            with("高级配置文件…", object! { "symbol" => "doc.text", "action" => action(&["open-settings"]) }),
+            with("恢复默认模块", object! { "action" => action(&["reset-modules"]) }),
+        ];
+        let alerts = vec![
             with(
                 "用量提醒",
                 object! {
@@ -799,7 +814,8 @@ impl Runtime {
                     "checked" => service, "action" => action(&["set-service-status", if service { "false" } else { "true" }]),
                 },
             ),
-            section("数据"),
+        ];
+        let data_rows = vec![
             with(
                 "保留已清理记录的用量",
                 object! {
@@ -818,21 +834,7 @@ impl Runtime {
                 },
             ),
             self.devices_row(),
-            section("模块与配置"),
-            with(
-                "自动检测",
-                object! {
-                    "symbol" => "sparkle.magnifyingglass",
-                    "children" => Json::Array(vec![
-                        leaf("确认后覆盖当前模块选择；不读取对话正文，不显示 Key"),
-                        separator(),
-                        with("开始检测…", object! { "symbol" => "sparkle.magnifyingglass", "action" => action(&["detect-modules"]) }),
-                    ]),
-                },
-            ),
-            with("高级配置文件…", object! { "symbol" => "doc.text", "action" => action(&["open-settings"]) }),
-            with("恢复默认模块", object! { "action" => action(&["reset-modules"]) }),
-        ]);
+        ];
         let collapse = option("allowCollapse").is_truthy();
         let mut options = vec![
             with(
@@ -842,7 +844,10 @@ impl Runtime {
                     "action" => action(&["set-collapse", if collapse { "false" } else { "true" }]),
                 },
             ),
-            with("外观与设置", object! { "symbol" => "slider.horizontal.3", "children" => Json::Array(rows) }),
+            with("外观", object! { "symbol" => "circle.lefthalf.filled", "children" => Json::Array(appearance) }),
+            with("通用", object! { "symbol" => "slider.horizontal.3", "children" => Json::Array(general) }),
+            with("提醒", object! { "symbol" => "bell", "children" => Json::Array(alerts) }),
+            with("数据", object! { "symbol" => "externaldrive", "children" => Json::Array(data_rows) }),
             separator(),
         ];
         let mut group: Option<&str> = None;
@@ -888,7 +893,7 @@ impl Runtime {
             .collect()
     }
 
-    /// 多台电脑合并 in 外观与设置 → 数据: the folder, this computer's name, the other computers heard from, and the way
+    /// 多台电脑合并 on the 数据 page: the folder, this computer's name, the other computers heard from, and the way
     /// out. Before a folder is picked, what it does and the one way in.
     pub fn devices_row(&self) -> Json {
         let detail = "每台电脑都选同一个同步文件夹（iCloud 云盘、Dropbox、OneDrive…），各自写一份用量，合起来显示；文件里只有工具、模型和用量数字";

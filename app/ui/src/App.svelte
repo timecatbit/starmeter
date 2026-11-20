@@ -12,6 +12,7 @@
   import { pageIn, pageOut } from './lib/motion';
   import { ask, show as showQuestion } from './lib/ask.svelte';
   import { chooseLanguage, localize, source, t } from './lib/i18n.svelte';
+  import { phoneStatus } from './lib/phone.svelte';
   import { chooseShortcut, restoreShortcut } from './lib/shortcut.svelte';
   import { panel } from './lib/ui.svelte';
   import type { Dashboard as DashboardData, Entry, ShellInfo, Snapshot } from './lib/types';
@@ -27,7 +28,7 @@
 
   const interaction = new PanelInteraction();
   let version = $state(0);
-  // As the panel shows it: in the language chosen, with the 语言 row in 外观与设置.
+  // As the panel shows it: in the language chosen, with the 语言 row in 通用.
   const snapshot: Snapshot | null = $derived.by(() => { void version; const shown = interaction.displayed(); return shown && localize(shown); });
   let info = $state<ShellInfo>({ platform: 'browser', mode: 'browser', version: '', maxHeight: 900, modules: false });
 
@@ -324,7 +325,7 @@
   });
 
   // 新手指引: once, the first time the panel opens on its homepage (the web view keeps that it was seen); again from
-  // 外观与设置 → 新手指引. In a browser (the fixtures, the screenshots) only when the address asks: ?guide shows it
+  // 通用 → 新手指引. In a browser (the fixtures, the screenshots) only when the address asks: ?guide shows it
   // every time, ?firstrun as the app does.
   const GUIDE = 'starmeter.guide';
   const address = typeof location === 'undefined' ? new URLSearchParams() : new URLSearchParams(location.search);
@@ -364,9 +365,9 @@
   }
 
   function perform(action: string[]) {
-    // 在手机上看 from 外观与设置: its page slides in over the settings.
+    // 在手机上看 from the module grid: its page slides in over the grid.
     if (action[0] === 'show-phone') { panel.hint = null; dir = 1; phoneOpen = true; return; }
-    // 新手指引 from 外观与设置: back to the homepage, then the tour.
+    // 新手指引 from 通用: back to the homepage, then the tour.
     if (action[0] === 'show-guide') { startOver(false); dir = -1; guideWanted = true; return; }
     // 选择工具… opens the module grid in place.
     if (action[0] === 'panel-modules') { openSettings(); return; }
@@ -450,6 +451,7 @@
 
   function openSettings() {
     panel.hint = null;
+    void phoneStatus();
     savedHome = homeScroll;
     leading = new Set((snapshot?.moduleOptions ?? []).filter((e) => isModule(e) && e.checked).map(entryKey));
     dir = 1;
@@ -527,6 +529,7 @@
     if (maxHeight) info = { ...info, maxHeight };
     startOver(modules);
     void reload();
+    if (modules) void phoneStatus();
     if (!modules) perform(['refresh-view']);
     if (!modules && firstRuns && !guideSeen()) guideWanted = true;
     void revealWhenDrawn();

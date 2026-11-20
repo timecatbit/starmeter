@@ -39,7 +39,7 @@ class PinTests(unittest.TestCase):
         self.m.run_action('set-pin-interval', ['1'])
         self.assertEqual(preferences.read(self.m.STATE_DIR)['pinInterval'], 1)
         with self.assertRaises(ValueError):self.m.run_action('set-pin-interval', ['0.1'])
-        rows = next(o for o in self.m.module_options() if o['label'] == '外观与设置')['children']
+        rows = next(o for o in self.m.module_options() if o['label'] == '通用')['children']
         row = next(r for r in rows if r['label'] == '钉住时刷新')
         self.assertEqual(row['value'], '每 1 秒'); self.assertEqual([c['action'][1] for c in row['children']], ['1', '2', '5'])
         self.assertEqual(self.m.panel_snapshot({}, {'rangeKey': 'today'}, [])['pinInterval'], 1)

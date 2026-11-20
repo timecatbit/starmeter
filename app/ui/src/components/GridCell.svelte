@@ -12,7 +12,9 @@
   let { entry, cellWidth, height, ontoggle, onopen }: { entry: Entry; cellWidth: number; height: number; ontoggle: () => void; onopen: () => void } = $props();
 
   const configured = $derived(reads(entry.value, '已配置'));
-  const room = $derived(cellWidth - 54 - (entry.children.length ? 18 : 6) - (configured ? 12 : 0));
+  /** Opens a page: its rows, or (在手机上看) the panel's own page. */
+  const opens = $derived(entry.children.length > 0 || entry.action?.[0] === 'show-phone');
+  const room = $derived(cellWidth - 54 - (opens ? 18 : 6) - (configured ? 12 : 0));
   const nameWidth = $derived(Math.min(room, width(entry.label, font(12.5, 500)) + 1));
   const line = $derived(entry.detail === undefined ? height / 2 : 15);
   // A cell with a note under its name keeps its checkbox and icon in the cell's middle, level with its row's others.
@@ -41,8 +43,8 @@
   {/if}
   <span class="name" style:top="{line - 8}px" style:width="{nameWidth}px">{entry.label}</span>
   {#if configured}<span class="dot" style:left="{54 + nameWidth + 6}px" style:top="{line - 3}px"></span>{/if}
-  {#if entry.detail}<span class="detail" style:top="{line + 9}px" style:width="{cellWidth - 54 - (entry.children.length ? 22 : 8)}px">{entry.detail}</span>{/if}
-  {#if entry.children.length}
+  {#if entry.detail}<span class="detail" style:top="{line + 9}px" style:width="{cellWidth - 54 - (opens ? 22 : 8)}px">{entry.detail}</span>{/if}
+  {#if opens}
     <svg class="arrow" style:top="{line - 4}px" width="6" height="9" viewBox="0 0 6 9" aria-hidden="true"><path d="M1 .5 5 4.5 1 8.5" fill="none" stroke="var(--secondary)" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
   {/if}
 </button>

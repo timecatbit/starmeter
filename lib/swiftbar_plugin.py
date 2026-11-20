@@ -2499,7 +2499,7 @@ def speed_text(rate):
 
 
 def devices_row():
-    """多台电脑合并 in 外观与设置 → 数据. Merging the other computers' figures lives in the Rust engine only; this
+    """多台电脑合并 on the 数据 page. Merging the other computers' figures lives in the Rust engine only; this
     reference draws the row as it stands before a folder is picked."""
     return {'label':'多台电脑合并','symbol':'arrow.left.arrow.right','value':'未设置',
             'detail':'每台电脑都选同一个同步文件夹（iCloud 云盘、Dropbox、OneDrive…），各自写一份用量，合起来显示；文件里只有工具、模型和用量数字',
@@ -3288,42 +3288,43 @@ def remove_api_key(provider,key_id):
 
 def module_options(data=None):
     settings=view_settings();connections=module_connections(data)
-    settings_rows=[{'label':label,'checked':settings['theme']==key,'radio':True,'action':['set-theme',key],'children':[]} for key,label in [('system','跟随系统'),('light','浅色'),('dark','深色')]]
-    settings_rows.append({'label':'','separator':True,'children':[]})
-    settings_rows.extend({'label':label,'checked':settings['appearance']==key,'radio':True,'action':['set-appearance',key],'children':[]} for key,label in [('solid','实色'),('frosted','磨砂'),('glass','玻璃')])
+    appearance=[{'label':label,'checked':settings['theme']==key,'radio':True,'action':['set-theme',key],'children':[]} for key,label in [('system','跟随系统'),('light','浅色'),('dark','深色')]]
+    appearance.append({'label':'','separator':True,'children':[]})
+    appearance.extend({'label':label,'checked':settings['appearance']==key,'radio':True,'action':['set-appearance',key],'children':[]} for key,label in [('solid','实色'),('frosted','磨砂'),('glass','玻璃')])
+    appearance.append({'label':'','separator':True,'children':[]})
     alert_rows=[{'label':'%d%%'%level if level else '关闭','checked':settings['usageAlert']==level,'radio':True,'action':['set-usage-alert',str(level)],'children':[]}
                 for level in preferences.ALERT_LEVELS[1:]+(0,)]
     alert_rows.extend([{'label':'','separator':True,'children':[]},
                        {'label':'重置前提醒','detail':'每周窗口用了不到 %d%%，重置前 %d 小时提醒'%(alerts.REMINDER_UNDER,alerts.REMINDER_LEAD//3600),'checked':settings['resetReminder'],
                         'action':['set-reset-reminder','false' if settings['resetReminder'] else 'true'],'children':[]}])
-    # Grouped by what they are for, each group under a small title: what the panel shows, pinning and alerts, the
-    # data kept and exported, and the module setup.
-    settings_rows.extend([{'label':'显示','section':True,'children':[]},
-                          {'label':'金额显示','symbol':'yensign.circle' if settings['currency']=='CNY' else 'dollarsign.circle','value':'人民币' if settings['currency']=='CNY' else '美元',
+    # The settings by what they are for, each a page of its own: how the panel looks, how it opens and is set up, what
+    # it tells of, and the data it keeps and exports.
+    appearance.append({'label':'金额显示','symbol':'yensign.circle' if settings['currency']=='CNY' else 'dollarsign.circle','value':'人民币' if settings['currency']=='CNY' else '美元',
                            'children':[{'label':'美元（$）','checked':settings['currency']=='USD','radio':True,'action':['set-currency','USD'],'children':[]},
                                        {'label':'人民币（¥）','checked':settings['currency']=='CNY','radio':True,'action':['set-currency','CNY'],'children':[]},
                                        {'label':'','separator':True,'children':[]},
                                        {'label':'汇率…','value':'%.4f · 手动'%settings['cnyRate'] if settings['cnyRate'] else '每天自动更新',
-                                        'detail':'API 等值估算按这个汇率换成人民币；订阅月费与 API 实际花费仍是美元','action':['set-cny-rate'],'children':[]}]},
-                          {'label':'菜单栏显示','symbol':'menubar.rectangle','value':MENU_BAR_LABELS[settings['menuBar']],
+                                        'detail':'API 等值估算按这个汇率换成人民币；订阅月费与 API 实际花费仍是美元','action':['set-cny-rate'],'children':[]}]})
+    general=[{'label':'菜单栏显示','symbol':'menubar.rectangle','value':MENU_BAR_LABELS[settings['menuBar']],
                            'children':[{'label':label,'checked':settings['menuBar']==key,'radio':True,'action':['set-menu-bar',key],'children':[]} for key,label in MENU_BAR_LABELS.items()]},
-                          {'label':'钉住与提醒','section':True,'children':[]},
                           {'label':'钉住时刷新','symbol':'pin','value':'每 %d 秒'%settings['pinInterval'],
                            'children':[{'label':'每 %d 秒'%s,'checked':settings['pinInterval']==s,'radio':True,'action':['set-pin-interval',str(s)],'children':[]} for s in preferences.PIN_INTERVALS]},
-                          {'label':'用量提醒','detail':'订阅窗口用到所选比例时通知一次','symbol':'bell','value':'%d%%'%settings['usageAlert'] if settings['usageAlert'] else '关闭','children':alert_rows},
-                          {'label':'服务状态','detail':'每 5 分钟查一次 Claude、OpenAI、Cursor 的官方状态页，出问题时标在卡片上','symbol':'waveform.path.ecg',
-                           'checked':settings['serviceStatus'],'action':['set-service-status','false' if settings['serviceStatus'] else 'true'],'children':[]},
-                          {'label':'数据','section':True,'children':[]},
-                          {'label':'保留已清理记录的用量','detail':'工具删掉旧记录后仍计入“全部”等统计','symbol':'archivebox','checked':settings['keepCleanedUsage'],'action':['set-keep-usage','false' if settings['keepCleanedUsage'] else 'true'],'children':[]},
-                          {'label':'导出用量','symbol':'square.and.arrow.up','value':RANGES[selected_range()],
-                           'children':[{'label':'CSV（每天每个工具一行）…','action':['export-usage','csv'],'children':[]},{'label':'JSON…','action':['export-usage','json'],'children':[]}]},
-                          devices_row(),
                           {'label':'模块与配置','section':True,'children':[]},
                           {'label':'自动检测','symbol':'sparkle.magnifyingglass','children':detection_help_entries()},
                           {'label':'高级配置文件…','symbol':'doc.text','action':['open-settings'],'children':[]},
-                          {'label':'恢复默认模块','action':['reset-modules'],'children':[]}])
+                          {'label':'恢复默认模块','action':['reset-modules'],'children':[]}]
+    alert_page=[{'label':'用量提醒','detail':'订阅窗口用到所选比例时通知一次','symbol':'bell','value':'%d%%'%settings['usageAlert'] if settings['usageAlert'] else '关闭','children':alert_rows},
+                          {'label':'服务状态','detail':'每 5 分钟查一次 Claude、OpenAI、Cursor 的官方状态页，出问题时标在卡片上','symbol':'waveform.path.ecg',
+                           'checked':settings['serviceStatus'],'action':['set-service-status','false' if settings['serviceStatus'] else 'true'],'children':[]}]
+    data_rows=[{'label':'保留已清理记录的用量','detail':'工具删掉旧记录后仍计入“全部”等统计','symbol':'archivebox','checked':settings['keepCleanedUsage'],'action':['set-keep-usage','false' if settings['keepCleanedUsage'] else 'true'],'children':[]},
+                          {'label':'导出用量','symbol':'square.and.arrow.up','value':RANGES[selected_range()],
+                           'children':[{'label':'CSV（每天每个工具一行）…','action':['export-usage','csv'],'children':[]},{'label':'JSON…','action':['export-usage','json'],'children':[]}]},
+                          devices_row()]
     options=[{'label':'允许折叠','detail':'点卡片就地展开','symbol':'rectangle.compress.vertical','checked':settings['allowCollapse'],'action':['set-collapse','false' if settings['allowCollapse'] else 'true'],'children':[]},
-             {'label':'外观与设置','symbol':'slider.horizontal.3','children':settings_rows},
+             {'label':'外观','symbol':'circle.lefthalf.filled','children':appearance},
+             {'label':'通用','symbol':'slider.horizontal.3','children':general},
+             {'label':'提醒','symbol':'bell','children':alert_page},
+             {'label':'数据','symbol':'externaldrive','children':data_rows},
              {'label':'','separator':True,'children':[]}];group=None
     for key,label,category in preferences.MODULES:
         if category!=group:

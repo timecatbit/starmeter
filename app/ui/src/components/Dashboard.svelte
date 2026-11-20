@@ -104,7 +104,7 @@
 
   // Header: the star and Starmeter, then share, the pin and the gear leftward from the range picker, 2pt apart. (No
   // refresh: opening reads what is due, pinning reads every few seconds, and each source's own page refreshes it; auto-
-  // detect lives in 外观与设置 and the star's menu.)
+  // detect lives in 通用 and the star's menu.)
   // The range picker is drawn bare like the icons beside it, as wide as the range on it: 8pt, the range, 4pt, the
   // chevron, 8pt; its right edge on the content's.
   const pickerWidth = $derived(8 + width(data.rangeLabel, font(11)) + 4 + 7 + 8);

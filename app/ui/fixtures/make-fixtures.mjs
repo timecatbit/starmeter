@@ -655,44 +655,50 @@ function connection(key, home) {
     ...(key === 'claude' ? [entry('打开 Claude', { symbol: 'macwindow', action: ['open-claude'] })] : [])];
 }
 
-function settingsRows(prefs) {
+/** The settings, a page each as the engine sends them: 外观, 通用, 提醒 and 数据. */
+function settingsPages(prefs) {
   const radio = (label, action, checked) => entry(label, { checked, radio: true, action });
-  return [
+  const appearance = [
     radio('跟随系统', ['set-theme', 'system'], prefs.theme === 'system'), radio('浅色', ['set-theme', 'light'], prefs.theme === 'light'),
     radio('深色', ['set-theme', 'dark'], prefs.theme === 'dark'), separator(),
-    radio('实色', ['set-appearance', 'solid'], prefs.appearance === 'solid'), radio('磨砂', ['set-appearance', 'frosted'], prefs.appearance === 'frosted'), radio('玻璃', ['set-appearance', 'glass'], prefs.appearance === 'glass'),
-    entry('显示', { section: true }),
+    radio('实色', ['set-appearance', 'solid'], prefs.appearance === 'solid'), radio('磨砂', ['set-appearance', 'frosted'], prefs.appearance === 'frosted'), radio('玻璃', ['set-appearance', 'glass'], prefs.appearance === 'glass'), separator(),
     entry('金额显示', { symbol: 'dollarsign.circle', value: '美元' }, [radio('美元（$）', ['set-currency', 'USD'], true), radio('人民币（¥）', ['set-currency', 'CNY'], false),
       separator(), entry('汇率…', { value: '每天自动更新', detail: 'API 等值估算按这个汇率换成人民币；订阅月费与 API 实际花费仍是美元', action: ['set-cny-rate'] })]),
+  ];
+  const general = [
     entry('菜单栏显示', { symbol: 'menubar.rectangle', value: '只显示星星' }, [radio('只显示星星', ['set-menu-bar', 'none'], true),
       radio('今天的 API 估算', ['set-menu-bar', 'cost'], false), radio('最紧张的订阅额度', ['set-menu-bar', 'quota'], false),
       radio('输出速度', ['set-menu-bar', 'speed'], false)]),
-    entry('钉住与提醒', { section: true }),
     entry('钉住时刷新', { symbol: 'pin', value: '每 2 秒' }, [1, 2, 5].map((s) => radio(`每 ${s} 秒`, ['set-pin-interval', String(s)], s === 2))),
-    entry('用量提醒', { detail: '订阅窗口用到所选比例时通知一次', symbol: 'bell', value: '90%' }, [
-      ...[70, 80, 90, 0].map((v) => radio(v ? `${v}%` : '关闭', ['set-usage-alert', String(v)], v === 90)), separator(),
-      entry('重置前提醒', { detail: '每周窗口用了不到 85%，重置前 12 小时提醒', checked: false, action: ['set-reset-reminder', 'true'] })]),
-    entry('服务状态', { detail: '每 5 分钟查一次 Claude、OpenAI、Cursor 的官方状态页，出问题时标在卡片上', symbol: 'waveform.path.ecg', checked: false,
-      action: ['set-service-status', 'true'] }),
-    entry('数据', { section: true }),
-    entry('保留已清理记录的用量', { detail: '工具删掉旧记录后仍计入“全部”等统计', symbol: 'archivebox', checked: true, action: ['set-keep-usage', 'false'] }),
-    entry('导出用量', { symbol: 'square.and.arrow.up', value: '今天' }, [entry('CSV（每天每个工具一行）…', { action: ['export-usage', 'csv'] }),
-      entry('JSON…', { action: ['export-usage', 'json'] })]),
-    entry('多台电脑合并', { symbol: 'arrow.left.arrow.right', value: '未设置',
-      detail: '每台电脑都选同一个同步文件夹（iCloud 云盘、Dropbox、OneDrive…），各自写一份用量，合起来显示；文件里只有工具、模型和用量数字' },
-      [entry('选择同步文件夹…', { symbol: 'folder', action: ['choose-sync-folder'] })]),
     entry('模块与配置', { section: true }),
     entry('自动检测', { symbol: 'sparkle.magnifyingglass' }, [entry('确认后覆盖当前模块选择；不读取对话正文，不显示 Key'), separator(),
       entry('开始检测…', { symbol: 'sparkle.magnifyingglass', action: ['detect-modules'] })]),
     entry('高级配置文件…', { symbol: 'doc.text', action: ['open-settings'] }),
     entry('恢复默认模块', { action: ['reset-modules'] }),
   ];
+  const alerts = [
+    entry('用量提醒', { detail: '订阅窗口用到所选比例时通知一次', symbol: 'bell', value: '90%' }, [
+      ...[70, 80, 90, 0].map((v) => radio(v ? `${v}%` : '关闭', ['set-usage-alert', String(v)], v === 90)), separator(),
+      entry('重置前提醒', { detail: '每周窗口用了不到 85%，重置前 12 小时提醒', checked: false, action: ['set-reset-reminder', 'true'] })]),
+    entry('服务状态', { detail: '每 5 分钟查一次 Claude、OpenAI、Cursor 的官方状态页，出问题时标在卡片上', symbol: 'waveform.path.ecg', checked: false,
+      action: ['set-service-status', 'true'] }),
+  ];
+  const data = [
+    entry('保留已清理记录的用量', { detail: '工具删掉旧记录后仍计入“全部”等统计', symbol: 'archivebox', checked: true, action: ['set-keep-usage', 'false'] }),
+    entry('导出用量', { symbol: 'square.and.arrow.up', value: '今天' }, [entry('CSV（每天每个工具一行）…', { action: ['export-usage', 'csv'] }),
+      entry('JSON…', { action: ['export-usage', 'json'] })]),
+    entry('多台电脑合并', { symbol: 'arrow.left.arrow.right', value: '未设置',
+      detail: '每台电脑都选同一个同步文件夹（iCloud 云盘、Dropbox、OneDrive…），各自写一份用量，合起来显示；文件里只有工具、模型和用量数字' },
+      [entry('选择同步文件夹…', { symbol: 'folder', action: ['choose-sync-folder'] })]),
+  ];
+  return [entry('外观', { symbol: 'circle.lefthalf.filled' }, appearance), entry('通用', { symbol: 'slider.horizontal.3' }, general),
+    entry('提醒', { symbol: 'bell' }, alerts), entry('数据', { symbol: 'externaldrive' }, data)];
 }
 
 function moduleOptions(prefs, home) {
   const options = [
     entry('允许折叠', { detail: '点卡片就地展开', symbol: 'rectangle.compress.vertical', checked: prefs.allowCollapse, action: ['set-collapse', prefs.allowCollapse ? 'false' : 'true'] }),
-    entry('外观与设置', { symbol: 'slider.horizontal.3' }, settingsRows(prefs)), separator()];
+    ...settingsPages(prefs), separator()];
   let group = null;
   for (const [key, label, category] of modules) {
     if (category !== group) { options.push(entry(groupLabels[category] ?? category, { section: true })); group = category; }

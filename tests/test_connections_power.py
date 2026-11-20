@@ -202,7 +202,7 @@ class PowerTests(unittest.TestCase):
         self.assertIn(['choose-client-home','chatgpt'],[c.get('action') for c in chatgpt['children']])
         native=self.m.module_menu_lines()
         self.assertTrue(any('显示在主页' in row and 'param3=set-module' in row and 'param4=chatgpt' in row for row in native))
-        settings=next(r for r in rows if r['label']=='外观与设置')
+        settings=next(r for r in rows if r['label']=='通用')
         self.assertIn(['open-settings'],[r.get('action') for r in settings['children']])
     def test_home_resource_groups_omit_empty_sections(self):
         for key in self.m.preferences.KNOWN:self.m.preferences.update(self.m.STATE_DIR,'module',key,'false')

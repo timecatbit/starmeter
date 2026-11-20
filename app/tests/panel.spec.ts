@@ -42,7 +42,7 @@ test('the homepage shows Summary, the trend, the heatmap, the cards and the rows
 test('header buttons take clicks, and pinning turns the trend live', async ({ page }) => {
   await open(page);
   // No refresh or auto-detect in the header: opening reads what is due, pinning reads every few seconds, and
-  // auto-detect lives in 外观与设置.
+  // auto-detect lives in 通用.
   await expect(button(page, '刷新数据')).toHaveCount(0);
   await expect(button(page, '自动检测')).toHaveCount(0);
   await button(page, '钉住面板').click();
@@ -332,9 +332,15 @@ test('settings: theme segments, switches and the module grid answer at once', as
   await open(page);
   await button(page, '主页模块与设置').click();
   await expect(page.locator('.modules .heading')).toHaveText('主页模块');
-  await page.getByText('外观与设置', { exact: true }).click();
+  // The settings are pages by what they are for: 外观, 通用, 提醒, 数据, then the phone.
+  await expect(page.locator('.modules .cell').first()).toHaveAccessibleName('允许折叠');
+  expect(await page.locator('.modules .cell').evaluateAll((cells) => cells.slice(0, 6).map((c) => c.getAttribute('aria-label'))))
+    .toEqual(['允许折叠', '外观', '通用', '提醒', '数据', '在手机上看']);
+  await page.getByText('外观', { exact: true }).click();
   await page.getByRole('radio', { name: '深色' }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await page.keyboard.press('Escape');
+  await page.getByText('提醒', { exact: true }).click();
   const status = page.getByRole('switch', { name: /^服务状态/ });
   await expect(status).toHaveAttribute('aria-checked', 'false');
   await status.click();
@@ -346,11 +352,11 @@ test('settings: theme segments, switches and the module grid answer at once', as
   await expect(page.locator('.card .name')).not.toContainText(['Claude']);
 });
 
-test('全局快捷键 in 外观与设置: off at first, a choice is kept, one already taken says so and keeps the old', async ({ page }) => {
-  // 外观与设置, with the row unfolded to its choices.
+test('全局快捷键 in 通用: off at first, a choice is kept, one already taken says so and keeps the old', async ({ page }) => {
+  // 通用, with the row unfolded to its choices.
   const settings = async () => {
     await button(page, '主页模块与设置').click();
-    await page.getByText('外观与设置', { exact: true }).click();
+    await page.getByText('通用', { exact: true }).click();
     await page.getByRole('button', { name: /^全局快捷键/ }).click();
   };
   await open(page);
@@ -376,9 +382,9 @@ test('全局快捷键 in 外观与设置: off at first, a choice is kept, one al
 test('在手机上看: a code for the same network, a public link only after a yes, and 停止 turns it off', async ({ page }) => {
   await open(page);
   await button(page, '主页模块与设置').click();
-  await page.getByText('外观与设置', { exact: true }).click();
+  // A cell of its own in the module grid, beside the settings.
   const row = page.getByRole('button', { name: /^在手机上看/ });
-  await expect(row).toContainText('未开启');
+  await expect(row).toContainText('扫码在手机浏览器里看');
   await row.click();
   const phone = page.locator('.phone-page');
   await expect(phone.locator('svg[role="img"]')).toBeVisible();
@@ -395,18 +401,17 @@ test('在手机上看: a code for the same network, a public link only after a y
   await expect(phone.locator('.address')).toHaveText('https://quiet-river-1234.trycloudflare.com/');
   await button(page, '关闭外网链接').click();
   await expect(phone.locator('.address')).toHaveText('http://192.168.1.20:51234/');
-  // Left while on: the row says so; 停止 turns it off.
+  // Left while on: the cell says so, with the minutes left; 停止 turns it off.
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('button', { name: /^在手机上看/ })).toContainText('开着');
+  await expect(page.getByRole('button', { name: /^在手机上看/ })).toContainText(/开着 · 还剩 \d+ 分钟/);
   await page.getByRole('button', { name: /^在手机上看/ }).click();
   await button(page, '停止').click();
-  await expect(page.getByRole('button', { name: /^在手机上看/ })).toContainText('未开启');
+  await expect(page.getByRole('button', { name: /^在手机上看/ })).toContainText('扫码在手机浏览器里看');
 });
 
 test('在手机上看 the first time says cloudflared is downloaded first', async ({ page }) => {
   await open(page, '?no-cloudflared');
   await button(page, '主页模块与设置').click();
-  await page.getByText('外观与设置', { exact: true }).click();
   await page.getByRole('button', { name: /^在手机上看/ }).click();
   await page.getByRole('radio', { name: '任何网络' }).click();
   await expect(page.locator('.phone-page .ask')).toContainText('cloudflared');
@@ -643,7 +648,7 @@ const READY_STOPS = ['欢迎使用 Starmeter', '用量总览', '统计范围', '
 const seen = (page: Page) => page.evaluate(() => localStorage.getItem('starmeter.guide'));
 
 test.describe('新手指引', () => {
-  test('with usage: six stops, each lighting its part, Esc skips, and 外观与设置 shows it again', async ({ page }) => {
+  test('with usage: six stops, each lighting its part, Esc skips, and 通用 shows it again', async ({ page }) => {
     // In a browser only when asked; the app shows it the first time the panel opens.
     await open(page);
     await expect(page.locator('.guide')).toHaveCount(0);
@@ -668,16 +673,16 @@ test.describe('新手指引', () => {
         const gear = (await button(page, '主页模块与设置').boundingBox())!;
         await page.mouse.click(gear.x + gear.width / 2, gear.y + gear.height / 2);
         await expect(page.locator('.dashboard')).toBeVisible();
-        await expect(guide.locator('.later')).toContainText('外观与设置 → 新手指引');
+        await expect(guide.locator('.later')).toContainText('齿轮 → 通用 → 新手指引');
       }
       await page.keyboard.press(i === 0 ? 'ArrowRight' : 'Enter');
       if (i === 0) { await expect(guide.locator('h2')).toHaveText(stops[1][0]); await page.keyboard.press('ArrowLeft'); await expect(guide.locator('h2')).toHaveText(title); await button(page, '下一步').click(); }
     }
     await expect(guide).toHaveCount(0);
     expect(await seen(page)).toBe('1');
-    // Again from 外观与设置 → 帮助: back on the homepage; Esc skips it there without leaving the homepage.
+    // Again from 通用 → 帮助: back on the homepage; Esc skips it there without leaving the homepage.
     await button(page, '主页模块与设置').click();
-    await page.getByText('外观与设置').first().click();
+    await page.getByText('通用', { exact: true }).click();
     await page.getByRole('button', { name: '新手指引' }).click();
     await expect(guide.locator('h2')).toHaveText('欢迎使用 Starmeter');
     await expect(page.locator('.dashboard')).toBeVisible();
@@ -715,13 +720,13 @@ test.describe('新手指引', () => {
     await expect(page.locator('.modules')).toBeVisible();
   });
 
-  /** Summary turned off, then the tour from 外观与设置 (the browser's choices last until the page reloads). */
+  /** Summary turned off, then the tour from 通用 (the browser's choices last until the page reloads). */
   async function withoutSummary(page: Page, query: string) {
     await open(page, query);
     await page.evaluate(async () => { const { backend } = await import('/src/lib/backend.ts'); await backend.action(['set-module', 'summary', 'false']); });
     await expect(page.locator('.summary .figure')).toHaveCount(0);
     await button(page, '主页模块与设置').click();
-    await page.getByText('外观与设置').first().click();
+    await page.getByText('通用', { exact: true }).click();
     await page.getByRole('button', { name: '新手指引' }).click();
     await expect(page.locator('.guide h2')).toHaveText('欢迎使用 Starmeter');
   }

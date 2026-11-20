@@ -7,7 +7,7 @@
   // 新手指引: a first look at the panel, over the homepage itself. Each stop lights up the real thing (the figures, the
   // range, the cards, the plan and API rows, the header buttons) and dims the rest, with a word on what it is for; the
   // first stop welcomes and offers the language, so a reader of English never has to find the setting in Chinese first.
-  // Shown once on the first run (the app keeps that it was seen); 外观与设置 → 新手指引 shows it again.
+  // Shown once on the first run (the app keeps that it was seen); 通用 → 新手指引 shows it again.
   //
   // What it says follows what the homepage has. With no tool chosen yet (nothing found on this computer) there is no
   // usage to show, so after the welcome it says so and points to the gear, whose 主页模块 is where tools are chosen;
@@ -52,7 +52,7 @@
       { title: '还没有用量', targets: ['.summary .figure-label', '.summary .figure'], always: true,
         body: '这台电脑上还没找到 AI 编程工具的用量记录。Starmeter 读的是 Claude Code、Codex、Cursor、Gemini CLI 等工具自己留在本机的记录：装好其中一个、用过一次，这里就会出现数字。' },
       { title: '选择要读的工具', targets: ['.summary .buttons > .slot:nth-child(2)'], always: true,
-        body: '点齿轮打开“主页模块”，勾选你在用的工具；工具的记录不在默认位置时，点它的名字选文件夹。“外观与设置”里的“自动检测”会把这台电脑上找得到的都勾上。',
+        body: '点齿轮打开“主页模块”，勾选你在用的工具；工具的记录不在默认位置时，点它的名字选文件夹。“通用”里的“自动检测”会把这台电脑上找得到的都勾上。',
         action: { label: '打开主页模块', run: () => onmodules() } },
     ];
     return [welcome,
@@ -194,7 +194,7 @@
               onclick={() => chooseLanguage('en')}>English</button>
           </div>
         {/if}
-        {#if last}<p class="later">{t('以后可以在 外观与设置 → 新手指引 再看一遍。')}</p>{/if}
+        {#if last}<p class="later">{t('以后可以在 齿轮 → 通用 → 新手指引 再看一遍。')}</p>{/if}
       </div>
     {/key}
     <div class="actions">

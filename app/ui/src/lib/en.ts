@@ -58,12 +58,12 @@ export const phrases: Record<string, string> = {
   '查看最近 CLI 更新日志': 'Show the latest CLI update log', '选择工具…': 'Choose tools…', 'Starmeter · 可更新': 'Starmeter · Update available',
   更新记录: 'Changelog', '点击打开 App 更新': 'Click to update in the app', 'Claude 官方': 'Official', 'Homebrew Cask': 'Homebrew Cask',
   已是最新: 'Up to date', '在 App 内检查更新': 'Checked in the app', '检查失败：npm 无响应，稍后重试': 'Check failed: npm didn\'t answer; trying again later',
-  // 外观与设置
-  允许折叠: 'Allow folding', 外观与设置: 'Settings', 跟随系统: 'System', 浅色: 'Light', 深色: 'Dark', 实色: 'Solid',
+  // The settings: 外观, 通用, 提醒 and 数据
+  允许折叠: 'Allow folding', 外观: 'Appearance', 通用: 'General', 提醒: 'Alerts', 跟随系统: 'System', 浅色: 'Light', 深色: 'Dark', 实色: 'Solid',
   磨砂: 'Frosted', 玻璃: 'Glass', 显示: 'Display', '语言 Language': 'Language', 金额显示: 'Currency', '美元（$）': 'US dollar ($)',
   '人民币（¥）': 'Chinese yuan (¥)', '汇率…': 'Exchange rate…', 美元: 'US dollar', 人民币: 'Chinese yuan', 每天自动更新: 'Updated daily',
   手动: 'set by hand', 菜单栏显示: 'Menu bar', 只显示星星: 'Star only', '今天的 API 估算': 'Today\'s API estimate',
-  最紧张的订阅额度: 'Tightest subscription limit', 钉住与提醒: 'Pinning & alerts', 钉住时刷新: 'Refresh when pinned', 用量提醒: 'Usage alerts',
+  最紧张的订阅额度: 'Tightest subscription limit', 钉住时刷新: 'Refresh when pinned', 用量提醒: 'Usage alerts',
   重置前提醒: 'Reset reminder', 服务状态: 'Service status', 数据: 'Data', 保留已清理记录的用量: 'Keep usage from cleaned-up logs', 导出用量: 'Export usage',
   'CSV（每天每个工具一行）…': 'CSV (a row per tool per day)…', 'JSON（每个工具的合计与每天）…': 'JSON (each tool\'s totals and days)…',
   模块与配置: 'Modules & setup', 自动检测: 'Auto-detect', '开始检测…': 'Start detecting…', '高级配置文件…': 'Advanced config file…',
@@ -116,20 +116,27 @@ export const phrases: Record<string, string> = {
   三个按钮: 'Three buttons',
   '图钉：钉住后面板浮在最上层并实时刷新，可以拖动、调大小。齿轮：选择主页显示哪些模块，设置目录、Key、语言和外观。分享：把用量做成一张图。':
     'Pin: keep the panel on top, refreshing live; drag it and resize it. Gear: choose what the homepage shows, and set folders, keys, language and look. Share: turn your usage into a picture.',
-  '以后可以在 外观与设置 → 新手指引 再看一遍。': 'You can take this tour again from Settings → Quick tour.',
+  '以后可以在 齿轮 → 通用 → 新手指引 再看一遍。': 'You can take this tour again from the gear → General → Quick tour.',
   '最上面是这段时间的 API 等值估算、Token 和请求数，下面是趋势和热力图。第一次读取要一点时间，读到以后数字会自己出现。':
     'At the top: the API-equivalent estimate, tokens and requests for the range; below, the trend and the heatmap. The first reading takes a moment; the figures appear by themselves.',
   还没有用量: 'No usage yet',
   '这台电脑上还没找到 AI 编程工具的用量记录。Starmeter 读的是 Claude Code、Codex、Cursor、Gemini CLI 等工具自己留在本机的记录：装好其中一个、用过一次，这里就会出现数字。':
     'No AI coding tool has left usage records on this computer yet. Starmeter reads the records Claude Code, Codex, Cursor, Gemini CLI and others keep here: install one and use it once, and the figures appear.',
   选择要读的工具: 'Choose your tools',
-  '点齿轮打开“主页模块”，勾选你在用的工具；工具的记录不在默认位置时，点它的名字选文件夹。“外观与设置”里的“自动检测”会把这台电脑上找得到的都勾上。':
-    'The gear opens Home modules: tick the tools you use, and click a tool\'s name to pick its folder when its records live elsewhere. Auto-detect in Settings ticks every tool it finds on this computer.',
+  '点齿轮打开“主页模块”，勾选你在用的工具；工具的记录不在默认位置时，点它的名字选文件夹。“通用”里的“自动检测”会把这台电脑上找得到的都勾上。':
+    'The gear opens Home modules: tick the tools you use, and click a tool\'s name to pick its folder when its records live elsewhere. Auto-detect in General ticks every tool it finds on this computer.',
   输出速度: 'Output speed', 全局快捷键: 'Global shortcut', 不使用: 'Off', '在任何地方按下即可打开或收起面板': 'Opens or closes the panel from anywhere',
   快捷键已被占用: 'Shortcut taken', '这个组合键已被系统或其他程序占用，换一个试试。': 'The system or another app already uses this combination; try another.',
   // 多台电脑合并
   // 在手机上看
-  在手机上看: 'View on your phone', '扫二维码，在手机浏览器里看主页；只读': 'Scan a QR code to see the homepage in your phone\'s browser; read-only',
+  在手机上看: 'View on your phone', 扫码在手机浏览器里看: 'Scan to view in your phone\'s browser',
+  '外网链接断开了，可以重新生成': 'The public link dropped; you can make a new one',
+  '这个网络的 DNS 查不到 Cloudflare 隧道的地址（常见于代理或 VPN），换个网络或关掉代理再试':
+    'This network\'s DNS can\'t find Cloudflare\'s tunnel servers (common behind a proxy or VPN); try another network or turn the proxy off',
+  'Cloudflare 暂时不给新的临时链接，稍后再试': 'Cloudflare isn\'t giving out new temporary links right now; try again later',
+  'Cloudflare 这次没有连上，稍后再试': 'Couldn\'t connect to Cloudflare this time; try again later',
+  '连不上电脑：电脑可能睡着了、换了网络，或者已经停止手机查看': 'Can\'t reach the computer: it may be asleep, on another network, or no longer sharing with the phone',
+  '链接已失效：在电脑上重新打开“在手机上看”，再扫一次码': 'This link no longer works: open View on your phone on the computer again and scan the new code',
   开着: 'On', 手机在哪: 'Where the phone is', 同一个网络: 'Same network', 任何网络: 'Any network',
   '经 Cloudflare 生成外网链接？': 'Make a public link through Cloudflare?',
   '手机不在同一个网络时用：Cloudflare 给一个临时的 https 地址，转到这台电脑。主页的数字会经过 Cloudflare；链接带一次性口令，停止或一小时后失效。':

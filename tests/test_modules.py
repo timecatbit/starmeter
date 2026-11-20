@@ -32,7 +32,7 @@ class ModuleTests(unittest.TestCase):
     def test_light_dark_or_system_is_one_choice_in_appearance_settings(self):
         self.assertEqual(preferences.read(self.m.STATE_DIR)['theme'],'system')
         def choices():
-            settings=next(o for o in self.m.module_options() if o['label']=='外观与设置')['children']
+            settings=next(o for o in self.m.module_options() if o['label']=='外观')['children']
             return [(r['label'],r['checked']) for r in settings if (r.get('action') or [''])[0]=='set-theme'],settings
         rows,settings=choices()
         self.assertEqual(rows,[('跟随系统',True),('浅色',False),('深色',False)])

@@ -131,7 +131,7 @@ class SettingTests(unittest.TestCase):
         self.assertTrue(preferences.read(self.m.STATE_DIR)['keepCleanedUsage'])
 
     def test_the_switch_sits_in_appearance_and_settings(self):
-        rows = next(o for o in self.m.module_options() if o['label'] == '外观与设置')['children']
+        rows = next(o for o in self.m.module_options() if o['label'] == '数据')['children']
         row = next(r for r in rows if r['label'] == '保留已清理记录的用量')
         self.assertTrue(row['checked']); self.assertEqual(row['action'], ['set-keep-usage', 'false'])
 

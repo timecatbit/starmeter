@@ -58,7 +58,7 @@ class MenuBarTests(unittest.TestCase):
             self.assertEqual(self.m.menu_bar_value({}), '', 'A stale reading is not kept in sight')
 
     def test_the_choice_lives_in_appearance_and_settings(self):
-        rows = next(o for o in self.m.module_options() if o['label'] == '外观与设置')['children']
+        rows = next(o for o in self.m.module_options() if o['label'] == '通用')['children']
         row = next(r for r in rows if r['label'] == '菜单栏显示')
         self.assertEqual(row['value'], '只显示星星')
         self.assertEqual([c['action'] for c in row['children']], [['set-menu-bar', 'none'], ['set-menu-bar', 'cost'], ['set-menu-bar', 'quota'],
@@ -88,14 +88,14 @@ class MenuBarTests(unittest.TestCase):
             self.assertEqual(self.m.menu_bar_value({}), '', 'A reading over three minutes old is not kept in sight')
         with self.assertRaises(ValueError):self.m.run_action('set-menu-bar', ['loud'])
 
-    def test_settings_are_grouped_under_titles(self):
-        rows = next(o for o in self.m.module_options() if o['label'] == '外观与设置')['children']
-        groups, current = {}, None
-        for r in rows:
-            if r.get('section'):current = r['label'];groups[current] = []
-            elif current and not r.get('separator'):groups[current].append(r['label'])
-        self.assertEqual(groups, {'显示': ['金额显示', '菜单栏显示'], '钉住与提醒': ['钉住时刷新', '用量提醒', '服务状态'],
-                                  '数据': ['保留已清理记录的用量', '导出用量', '多台电脑合并'], '模块与配置': ['自动检测', '高级配置文件…', '恢复默认模块']})
+    def test_settings_are_pages_by_what_they_are_for(self):
+        options = self.m.module_options()
+        top = [o['label'] for o in options[:options.index(next(o for o in options if o.get('separator')))]]
+        self.assertEqual(top, ['允许折叠', '外观', '通用', '提醒', '数据'])
+        pages = {o['label']: [r['label'] for r in o['children'] if not r.get('separator') and not r.get('radio')] for o in options[1:5]}
+        self.assertEqual(pages, {'外观': ['金额显示'], '通用': ['菜单栏显示', '钉住时刷新', '模块与配置', '自动检测', '高级配置文件…', '恢复默认模块'],
+                                 '提醒': ['用量提醒', '服务状态'], '数据': ['保留已清理记录的用量', '导出用量', '多台电脑合并']})
+        self.assertTrue(next(r for r in options[2]['children'] if r['label'] == '模块与配置').get('section'))
 
 
 if __name__ == '__main__':

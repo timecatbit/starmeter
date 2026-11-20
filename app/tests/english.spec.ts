@@ -120,7 +120,6 @@ test('English: the phone view and its public link', async ({ page }) => {
   const left = new Leftovers();
   await english(page, '?no-cloudflared');
   await page.getByRole('button', { name: 'Modules and settings', exact: true }).click();
-  await page.getByText('Settings', { exact: true }).first().click();
   await page.getByRole('button', { name: /^View on your phone/ }).click();
   await expect(page.locator('.phone-page svg[role="img"]')).toBeVisible();
   await left.take(page, 'phone');
@@ -184,15 +183,15 @@ for (const fixture of ['pending', 'failed']) {
   });
 }
 
-test('语言 in 外观与设置 turns the panel English at once, on the same page, and the choice is kept', async ({ page }) => {
+test('语言 in 通用 turns the panel English at once, on the same page, and the choice is kept', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('.dashboard')).toBeVisible();
   await page.getByRole('button', { name: '主页模块与设置', exact: true }).click();
-  await page.getByRole('button', { name: '外观与设置', exact: true }).click();
+  await page.getByRole('button', { name: '通用', exact: true }).click();
   await page.locator('.detail-row', { hasText: '语言 Language' }).click();
   await page.getByRole('radio', { name: 'English', exact: true }).click();
   // The page stays open and reads in English, its rows measured for it.
-  await expect(page.locator('.page .title').first()).toHaveText('Settings');
+  await expect(page.locator('.page .title').first()).toHaveText('General');
   await expect(page.locator('.detail-row', { hasText: 'Language' })).toContainText('English');
   expect(await page.evaluate(() => localStorage.getItem('starmeter.language'))).toBe('en');
   await page.reload();

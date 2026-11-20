@@ -160,12 +160,13 @@ export async function snapshot(): Promise<Snapshot> {
     }
     if (option.action?.[0] === 'set-collapse') { option.checked = prefs.allowCollapse; option.action = ['set-collapse', prefs.allowCollapse ? 'false' : 'true']; }
   }
-  const settings = s.moduleOptions?.find((o) => o.label === '外观与设置');
-  for (const row of settings?.children ?? []) {
+  const pages = (s.moduleOptions ?? []).filter((o) => ['外观', '通用', '提醒', '数据'].includes(o.label));
+  const settings = pages.flatMap((page) => page.children);
+  for (const row of settings) {
     if (row.action?.[0] === 'set-theme') row.checked = row.action[1] === prefs.theme;
     if (row.action?.[0] === 'set-appearance') row.checked = row.action[1] === prefs.appearance;
   }
-  const exporting = settings?.children.find((row) => row.label === '导出用量');
+  const exporting = settings.find((row) => row.label === '导出用量');
   if (exporting) exporting.value = s.dashboard.rangeLabel;
   return s;
 }

@@ -28,7 +28,7 @@ function stored(): ShortcutChoice {
 
 export const shortcut = $state({ current: stored() });
 
-/** The choice made in 外观与设置: registered first, kept only if the system let us have it. */
+/** The choice made in 通用: registered first, kept only if the system let us have it. */
 export async function chooseShortcut(next: string): Promise<boolean> {
   if (!(SHORTCUTS as readonly string[]).includes(next)) return false;
   const ok = await shell.setShortcut(next).catch(() => false);
@@ -43,7 +43,7 @@ export function restoreShortcut() {
   if (shortcut.current !== 'none') void shell.setShortcut(shortcut.current).catch(() => false);
 }
 
-/** The 全局快捷键 row under 显示 in 外观与设置, the panel's own like 语言. */
+/** The 全局快捷键 row in 通用, the panel's own like 语言. */
 export function shortcutRow(): Entry {
   const radio = (choice: ShortcutChoice): Entry => ({ label: shortcutLabel(choice), children: [], radio: true, checked: shortcut.current === choice,
     action: ['set-shortcut', choice] });

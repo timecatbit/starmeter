@@ -180,7 +180,7 @@ class PluginAlertTests(unittest.TestCase):
         (Path(self.m.STATE_DIR)/'preferences.json').write_text(json.dumps({'schema':1,'balanceAlerts':{'kimi-api':20,'qoder-api':500,'chatgpt-api':1,'grok|EUR':3}}))
         self.assertEqual(preferences.read(self.m.STATE_DIR)['balanceAlerts'],{'kimi-api|CNY':20,'qoder-api|Credits':500})
     def test_settings_rows_switch_levels_and_the_reminder(self):
-        settings=next(o for o in self.m.module_options() if o['label']=='外观与设置')['children']
+        settings=next(o for o in self.m.module_options() if o['label']=='提醒')['children']
         menu=next(r for r in settings if r['label']=='用量提醒')
         self.assertEqual(menu['value'],'90%')
         self.assertEqual([r['label'] for r in menu['children'] if r.get('radio')],['70%','80%','90%','关闭'])

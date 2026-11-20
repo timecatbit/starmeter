@@ -1,4 +1,4 @@
-// The panel in Chinese or English (外观与设置 → 语言). Chinese is the source: the engine and the panel write Chinese,
+// The panel in Chinese or English (通用 → 语言). Chinese is the source: the engine and the panel write Chinese,
 // and English comes from the dictionary in en.ts at the edges. localize() turns a snapshot's text into English as it
 // arrives, so every page lays out and measures the English it shows; t() does the panel's own words. Text the
 // dictionary doesn't know (a session's title, a project's folder, a new message) stays as it is; the English test lists
@@ -122,20 +122,22 @@ function dashboard(d: Dashboard): Dashboard {
   };
 }
 
-/** The 语言 row, first under 显示 in 外观与设置: 中文 / English. The choice is the panel's own (kept in the web view's
+/** The 语言 row, first in 通用: 中文 / English. The choice is the panel's own (kept in the web view's
  *  storage), not the engine's, so the engine's other output (menus, notifications) stays Chinese. The 新手指引 row
  *  under 帮助 is the panel's own too. */
 function withLanguage(list: Entry[]): Entry[] {
-  return list.map((e) => {
-    if (e.label !== '外观与设置') return e;
-    const children = [...e.children], at = children.findIndex((c) => c.section && c.label === '显示');
-    const radio = (label: string, key: Language): Entry => ({ label, children: [], radio: true, checked: language.current === key, action: ['set-language', key] });
-    children.splice(at + 1, 0, { label: '语言 Language', symbol: 'globe', value: language.current === 'en' ? 'English' : '中文',
-      children: [radio('中文', 'zh'), radio('English', 'en')] }, shortcutRow(), phoneRow());
-    // 帮助, last: the first-run tour, again.
-    children.push({ label: '帮助', section: true, children: [] }, { label: '新手指引', symbol: 'questionmark.circle', action: ['show-guide'], children: [] });
-    return { ...e, children };
+  const radio = (label: string, key: Language): Entry => ({ label, children: [], radio: true, checked: language.current === key, action: ['set-language', key] });
+  const out = list.map((e) => {
+    if (e.label !== '通用') return e;
+    // 语言 and 全局快捷键 first; 帮助, last: the first-run tour, again.
+    return { ...e, children: [
+      { label: '语言 Language', symbol: 'globe', value: language.current === 'en' ? 'English' : '中文', children: [radio('中文', 'zh'), radio('English', 'en')] },
+      shortcutRow(), ...e.children,
+      { label: '帮助', section: true, children: [] }, { label: '新手指引', symbol: 'questionmark.circle', action: ['show-guide'], children: [] }] };
   });
+  const data = out.findIndex((e) => e.label === '数据');
+  if (data >= 0) out.splice(data + 1, 0, phoneRow());
+  return out;
 }
 
 /** The snapshot as the panel shows it: the language row added, and in English every text the dictionary knows. */

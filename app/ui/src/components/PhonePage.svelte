@@ -5,7 +5,7 @@
   import { onDestroy, onMount } from 'svelte';
   import { language, t } from '../lib/i18n.svelte';
   import { shell } from '../lib/backend';
-  import { phone } from '../lib/phone.svelte';
+  import { phone, secondsLeft, setPhone } from '../lib/phone.svelte';
   import { qrModules } from '../lib/qr';
   import { moveWindow, panel } from '../lib/ui.svelte';
   import HintButton from './HintButton.svelte';
@@ -30,11 +30,11 @@
     return base ? `${base}&l=${language.current}` : null;
   });
   const modules = $derived(address ? qrModules(address, 'M') : null);
-  const minutes = $derived(view ? Math.max(1, Math.round(view.secondsLeft / 60)) : 0);
+  const minutes = $derived(view ? Math.max(1, Math.round(secondsLeft() / 60)) : 0);
 
   async function start() {
     failed = null;
-    try { phone.view = await shell.phoneStart(); } catch (error) { failed = String(error); }
+    try { setPhone(await shell.phoneStart()); } catch (error) { failed = String(error); }
   }
   let tick: ReturnType<typeof setInterval> | undefined;
   onMount(() => {
@@ -52,16 +52,16 @@
     asking = null;
     busy = true;
     failed = null;
-    try { phone.view = await shell.phonePublic(); } catch (error) { failed = String(error); reach = 'local'; }
+    try { setPhone(await shell.phonePublic()); } catch (error) { failed = String(error); reach = 'local'; }
     busy = false;
   }
   async function closePublic() {
-    phone.view = await shell.phonePrivate().catch(() => phone.view);
+    setPhone(await shell.phonePrivate().catch(() => phone.view));
     reach = 'local';
   }
   async function stop() {
     await shell.phoneStop();
-    phone.view = null;
+    setPhone(null);
     onback();
   }
   async function copy() {

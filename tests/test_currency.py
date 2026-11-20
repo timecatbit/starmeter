@@ -63,7 +63,7 @@ class CurrencyTests(unittest.TestCase):
         self.m.write_json_cache(self.m.cache_path(self.m.range_cache_name('today')), record)
         self.assertEqual(self.m.menu_bar_value({}), '¥17.50')
         self.assertEqual(self.m.dashboard_payload({'range_usage': record['payload'], 'displayed_range': 'today'})['currency']['symbol'], '¥')
-        rows = next(o for o in self.m.module_options() if o['label'] == '外观与设置')['children']
+        rows = next(o for o in self.m.module_options() if o['label'] == '外观')['children']
         row = next(r for r in rows if r['label'] == '金额显示')
         self.assertEqual(row['value'], '人民币'); self.assertEqual(row['children'][3]['value'], '7.0000 · 手动')
 

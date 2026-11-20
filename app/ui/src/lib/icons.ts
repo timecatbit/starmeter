@@ -49,6 +49,10 @@ const icons: Record<string, Icon> = {
   'yensign.circle': { d: 'M10 2.8a7.2 7.2 0 1 1 0 14.4 7.2 7.2 0 0 1 0-14.4z M7.2 5.8 10 9.6l2.8-3.8 M10 9.6v4.8 M7.6 10.6h4.8 M7.6 12.6h4.8' },
   'menubar.rectangle': { d: 'M2.8 4.2h14.4v11.6H2.8z M2.8 7.2h14.4 M11.2 5.7h3.6' },
   bell: { d: 'M5.2 13.6V9.2a4.8 4.8 0 0 1 9.6 0v4.4l1.4 1.6H3.8z M8.4 15.2a1.6 1.6 0 0 0 3.2 0' },
+  // 外观: a circle half filled, light and dark.
+  'circle.lefthalf.filled': { d: 'M10 2.8a7.2 7.2 0 1 1 0 14.4 7.2 7.2 0 0 1 0-14.4z', fill: 'M10 2.8a7.2 7.2 0 0 0 0 14.4z' },
+  // 数据: a drive, its slot and light.
+  externaldrive: { d: 'M4.6 5h10.8l2 6v3.6c0 .6-.4 1-1 1H3.6c-.6 0-1-.4-1-1V11z M2.6 11h14.8 M12.2 13.3h2.4', fill: 'M5.2 12.6a.75.75 0 1 1 0 1.5.75.75 0 0 1 0-1.5z' },
   'waveform.path.ecg': { d: 'M2.6 10.4h3.2l1.6-3.6 2.6 7.2 2-5.2 1.2 1.6h4.2' },
   archivebox: { d: 'M2.8 3.8h14.4v3.6H2.8z M4 7.4v8.2h12V7.4 M8 10.4h4' },
   'doc.text': { d: 'M5 2.8h6.4l3.6 3.6v10.8H5z M11.4 2.8v3.6H15 M7.4 10h5.2 M7.4 12.8h5.2' },
