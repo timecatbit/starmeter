@@ -64,7 +64,8 @@
   const mac = typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac');
   // A phone's browser: copying and the share sheet only on a secure page (the public link), saving always.
   const canCopy = !onPhone || web.canCopyPicture();
-  const canShare = onPhone ? web.canSharePicture() : mac && inTauri;
+  // ?mac draws the Mac's share button in a browser too (the fixtures, the screenshots).
+  const canShare = onPhone ? web.canSharePicture() : mac && (inTauri || (typeof location !== 'undefined' && new URLSearchParams(location.search).has('mac')));
 
   // Each style drawn once per range, light or dark and number of tools, then kept while the page is open.
   $effect(() => {
@@ -85,32 +86,31 @@
   });
   onDestroy(() => { for (const p of pictures.values()) URL.revokeObjectURL(p.url); clearTimeout(resultTimer); });
 
-  // The settings at the top of the column beside the picture and the picture's size at its foot need this much height;
-  // taken a frame after they change size (never inside the observer's own call).
-  let settingsBox: HTMLDivElement | undefined = $state(), footBox: HTMLDivElement | undefined = $state();
-  let natural = $state(300);
+  // The picture on a stage of fixed height across the page, fitted whole (never cut): changing the style, the colours
+  // or the number of tools changes only the picture, nothing around it moves.
+  const STAGE = 330, INSET = 12;
+  const stageWidth = $derived(panel.width - 32);
+  const thumb = $derived.by(() => {
+    if (!picture) return { width: 0, height: 0 };
+    const high = STAGE - 2 * INSET, wide = stageWidth - 2 * INSET;
+    const scale = Math.min(high / picture.height, wide / picture.width);
+    return { width: Math.round(picture.width * scale), height: Math.round(picture.height * scale) };
+  });
+  // The page follows its sheet: the header, then the stage, the settings and the actions.
+  let sheet: HTMLDivElement | undefined = $state();
   $effect(() => {
-    const boxes = [settingsBox, footBox];
-    if (boxes.some((b) => !b)) return;
+    const box = sheet;
+    if (!box) return;
     let frame = 0;
-    const measure = () => { natural = settingsBox!.offsetHeight + 14 + footBox!.offsetHeight; };
+    const measure = () => onheight(58 + box.offsetHeight);
     const observer = new ResizeObserver(() => { cancelAnimationFrame(frame); frame = requestAnimationFrame(measure); });
-    boxes.forEach((b) => observer.observe(b!));
+    observer.observe(box);
     measure();
     return () => { observer.disconnect(); cancelAnimationFrame(frame); };
   });
-  /** The row of actions under the picture: its gap above and its buttons. */
-  const ACTIONS = 12 + 30;
-  /** Small: enough to see the picture's look and order, not to read it; a short picture is shown a little wider so its
-   *  foot meets the column's (124pt wide up to 172). */
-  const previewWidth = $derived(picture ? Math.min(172, Math.max(124, Math.round((natural * picture.width) / picture.height))) : 124);
-  const previewHeight = $derived(picture ? Math.round((previewWidth * picture.height) / picture.width) : natural);
-  /** The picture and the column side by side, as tall as the taller: settings at the top, the export at the foot. */
-  const columnHeight = $derived(Math.max(previewHeight, natural));
   const styleName = $derived(shareStyles.find((s) => s.key === style)?.name ?? '');
   const fileName = $derived(`Starmeter ${frozen.date} ${styleName}.png`);
   // The page follows them: header, the taller of the picture and the column beside it, then the row of actions.
-  $effect(() => onheight(58 + columnHeight + ACTIONS + 16));
 
   function settle(op: 'copy' | 'save', ok: boolean) {
     clearTimeout(resultTimer);
@@ -144,9 +144,34 @@
     mode = next;
     remember(MODE, next);
   }
+  /** The ways out, the strongest first: on a phone the share sheet (how a picture reaches a chat there), else copy. */
+  const actions = $derived.by(() => {
+    const list: ('share' | 'copy' | 'save')[] = [];
+    if (onPhone && canShare) list.push('share');
+    if (canCopy) list.push('copy');
+    list.push('save');
+    if (!onPhone && canShare) list.push('share');
+    return list;
+  });
   const copied = $derived(result?.op === 'copy' ? (result.ok ? '已复制' : '复制失败') : null);
   const saved = $derived(result?.op === 'save' ? '已保存' : null);
 </script>
+
+{#snippet act(which: 'share' | 'copy' | 'save', primary: boolean, whole: boolean)}
+  {#if which === 'share'}
+    <button class="action pressable" class:primary class:whole bind:this={shareButton} disabled={!picture} onclick={share}>
+      <Icon name="square.and.arrow.up" size={14} system />{t('分享…')}
+    </button>
+  {:else if which === 'copy'}
+    <button class="action pressable" class:primary class:whole class:done={copied === '已复制'} class:failed={copied === '复制失败'} disabled={!picture} onclick={copy}>
+      <Icon name={copied === '已复制' ? 'checkmark' : 'doc.on.doc'} size={14} system />{t(copied ?? '复制图片')}
+    </button>
+  {:else}
+    <button class="action pressable" class:primary class:whole class:done={!!saved} disabled={!picture} onclick={save}>
+      <Icon name={saved ? 'checkmark' : 'square.and.arrow.down'} size={14} system />{t(saved ?? (onPhone ? '保存图片' : '保存…'))}
+    </button>
+  {/if}
+{/snippet}
 
 <div class="share-page">
   <!-- Pinned, the header's free space moves the window, as a title bar would. -->
@@ -158,75 +183,60 @@
   <span class="rule"></span>
   <div class="body">
     <Scroller onswipeback={onback}>
-      <div class="columns">
-        <div class="frame" style:width="{previewWidth}px" style:height="{previewHeight}px">
-          {#if picture}
-            <img src={picture.url} alt={t('{style}风格的用量图预览', { style: t(shareStyles.find((s) => s.key === drawnStyle)?.name ?? '') })} width={previewWidth} height={previewHeight} />
-          {:else if failed}
-            <span class="note">{t('没能画出来')}</span>
-          {:else}
-            <span class="spinner" aria-label={t('正在生成')}></span>
-          {/if}
-        </div>
-        <div class="controls" style:height="{columnHeight}px">
-          <div class="settings" bind:this={settingsBox}>
-          <div class="setting">
-            <span class="setting-name">{t('风格')}</span>
-            <Dropdown label={t('风格')} value={style} size={12} align="left" field options={shareStyles.map((s) => ({ value: s.key, label: t(s.name) }))}
-              onpick={(next) => (style = next as ShareStyle)} />
-          </div>
-          <div class="setting">
-            <span class="setting-name">{t('色彩')}</span>
-            <div class="modes" role="radiogroup" aria-label={t('色彩')}>
-              <span class="pill" class:right={dark}></span>
-              <button class="mode pressable" class:chosen={!dark} role="radio" aria-checked={!dark} onclick={() => pickMode('light')}>{t('浅色')}</button>
-              <button class="mode pressable" class:chosen={dark} role="radio" aria-checked={dark} onclick={() => pickMode('dark')}>{t('深色')}</button>
-            </div>
-          </div>
-          <div class="setting">
-            <span class="setting-name">{t('工具数量')}</span>
-            <!-- One less or one more, in the same field as the menus above and below. -->
-            <div class="stepper" role="group" aria-label={t('工具数量')}>
-              <button class="step pressable" disabled={shownTools <= 1} aria-label={t('少一个')} onclick={() => pickTools(shownTools - 1)}><Icon name="minus" size={13} /></button>
-              <span class="count" aria-live="polite">{shownTools}</span>
-              <button class="step pressable" disabled={shownTools >= most} aria-label={t('多一个')} onclick={() => pickTools(shownTools + 1)}><Icon name="plus" size={13} /></button>
-            </div>
-          </div>
-          {#if rangeOptions.length}
-            <div class="setting">
-              <span class="setting-name">{t('时间范围')}</span>
-              <Dropdown label={t('时间范围')} value={chosenRange} size={12} align="left" field
-                options={rangeOptions.map((o) => ({ value: o.action?.[1] ?? '', label: o.label }))} onpick={pickRange} />
-            </div>
-          {/if}
-          </div>
-          <div class="foot" bind:this={footBox}>
-          {#if picture}<p class="size">{Math.round(picture.width * SCALE)} × {Math.round(picture.height * SCALE)} {t('像素')} · PNG</p>{/if}
-          {#if onPhone}<p class="size">{t('长按左边的图也能存到相册')}</p>{/if}
-          </div>
-        </div>
+      <div class="sheet" bind:this={sheet}>
+      <div class="stage" style:height="{STAGE}px">
+        {#if picture}
+          <img src={picture.url} alt={t('{style}风格的用量图预览', { style: t(shareStyles.find((s) => s.key === drawnStyle)?.name ?? '') })} width={thumb.width} height={thumb.height} />
+        {:else if failed}
+          <span class="note">{t('没能画出来')}</span>
+        {:else}
+          <span class="spinner" aria-label={t('正在生成')}></span>
+        {/if}
       </div>
-      <!-- What to do with the picture: a row across the page, under the picture and its settings. -->
+      <p class="size">
+        {#if picture}{Math.round(picture.width * SCALE)} × {Math.round(picture.height * SCALE)} {t('像素')} · PNG{/if}
+        {#if onPhone}<span class="hint">{picture ? ' · ' : ''}{t('长按图片也能存到相册')}</span>{/if}
+      </p>
+      <!-- Two settings a row, each half the page. -->
+      <div class="settings">
+        <div class="setting">
+          <span class="setting-name">{t('风格')}</span>
+          <Dropdown label={t('风格')} value={style} size={12} align="left" field options={shareStyles.map((s) => ({ value: s.key, label: t(s.name) }))}
+            onpick={(next) => (style = next as ShareStyle)} />
+        </div>
+        <div class="setting">
+          <span class="setting-name">{t('色彩')}</span>
+          <div class="modes" role="radiogroup" aria-label={t('色彩')}>
+            <span class="pill" class:right={dark}></span>
+            <button class="mode pressable" class:chosen={!dark} role="radio" aria-checked={!dark} onclick={() => pickMode('light')}>{t('浅色')}</button>
+            <button class="mode pressable" class:chosen={dark} role="radio" aria-checked={dark} onclick={() => pickMode('dark')}>{t('深色')}</button>
+          </div>
+        </div>
+        <div class="setting">
+          <span class="setting-name">{t('工具数量')}</span>
+          <!-- One less or one more, in the same field as the menus above and below. -->
+          <div class="stepper" role="group" aria-label={t('工具数量')}>
+            <button class="step pressable" disabled={shownTools <= 1} aria-label={t('少一个')} onclick={() => pickTools(shownTools - 1)}><Icon name="minus" size={13} /></button>
+            <span class="count" aria-live="polite">{shownTools}</span>
+            <button class="step pressable" disabled={shownTools >= most} aria-label={t('多一个')} onclick={() => pickTools(shownTools + 1)}><Icon name="plus" size={13} /></button>
+          </div>
+        </div>
+        {#if rangeOptions.length}
+          <div class="setting">
+            <span class="setting-name">{t('时间范围')}</span>
+            <Dropdown label={t('时间范围')} value={chosenRange} size={12} align="left" field
+              options={rangeOptions.map((o) => ({ value: o.action?.[1] ?? '', label: o.label }))} onpick={pickRange} />
+          </div>
+        {/if}
+      </div>
+      <!-- What to do with the picture, under the settings and in their columns: the first action the left half, the
+           others sharing the right. -->
       <div class="actions">
-        <!-- On a phone the share sheet comes first: it is how a picture reaches a chat there. -->
-        {#if onPhone && canShare}
-          <button class="action primary pressable" bind:this={shareButton} disabled={!picture} onclick={share}>
-            <Icon name="square.and.arrow.up" size={14} system />{t('分享…')}
-          </button>
+        {@render act(actions[0], true, actions.length === 1)}
+        {#if actions.length > 1}
+          <div class="others">{#each actions.slice(1) as which (which)}{@render act(which, false, false)}{/each}</div>
         {/if}
-        {#if canCopy}
-          <button class="action pressable" class:primary={!onPhone || !canShare} class:done={copied === '已复制'} class:failed={copied === '复制失败'} disabled={!picture} onclick={copy}>
-            <Icon name={copied === '已复制' ? 'checkmark' : 'doc.on.doc'} size={14} system />{t(copied ?? '复制图片')}
-          </button>
-        {/if}
-        <button class="action pressable" class:primary={onPhone && !canShare && !canCopy} class:done={!!saved} disabled={!picture} onclick={save}>
-          <Icon name={saved ? 'checkmark' : 'square.and.arrow.down'} size={14} system />{t(saved ?? (onPhone ? '保存图片' : '保存…'))}
-        </button>
-        {#if !onPhone && canShare}
-          <button class="action pressable" bind:this={shareButton} disabled={!picture} onclick={share}>
-            <Icon name="square.and.arrow.up" size={14} system />{t('分享…')}
-          </button>
-        {/if}
+      </div>
       </div>
     </Scroller>
   </div>
@@ -256,17 +266,16 @@
   .range { margin-left: 8px; font-size: 11.5px; font-weight: 500; color: var(--secondary); }
   .rule { position: absolute; left: 16px; right: 16px; top: 49px; height: 1px; background: var(--separator); }
   .body { position: absolute; left: 0; right: 0; top: 58px; bottom: 0; display: flex; }
-  .columns { display: flex; gap: 16px; padding: 0 16px; }
-  .frame {
-    flex: none;
-    border-radius: 6px;
-    overflow: hidden;
-    box-shadow: 0 0 0 0.5px var(--separator), 0 3px 10px rgba(0, 0, 0, 0.14);
+  /* The stage, the settings and the actions, one under another across the page, its edges the page's. */
+  .sheet { display: flex; flex-direction: column; padding: 0 16px 16px; }
+  .stage {
     display: flex;
     align-items: center;
     justify-content: center;
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--label) 4%, transparent);
   }
-  .frame img { display: block; }
+  .stage img { display: block; border-radius: 5px; box-shadow: 0 0 0 0.5px var(--separator), 0 4px 14px rgba(0, 0, 0, 0.16); }
   .note { font-size: 10.5px; color: var(--secondary); }
   .spinner {
     width: 14px;
@@ -277,14 +286,12 @@
     animation: spin 0.8s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
-  /* The settings, then the picture's size under them; a long picture leaves room below. */
-  .controls { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
-  .settings { display: flex; flex-direction: column; gap: 14px; }
-  .foot { display: flex; flex-direction: column; gap: 4px; }
+  /* Two a row, each half the page. */
+  .settings { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
 
-  .setting { display: flex; flex-direction: column; align-items: stretch; gap: 5px; }
+  .setting { display: flex; flex-direction: column; align-items: stretch; gap: 5px; min-width: 0; }
   .setting-name { font-size: 11px; color: var(--secondary); }
-  .size { margin: 0; font-size: 10px; line-height: 13px; color: var(--tertiary); font-variant-numeric: tabular-nums; }
+  .size { margin: 6px 0 0; min-height: 13px; text-align: center; font-size: 10px; line-height: 13px; color: var(--tertiary); font-variant-numeric: tabular-nums; }
   .modes {
     position: relative;
     display: flex;
@@ -342,8 +349,10 @@
     border-radius: 6px;
   }
   .mode.chosen { color: var(--label); font-weight: 600; }
-  /* A row across the page: the first action the strongest, all as wide. */
-  .actions { display: flex; gap: 8px; padding: 12px 16px 16px; }
+  /* In the settings' two columns: the strongest action the left one, the others sharing the right; alone, both. */
+  .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
+  .others { display: flex; gap: 8px; min-width: 0; }
+  .action.whole { grid-column: 1 / -1; }
   .action {
     --press-scale: 0.97;
     flex: 1;

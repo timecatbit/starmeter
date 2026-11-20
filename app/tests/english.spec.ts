@@ -142,7 +142,7 @@ test('English: on the phone, the homepage, its sessions and the share page', asy
   await page.getByRole('radio', { name: 'Sessions' }).click();
   await left.take(page, 'phone › sessions');
   await page.getByRole('button', { name: 'Share usage picture', exact: true }).click();
-  await expect(page.locator('.share-page .frame img')).toBeVisible();
+  await expect(page.locator('.share-page .stage img')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Save picture' })).toBeVisible();
   await left.take(page, 'phone › share');
   // Session titles are the user's own words, never translated.

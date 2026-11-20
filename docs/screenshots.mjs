@@ -172,7 +172,7 @@ const shots = {
   async sharePage(context) {
     const page = await open(context, { height: 900 });
     await button(page, context.names.share).click();
-    await page.locator('.share-page .frame img').waitFor();
+    await page.locator('.share-page .stage img').waitFor();
     await page.waitForTimeout(600);
     await panelShot(page, `share-page-${context.look}.png`);
   },

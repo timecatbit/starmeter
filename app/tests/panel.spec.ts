@@ -499,8 +499,8 @@ test('on the phone: the homepage read-only, its figures asked for with the key, 
   // The share picture on the phone: drawn from the phone's own range, saved as a download (the browser's way).
   await button(page, '分享用量图').click();
   await expect(page.locator('.share-page .title')).toHaveText('分享用量图近 7 天');
-  await expect(page.locator('.share-page .frame img')).toBeVisible();
-  await expect(page.getByText('长按左边的图也能存到相册')).toBeVisible();
+  await expect(page.locator('.share-page .stage img')).toBeVisible();
+  await expect(page.getByText('长按图片也能存到相册')).toBeVisible();
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: '保存图片' }).click();
   expect((await download).suggestedFilename()).toMatch(/^Starmeter .+ 卡片\.png$/);
@@ -539,24 +539,50 @@ test('on the phone: one reading at a time, and a computer out of reach or a stal
   errors.splice(0, errors.length, ...errors.filter((line) => !expected(line)));
 });
 
-test('the share page: the picture beside its settings, level when it is short, and the actions in a row under both', async ({ page }) => {
-  await open(page);
+test('the share page: the picture on a stage across the page, the settings two a row, the actions in their columns', async ({ page }) => {
+  await open(page, '?mac');
   await button(page, '分享用量图').click();
-  await expect(page.locator('.frame img')).toBeVisible();
-  while (await button(page, '少一个').isEnabled()) await button(page, '少一个').click();
+  await expect(page.locator('.stage img')).toBeVisible();
+  const box = async (selector: string) => (await page.locator(selector).first().boundingBox())!;
+  const layout = async () => {
+    const stage = await box('.stage'), picture = await box('.stage img');
+    const settings = await page.locator('.setting').evaluateAll((all) => all.map((e) => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width]; }));
+    const actions = await page.locator('.action').evaluateAll((all) => all.map((e) => { const r = e.getBoundingClientRect(); return [r.x, r.right]; }));
+    return { stage, picture, settings, actions };
+  };
+  // Measured once the page has slid in and stopped moving.
+  let before = await layout();
   await expect(async () => {
-    const frame = (await page.locator('.frame').boundingBox())!, foot = (await page.locator('.foot').boundingBox())!;
-    const actions = (await page.locator('.actions').boundingBox())!, controls = (await page.locator('.controls').boundingBox())!;
-    // The picture's foot meets the column's: shown wider or narrower (124 to 172) until it does; only at those bounds
-    // is one side the longer.
-    const gap = frame.y + frame.height - (foot.y + foot.height);
-    const level = Math.abs(gap) <= 1 || (Math.round(frame.width) === 124 && gap > 0) || (Math.round(frame.width) === 172 && gap < 0);
-    expect(level, `picture ${frame.width} wide, ${gap} past the column`).toBe(true);
-    // The row of actions starts under both, as wide as the two together, its buttons all as wide.
-    expect(actions.y).toBeGreaterThanOrEqual(Math.max(frame.y + frame.height, controls.y + controls.height) - 0.5);
-    expect(Math.abs(actions.x + 16 - frame.x)).toBeLessThanOrEqual(0.5);
-    const widths = await page.locator('.actions .action').evaluateAll((all) => all.map((b) => Math.round(b.getBoundingClientRect().width)));
-    expect(new Set(widths).size).toBe(1);
+    const now = await layout();
+    const still = JSON.stringify(now) === JSON.stringify(before);
+    before = now;
+    expect(still).toBe(true);
+  }).toPass({ intervals: [150] });
+  // The picture whole and centred on the stage, which spans the page's content.
+  expect(Math.abs(before.picture.x + before.picture.width / 2 - (before.stage.x + before.stage.width / 2))).toBeLessThanOrEqual(1);
+  expect(Math.abs(before.picture.y + before.picture.height / 2 - (before.stage.y + before.stage.height / 2))).toBeLessThanOrEqual(1);
+  expect(before.picture.height).toBeLessThanOrEqual(before.stage.height);
+  // Two settings a row, in two columns that meet the stage's edges.
+  const [left, right] = [before.settings[0], before.settings[1]];
+  expect(Math.abs(left[0] - before.stage.x)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(right[0] + right[2] - (before.stage.x + before.stage.width))).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(before.settings[2][0] - left[0])).toBeLessThanOrEqual(0.5);
+  // Copy, the left column; save and share sharing the right.
+  expect(before.actions).toHaveLength(3);
+  expect(Math.abs(before.actions[0][0] - left[0])).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(before.actions[0][1] - (left[0] + left[2]))).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(before.actions[1][0] - right[0])).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(before.actions[2][1] - (right[0] + right[2]))).toBeLessThanOrEqual(0.5);
+  // Fewer tools change the picture and nothing around it.
+  const tall = before.picture.height;
+  await button(page, '少一个').click();
+  await button(page, '少一个').click();
+  await expect(async () => {
+    const after = await layout();
+    expect(after.stage).toEqual(before.stage);
+    expect(after.settings).toEqual(before.settings);
+    expect(after.actions).toEqual(before.actions);
+    expect(after.picture.width / after.picture.height).not.toBeCloseTo(before.picture.width / tall, 2);
   }).toPass();
 });
 
@@ -628,7 +654,7 @@ test('pinned, the share page takes its own height and gives the panel back its s
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('panel-resized', { detail: { width: 400, height: 300 } })));
   await expect(page.locator('.window')).toHaveCSS('height', '300px');
   await button(page, '分享用量图').click();
-  await page.locator('.share-page .frame img').waitFor();
+  await page.locator('.share-page .stage img').waitFor();
   // As tall as the picture beside its controls, not the 300 the panel was sized to.
   await expect.poll(async () => (await page.locator('.window').boundingBox())!.height).toBeGreaterThan(330);
   await page.keyboard.press('Escape');
@@ -639,7 +665,7 @@ test('pinned, the share page takes its own height and gives the panel back its s
 test('the share page picks its range, the homepage\'s own, and draws that range', async ({ page }) => {
   await open(page);
   await button(page, '分享用量图').click();
-  const preview = page.locator('.frame img');
+  const preview = page.locator('.stage img');
   await expect(preview).toBeVisible();
   const today = await preview.getAttribute('src');
   await choose(page, /^时间范围/, '近 7 天');
@@ -653,7 +679,7 @@ test('sharing previews the picture in each style, then copies or saves it', asyn
   await open(page);
   await button(page, '分享用量图').click();
   await expect(page.locator('.share-page .title')).toHaveText('分享用量图今天');
-  const preview = page.locator('.frame img');
+  const preview = page.locator('.stage img');
   // Every style draws, each with its own picture.
   const sources = new Set<string>();
   for (const name of ['卡片', '报刊', '夜空', '地铁', '织物', '终端']) {
@@ -709,7 +735,7 @@ test('the share picture gives rows to as many tools as asked, the ones that used
   // On the page: a stepper, 3 until changed, each click redraws, no further than the tools used (7 here, six at most),
   // and the choice is remembered.
   await button(page, '分享用量图').click();
-  const preview = page.locator('.frame img'), count = page.locator('.stepper .count');
+  const preview = page.locator('.stage img'), count = page.locator('.stepper .count');
   const fewer = button(page, '少一个'), more = button(page, '多一个');
   await expect(count).toHaveText('3');
   await expect(preview).toBeVisible();
