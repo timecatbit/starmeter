@@ -579,6 +579,15 @@ test('on the phone: one reading at a time, and a computer out of reach or a stal
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
   await expect(page.locator('.phone-problem')).toContainText('链接已失效');
   await page.unroute('**/api/snapshot**');
+  // Cloudflare's answer when the public link has no computer behind it, and any other failure, each in its words.
+  await page.route('**/api/snapshot**', (route) => route.fulfill({ status: 530, body: 'error code: 1033' }));
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await expect(page.locator('.phone-problem')).toHaveText('外网链接连不上电脑：电脑可能睡着了、断了网，或者外网链接已关闭');
+  await page.unroute('**/api/snapshot**');
+  await page.route('**/api/snapshot**', (route) => route.fulfill({ status: 500, body: '' }));
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await expect(page.locator('.phone-problem')).toHaveText('电脑暂时没有返回数据（HTTP 500），稍后会自动重试');
+  await page.unroute('**/api/snapshot**');
   // Back in reach: the line goes.
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
   await expect(page.locator('.phone-problem')).toHaveCount(0);

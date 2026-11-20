@@ -20,7 +20,12 @@ async function get<T>(path: string): Promise<T> {
     throw new PhoneProblem('连不上电脑：电脑可能睡着了、换了网络，或者已经停止手机查看');
   }
   if (answer.status === 403) throw new PhoneProblem('链接已失效：在电脑上重新打开“在手机上看”，再扫一次码');
-  if (!answer.ok) throw new PhoneProblem(`电脑没有给出数字（HTTP ${answer.status}）`);
+  // Cloudflare's own answers when the public link has no computer behind it (530: the tunnel is down; 502–504 and
+  // 52x: nothing answered through it). The computer's own server never sends these.
+  if (answer.status === 530 || (answer.status >= 502 && answer.status <= 504) || (answer.status >= 520 && answer.status <= 527)) {
+    throw new PhoneProblem('外网链接连不上电脑：电脑可能睡着了、断了网，或者外网链接已关闭');
+  }
+  if (!answer.ok) throw new PhoneProblem(`电脑暂时没有返回数据（HTTP ${answer.status}），稍后会自动重试`);
   return answer.json() as Promise<T>;
 }
 
