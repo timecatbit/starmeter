@@ -299,7 +299,7 @@ function dashboard(key, label) {
     if (tool.carried && part.requests) {
       const carried = Math.round(part.requests * tool.carried);
       const keep = 1 - tool.carried;
-      c.counted = { cost: c.cost === null ? null : round6(c.cost * keep), tokens: Math.round(part.tokens * keep), requests: part.requests - carried,
+      c.counted = { cost: c.cost === null ? null : round6(c.cost * keep), tokens: Math.round(part.tokens * keep), output: Math.round(c.output * keep), requests: part.requests - carried,
         unpriced: 0, cache: c.cache, history: history.map((v) => Math.round(v * keep)) };
       c.subtitle = `${carried} 次已由 Magpie 计入`;
     }

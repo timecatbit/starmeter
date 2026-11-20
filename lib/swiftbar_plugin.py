@@ -3912,7 +3912,7 @@ def dashboard_payload(data):
             p['summaryIncluded']=True
             if carried:
                 part=provider(source,label,part['counted'],'','已同步')
-                p['counted']={key:part[key] for key in ('cost','tokens','requests','unpriced','cache','history')}
+                p['counted']={key:part[key] for key in ('cost','tokens','output','requests','unpriced','cache','history')}
                 p['subtitle']='%d 次已由 %s 计入'%(sum(carried.values()),'、'.join(carried))
     def summary_history(p):return (p.get('counted') or p)['history']
     def first_activity(p):

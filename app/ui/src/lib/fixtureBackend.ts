@@ -103,7 +103,7 @@ function bump(d: Dashboard) {
     if (p.cost !== null) p.cost += added * 0.38e-6;
     p.requests += Math.round(state.live / 3);
     p.history[p.history.length - 1] += added;
-    if (p.counted) { p.counted.tokens += added; p.counted.history[p.counted.history.length - 1] += added; }
+    if (p.counted) { p.counted.tokens += added; p.counted.output = (p.counted.output ?? 0) + added * 0.004; p.counted.history[p.counted.history.length - 1] += added; }
   }
 }
 

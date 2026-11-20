@@ -177,6 +177,25 @@ test('pinned, picking ranges back and forth adds nothing to the live line', asyn
   }
 });
 
+test('a request a gateway counts adds to the live line, however long its prompt and short its answer', async ({ page }) => {
+  await open(page);
+  const seen = await page.evaluate(async () => {
+    const { backend } = await import('/src/lib/backend.ts');
+    const { LiveFeed } = await import('/src/lib/live.ts');
+    const today = (await backend.snapshot()).dashboard!;
+    // Logged by Magpie and by ChatGPT both: Magpie counts it, ChatGPT's counted part stays as it was.
+    const later = { ...today, providers: today.providers.map((p) => (p.id === 'codex' || p.id === 'magpie' ? { ...p, tokens: p.tokens + 9000, output: p.output + 10 } : p)) };
+    const feed = new LiveFeed(), t = Date.now();
+    feed.add(today, t);
+    feed.add(later, t + 2000);
+    return { carried: today.providers.find((p) => p.id === 'codex')?.counted !== undefined, added: feed.samples.at(-1)!.total - feed.samples[0].total,
+      rate: feed.rateAt(t + 2000) ?? 0 };
+  });
+  expect(seen.carried).toBe(true);
+  expect(seen.added).toBe(9000);
+  expect(seen.rate).toBeCloseTo(10 / 60, 5);
+});
+
 test('Token/s is the last minute\'s output over 60 seconds, even just after pinning', async ({ page }) => {
   await open(page);
   const rates = await page.evaluate(async () => {

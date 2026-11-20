@@ -44,6 +44,8 @@ export interface ModelUsage {
 export interface CountedUsage {
   cost: number | null;
   tokens: number;
+  /** The output tokens of the counted part, as the engine matched them (not a share of the card's). */
+  output?: number;
   requests: number;
   unpriced: number;
   cache: number | null;

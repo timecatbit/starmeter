@@ -44,8 +44,11 @@ export class LiveFeed {
     for (const p of dashboard.providers) {
       const part = summaryPart(p);
       if (!part || !p.available) continue;
-      // Output as Summary counts it: a source a gateway partly logged adds only its share not logged there.
-      raw.set(p.id, { tokens: part.tokens, output: p.output * (p.counted ? (p.tokens > 0 ? p.counted.tokens / p.tokens : 0) : 1), cost: part.cost ?? 0 });
+      // Output as Summary counts it: a source a gateway partly logged adds only what was not logged there, as the engine
+      // matched it (a share of the card's output by tokens fell when a long prompt with a short answer went through the
+      // gateway, and the reading read as not comparable: the request vanished from the line).
+      const output = p.counted ? p.counted.output ?? p.output * (p.tokens > 0 ? p.counted.tokens / p.tokens : 0) : p.output;
+      raw.set(p.id, { tokens: part.tokens, output, cost: part.cost ?? 0 });
     }
     // A reading with no source read yet (a range just picked, everything still loading) says nothing: it is let go
     // rather than taken as the line standing at zero.
