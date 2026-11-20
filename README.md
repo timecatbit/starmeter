@@ -49,11 +49,11 @@ Starmeter 是 macOS 菜单栏（独立 App 或 SwiftBar 插件）和 Windows 托
 
 | 你的电脑 | 发布页上的名字 | 文件名 |
 | --- | --- | --- |
-| Mac，Apple M 系列芯片（未公证） | **Mac · Apple Silicon** | `token-monitor-X.Y.Z-macos-apple-silicon.dmg` |
-| Mac，Intel 处理器（未公证） | **Mac · Intel** | `token-monitor-X.Y.Z-macos-intel.dmg` |
-| Windows 10/11（推荐） | **Windows · Installer** | `token-monitor-X.Y.Z-windows-x64-setup.exe` |
-| Windows 10/11，不想安装 | **Windows · Portable** | `token-monitor-X.Y.Z-windows-x64.zip` |
-| Mac，现在推荐（需先装 SwiftBar） | **Mac · SwiftBar plugin** | `token-monitor-X.Y.Z.zip`，不分芯片 |
+| Mac，Apple M 系列芯片（未公证） | **Mac · Apple Silicon** | `starmeter-X.Y.Z-macos-apple-silicon.dmg` |
+| Mac，Intel 处理器（未公证） | **Mac · Intel** | `starmeter-X.Y.Z-macos-intel.dmg` |
+| Windows 10/11（推荐） | **Windows · Installer** | `starmeter-X.Y.Z-windows-x64-setup.exe` |
+| Windows 10/11，不想安装 | **Windows · Portable** | `starmeter-X.Y.Z-windows-x64.zip` |
+| Mac，现在推荐（需先装 SwiftBar） | **Mac · SwiftBar plugin** | `starmeter-X.Y.Z.zip`，不分芯片 |
 
 不确定 Mac 芯片？点屏幕左上角的苹果菜单 → **关于本机**：显示「芯片：Apple M…」选 Apple Silicon，显示「处理器：Intel…」选 Intel。每个文件旁的 `sha256:` 是 GitHub 给出的校验值，需要时可以和下载的文件比对。
 

@@ -92,8 +92,8 @@ class UpdateTests(unittest.TestCase):
   import urllib.error
   repo=self.m.REPOSITORY
   page=repo+'/releases/tag/v99.0.0'
-  name='token-monitor-99.0.0.zip';asset=repo+'/releases/download/v99.0.0/'+name
-  windows='token-monitor-99.0.0-windows-x64.zip'
+  name='starmeter-99.0.0.zip';asset=repo+'/releases/download/v99.0.0/'+name
+  windows='starmeter-99.0.0-windows-x64.zip'
   digest='a'*64
   blocked=urllib.error.HTTPError(self.m.RELEASES_API,403,'API rate limit exceeded',{},None)
   response=MagicMock();response.__enter__.return_value=response;response.geturl.return_value=page
@@ -129,22 +129,22 @@ class UpdateTests(unittest.TestCase):
   for machine in ('arm64','x86_64'):
    with patch.object(self.m,'MAC_APP',True),patch.object(self.m.platform,'machine',return_value=machine):
     self.assertIn(self.m.update_asset_name('99.0.0'),published)
-  # Every installed SwiftBar plugin fetches this name, so it never changes.
-  self.assertIn('token-monitor-99.0.0.zip',published)
+  # The name installed SwiftBar plugins fetch (starmeter-… from 6.0.2; 6.0.1 and earlier looked for token-monitor-…).
+  self.assertIn('starmeter-99.0.0.zip',published)
 
  def test_mac_app_only_offers_its_own_architecture(self):
-  release={'latest':'99.0.0','assets':[{'name':'token-monitor-99.0.0.zip'},
-                                      {'name':'token-monitor-99.0.0-macos-intel.dmg'}]}
-  self.assertEqual(self.m.update_asset_name('99.0.0'),'token-monitor-99.0.0.zip')
+  release={'latest':'99.0.0','assets':[{'name':'starmeter-99.0.0.zip'},
+                                      {'name':'starmeter-99.0.0-macos-intel.dmg'}]}
+  self.assertEqual(self.m.update_asset_name('99.0.0'),'starmeter-99.0.0.zip')
   with patch.object(self.m,'MAC_APP',True),patch.object(self.m.platform,'machine',return_value='arm64'):
    self.assertEqual(self.m.self_update_lines({'self_update':release}),[])
-   release['assets'].append({'name':'token-monitor-99.0.0-macos-apple-silicon.dmg'})
+   release['assets'].append({'name':'starmeter-99.0.0-macos-apple-silicon.dmg'})
    lines='\n'.join(self.m.self_update_lines({'self_update':release}))
    self.assertIn('可更新 99.0.0',lines)
    self.assertIn('releases/tag/v99.0.0',lines)
    self.assertNotIn('update-self',lines)
   with patch.object(self.m,'MAC_APP',True),patch.object(self.m.platform,'machine',return_value='x86_64'):
-   self.assertEqual(self.m.update_asset_name('99.0.0'),'token-monitor-99.0.0-macos-intel.dmg')
+   self.assertEqual(self.m.update_asset_name('99.0.0'),'starmeter-99.0.0-macos-intel.dmg')
 
  def test_self_update_verifies_the_archive_and_runs_its_installer(self):
   import hashlib,io,zipfile
@@ -154,10 +154,10 @@ class UpdateTests(unittest.TestCase):
    with zipfile.ZipFile(data,'w') as z:
     for name,text in entries.items():z.writestr(name,text)
    return data.getvalue()
-  good=bundle({'token-monitor-99.0.0/install.py':'import json,sys;open(%r,"w").write(json.dumps(sys.argv[1:]))'%str(marker)})
+  good=bundle({'starmeter-99.0.0/install.py':'import json,sys;open(%r,"w").write(json.dumps(sys.argv[1:]))'%str(marker)})
   def release(archive,digest=None):
-   url=self.m.REPOSITORY+'/releases/download/v99.0.0/token-monitor-99.0.0.zip'
-   payload={'latest':'99.0.0','page':self.m.REPOSITORY+'/releases','assets':[{'name':'token-monitor-99.0.0.zip','url':url,'digest':'sha256:'+(digest or hashlib.sha256(archive).hexdigest())}]}
+   url=self.m.REPOSITORY+'/releases/download/v99.0.0/starmeter-99.0.0.zip'
+   payload={'latest':'99.0.0','page':self.m.REPOSITORY+'/releases','assets':[{'name':'starmeter-99.0.0.zip','url':url,'digest':'sha256:'+(digest or hashlib.sha256(archive).hexdigest())}]}
    self.m.write_json_cache(self.m.cache_path('self_update'),{'schema':1,'payload':payload,'fetchedAt':time.time()})
   log=str(root/'logs'/'self-update.log')
   release(good)
@@ -167,15 +167,15 @@ class UpdateTests(unittest.TestCase):
   # A wrong checksum or a path outside the release folder stops before anything runs.
   marker.unlink();release(good,digest='0'*64)
   with patch.object(self.m,'download',return_value=good),self.assertRaises(self.m.SelfUpdateError):self.m.install_release('99.0.0',log)
-  evil=bundle({'token-monitor-99.0.0/../../escape.py':'x'});release(evil)
+  evil=bundle({'starmeter-99.0.0/../../escape.py':'x'});release(evil)
   with patch.object(self.m,'download',return_value=evil),self.assertRaises(self.m.SelfUpdateError):self.m.install_release('99.0.0',log)
   self.assertFalse(marker.exists())
   # Only this repository's release URL is accepted.
-  payload=self.m.read_cache('self_update')['payload'];payload['assets'][0]['url']='https://evil.test/token-monitor-99.0.0.zip'
+  payload=self.m.read_cache('self_update')['payload'];payload['assets'][0]['url']='https://evil.test/starmeter-99.0.0.zip'
   self.m.write_json_cache(self.m.cache_path('self_update'),{'schema':1,'payload':payload,'fetchedAt':time.time()})
   with patch.object(self.m,'download',side_effect=AssertionError('downloaded')),self.assertRaises(self.m.SelfUpdateError):self.m.install_release('99.0.0',log)
   # Without GitHub's digest nothing is downloaded: releases carry no separate checksum files.
-  payload['assets'][0].update(url=self.m.REPOSITORY+'/releases/download/v99.0.0/token-monitor-99.0.0.zip',digest='')
+  payload['assets'][0].update(url=self.m.REPOSITORY+'/releases/download/v99.0.0/starmeter-99.0.0.zip',digest='')
   self.m.write_json_cache(self.m.cache_path('self_update'),{'schema':1,'payload':payload,'fetchedAt':time.time()})
   with patch.object(self.m,'download',side_effect=AssertionError('downloaded')),self.assertRaisesRegex(self.m.SelfUpdateError,'没有校验值'):self.m.install_release('99.0.0',log)
  def test_self_update_row_offers_update_then_shows_progress(self):

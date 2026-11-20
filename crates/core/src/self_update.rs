@@ -217,7 +217,7 @@ impl Runtime {
         let release = release
             .filter(|release| release.get("latest") == Some(&Json::from(version)))
             .ok_or_else(|| Failed(format!("找不到版本 {version} 的发布")))?;
-        let name = format!("token-monitor-{version}.zip");
+        let name = format!("starmeter-{version}.zip");
         let expected = format!("{REPOSITORY}/releases/download/v{version}/{name}");
         let asset = release
             .get("assets")
@@ -249,7 +249,7 @@ impl Runtime {
             let path = folder.join(&name);
             std::fs::write(&path, &archive).map_err(os_error)?;
             let path_text = path.to_string_lossy().into_owned();
-            let root = format!("token-monitor-{version}/");
+            let root = format!("starmeter-{version}/");
             let listing = shell::run(&["/usr/bin/zipinfo", "-1", &path_text], 60.0, None, None)
                 .ok_or_else(|| Failed("安装失败：BadZipFile".into()))?;
             if listing

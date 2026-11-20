@@ -49,11 +49,11 @@ Download one file from the [latest release](https://github.com/timecatbit/starme
 
 | Your computer | Name on the release page | File name |
 | --- | --- | --- |
-| Mac with Apple silicon (not notarized) | **Mac · Apple Silicon** | `token-monitor-X.Y.Z-macos-apple-silicon.dmg` |
-| Mac with an Intel processor (not notarized) | **Mac · Intel** | `token-monitor-X.Y.Z-macos-intel.dmg` |
-| Windows 10/11 (recommended) | **Windows · Installer** | `token-monitor-X.Y.Z-windows-x64-setup.exe` |
-| Windows 10/11, without installing | **Windows · Portable** | `token-monitor-X.Y.Z-windows-x64.zip` |
-| Mac, recommended for now (needs SwiftBar) | **Mac · SwiftBar plugin** | `token-monitor-X.Y.Z.zip`, any chip |
+| Mac with Apple silicon (not notarized) | **Mac · Apple Silicon** | `starmeter-X.Y.Z-macos-apple-silicon.dmg` |
+| Mac with an Intel processor (not notarized) | **Mac · Intel** | `starmeter-X.Y.Z-macos-intel.dmg` |
+| Windows 10/11 (recommended) | **Windows · Installer** | `starmeter-X.Y.Z-windows-x64-setup.exe` |
+| Windows 10/11, without installing | **Windows · Portable** | `starmeter-X.Y.Z-windows-x64.zip` |
+| Mac, recommended for now (needs SwiftBar) | **Mac · SwiftBar plugin** | `starmeter-X.Y.Z.zip`, any chip |
 
 Not sure which Mac you have? Apple menu → **About This Mac**: "Chip: Apple M…" means Apple Silicon, "Processor: Intel…" means Intel. The `sha256:` beside each file is GitHub's checksum, to compare with your download if you like.
 

@@ -29,8 +29,8 @@ class CaskTests(unittest.TestCase):
         with self.assertRaises(ValueError):homebrew_cask.cask('6.0.0', 'nope', self.INTEL)
 
     def test_digests_come_from_the_release(self):
-        assets = [{'name': 'token-monitor-6.0.0-macos-apple-silicon.dmg', 'digest': 'sha256:' + self.ARM},
-                  {'name': 'token-monitor-6.0.0-macos-intel.dmg', 'digest': 'sha256:' + self.INTEL}]
+        assets = [{'name': 'starmeter-6.0.0-macos-apple-silicon.dmg', 'digest': 'sha256:' + self.ARM},
+                  {'name': 'starmeter-6.0.0-macos-intel.dmg', 'digest': 'sha256:' + self.INTEL}]
         seen = []
         def opener(request, timeout):
             seen.append(request.full_url);return Response(json.dumps({'assets': assets}).encode())

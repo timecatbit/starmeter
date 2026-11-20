@@ -1400,8 +1400,8 @@ def version_tuple(text):
 def update_asset_name(version):
     """The release file this copy updates from; scripts/package.py publishes these names."""
     if MAC_APP:
-        return 'token-monitor-%s-macos-%s.dmg'%(version,'apple-silicon' if platform.machine()=='arm64' else 'intel')
-    return 'token-monitor-%s%s.zip'%(version,'-windows-x64' if DESKTOP is not None else '')
+        return 'starmeter-%s-macos-%s.dmg'%(version,'apple-silicon' if platform.machine()=='arm64' else 'intel')
+    return 'starmeter-%s%s.zip'%(version,'-windows-x64' if DESKTOP is not None else '')
 
 
 def self_update_web():
@@ -1513,7 +1513,7 @@ def install_release(version,log):
     if not release or release['latest']!=version:
         fresh,_=self_update_load();release=plugin_update({'self_update':fresh or {}})
     if not release or release['latest']!=version:raise SelfUpdateError('找不到版本 '+version+' 的发布')
-    name='token-monitor-%s.zip'%version;expected=REPOSITORY+'/releases/download/v%s/%s'%(version,name)
+    name='starmeter-%s.zip'%version;expected=REPOSITORY+'/releases/download/v%s/%s'%(version,name)
     assets={a['name']:a for a in release['assets']}
     if assets.get(name,{}).get('url')!=expected:raise SelfUpdateError('发布中没有安装包')
     # GitHub computes each asset's SHA-256 itself; releases publish no separate checksum files.
@@ -1527,7 +1527,7 @@ def install_release(version,log):
     try:
         path=os.path.join(folder,name)
         with open(path,'wb') as handle:handle.write(archive)
-        root='token-monitor-%s/'%version
+        root='starmeter-%s/'%version
         with zipfile.ZipFile(path) as bundle:
             if any(not n.startswith(root) or '..' in n.split('/') for n in bundle.namelist()):
                 raise SelfUpdateError('安装包结构异常')

@@ -30,7 +30,7 @@ def main():
     folder = build_app(scratch / 'Starmeter', 'app', bundles=['appimage', 'deb'], engine=engine)
     smoke(folder, scratch / 'smoke', 'starmeter-engine')
     bundle = ROOT / 'target' / 'release' / 'bundle'
-    name = 'token-monitor-%s-linux-x64' % release
+    name = 'starmeter-%s-linux-x64' % release
     for kind, suffix in (('appimage', '.AppImage'), ('deb', '.deb')):
         built = sorted((bundle / kind).glob('*' + suffix))
         if len(built) != 1:

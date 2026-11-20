@@ -643,9 +643,9 @@ impl Runtime {
     pub fn update_asset_name(&self, version: &str) -> String {
         if self.mac_app {
             let chip = if updates::machine() == "arm64" { "apple-silicon" } else { "intel" };
-            format!("token-monitor-{version}-macos-{chip}.dmg")
+            format!("starmeter-{version}-macos-{chip}.dmg")
         } else {
-            format!("token-monitor-{version}{}.zip", if self.is_desktop() { "-windows-x64" } else { "" })
+            format!("starmeter-{version}{}.zip", if self.is_desktop() { "-windows-x64" } else { "" })
         }
     }
 

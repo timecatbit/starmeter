@@ -35,9 +35,8 @@ def version():
 
 def downloads(number):
     """What a release offers, in the order GitHub lists it (by file name): file and the English label the page
-    shows instead of the name. In-app updates look these names up, and the SwiftBar plugin keeps the short
-    name every installed copy still fetches."""
-    name = 'token-monitor-' + number
+    shows instead of the name. In-app updates look these names up; the SwiftBar plugin's is the short one."""
+    name = 'starmeter-' + number
     return [
         (name + '-macos-apple-silicon.dmg', 'Mac · Apple Silicon'),
         (name + '-macos-intel.dmg', 'Mac · Intel'),
@@ -94,7 +93,7 @@ def main():
         raise SystemExit('Tag %s does not match version %s.' % (args.tag, number))
     # A tagged release needs its CHANGELOG section; a trial package doesn't.
     notes = release_notes(number) if args.tag else None
-    name = 'token-monitor-' + number
+    name = 'starmeter-' + number
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     archive = output / (name + '.zip')
