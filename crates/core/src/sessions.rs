@@ -693,7 +693,8 @@ mod tests {
         let folder = std::env::temp_dir().join(format!("starmeter-spent-{}", std::process::id()));
         std::fs::create_dir_all(&folder).unwrap();
         let path = folder.join("session.jsonl");
-        let price: Price = Box::new(|_, usage| Some(usage.get("output_tokens").and_then(Json::integer)? as f64 * 0.001));
+        let price: Price =
+            Box::new(|_, usage| Some(usage.get("output_tokens").and_then(Json::integer)? as f64 * 0.001));
         // A reply streamed over two lines, a second reply, and a line still being written.
         std::fs::write(&path, format!("{}{}{}{{\"type\":\"assist", line("a", 5), line("a", 5), line("b", 7))).unwrap();
         let path = path.to_string_lossy().into_owned();
