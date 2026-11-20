@@ -306,14 +306,23 @@ pub fn summary_usage(selected: &[Selected]) -> HashMap<String, Object> {
             }
             _ => base.unwrap_or_default(),
         };
-        // Without OpenCodex's own log the proxy stays the summary authority for the local ChatGPT records.
+        // Without OpenCodex's own log the proxy stays the summary authority for the local ChatGPT records. The other
+        // computers' part (多台电脑合并) is no local record: counted once where it was used, it counts here.
         let counted_requests =
             counted.get("summary").and_then(|summary| summary.get("requests")).is_some_and(Json::is_truthy);
+        let others = usage
+            .get("others")
+            .and_then(Json::as_object)
+            .filter(|others| others.get("summary").is_some_and(Json::is_truthy))
+            .cloned();
         let mut entry = if source == "codex"
             && available.contains("opencodex")
             && !usage.get("proxyMatched").is_some_and(Json::is_truthy)
         {
-            object! { "usage" => Json::Null, "proxy" => true }
+            match &others {
+                Some(others) => object! { "usage" => others.clone(), "proxy" => true, "others" => others.clone() },
+                None => object! { "usage" => Json::Null, "proxy" => true },
+            }
         } else if !carried.is_empty() && !counted_requests {
             object! { "usage" => Json::Null }
         } else {
@@ -1101,7 +1110,17 @@ impl Runtime {
             let part = &counting[source];
             let carried = part.get("carried").and_then(Json::as_object).cloned().unwrap_or_default();
             let names = carried.keys().cloned().collect::<Vec<_>>().join("、");
-            if part.get("proxy").is_some_and(Json::is_truthy) {
+            if let Some(others) = part.get("others").and_then(Json::as_object) {
+                // This computer's ChatGPT records defer to OpenCodex; the other computers' count.
+                let counted = provider(source, label, others, "", "已同步");
+                let kept: Object = ["cost", "tokens", "requests", "unpriced", "cache", "history"]
+                    .into_iter()
+                    .map(|field| (field, counted.get(field).cloned().unwrap_or(Json::Null)))
+                    .collect();
+                providers[index].insert("summaryIncluded", true);
+                providers[index].insert("counted", kept);
+                providers[index].insert("subtitle", "本机记录未计入 Summary");
+            } else if part.get("proxy").is_some_and(Json::is_truthy) {
                 providers[index].insert("summaryIncluded", false);
                 providers[index].insert("subtitle", "未计入 Summary");
             } else if part.get("usage").is_none_or(Json::is_null) {

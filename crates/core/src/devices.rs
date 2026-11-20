@@ -121,6 +121,11 @@ fn add_source(mine: &mut Object, theirs: &Object) {
         merge_usage(&mut counted, theirs);
         mine.insert("counted", Json::Object(counted));
     }
+    // The other computers' part on its own: already counted once there, it counts here whatever this computer's
+    // gateways decide about its own records.
+    let mut others = mine.get("others").and_then(Json::as_object).cloned().unwrap_or_default();
+    merge_usage(&mut others, theirs);
+    mine.insert("others", Json::Object(others));
 }
 
 /// What another computer's file says of one range, when it is the same range as this computer's: the same calendar day
@@ -455,6 +460,28 @@ mod tests {
         b.leave_devices();
         assert!(a.other_devices().is_empty(), "leaving takes the file away");
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn another_computers_chatgpt_counts_beside_this_ones_opencodex() {
+        // OpenCodex here with no log of its own to match against: this computer's ChatGPT records defer to it, but the
+        // other computer's ChatGPT, counted once there, still counts.
+        let opencodex = parse(r#"{"summary": {"totalTokens": 40, "requests": 1}}"#);
+        let mut chatgpt = Object::new();
+        add_source(&mut chatgpt, &parse(r#"{"summary": {"totalTokens": 100, "requests": 2}}"#));
+        let selected = vec![
+            ("opencodex".to_string(), "OpenCodex".to_string(), opencodex),
+            ("codex".to_string(), "ChatGPT".to_string(), chatgpt),
+        ];
+        let parts = crate::dashboard::summary_usage(&selected);
+        let tokens = |source: &str| {
+            parts[source]
+                .get("usage")
+                .and_then(|usage| usage.get("summary"))
+                .and_then(|summary| summary.get("totalTokens"))
+                .and_then(Json::number)
+        };
+        assert_eq!((tokens("opencodex"), tokens("codex")), (Some(40.0), Some(100.0)), "140 in all");
     }
 
     #[test]
