@@ -102,10 +102,6 @@ pub fn visible(app: &AppHandle) -> bool {
     window(app).is_some_and(|w| w.is_visible().unwrap_or(false))
 }
 
-pub fn pinned(app: &AppHandle) -> bool {
-    app.state::<Panel>().pinned.load(Ordering::SeqCst)
-}
-
 /// The core relaxes its pace while the panel is closed; SwiftBar's plugin reads it from panel-state.json.
 fn publish_open(app: &AppHandle, open: bool) {
     crate::engine::PANEL_OPEN.store(open, Ordering::SeqCst);

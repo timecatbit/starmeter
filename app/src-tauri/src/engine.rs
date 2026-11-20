@@ -473,16 +473,17 @@ impl DesktopHost for AppHost {
     }
 }
 
-/// The background clock: every minute what is due is read, except while pinned (the live tick reads then).
-pub fn start_clock(engine: Arc<Engine>, pinned: impl Fn() -> bool + Send + 'static) {
+/// The background clock: every minute what is due is read, each source by its own lifetime. Pinned as well: the live
+/// tick re-reads the local logs every second or two, but the monitors, accounts and API balances still come from here
+/// (a monitor's status counts as current for a minute and a half). The range on screen, just read by the live tick,
+/// is not due, and a range read gives way while the live tick holds the lock.
+pub fn start_clock(engine: Arc<Engine>) {
     std::thread::Builder::new()
         .name("starmeter-clock".into())
         .spawn(move || {
             loop {
                 std::thread::sleep(Duration::from_secs(60));
-                if !pinned() {
-                    engine.refresh();
-                }
+                engine.refresh();
             }
         })
         .expect("the clock thread");

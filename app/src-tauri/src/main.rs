@@ -279,8 +279,7 @@ fn data_source(app: &AppHandle, args: &[String], mode: Mode) -> data::Data {
     }
     let engine = engine::Engine::new(app);
     engine.prepare();
-    let clock = app.clone();
-    engine::start_clock(engine.clone(), move || panel::pinned(&clock));
+    engine::start_clock(engine.clone());
     data::Data::Engine(engine)
 }
 
