@@ -3884,6 +3884,7 @@ def dashboard_payload(data):
         if requests and unpriced>=requests:cost=None
         if not available:status=str(usage.get('error') or ('待同步' if not bundle else '暂不可用'))
         elif usage.get('refreshError'):status='刷新失败 · 保留原数据'
+        elif usage.get('localError'):status='本机记录未读取'
         elif usage.get('partial'):status='部分记录未读取'
         elif unpriced>=requests and requests and not credits:status='费用待定价'
         return {'id':pid,'name':label,**module_icon(pid),'subtitle':subtitle,'status':status,'available':available,'credits':credits or None,'clients':client_rows(usage.get('clients')) or None,

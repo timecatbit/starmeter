@@ -105,6 +105,24 @@ pub fn merge_usage(into: &mut Object, from: &Object) {
     }
 }
 
+/// Another computer's counted record of a source added into this computer's whole record of it. When this computer's
+/// own read failed, the others' figures still count and the card says what is missing (本机记录未读取), rather than the
+/// error hiding them; a record a gateway partly counted keeps its counted part too, the other computer's all counted.
+fn add_source(mine: &mut Object, theirs: &Object) {
+    if mine.get("error").is_some_and(Json::is_truthy) {
+        let reason = mine.remove("error").unwrap_or(Json::Null);
+        for stale in ["summary", "models", "days", "hours", "counted"] {
+            mine.remove(stale);
+        }
+        mine.insert("localError", reason);
+    }
+    merge_usage(mine, theirs);
+    if let Some(mut counted) = mine.get("counted").and_then(Json::as_object).cloned() {
+        merge_usage(&mut counted, theirs);
+        mine.insert("counted", Json::Object(counted));
+    }
+}
+
 /// What another computer's file says of one range, when it is the same range as this computer's: the same calendar day
 /// for the ranges counted by day (yesterday's today from a computer switched off at midnight is not today), the same
 /// hours give or take two for the last 24, any for everything.
@@ -311,12 +329,7 @@ impl Runtime {
                     continue;
                 }
                 let mut mine = bundle.get(source).and_then(Json::as_object).cloned().unwrap_or_default();
-                merge_usage(&mut mine, theirs);
-                // A record a gateway partly counted keeps its counted part too: the other computer's is all counted.
-                if let Some(mut counted) = mine.get("counted").and_then(Json::as_object).cloned() {
-                    merge_usage(&mut counted, theirs);
-                    mine.insert("counted", Json::Object(counted));
-                }
+                add_source(&mut mine, theirs);
                 bundle.insert(source.clone(), Json::Object(mine));
             }
         }
@@ -442,6 +455,16 @@ mod tests {
         b.leave_devices();
         assert!(a.other_devices().is_empty(), "leaving takes the file away");
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_failed_read_here_still_counts_the_others() {
+        let mut mine = parse(r#"{"error": "无法读取：权限不足"}"#);
+        let theirs = parse(r#"{"summary": {"totalTokens": 100, "requests": 2}}"#);
+        add_source(&mut mine, &theirs);
+        assert_eq!(mine.get("summary").and_then(|summary| summary.get("totalTokens")), Some(&Json::Int(100)));
+        assert!(mine.get("error").is_none(), "the figures count: no error hides them");
+        assert_eq!(mine.get("localError"), Some(&Json::from("无法读取：权限不足")));
     }
 
     #[test]

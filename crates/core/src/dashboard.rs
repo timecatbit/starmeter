@@ -1033,6 +1033,8 @@ impl Runtime {
                     .unwrap_or_else(|| if bundle.is_empty() { "待同步".into() } else { "暂不可用".into() })
             } else if usage.get("refreshError").is_some_and(Json::is_truthy) {
                 "刷新失败 · 保留原数据".into()
+            } else if usage.get("localError").is_some_and(Json::is_truthy) {
+                "本机记录未读取".into()
             } else if usage.get("partial").is_some_and(Json::is_truthy) {
                 "部分记录未读取".into()
             } else if unpriced >= requests && requests != 0 && credits == 0.0 {
