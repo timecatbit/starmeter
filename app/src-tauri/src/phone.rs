@@ -357,8 +357,10 @@ fn phone_snapshot(app: &AppHandle, range: Option<&str>, group: Option<&str>) -> 
     // The plugin's panel has the computer's range and grouping only: no choices on the phone that would do nothing
     // (a range it cannot read would leave the phone waiting, and its share page with nothing to save).
     if matches!(&*app.state::<Data>(), Data::SwiftBar(_)) {
+        // The grouping the computer shows (its cards are grouped that way), not always 工具.
+        let shown = snapshot.pointer("/dashboard/grouping").and_then(Value::as_str).unwrap_or("tool").to_string();
         if let Some(groupings) = snapshot.pointer_mut("/dashboard/groupings").and_then(Value::as_array_mut) {
-            groupings.retain(|grouping| grouping.get("key").and_then(Value::as_str) == Some("tool"));
+            groupings.retain(|grouping| grouping.get("key").and_then(Value::as_str) == Some(shown.as_str()));
         }
         if let Some(options) = snapshot.get_mut("rangeOptions").and_then(Value::as_array_mut) {
             options.retain(|option| option.get("checked") == Some(&json!(true)));
