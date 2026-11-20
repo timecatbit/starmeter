@@ -196,6 +196,32 @@ def codex_turns(path, price):
     return [t for t in turns if t['at'] is not None or t['requests']][-TURNS:][::-1]
 
 
+def spent(path, tool, price):
+    """What a whole session has cost: every request in its transcript, counted as the turns count them (a Claude reply
+    streamed over several lines once; each change of Codex's running token total once). price(model, usage)."""
+    out = {'requests': 0, 'cost': 0.0, 'unpriced': 0}; seen = set(); model = None; total = None
+    def add(model, usage):
+        out['requests'] += 1
+        cost = price(model, usage)
+        if cost is None:out['unpriced'] += 1
+        else:out['cost'] += cost
+    for row in rows_at_end(path, os.path.getsize(path) + 1):
+        if tool == 'Claude':
+            if row.get('type') != 'assistant':continue
+            message = row.get('message') if isinstance(row.get('message'), dict) else {}
+            usage = message.get('usage'); key = message.get('id') or row.get('uuid')
+            if isinstance(usage, dict) and key not in seen:
+                seen.add(key); add(message.get('model'), usage)
+        else:
+            data = row.get('payload') if isinstance(row.get('payload'), dict) else {}
+            if row.get('type') == 'turn_context':model = data.get('model') or model
+            if data.get('type') == 'token_count' and isinstance(data.get('info'), dict):
+                info = data['info']; running = info.get('total_token_usage'); last = info.get('last_token_usage') or {}
+                if not last or running == total:continue
+                total = running; add(model, last)
+    return out
+
+
 def detail(session_path, tool, prices):
     """A listed session's last turns; prices maps the tool to its price function."""
     read = claude_turns if tool == 'Claude' else codex_turns
@@ -230,8 +256,11 @@ def active(claude_roots, codex_root, now, prices=None, claude_app=None):
             titles = codex_titles(codex_root) if titles is None else titles
             session['title'] = titles.get(path.stem[-36:])
         entry = dict(session, id=hashlib.sha256(str(path).encode()).hexdigest()[:16], at=changed)
-        # The turns are read here, so the path itself never leaves this function.
-        if prices:entry['turns'] = detail(path, session['tool'], prices)
+        # The turns and the whole session's cost are read here, so the path itself never leaves this function.
+        if prices:
+            entry['turns'] = detail(path, session['tool'], prices)
+            try:entry['spent'] = spent(path, session['tool'], prices[session['tool']])
+            except (OSError, ValueError, TypeError, AttributeError, KeyError):entry['spent'] = None
         found.append(entry)
     # The running ones first, then the most recent.
     return sorted(found, key=lambda s: (s['state'] != 'running', -s['at']))

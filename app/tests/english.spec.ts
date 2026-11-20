@@ -7,8 +7,9 @@ import { PHONE_KEY, servePhone, sessionTitles } from './phone';
 // Every page, one after another: longer than a test usually takes.
 test.describe.configure({ timeout: 120_000 });
 
-/** Chinese that is meant to stay: the language row's own name for Chinese. */
-const KEPT = new Set(['中文']);
+/** Chinese that is meant to stay: the language row's own name for Chinese, and the session titles (the user's own
+ *  words, never translated). */
+const KEPT = new Set(['中文', ...sessionTitles()]);
 const CJK = /[㐀-鿿（-？、-。]/;
 
 async function english(page: Page, query = '') {
@@ -145,9 +146,7 @@ test('English: on the phone, the homepage, its sessions and the share page', asy
   await expect(page.locator('.share-page .stage img')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Save picture' })).toBeVisible();
   await left.take(page, 'phone › share');
-  // Session titles are the user's own words, never translated.
-  const titles = new Set(sessionTitles());
-  expect(left.list.filter((line) => !titles.has(line.replace(/^.*?: /, '')))).toEqual([]);
+  expect(left.list).toEqual([]);
 });
 
 test('English: the module grid and every module\'s settings', async ({ page }) => {

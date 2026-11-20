@@ -372,6 +372,97 @@ fn codex_turns(path: &str, price: &Price) -> Result<Vec<Json>, FileError> {
     Ok(last_turns(turns))
 }
 
+/// How many of a Claude session's last reply IDs are kept between readings, so a reply streamed across the point where
+/// one reading stopped still counts once.
+const SEEN_KEPT: usize = 256;
+
+/// What a whole session has cost: every request in its transcript, counted as the turns count them (a Claude reply
+/// streamed over several lines once; each change of Codex's running token total once). With `kept`, the tally of the
+/// last reading (by inode and the offset it stopped at), only what was written since is read: a long running session
+/// isn't read whole every half minute. Gives the cost and the tally to keep.
+fn spent(path: &str, tool: &str, price: &Price, kept: Option<&Object>) -> Result<(Json, Object), FileError> {
+    let unreadable = || FileError::of_kind("unreadable", "OSError");
+    let state = state_of(Path::new(path)).ok_or_else(unreadable)?;
+    let resumed = kept.filter(|kept| {
+        kept.get("inode").and_then(Json::integer) == Some(state.inode)
+            && kept.get("offset").and_then(Json::integer).is_some_and(|offset| offset <= state.size)
+    });
+    let field = |name: &str| resumed.and_then(|kept| kept.get(name)).cloned();
+    let mut requests = field("requests").and_then(|value| value.integer()).unwrap_or(0);
+    let mut cost = field("cost").and_then(|value| value.python_float()).unwrap_or(0.0);
+    let mut unpriced = field("unpriced").and_then(|value| value.integer()).unwrap_or(0);
+    let mut seen: Vec<String> = field("seen")
+        .and_then(|value| value.as_array().cloned())
+        .map(|keys| keys.iter().filter_map(|key| key.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+    let mut model = field("model").unwrap_or(Json::Null);
+    let mut total: Option<Option<Json>> = field("total").map(|total| total.get("value").cloned());
+    let start = field("offset").and_then(|value| value.integer()).unwrap_or(0) as u64;
+
+    let mut file = File::open(path).map_err(|_| unreadable())?;
+    file.seek(SeekFrom::Start(start)).map_err(|_| unreadable())?;
+    let mut data = Vec::new();
+    file.read_to_end(&mut data).map_err(|_| unreadable())?;
+    // Complete lines only: one being written is read next time.
+    let complete = data.iter().rposition(|&byte| byte == b'\n').map_or(0, |at| at + 1);
+    let mut known: HashSet<String> = seen.iter().cloned().collect();
+    let mut add_request = |model: Option<&Json>, usage: &Object| {
+        requests += 1;
+        match price(model, usage) {
+            Some(spent) => cost += spent,
+            None => unpriced += 1,
+        }
+    };
+    for line in data[..complete].split(|&byte| byte == b'\n') {
+        let Some(row) =
+            Json::parse_selected(line, &Selection::All, true).ok().and_then(|value| value.as_object().cloned())
+        else {
+            continue;
+        };
+        if tool == "Claude" {
+            if !kind_is(&row, "assistant") {
+                continue;
+            }
+            let message = row.get("message").and_then(Json::as_object).cloned().unwrap_or_default();
+            let key = py::dumps(&py::or(message.get("id"), row.get("uuid").cloned().unwrap_or(Json::Null)));
+            if let Some(usage) = message.get("usage").and_then(Json::as_object)
+                && !known.contains(&key)
+            {
+                known.insert(key.clone());
+                seen.push(key);
+                add_request(message.get("model"), usage);
+            }
+        } else {
+            let data = row.get("payload").and_then(Json::as_object).cloned().unwrap_or_default();
+            if kind_is(&row, "turn_context") {
+                model = py::or(data.get("model"), model);
+            }
+            if data.get("type").and_then(Json::as_str) == Some("token_count")
+                && let Some(info) = data.get("info").and_then(Json::as_object)
+            {
+                let running = info.get("total_token_usage").cloned();
+                let last = py::or(info.get("last_token_usage"), Json::Object(Object::new()))
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default();
+                if last.is_empty() || total.as_ref() == Some(&running) {
+                    continue;
+                }
+                total = Some(running);
+                add_request(Some(&model), &last);
+            }
+        }
+    }
+    let cut = seen.len().saturating_sub(SEEN_KEPT);
+    seen.drain(..cut);
+    let tally = object! {
+        "inode" => state.inode, "offset" => (start + complete as u64) as i64, "requests" => requests,
+        "cost" => cost, "unpriced" => unpriced, "seen" => Json::Array(seen.into_iter().map(Json::from).collect()),
+        "model" => model, "total" => total.map_or(Json::Null, |value| object! { "value" => value.unwrap_or(Json::Null) }.into()),
+    };
+    Ok((object! { "requests" => requests, "cost" => cost, "unpriced" => unpriced }.into(), tally))
+}
+
 fn recent(root: &str, depth: usize, since: f64, matching: &dyn Fn(&str) -> bool) -> Vec<String> {
     fn visit(
         folder: &str,
@@ -406,15 +497,19 @@ fn recent(root: &str, depth: usize, since: f64, matching: &dyn Fn(&str) -> bool)
     found
 }
 
-/// Sessions changed in the last half hour, the most recent first; a running one silent for ten minutes is dropped.
-/// With prices, each carries its last turns as well.
+/// Sessions changed in the last half hour, the running ones first, then the most recent; a running one silent for ten
+/// minutes is dropped. With prices, each carries its last turns and what the whole session has cost; `tallies`, kept
+/// between readings by session, lets the cost be read from where the last reading stopped.
 pub fn active(
     claude_roots: &[String],
     codex_root: Option<&str>,
     now: f64,
     prices: Option<&HashMap<&str, Price>>,
     claude_app: &HashMap<String, (Option<String>, Option<String>)>,
+    tallies: Option<&mut Object>,
 ) -> Vec<Json> {
+    let previous = tallies.as_deref().cloned().unwrap_or_default();
+    let mut kept = Object::new();
     let mut candidates: Vec<(&str, String)> = Vec::new();
     for root in claude_roots {
         for path in recent(root, 1, now - ACTIVE, &|name: &str| name.ends_with(".jsonl")) {
@@ -452,14 +547,25 @@ pub fn active(
             let tail: String = stem.chars().rev().take(36).collect::<Vec<_>>().into_iter().rev().collect();
             session.insert("title", names.get(&tail).cloned());
         }
-        session.insert("id", py::sha256_hex(path.as_bytes())[..16].to_string());
+        let id = py::sha256_hex(path.as_bytes())[..16].to_string();
+        session.insert("id", id.as_str());
         session.insert("at", changed);
-        // The turns are read here, so the path itself never leaves this function.
+        // The turns and the whole session's cost are read here, so the path itself never leaves this function.
         if let Some(price) = prices.and_then(|prices| prices.get(tool)) {
             let turns = if tool == "Claude" { claude_turns(&path, price) } else { codex_turns(&path, price) };
             session.insert("turns", Json::Array(turns.unwrap_or_default()));
+            match spent(&path, tool, price, previous.get(&id).and_then(Json::as_object)) {
+                Ok((cost, tally)) => {
+                    session.insert("spent", cost);
+                    kept.insert(id.as_str(), tally);
+                }
+                Err(_) => session.insert("spent", Json::Null),
+            }
         }
         found.push((changed, session));
+    }
+    if let Some(tallies) = tallies {
+        *tallies = kept;
     }
     // The running ones first, then the most recent.
     let running = |session: &Object| session.get("state") == Some(&Json::from("running"));
@@ -537,7 +643,14 @@ impl Runtime {
             let app = claude_app::session_settings(&self.source_path("claude"), now - ACTIVE);
             let prices = self.session_prices();
             let codex_root = self.codex_home_absolute();
-            let found = active(&roots, Some(&codex_root), now, Some(&prices), &app);
+            // Each session's cost read so far, by session, kept beside the sessions to go on from.
+            let mut tallies =
+                self.read_cache("session-spent").get("sessions").and_then(Json::as_object).cloned().unwrap_or_default();
+            let found = active(&roots, Some(&codex_root), now, Some(&prices), &app, Some(&mut tallies));
+            self.write_json_cache(
+                &self.cache_path("session-spent"),
+                &object! { "schema" => 1, "sessions" => tallies }.into(),
+            );
             if self.settings().get("sessionAlerts").is_some_and(Json::is_truthy) {
                 for session in newly_waiting(&previous, &found, now, 180.0).into_iter().take(3) {
                     let name = session
@@ -561,5 +674,41 @@ impl Runtime {
             .map(String::from)
             .unwrap_or_else(|| format!("{}/.codex", self.home));
         crate::runtime::absolute(&crate::files::paths::expand_user(&given).to_string_lossy())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Price, spent};
+    use crate::json::Json;
+
+    fn line(id: &str, output: i64) -> String {
+        format!(
+            "{{\"type\":\"assistant\",\"message\":{{\"id\":\"{id}\",\"model\":\"m\",\"usage\":{{\"input_tokens\":10,\"output_tokens\":{output}}}}}}}\n"
+        )
+    }
+
+    #[test]
+    fn a_session_read_on_from_where_it_stopped_costs_what_a_whole_reading_does() {
+        let folder = std::env::temp_dir().join(format!("starmeter-spent-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        let path = folder.join("session.jsonl");
+        let price: Price = Box::new(|_, usage| Some(usage.get("output_tokens").and_then(Json::integer)? as f64 * 0.001));
+        // A reply streamed over two lines, a second reply, and a line still being written.
+        std::fs::write(&path, format!("{}{}{}{{\"type\":\"assist", line("a", 5), line("a", 5), line("b", 7))).unwrap();
+        let path = path.to_string_lossy().into_owned();
+        let (first, tally) = spent(&path, "Claude", &price, None).unwrap();
+        assert_eq!(first.get("requests").and_then(Json::integer), Some(2));
+        // The half-written line finished, the streamed reply "b" continued across the stop, and a new reply.
+        let mut whole = std::fs::read_to_string(&path).unwrap();
+        whole.truncate(whole.rfind('\n').unwrap() + 1);
+        whole += &line("b", 7);
+        whole += &line("c", 11);
+        std::fs::write(&path, &whole).unwrap();
+        let (resumed, _) = spent(&path, "Claude", &price, Some(&tally)).unwrap();
+        let (fresh, _) = spent(&path, "Claude", &price, None).unwrap();
+        assert_eq!(resumed.serialized(), fresh.serialized());
+        assert_eq!(fresh.get("requests").and_then(Json::integer), Some(3));
+        let _ = std::fs::remove_dir_all(&folder);
     }
 }

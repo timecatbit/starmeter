@@ -313,11 +313,25 @@ impl Runtime {
                 .into_iter()
                 .filter(|p| !p.is_empty())
                 .collect();
-            // The live figure: this turn's tokens (the last turn's once it has finished).
-            let badge = latest.map_or_else(
-                || if running { "运行中".to_string() } else { "空闲".to_string() },
-                |turn| format!("{} Token", fmt_tokens(turn.get("tokens"))),
-            );
+            // The live figure: what the whole session has cost, rising as it works; this turn's tokens until that is read.
+            let spent = session.get("spent").and_then(Json::as_object);
+            let spent_requests = py::num(spent.and_then(|spent| spent.get("requests")));
+            let badge = if spent_requests != 0.0 {
+                let unpriced = py::num(spent.and_then(|spent| spent.get("unpriced")));
+                if spent_requests > unpriced {
+                    let symbol = unit.get("symbol").and_then(Json::as_str).unwrap_or("$");
+                    let rate = unit.get("rate").and_then(Json::number).unwrap_or(1.0);
+                    let cost = py::num(spent.and_then(|spent| spent.get("cost")));
+                    format!("{}{symbol}{:.2}", if unpriced != 0.0 { "已知 " } else { "" }, cost * rate)
+                } else {
+                    "费用待定价".to_string()
+                }
+            } else {
+                latest.map_or_else(
+                    || if running { "运行中".to_string() } else { "空闲".to_string() },
+                    |turn| format!("{} Token", fmt_tokens(turn.get("tokens"))),
+                )
+            };
             let tool = session.get("tool").and_then(Json::as_str).unwrap_or("");
             let options = merged(&[
                 &object! {

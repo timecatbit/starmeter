@@ -312,6 +312,7 @@ fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
                 args.get(2).and_then(Json::number).unwrap_or(0.0),
                 if with_prices { Some(&prices) } else { None },
                 &app,
+                None,
             );
             Ok(Json::Array(found))
         }

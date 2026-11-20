@@ -17,7 +17,11 @@
   } = $props();
 
   const FIT = 3;
+  /** Five at first, the running ones leading; the rest one click away, then the page scrolls to them. */
+  const SHOWN = 5;
+  let everything = $state(false);
   const sessions = $derived(entry.children.filter((c) => c.statusLight !== undefined));
+  const listed = $derived(everything ? sessions : sessions.slice(0, SHOWN));
   const notes = $derived(entry.children.filter((c) => c.statusLight === undefined && !c.separator && c.checked === undefined && !c.action));
   const settings = $derived(entry.children.filter((c) => c.checked !== undefined));
   let list: HTMLDivElement | undefined = $state();
@@ -41,12 +45,13 @@
 
   /** A session's turns: the heading (project · 最近 N 轮), then the turns, newest first. */
   const turnsOf = (s: Entry) => s.children.filter((c) => c.detail !== undefined);
-  /** This turn's cost (the last part of its row) and requests and tools, under the session's state. */
+  /** This turn's tokens and cost (its row's last two parts) and requests and tools, under the session's state; the
+   *  card's figure on the right is what the whole session has cost. */
   function latest(s: Entry): string | null {
     const turn = turnsOf(s)[0];
     if (!turn) return null;
-    const cost = turn.label.split(' · ').at(-1) ?? '';
-    return `${t(s.statusLight === 'new' ? '本轮' : '上一轮')} ${cost} · ${turn.detail}`;
+    const [tokens, cost] = turn.label.split(' · ').slice(-2);
+    return `${t(s.statusLight === 'new' ? '本轮' : '上一轮')} ${tokens} · ${cost} · ${turn.detail}`;
   }
 
   // A figure that changed since the last reading glows in the accent colour for a moment.
@@ -75,7 +80,7 @@
 </script>
 
 <div class="session-list" bind:this={list}>
-  {#each sessions as s (s.label)}
+  {#each listed as s (s.label)}
     {@const more = latest(s)}
     {@const open = opened.has(s.label)}
     <div class="session" class:open>
@@ -99,6 +104,12 @@
       {/if}
     </div>
   {/each}
+  {#if listed.length < sessions.length}
+    <button class="more pressable" onclick={() => (everything = true)}>
+      <span>{t('查看更多 {n} 个会话', { n: sessions.length - listed.length })}</span>
+      <svg width="10" height="7" viewBox="0 0 10 7" aria-hidden="true"><path d="M1 1.2 5 5.2 9 1.2" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" /></svg>
+    </button>
+  {/if}
   {#each notes as note, i (i)}
     <div class="empty">{note.label}</div>
   {/each}
@@ -167,5 +178,22 @@
   .turn-label { font-size: 11px; font-variant-numeric: tabular-nums; }
   .turn-detail { font-size: 10px; color: var(--secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .empty { padding: 2px 12px 10px; font-size: 10.5px; color: var(--secondary); }
+  .more {
+    --press-scale: 0.985;
+    width: calc(100% - 8px);
+    margin: 0 4px 6px;
+    height: 28px;
+    padding: 0 12px;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--accent);
+  }
+  .more:hover { background: var(--hover); }
+  .more:active { background: var(--press); }
   .settings { margin-top: 2px; }
 </style>

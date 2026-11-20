@@ -91,7 +91,7 @@ test('header buttons take clicks, and pinning turns the trend live', async ({ pa
   // Pinned, the panel turns to 会话 and fits down to the end of the third session; the rest is below, to scroll to or
   // to make the panel taller for.
   await expect(page.getByRole('radio', { name: '会话' })).toHaveAttribute('aria-checked', 'true');
-  await expect(page.locator('.session')).toHaveCount(4);
+  await expect(page.locator('.session')).toHaveCount(5);
   const gap = async () => {
     const window = (await page.locator('.window').boundingBox())!, third = (await page.locator('.session').nth(2).boundingBox())!;
     return window.y + window.height - (third.y + third.height);
@@ -198,20 +198,26 @@ test('Token/s is the last minute\'s output over 60 seconds, even just after pinn
   expect(Math.round(rates[3])).toBe(0);
 });
 
-test('会话 sits beside the groupings: running or idle, this turn\'s tokens, three shown and the rest one click away', async ({ page }) => {
+test('会话 sits beside the groupings: running first, what each has cost, five shown and the rest behind 查看更多', async ({ page }) => {
   await open(page);
   // Its row leaves the other rows for the tab.
   await expect(page.locator('.row .title', { hasText: /^会话$/ })).toHaveCount(0);
   await page.getByRole('radio', { name: '会话' }).click();
   const cards = page.locator('.session');
-  await expect(cards).toHaveCount(4);
+  await expect(cards).toHaveCount(5);
   await expect(cards.first().locator('.title')).toHaveText('重做设置页的分段控件');
-  await expect(cards.first().locator('.value')).toHaveText('2.41M Token');
+  // On the right, what the whole session has cost; this turn's tokens and cost under its state.
+  await expect(cards.first().locator('.value')).toHaveText('$6.90');
   await expect(cards.first()).toContainText('运行中 4 分钟');
-  await expect(cards.first()).toContainText('本轮 $0.92 · 9 次请求');
+  await expect(cards.first()).toContainText('本轮 2.41M Token · $0.92 · 9 次请求');
   await expect(page.locator('.session-list')).not.toContainText('等待输入');
-  await expect(cards.last()).toContainText('空闲 6 分钟');
-  await expect(cards.last()).toContainText('上一轮 $0.12');
+  await expect(cards.nth(3)).toContainText('空闲 6 分钟');
+  await expect(cards.nth(3)).toContainText('上一轮 640.2K Token · $0.12');
+  // The rest are one click away, and then all there, to scroll to.
+  await page.getByRole('button', { name: '查看更多 2 个会话' }).click();
+  await expect(cards).toHaveCount(7);
+  await expect(page.getByRole('button', { name: /查看更多/ })).toHaveCount(0);
+  await expect(cards.last()).toContainText('空闲 25 分钟');
   // A card opens its last turns.
   await cards.first().locator('.head').click();
   await expect(cards.first().locator('.turn')).toHaveCount(3);

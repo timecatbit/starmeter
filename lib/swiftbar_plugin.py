@@ -2734,7 +2734,7 @@ def turn_lines(turns,unit=None,project=None):
 
 
 def sessions_lines(data):
-    """会话: how many Claude Code and Codex sessions are running or idle, each in the sidebar with this turn's tokens."""
+    """会话: how many Claude Code and Codex sessions are running or idle, each in the sidebar with what it has cost."""
     payload=data.get('sessions') or {};found=payload.get('sessions');error=data.get('sessions_error')
     if found is None:badge='读取失败' if refresh_failed(error) else '待同步'
     else:
@@ -2756,8 +2756,11 @@ def sessions_lines(data):
         else:state='空闲' if ago<60 else '空闲 %d 分钟'%(ago//60)
         detail=' · '.join(part for part in (state,model,s.get('effort') or '',
                                               '上下文 %d%%'%round(100*s['context']) if s.get('context') is not None else '') if part)
-        # The live figure: this turn's tokens (the last turn's once it has finished).
-        live=fmt_tokens(latest['tokens'])+' Token' if latest else ('运行中' if running else '空闲')
+        # The live figure: what the whole session has cost, rising as it works; this turn's tokens until that is read.
+        spent=s.get('spent') or {};unit=currency_unit(data)
+        if spent.get('requests'):
+            live=(('已知 ' if spent['unpriced'] else '')+unit['symbol']+'%.2f'%(spent['cost']*unit['rate'])) if spent['requests']>spent['unpriced'] else '费用待定价'
+        else:live=fmt_tokens(latest['tokens'])+' Token' if latest else ('运行中' if running else '空闲')
         lines.append(item(session_name(s),level=1,badge=live,paneldetail=detail,panelstatus='new' if running else 'unknown',
                           **brand_icon('claude-subscription' if s['tool']=='Claude' else 'chatgpt')))
         lines.extend(turn_lines(turns,currency_unit(data),s.get('project') if s.get('title') else None))
