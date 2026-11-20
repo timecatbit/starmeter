@@ -219,11 +219,63 @@ pub fn notification_settings(app: &AppHandle) {
             }
         });
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
     {
         use tauri_plugin_opener::OpenerExt;
         let _ = app.opener().open_url("ms-settings:notifications", None::<&str>);
     }
+    #[cfg(target_os = "linux")]
+    {
+        let app = app.clone();
+        std::thread::spawn(move || {
+            if !linux_notification_settings() {
+                alert_now(
+                    &app,
+                    "通知设置",
+                    "没有找到这个桌面的通知设置。请在系统设置里打开“通知”，允许 Starmeter 发送通知。",
+                );
+            }
+        });
+    }
+}
+
+/// The desktop's own notification settings, by the desktop the session says it runs (XDG_CURRENT_DESKTOP) first, then
+/// whichever of them is installed; false when none opens.
+#[cfg(target_os = "linux")]
+fn linux_notification_settings() -> bool {
+    use starmeter_core::host::terminal_jobs::on_path;
+    const SETTINGS: [(&str, &str, &[&str]); 7] = [
+        ("gnome", "gnome-control-center", &["notifications"]),
+        ("kde", "systemsettings", &["kcm_notifications"]),
+        ("kde", "kcmshell6", &["kcm_notifications"]),
+        ("kde", "kcmshell5", &["kcm_notifications"]),
+        ("xfce", "xfce4-notifyd-config", &[]),
+        ("cinnamon", "cinnamon-settings", &["notifications"]),
+        ("mate", "mate-notification-properties", &[]),
+    ];
+    let desktop = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().to_lowercase();
+    let ours = |name: &str| {
+        desktop.split(':').any(|part| {
+            part.contains(name) || (name == "gnome" && matches!(part, "ubuntu" | "unity" | "pop" | "budgie"))
+        })
+    };
+    let order = SETTINGS.iter().filter(|(kind, ..)| ours(kind)).chain(SETTINGS.iter().filter(|(kind, ..)| !ours(kind)));
+    for (_, program, arguments) in order {
+        let Some(path) = on_path(program) else { continue };
+        if let Ok(mut child) = std::process::Command::new(path)
+            .args(*arguments)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+        {
+            std::thread::spawn(move || {
+                let _ = child.wait();
+            });
+            return true;
+        }
+    }
+    false
 }
 
 /// A notice from the engine (a usage, balance or reset alert): title Starmeter, a subtitle saying which kind.
