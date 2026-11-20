@@ -350,10 +350,20 @@ fn main() {
             app.manage(data_source(&handle, &args, mode));
             app.manage(phone::Phone::default());
             // A check of the phone view without the panel: STARMETER_PHONE starts it at launch and prints where.
-            if std::env::var_os("STARMETER_PHONE").is_some() {
+            // STARMETER_PHONE=public opens the public link too, as 任何网络 does after the user's yes.
+            if let Some(which) = std::env::var_os("STARMETER_PHONE") {
                 match phone::phone_start(handle.clone()) {
                     Ok(view) => eprintln!("phone: {}", serde_json::to_string(&view).unwrap_or_default()),
                     Err(error) => eprintln!("phone: {error}"),
+                }
+                if which == "public" {
+                    let public = handle.clone();
+                    tauri::async_runtime::spawn(async move {
+                        match phone::phone_public(public).await {
+                            Ok(view) => eprintln!("phone public: {}", serde_json::to_string(&view).unwrap_or_default()),
+                            Err(error) => eprintln!("phone public: {error}"),
+                        }
+                    });
                 }
             }
             if mode == Mode::Standalone {
