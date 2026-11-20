@@ -3,6 +3,7 @@
 resources (the .deb also installs the starmeter command), and the starmeter command on its own; smoke-test the
 engine first. The release publishes them beside the Mac and Windows downloads."""
 import argparse
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -27,6 +28,31 @@ def check_deb(package):
         raise SystemExit('/usr/bin/starmeter does not run the engine the .deb ships.')
 
 
+def without_wayland(appdir, output):
+    """The AppImage again from Tauri's AppDir, without the Wayland client libraries the build machine's were: the
+    computer's own match its graphics drivers, and Ubuntu 22.04's beside a newer system's Mesa left WebKit with no EGL
+    display (EGL_BAD_PARAMETER) and the panel a black window. Tauri has no way to exclude a library, so the AppImage is
+    made a second time with linuxdeploy, Tauri's own copy, told to leave them out."""
+    for library in (appdir / 'usr' / 'lib').glob('libwayland-*.so*'):
+        library.unlink()
+    tools = Path(os.environ.get('XDG_CACHE_HOME') or Path.home() / '.cache') / 'tauri'
+    environment = dict(os.environ, ARCH='x86_64', LDAI_OUTPUT=str(output), APPIMAGE_EXTRACT_AND_RUN='1')
+    output.unlink(missing_ok=True)
+    subprocess.run([str(tools / 'linuxdeploy-x86_64.AppImage'), '--appdir', str(appdir), '--exclude-library', 'libwayland-*',
+                    '--output', 'appimage'], cwd=tools, env=environment, check=True, stdout=subprocess.DEVNULL)
+    check_appimage(output)
+
+
+def check_appimage(image):
+    """The AppImage carries no Wayland client library of its own (see without_wayland)."""
+    with tempfile.TemporaryDirectory(prefix='starmeter-appimage-') as scratch:
+        subprocess.run([str(image), '--appimage-extract'], cwd=scratch, check=True, stdout=subprocess.DEVNULL,
+                       env=dict(os.environ, APPIMAGE_EXTRACT_AND_RUN='1'))
+        carried = sorted(path.name for path in (Path(scratch) / 'squashfs-root' / 'usr' / 'lib').glob('libwayland-*.so*'))
+        if carried:
+            raise SystemExit('The AppImage carries Wayland client libraries: ' + ', '.join(carried))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, default=ROOT / 'dist')
@@ -49,7 +75,10 @@ def main():
         built = sorted((bundle / kind).glob('*' + suffix))
         if len(built) != 1:
             raise SystemExit('Expected one %s, found %d.' % (suffix, len(built)))
-        shutil.copy2(built[0], output / (name + suffix))
+        if kind == 'appimage':
+            without_wayland(bundle / kind / 'Starmeter.AppDir', output / (name + suffix))
+        else:
+            shutil.copy2(built[0], output / (name + suffix))
         print(output / (name + suffix))
     check_deb(output / (name + '.deb'))
     verify_command_line(command_line_archive(engine, output, name + '-cli.tar.gz'))
