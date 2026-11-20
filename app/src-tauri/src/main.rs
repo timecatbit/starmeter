@@ -390,6 +390,7 @@ fn main() {
             #[cfg(target_os = "macos")]
             {
                 macos::configure_panel(&window);
+                macos::take_first_clicks(&window);
                 let hover = handle.clone();
                 macos::track_hover(&window, move |inside| panel::hovered(&hover, inside));
             }

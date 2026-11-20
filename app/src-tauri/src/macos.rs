@@ -4,11 +4,12 @@
 
 use std::cell::RefCell;
 use std::ptr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{OnceLock, mpsc};
 
 use block2::{Block, RcBlock};
 use objc2::rc::Retained;
-use objc2::runtime::{AnyClass, AnyObject, Bool, NSObject};
+use objc2::runtime::{AnyClass, AnyObject, Bool, NSObject, Sel};
 use objc2::{ClassType, class, define_class, msg_send, sel};
 use objc2_foundation::{NSPoint, NSRect, NSSize};
 use tauri::{AppHandle, Runtime, WebviewWindow};
@@ -140,11 +141,104 @@ pub fn step_aside(panel: &WebviewWindow, aside: bool, pinned: bool) {
 }
 
 pub fn set_pinned(panel: &WebviewWindow, pinned: bool) {
+    PINNED.store(pinned, Ordering::SeqCst);
     let Ok(window) = panel.ns_window() else { return };
     unsafe {
         let _: () =
             msg_send![window.cast::<AnyObject>(), setLevel: if pinned { FLOATING_LEVEL } else { POPUP_MENU_LEVEL }];
     }
+}
+
+// MARK: Moving the pinned panel
+
+/// Pinned, the panel answers the first click as a floating tool palette does.
+static PINNED: AtomicBool = AtomicBool::new(false);
+/// The web view's own acceptsFirstMouse:, asked while the panel is not pinned.
+static FIRST_MOUSE: OnceLock<usize> = OnceLock::new();
+
+thread_local! {
+    /// The last left press on the panel, and the monitor that keeps it.
+    static PRESS: RefCell<Option<Retained<AnyObject>>> = const { RefCell::new(None) };
+    static PRESS_MONITOR: RefCell<Option<Retained<AnyObject>>> = const { RefCell::new(None) };
+}
+
+unsafe extern "C-unwind" fn accepts_first_mouse(view: *mut AnyObject, selector: Sel, event: *mut AnyObject) -> Bool {
+    if PINNED.load(Ordering::SeqCst) {
+        return Bool::YES;
+    }
+    match FIRST_MOUSE.get() {
+        Some(&original) => unsafe {
+            let original: unsafe extern "C-unwind" fn(*mut AnyObject, Sel, *mut AnyObject) -> Bool =
+                std::mem::transmute(original);
+            original(view, selector, event)
+        },
+        None => Bool::NO,
+    }
+}
+
+/// A pinned panel is mostly not the key window (the user works in another app beside it), and a web view lets the
+/// first click on such a window only bring it forward: a press on the top strip moved nothing until a second one.
+/// Pinned, the web view takes the first click as well, as a floating palette does; unpinned it answers as before.
+/// The press on the panel is kept too, for `drag` to move the window from.
+pub fn take_first_clicks(panel: &WebviewWindow) {
+    let _ = panel.with_webview(|webview| unsafe {
+        let view = webview.inner() as *mut AnyObject;
+        if view.is_null() {
+            return;
+        }
+        let class = objc2::ffi::object_getClass(view) as *mut AnyClass;
+        let selector = sel!(acceptsFirstMouse:);
+        let method = objc2::ffi::class_getInstanceMethod(class, selector);
+        if method.is_null() {
+            return;
+        }
+        let Some(original) = objc2::ffi::method_getImplementation(method) else { return };
+        if FIRST_MOUSE.set(original as usize).is_err() {
+            return;
+        }
+        let ours: objc2::runtime::Imp = std::mem::transmute(
+            accepts_first_mouse as unsafe extern "C-unwind" fn(*mut AnyObject, Sel, *mut AnyObject) -> Bool,
+        );
+        // On the web view's own class: added when it inherits WKWebView's, replaced when it has its own.
+        let types = objc2::ffi::method_getTypeEncoding(method);
+        if !objc2::ffi::class_addMethod(class, selector, ours, types).as_bool() {
+            objc2::ffi::method_setImplementation(method, ours);
+        }
+    });
+    let Ok(window) = panel.ns_window() else { return };
+    let window = window as usize;
+    // NSEventMaskLeftMouseDown: every left press in the app, kept when it is on the panel, passed on unchanged.
+    let block = RcBlock::new(move |event: *mut AnyObject| -> *mut AnyObject {
+        unsafe {
+            let on: *mut AnyObject = msg_send![event, window];
+            if on as usize == window {
+                PRESS.with(|press| *press.borrow_mut() = Retained::retain(event));
+            }
+        }
+        event
+    });
+    unsafe {
+        let monitor: *mut AnyObject =
+            msg_send![class!(NSEvent), addLocalMonitorForEventsMatchingMask: 1u64 << 1, handler: &*block];
+        PRESS_MONITOR.with(|kept| *kept.borrow_mut() = Retained::retain(monitor));
+    }
+}
+
+/// Moves the panel with the pointer from the press that asked (the page's top strip), while the button is held. The
+/// press is the one AppKit saw, not whatever event is current when the page's request comes in (a drag, or the
+/// release after a quick one), which left the window where it was. Released already: nothing to move. False when no
+/// press was seen, for the caller's own way.
+pub fn drag(panel: &WebviewWindow) -> bool {
+    let Ok(window) = panel.ns_window() else { return false };
+    let Some(press) = PRESS.with(|press| press.borrow().clone()) else { return false };
+    unsafe {
+        let held: usize = msg_send![class!(NSEvent), pressedMouseButtons];
+        if held & 1 == 0 {
+            return true;
+        }
+        let _: () = msg_send![window.cast::<AnyObject>(), performWindowDragWithEvent: &*press];
+    }
+    true
 }
 
 // MARK: Where the panel goes

@@ -719,6 +719,16 @@ pub fn drag_panel(app: AppHandle) {
     let Some(window) = window(&app).filter(|_| state.pinned.load(Ordering::SeqCst)) else { return };
     state.moved.store(true, Ordering::SeqCst);
     state.generation.fetch_add(1, Ordering::SeqCst);
+    #[cfg(target_os = "macos")]
+    {
+        let panel = window.clone();
+        let _ = app.run_on_main_thread(move || {
+            if !macos::drag(&panel) {
+                let _ = panel.start_dragging();
+            }
+        });
+    }
+    #[cfg(not(target_os = "macos"))]
     let _ = window.start_dragging();
 }
 
