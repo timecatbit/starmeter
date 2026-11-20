@@ -516,6 +516,31 @@ test('在手机上看: a public link that fails goes back to the same network an
   await expect(phone.locator('.failed')).toHaveCount(0);
 });
 
+test('在手机上看: 已复制链接 only once the clipboard took it; refused, the whole link to copy by hand', async ({ page }) => {
+  await open(page);
+  // The clipboard as the test says: refusing first, then taking it.
+  await page.evaluate(() => {
+    const state = { refuse: true, text: '' };
+    Object.assign(window, { clipboardState: state });
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: (text: string) => (state.refuse ? Promise.reject(new Error('denied')) : Promise.resolve(void (state.text = text))) } });
+  });
+  await button(page, '主页模块与设置').click();
+  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  const phone = page.locator('.phone-page'), address = phone.locator('.address');
+  await expect(address).toHaveText('http://192.168.1.20:51234/');
+  await address.click();
+  await expect(address).not.toHaveText('已复制链接');
+  const manual = phone.getByRole('textbox', { name: '完整链接' });
+  await expect(manual).toHaveValue(/^http:\/\/192\.168\.1\.20:51234\/#k=/);
+  await expect(manual).toBeFocused();
+  expect(await manual.evaluate((input: HTMLInputElement) => input.selectionEnd! - input.selectionStart!)).toBe(await manual.evaluate((input: HTMLInputElement) => input.value.length));
+  await page.evaluate(() => { (window as unknown as { clipboardState: { refuse: boolean } }).clipboardState.refuse = false; });
+  await address.click();
+  await expect(address).toHaveText('已复制链接');
+  await expect(manual).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as { clipboardState: { text: string } }).clipboardState.text)).toMatch(/#k=/);
+});
+
 test('在手机上看 the first time says cloudflared is downloaded first', async ({ page }) => {
   await open(page, '?no-cloudflared');
   await button(page, '主页模块与设置').click();

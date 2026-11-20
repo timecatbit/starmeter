@@ -20,7 +20,9 @@
   let busy = $state(false);
   /** The public link's yes, asked in place before anything leaves the computer. */
   let asking = $state<null | { download: boolean }>(null);
-  let copied = $state(false);
+  /** The link copied, or the clipboard refused it (the full link is then shown, selected, to copy by hand). */
+  let copied = $state<'ok' | 'failed' | null>(null);
+  let manual: HTMLInputElement | undefined = $state();
   let copiedTimer: ReturnType<typeof setTimeout> | undefined;
 
   const view = $derived(phone.view);
@@ -73,11 +75,16 @@
   }
   async function copy() {
     if (!address) return;
-    await navigator.clipboard?.writeText(address).catch(() => {});
-    copied = true;
     clearTimeout(copiedTimer);
-    copiedTimer = setTimeout(() => (copied = false), 2000);
+    // 已复制链接 only once the clipboard has taken it.
+    const ok = await (navigator.clipboard?.writeText(address).then(() => true, () => false) ?? Promise.resolve(false));
+    copied = ok ? 'ok' : 'failed';
+    if (ok) copiedTimer = setTimeout(() => (copied = null), 2000);
   }
+  // Refused: the whole link, key and all, selected for a copy by hand.
+  $effect(() => { if (copied === 'failed' && manual) { manual.focus(); manual.select(); } });
+  // A new link (another network, a public link) starts afresh.
+  $effect(() => { void address; copied = null; });
 
   let body: HTMLDivElement | undefined = $state();
   $effect(() => {
@@ -137,7 +144,11 @@
             {/if}
           </div>
           {#if address}
-            <button class="address pressable" onclick={copy} title={address}>{copied ? t('已复制链接') : address.replace(/#.*/, '')}</button>
+            <button class="address pressable" onclick={copy} title={address}>{copied === 'ok' ? t('已复制链接') : address.replace(/#.*/, '')}</button>
+            {#if copied === 'failed'}
+              <p class="manual-note">{t('没能复制，下面是完整链接，选中后手动复制')}</p>
+              <input class="manual" bind:this={manual} value={address} readonly aria-label={t('完整链接')} onfocus={(event) => event.currentTarget.select()} />
+            {/if}
           {/if}
         {/if}
 
@@ -191,6 +202,11 @@
     color: var(--secondary); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .address:hover { background: var(--hover); }
+  .manual-note { margin: 0; font-size: 10.5px; color: var(--orange); text-align: center; }
+  .manual {
+    align-self: stretch; height: 26px; padding: 0 8px; border: 0; border-radius: 7px; font: inherit; font-size: 11px;
+    color: var(--label); background: color-mix(in srgb, var(--label) 6%, transparent); user-select: text; -webkit-user-select: text;
+  }
   .note { margin: 0; font-size: 11px; line-height: 1.5; color: var(--secondary); }
   .failed { margin: 0; padding: 8px 10px; border-radius: 8px; font-size: 11.5px; color: var(--label); background: color-mix(in srgb, var(--orange) 18%, transparent); }
   .ask { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--label) 5%, transparent); }

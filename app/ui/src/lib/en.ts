@@ -137,6 +137,7 @@ export const phrases: Record<string, string> = {
   'Cloudflare 暂时不给新的临时链接，稍后再试': 'Cloudflare isn\'t giving out new temporary links right now; try again later',
   'Cloudflare 这次没有连上，稍后再试': 'Couldn\'t connect to Cloudflare this time; try again later',
   '连不上电脑：电脑可能睡着了、换了网络，或者已经停止手机查看': 'Can\'t reach the computer: it may be asleep, on another network, or no longer sharing with the phone',
+  '没能复制，下面是完整链接，选中后手动复制': 'Couldn\'t copy: here is the whole link to copy by hand', 完整链接: 'Whole link',
   '外网链接连不上电脑：电脑可能睡着了、断了网，或者外网链接已关闭': 'The public link can\'t reach the computer: it may be asleep or offline, or the link was closed',
   '链接已失效：在电脑上重新打开“在手机上看”，再扫一次码': 'This link no longer works: open Phone view on the computer again and scan the new code',
   开着: 'On', 手机在哪: 'Where the phone is', 同一个网络: 'Same network', 任何网络: 'Any network',
