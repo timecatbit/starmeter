@@ -1556,7 +1556,10 @@ class PanelParityTests(BackgroundParityTests):
                 if name not in environment:os.environ.pop(name, None)
             plugin = types.ModuleType('plugin_panel')
             exec(compile((ROOT / 'lib/swiftbar_plugin.py').read_text(), 'plugin', 'exec'), plugin.__dict__)
-            if call == 'snapshot':return json.loads(json.dumps(plugin.panel_snapshot(plugin.cached_data())))
+            if call == 'snapshot':
+                # [now]: the instant the dashboard's clock reads, as the probe's snapshot takes it.
+                if args:plugin.usage_now = lambda: datetime.fromtimestamp(args[0], plugin.local_zone())
+                return json.loads(json.dumps(plugin.panel_snapshot(plugin.cached_data())))
             if call == 'alert_notices':return [list(plugin.alert_notice(a)) for a in args[0]]
             if call == 'alerts_due':
                 windows, balances, marks, percent, reminder, now = args
@@ -1613,11 +1616,19 @@ class PanelParityTests(BackgroundParityTests):
         for values, extra in variants:
             with self.subTest(settings=values):
                 self.settings(**values)
-                self.caches(time.time())
-                expected, got = self.python('snapshot', extra=extra), self.swift('snapshot', extra=extra)
+                # Both sides build the dashboard at this one instant, which its chart's last label, span and date
+                # read, so the snapshot is compared whole, time fields included. The rest of it reads the wall clock
+                # through thresholds of minutes and days that the second between the two reads does not cross.
+                moment = time.time()
+                self.caches(moment)
+                expected, got = self.python('snapshot', moment, extra=extra), self.swift('snapshot', moment, extra=extra)
                 for key in expected:
-                    self.assertEqual(self.steady(expected[key]), self.steady(got.get(key)), key)
+                    self.assertEqual(expected[key], got.get(key), key)
                 self.assertEqual(list(expected), list(got))
+                clock = datetime.fromtimestamp(moment, ZoneInfo(self.common['OCX_TIMEZONE']))
+                dashboard = got['dashboard']
+                self.assertEqual((dashboard['date'], dashboard['dates'][-1]),
+                                 (clock.date().isoformat(), clock.strftime('%H:%M' if dashboard['rangeKey'] == 'today' else '%m/%d')))
                 self.assertEqual(self.python('alert_inputs', extra=extra), self.swift('alert_inputs', extra=extra))
 
     def test_due_alerts_and_notices(self):

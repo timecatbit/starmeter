@@ -126,7 +126,11 @@ fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
                 }
                 "fx" => Ok(loaded(runtime.exchange_rate_load())),
                 "ttl" => Ok(runtime.refresh_ttl(args.get(2).and_then(Json::number).unwrap_or(0.0)).into()),
-                "snapshot" => Ok(runtime.panel_snapshot(&runtime.cached_data(), None, None, runtime::now()).into()),
+                "snapshot" => {
+                    // [snapshot, routes, now]: the dashboard's clock, so both sides build it at one instant.
+                    let now = args.get(2).and_then(Json::number).unwrap_or_else(runtime::now);
+                    Ok(runtime.panel_snapshot(&runtime.cached_data(), None, None, now).into())
+                }
                 "alert_inputs" => {
                     let data = runtime.cached_data();
                     let moment = runtime::now();
