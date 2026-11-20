@@ -82,7 +82,7 @@
   });
   onDestroy(() => { for (const p of pictures.values()) URL.revokeObjectURL(p.url); clearTimeout(resultTimer); });
 
-  // The settings at the top of the column beside the picture and the export at its foot need this much height together;
+  // The settings at the top of the column beside the picture and the picture's size at its foot need this much height;
   // taken a frame after they change size (never inside the observer's own call).
   let settingsBox: HTMLDivElement | undefined = $state(), footBox: HTMLDivElement | undefined = $state();
   let natural = $state(300);
@@ -90,12 +90,14 @@
     const boxes = [settingsBox, footBox];
     if (boxes.some((b) => !b)) return;
     let frame = 0;
-    const measure = () => { natural = settingsBox!.offsetHeight + 24 + footBox!.offsetHeight; };
+    const measure = () => { natural = settingsBox!.offsetHeight + 14 + footBox!.offsetHeight; };
     const observer = new ResizeObserver(() => { cancelAnimationFrame(frame); frame = requestAnimationFrame(measure); });
     boxes.forEach((b) => observer.observe(b!));
     measure();
     return () => { observer.disconnect(); cancelAnimationFrame(frame); };
   });
+  /** The row of actions under the picture: its gap above and its buttons. */
+  const ACTIONS = 12 + 30;
   /** Small: enough to see the picture's look and order, not to read it; a short picture is shown a little wider so its
    *  foot meets the column's (124pt wide up to 172). */
   const previewWidth = $derived(picture ? Math.min(172, Math.max(124, Math.round((natural * picture.width) / picture.height))) : 124);
@@ -104,8 +106,8 @@
   const columnHeight = $derived(Math.max(previewHeight, natural));
   const styleName = $derived(shareStyles.find((s) => s.key === style)?.name ?? '');
   const fileName = $derived(`Starmeter ${frozen.date} ${styleName}.png`);
-  // The page follows them: header, then the taller of the picture and the column beside it.
-  $effect(() => onheight(58 + columnHeight + 16));
+  // The page follows them: header, the taller of the picture and the column beside it, then the row of actions.
+  $effect(() => onheight(58 + columnHeight + ACTIONS + 16));
 
   function settle(op: 'copy' | 'save', ok: boolean) {
     clearTimeout(resultTimer);
@@ -195,33 +197,33 @@
             </div>
           {/if}
           </div>
-          <div class="spacer"></div>
           <div class="foot" bind:this={footBox}>
           {#if picture}<p class="size">{Math.round(picture.width * SCALE)} × {Math.round(picture.height * SCALE)} {t('像素')} · PNG</p>{/if}
           {#if onPhone}<p class="size">{t('长按左边的图也能存到相册')}</p>{/if}
-          <div class="actions">
-            <!-- On a phone the share sheet comes first: it is how a picture reaches a chat there. -->
-            {#if onPhone && canShare}
-              <button class="action primary pressable" bind:this={shareButton} disabled={!picture} onclick={share}>
-                <Icon name="square.and.arrow.up" size={14} system />{t('分享…')}
-              </button>
-            {/if}
-            {#if canCopy}
-              <button class="action pressable" class:primary={!onPhone || !canShare} class:done={copied === '已复制'} class:failed={copied === '复制失败'} disabled={!picture} onclick={copy}>
-                <Icon name={copied === '已复制' ? 'checkmark' : 'doc.on.doc'} size={14} system />{t(copied ?? '复制图片')}
-              </button>
-            {/if}
-            <button class="action pressable" class:primary={onPhone && !canShare && !canCopy} class:done={!!saved} disabled={!picture} onclick={save}>
-              <Icon name={saved ? 'checkmark' : 'square.and.arrow.down'} size={14} system />{t(saved ?? (onPhone ? '保存图片' : '保存…'))}
-            </button>
-            {#if !onPhone && canShare}
-              <button class="action pressable" bind:this={shareButton} disabled={!picture} onclick={share}>
-                <Icon name="square.and.arrow.up" size={14} system />{t('分享…')}
-              </button>
-            {/if}
-          </div>
           </div>
         </div>
+      </div>
+      <!-- What to do with the picture: a row across the page, under the picture and its settings. -->
+      <div class="actions">
+        <!-- On a phone the share sheet comes first: it is how a picture reaches a chat there. -->
+        {#if onPhone && canShare}
+          <button class="action primary pressable" bind:this={shareButton} disabled={!picture} onclick={share}>
+            <Icon name="square.and.arrow.up" size={14} system />{t('分享…')}
+          </button>
+        {/if}
+        {#if canCopy}
+          <button class="action pressable" class:primary={!onPhone || !canShare} class:done={copied === '已复制'} class:failed={copied === '复制失败'} disabled={!picture} onclick={copy}>
+            <Icon name={copied === '已复制' ? 'checkmark' : 'doc.on.doc'} size={14} system />{t(copied ?? '复制图片')}
+          </button>
+        {/if}
+        <button class="action pressable" class:primary={onPhone && !canShare && !canCopy} class:done={!!saved} disabled={!picture} onclick={save}>
+          <Icon name={saved ? 'checkmark' : 'square.and.arrow.down'} size={14} system />{t(saved ?? (onPhone ? '保存图片' : '保存…'))}
+        </button>
+        {#if !onPhone && canShare}
+          <button class="action pressable" bind:this={shareButton} disabled={!picture} onclick={share}>
+            <Icon name="square.and.arrow.up" size={14} system />{t('分享…')}
+          </button>
+        {/if}
       </div>
     </Scroller>
   </div>
@@ -251,7 +253,7 @@
   .range { margin-left: 8px; font-size: 11.5px; font-weight: 500; color: var(--secondary); }
   .rule { position: absolute; left: 16px; right: 16px; top: 49px; height: 1px; background: var(--separator); }
   .body { position: absolute; left: 0; right: 0; top: 58px; bottom: 0; display: flex; }
-  .columns { display: flex; gap: 16px; padding: 0 16px 16px; }
+  .columns { display: flex; gap: 16px; padding: 0 16px; }
   .frame {
     flex: none;
     border-radius: 6px;
@@ -272,15 +274,14 @@
     animation: spin 0.8s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
-  /* Settings at the top, what to do with the picture at the bottom, level with the picture's foot. */
-  .controls { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  /* The settings, then the picture's size under them; a long picture leaves room below. */
+  .controls { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
   .settings { display: flex; flex-direction: column; gap: 14px; }
-  .foot { display: flex; flex-direction: column; gap: 14px; }
-  .spacer { flex: 1; }
+  .foot { display: flex; flex-direction: column; gap: 4px; }
 
   .setting { display: flex; flex-direction: column; align-items: stretch; gap: 5px; }
   .setting-name { font-size: 11px; color: var(--secondary); }
-  .size { margin: 0 0 -6px; font-size: 10px; color: var(--tertiary); font-variant-numeric: tabular-nums; }
+  .size { margin: 0; font-size: 10px; line-height: 13px; color: var(--tertiary); font-variant-numeric: tabular-nums; }
   .modes {
     position: relative;
     display: flex;
@@ -317,9 +318,13 @@
     border-radius: 6px;
   }
   .mode.chosen { color: var(--label); font-weight: 600; }
-  .actions { display: flex; flex-direction: column; gap: 8px; }
+  /* A row across the page: the first action the strongest, all as wide. */
+  .actions { display: flex; gap: 8px; padding: 12px 16px 16px; }
   .action {
     --press-scale: 0.97;
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
     height: 30px;
     border-radius: 8px;
     display: flex;

@@ -539,6 +539,28 @@ test('on the phone: one reading at a time, and a computer out of reach or a stal
   errors.splice(0, errors.length, ...errors.filter((line) => !expected(line)));
 });
 
+test('the share page: the picture beside its settings, level when it is short, and the actions in a row under both', async ({ page }) => {
+  await open(page);
+  await button(page, '分享用量图').click();
+  await expect(page.locator('.frame img')).toBeVisible();
+  await page.getByRole('radio', { name: '1', exact: true }).click();
+  await expect(async () => {
+    const frame = (await page.locator('.frame').boundingBox())!, foot = (await page.locator('.foot').boundingBox())!;
+    const actions = (await page.locator('.actions').boundingBox())!, controls = (await page.locator('.controls').boundingBox())!;
+    // The picture's foot meets the column's: shown wider or narrower (124 to 172) until it does; only at those bounds
+    // is one side the longer.
+    const gap = frame.y + frame.height - (foot.y + foot.height);
+    const level = Math.abs(gap) <= 1 || (Math.round(frame.width) === 124 && gap > 0) || (Math.round(frame.width) === 172 && gap < 0);
+    expect(level, `picture ${frame.width} wide, ${gap} past the column`).toBe(true);
+    // The row of actions starts under both, as wide as the two together, its buttons all as wide.
+    expect(actions.y).toBeGreaterThanOrEqual(Math.max(frame.y + frame.height, controls.y + controls.height) - 0.5);
+    expect(Math.abs(actions.x + 16 - frame.x)).toBeLessThanOrEqual(0.5);
+    const widths = await page.locator('.actions .action').evaluateAll((all) => all.map((b) => Math.round(b.getBoundingClientRect().width)));
+    expect(new Set(widths).size).toBe(1);
+  }).toPass();
+  await page.getByRole('radio', { name: '3', exact: true }).click();
+});
+
 test('a folded card unfolds where it is, and its arrow opens the tool', async ({ page }) => {
   await open(page);
   await button(page, '主页模块与设置').click();
