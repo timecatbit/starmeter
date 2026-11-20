@@ -69,14 +69,6 @@ impl Wall {
         copy
     }
 
-    pub fn adding_seconds(&self, count: i64) -> Wall {
-        let total = self.seconds + count;
-        let shift = (total as f64 / 86400.0).floor() as i64;
-        let mut copy = self.adding_days(shift);
-        copy.seconds = total - shift * 86400;
-        copy
-    }
-
     /// Monday is 0, as datetime.weekday().
     pub fn weekday(&self) -> i64 {
         ((days_from_civil(self.year, self.month, self.day) % 7) + 7 + 3) % 7
@@ -440,6 +432,11 @@ impl Runtime {
 }
 
 pub fn range_bounds(key: &str, now: f64, zone: &TimeZone) -> (f64, f64) {
+    // The last 24 hours are 86,400 seconds back from this moment, whatever the clocks did: a wall-clock day back
+    // is 23 or 25 hours on the day a zone changes its clocks. The calendar ranges below keep the zone's days.
+    if key == "24h" {
+        return (now - 86400.0, now);
+    }
     let wall = Wall::at(now, zone);
     let day = Wall::date(wall.year, wall.month, wall.day, zone);
     // Yesterday ends just before midnight: every reader counts both ends, and midnight belongs to today.
@@ -448,7 +445,6 @@ pub fn range_bounds(key: &str, now: f64, zone: &TimeZone) -> (f64, f64) {
     }
     let start = match key {
         "today" => Some(day.clone()),
-        "24h" => Some(wall.adding_seconds(-86400)),
         "7d" => Some(day.adding_days(-6)),
         "30d" => Some(day.adding_days(-29)),
         "week" => Some(day.adding_days(-day.weekday())),
@@ -560,4 +556,52 @@ pub fn summary_parts<T>(counted: &[T], carried: &[(String, Vec<T>)], tally: impl
     let counts: Object = carried.iter().map(|(name, rows)| (name.clone(), Json::Int(rows.len() as i64))).collect();
     let parts: Object = carried.iter().map(|(name, rows)| (name.clone(), part(rows))).collect();
     object! { "counted" => part(counted), "carried" => counts, "carriedParts" => parts }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn zone(name: &str) -> TimeZone {
+        TimeZone::get(name).unwrap()
+    }
+
+    /// The moments here were worked out from the zones' own rules, not from the Python reference, which used to
+    /// take a wall-clock day back as well (RANGE-1).
+    #[test]
+    fn the_last_24_hours_are_86_400_seconds_across_a_clock_change() {
+        let new_york = zone("America/New_York");
+        // 2026-03-08 12:00 EDT, the day the clocks went forward: a wall-clock day back is 12:00 EST, 23 hours ago.
+        let spring = 1_772_985_600.0;
+        let (start, end) = range_bounds("24h", spring, &new_york);
+        assert_eq!((start, end), (1_772_899_200.0, spring), "2026-03-07 11:00 EST");
+        assert_eq!(end - start, 86_400.0);
+        // 2026-11-01 12:00 EST, the day they went back: a wall-clock day back is 12:00 EDT, 25 hours ago.
+        let autumn = 1_793_552_400.0;
+        let (start, end) = range_bounds("24h", autumn, &new_york);
+        assert_eq!((start, end), (1_793_466_000.0, autumn), "2026-10-31 13:00 EDT");
+        assert_eq!(end - start, 86_400.0);
+        // Lord Howe Island moves its clocks by half an hour: 2026-04-05 12:00 (+10:30), the day they went back.
+        let (start, end) = range_bounds("24h", 1_775_352_600.0, &zone("Australia/Lord_Howe"));
+        assert_eq!((start, end), (1_775_266_200.0, 1_775_352_600.0), "2026-04-04 12:30 (+11:00)");
+        // A zone without a clock change reads as before: 2026-03-08 12:00 in Taipei.
+        assert_eq!(range_bounds("24h", 1_772_942_400.0, &zone("Asia/Taipei")), (1_772_856_000.0, 1_772_942_400.0));
+    }
+
+    #[test]
+    fn calendar_ranges_keep_the_zones_days_on_a_clock_change() {
+        let new_york = zone("America/New_York");
+        // 2026-03-08 12:00 EDT: today began at midnight EST, 11 real hours earlier.
+        let spring = 1_772_985_600.0;
+        assert_eq!(range_bounds("today", spring, &new_york), (1_772_946_000.0, spring));
+        assert_eq!(range_bounds("yesterday", spring, &new_york), (1_772_859_600.0, 1_772_945_999.999));
+        assert_eq!(range_bounds("7d", spring, &new_york).0, 1_772_427_600.0, "2026-03-02 00:00 EST");
+        assert_eq!(range_bounds("week", spring, &new_york).0, 1_772_427_600.0, "Monday 2026-03-02");
+        assert_eq!(range_bounds("month", spring, &new_york).0, 1_772_341_200.0, "2026-03-01 00:00 EST");
+        // 2026-11-01 12:00 EST: today began at midnight EDT, 13 real hours earlier.
+        let autumn = 1_793_552_400.0;
+        assert_eq!(range_bounds("today", autumn, &new_york), (1_793_505_600.0, autumn));
+        assert_eq!(range_bounds("30d", autumn, &new_york).0, 1_791_000_000.0, "2026-10-03 00:00 EDT");
+        assert_eq!(range_bounds("all", autumn, &new_york), (0.0, autumn));
+    }
 }

@@ -1869,7 +1869,10 @@ def range_bounds(key,now=None):
     now=now or usage_now();day=now.replace(hour=0,minute=0,second=0,microsecond=0)
     # Yesterday ends just before midnight: every reader counts both ends, and midnight belongs to today.
     if key=='yesterday':return (day-timedelta(days=1)).timestamp(),day.timestamp()-0.001
-    start={'today':day,'24h':now-timedelta(hours=24),'7d':day-timedelta(days=6),
+    # The last 24 hours are 86,400 seconds back from this moment, whatever the clocks did: a wall-clock day back is 23
+    # or 25 hours on the day a zone changes its clocks. The calendar ranges below keep the zone's days.
+    if key=='24h':return now.timestamp()-86400,now.timestamp()
+    start={'today':day,'7d':day-timedelta(days=6),
            '30d':day-timedelta(days=29),'week':day-timedelta(days=day.weekday()),
            'month':day.replace(day=1),'all':None}[key]
     return (start.timestamp() if start else 0),now.timestamp()

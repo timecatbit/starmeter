@@ -33,6 +33,7 @@ import swiftbar_status as service_status
 import swiftbar_update_channels as update_channels
 from swiftbar_time import parse_iso
 import hashlib
+import test_claude as fixture
 
 try:
     from zoneinfo import ZoneInfo
@@ -740,12 +741,70 @@ class RangeParityTests(unittest.TestCase):
         plugin = types.ModuleType('plugin_bounds')
         with unittest.mock.patch.dict(os.environ, dict(self.common, **self.states['python'])):
             exec(compile((ROOT / 'lib/swiftbar_plugin.py').read_text(), 'plugin', 'exec'), plugin.__dict__)
-        for zone in ('Asia/Shanghai', 'America/New_York', 'Europe/London', 'UTC'):
-            for moment in (1794996000.25, 1772953200.0, 1772960400.5, 1793512800.0, 1790000000.0, 1796083199.999):
+        # Noon on the days New York (2026-03-08, 2026-11-01) and Lord Howe Island (2026-04-05) changed their clocks are
+        # among the moments; tests/test_ranges.py holds the bounds there against figures worked out by hand.
+        for zone in ('Asia/Shanghai', 'America/New_York', 'Europe/London', 'Australia/Lord_Howe', 'UTC'):
+            for moment in (1794996000.25, 1772953200.0, 1772960400.5, 1793512800.0, 1790000000.0, 1796083199.999, 1772985600.0, 1793552400.0, 1775352600.0):
                 now = datetime.fromtimestamp(moment, ZoneInfo(zone))
                 for key in ('today', 'yesterday', '24h', '7d', '30d', 'week', 'month', 'all'):
                     with self.subTest(zone=zone, moment=moment, key=key):
                         self.assertEqual(swift('range.bounds', key, moment, zone), list(plugin.range_bounds(key, now)))
+
+
+class ClockChangeRangeTests(unittest.TestCase):
+    """RANGE-1: the last 24 hours on the days the clocks change, held against figures worked out from the zones' own
+    rules rather than from either engine (both used to take a wall-clock day back, 23 or 25 hours). New York went
+    forward on 2026-03-08 and back on 2026-11-01; Lord Howe Island set its clocks back half an hour on 2026-04-05."""
+    setUp = fixture.ClaudeTests.setUp
+    row = fixture.ClaudeTests.row
+    write = fixture.ClaudeTests.write
+    NEW_YORK = 'America/New_York'
+    # (zone, noon that day, where the window begins): 86,400 seconds back, not yesterday's noon.
+    NOONS = [(NEW_YORK, 1772985600.0, 1772899200.0), (NEW_YORK, 1793552400.0, 1793466000.0),
+             ('Australia/Lord_Howe', 1775352600.0, 1775266200.0), ('Asia/Taipei', 1772942400.0, 1772856000.0)]
+
+    def test_the_last_24_hours_are_86400_seconds_across_a_clock_change(self):
+        for zone, noon, begins in self.NOONS:
+            with self.subTest(zone=zone, noon=noon):
+                self.assertEqual(self.m.range_bounds('24h', datetime.fromtimestamp(noon, ZoneInfo(zone))), (begins, noon))
+                if PROBE:
+                    self.assertEqual(swift('range.bounds', '24h', noon, zone), [begins, noon])
+
+    def test_calendar_ranges_keep_the_zones_days_on_a_clock_change(self):
+        spring, autumn = 1772985600.0, 1793552400.0
+        # Today began at midnight EST, 11 real hours before the spring noon, and at midnight EDT, 13 before the autumn one.
+        expected = {('today', spring): (1772946000.0, spring), ('yesterday', spring): (1772859600.0, 1772945999.999),
+                    ('7d', spring): (1772427600.0, spring), ('week', spring): (1772427600.0, spring), ('month', spring): (1772341200.0, spring),
+                    ('today', autumn): (1793505600.0, autumn), ('30d', autumn): (1791000000.0, autumn), ('all', autumn): (0, autumn)}
+        for (key, noon), bounds in expected.items():
+            with self.subTest(key=key, noon=noon):
+                self.assertEqual(self.m.range_bounds(key, datetime.fromtimestamp(noon, ZoneInfo(self.NEW_YORK))), bounds)
+                if PROBE:
+                    self.assertEqual(swift('range.bounds', key, noon, self.NEW_YORK), list(bounds))
+
+    def test_usage_at_the_edges_of_the_window_on_a_clock_change(self):
+        zone = ZoneInfo(self.NEW_YORK)
+        # Spring: the window reaches back to 11:00 EST yesterday; 11:30 EST used to be left out.
+        self.write('a.jsonl', [self.row('s-before', '2026-03-07T15:59:59Z'), self.row('s-edge', '2026-03-07T16:00:00Z'),
+                               self.row('s-missed', '2026-03-07T16:30:00Z'), self.row('s-now', '2026-03-08T16:00:00Z')])
+        spring = self.m.claude_usage_records(self.root, self.db, datetime(2026, 3, 8, 12, tzinfo=zone), '24h')[0]
+        self.assertEqual(spring['summary']['requests'], 3)
+        self.assertEqual(sum(h['totalTokens'] for h in spring['hours']), spring['summary']['totalTokens'])
+        # Autumn: the window reaches back to 13:00 EDT yesterday; 12:30 EDT used to be counted.
+        self.write('b.jsonl', [self.row('a-extra', '2026-10-31T16:30:00Z'), self.row('a-before', '2026-10-31T16:59:59Z'),
+                               self.row('a-edge', '2026-10-31T17:00:00Z'), self.row('a-late', '2026-11-01T16:59:00Z')])
+        autumn = self.m.claude_usage_records(self.root, self.db, datetime(2026, 11, 1, 12, tzinfo=zone), '24h')[0]
+        self.assertEqual(autumn['summary']['requests'], 2)
+        self.assertEqual(sum(h['totalTokens'] for h in autumn['hours']), autumn['summary']['totalTokens'])
+        if PROBE:
+            # The Rust reader, filtered by the Rust bounds as the engine filters, keeps the same requests.
+            files = [str(self.root / 'a.jsonl'), str(self.root / 'b.jsonl')]
+            def kept(noon):
+                start, end = swift('range.bounds', '24h', noon, self.NEW_YORK)
+                events = swift('claude.read_events', files, str(Path(self.temp.name) / 'rust.sqlite3'), None, start, end, None)['events']
+                return sorted(e['ts'] for e in events if start <= e['ts'] <= end)
+            self.assertEqual(kept(1772985600.0), [1772899200.0, 1772901000.0, 1772985600.0])
+            self.assertEqual(kept(1793552400.0), [1793466000.0, 1793552340.0])
 
 
 class FakeServices:
