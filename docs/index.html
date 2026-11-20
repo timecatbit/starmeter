@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <title>Starmeter · 在菜单栏一眼看清 AI 编程工具用了多少</title>
-  <meta name="description" content="Starmeter 在 macOS 菜单栏和 Windows 托盘里显示 Claude Code、Codex、Cursor、Gemini CLI 等 AI 编程工具的 Token 和 API 等值费用、订阅额度、API 余额与正在运行的会话。免费开源，数据留在本机。">
+  <meta name="description" content="Starmeter 在 macOS 菜单栏、Windows 和 Linux 的托盘里显示 Claude Code、Codex、Cursor、Gemini CLI 等 AI 编程工具的 Token 和 API 等值费用、订阅额度、API 余额与正在运行的会话。免费开源，数据留在本机。">
   <meta property="og:title" content="Starmeter">
   <meta property="og:description" content="在菜单栏一眼看清 AI 编程工具用了多少 · See how much your AI coding tools use, from the menu bar.">
   <meta property="og:image" content="https://timecatbit.github.io/starmeter/images/home-light.png">
@@ -53,8 +53,8 @@
           <span class="en">How much your AI coding tools use,<br><em>one click on a star.</em></span>
         </h1>
         <p class="lead">
-          <span class="zh">Starmeter 读取本机已有的用量记录，把 Claude Code、Codex、Cursor、Gemini CLI 等工具的 Token 和 API 等值费用、订阅额度、API 余额和正在跑的会话，放进 macOS 菜单栏或 Windows 托盘里的一个面板。</span>
-          <span class="en">Starmeter reads the usage records already on your computer and puts the tokens and API-equivalent cost of Claude Code, Codex, Cursor, Gemini CLI and more, your subscription limits, API balances and running sessions into one panel in the macOS menu bar or the Windows tray.</span>
+          <span class="zh">Starmeter 读取本机已有的用量记录，把 Claude Code、Codex、Cursor、Gemini CLI 等工具的 Token 和 API 等值费用、订阅额度、API 余额和正在跑的会话，放进 macOS 菜单栏或 Windows、Linux 托盘里的一个面板，终端里也能看。</span>
+          <span class="en">Starmeter reads the usage records already on your computer and puts the tokens and API-equivalent cost of Claude Code, Codex, Cursor, Gemini CLI and more, your subscription limits, API balances and running sessions into one panel in the macOS menu bar or the Windows or Linux tray, and into your terminal too.</span>
         </p>
         <div class="actions">
           <a class="button primary" href="https://github.com/timecatbit/starmeter/releases/latest">
@@ -63,7 +63,7 @@
           </a>
           <a class="button" href="https://github.com/timecatbit/starmeter"><span class="zh">在 GitHub 查看</span><span class="en">View on GitHub</span></a>
         </div>
-        <p class="meta"><span class="zh">macOS 13 起 · Windows 10/11 · SwiftBar 插件 · 开源（MIT）</span><span class="en">macOS 13+ · Windows 10/11 · SwiftBar plugin · Open source (MIT)</span></p>
+        <p class="meta"><span class="zh">macOS 13 起 · Windows 10/11 · Linux · SwiftBar 插件 · 命令行 · 开源（MIT）</span><span class="en">macOS 13+ · Windows 10/11 · Linux · SwiftBar plugin · Command line · Open source (MIT)</span></p>
       </div>
 
       <div class="fan">
@@ -215,6 +215,7 @@
             <dt><span class="zh">全局快捷键</span><span class="en">Global shortcut</span></dt><dd><span class="zh">选一个组合键（如 ⌃⌥S），在任何地方按下就打开或收起面板。</span><span class="en">Pick a combination (⌃⌥S, say) that opens and closes the panel from anywhere.</span></dd>
             <dt><span class="zh">在手机上看</span><span class="en">View on your phone</span></dt><dd><span class="zh">扫二维码，在手机浏览器里只读看主页，也能生成分享图；同一个网络直连电脑，不在时可选经 Cloudflare 的临时链接，一小时后关闭。</span><span class="en">Scan a QR code to see the home page in your phone's browser, read-only, and make share pictures there too: straight from the computer on the same network, or through a temporary Cloudflare link from anywhere else, closed after an hour.</span></dd>
             <dt><span class="zh">多台电脑合并</span><span class="en">Combine computers</span></dt><dd><span class="zh">每台电脑选同一个同步文件夹（iCloud 云盘、Dropbox、OneDrive…），用量合起来显示，图表上方写“含 N 台电脑”。</span><span class="en">Choose the same synced folder (iCloud Drive, Dropbox, OneDrive…) on each computer and see their usage added up, with "N computers" above the chart.</span></dd>
+            <dt><span class="zh">命令行</span><span class="en">Command line</span></dt><dd><span class="zh">在终端里输入 <code>starmeter</code>，看今天的用量、额度和余额，数字和面板一样；加 <code>--json</code> 给脚本用。</span><span class="en">Type <code>starmeter</code> in a terminal for today's usage, limits and balances, the same figures as the panel; add <code>--json</code> for scripts.</span></dd>
           </dl>
         </div>
         <div>
@@ -313,14 +314,27 @@
           <span><span class="zh">免安装 · ZIP</span><span class="en">No install · ZIP</span></span>
         </a>
         <div class="platform brew">
-          <span class="os">Homebrew</span>
+          <span class="os">Homebrew · <span class="zh">Mac 独立版</span><span class="en">Mac app</span></span>
           <code>brew install --cask timecatbit/tap/starmeter</code>
           <button type="button" data-copy="brew install --cask timecatbit/tap/starmeter"><span class="zh">复制</span><span class="en">Copy</span></button>
         </div>
+        <a class="platform" href="https://github.com/timecatbit/starmeter/releases/latest">
+          <span class="os">Linux</span><b>Linux · Debian/Ubuntu</b>
+          <span><span class="zh">Ubuntu、Debian 等 · .deb</span><span class="en">Ubuntu, Debian and the like · .deb</span></span>
+        </a>
+        <a class="platform" href="https://github.com/timecatbit/starmeter/releases/latest">
+          <span class="os">Linux</span><b>Linux · AppImage</b>
+          <span><span class="zh">其他发行版 · 加上执行权限就能运行</span><span class="en">Other distributions · make it executable and run</span></span>
+        </a>
+        <div class="platform brew">
+          <span class="os">Homebrew · <span class="zh">命令行</span><span class="en">Command line</span></span>
+          <code>brew install <span>timecatbit/tap/starmeter-cli</span></code>
+          <button type="button" data-copy="brew install timecatbit/tap/starmeter-cli"><span class="zh">复制</span><span class="en">Copy</span></button>
+        </div>
       </div>
       <p class="note">
-        <span class="zh">不确定 Mac 芯片？苹果菜单 → 关于本机：写“芯片：Apple M…”选 Apple Silicon，写“处理器：Intel…”选 Intel。Mac 独立版预览未做 Apple 公证，首次打开被拦时到“系统设置 → 隐私与安全性 → 仍要打开”。安装细节见 <a href="https://github.com/timecatbit/starmeter#下载与安装">README</a>。</span>
-        <span class="en">Not sure which Mac? Apple menu → About This Mac: "Chip: Apple M…" means Apple Silicon, "Processor: Intel…" means Intel. The Mac preview isn't notarized; if macOS blocks it at first, use System Settings → Privacy &amp; Security → Open Anyway. Full steps are in the <a href="https://github.com/timecatbit/starmeter/blob/main/README.en.md#download-and-install">README</a>.</span>
+        <span class="zh">不确定 Mac 芯片？苹果菜单 → 关于本机：写“芯片：Apple M…”选 Apple Silicon，写“处理器：Intel…”选 Intel。Mac 独立版预览未做 Apple 公证，首次打开被拦时到“系统设置 → 隐私与安全性 → 仍要打开”。只要命令行：Mac 和 Linux 用 Homebrew 装（不必装 App），或下载 Mac · Command line、Linux · Command line 压缩包；.deb 和 Windows 版自带 <code>starmeter</code> 命令。安装细节见 <a href="https://github.com/timecatbit/starmeter#下载与安装">README</a>。</span>
+        <span class="en">Not sure which Mac? Apple menu → About This Mac: "Chip: Apple M…" means Apple Silicon, "Processor: Intel…" means Intel. The Mac preview isn't notarized; if macOS blocks it at first, use System Settings → Privacy &amp; Security → Open Anyway. For just the command line, use Homebrew on a Mac or Linux (no app needed) or the Mac · Command line and Linux · Command line archives; the .deb and the Windows versions include the <code>starmeter</code> command. Full steps are in the <a href="https://github.com/timecatbit/starmeter/blob/main/README.en.md#download-and-install">README</a>.</span>
       </p>
     </section>
   </main>

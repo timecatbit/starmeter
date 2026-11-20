@@ -9,7 +9,7 @@
   };
   var descriptions = {
     zh: document.querySelector('meta[name="description"]').content,
-    en: 'Starmeter shows the tokens and API-equivalent cost of Claude Code, Codex, Cursor, Gemini CLI and more, your subscription limits, API balances and active sessions, in the macOS menu bar and the Windows tray. Free, open source, and your data stays on your computer.',
+    en: 'Starmeter shows the tokens and API-equivalent cost of Claude Code, Codex, Cursor, Gemini CLI and more, your subscription limits, API balances and active sessions, in the macOS menu bar and the Windows and Linux tray. Free, open source, and your data stays on your computer.',
   };
 
   function show(lang) {
