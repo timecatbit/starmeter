@@ -79,11 +79,17 @@ def dmg(output, identity, notary, arch):
             subprocess.run(['codesign', '--verify', '--deep', '--strict', str(installed)], check=True)
             if not (mount / 'README.txt').is_file() or os.readlink(mount / 'Applications') != '/Applications':
                 raise SystemExit('Disk image is missing the installation guide or Applications shortcut')
-            binary = installed / 'Contents/MacOS/Starmeter'
-            found = subprocess.run(['lipo', '-archs', str(binary)], capture_output=True, text=True, check=True).stdout.split()
-            if found != [arch]:
-                raise SystemExit('Starmeter.app is built for %s, not %s' % (' '.join(found), arch))
-            smoke(installed, root)
+            for binary in (installed / 'Contents/MacOS/Starmeter', installed / 'Contents/Resources/bin/starmeter-engine'):
+                found = subprocess.run(['lipo', '-archs', str(binary)], capture_output=True, text=True, check=True).stdout.split()
+                if found != [arch]:
+                    raise SystemExit('%s is built for %s, not %s' % (binary.name, ' '.join(found), arch))
+            # The engine runs only on its own chip: an Intel build on Apple silicon would go through Rosetta, which
+            # macOS 28 drops, and macOS 27 then tells the user Starmeter has a component that won't open there. The
+            # release builds each image on its own chip, so each is still run once.
+            if platform.machine() == arch:
+                smoke(installed, root)
+            else:
+                print('Not running the %s engine on this %s Mac; its own chip runs it.' % (arch, platform.machine()))
         finally:
             subprocess.run(['hdiutil', 'detach', str(mount)], check=True)
         shutil.move(str(target), str(artifact))
