@@ -25,6 +25,34 @@ async function choose(page: Page, label: RegExp, option: string) {
   await page.getByRole('option', { name: option, exact: true }).click();
 }
 
+test('the range last picked is the one kept, however quickly the picks follow each other', async ({ page }) => {
+  await open(page);
+  /** The range the core reads now, as the next snapshot will carry it. */
+  const reading = () => page.evaluate(async () => { const { backend } = await import('/src/lib/backend.ts'); return (await backend.snapshot()).rangeOptions?.find((o) => o.checked)?.action?.[1]; });
+  const picker = page.locator('.picker .current');
+  // Back to the range on screen before the new one's figures arrive: still a change.
+  await choose(page, /统计范围/, '近 7 天');
+  await choose(page, /统计范围/, '今天');
+  await expect(picker).toHaveText('今天');
+  await page.waitForTimeout(600);
+  await expect(picker).toHaveText('今天');
+  expect(await reading()).toBe('today');
+  // Away and back while the first is still on its way: the last pick wins.
+  for (const gap of [0, 60, 150, 320]) {
+    await choose(page, /统计范围/, '近 30 天');
+    await page.waitForTimeout(gap);
+    await choose(page, /统计范围/, '昨天');
+    await page.waitForTimeout(gap);
+    await choose(page, /统计范围/, '近 30 天');
+    await expect(picker).toHaveText('近 30 天');
+    await page.waitForTimeout(600);
+    await expect(picker).toHaveText('近 30 天');
+    expect(await reading()).toBe('30d');
+    await choose(page, /统计范围/, '今天');
+    await page.waitForTimeout(600);
+  }
+});
+
 test('the homepage shows Summary, the trend, the heatmap, the cards and the rows', async ({ page }) => {
   await open(page);
   await expect(page.locator('.heading')).toHaveText('Starmeter');

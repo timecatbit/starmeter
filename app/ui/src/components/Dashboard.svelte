@@ -23,7 +23,7 @@
 
   let { data, rangeOptions, reveal, glows, summaryGlow, live, leaving = null, onleft, liveStamp, pinned, pinInterval, onrange,
     onshare, onpin, onsettings, ongroup, ontoggle, onopentool, onsize, onfloor, sessions = null, view = 'cards', onview, busy = null, onopen, onchoose,
-    readonly = false }: {
+    readonly = false, reading = false }: {
     data: Dashboard; rangeOptions: Entry[]; reveal: number; glows: Record<string, number>; summaryGlow: number; live: LiveFeed | null;
     leaving?: number | null; onleft?: () => void;
     liveStamp: string | null; pinned: boolean; pinInterval: number;
@@ -31,6 +31,8 @@
     onsettings: () => void; ongroup: (key: string) => void; ontoggle: (id: string, expanded: boolean) => void;
     /** On a phone (在手机上看): no pin, settings or share, the range alone in the header. */
     readonly?: boolean;
+    /** A range picked and still being read: the menu shows it, the figures are still the last range's. */
+    reading?: boolean;
     /** How tall a pinned panel that fits the homepage is: down to the end of the third card or session. */
     onsize?: (height: number) => void;
     /** The least a pinned panel shows of the homepage: down to the end of the heatmap. */
@@ -107,7 +109,8 @@
   // detect lives in 通用 and the star's menu.)
   // The range picker is drawn bare like the icons beside it, as wide as the range on it: 8pt, the range, 4pt, the
   // chevron, 8pt; its right edge on the content's.
-  const pickerWidth = $derived(8 + width(data.rangeLabel, font(11)) + 4 + 7 + 8);
+  /** As wide as the range the menu shows: the one picked, while its figures are still being read. */
+  const pickerWidth = $derived(8 + width(rangeOptions.find((o) => o.checked)?.label ?? data.rangeLabel, font(11)) + 4 + 7 + 8);
   const pickerX = $derived(inner - 12 - pickerWidth);
   /** The menu bar's star, drawn in the heading's colour. */
   const mark = markSvg.replace(/fill="#000000"/g, 'fill="currentColor"').replace(/width="24" height="24"/, 'width="15" height="15"');
@@ -118,7 +121,7 @@
 
   function pickRange(key: string) {
     const option = rangeOptions.find((o) => o.action?.[1] === key);
-    if (option?.action && key !== data.rangeKey) onrange(option.action);
+    if (option?.action && key !== chosen) onrange(option.action);
   }
 
   const glowColour = $derived(blend(labelColour(panel.dark, 0.85), totalColor(panel.dark), summaryGlow * 0.85));
@@ -152,7 +155,7 @@
       <span class="slot" style:left="{firstButton}px">
         <HintButton icon="square.and.arrow.up" system hint={t('分享用量图')} label={t('分享用量图')} onclick={onshare} />
       </span>
-      <span class="picker" style:left="{pickerX}px" style:width="{pickerWidth}px">
+      <span class="picker" class:reading style:left="{pickerX}px" style:width="{pickerWidth}px">
         <Dropdown label={t('统计范围')} value={chosen} options={rangeOptions.map((o) => ({ value: o.action?.[1] ?? '', label: o.label }))} onpick={pickRange} />
       </span>
     </div>
@@ -290,4 +293,6 @@
     font-size: 10.5px;
     color: var(--secondary);
   }
+  /* A range picked and still being read: its name a little faint until its figures arrive. */
+  .picker.reading :global(.current) { opacity: 0.55; transition: opacity 0.2s; }
 </style>

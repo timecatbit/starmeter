@@ -4,6 +4,7 @@ import { automatic, choices, isPreference } from './detail';
 import type { Entry, PresentationPreferences, Snapshot } from './types';
 
 const same = (a: string[] | undefined, b: string[]) => !!a && a.length === b.length && a.every((x, i) => x === b[i]);
+const lastWins = (action: string[]) => action[0] === 'set-range' || action[0] === 'set-group';
 
 export class PanelInteraction {
   source: Snapshot | null = null;
@@ -16,6 +17,14 @@ export class PanelInteraction {
     if (!action.length) return 'ignored';
     if (!this.active) { this.active = action; return 'start'; }
     if (automatic(action) || this.queued.length >= 64) return 'ignored';
+    // A range or a grouping: only the last pick counts. One still waiting gives way to it, and picking the one already
+    // on its way again (away and back) leaves nothing to do after it.
+    if (lastWins(action)) {
+      this.queued = this.queued.filter((q) => q[0] !== action[0]);
+      if (same(this.active, action)) return 'ignored';
+      this.queued.push(action);
+      return 'queued';
+    }
     if (!isPreference(action) && (same(this.active, action) || this.queued.some((q) => same(q, action)))) return 'ignored';
     this.queued.push(action);
     return 'queued';

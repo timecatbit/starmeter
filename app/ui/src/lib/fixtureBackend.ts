@@ -193,17 +193,28 @@ const findEntry = (list: Entry[], match: (e: Entry) => boolean): Entry | null =>
   return null;
 };
 
+/** The range last asked for, still being read. */
+let wanted = 'today';
+
 export async function action(action: string[]): Promise<ActionReceipt> {
   const f = await load(), prefs = state.prefs!;
   const [name, a, b] = action;
   const saved = () => { prefs.revision += 1; changed(); return { status: 'done' as const, preferences: structuredClone(prefs) }; };
   switch (name) {
-    case 'set-range':
-      state.range = a;
-      state.settling = true;
-      changed();
-      setTimeout(() => { state.settling = false; changed(); }, 300);
+    case 'set-range': {
+      // As the core does: the range on screen, ticked in the menu, stays until the new one has been read (here a
+      // moment, longer for the longer ranges); a range picked meanwhile replaces it.
+      wanted = a;
+      const read = a === 'all' || a === '30d' || a === 'month' ? 450 : 250;
+      setTimeout(() => {
+        if (wanted !== a) return;
+        state.range = a;
+        state.settling = true;
+        changed();
+        setTimeout(() => { state.settling = false; changed(); }, 300);
+      }, read);
       return { status: 'done' };
+    }
     case 'set-group': state.grouping = a; changed(); return { status: 'done' };
     case 'set-module':
       prefs.visible = b === 'true' ? [...new Set([...prefs.visible, a])] : prefs.visible.filter((v) => v !== a);

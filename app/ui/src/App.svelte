@@ -60,6 +60,14 @@
   let sharing = $state(false);
   /** 在手机上看: its page, over whatever opened it. */
   let phoneOpen = $state(false);
+  /** The range last picked, ticked in the menus at once: the core keeps the old one ticked, with its figures, until the
+   *  new one has been read, and a pick that seemed not to take was picked again (or away and back, and lost). */
+  let pickedRange = $state<string | null>(null);
+  const rangeOptions = $derived.by(() => {
+    const options = snapshot?.rangeOptions ?? [];
+    return pickedRange ? options.map((o) => ({ ...o, checked: o.action?.[1] === pickedRange })) : options;
+  });
+  $effect(() => { if (pickedRange && snapshot?.dashboard?.rangeKey === pickedRange) pickedRange = null; });
   /** On a phone: why the figures on screen are not fresh, until a reading comes through. */
   let phoneProblem = $state<string | null>(null);
   /** A tool's page, opened from its card: its usage and its settings. */
@@ -387,6 +395,7 @@
       });
       return;
     }
+    if (action[0] === 'set-range') pickedRange = action[1] === snapshot?.dashboard?.rangeKey ? null : action[1];
     switch (interaction.submit(action)) {
       case 'start': void dispatch(action); break;
       case 'queued': version++; break;
@@ -634,7 +643,7 @@
         <PhonePage onback={back} onheight={(h) => (wanted.phone = h)} />
       {:else if sharing && snapshot?.dashboard}
         <SharePage dashboard={snapshot.dashboard} project={snapshot.project ?? { name: 'Starmeter', url: 'https://github.com/timecatbit/starmeter' }}
-          rangeOptions={snapshot.rangeOptions ?? []} onrange={perform} onback={back} onheight={(h) => (wanted.share = h)} />
+          {rangeOptions} onrange={perform} onback={back} onheight={(h) => (wanted.share = h)} />
       {:else if toolId && tool && snapshot?.dashboard}
         <ToolPage p={tool} dashboard={snapshot.dashboard} settings={toolSettings} busy={interaction.active} bind:scrollTop={toolScroll} onback={back}
           onopen={open} onchoose={choose} onheight={(h) => (wanted.tool = h)} />
@@ -677,7 +686,7 @@
 
 {#snippet dashboardView()}
   {#if shown && snapshot}
-    <Dashboard data={shown} rangeOptions={snapshot.rangeOptions ?? []} {reveal} {glows} {summaryGlow} live={pinned || leaving !== null ? feed : null} {leaving} onleft={() => { leaving = null; feed = null; }} {liveStamp} {pinned}
+    <Dashboard data={shown} {rangeOptions} reading={pickedRange !== null} {reveal} {glows} {summaryGlow} live={pinned || leaving !== null ? feed : null} {leaving} onleft={() => { leaving = null; feed = null; }} {liveStamp} {pinned}
       {pinInterval} onrange={perform} onshare={openShare}
       onpin={() => { panel.hint = null; setPinned(!pinned); if (pinned) perform(['refresh-live']); }} onsettings={openSettings}
       onopentool={openTool} ongroup={(key) => perform(['set-group', key])} {sessions} {view} onview={chooseView} busy={interaction.active}

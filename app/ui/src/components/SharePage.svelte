@@ -47,7 +47,7 @@
   const chosenRange = $derived(rangeOptions.find((o) => o.checked)?.action?.[1] ?? frozen.rangeKey);
   function pickRange(key: string) {
     const option = rangeOptions.find((o) => o.action?.[1] === key);
-    if (option?.action && key !== frozen.rangeKey) onrange?.(option.action);
+    if (option?.action && key !== chosenRange) onrange?.(option.action);
   }
   const pictures = new Map<string, Picture>();
   let picture = $state<Picture | null>(null);
