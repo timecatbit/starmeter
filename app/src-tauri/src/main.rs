@@ -174,11 +174,12 @@ fn star_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
 }
 
 fn build_star(app: &AppHandle) -> tauri::Result<()> {
-    TrayIconBuilder::with_id("star")
-        .icon(tauri::include_image!("icons/tray.png"))
-        .icon_as_template(true)
-        .tooltip("Starmeter")
-        .menu(&star_menu(app)?)
+    let star = TrayIconBuilder::with_id("star").icon(tauri::include_image!("icons/tray.png")).icon_as_template(true);
+    // A tooltip only where the figure goes in it (Windows, Linux): on a Mac it adds a tracking area to the menu bar
+    // button, and AppKit then sets the cursor again at every pointer move over the star, which with a custom pointer
+    // (Accessibility) is drawn anew with a blur on the main thread.
+    let star = if cfg!(target_os = "macos") { star } else { star.tooltip("Starmeter") };
+    star.menu(&star_menu(app)?)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| handle_menu(app, event.id().as_ref()))
         .on_tray_icon_event(|tray, event| {
