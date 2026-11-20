@@ -340,6 +340,28 @@ mod tests {
     }
 
     #[test]
+    fn every_status_a_card_or_plan_can_show_has_english() {
+        // CLI-5: 未找到 Claude 用量记录 stayed Chinese in English output. The sources' statuses, from the files that
+        // read usage, accounts and plans, all need a phrase in en.ts.
+        let status = Regex::new(
+            r#"(?:"error"\s*=>\s*|Failure\(|fail\(|unwrap_or_else\(\|\| )"([^"]*[\x{4e00}-\x{9fff}][^"]*)""#,
+        )
+        .expect("pattern");
+        let mut seen = 0;
+        for file in ["accounts.rs", "client_accounts.rs", "cursor.rs", "harness.rs", "opencodex.rs", "range_usage.rs"] {
+            let path = format!("{}/../core/src/{file}", env!("CARGO_MANIFEST_DIR"));
+            let source = std::fs::read_to_string(&path).expect("the core's source");
+            for found in status.captures_iter(&source) {
+                let text = &found[1];
+                assert_ne!(translate(text), text, "{file}: \"{text}\" has no English in app/ui/src/lib/en.ts");
+                seen += 1;
+            }
+        }
+        assert!(seen >= 20, "only {seen} statuses found: the pattern no longer matches the core");
+        assert_eq!(translate("未找到 Claude 用量记录"), "No Claude usage records found");
+    }
+
+    #[test]
     fn the_engines_text_reads_as_the_panel_writes_it() {
         assert_eq!(translate("已用 本周 38% · 5 小时 12%"), "Used: this week 38% · 5 hours 12%");
         assert_eq!(translate("已用 本周 76% · Fable 41%"), "Used: this week 76% · Fable 41%");
