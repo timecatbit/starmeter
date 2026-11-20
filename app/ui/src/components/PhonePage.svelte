@@ -39,7 +39,12 @@
   let tick: ReturnType<typeof setInterval> | undefined;
   onMount(() => {
     void start();
-    tick = setInterval(async () => { phone.view = await shell.phoneStatus().catch(() => phone.view); }, 30_000);
+    // Asked after while the page is open: a public link whose cloudflared has ended is taken down, and said so.
+    tick = setInterval(async () => {
+      const had = !!phone.view?.public;
+      setPhone(await shell.phoneStatus().catch(() => phone.view));
+      if (had && !phone.view?.public && reach === 'public') { reach = 'local'; failed = '外网链接断开了，可以重新生成'; }
+    }, 10_000);
   });
   onDestroy(() => { clearInterval(tick); clearTimeout(copiedTimer); });
 

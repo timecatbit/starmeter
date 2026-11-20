@@ -51,7 +51,11 @@ fn view(running: &Running) -> PhoneView {
     let fragment = format!("#k={}", running.key);
     PhoneView {
         local: lan_address().map(|ip| format!("http://{ip}:{}/{fragment}", running.port)),
-        public: running.public.as_ref().map(|tunnel| format!("{}/{fragment}", tunnel.url)),
+        public: running
+            .public
+            .as_ref()
+            .filter(|tunnel| tunnel.alive())
+            .map(|tunnel| format!("{}/{fragment}", tunnel.url)),
         seconds_left: running.until.saturating_duration_since(Instant::now()).as_secs(),
     }
 }
@@ -108,6 +112,13 @@ pub fn phone_status(app: AppHandle) -> Option<PhoneView> {
             stop_running(&mut over);
         }
         return None;
+    }
+    // A public link whose cloudflared has ended goes; the panel says it was lost.
+    if let Some(current) = running.as_mut()
+        && current.public.as_ref().is_some_and(|tunnel| !tunnel.alive())
+        && let Some(mut lost) = current.public.take()
+    {
+        lost.stop();
     }
     running.as_ref().map(view)
 }

@@ -9,8 +9,10 @@
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use starmeter_core::http::{self, Request};
 use tauri::{AppHandle, Manager};
@@ -20,9 +22,16 @@ const RELEASES: &str = "https://api.github.com/repos/cloudflare/cloudflared/rele
 pub struct Tunnel {
     pub url: String,
     child: Option<Child>,
+    /// Cleared when cloudflared ends on its own (its connection to Cloudflare lost for good).
+    alive: Arc<AtomicBool>,
 }
 
 impl Tunnel {
+    /// Whether cloudflared still runs: a link that has gone is not shown as one to scan.
+    pub fn alive(&self) -> bool {
+        self.alive.load(Ordering::SeqCst)
+    }
+
     pub fn stop(&mut self) {
         if let Some(mut child) = self.child.take() {
             let _ = child.kill();
@@ -131,6 +140,26 @@ fn download(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(target)
 }
 
+/// What cloudflared said on its way up: the address it was given, that Cloudflare took the connection, or that it
+/// ended (and why, as the user reads it).
+enum Heard {
+    Address(String),
+    Connected,
+    Ended(String),
+}
+
+/// Why cloudflared ended before the link worked, from what it printed last.
+fn reason(said: &[String]) -> String {
+    let all = said.join("\n");
+    if all.contains("origintunneld") || all.contains("edge discovery") {
+        "这个网络的 DNS 查不到 Cloudflare 隧道的地址（常见于代理或 VPN），换个网络或关掉代理再试".into()
+    } else if all.contains("429") || all.contains("Too Many Requests") {
+        "Cloudflare 暂时不给新的临时链接，稍后再试".into()
+    } else {
+        "Cloudflare 这次没有连上，稍后再试".into()
+    }
+}
+
 /// The address cloudflared prints once the tunnel is up.
 fn address(line: &str) -> Option<String> {
     let start = line.find("https://")?;
@@ -166,29 +195,64 @@ fn start(program: &Path, port: u16) -> Result<Tunnel, String> {
         let _ = child.kill();
         return Err("cloudflared 没能启动".into());
     };
-    let (found, heard) = mpsc::channel();
-    // Read to the end, so cloudflared never blocks on a full pipe; the first address is the one.
+    let (tell, heard) = mpsc::channel();
+    let alive = Arc::new(AtomicBool::new(true));
+    let running = alive.clone();
+    // Read to the end, so cloudflared never blocks on a full pipe: the first address is the one, and the link works
+    // once Cloudflare has registered a connection. The address comes first, before cloudflared has reached Cloudflare
+    // at all: on a network whose DNS can't find Cloudflare's servers it ends right after.
     std::thread::spawn(move || {
-        let mut sent = false;
+        let (mut addressed, mut connected) = (false, false);
+        let mut said: Vec<String> = Vec::new();
         for line in BufReader::new(output).lines().map_while(Result::ok) {
-            if !sent && let Some(url) = address(&line) {
-                sent = found.send(url).is_ok();
+            if !addressed && let Some(url) = address(&line) {
+                addressed = true;
+                let _ = tell.send(Heard::Address(url));
+            }
+            if !connected && line.contains("Registered tunnel connection") {
+                connected = true;
+                let _ = tell.send(Heard::Connected);
+            }
+            if line.contains(" ERR ") {
+                said.push(line);
+                if said.len() > 20 {
+                    said.remove(0);
+                }
             }
         }
+        running.store(false, Ordering::SeqCst);
+        let _ = tell.send(Heard::Ended(reason(&said)));
     });
-    match heard.recv_timeout(Duration::from_secs(45)) {
-        Ok(url) => Ok(Tunnel { url, child: Some(child) }),
-        Err(_) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            Err("Cloudflare 这次没有给出链接，稍后再试".into())
+    let deadline = Instant::now() + Duration::from_secs(45);
+    let mut url: Option<String> = None;
+    let failed = loop {
+        match heard.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(Heard::Address(given)) => url = Some(given),
+            Ok(Heard::Connected) if url.is_some() => {
+                return Ok(Tunnel { url: url.unwrap_or_default(), child: Some(child), alive });
+            }
+            Ok(Heard::Connected) => {}
+            Ok(Heard::Ended(why)) => break why,
+            Err(_) => break "Cloudflare 这次没有给出链接，稍后再试".into(),
         }
-    }
+    };
+    let _ = child.kill();
+    let _ = child.wait();
+    Err(failed)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::address;
+    use super::{address, reason};
+
+    #[test]
+    fn why_cloudflared_ended() {
+        let dns = "2026-11-20T01:58:31Z ERR edge discovery: error looking up Cloudflare edge IPs: the DNS query failed \
+                   error=\"lookup _v2-origintunneld._tcp.argotunnel.com on 198.19.0.3:53: no such host\"";
+        assert!(reason(&[dns.into()]).contains("DNS"));
+        assert!(reason(&["ERR failed to request quick Tunnel: 429 Too Many Requests".into()]).contains("暂时不给"));
+        assert!(reason(&[]).contains("没有连上"));
+    }
 
     #[test]
     fn the_address_cloudflared_prints() {
