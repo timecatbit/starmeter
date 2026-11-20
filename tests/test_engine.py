@@ -247,10 +247,17 @@ class EngineParityTests(unittest.TestCase):
         self.assertIsNone(swift('keep_unreadable', str(self.root / 'missing.json')))
         broken = self.root / 'broken.json'
         broken.write_text('[]')
-        kept = swift('keep_unreadable', str(broken))
-        self.assertTrue(re.search(r'/broken\.unreadable-\d{8}-\d{6}\.json$', kept), kept)
-        again = swift('keep_unreadable', str(broken))
-        self.assertTrue(again.endswith('-1.json'), again)
+        # A second copy kept in the same second takes -1: tried until both calls fall in one second (a run that
+        # crossed a second between them named the second copy by its own time, and the check failed).
+        stamp = lambda path: re.search(r'\.unreadable-(\d{8}-\d{6})', path).group(1)
+        for _ in range(5):
+            kept = swift('keep_unreadable', str(broken))
+            self.assertTrue(re.search(r'/broken\.unreadable-\d{8}-\d{6}(-\d+)?\.json$', kept), kept)
+            again = swift('keep_unreadable', str(broken))
+            if stamp(again) == stamp(kept):
+                break
+        self.assertEqual(stamp(again), stamp(kept))
+        self.assertTrue(re.search(r'-\d+\.json$', again), again)
 
     def test_the_catalog_and_module_list_match(self):
         got = swift('catalog')
