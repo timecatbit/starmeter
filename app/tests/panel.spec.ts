@@ -613,7 +613,8 @@ test('on the phone: the homepage read-only, its figures asked for with the key, 
   await expect(page.getByText('长按图片也能存到相册')).toBeVisible();
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: '保存图片' }).click();
-  expect((await download).suggestedFilename()).toMatch(/^Starmeter .+ 卡片\.png$/);
+  // WebKit on Linux hands the name over with its spaces as underscores.
+  expect((await download).suggestedFilename()).toMatch(/^Starmeter[ _].+[ _]卡片\.png$/);
   await page.keyboard.press('Escape');
   await expect(page.locator('.dashboard')).toBeVisible();
 });
