@@ -1044,6 +1044,42 @@ test('the range menu is gone at once when the panel goes away, so it does not fl
   await expect(page.getByRole('listbox')).toHaveCount(0);
 });
 
+test('moving through the range menu with the arrows tells assistive technology which choice is lit (MENU-5)', async ({ page }) => {
+  await open(page);
+  const trigger = page.getByRole('button', { name: /^统计范围/ });
+  const list = page.getByRole('listbox');
+  /** The option the list names as its active one. */
+  const active = async () => {
+    const id = await list.getAttribute('aria-activedescendant');
+    return id ? page.locator(`[id="${id}"]`).textContent().then((text) => text?.trim()) : null;
+  };
+  await trigger.focus();
+  await page.keyboard.press('Enter');
+  await expect(list).toBeFocused();
+  expect(await active()).toBe('今天');
+  for (const choice of ['昨天', '近 24 小时', '近 7 天']) {
+    await page.keyboard.press('ArrowDown');
+    await expect(page.locator('.option.lit')).toHaveText(choice);
+    expect(await active()).toBe(choice);
+    await expect(list).toBeFocused();
+  }
+  // The current choice is still the one marked selected; Esc leaves it.
+  await expect(page.getByRole('option', { name: '今天' })).toHaveAttribute('aria-selected', 'true');
+  await page.keyboard.press('Escape');
+  await expect(trigger).toContainText('今天');
+  // Return picks the lit one.
+  await page.keyboard.press('Enter');
+  for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowDown');
+  expect(await active()).toBe('近 7 天');
+  await page.keyboard.press('Enter');
+  await expect(trigger).toContainText('近 7 天');
+  // Two menus on one page name their options apart.
+  await page.keyboard.press('Enter');
+  const ids = await page.locator('.dropdown .option').evaluateAll((all) => all.map((option) => option.id));
+  expect(new Set(ids).size).toBe(ids.length);
+  await page.keyboard.press('Escape');
+});
+
 test('the range menu gives the focus back to its button when Esc or Return closes it, so Return opens it again (MENU-3)', async ({ page }) => {
   await open(page);
   const trigger = page.getByRole('button', { name: /^统计范围/ });

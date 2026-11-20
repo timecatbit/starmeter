@@ -14,6 +14,9 @@
 
   let open = $state(false);
   let lit = $state(0);
+  /** The options' ids: the list tells assistive technology which one the arrows light (aria-activedescendant), the
+   *  focus staying on the list so Return still picks it. */
+  const uid = $props.id();
   let root: HTMLSpanElement | undefined = $state();
   let trigger: HTMLButtonElement | undefined = $state();
   let menu: HTMLDivElement | undefined = $state();
@@ -119,9 +122,10 @@
   </button>
   {#if open}
     <div class="menu" class:left={align === 'left'} bind:this={menu} role="listbox" tabindex="-1" aria-label={label} style:max-height="{room}px"
+      aria-activedescendant="{uid}-{lit}"
       onwheel={(event) => event.stopPropagation()} transition:drop>
       {#each options as option, i (option.value)}
-        <div class="option" class:chosen={option.value === value} class:lit={i === lit} role="option" tabindex="-1" aria-selected={option.value === value}
+        <div class="option" id="{uid}-{i}" class:chosen={option.value === value} class:lit={i === lit} role="option" tabindex="-1" aria-selected={option.value === value}
           onpointerenter={() => (lit = i)} onpointerdown={(event) => event.preventDefault()} onclick={() => pick(option.value)} onkeydown={() => {}}>
           {#if option.value === value}
             <svg class="check" width="10" height="8" viewBox="0 0 10 8" aria-hidden="true"><path d="M1 4.2 3.7 6.8 9 1.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
