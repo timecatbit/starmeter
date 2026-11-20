@@ -576,6 +576,8 @@ test('在手机上看: a code for the same network, a public link only after a y
   // Any network: asked first, nothing opened until the yes, and no note about a link not made yet.
   await page.getByRole('radio', { name: '任何网络' }).click();
   await expect(phone.locator('.ask')).toContainText('经 Cloudflare 生成外网链接？');
+  // Said before the yes: the link doesn't open in parts of mainland China, and the same network is the steadier way.
+  await expect(phone.locator('.ask')).toContainText('中国大陆部分地区打不开 Cloudflare 的链接');
   await expect(phone.locator('svg[role="img"]')).toHaveCount(0);
   await expect(phone.locator('.note')).toHaveCount(0);
   await button(page, '取消').click();

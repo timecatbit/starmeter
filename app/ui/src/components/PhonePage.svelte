@@ -149,6 +149,8 @@
           <div class="ask">
             <p class="ask-title">{t('经 Cloudflare 生成外网链接？')}</p>
             <p class="ask-detail">{t('手机不在同一个网络时用：Cloudflare 给一个临时的 https 地址，转到这台电脑。主页的数字会经过 Cloudflare；链接带一次性口令，停止或一小时后失效。')}</p>
+            <!-- Measured from 29 points across mainland China, the link failed at most of them: said before the yes. -->
+            <p class="ask-detail">{t('中国大陆部分地区打不开 Cloudflare 的链接。手机和电脑能连同一个 Wi-Fi 时，用“同一个网络”更稳。')}</p>
             {#if asking.download}<p class="ask-detail">{t('第一次要从 Cloudflare 的 GitHub 发布页下载 cloudflared（约 20 MB），校验后存在 App 的数据文件夹。')}</p>{/if}
             <div class="ask-actions">
               <button class="button pressable" onclick={() => choose('local')}>{t('取消')}</button>
