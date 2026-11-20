@@ -261,3 +261,23 @@ fn an_empty_table_says_what_the_range_lacks() {
     nothing.insert("providers", Json::Array(vec![]));
     assert!(say(&nothing, View::Overview).contains("主页还没有勾选工具"));
 }
+
+#[test]
+fn a_reader_that_stops_early_ends_the_run_quietly() {
+    // CLI-3: head closing the pipe made the command panic with 101.
+    struct Closed(std::io::ErrorKind);
+    impl std::io::Write for Closed {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::from(self.0))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    assert_eq!(emit(&mut Closed(std::io::ErrorKind::BrokenPipe), "figures\n", 0), 0);
+    assert_eq!(emit(&mut Closed(std::io::ErrorKind::BrokenPipe), "figures\n", 1), 1);
+    assert_eq!(emit(&mut Closed(std::io::ErrorKind::StorageFull), "figures\n", 0), 1);
+    let mut written = Vec::new();
+    assert_eq!(emit(&mut written, "figures\n", 0), 0);
+    assert_eq!(written, b"figures\n");
+}

@@ -10,6 +10,7 @@ mod terminal;
 mod text;
 
 use std::collections::HashMap;
+use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -269,6 +270,19 @@ pub fn pretty(value: &Json, level: usize) -> String {
     }
 }
 
+/// Writes the output; a reader that stopped early (head, a pager closed) ends the run quietly with `status`, any
+/// other failure is reported and fails it.
+pub fn emit(out: &mut impl Write, text: &str, status: i32) -> i32 {
+    match out.write_all(text.as_bytes()).and_then(|()| out.flush()) {
+        Ok(()) => status,
+        Err(error) if error.kind() == ErrorKind::BrokenPipe => status,
+        Err(error) => {
+            eprintln!("starmeter: {error}");
+            1
+        }
+    }
+}
+
 /// One run of the command line, with the arguments after the program's name; the exit status.
 pub fn main(arguments: &[String]) -> i32 {
     let options = match parse(arguments) {
@@ -286,38 +300,30 @@ pub fn main(arguments: &[String]) -> i32 {
         None => !terminal::system_chinese(),
     };
     let words = Words { english };
+    let mut out = std::io::stdout().lock();
     match options.command {
-        Command::Help => {
-            print!("{}", help(words));
-            return 0;
-        }
-        Command::Version => {
-            println!("starmeter {VERSION}");
-            return 0;
-        }
+        Command::Help => return emit(&mut out, &help(words), 0),
+        Command::Version => return emit(&mut out, &format!("starmeter {VERSION}\n"), 0),
         _ => {}
     }
     let runtime = runtime(std::env::vars().collect());
     let (report, failed) = read(&runtime, &options, words);
-    if options.json {
+    let text = if options.json {
         let sections: &[&str] = match options.command {
             Command::Usage => &["usage"],
             Command::Quota => &["quotas"],
             _ => &["usage", "quotas"],
         };
-        println!("{}", pretty(&report.json(sections), 0));
+        pretty(&report.json(sections), 0) + "\n"
     } else {
         let view = match options.command {
             Command::Usage => View::Usage { detail: options.detail },
             Command::Quota => View::Quota,
             _ => View::Overview,
         };
-        print!(
-            "{}",
-            text::render(&report, view, terminal::columns(), &Paint { colour: terminal::colour(&options.colour) })
-        );
-    }
-    if failed { 1 } else { 0 }
+        text::render(&report, view, terminal::columns(), &Paint { colour: terminal::colour(&options.colour) })
+    };
+    emit(&mut out, &text, if failed { 1 } else { 0 })
 }
 
 #[cfg(test)]
