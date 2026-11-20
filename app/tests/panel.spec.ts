@@ -322,6 +322,31 @@ test('a question under its row goes with its page: back is 取消, and nothing i
   await expect(page.getByText('汇率…')).toBeVisible();
 });
 
+test('a click on ChatGPT 订阅 opens its page at once, also right after the panel opens (HOME-1)', async ({ page }) => {
+  const heading = page.getByRole('heading', { level: 2, name: 'ChatGPT 订阅', exact: true });
+  const row = page.locator('.home button.row').filter({ hasText: 'ChatGPT 订阅' });
+  // The row's click as soon as the dashboard shows, the panel perhaps still 400pt tall and its first reading on the
+  // way: the page opens and stays. Nothing about the panel's opening takes a chosen page back.
+  await page.goto('/?mac');
+  await expect(page.locator('.dashboard')).toBeVisible();
+  await row.dispatchEvent('click');
+  await expect(heading).toBeVisible();
+  await page.waitForTimeout(1500);
+  await expect(heading).toBeVisible();
+  // A pointer's click, each time the panel opens afresh: one click on the row opens its page, without a retry. The
+  // panel shows 400pt tall and grows to fit the homepage a frame later; the app's window is sized before it is shown,
+  // so the click waits for that fit here, as a person's could only come after it.
+  for (let time = 0; time < 5; time++) {
+    await page.goto('/?mac');
+    await expect(page.locator('.dashboard')).toBeVisible();
+    await expect(page.locator('.window')).not.toHaveCSS('height', '400px');
+    await row.click();
+    await expect(heading).toBeVisible({ timeout: 1000 });
+    await page.waitForTimeout(300);
+    await expect(heading).toBeVisible();
+  }
+});
+
 test('questions are answered in place, under the row that asked, not in a dialog', async ({ page }) => {
   await open(page);
   await page.locator('.row').filter({ hasText: 'ChatGPT 订阅' }).click();
