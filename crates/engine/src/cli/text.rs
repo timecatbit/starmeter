@@ -209,17 +209,27 @@ impl Writer<'_> {
             .iter()
             .partition(|row| row.used() || !row.available || row.notes.iter().any(|(_, tone)| *tone == Tone::Warning));
         if shown.is_empty() {
-            if rows.is_empty() {
-                self.lines.push(format!(
-                    "  {}",
-                    self.paint.dim(self.own(
-                        "主页还没有勾选工具：在 Starmeter 面板的“主页模块”里勾选",
-                        "No tools are on the homepage yet: choose them under Home modules in the Starmeter panel"
-                    ))
-                ));
+            let report = self.report;
+            let used = report.tokens.unwrap_or(0.0) > 0.0 || report.requests.unwrap_or(0.0) > 0.0;
+            // Only an empty list of tools means none is chosen; an empty grouping says what the range lacks.
+            let message = if !grouped && rows.is_empty() {
+                self.own(
+                    "主页还没有勾选工具：在 Starmeter 面板的“主页模块”里勾选",
+                    "No tools are on the homepage yet: choose them under Home modules in the Starmeter panel",
+                )
+                .to_string()
+            } else if grouped && report.grouping == "project" && used {
+                self.own(
+                    "这段时间的用量都没有记录项目（比如只经过网关的请求）",
+                    "None of this range's usage records a project (requests only a gateway logged, say)",
+                )
+                .to_string()
+            } else if grouped && report.grouping == "model" {
+                self.say("此时段暂无模型调用")
             } else {
-                self.lines.push(format!("  {}", self.paint.dim(&self.say("此时段暂无调用"))));
-            }
+                self.say("此时段暂无调用")
+            };
+            self.lines.push(format!("  {}", self.paint.dim(&message)));
             return;
         }
         let name_room = shown.iter().map(|row| width(&row.name)).max().unwrap_or(4).clamp(6, 20);

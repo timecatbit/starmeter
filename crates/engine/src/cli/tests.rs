@@ -220,3 +220,44 @@ fn the_overview_draws_the_grouping_asked_for_and_keeps_the_plans() {
         "{text}"
     );
 }
+
+#[test]
+fn an_empty_table_says_what_the_range_lacks() {
+    // CLI-2: only a homepage with no tools is told to choose some.
+    let words = Words { english: false };
+    let say = |dashboard: &Object, view: View| {
+        render(&build(dashboard, &[], "Asia/Shanghai", words), view, 100, &Paint { colour: false })
+    };
+    let usage = View::Usage { detail: false };
+    let (mut projects, _) = grouped("today", "project");
+    projects.insert("cards", Json::Array(vec![]));
+    let text = say(&projects, usage);
+    assert!(text.contains("这段时间的用量都没有记录项目"), "{text}");
+    assert!(!text.contains("勾选"), "{text}");
+    let (mut models, _) = grouped("today", "model");
+    models.insert("cards", Json::Array(vec![]));
+    let quiet: Vec<Json> = models
+        .get("providers")
+        .and_then(Json::as_array)
+        .into_iter()
+        .flatten()
+        .map(|card| {
+            let mut card = card.as_object().cloned().unwrap_or_default();
+            for field in ["tokens", "requests", "cost"] {
+                card.insert(field, 0);
+            }
+            card.remove("counted");
+            card.remove("credits");
+            Json::Object(card)
+        })
+        .collect();
+    models.insert("providers", Json::Array(quiet.clone()));
+    let text = say(&models, usage);
+    assert!(text.contains("此时段暂无模型调用") && !text.contains("勾选"), "{text}");
+    projects.insert("providers", Json::Array(quiet));
+    let text = say(&projects, usage);
+    assert!(text.contains("此时段暂无调用") && !text.contains("记录项目"), "{text}");
+    let (mut nothing, _) = fixture("today");
+    nothing.insert("providers", Json::Array(vec![]));
+    assert!(say(&nothing, View::Overview).contains("主页还没有勾选工具"));
+}
