@@ -221,8 +221,9 @@ impl Writer<'_> {
             // Only an empty list of tools means none is chosen; an empty grouping says what the range lacks.
             let message = if !grouped && rows.is_empty() {
                 self.own(
-                    "主页还没有勾选工具：在 Starmeter 面板的“主页模块”里勾选",
-                    "No tools are on the homepage yet: choose them under Home modules in the Starmeter panel",
+                    "主页还没有勾选工具：运行 starmeter detect 检测本机的工具，或在 Starmeter 面板的“主页模块”里勾选",
+                    "No tools are on the homepage yet: run starmeter detect to find the ones on this computer, or choose them \
+                     under Home modules in the Starmeter panel",
                 )
                 .to_string()
             } else if grouped && report.grouping == "project" && used {
@@ -420,6 +421,17 @@ impl Writer<'_> {
             }
         }
     }
+}
+
+/// A line of plain text wrapped to `columns`, its continuation lines under its own indent.
+pub fn wrap_line(line: &str, columns: usize) -> String {
+    let indent = line.len() - line.trim_start().len();
+    let room = columns.max(30).saturating_sub(indent);
+    let lines = wrap(line.trim_start(), room);
+    if lines.is_empty() {
+        return String::new();
+    }
+    lines.iter().map(|part| format!("{}{part}", &line[..indent])).collect::<Vec<_>>().join("\n")
 }
 
 /// The report as lines for a terminal `width` columns wide.

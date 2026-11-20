@@ -303,4 +303,5 @@ fn a_note_without_a_table_wraps_to_a_narrow_terminal() {
         &Paint { colour: false },
     );
     assert!(text.lines().all(|line| visible(line) <= 40), "{text}");
+    assert!(text.contains("starmeter detect"), "{text}");
 }

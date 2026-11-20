@@ -18,7 +18,7 @@ use starmeter_core::desktop::{self, Shell};
 use starmeter_core::host::{self, DesktopHost, Host, HostFailure};
 use starmeter_core::json::Json;
 use starmeter_core::runtime::{RANGES, Runtime, now};
-use starmeter_core::{VERSION, discovery};
+use starmeter_core::{VERSION, discovery, preferences};
 
 use report::Words;
 use text::{Paint, View};
@@ -30,6 +30,7 @@ pub enum Command {
     Overview,
     Usage,
     Quota,
+    Detect,
     Help,
     Version,
 }
@@ -42,6 +43,8 @@ pub struct Options {
     pub detail: bool,
     pub json: bool,
     pub refresh: bool,
+    /// detect: add what it finds without asking.
+    pub yes: bool,
     pub colour: String,
     /// zh or en when asked for; the system's language otherwise.
     pub language: Option<String>,
@@ -56,6 +59,7 @@ pub fn parse(arguments: &[String]) -> Result<Options, String> {
         detail: false,
         json: false,
         refresh: true,
+        yes: false,
         colour: "auto".into(),
         language: None,
     };
@@ -74,6 +78,8 @@ pub fn parse(arguments: &[String]) -> Result<Options, String> {
             "-V" | "--version" | "version" => command = Some(Command::Version),
             "usage" if command.is_none() => command = Some(Command::Usage),
             "quota" | "quotas" if command.is_none() => command = Some(Command::Quota),
+            "detect" if command.is_none() => command = Some(Command::Detect),
+            "-y" | "--yes" => options.yes = true,
             "-r" | "--range" => options.range = value("--range")?,
             "-g" | "--group" => options.group = value("--group")?,
             "-d" | "--detail" => options.detail = true,
@@ -116,6 +122,7 @@ Usage:
   starmeter [range] [options]          today's overview: Summary, each tool, plans and balances
   starmeter usage [range] [options]    usage: Summary, the trend, each tool (or model, or project)
   starmeter quota [options]            plans and APIs, with each limit and when it resets
+  starmeter detect [--yes]             find the tools on this computer and add new ones to the homepage
 
 Options:
   -r, --range {ranges}
@@ -127,6 +134,7 @@ Options:
       --color auto|always|never
       --lang zh|en     the language (default: the system's; STARMETER_LANG works too)
   -h, --help           this help
+  -y, --yes            detect: add without asking (your other choices stay)
   -V, --version        the version
 
 The settings, connections and caches are the Starmeter app's on this computer; the figures are the panel's.
@@ -140,6 +148,7 @@ The settings, connections and caches are the Starmeter app's on this computer; t
   starmeter [范围] [选项]          今天概览：Summary、各工具、订阅与额度
   starmeter usage [范围] [选项]    用量：Summary、趋势、各工具（或模型、项目）的明细
   starmeter quota [选项]           订阅与 API：每个额度窗口和重置时间
+  starmeter detect [--yes]         检测本机的工具，把新找到的加到主页
 
 选项：
   -r, --range {ranges}
@@ -151,6 +160,7 @@ The settings, connections and caches are the Starmeter app's on this computer; t
       --color auto|always|never
       --lang zh|en     语言（默认跟随系统；也可设 STARMETER_LANG）
   -h, --help           显示帮助
+  -y, --yes            detect：不再询问直接加入（已有的勾选不变）
   -V, --version        显示版本
 
 设置、连接和缓存与这台电脑上的 Starmeter App 共用，数字与面板一致。
@@ -227,12 +237,120 @@ fn runtime(base: HashMap<String, String>) -> Runtime {
     runtime
 }
 
-/// Everything one run shows, read the way the homepage reads it.
-fn read(runtime: &Runtime, options: &Options, words: Words) -> (report::Report, bool) {
-    // First run on this computer: the modules found here, as the app's first launch chooses them.
+/// First run on this computer: the modules found here, as the app's first launch chooses them.
+fn first_run(runtime: &Runtime) {
     if !Path::new(&format!("{}/preferences.json", runtime.state_dir)).exists() {
         discovery::initialize(&runtime.state_dir, &runtime.detected_modules());
     }
+}
+
+/// Asks on the terminal; anything but y or yes is no.
+fn confirm(question: &str) -> bool {
+    use std::io::{BufRead, IsTerminal};
+    if !std::io::stdin().is_terminal() {
+        return false;
+    }
+    print!("{question} [y/N] ");
+    let _ = std::io::stdout().flush();
+    let mut answer = String::new();
+    std::io::stdin().lock().read_line(&mut answer).is_ok()
+        && ["y", "yes"].contains(&answer.trim().to_lowercase().as_str())
+}
+
+/// starmeter detect: the modules found on this computer, those not on the homepage yet added when the user says so
+/// (or with --yes). Unlike the panel's 自动检测, which replaces the selection, nothing chosen is taken away.
+fn detect(runtime: &Runtime, options: &Options, words: Words, out: &mut impl Write) -> i32 {
+    first_run(runtime);
+    let state = Path::new(&runtime.state_dir);
+    let shown = |settings: &starmeter_core::json::Object| -> Vec<String> {
+        settings
+            .get("visible")
+            .and_then(Json::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|key| key.as_str().map(String::from))
+            .collect()
+    };
+    let homepage = shown(&preferences::read(state));
+    let found = runtime.detected_modules();
+    let new: Vec<String> = found.iter().filter(|key| !homepage.contains(key)).cloned().collect();
+    let label = |key: &str| {
+        preferences::MODULES.iter().find(|module| module.key == key).map_or(key.to_string(), |m| words.text(&m.label))
+    };
+    let list = |keys: &[String]| {
+        keys.iter().map(|key| label(key)).collect::<Vec<_>>().join(if words.english { ", " } else { "、" })
+    };
+    let add = !new.is_empty()
+        && (options.yes
+            || (!options.json
+                && confirm(&if words.english {
+                    format!("Add {} to the homepage?", list(&new))
+                } else {
+                    format!("把 {} 加到主页？", list(&new))
+                })));
+    let added = if add {
+        let mut chosen = homepage.clone();
+        chosen.extend(new.iter().cloned());
+        if let Err(error) = discovery::replace_selection(&runtime.state_dir, &chosen) {
+            eprintln!("starmeter: {error}");
+            return 1;
+        }
+        new.clone()
+    } else {
+        Vec::new()
+    };
+    if options.json {
+        let keys = |keys: &[String]| Json::Array(keys.iter().map(|key| Json::from(key.as_str())).collect());
+        let value = starmeter_core::object! {
+            "found" => keys(&found), "homepage" => keys(&shown(&preferences::read(state))), "new" => keys(&new),
+            "added" => keys(&added),
+        };
+        return emit(out, &(pretty(&Json::Object(value), 0) + "\n"), 0);
+    }
+    let mut lines = vec![if words.english {
+        "Starmeter · Tools on this computer".to_string()
+    } else {
+        "Starmeter · 检测本机工具".into()
+    }];
+    lines.push(String::new());
+    let listed: Vec<&preferences::Module> =
+        preferences::MODULES.iter().filter(|module| found.iter().any(|key| key == module.key)).collect();
+    let room = listed.iter().map(|module| terminal::width(&words.text(&module.label))).max().unwrap_or(0);
+    for module in listed {
+        let (mark, note) = if homepage.iter().any(|key| key == module.key) {
+            ("✓", words.own("已在主页", "on the homepage"))
+        } else if added.iter().any(|key| key == module.key) {
+            ("+", words.own("已加到主页", "added to the homepage"))
+        } else {
+            ("+", words.own("新找到，未在主页", "found, not on the homepage"))
+        };
+        lines.push(format!("  {mark} {}  {note}", terminal::pad(&words.text(&module.label), room, false)));
+    }
+    lines.push(String::new());
+    lines.push(
+        if new.is_empty() {
+            words.own(
+                "这台电脑上找到的工具都已在主页。",
+                "Everything found on this computer is on the homepage already.",
+            )
+        } else if added.is_empty() {
+            words.own(
+                "加 --yes 把新找到的加到主页；已有的勾选不会改动。",
+                "Add --yes to put the new ones on the homepage; nothing you chose is changed.",
+            )
+        } else {
+            words.own("已有的勾选没有改动。", "Nothing you chose before was changed.")
+        }
+        .to_string(),
+    );
+    let text =
+        lines.iter().map(|line| text::wrap_line(line, terminal::columns())).collect::<Vec<_>>().join("\n") + "\n";
+    emit(out, &text, 0)
+}
+
+/// Everything one run shows, read the way the homepage reads it.
+fn read(runtime: &Runtime, options: &Options, words: Words) -> (report::Report, bool) {
+    first_run(runtime);
     if options.refresh {
         runtime.refresh_quotas(true);
     }
@@ -303,6 +421,7 @@ pub fn main(arguments: &[String]) -> i32 {
     let mut out = std::io::stdout().lock();
     match options.command {
         Command::Help => return emit(&mut out, &help(words), 0),
+        Command::Detect => return detect(&runtime(std::env::vars().collect()), &options, words, &mut out),
         Command::Version => return emit(&mut out, &format!("starmeter {VERSION}\n"), 0),
         _ => {}
     }
