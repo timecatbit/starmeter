@@ -253,23 +253,54 @@
 
       const x = (t: number) => plot.x + ((t - start) / span) * plot.w;
       const clamped = (value: number) => bottom - Math.min(1.08, Math.max(0, (value - range.lo) / range.height)) * plot.h;
-      // A line's height from a sample: the total where it stands; a tool's line from where the total stood at the
-      // window's left edge, up by what that tool added.
       // (Only drawn with a first reading: Token/s alone goes on without one, along zero.)
-      const level = (id: string | null, sample: Sample) => (id ? feed.value(base!) + (sample.parts[id] ?? 0) - (base!.parts[id] ?? 0) : feed.value(sample));
+      const added = (id: string, sample: Sample) => (sample.parts[id] ?? 0) - (base!.parts[id] ?? 0);
+      // The tools stacked from where the total stood at the window's left edge, the one that added most at the bottom:
+      // each a band as thick as what it added, so one tool rising far past the others hides none of them (as lines
+      // from the same start they lay under the total's line or flat along the bottom). The top is the total.
+      const stack = base ? order.filter((id) => points.some((s) => added(id, s) > 0)) : [];
+      const newestPoint = points.at(-1);
+      if (newestPoint) stack.sort((a, b) => added(b, newestPoint) - added(a, newestPoint));
+      const level = (id: string | null, sample: Sample) => {
+        if (id === null) return feed.value(sample);
+        let sum = feed.value(base!);
+        for (const below of stack) { sum += added(below, sample); if (below === id) break; }
+        return sum;
+      };
+      type Step = { kind: 'line'; to: [number, number] } | { kind: 'curve'; c1: [number, number]; c2: [number, number]; to: [number, number] };
       // Steps: a line holds its value until the next reading, then rises to it.
-      const path = (id: string | null) => {
-        let previous = level(id, base!);
-        ctx.beginPath(); ctx.moveTo(plot.x, clamped(previous));
+      const steps = (valueOf: (sample: Sample) => number): { from: [number, number]; steps: Step[] } => {
+        let previous = valueOf(base!);
+        const from: [number, number] = [plot.x, clamped(previous)];
+        const out: Step[] = [];
         for (const s of points) {
-          const next = level(id, s);
+          const next = valueOf(s);
           if (next !== previous) {
-            ctx.lineTo(x(s.at) - 6, clamped(previous));
-            ctx.bezierCurveTo(x(s.at) - 3, clamped(previous), x(s.at) - 3, clamped(next), x(s.at), clamped(next));
+            out.push({ kind: 'line', to: [x(s.at) - 6, clamped(previous)] });
+            out.push({ kind: 'curve', c1: [x(s.at) - 3, clamped(previous)], c2: [x(s.at) - 3, clamped(next)], to: [x(s.at), clamped(next)] });
           }
           previous = next;
         }
-        ctx.lineTo(plot.x + plot.w, clamped(previous));
+        out.push({ kind: 'line', to: [plot.x + plot.w, clamped(previous)] });
+        return { from, steps: out };
+      };
+      const forward = (line: ReturnType<typeof steps>) => {
+        for (const step of line.steps) {
+          if (step.kind === 'line') ctx.lineTo(...step.to);
+          else ctx.bezierCurveTo(...step.c1, ...step.c2, ...step.to);
+        }
+      };
+      // The same steps walked back from the right end to the left.
+      const backward = (line: ReturnType<typeof steps>) => {
+        for (let i = line.steps.length - 1; i >= 0; i--) {
+          const step = line.steps[i], to = i > 0 ? line.steps[i - 1].to : line.from;
+          if (step.kind === 'line') ctx.lineTo(...to);
+          else ctx.bezierCurveTo(...step.c2, ...step.c1, ...to);
+        }
+      };
+      const path = (id: string | null) => {
+        const line = steps((s) => level(id, s));
+        ctx.beginPath(); ctx.moveTo(...line.from); forward(line);
       };
       const rateTip = rates.at(-1);
       if (rating && reach > 0.001) {
@@ -298,7 +329,17 @@
         const fill = ctx.createLinearGradient(0, plot.y, 0, bottom);
         fill.addColorStop(0, alpha(total, dark ? 0.28 : 0.18)); fill.addColorStop(1, alpha(total, 0));
         ctx.fillStyle = fill; ctx.fill();
-        for (const id of order) { path(id); ctx.lineWidth = 1.1; ctx.lineJoin = 'round'; ctx.strokeStyle = alpha(accent(id, dark), 0.85); ctx.stroke(); }
+        // Each tool's band, from the top of the one below it to its own top, then its edge.
+        let below = steps(() => feed.value(base!));
+        for (const id of stack) {
+          const top = steps((s) => level(id, s));
+          ctx.beginPath(); ctx.moveTo(...top.from); forward(top);
+          ctx.lineTo(...below.steps.at(-1)!.to); backward(below); ctx.closePath();
+          ctx.fillStyle = alpha(accent(id, dark), dark ? 0.32 : 0.26); ctx.fill();
+          ctx.beginPath(); ctx.moveTo(...top.from); forward(top);
+          ctx.lineWidth = 1; ctx.lineJoin = 'round'; ctx.strokeStyle = alpha(accent(id, dark), 0.9); ctx.stroke();
+          below = top;
+        }
         path(null); ctx.lineWidth = 1.8; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.strokeStyle = total; ctx.stroke();
         ctx.restore();
       }
