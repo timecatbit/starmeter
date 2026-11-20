@@ -60,6 +60,8 @@
   let sharing = $state(false);
   /** 在手机上看: its page, over whatever opened it. */
   let phoneOpen = $state(false);
+  /** On a phone: why the figures on screen are not fresh, until a reading comes through. */
+  let phoneProblem = $state<string | null>(null);
   /** A tool's page, opened from its card: its usage and its settings. */
   let toolId = $state<string | null>(null);
   const tool = $derived(toolId ? snapshot?.dashboard?.providers.find((p) => p.id === toolId) ?? null : null);
@@ -305,7 +307,10 @@
     if (panel.menuOpen || pressing) { deferred = true; return; }
     try {
       interaction.source = await backend.snapshot();
+      phoneProblem = null;
     } catch (error) {
+      // On a phone a computer out of reach is said on the page, not only in the console.
+      if (onPhone) { phoneProblem = error instanceof Error ? error.message : String(error); return; }
       console.error('snapshot failed', error);
       return;
     }
@@ -645,6 +650,9 @@
       {/if}
     </div>
   {/key}
+  {#if onPhone && phoneProblem}
+    <p class="phone-problem" role="status">{t(phoneProblem)}</p>
+  {/if}
   {#if hint}
     <span class="hint-bubble" role="tooltip" style:left="{hint.left}px" style:top="{hint.top}px">{hint.text}</span>
   {/if}
@@ -758,5 +766,19 @@
     font-size: 11px;
     white-space: nowrap;
     pointer-events: none;
+  }
+  .phone-problem {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    margin: 0;
+    padding: 9px 12px;
+    border-radius: 10px;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--label);
+    background: color-mix(in srgb, var(--orange) 22%, var(--solid));
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
   }
 </style>

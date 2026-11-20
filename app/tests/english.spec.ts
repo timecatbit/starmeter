@@ -2,6 +2,7 @@
 // screen reader hears and the words drawn on the charts and share pictures all count. A failure lists what en.ts is
 // missing.
 import { expect, test, type Page } from '@playwright/test';
+import { PHONE_KEY, servePhone, sessionTitles } from './phone';
 
 // Every page, one after another: longer than a test usually takes.
 test.describe.configure({ timeout: 120_000 });
@@ -130,6 +131,23 @@ test('English: the phone view and its public link', async ({ page }) => {
   await expect(page.locator('.phone-page .address')).toContainText('trycloudflare');
   await left.take(page, 'phone › public on');
   expect(left.list).toEqual([]);
+});
+
+test('English: on the phone, the homepage, its sessions and the share page', async ({ page }) => {
+  const left = new Leftovers();
+  await servePhone(page);
+  await english(page, '#k=' + PHONE_KEY + '&l=en');
+  await expect(page.locator('.window.phone')).toBeVisible();
+  await left.take(page, 'phone');
+  await page.getByRole('radio', { name: 'Sessions' }).click();
+  await left.take(page, 'phone › sessions');
+  await page.getByRole('button', { name: 'Share usage picture', exact: true }).click();
+  await expect(page.locator('.share-page .frame img')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save picture' })).toBeVisible();
+  await left.take(page, 'phone › share');
+  // Session titles are the user's own words, never translated.
+  const titles = new Set(sessionTitles());
+  expect(left.list.filter((line) => !titles.has(line.replace(/^.*?: /, '')))).toEqual([]);
 });
 
 test('English: the module grid and every module\'s settings', async ({ page }) => {

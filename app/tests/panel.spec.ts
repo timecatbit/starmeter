@@ -2,6 +2,7 @@
 // up before anyone opens the app.
 import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
+import { PHONE_KEY, servePhone } from './phone';
 
 const errors: string[] = [];
 test.beforeEach(({ page }) => {
@@ -419,34 +420,14 @@ test('在手机上看 the first time says cloudflared is downloaded first', asyn
 });
 
 test('on the phone: the homepage read-only, its figures asked for with the key, a range of its own', async ({ page }) => {
-  const fixture = JSON.parse(readFileSync(new URL('../ui/fixtures/default.json', import.meta.url), 'utf8'));
-  const key = '0123456789abcdef0123456789abcdef';
-  const asked: string[] = [];
-  await page.route('**/api/**', async (route) => {
-    const request = route.request();
-    if (request.headers()['x-starmeter-key'] !== key) return route.fulfill({ status: 403, body: 'key needed' });
-    const url = new URL(request.url());
-    asked.push(url.pathname + url.search);
-    const range = url.searchParams.get('range') ?? 'today';
-    const snapshot = { ...fixture.snapshot, dashboard: fixture.dashboards[range], moduleOptions: [],
-      // As phone.rs sends them: 会话 keeps its sessions and its mark, the rest their rows only.
-      entries: fixture.snapshot.entries.map((e: { children: { action?: string[]; separator?: boolean }[]; onOpenAction?: string[] }) =>
-        e.onOpenAction?.[1] === 'sessions'
-          ? { ...e, children: e.children.filter((c) => !c.action).filter((c, i, all) => !(c.separator && i === all.length - 1)) }
-          : { ...e, children: [], onOpenAction: undefined }),
-      rangeOptions: fixture.snapshot.rangeOptions.map((o: { action: string[] }) => ({ ...o, checked: o.action[1] === range })) };
-    // The fixtures name their logos; the app sends the files themselves: a blank one stands in.
-    const body = JSON.stringify(url.pathname.endsWith('dashboard') ? fixture.dashboards[range] : snapshot)
-      .replace(/"logo:[^"]*"/g, JSON.stringify(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>').toString('base64')));
-    return route.fulfill({ contentType: 'application/json', body });
-  });
-  await page.goto('/#k=' + key);
+  const asked = await servePhone(page);
+  await page.goto('/#k=' + PHONE_KEY);
   await expect(page.locator('.dashboard')).toBeVisible();
   await expect(page.locator('.window.phone')).toBeVisible();
-  // No pin, settings or share on the phone; the range is there.
+  // No pin or settings on the phone; the range and share are there.
   await expect(button(page, '钉住面板')).toHaveCount(0);
   await expect(button(page, '主页模块与设置')).toHaveCount(0);
-  await expect(button(page, '分享用量图')).toHaveCount(0);
+  await expect(button(page, '分享用量图')).toBeVisible();
   await expect(page.locator('.card').first()).toBeVisible();
   // The rows read as they do on the computer, their usage bars too, and don't open: their insides stay there.
   const plan = page.locator('button.row', { hasText: 'Claude 订阅' });
@@ -464,6 +445,47 @@ test('on the phone: the homepage read-only, its figures asked for with the key, 
   await page.getByRole('option', { name: '近 7 天' }).click();
   await expect.poll(() => asked.some((path) => path.includes('range=7d'))).toBe(true);
   await expect(page.getByRole('button', { name: /^统计范围/ })).toContainText('近 7 天');
+  // The share picture on the phone: drawn from the phone's own range, saved as a download (the browser's way).
+  await button(page, '分享用量图').click();
+  await expect(page.locator('.share-page .title')).toHaveText('分享用量图近 7 天');
+  await expect(page.locator('.share-page .frame img')).toBeVisible();
+  await expect(page.getByText('长按左边的图也能存到相册')).toBeVisible();
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: '保存图片' }).click();
+  expect((await download).suggestedFilename()).toMatch(/^Starmeter .+ 卡片\.png$/);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.dashboard')).toBeVisible();
+});
+
+test('on the phone: one reading at a time, and a computer out of reach or a stale link said at the foot', async ({ page }) => {
+  const asked = await servePhone(page);
+  await page.goto('/#k=' + PHONE_KEY);
+  await expect(page.locator('.dashboard')).toBeVisible();
+  // A slow computer: asking again while a reading is on its way sends nothing more.
+  let slow = 0;
+  await page.route('**/api/snapshot**', async (route) => { slow++; await new Promise((r) => setTimeout(r, 1500)); await route.fallback(); });
+  const before = asked.length;
+  for (let i = 0; i < 4; i++) await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await expect.poll(() => asked.length).toBe(before + 1);
+  expect(slow).toBe(1);
+  await page.unroute('**/api/snapshot**');
+  // Out of reach: said at the foot, the figures on screen kept.
+  await page.route('**/api/snapshot**', (route) => route.abort('connectionrefused'));
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await expect(page.locator('.phone-problem')).toContainText('连不上电脑');
+  await expect(page.locator('.card').first()).toBeVisible();
+  await page.unroute('**/api/snapshot**');
+  // A key the computer no longer has: scan again.
+  await page.route('**/api/snapshot**', (route) => route.fulfill({ status: 403, body: 'key needed' }));
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await expect(page.locator('.phone-problem')).toContainText('链接已失效');
+  await page.unroute('**/api/snapshot**');
+  // Back in reach: the line goes.
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await expect(page.locator('.phone-problem')).toHaveCount(0);
+  // The browser logs the refused requests itself; nothing else may have gone wrong.
+  const expected = (line: string) => /Failed to load resource|Could not connect/.test(line);
+  errors.splice(0, errors.length, ...errors.filter((line) => !expected(line)));
 });
 
 test('a folded card unfolds where it is, and its arrow opens the tool', async ({ page }) => {

@@ -5,7 +5,8 @@
   // reader.
   import { onDestroy, untrack } from 'svelte';
   import { t } from '../lib/i18n.svelte';
-  import { inTauri, shell } from '../lib/backend';
+  import { inTauri, onPhone, shell } from '../lib/backend';
+  import * as web from '../lib/webShare';
   import { renderPicture, shareStyles, type Picture, type ShareStyle } from '../lib/share';
   import { SCALE } from '../lib/shareCommon';
   import { SHARE_TOOLS, SHARE_TOOLS_MOST } from '../lib/sharePoster';
@@ -58,6 +59,9 @@
   let resultTimer: ReturnType<typeof setTimeout> | undefined;
   let shareButton: HTMLButtonElement | undefined = $state();
   const mac = typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac');
+  // A phone's browser: copying and the share sheet only on a secure page (the public link), saving always.
+  const canCopy = !onPhone || web.canCopyPicture();
+  const canShare = onPhone ? web.canSharePicture() : mac && inTauri;
 
   // Each style drawn once per range, light or dark and number of tools, then kept while the page is open.
   $effect(() => {
@@ -111,22 +115,24 @@
   async function copy() {
     if (!picture || busy) return;
     busy = 'copy';
-    const ok = await shell.copyPicture(picture.png).catch(() => false);
+    const ok = onPhone ? await web.copyPicture(picture.png) : await shell.copyPicture(picture.png).catch(() => false);
     busy = null;
     settle('copy', ok);
   }
   async function save() {
     if (!picture || busy) return;
     busy = 'save';
-    const ok = await shell.savePicture(picture.png, fileName).catch(() => false);
+    const ok = onPhone ? web.savePicture(picture.png, fileName) : await shell.savePicture(picture.png, fileName).catch(() => false);
     busy = null;
-    if (ok) settle('save', true);
+    // On a phone the browser shows the download itself, and the reader may still turn it down.
+    if (ok && !onPhone) settle('save', true);
   }
   async function share() {
     if (!picture || busy || !shareButton) return;
     busy = 'share';
     const box = shareButton.getBoundingClientRect();
-    await shell.sharePicture(picture.png, fileName, { x: box.left, y: box.top, width: box.width, height: box.height }).catch(() => {});
+    if (onPhone) await web.sharePicture(picture.png, fileName);
+    else await shell.sharePicture(picture.png, fileName, { x: box.left, y: box.top, width: box.width, height: box.height }).catch(() => {});
     busy = null;
   }
   function pickMode(next: 'light' | 'dark') {
@@ -192,14 +198,23 @@
           <div class="spacer"></div>
           <div class="foot" bind:this={footBox}>
           {#if picture}<p class="size">{Math.round(picture.width * SCALE)} × {Math.round(picture.height * SCALE)} {t('像素')} · PNG</p>{/if}
+          {#if onPhone}<p class="size">{t('长按左边的图也能存到相册')}</p>{/if}
           <div class="actions">
-            <button class="action primary pressable" class:done={copied === '已复制'} class:failed={copied === '复制失败'} disabled={!picture} onclick={copy}>
-              <Icon name={copied === '已复制' ? 'checkmark' : 'doc.on.doc'} size={14} system />{t(copied ?? '复制图片')}
+            <!-- On a phone the share sheet comes first: it is how a picture reaches a chat there. -->
+            {#if onPhone && canShare}
+              <button class="action primary pressable" bind:this={shareButton} disabled={!picture} onclick={share}>
+                <Icon name="square.and.arrow.up" size={14} system />{t('分享…')}
+              </button>
+            {/if}
+            {#if canCopy}
+              <button class="action pressable" class:primary={!onPhone || !canShare} class:done={copied === '已复制'} class:failed={copied === '复制失败'} disabled={!picture} onclick={copy}>
+                <Icon name={copied === '已复制' ? 'checkmark' : 'doc.on.doc'} size={14} system />{t(copied ?? '复制图片')}
+              </button>
+            {/if}
+            <button class="action pressable" class:primary={onPhone && !canShare && !canCopy} class:done={!!saved} disabled={!picture} onclick={save}>
+              <Icon name={saved ? 'checkmark' : 'square.and.arrow.down'} size={14} system />{t(saved ?? (onPhone ? '保存图片' : '保存…'))}
             </button>
-            <button class="action pressable" class:done={!!saved} disabled={!picture} onclick={save}>
-              <Icon name={saved ? 'checkmark' : 'square.and.arrow.down'} size={14} system />{t(saved ?? '保存…')}
-            </button>
-            {#if mac && inTauri}
+            {#if !onPhone && canShare}
               <button class="action pressable" bind:this={shareButton} disabled={!picture} onclick={share}>
                 <Icon name="square.and.arrow.up" size={14} system />{t('分享…')}
               </button>

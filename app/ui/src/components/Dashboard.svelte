@@ -138,19 +138,20 @@
 <div class="dashboard" style:width="{inner}px" style:height="{total}px">
   <div class="summary" style:height="{summaryHeight}px">
     <div class="grip" class:movable={panel.pinned} onpointerdown={grab} aria-hidden="true"></div>
-    <h1 class="heading" style:width="{leftmost - 6 - 12}px"><span class="brand" aria-hidden="true">{@html mark}</span>Starmeter</h1>
+    <h1 class="heading" style:width="{(readonly ? firstButton : leftmost) - 6 - 12}px"><span class="brand" aria-hidden="true">{@html mark}</span>Starmeter</h1>
     <div class="buttons">
+      <!-- The pin first, then settings and share; on a Mac the symbols are the system's own. A phone shares, and
+           neither pins nor changes settings. -->
       {#if !readonly}
-      <!-- The pin first, then settings and share; on a Mac the symbols are the system's own. -->
       <span class="slot" style:left="{leftmost}px">
         <HintButton icon={pinned ? 'pin.fill' : 'pin'} system hint={pinned ? t('取消钉住') : t('钉住，每 {n} 秒刷新', { n: pinInterval })} label={pinned ? t('取消钉住面板') : t('钉住面板')}
           onclick={onpin} on={pinned} />
       </span>
       <span class="slot" style:left="{firstButton - 32}px"><HintButton icon="gearshape" system hint={t('主页模块与设置')} label={t('主页模块与设置')} onclick={onsettings} /></span>
+      {/if}
       <span class="slot" style:left="{firstButton}px">
         <HintButton icon="square.and.arrow.up" system hint={t('分享用量图')} label={t('分享用量图')} onclick={onshare} />
       </span>
-      {/if}
       <span class="picker" style:left="{pickerX}px" style:width="{pickerWidth}px">
         <Dropdown label={t('统计范围')} value={chosen} options={rangeOptions.map((o) => ({ value: o.action?.[1] ?? '', label: o.label }))} onpick={pickRange} />
       </span>

@@ -9,14 +9,33 @@ let range: string | null = null;
 const listeners = new Set<() => void>();
 const tell = () => listeners.forEach((changed) => changed());
 
+/** Why the phone has no fresh figures: the key is no longer the server's, or the computer can't be reached. */
+export class PhoneProblem extends Error {}
+
 async function get<T>(path: string): Promise<T> {
-  const answer = await fetch(path, { headers: { 'X-Starmeter-Key': key }, cache: 'no-store' });
-  if (!answer.ok) throw new Error(answer.status === 403 ? '链接已失效' : `HTTP ${answer.status}`);
+  let answer: Response;
+  try {
+    answer = await fetch(path, { headers: { 'X-Starmeter-Key': key }, cache: 'no-store', signal: AbortSignal.timeout(12_000) });
+  } catch {
+    throw new PhoneProblem('连不上电脑：电脑可能睡着了、换了网络，或者已经停止手机查看');
+  }
+  if (answer.status === 403) throw new PhoneProblem('链接已失效：在电脑上重新打开“在手机上看”，再扫一次码');
+  if (!answer.ok) throw new PhoneProblem(`电脑没有给出数字（HTTP ${answer.status}）`);
   return answer.json() as Promise<T>;
 }
 
-export const snapshot = () => get<Snapshot>('/api/snapshot' + (range ? `?range=${encodeURIComponent(range)}` : ''));
-export const dashboard = (asked: string) => get<Dashboard>(`/api/dashboard?range=${encodeURIComponent(asked)}`);
+/** The reading on its way, if any: another ask for the same one waits for it instead of sending a second. */
+const pending = new Map<string, Promise<unknown>>();
+function once<T>(path: string): Promise<T> {
+  const known = pending.get(path) as Promise<T> | undefined;
+  if (known) return known;
+  const asked = get<T>(path).finally(() => pending.delete(path));
+  pending.set(path, asked);
+  return asked;
+}
+
+export const snapshot = () => once<Snapshot>('/api/snapshot' + (range ? `?range=${encodeURIComponent(range)}` : ''));
+export const dashboard = (asked: string) => once<Dashboard>(`/api/dashboard?range=${encodeURIComponent(asked)}`);
 
 export async function action(asked: string[]): Promise<ActionReceipt> {
   if (asked[0] === 'set-range' && asked[1]) {
