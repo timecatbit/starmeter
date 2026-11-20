@@ -438,16 +438,28 @@ impl DesktopHost for AppHost {
         }
     }
 
-    /// The CLI's own update in a terminal tab, with its log, as 5.x ran it.
+    /// The CLI's own update in a terminal, with its log, as 5.x ran it: a Terminal tab on macOS, a terminal window on
+    /// Linux, a console window on Windows (the updater's own output there, without the log).
     fn update_cli(&self, binary: &str, key: &str) {
-        let zone = jiff::tz::TimeZone::system();
-        match terminal_jobs::update_command(binary, key, &self.state, None, &zone) {
-            Ok(command) => {
-                if let Err(failure) = terminal_jobs::launch(&command, "", &self.state) {
-                    self.error("无法打开终端", &failure.0);
+        #[cfg(windows)]
+        if let Err(failure) = terminal_jobs::launch_windows(binary, key, &self.state) {
+            self.error("无法打开命令提示符", &failure.0);
+        }
+        #[cfg(not(windows))]
+        {
+            let zone = jiff::tz::TimeZone::system();
+            match terminal_jobs::update_command(binary, key, &self.state, None, &zone) {
+                Ok(command) => {
+                    #[cfg(target_os = "macos")]
+                    let launched = terminal_jobs::launch(&command, "", &self.state);
+                    #[cfg(not(target_os = "macos"))]
+                    let launched = terminal_jobs::launch_linux(&command, &self.state);
+                    if let Err(failure) = launched {
+                        self.error("无法打开终端", &failure.0);
+                    }
                 }
+                Err(failure) => self.error("无法开始更新", &failure.0),
             }
-            Err(failure) => self.error("无法开始更新", &failure.0),
         }
     }
 

@@ -788,18 +788,7 @@ pub mod terminal_jobs {
         if status.success() {
             return Ok("direct");
         }
-        let root = format!("{state}/terminal-jobs");
-        files::make_directory(Path::new(&root), 0o700).map_err(|error| HostFailure(error.to_string()))?;
-        for path in listing(&root, |name| name.ends_with(".command")).iter().skip(19) {
-            if !is_link(path) {
-                let _ = std::fs::remove_file(path);
-            }
-        }
-        let name = format!("{root}/starmeter-{}.command", runtime::random_hex(12));
-        if !create_exclusively(&name, format!("#!/bin/bash\n{}", bootstrap(command)).as_bytes()) {
-            return Err(HostFailure("无法写入终端命令".into()));
-        }
-        platform::set_mode(Path::new(&name), 0o700);
+        let name = job_file(state, "command", &format!("#!/bin/bash\n{}", bootstrap(command)))?;
         let mut opened = shell::run(&["/usr/bin/open", "-a", app, &name], 10.0, None, None).is_some();
         if !opened && app != "Terminal" {
             opened = shell::run(&["/usr/bin/open", "-a", "Terminal", &name], 10.0, None, None).is_some();
@@ -808,6 +797,86 @@ pub mod terminal_jobs {
             return Err(HostFailure("无法打开终端，请检查 SwiftBar 的终端设置".into()));
         }
         Ok("file")
+    }
+
+    /// A script of its own in terminal-jobs for a terminal to run, the newest twenty of its kind kept, for its owner only.
+    fn job_file(state: &str, extension: &str, text: &str) -> Result<String, HostFailure> {
+        let root = format!("{state}/terminal-jobs");
+        files::make_directory(Path::new(&root), 0o700).map_err(|error| HostFailure(error.to_string()))?;
+        let suffix = format!(".{extension}");
+        for path in listing(&root, |name| name.ends_with(&suffix)).iter().skip(19) {
+            if !is_link(path) {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+        let name = format!("{root}/starmeter-{}{suffix}", runtime::random_hex(12));
+        if !create_exclusively(&name, text.as_bytes()) {
+            return Err(HostFailure("无法写入终端命令".into()));
+        }
+        platform::set_mode(Path::new(&name), 0o700);
+        Ok(name)
+    }
+
+    /// The program of this name on the PATH, if any.
+    pub fn on_path(name: &str) -> Option<std::path::PathBuf> {
+        std::env::split_paths(&std::env::var_os("PATH")?).map(|folder| folder.join(name)).find(|path| path.is_file())
+    }
+
+    /// The terminals tried on Linux, with what each wants before the command it runs: the desktop's own choice first
+    /// (x-terminal-emulator on Debian and Ubuntu), then the common ones.
+    pub const LINUX_TERMINALS: [(&str, &[&str]); 10] = [
+        ("x-terminal-emulator", &["-e"]),
+        ("gnome-terminal", &["--"]),
+        ("konsole", &["-e"]),
+        ("xfce4-terminal", &["-x"]),
+        ("mate-terminal", &["-x"]),
+        ("tilix", &["-e"]),
+        ("kitty", &[]),
+        ("alacritty", &["-e"]),
+        ("foot", &[]),
+        ("xterm", &["-e"]),
+    ];
+
+    /// Linux: the command in a new terminal window, from a script of its own, by the first terminal found. None found,
+    /// the reason says what to install.
+    pub fn launch_linux(command: &str, state: &str) -> Result<&'static str, HostFailure> {
+        let Some((program, flags)) =
+            LINUX_TERMINALS.iter().find_map(|(name, flags)| on_path(name).map(|path| (path, *flags)))
+        else {
+            return Err(HostFailure("没有找到终端程序（如 GNOME 终端、Konsole 或 xterm），装一个后再试".into()));
+        };
+        let script = job_file(state, "sh", &format!("#!/bin/bash\n{}", bootstrap(command)))?;
+        let mut child = std::process::Command::new(&program)
+            .args(flags)
+            .args(["/bin/bash", &script])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map_err(|error| HostFailure(format!("无法打开终端：{error}")))?;
+        // The terminal may hand the window to a server of its own and end at once; it is waited for either way.
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
+        Ok("file")
+    }
+
+    /// Windows: the CLI's own update in a new console window, left open after it so its output can be read. The
+    /// script is ASCII: a console reads a .cmd in its own code page. `call` comes back after an npm .cmd shim.
+    pub fn launch_windows(binary: &str, key: &str, state: &str) -> Result<&'static str, HostFailure> {
+        let label = cli_name(key).ok_or_else(|| HostFailure("invalid CLI".into()))?;
+        let text = format!(
+            "@echo off\r\ntitle Starmeter: {label} update\r\necho $ \"{binary}\" update\r\ncall \"{binary}\" update\r\necho.\r\npause\r\n"
+        );
+        let script = job_file(state, "cmd", &text)?;
+        std::process::Command::new("cmd")
+            .args(["/c", "start", "", &script])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map(|_| "file")
+            .map_err(|error| HostFailure(format!("无法打开命令提示符：{error}")))
     }
 
     pub fn latest_log(state: &str, keys: &[String]) -> Option<String> {
