@@ -165,16 +165,10 @@ pub fn gateway_requests(path: &Path, cache: &Path, start: f64, end: f64, kind: &
 
 /// The first line of a file (up to 4096 bytes, with its newline), as the gateway index compares it.
 fn first_line(path: &Path) -> Option<Vec<u8>> {
-    use std::io::Read;
-    let mut file = std::fs::File::open(path).ok()?;
+    use std::io::{BufRead, Read};
+    let file = std::fs::File::open(path).ok()?;
     let mut first = Vec::new();
-    let mut byte = [0u8; 1];
-    while first.len() < 4096 && file.read(&mut byte).ok()? == 1 {
-        first.push(byte[0]);
-        if byte[0] == b'\n' {
-            break;
-        }
-    }
+    std::io::BufReader::new(file.take(4096)).read_until(b'\n', &mut first).ok()?;
     Some(first)
 }
 

@@ -111,16 +111,12 @@ pub fn codex_thread(path: &str) -> Option<String> {
     stem.get(stem.len().checked_sub(36)?..).filter(|thread| uuid(thread)).map(String::from)
 }
 
+/// A file's first line (up to TAIL bytes), read through a buffer: a session's first line can be long.
 fn first_row(path: &str) -> Result<Json, FileError> {
-    let mut file = File::open(path).map_err(|_| FileError::of_kind("unreadable", "OSError"))?;
+    use std::io::BufRead;
+    let file = File::open(path).map_err(|_| FileError::of_kind("unreadable", "OSError"))?;
     let mut line = Vec::new();
-    let mut byte = [0u8; 1];
-    while line.len() < TAIL && file.read(&mut byte).unwrap_or(0) == 1 {
-        line.push(byte[0]);
-        if byte[0] == b'\n' {
-            break;
-        }
-    }
+    let _ = std::io::BufReader::new(file.take(TAIL as u64)).read_until(b'\n', &mut line);
     Ok(Json::parse(&line).unwrap_or(Json::Object(Object::new())))
 }
 
