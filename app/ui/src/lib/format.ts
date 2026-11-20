@@ -77,7 +77,7 @@ export function summaryPart(p: ProviderUsage): ProviderUsage | null {
   if (p.summaryIncluded === false) return null;
   const c = p.counted;
   if (!c) return p;
-  return { ...p, cost: c.cost, tokens: c.tokens, requests: c.requests, unpriced: c.unpriced, cache: c.cache, history: c.history };
+  return { ...p, cost: c.cost, tokens: c.tokens, requests: c.requests, unpriced: c.unpriced, cache: c.cache, cacheInputs: c.cacheInputs, history: c.history };
 }
 
 /** The counts line, longest first: a card that can't fit it rounds the cache share, drops output, then sessions. */

@@ -100,7 +100,10 @@ export async function poster(d: Dashboard, markColour: string, limit = SHARE_TOO
   const sumTokens = counted.reduce((s, p) => s + p.tokens, 0);
   const costs = counted.map((p) => p.cost).filter((c): c is number => c !== null), sumCost = costs.reduce((a, b) => a + b, 0);
   const partial = counted.some((p) => p.cost === null || p.unpriced > 0);
-  const cached = counted.filter((p) => p.cache !== null), weight = cached.reduce((s, p) => s + p.tokens, 0);
+  // Every tool's cache reads over every tool's cache-eligible input (each share weighed by its own input, not by its
+  // tokens: a tool writing a lot would otherwise outweigh the rest).
+  const cached = counted.filter((p) => p.cache !== null), inputOf = (p: ProviderUsage) => p.cacheInputs ?? p.tokens;
+  const weight = cached.reduce((s, p) => s + inputOf(p), 0);
 
   // The tools that used the most (the larger of their share of the tokens and of the estimate) keep their rows, in
   // the homepage's order (the costliest first), tagged ones too; the rest fold into 其他工具 with what Summary counts of them. One that Summary
@@ -156,7 +159,7 @@ export async function poster(d: Dashboard, markColour: string, limit = SHARE_TOO
     cost: costs.length ? amount(sumCost) : { symbol: currency.symbol, figure: '—' },
     tokens: counted.length ? tokens(sumTokens) : '—',
     requests: counted.length ? counted.reduce((s, p) => s + p.requests, 0).toLocaleString('en-US') : '—',
-    cache: weight > 0 ? ((cached.reduce((s, p) => s + (p.cache ?? 0) * p.tokens, 0) / weight) * 100).toFixed(1) + '%' : '—',
+    cache: weight > 0 ? ((cached.reduce((s, p) => s + (p.cache ?? 0) * inputOf(p), 0) / weight) * 100).toFixed(1) + '%' : '—',
     chart, tools, marks, star,
   };
 }

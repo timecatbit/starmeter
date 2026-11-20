@@ -49,6 +49,8 @@ export interface CountedUsage {
   requests: number;
   unpriced: number;
   cache: number | null;
+  /** The cache-eligible input the share is of. */
+  cacheInputs?: number;
   history: number[];
 }
 
@@ -68,6 +70,8 @@ export interface ProviderUsage {
   requests: number;
   output: number;
   cache: number | null;
+  /** The cache-eligible input the share is of (from the engine; tests may leave it out). */
+  cacheInputs?: number;
   coverage: number | null;
   sessions: number;
   unpriced: number;

@@ -3889,7 +3889,7 @@ def dashboard_payload(data):
         elif unpriced>=requests and requests and not credits:status='费用待定价'
         return {'id':pid,'name':label,**module_icon(pid),'subtitle':subtitle,'status':status,'available':available,'credits':credits or None,'clients':client_rows(usage.get('clients')) or None,
                 'cost':cost,'tokens':total,'requests':requests,'output':number(summary.get('outputTokens')),
-                'cache':min(1,cache/inputs) if inputs else None,'coverage':number(summary.get('coverageRatio')) if summary.get('coverageRatio') is not None else None,
+                'cache':min(1,cache/inputs) if inputs else None,'cacheInputs':inputs,'coverage':number(summary.get('coverageRatio')) if summary.get('coverageRatio') is not None else None,
                 'sessions':int(number(summary.get('sessions'))),'unpriced':unpriced,'models':model_rows,'history':history,
                 # Some requests unpriced: the cost covers only the rest, which the card says beside it. All unpriced
                 # already reads 费用待定价; OpenCodex shows its 已定价 share instead.
@@ -3912,7 +3912,7 @@ def dashboard_payload(data):
             p['summaryIncluded']=True
             if carried:
                 part=provider(source,label,part['counted'],'','已同步')
-                p['counted']={key:part[key] for key in ('cost','tokens','output','requests','unpriced','cache','history')}
+                p['counted']={key:part[key] for key in ('cost','tokens','output','requests','unpriced','cache','cacheInputs','history')}
                 p['subtitle']='%d 次已由 %s 计入'%(sum(carried.values()),'、'.join(carried))
     def summary_history(p):return (p.get('counted') or p)['history']
     def first_activity(p):

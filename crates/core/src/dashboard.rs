@@ -1066,6 +1066,8 @@ impl Runtime {
             card.insert("requests", requests);
             card.insert("output", figure(summary.get("outputTokens")));
             card.insert("cache", if inputs != 0.0 { capped(cache / inputs) } else { Json::Null });
+            // What the share is of: the cache-eligible input, so several tools' shares add up by it.
+            card.insert("cacheInputs", inputs);
             card.insert(
                 "coverage",
                 summary
@@ -1113,7 +1115,7 @@ impl Runtime {
             if let Some(others) = part.get("others").and_then(Json::as_object) {
                 // This computer's ChatGPT records defer to OpenCodex; the other computers' count.
                 let counted = provider(source, label, others, "", "已同步");
-                let kept: Object = ["cost", "tokens", "output", "requests", "unpriced", "cache", "history"]
+                let kept: Object = ["cost", "tokens", "output", "requests", "unpriced", "cache", "cacheInputs", "history"]
                     .into_iter()
                     .map(|field| (field, counted.get(field).cloned().unwrap_or(Json::Null)))
                     .collect();
@@ -1131,7 +1133,7 @@ impl Runtime {
                 if !carried.is_empty() {
                     let counted_usage = part.get("counted").and_then(Json::as_object).cloned().unwrap_or_default();
                     let counted = provider(source, label, &counted_usage, "", "已同步");
-                    let kept: Object = ["cost", "tokens", "output", "requests", "unpriced", "cache", "history"]
+                    let kept: Object = ["cost", "tokens", "output", "requests", "unpriced", "cache", "cacheInputs", "history"]
                         .into_iter()
                         .map(|field| (field, counted.get(field).cloned().unwrap_or(Json::Null)))
                         .collect();

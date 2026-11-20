@@ -808,6 +808,21 @@ test('pinned, the share page takes its own height and gives the panel back its s
   await expect(page.locator('.window')).toHaveCSS('width', '400px');
 });
 
+test('the share picture\'s cache share is the tools\' cache reads over their cache-eligible input', async ({ page }) => {
+  await open(page);
+  const cache = await page.evaluate(async () => {
+    const { backend } = await import('/src/lib/backend.ts');
+    const { poster } = await import('/src/lib/sharePoster.ts');
+    const d = (await backend.snapshot()).dashboard!;
+    const [a, b] = d.providers;
+    // Each 100 tokens of cache-eligible input, one all read from the cache, one none; the first also wrote a lot.
+    const one = { ...a, counted: undefined, summaryIncluded: true, available: true, tokens: 10_000, output: 9900, cache: 1, cacheInputs: 100 };
+    const two = { ...b, counted: undefined, summaryIncluded: true, available: true, tokens: 100, output: 0, cache: 0, cacheInputs: 100 };
+    return (await poster({ ...d, providers: [one, two] }, '#000')).cache;
+  });
+  expect(cache).toBe('50.0%');
+});
+
 test('leaving the share page before its picture is drawn leaves no picture in memory', async ({ page }) => {
   // Every object URL made and released, counted on the page.
   await page.addInitScript(() => {
