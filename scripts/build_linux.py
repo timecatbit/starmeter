@@ -17,9 +17,10 @@ from package import command_line_archive, verify_command_line, version
 def check_deb(package):
     """The .deb installs /usr/bin/starmeter, executable, and the engine where that script runs it from."""
     listing = subprocess.run(['dpkg-deb', '-c', str(package)], capture_output=True, text=True, check=True).stdout.splitlines()
-    entries = {line.split()[-1]: line.split()[0] for line in listing if line.strip()}
-    command = entries.get('./usr/bin/starmeter', '')
-    if not command.startswith('-rwx') or './usr/lib/Starmeter/bin/starmeter-engine' not in entries:
+    # dpkg-deb lists the paths as the archive holds them: with a leading ./ or, in Tauri's .deb, without.
+    entries = {line.split()[-1].removeprefix('./'): line.split()[0] for line in listing if line.strip()}
+    command = entries.get('usr/bin/starmeter', '')
+    if not command.startswith('-rwx') or 'usr/lib/Starmeter/bin/starmeter-engine' not in entries:
         raise SystemExit('The .deb lacks /usr/bin/starmeter or the engine it runs:\n' + '\n'.join(listing))
     script = (ROOT / 'app/src-tauri/linux/starmeter').read_text(encoding='utf-8')
     if '/usr/lib/Starmeter/bin/starmeter-engine cli' not in script:
