@@ -247,9 +247,10 @@ def codex_file_turns(path, price):
     def opened(rows):
         for row in rows:
             kind = row.get('payload', {}).get('type') if isinstance(row.get('payload'), dict) else None
-            if kind == 'task_started':return True
+            if kind in ('task_started', 'task_complete', 'turn_aborted'):return True
             if kind == 'token_count':return False
-        return True
+        # Nothing at all in view (a long output since the turn began, before its first request): further back.
+        return False
     for row in rows_back(path, opened, DETAIL):
         data = row.get('payload') if isinstance(row.get('payload'), dict) else {}
         kind = data.get('type')
@@ -328,7 +329,8 @@ def active(claude_roots, codex_root, now, prices=None, claude_app=None):
             thread = codex_thread(p)
             threads.setdefault(thread or str(p), (thread, []))[1].append((changed, p))
         for key, (thread, segments) in threads.items():
-            segments.sort(key=lambda item: (item[0], str(item[1])))
+            # In the order they were written, by name: a segment put back from a copy carries a new modification time.
+            segments.sort(key=lambda item: (item[1].name, str(item[1])))
             if segments[-1][0] < now - ACTIVE:continue
             candidates.append((codex, segments[-1][1], [p for _, p in segments], digest(key), thread))
     for read, path, files, ident, thread in candidates:

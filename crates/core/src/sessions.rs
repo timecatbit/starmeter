@@ -428,15 +428,17 @@ fn codex_file_turns(path: &str, price: &Price) -> Result<Vec<Object>, FileError>
     let mut total: Option<Option<Json>> = None;
     // Back far enough that a turn starts before the first request read: a long tool output can push a turn's
     // start out, and its requests would read as the turn before's.
+    // Nothing at all in view (a long output since the turn began, before its first request) is not enough either:
+    // the turn going on would be left out.
     let opened = |rows: &[Object]| {
         for row in rows {
             match row.get("payload").and_then(|payload| payload.get("type")).and_then(Json::as_str) {
-                Some("task_started") => return true,
+                Some("task_started" | "task_complete" | "turn_aborted") => return true,
                 Some("token_count") => return false,
                 _ => {}
             }
         }
-        true
+        false
     };
     for row in rows_back(path, DETAIL, opened)? {
         let data = row.get("payload").and_then(Json::as_object).cloned().unwrap_or_default();
@@ -664,7 +666,10 @@ pub fn active(
             group.1.push((state.mtime as f64 / 1e9, path));
         }
         for (key, (thread, mut segments)) in threads {
-            segments.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+            // In the order they were written, by name (rollout-<when it began>-…): a segment put back from a copy
+            // carries a new modification time, and would read as the newest.
+            let name = |path: &str| Path::new(path).file_name().map(|name| name.to_string_lossy().into_owned());
+            segments.sort_by(|a, b| name(&a.1).cmp(&name(&b.1)).then(a.1.cmp(&b.1)));
             let Some((changed, newest)) = segments.last().cloned() else { continue };
             if changed < now - ACTIVE {
                 continue;
@@ -682,8 +687,18 @@ pub fn active(
             |state: &claude_usage::FileState| Json::from(format!("{}:{}:{}", state.inode, state.size, state.mtime));
         let print = print_of(&state);
         let file = hash(&path);
+        // Every file the session is read from as it is now: what was read before serves while none has changed (a
+        // segment put back changes the turns, not the newest file).
+        let prints = Json::Array(
+            files
+                .iter()
+                .map(|segment| state_of(Path::new(segment)).map_or(Json::Null, |state| print_of(&state)))
+                .collect(),
+        );
         let unchanged = previous.get(&file).and_then(Json::as_object).filter(|before| {
-            before.get("print") == Some(&print) && before.get("read").and_then(Json::as_object).is_some()
+            before.get("print") == Some(&print)
+                && before.get("prints") == Some(&prints)
+                && before.get("read").and_then(Json::as_object).is_some()
         });
         let read = match unchanged {
             Some(before) => before.get("read").and_then(Json::as_object).cloned(),
@@ -747,6 +762,7 @@ pub fn active(
                 if *segment == path {
                     tally.insert("read", Json::Object(raw.clone()));
                     tally.insert("turns", turns.clone());
+                    tally.insert("prints", prints.clone());
                 }
                 kept.insert(key.as_str(), Json::Object(tally));
             }
@@ -940,5 +956,60 @@ mod tests {
         let fresh = active(&roots, None, now, Some(&prices), &HashMap::new(), None);
         assert_eq!(state(&fresh).as_deref(), Some("running"));
         let _ = std::fs::remove_dir_all(&folder);
+    }
+
+    #[test]
+    fn a_segment_put_back_is_read_again_and_the_newest_goes_by_name() {
+        let root = std::env::temp_dir().join(format!("starmeter-segments-{}", std::process::id()));
+        let day = root.join("sessions").join("2026").join("11").join("20");
+        std::fs::create_dir_all(&day).unwrap();
+        let thread = "019c0000-0000-7000-8000-000000000001";
+        let segment = |at: &str, part: &str| {
+            day.join(format!("rollout-2026-11-20T{at}-{thread}_019c0000-0000-7000-8000-00000000000{part}.jsonl"))
+        };
+        let turn = |at: &str, total: i64, finished: bool| {
+            let mut rows = vec![
+                format!("{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"{thread}\",\"cwd\":\"/w/x\"}}}}"),
+                "{\"type\":\"turn_context\",\"payload\":{\"model\":\"m\"}}".to_string(),
+                format!(
+                    "{{\"type\":\"event_msg\",\"timestamp\":\"2026-11-20T{at}Z\",\"payload\":{{\"type\":\"task_started\"}}}}"
+                ),
+                format!(
+                    "{{\"type\":\"event_msg\",\"payload\":{{\"type\":\"token_count\",\"info\":{{\"total_token_usage\":{{\"t\":{total}}},\"last_token_usage\":{{\"input_tokens\":10,\"output_tokens\":1}}}}}}}}"
+                ),
+            ];
+            if finished {
+                rows.push("{\"type\":\"event_msg\",\"payload\":{\"type\":\"task_complete\"}}".to_string());
+            }
+            rows.join("\n") + "\n"
+        };
+        let price: Price = Box::new(|_, _| Some(0.0));
+        let prices = HashMap::from([("ChatGPT", price)]);
+        let codex = root.to_string_lossy().into_owned();
+        let now = crate::runtime::now();
+        let mut tallies = Object::new();
+        let read = |tallies: &mut Object| active(&[], Some(&codex), now, Some(&prices), &HashMap::new(), Some(tallies));
+        // The later segment alone: one turn, one request.
+        std::fs::write(segment("10-00-00", "b"), turn("10:00:00", 2, true)).unwrap();
+        let first = read(&mut tallies);
+        let turns = |found: &[Json]| found[0].get("turns").and_then(Json::as_array).map(Vec::len);
+        let requests =
+            |found: &[Json]| found[0].get("spent").and_then(|spent| spent.get("requests")).and_then(Json::integer);
+        assert_eq!((turns(&first), requests(&first)), (Some(1), Some(1)));
+        let touch = |path: &std::path::Path, at: f64| {
+            let when = std::time::UNIX_EPOCH + std::time::Duration::from_secs_f64(at);
+            std::fs::File::options().write(true).open(path).unwrap().set_modified(when).unwrap();
+        };
+        // The earlier one put back, older than the newest file by time too: both turns and both requests, though the
+        // newest file has not changed.
+        std::fs::write(segment("09-00-00", "a"), turn("09:00:00", 1, false)).unwrap();
+        touch(&segment("09-00-00", "a"), now - 3600.0);
+        let both = read(&mut tallies);
+        assert_eq!((turns(&both), requests(&both)), (Some(2), Some(2)));
+        // Touched since, it is the newest file by time but not by name: the session is as its last segment left it.
+        touch(&segment("09-00-00", "a"), now + 60.0);
+        let touched = read(&mut tallies);
+        assert_eq!(touched[0].get("state").and_then(Json::as_str), Some("waiting"));
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

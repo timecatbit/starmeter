@@ -1378,6 +1378,14 @@ class SessionParityTests(unittest.TestCase):
         write(claude / 'p' / 'long-output.jsonl', [{'type': 'user', 'message': {'content': 'go'}},
             {'type': 'assistant', 'message': {'model': 'claude-opus-5-5', 'usage': usage(10), 'stop_reason': 'tool_use'}},
             {'type': 'user', 'message': {'content': [{'type': 'tool_result', 'content': 'z' * 600_000}]}}], age=1.5)
+        # A turn under way with a long output since it began and no request yet: still listed as this turn.
+        quiet = '019a3333-4444-7555-8666-777788889999'
+        write(codex / 'sessions' / '2026' / '11' / '18' / ('rollout-2026-11-18T11-00-00-%s.jsonl' % quiet), [
+            {'type': 'session_meta', 'payload': {'id': quiet, 'cwd': '/w/ops'}}, {'type': 'turn_context', 'payload': {'model': 'gpt-6.2-sol'}},
+            {'type': 'event_msg', 'timestamp': '2026-11-18T11:00:00Z', 'payload': {'type': 'task_started'}}, count(5),
+            {'type': 'event_msg', 'payload': {'type': 'task_complete'}},
+            {'type': 'event_msg', 'timestamp': '2026-11-18T11:05:00Z', 'payload': {'type': 'task_started'}},
+            {'type': 'response_item', 'payload': {'type': 'function_call_output', 'output': 'q' * 2_300_000}}], age=3.5)
         (codex / 'session_index.jsonl').write_text(json.dumps({'id': thread, 'thread_name': '服务器管理'}) + '\n' + json.dumps({'id': long, 'thread_name': '长对话'}) + '\n')
         app = {'7a5d1c2e-0000-4000-8000-000000000001': {'title': 'App 名字', 'effort': 'xhigh'}, 'busy': {'title': 'Busy', 'effort': None}}
         plugin = __import__('types').ModuleType('plugin_sessions')
@@ -1390,11 +1398,12 @@ class SessionParityTests(unittest.TestCase):
                 same(self, expected, got)
                 # Within the day, the running one gone quiet as idle; the one older than a day left out; the segments one session.
                 self.assertEqual([(s['state'], s['tool']) for s in got], [('running', 'Claude'), ('running', 'Claude'), ('running', 'ChatGPT'), ('running', 'ChatGPT'),
-                                                                           ('waiting', 'ChatGPT'), ('waiting', 'Claude'), ('waiting', 'Claude')])
-                self.assertEqual((got[4]['title'], got[4]['model'], got[4]['effort']), ('长对话', 'gpt-6.2-astra', 'high'))
+                                                                           ('running', 'ChatGPT'), ('waiting', 'ChatGPT'), ('waiting', 'Claude'), ('waiting', 'Claude')])
+                self.assertEqual((got[5]['title'], got[5]['model'], got[5]['effort']), ('长对话', 'gpt-6.2-astra', 'high'))
                 if prices:
-                    self.assertEqual(got[4]['spent']['requests'], 3)
-                    self.assertEqual([(t['requests'], t['tools']) for t in got[4]['turns']], [(1, {}), (2, {'exec': 1})], 'Across segments, a turn that runs on is one')
+                    self.assertEqual(got[5]['spent']['requests'], 3)
+                    self.assertEqual([(t['requests'], t['tools']) for t in got[5]['turns']], [(1, {}), (2, {'exec': 1})], 'Across segments, a turn that runs on is one')
+                    self.assertEqual([t['requests'] for t in got[4]['turns']], [0, 1], 'The turn under way, with no request yet, is listed')
         # The turns as listed: one with no request left out, MCP tools by their own name.
         turns = [{'at': None, 'requests': 4, 'tokens': 1200, 'cost': 0.4, 'unpriced': 1,
                   'tools': {'mcp__ccd_turn__update_plan': 2, 'mcp__other__update_plan': 1, 'Bash': 3, 'mcp__a___b': 1, 'mcp__x__': 1}},
