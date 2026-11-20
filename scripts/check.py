@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
-"""Checks Starmeter: the web UI's types and build; Rust format, lints and tests; an unused-code scan of lib/
-and scripts/; and the Python tests, which also hold the Rust engine's probe against the Python reference. Does
-not run the live plugin. --rust-only skips the Python tests (the Windows runner: the reference is written for
+"""Checks Starmeter: the web UI's types and build; Rust format, lints and tests; the starmeter command on a scratch
+computer; an unused-code scan of lib/ and scripts/; and the Python tests, which also hold the Rust engine's probe
+against the Python reference. Does not run the live plugin. --rust-only skips the Python tests (the Windows runner: the reference is written for
 macOS)."""
 import argparse
 import ast
+import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
+# The user's own connections and paths: no test sees them.
+PRIVATE_PREFIXES = ('OCX_', 'KOMARI_', 'DEEPSEEK_', 'XAI_', 'MINIMAX_', 'CLAUDE_', 'OPENAI_', 'ANTHROPIC_', 'MOONSHOT_',
+                    'GOOGLE_', 'KIMI_', 'CODEX_', 'GEMINI_', 'WORKBUDDY_', 'QODER_', 'QODERCN_', 'OPENCODE_', 'DSH_', 'MAGPIE_')
 
 
 def unused_code():
@@ -86,11 +91,65 @@ def rust():
     return ROOT / 'target' / 'debug' / ('starmeter-probe.exe' if os.name == 'nt' else 'starmeter-probe')
 
 
+def command_line(engine):
+    """The starmeter command as its packages install it (the engine under that name, the price tables beside it) on a
+    scratch computer with one Magpie record: the version, the figures in JSON for a range and per model, the plans
+    view, English, and a wrong argument."""
+    with tempfile.TemporaryDirectory(prefix='starmeter-cli-') as scratch:
+        root = Path(scratch)
+        folder = root / 'starmeter'
+        (folder / 'lib').mkdir(parents=True)
+        program = folder / ('starmeter.exe' if os.name == 'nt' else 'starmeter')
+        shutil.copy2(engine, program)
+        for name in ('codex-pricing.json', 'model-pricing.json'):
+            shutil.copy2(ROOT / 'lib' / name, folder / 'lib' / name)
+        logs, state, home = root / 'magpie', root / 'state', root / 'home'
+        for path in (logs, state, home):
+            path.mkdir()
+        record = {'t': time.time() - 10, 'agent': 'codex', 'provider': 'test', 'model': 'gpt-5.4', 'in': 1230, 'out': 4}
+        (logs / 'usage.jsonl').write_text(json.dumps(record) + '\n', encoding='utf-8')
+        (state / 'preferences.json').write_text(json.dumps({'schema': 1, 'visible': ['summary', 'magpie'], 'paths': {'magpie': str(logs)}}),
+                                                encoding='utf-8')
+        environment = {k: v for k, v in os.environ.items() if not k.startswith(PRIVATE_PREFIXES) and k not in ('LANG', 'LC_ALL', 'LC_MESSAGES')}
+        environment.update(HOME=str(home), USERPROFILE=str(home), OCX_STATE_DIR=str(state), OCX_CACHE_DIR=str(root / 'cache'),
+                           OCX_MAC_CACHE_DIR=str(root / 'cache'), OCX_PRICING_UPDATES='0', OCX_SELF_UPDATES='0', STARMETER_LANG='zh_CN.UTF-8')
+
+        def run(*arguments, status=0):
+            done = subprocess.run([str(program), *arguments], env=environment, capture_output=True, text=True, encoding='utf-8', timeout=120)
+            if done.returncode != status:
+                sys.exit('starmeter %s exited %d:\n%s%s' % (' '.join(arguments), done.returncode, done.stdout, done.stderr))
+            return done.stdout
+
+        version = run('--version').strip()
+        if version != 'starmeter ' + engine_version():
+            sys.exit('starmeter --version says %r' % version)
+        figures = json.loads(run('usage', '--range', 'all', '--json', '--no-refresh'))
+        summary = figures['summary']
+        if summary['tokens'] != 1234 or not summary['costUsd'] or [t['tokens'] for t in figures['tools'] if t['id'] == 'magpie'] != [1234]:
+            sys.exit('starmeter usage --json read the wrong figures: %r' % figures)
+        models = json.loads(run('usage', '-r', '7d', '-g', 'model', '--json', '--no-refresh'))['groups']
+        if [(group['name'], group['tokens']) for group in models] != [('gpt-5.4', 1234)]:
+            sys.exit('starmeter usage -g model --json read the wrong models: %r' % models)
+        json.loads(run('--json', '--no-refresh'))
+        if '订阅与额度' not in run('quota', '--no-refresh', '--color', 'never'):
+            sys.exit('starmeter quota printed no title')
+        english = run('--lang', 'en', '--no-refresh', '--color', 'never')
+        if 'AI usage · Today' not in english:
+            sys.exit('starmeter --lang en printed:\n' + english)
+        run('--range', 'fortnight', status=2)
+
+
+def engine_version():
+    """The workspace's version, the one every program reports."""
+    for line in (ROOT / 'Cargo.toml').read_text(encoding='utf-8').splitlines():
+        if line.startswith('version = '):
+            return line.split('"')[1]
+    sys.exit('Cargo.toml has no version')
+
+
 def python_tests(probe):
     with tempfile.TemporaryDirectory(prefix='starmeter-tests-') as scratch:
-        private_prefixes = ('OCX_', 'KOMARI_', 'DEEPSEEK_', 'XAI_', 'MINIMAX_', 'CLAUDE_', 'OPENAI_', 'ANTHROPIC_', 'MOONSHOT_',
-                            'GOOGLE_', 'KIMI_', 'CODEX_', 'GEMINI_', 'WORKBUDDY_', 'QODER_', 'QODERCN_', 'OPENCODE_', 'DSH_', 'MAGPIE_')
-        environment = {k: v for k, v in os.environ.items() if not k.startswith(private_prefixes)}
+        environment = {k: v for k, v in os.environ.items() if not k.startswith(PRIVATE_PREFIXES)}
         isolated_home = Path(scratch) / 'home'
         isolated_home.mkdir()
         # No real background runs: one would write into the folders a test is reading.
@@ -111,5 +170,6 @@ if __name__ == '__main__':
         sys.exit('Unused code:\n' + '\n'.join(problems))
     ui()
     probe = rust()
+    command_line(probe.with_name(probe.name.replace('starmeter-probe', 'starmeter-engine')))
     if not args.rust_only:
         python_tests(probe)
