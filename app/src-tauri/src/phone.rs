@@ -188,6 +188,14 @@ fn serve(app: AppHandle, listener: TcpListener, key: String, stop: Arc<AtomicBoo
             Err(_) => std::thread::sleep(Duration::from_millis(200)),
         }
     }
+    // The hour is up, or 停止: the public link goes with the server, whether or not the panel looks in again.
+    let state = app.state::<Phone>();
+    let mut running = state.running.lock().expect("the phone lock");
+    if running.as_ref().is_some_and(|current| Arc::ptr_eq(&current.stop, &stop))
+        && let Some(mut over) = running.take()
+    {
+        stop_running(&mut over);
+    }
 }
 
 /// The hour may have been started again since the server began.
