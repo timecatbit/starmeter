@@ -79,7 +79,13 @@
     let current = true;
     const wanted = style;
     void renderPicture(wanted, figures, project, wantsDark, count).then((drawn) => {
-      if (!current) return;
+      // A picture no longer wanted is kept for when it is chosen again (and released with the others), or released
+      // now if the page has gone: its image would otherwise stay in memory as long as the app runs.
+      if (!current) {
+        if (drawn && !closed && !pictures.has(key)) pictures.set(key, drawn);
+        else if (drawn && pictures.get(key) !== drawn) URL.revokeObjectURL(drawn.url);
+        return;
+      }
       if (drawn) pictures.set(key, drawn);
       picture = drawn;
       drawnStyle = wanted;
@@ -91,7 +97,8 @@
   /** Copy, save and share give the picture of what the page says: the range picked (its figures arrived), the style,
    *  the colours and the number of tools. Until it is drawn they wait, rather than give the last one away. */
   const ready = $derived(picture !== null && frozen.rangeKey === chosenRange && drawnKey === pictureKey(chosenRange));
-  onDestroy(() => { for (const p of pictures.values()) URL.revokeObjectURL(p.url); clearTimeout(resultTimer); });
+  let closed = false;
+  onDestroy(() => { closed = true; for (const p of pictures.values()) URL.revokeObjectURL(p.url); pictures.clear(); clearTimeout(resultTimer); });
 
   // The picture on a stage as tall as the column beside it, fitted whole (never cut): changing the style, the colours
   // or the number of tools changes only the picture, nothing around it moves.

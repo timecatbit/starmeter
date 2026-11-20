@@ -786,6 +786,38 @@ test('pinned, the share page takes its own height and gives the panel back its s
   await expect(page.locator('.window')).toHaveCSS('width', '400px');
 });
 
+test('leaving the share page before its picture is drawn leaves no picture in memory', async ({ page }) => {
+  // Every object URL made and released, counted on the page.
+  await page.addInitScript(() => {
+    const live = new Set<string>();
+    const make = URL.createObjectURL.bind(URL), drop = URL.revokeObjectURL.bind(URL);
+    URL.createObjectURL = (object: Blob | MediaSource) => { const url = make(object); live.add(url); return url; };
+    URL.revokeObjectURL = (url: string) => { live.delete(url); drop(url); };
+    Object.assign(window, { liveUrls: live });
+    // A slow encoder, so the page is left while the picture is still being made.
+    const encode = HTMLCanvasElement.prototype.toBlob;
+    HTMLCanvasElement.prototype.toBlob = function (this: HTMLCanvasElement, ...args: Parameters<HTMLCanvasElement['toBlob']>) {
+      setTimeout(() => encode.apply(this, args), 800);
+    };
+  });
+  await open(page);
+  const held = () => page.evaluate(() => (window as unknown as { liveUrls: Set<string> }).liveUrls.size);
+  const before = await held();
+  for (let i = 0; i < 2; i++) {
+    await button(page, '分享用量图').click();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.share-page')).toHaveCount(0);
+  }
+  await page.waitForTimeout(2500);
+  expect(await held()).toBe(before);
+  // Chosen again while the page is open, a picture drawn meanwhile is kept, and released when the page goes.
+  await button(page, '分享用量图').click();
+  await expect(page.locator('.share-page .stage img')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.share-page')).toHaveCount(0);
+  expect(await held()).toBe(before);
+});
+
 test('the share page picks its range, the homepage\'s own, and draws that range', async ({ page }) => {
   await open(page);
   await button(page, '分享用量图').click();
