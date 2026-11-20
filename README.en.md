@@ -19,7 +19,7 @@ Each tool's tokens and API-equivalent cost, subscription limits, API balances an
 
 Starmeter is a star in the macOS menu bar (a standalone app or a SwiftBar plugin) and the Windows tray. It reads only the usage records already on your computer and the official APIs you turn on: no account, no relay server in between. Free and open source. The panel is in Chinese or English: switch under the gear → General → Language.
 
-Formerly Token Monitor. Installed copies keep receiving updates, with their settings and keys.
+Formerly Token Monitor; settings and keys carry over. From 6.0.2 the downloads are named `starmeter-…`, and 6.0.1 or earlier doesn't pick up this update on its own: update once by hand as in [Updating from 6.0.1 or earlier](#updating-from-601-or-earlier), and updates come as usual after that.
 
 ## What it shows
 
@@ -96,6 +96,14 @@ Settings live in `%LOCALAPPDATA%\Token Monitor`.
 - **SwiftBar plugin**: when a new version is out, a **Starmeter · 可更新** row appears under 工具更新 (tool updates). Confirm the update and the plugin downloads, verifies and installs it, keeping settings, keys and statistics. The row isn't there when there's nothing new.
 - **Standalone app**: when there's a new version for your chip, the panel links to the release page; quit the app and replace it with the new disk image for the same chip. With Homebrew, run `brew upgrade --cask starmeter`.
 - **Price tables** update daily on their own, so new models don't wait for a release.
+
+### Updating from 6.0.1 or earlier
+
+From 6.0.2 the downloads are named `starmeter-…`. Versions 6.0.1 and earlier look for the old names, so they don't see this release: update once by hand. Settings, keys and statistics carry over.
+
+- **SwiftBar plugin**: download **Mac · SwiftBar plugin** from the release page, unpack it and run `python3 install.py` in its folder.
+- **Standalone Mac app**: quit it, download the disk image for your chip and replace the app in Applications. With Homebrew, run `brew upgrade --cask starmeter`.
+- **Windows**: quit from the tray and run the new `starmeter-X.Y.Z-windows-x64-setup.exe` over the old one; for the portable version, unpack the new zip in place of the old folder.
 
 ## Using it
 
