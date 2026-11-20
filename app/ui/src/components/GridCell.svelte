@@ -1,6 +1,9 @@
 <script lang="ts">
   // A cell of the module grid, flat as magpie's: checkbox, icon, name and a green dot once configured. The checkbox
   // switches the module on the homepage; the name or icon opens its settings, with an arrow under the pointer.
+  // A module with settings has the two as two controls, side by side in the one cell: the checkbox its own, so the
+  // keyboard (Tab to it, Space) and a screen reader reach it apart from the settings; it had been a part of the cell's
+  // button that only a click on its spot could tell apart.
   import { isModule } from '../lib/detail';
   import { t } from '../lib/i18n.svelte';
   import { reads } from '../lib/i18n.svelte';
@@ -23,20 +26,35 @@
   // Shown at once; the saved list confirms it.
   let checked = $state(false);
   $effect(() => { checked = entry.checked === true; });
+  /** A module with settings: its checkbox is a control of its own beside the button that opens them. */
+  const split = $derived(isModule(entry) && entry.children.length > 0 && entry.checked !== undefined);
 
-  function click(event: MouseEvent) {
-    const x = event.clientX - (event.currentTarget as HTMLElement).getBoundingClientRect().left;
-    if (isModule(entry) && entry.children.length && x >= 26) { onopen(); return; }
-    if (!isModule(entry) && entry.children.length) { onopen(); return; }
+  function toggle() {
     if (entry.checked !== undefined) checked = !checked;
     ontoggle();
   }
+  function click() {
+    if (entry.children.length) onopen();
+    else toggle();
+  }
 </script>
 
-<button class="cell pressable" style:width="{cellWidth}px" style:height="{height}px" aria-label={entry.label} onclick={click}>
-  {#if entry.checked !== undefined}
+{#snippet box()}
+  {#if checked}<svg viewBox="0 0 13 13" width="13" height="13" aria-hidden="true"><path d="M3 6.5 5.5 9.5 10 3.5" fill="none" style="stroke: var(--on-accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>{/if}
+{/snippet}
+
+<div class="slot" style:width="{cellWidth}px" style:height="{height}px">
+{#if split}
+  <!-- The checkbox's own control, first in the order as on screen: the cell's first 26pt, where a click had switched the
+       module, the box drawn where it was. -->
+  <button class="toggle" role="checkbox" aria-checked={checked} aria-label={t('在主页显示 {name}', { name: entry.label })} onclick={toggle}>
+    <span class="box" class:on={checked} style:top="{middle - 6.5}px">{@render box()}</span>
+  </button>
+{/if}
+<button class="cell" aria-label={entry.label} onclick={click}>
+  {#if entry.checked !== undefined && !split}
     <span class="box" class:on={checked} style:top="{middle - 6.5}px" role="checkbox" aria-checked={checked} aria-label={t('在主页显示 {name}', { name: entry.label })}>
-      {#if checked}<svg viewBox="0 0 13 13" width="13" height="13"><path d="M3 6.5 5.5 9.5 10 3.5" fill="none" style="stroke: var(--on-accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>{/if}
+      {@render box()}
     </span>
   {/if}
   {#if entry.image || entry.symbol}
@@ -49,12 +67,20 @@
     <svg class="arrow" style:top="{line - 4}px" width="6" height="9" viewBox="0 0 6 9" aria-hidden="true"><path d="M1 .5 5 4.5 1 8.5" fill="none" stroke="var(--secondary)" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
   {/if}
 </button>
+</div>
 
 <style>
-  .cell {
-    --press-scale: 0.96;
+  .slot {
     position: relative;
     flex: none;
+    transition: transform 0.22s cubic-bezier(0.25, 1, 0.5, 1);
+  }
+  /* Pressed, by its button or its checkbox, the whole cell presses together. */
+  .slot:has(:active) { transform: scale(0.96); transition-duration: 0.07s; }
+  @media (prefers-reduced-motion: reduce) { .slot:has(:active) { transform: none; } }
+  .cell {
+    position: absolute;
+    inset: 0;
     border-radius: 7px;
   }
   .cell::before {
@@ -63,9 +89,20 @@
     inset: 1px 0;
     border-radius: 7px;
   }
-  .cell:hover::before { background: color-mix(in srgb, var(--label) 6%, transparent); }
-  .cell:active::before { background: color-mix(in srgb, var(--label) 12%, transparent); }
+  /* The whole cell lights under the pointer and presses, its checkbox's spot as well. */
+  .slot:hover .cell::before { background: color-mix(in srgb, var(--label) 6%, transparent); }
+  .cell:active::before, .slot:has(.toggle:active) .cell::before { background: color-mix(in srgb, var(--label) 12%, transparent); }
   .cell > * { position: absolute; }
+  .toggle {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 26px;
+    z-index: 1;
+    border-radius: 7px 0 0 7px;
+  }
+  .toggle .box { position: absolute; }
   .box {
     left: 8px;
     width: 13px;
@@ -102,5 +139,5 @@
     line-height: 13px;
   }
   .arrow { right: 10px; opacity: 0; }
-  .cell:hover .arrow { opacity: 1; }
+  .slot:hover .arrow { opacity: 1; }
 </style>

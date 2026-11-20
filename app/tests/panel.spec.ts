@@ -1333,11 +1333,54 @@ test('the range menu opens without moving the page, and fits a small pinned pane
   await expect(page.locator('.picker .current')).toHaveText('全部');
 });
 
+test('a module\'s checkbox in the grid is a control of its own: Space switches it, Return on the cell opens the settings (GRID-1)', async ({ page }) => {
+  await open(page);
+  await button(page, '主页模块与设置').click();
+  const box = page.getByRole('checkbox', { name: '在主页显示 Claude', exact: true });
+  const cell = page.locator('.modules').getByRole('button', { name: 'Claude', exact: true });
+  const heading = page.getByRole('heading', { level: 2, name: 'Claude', exact: true });
+  await expect(box).toHaveAttribute('aria-checked', 'true');
+  // Two controls in the cell's order on screen, both in the keyboard's way: the checkbox, then the cell. (Tab itself
+  // goes by the system's keyboard navigation setting; the test's WebKit tabs through form fields only.)
+  expect(await cell.locator('xpath=..').evaluate((slot) =>
+    [...slot.querySelectorAll('button')].map((b) => `${b.getAttribute('aria-label')}:${b.tabIndex}`))).toEqual(['在主页显示 Claude:0', 'Claude:0']);
+  // The keyboard: the checkbox takes the focus, Space switches it and leaves the focus there; Return on the cell opens
+  // Claude's settings.
+  await box.focus();
+  await page.keyboard.press('Space');
+  await expect(box).toHaveAttribute('aria-checked', 'false');
+  await expect(box).toBeFocused();
+  await page.keyboard.press('Space');
+  await expect(box).toHaveAttribute('aria-checked', 'true');
+  await cell.focus();
+  await page.keyboard.press('Enter');
+  await expect(heading).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.modules')).toBeVisible();
+  // The mouse keeps both ways in: the box's spot switches, the name opens.
+  await box.click();
+  await expect(box).toHaveAttribute('aria-checked', 'false');
+  await expect(page.locator('.modules')).toBeVisible();
+  await cell.locator('.name').click();
+  await expect(heading).toBeVisible();
+  await page.keyboard.press('Escape');
+  await box.click();
+  await expect(box).toHaveAttribute('aria-checked', 'true');
+  // A module with nothing to set stays one switch, the whole cell.
+  const summary = page.locator('.modules').getByRole('button', { name: 'Summary', exact: true });
+  const was = await summary.getByRole('checkbox').getAttribute('aria-checked');
+  await summary.locator('.name').click();
+  await expect(summary.getByRole('checkbox')).toHaveAttribute('aria-checked', was === 'true' ? 'false' : 'true');
+  await summary.locator('.name').click();
+  await expect(summary.getByRole('checkbox')).toHaveAttribute('aria-checked', was!);
+});
+
 test('in the module grid a checkbox, an icon and a name sit on one line, in the columns of the header', async ({ page }) => {
   await open(page);
   await button(page, '主页模块与设置').click();
   const cell = page.getByRole('button', { name: 'Claude', exact: true });
-  const box = (await cell.boundingBox())!, check = (await cell.locator('.box').boundingBox())!, name = (await cell.locator('.name').boundingBox())!;
+  const toggle = page.getByRole('checkbox', { name: '在主页显示 Claude', exact: true });
+  const box = (await cell.boundingBox())!, check = (await toggle.locator('.box').boundingBox())!, name = (await cell.locator('.name').boundingBox())!;
   expect(Math.abs(check.y + check.height / 2 - (box.y + box.height / 2))).toBeLessThanOrEqual(0.5);
   expect(Math.abs(name.y + name.height / 2 - (box.y + box.height / 2))).toBeLessThanOrEqual(1);
   // The settings' names start in the modules' name column (measured once the page has slid in).
