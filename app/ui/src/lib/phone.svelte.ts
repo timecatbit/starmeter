@@ -17,13 +17,13 @@ export async function phoneStatus() {
   return phone.view;
 }
 
-/** Seconds left now; 0 once the hour is up. */
+/** The public link's seconds left now; 0 without one or once its hour is up. On the same network there is no limit. */
 export function secondsLeft(): number {
   return phone.view ? Math.max(0, phone.view.secondsLeft - (Date.now() - phone.at) / 1000) : 0;
 }
 
 /** 在手机上看 in the module grid, a cell of its own beside the settings: the panel's own, like 语言. While it is on, a
- *  green dot after its name, as a module that is set up has; how long is left is on its page. */
+ *  green dot after its name, as a module that is set up has. */
 export function phoneRow(): Entry {
-  return { label: '在手机上看', symbol: 'iphone', ...(secondsLeft() > 0 ? { statusLight: 'ok' as const } : {}), action: ['show-phone'], children: [] };
+  return { label: '在手机上看', symbol: 'iphone', ...(phone.view ? { statusLight: 'ok' as const } : {}), action: ['show-phone'], children: [] };
 }

@@ -49,6 +49,8 @@
   onDestroy(() => { clearInterval(tick); clearTimeout(copiedTimer); });
 
   async function choose(next: 'local' | 'public') {
+    // A new choice starts afresh: the last one's failure is not left under it.
+    failed = null;
     reach = next;
     if (next === 'public' && !view?.public) asking = { download: !(await shell.tunnelReady().catch(() => false)) };
     else asking = null;
@@ -142,10 +144,14 @@
         {#if failed}<p class="failed">{t(failed)}</p>{/if}
 
         {#if view}
-          {#if !asking}<p class="note">
-            {reach === 'public' ? t('任何网络都能打开，链接带一次性口令') : t('手机和电脑连同一个网络（Wi-Fi）后扫码；第一次打开时系统可能问是否允许 Starmeter 接收连接，选允许')}
-          </p>{/if}
-          <p class="note">{t('只读：手机上只能看主页和工具页，不能改设置。还能看 {n} 分钟。', { n: minutes })}</p>
+          <!-- What the code is for: on the same network until 停止; the public link, while it is up, for its hour. -->
+          {#if !asking && !busy}
+            <p class="note">
+              {reach === 'public' && view.public ? t('任何网络都能打开，链接带一次性口令，还能用 {n} 分钟', { n: minutes })
+                : t('手机和电脑连同一个网络（Wi-Fi）后扫码；第一次打开时系统可能问是否允许 Starmeter 接收连接，选允许')}
+            </p>
+            <p class="note">{t('只读：手机上只能看主页和工具页，不能改设置。点“停止”或退出 App 前一直开着。')}</p>
+          {/if}
           <div class="actions">
             {#if view.public}<button class="action pressable" onclick={closePublic}>{t('关闭外网链接')}</button>{/if}
             <button class="action danger pressable" onclick={stop}>{t('停止')}</button>

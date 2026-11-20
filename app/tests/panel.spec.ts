@@ -440,17 +440,22 @@ test('在手机上看: a code for the same network, a public link only after a y
   await row.click();
   const phone = page.locator('.phone-page');
   await expect(phone.locator('svg[role="img"]')).toBeVisible();
-  // The address without its key, which stays in the code.
+  // The address without its key, which stays in the code; on the same network no time limit, until 停止.
   await expect(phone.locator('.address')).toHaveText('http://192.168.1.20:51234/');
-  // Any network: asked first, nothing opened until the yes.
+  await expect(phone.locator('.note').last()).toContainText('一直开着');
+  await expect(phone.locator('.note')).not.toContainText(['分钟']);
+  // Any network: asked first, nothing opened until the yes, and no note about a link not made yet.
   await page.getByRole('radio', { name: '任何网络' }).click();
   await expect(phone.locator('.ask')).toContainText('经 Cloudflare 生成外网链接？');
   await expect(phone.locator('svg[role="img"]')).toHaveCount(0);
+  await expect(phone.locator('.note')).toHaveCount(0);
   await button(page, '取消').click();
   await expect(page.getByRole('radio', { name: '同一个网络' })).toHaveAttribute('aria-checked', 'true');
   await page.getByRole('radio', { name: '任何网络' }).click();
   await button(page, '生成链接').click();
   await expect(phone.locator('.address')).toHaveText('https://quiet-river-1234.trycloudflare.com/');
+  // The public link has its hour.
+  await expect(phone.locator('.note').first()).toContainText('还能用 59 分钟');
   await button(page, '关闭外网链接').click();
   await expect(phone.locator('.address')).toHaveText('http://192.168.1.20:51234/');
   // Left while on: the cell has a green dot, as a module set up has; 停止 turns it off.
@@ -459,6 +464,22 @@ test('在手机上看: a code for the same network, a public link only after a y
   await page.getByRole('button', { name: /^在手机上看/ }).click();
   await button(page, '停止').click();
   await expect(page.getByRole('button', { name: /^在手机上看/ }).locator('.dot')).toHaveCount(0);
+});
+
+test('在手机上看: a public link that fails goes back to the same network and says why, until the next try', async ({ page }) => {
+  await open(page, '?tunnel-fails');
+  await button(page, '主页模块与设置').click();
+  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  const phone = page.locator('.phone-page');
+  await page.getByRole('radio', { name: '任何网络' }).click();
+  await button(page, '生成链接').click();
+  await expect(phone.locator('.failed')).toContainText('Cloudflare 这次没有连上');
+  await expect(page.getByRole('radio', { name: '同一个网络' })).toHaveAttribute('aria-checked', 'true');
+  await expect(phone.locator('svg[role="img"]')).toBeVisible();
+  // Trying again starts afresh: the question, without the last failure under it.
+  await page.getByRole('radio', { name: '任何网络' }).click();
+  await expect(phone.locator('.ask')).toBeVisible();
+  await expect(phone.locator('.failed')).toHaveCount(0);
 });
 
 test('在手机上看 the first time says cloudflared is downloaded first', async ({ page }) => {

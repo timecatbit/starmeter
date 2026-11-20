@@ -146,10 +146,10 @@ export const phrases: Record<string, string> = {
     'The first time, cloudflared (about 20 MB) is downloaded from Cloudflare\'s GitHub releases, checked, and kept in the app\'s data folder.',
   下载并生成: 'Download and make it', 生成链接: 'Make the link', '正在向 Cloudflare 要链接…': 'Asking Cloudflare for a link…',
   手机扫这个二维码: 'Scan this with your phone', 这台电脑没有连上网络: 'This computer isn\'t on a network', 正在开启: 'Starting',
-  已复制链接: 'Link copied', '任何网络都能打开，链接带一次性口令': 'Opens from any network; the link carries a one-time key',
+  已复制链接: 'Link copied', '任何网络都能打开，链接带一次性口令，还能用 {n} 分钟': 'Opens from any network with its one-time key; {n} min left',
   '手机和电脑连同一个网络（Wi-Fi）后扫码；第一次打开时系统可能问是否允许 Starmeter 接收连接，选允许':
     'Put the phone on the same network (Wi-Fi) as this computer, then scan; the first time, the system may ask whether Starmeter may accept incoming connections: allow it.',
-  '只读：手机上只能看主页和工具页，不能改设置。还能看 {n} 分钟。': 'Read-only: the phone sees the homepage and tool pages and changes nothing. {n} min left.',
+  '只读：手机上只能看主页和工具页，不能改设置。点“停止”或退出 App 前一直开着。': 'Read-only: the phone sees the homepage and tool pages and changes nothing. It stays on until you stop it or quit the app.',
   关闭外网链接: 'Close the public link', 停止: 'Stop', 先打开手机查看: 'Turn on the phone view first', 手机查看已经关闭: 'The phone view was stopped',
   这台电脑的系统没有对应的: 'No cloudflared for this system', '连不上 GitHub，没能下载 cloudflared': 'Couldn\'t reach GitHub to download cloudflared',
   'GitHub 的发布信息读不懂': 'GitHub\'s release information couldn\'t be read', '最新发布里没有这台电脑用的 cloudflared': 'The latest release has no cloudflared for this computer',

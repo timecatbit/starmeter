@@ -43,13 +43,13 @@ const quiet = () => Promise.resolve();
 
 const localGuide = () => { try { return localStorage.getItem('starmeter.guide') === '1'; } catch { return false; } };
 
-/** Where a phone can open the homepage, and for how much longer. */
+/** Where a phone can open the homepage, and how long the public link has left (0 without one). */
 export interface PhoneView { local: string | null; public: string | null; secondsLeft: number }
 /** The browser's stand-in for the phone server, for the tests and the dev server. */
 const browserPhone = (() => {
   let on = false, open = false;
   const view = (): PhoneView | null => (on ? { local: 'http://192.168.1.20:51234/#k=0123456789abcdef0123456789abcdef',
-    public: open ? 'https://quiet-river-1234.trycloudflare.com/#k=0123456789abcdef0123456789abcdef' : null, secondsLeft: 3540 } : null);
+    public: open ? 'https://quiet-river-1234.trycloudflare.com/#k=0123456789abcdef0123456789abcdef' : null, secondsLeft: open ? 3540 : 0 } : null);
   return {
     view, start: () => { on = true; return view()!; }, stop: () => { on = false; open = false; },
     open: () => { open = true; return view()!; }, close: () => { open = false; return view(); },
@@ -92,7 +92,9 @@ export const shell = {
   phoneStart: (): Promise<PhoneView> => (inTauri ? invoke<PhoneView>('phone_start') : Promise.resolve(browserPhone.start())),
   phoneStatus: (): Promise<PhoneView | null> => (inTauri ? invoke<PhoneView | null>('phone_status') : Promise.resolve(browserPhone.view())),
   phoneStop: () => (inTauri ? invoke<void>('phone_stop') : quiet().then(() => browserPhone.stop())),
-  phonePublic: (): Promise<PhoneView> => (inTauri ? invoke<PhoneView>('phone_public') : Promise.resolve(browserPhone.open())),
+  phonePublic: (): Promise<PhoneView> => (inTauri ? invoke<PhoneView>('phone_public')
+    // ?tunnel-fails: the public link fails as on a network Cloudflare can't be reached from.
+    : new URLSearchParams(location.search).has('tunnel-fails') ? Promise.reject('Cloudflare 这次没有连上，稍后再试') : Promise.resolve(browserPhone.open())),
   phonePrivate: (): Promise<PhoneView | null> => (inTauri ? invoke<PhoneView | null>('phone_private') : Promise.resolve(browserPhone.close())),
   /** Whether the public link needs cloudflared downloaded first. */
   tunnelReady: (): Promise<boolean> => (inTauri ? invoke<boolean>('tunnel_ready') : Promise.resolve(!new URLSearchParams(location.search).has('no-cloudflared'))),

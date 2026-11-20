@@ -19,8 +19,9 @@ use tauri::{AppHandle, Manager};
 
 use crate::data::Data;
 
-/// How long a phone view stays open without being stopped.
-const LIFETIME: Duration = Duration::from_secs(3600);
+/// How long the public link stays open: it reaches the computer from anywhere. On the same network the phone view stays
+/// until it is stopped or the app quits.
+const PUBLIC_LIFETIME: Duration = Duration::from_secs(3600);
 const RANGES: [&str; 8] = ["today", "yesterday", "24h", "7d", "30d", "week", "month", "all"];
 
 #[derive(Default)]
@@ -31,12 +32,12 @@ pub struct Phone {
 struct Running {
     port: u16,
     key: String,
-    until: Instant,
     stop: Arc<AtomicBool>,
-    public: Option<crate::tunnel::Tunnel>,
+    /// The public link, and when its hour is up.
+    public: Option<(crate::tunnel::Tunnel, Instant)>,
 }
 
-/// What the panel shows: the addresses to scan, and how long is left.
+/// What the panel shows: the addresses to scan, and how long the public link has left.
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct PhoneView {
@@ -44,6 +45,7 @@ pub struct PhoneView {
     local: Option<String>,
     /// https://….trycloudflare.com/#k=… once the public link is up.
     public: Option<String>,
+    /// The public link's time left; 0 without one.
     seconds_left: u64,
 }
 
@@ -54,9 +56,13 @@ fn view(running: &Running) -> PhoneView {
         public: running
             .public
             .as_ref()
-            .filter(|tunnel| tunnel.alive())
-            .map(|tunnel| format!("{}/{fragment}", tunnel.url)),
-        seconds_left: running.until.saturating_duration_since(Instant::now()).as_secs(),
+            .filter(|(tunnel, _)| tunnel.alive())
+            .map(|(tunnel, _)| format!("{}/{fragment}", tunnel.url)),
+        seconds_left: running
+            .public
+            .as_ref()
+            .filter(|(tunnel, _)| tunnel.alive())
+            .map_or(0, |(_, until)| until.saturating_duration_since(Instant::now()).as_secs()),
     }
 }
 
@@ -75,7 +81,7 @@ fn new_key() -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// Starts the server (or keeps the one running, its hour started again) and says where it is.
+/// Starts the server (or keeps the one running) and says where it is.
 #[tauri::command]
 pub fn phone_start(app: AppHandle) -> Result<PhoneView, String> {
     let state = app.state::<Phone>();
@@ -83,7 +89,6 @@ pub fn phone_start(app: AppHandle) -> Result<PhoneView, String> {
     if let Some(current) = running.as_mut()
         && !current.stop.load(Ordering::SeqCst)
     {
-        current.until = Instant::now() + LIFETIME;
         return Ok(view(current));
     }
     let listener = TcpListener::bind("0.0.0.0:0").map_err(|error| format!("没能开始：{error}"))?;
@@ -91,12 +96,11 @@ pub fn phone_start(app: AppHandle) -> Result<PhoneView, String> {
     listener.set_nonblocking(true).map_err(|error| error.to_string())?;
     let key = new_key();
     let stop = Arc::new(AtomicBool::new(false));
-    let until = Instant::now() + LIFETIME;
     {
         let (app, key, stop) = (app.clone(), key.clone(), stop.clone());
-        std::thread::spawn(move || serve(app, listener, key, stop, until));
+        std::thread::spawn(move || serve(app, listener, key, stop));
     }
-    let started = Running { port, key, until, stop, public: None };
+    let started = Running { port, key, stop, public: None };
     let shown = view(&started);
     *running = Some(started);
     Ok(shown)
@@ -107,18 +111,15 @@ pub fn phone_start(app: AppHandle) -> Result<PhoneView, String> {
 pub fn phone_status(app: AppHandle) -> Option<PhoneView> {
     let state = app.state::<Phone>();
     let mut running = state.running.lock().expect("the phone lock");
-    if running.as_ref().is_some_and(|current| current.stop.load(Ordering::SeqCst) || Instant::now() >= current.until) {
+    if running.as_ref().is_some_and(|current| current.stop.load(Ordering::SeqCst)) {
         if let Some(mut over) = running.take() {
             stop_running(&mut over);
         }
         return None;
     }
-    // A public link whose cloudflared has ended goes; the panel says it was lost.
-    if let Some(current) = running.as_mut()
-        && current.public.as_ref().is_some_and(|tunnel| !tunnel.alive())
-        && let Some(mut lost) = current.public.take()
-    {
-        lost.stop();
+    // A public link whose hour is up, or whose cloudflared has ended, goes; the panel says so.
+    if let Some(current) = running.as_mut() {
+        close_public_if_over(current);
     }
     running.as_ref().map(view)
 }
@@ -134,8 +135,17 @@ pub fn phone_stop(app: AppHandle) {
 
 fn stop_running(running: &mut Running) {
     running.stop.store(true, Ordering::SeqCst);
-    if let Some(mut tunnel) = running.public.take() {
+    if let Some((mut tunnel, _)) = running.public.take() {
         tunnel.stop();
+    }
+}
+
+/// Closes the public link once its hour is up or its cloudflared has ended; the server stays.
+fn close_public_if_over(running: &mut Running) {
+    if running.public.as_ref().is_some_and(|(tunnel, until)| !tunnel.alive() || Instant::now() >= *until)
+        && let Some((mut over, _)) = running.public.take()
+    {
+        over.stop();
     }
 }
 
@@ -148,7 +158,7 @@ pub async fn phone_public(app: AppHandle) -> Result<PhoneView, String> {
         let Some(current) = running.as_ref().filter(|current| !current.stop.load(Ordering::SeqCst)) else {
             return Err("先打开手机查看".into());
         };
-        if current.public.is_some() {
+        if current.public.as_ref().is_some_and(|(tunnel, _)| tunnel.alive()) {
             return Ok(view(current));
         }
         current.port
@@ -164,7 +174,9 @@ pub async fn phone_public(app: AppHandle) -> Result<PhoneView, String> {
         tunnel.stop();
         return Err("手机查看已经关闭".into());
     };
-    current.public = Some(tunnel);
+    if let Some((mut old, _)) = current.public.replace((tunnel, Instant::now() + PUBLIC_LIFETIME)) {
+        old.stop();
+    }
     Ok(view(current))
 }
 
@@ -174,17 +186,23 @@ pub fn phone_private(app: AppHandle) -> Option<PhoneView> {
     let state = app.state::<Phone>();
     let mut running = state.running.lock().expect("the phone lock");
     let current = running.as_mut()?;
-    if let Some(mut tunnel) = current.public.take() {
+    if let Some((mut tunnel, _)) = current.public.take() {
         tunnel.stop();
     }
     Some(view(current))
 }
 
-fn serve(app: AppHandle, listener: TcpListener, key: String, stop: Arc<AtomicBool>, until: Instant) {
+fn serve(app: AppHandle, listener: TcpListener, key: String, stop: Arc<AtomicBool>) {
+    let mut checked = Instant::now();
     while !stop.load(Ordering::SeqCst) {
-        if Instant::now() >= until.max(current_until(&app).unwrap_or(until)) {
-            stop.store(true, Ordering::SeqCst);
-            break;
+        // The public link's hour, looked at every few seconds whether or not the panel asks.
+        if checked.elapsed() >= Duration::from_secs(5) {
+            checked = Instant::now();
+            if let Ok(mut running) = app.state::<Phone>().running.lock()
+                && let Some(current) = running.as_mut().filter(|current| Arc::ptr_eq(&current.stop, &stop))
+            {
+                close_public_if_over(current);
+            }
         }
         match listener.accept() {
             Ok((stream, _)) => {
@@ -199,7 +217,7 @@ fn serve(app: AppHandle, listener: TcpListener, key: String, stop: Arc<AtomicBoo
             Err(_) => std::thread::sleep(Duration::from_millis(200)),
         }
     }
-    // The hour is up, or 停止: the public link goes with the server, whether or not the panel looks in again.
+    // 停止 (or the app quitting): the public link goes with the server.
     let state = app.state::<Phone>();
     let mut running = state.running.lock().expect("the phone lock");
     if running.as_ref().is_some_and(|current| Arc::ptr_eq(&current.stop, &stop))
@@ -207,11 +225,6 @@ fn serve(app: AppHandle, listener: TcpListener, key: String, stop: Arc<AtomicBoo
     {
         stop_running(&mut over);
     }
-}
-
-/// The hour may have been started again since the server began.
-fn current_until(app: &AppHandle) -> Option<Instant> {
-    app.state::<Phone>().running.lock().ok()?.as_ref().map(|running| running.until)
 }
 
 fn answer(app: &AppHandle, mut stream: TcpStream, key: &str) -> std::io::Result<()> {
