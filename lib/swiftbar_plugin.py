@@ -2668,8 +2668,9 @@ def sessions_cached(ttl=None):
 
 
 def session_name(s):
-    """A session by the title its client gave it, or by its project folder when it has none."""
-    return s.get('title') or s.get('project') or '未知项目'
+    """A session by the title its client gave it, by its project folder when it has none, else as an untitled chat
+    (the card already wears its tool's logo)."""
+    return s.get('title') or s.get('project') or '未命名对话'
 
 
 def tool_name(name):
@@ -2727,7 +2728,8 @@ def sessions_lines(data):
         if spent.get('requests'):
             live=(('已知 ' if spent['unpriced'] else '')+unit['symbol']+'%.2f'%(spent['cost']*unit['rate'])) if spent['requests']>spent['unpriced'] else '费用待定价'
         else:live=fmt_tokens(latest['tokens'])+' Token' if latest else ('运行中' if running else '空闲')
-        lines.append(item(session_name(s),level=1,badge=live,paneldetail=detail,panelstatus='new' if running else 'unknown',
+        # Two sessions can share a name: the panel tells them apart by panelkey.
+        lines.append(item(session_name(s),level=1,badge=live,paneldetail=detail,panelstatus='new' if running else 'unknown',panelkey=s.get('id'),
                           **brand_icon('claude-subscription' if s['tool']=='Claude' else 'chatgpt')))
         lines.extend(turn_lines(turns,currency_unit(data),s.get('project') if s.get('title') else None))
     if found is not None and not found:lines.append(item('最近一天没有 Claude Code 或 Codex 会话',level=1,color=MUTED,size=11))
@@ -3600,6 +3602,7 @@ def panel_entries(lines):
                 entry["fallbacks"] = attrs["panelfallback"].split(FALLBACK)
             if attrs.get("paneldetail"):
                 entry["detail"] = attrs["paneldetail"]
+            if attrs.get("panelkey"):entry["key"] = attrs["panelkey"]
             if attrs.get("href"):
                 entry["href"] = attrs["href"]
             if attrs.get("param2") == "--action" and attrs.get("param3"):
@@ -3972,7 +3975,7 @@ def native_menu_line(line):
     label,separator,raw=line.partition(' | ')
     if not separator:return line
     options=dict(part.split('=',1) for part in shlex.split(raw) if '=' in part)
-    for key in ('color','sfcolor','sfcolors','panelattention','paneldetail','panelfallback','panelsection','panelstatus','panelradio','panelusagelevel'):options.pop(key,None)
+    for key in ('color','sfcolor','sfcolors','panelattention','paneldetail','panelfallback','panelsection','panelstatus','panelradio','panelusagelevel','panelkey'):options.pop(key,None)
     return label+separator+' '.join(as_option(k,v) for k,v in options.items())
 
 

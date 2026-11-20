@@ -22,6 +22,16 @@
   const SHOWN = 5;
   let everything = $state(false);
   const sessions = $derived(entry.children.filter((c) => c.statusLight !== undefined));
+  /** A session's identity: its key (two sessions can share a name), else its name and how many before it had it. */
+  const keys = $derived.by(() => {
+    const seen = new Map<string, number>();
+    return new Map(sessions.map((s) => {
+      const base = s.key ?? s.label, count = seen.get(base) ?? 0;
+      seen.set(base, count + 1);
+      return [s, count ? `${base}\u001f${count}` : base] as const;
+    }));
+  });
+  const keyOf = (s: Entry) => keys.get(s) ?? s.label;
   const listed = $derived(everything ? sessions : sessions.slice(0, SHOWN));
   const notes = $derived(entry.children.filter((c) => c.statusLight === undefined && !c.separator && c.checked === undefined && !c.action));
   const settings = $derived(entry.children.filter((c) => c.checked !== undefined));
@@ -60,35 +70,35 @@
   let glowing = $state(new Set<string>());
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
   $effect(() => {
-    const next = new Map(sessions.map((s) => [s.label, s.value ?? '']));
-    for (const [label, value] of next) {
-      const before = previous.get(label);
+    const next = new Map(sessions.map((s) => [keyOf(s), s.value ?? '']));
+    for (const [key, value] of next) {
+      const before = previous.get(key);
       if (before !== undefined && before !== value && !panel.reduceMotion) {
-        glowing = new Set([...glowing, label]);
-        clearTimeout(timers.get(label));
-        timers.set(label, setTimeout(() => { glowing = new Set([...glowing].filter((l) => l !== label)); }, 1600));
+        glowing = new Set([...glowing, key]);
+        clearTimeout(timers.get(key));
+        timers.set(key, setTimeout(() => { glowing = new Set([...glowing].filter((k) => k !== key)); }, 1600));
       }
     }
     previous = next;
   });
 
-  function toggle(label: string) {
+  function toggle(key: string) {
     const next = new Set(opened);
-    if (next.has(label)) next.delete(label);
-    else next.add(label);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
     opened = next;
   }
 </script>
 
 <div class="session-list" bind:this={list}>
-  {#each listed as s (s.label)}
+  {#each listed as s (keyOf(s))}
     {@const more = latest(s)}
-    {@const open = opened.has(s.label)}
+    {@const open = opened.has(keyOf(s))}
     <div class="session" class:open>
-      <button class="head pressable" aria-expanded={open} onclick={() => toggle(s.label)}>
+      <button class="head pressable" aria-expanded={open} onclick={() => toggle(keyOf(s))}>
         <span class="logo"><Glyph image={s.image} template={s.template} symbol={s.symbol ?? 'terminal'} size={14} /></span>
         <span class="title">{s.label}</span>
-        <span class="value" class:glow={glowing.has(s.label)}>{s.value ?? ''}</span>
+        <span class="value" class:glow={glowing.has(keyOf(s))}>{s.value ?? ''}</span>
       </button>
       <div class="line"><StatusLight state={s.statusLight ?? 'unknown'} /><span class="text">{s.detail ?? ''}</span></div>
       {#if more}<div class="line muted"><span class="text">{more}</span></div>{/if}

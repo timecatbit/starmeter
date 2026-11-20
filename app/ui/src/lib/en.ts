@@ -21,7 +21,7 @@ export const phrases: Record<string, string> = {
   已同步: 'Synced', 运行正常: 'Running', 待同步: 'Waiting to sync', 等待可用数据: 'Waiting for data', 费用待定价: 'Not priced yet',
   未定价: 'Unpriced', 刷新失败: 'Refresh failed', 保留原数据: 'keeping earlier data', 部分记录未读取: 'Some records weren\'t read',
   读取失败: 'Read failed', 数据暂不可用: 'Data unavailable for now', '未计入 Summary': 'Not in Summary', 'Token 未记录': 'Tokens not logged',
-  '已由 Magpie 计入': 'Counted by Magpie', 'ChatGPT 对话': 'ChatGPT chats', 'ChatGPT 项目': 'ChatGPT project', 未标注项目: 'No project',
+  '已由 Magpie 计入': 'Counted by Magpie', 未命名对话: 'Untitled chat', 'ChatGPT 对话': 'ChatGPT chats', 'ChatGPT 项目': 'ChatGPT project', 未标注项目: 'No project',
   未标注: 'Unlabelled', 服务部分降级: 'Partial outage', 服务大范围故障: 'Major outage', 服务严重故障: 'Critical outage', 服务维护中: 'Maintenance',
   客户端: 'Clients', '{n} 请求': '{n} requests', '{n} 请求|1': '{n} request', '{n} 会话': '{n} sessions', '{n} 会话|1': '{n} session', '输出 {n}': 'Output {n}', '缓存 —': 'Cache —',
   '缓存 {n}%': 'Cache {n}%', '已定价 {n}%': '{n}% priced', '{n} 次未定价': '{n} unpriced', 缓存: 'Cache', 输出: 'Output', 费用: 'Cost', 会话数: 'Sessions', 输入: 'Input', 缓存读: 'Cache read', 缓存写: 'Cache write',

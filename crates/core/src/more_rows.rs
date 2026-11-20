@@ -116,9 +116,11 @@ fn update_indicator(row: &Object) -> &'static str {
     }
 }
 
-fn session_name(session: &Object) -> String {
+/// A session by the title its client gave it, by its project folder when it has none, else as an untitled chat (the
+/// card already wears its tool's logo).
+pub fn session_name(session: &Object) -> String {
     let truthy = |key: &str| session.get(key).filter(|value| value.is_truthy()).map(|value| py::str(Some(value)));
-    truthy("title").or_else(|| truthy("project")).unwrap_or_else(|| "未知项目".into())
+    truthy("title").or_else(|| truthy("project")).unwrap_or_else(|| "未命名对话".into())
 }
 
 impl Runtime {
@@ -341,6 +343,8 @@ impl Runtime {
                 &object! {
                     "badge" => badge, "paneldetail" => detail.join(" · "),
                     "panelstatus" => if running { "new" } else { "unknown" },
+                    // Two sessions can share a name: the panel tells them apart by this.
+                    "panelkey" => session.get("id").cloned().unwrap_or(Json::Null),
                 },
                 &self.brand_icon(if tool == "Claude" { "claude-subscription" } else { "chatgpt" }),
             ]);

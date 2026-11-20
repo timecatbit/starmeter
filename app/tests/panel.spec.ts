@@ -218,6 +218,13 @@ test('会话 sits beside the groupings: running first, what each has cost, five 
   await expect(cards).toHaveCount(7);
   await expect(page.getByRole('button', { name: /查看更多/ })).toHaveCount(0);
   await expect(cards.last()).toContainText('空闲 5 小时');
+  // Two sessions of the same name are still two: opening one opens only it.
+  await expect(cards.nth(5).locator('.title')).toHaveText('修好 CI 的缓存');
+  await expect(cards.nth(6).locator('.title')).toHaveText('修好 CI 的缓存');
+  await cards.nth(6).locator('.head').click();
+  await expect(cards.nth(6).locator('.turn')).toHaveCount(1);
+  await expect(cards.nth(5).locator('.turn')).toHaveCount(0);
+  await cards.nth(6).locator('.head').click();
   // A card opens its last turns.
   await cards.first().locator('.head').click();
   await expect(cards.first().locator('.turn')).toHaveCount(3);

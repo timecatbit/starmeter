@@ -23,6 +23,8 @@ export interface Entry {
   fallbacks?: string[];
   usageLevel?: 'normal' | 'warning' | 'critical';
   statusLight?: 'new' | 'ok' | 'issue' | 'unknown';
+  /** What tells a row from siblings of the same name (a session's ID). */
+  key?: string;
   href?: string;
   action?: string[];
   /** Sent once when the row's page opens (refresh-source <key>), at most every 5 seconds. */

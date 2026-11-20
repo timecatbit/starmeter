@@ -133,7 +133,8 @@ class SessionPanelTests(unittest.TestCase):
         # Running or not: no "waiting for input"; a running one with no request yet says so where its tokens go.
         self.assertIn('paneldetail="运行中 · Opus 5.5 · 上下文 38%"', lines[1]); self.assertIn('panelstatus=new', lines[1])
         self.assertIn('badge=运行中', lines[1]); self.assertIn('image=', lines[1], 'Each session wears its tool\'s logo')
-        self.assertTrue(lines[2].startswith('--未知项目 |')); self.assertIn('paneldetail="空闲 3 分钟"', lines[2])
+        self.assertTrue(lines[2].startswith('--未命名对话 |'), 'Neither title nor project: an untitled chat'); self.assertIn('paneldetail="空闲 3 分钟"', lines[2])
+        self.assertIn('panelkey=b', lines[2], 'Two sessions can share a name: the panel tells them apart by this')
         data['sessions']['sessions'][1]['at'] = now - 3 * 3600 - 200
         self.assertIn('paneldetail="空闲 3 小时"', self.m.sessions_lines(data)[2], 'From an hour on, in hours')
         self.assertIn('panelstatus=unknown', lines[2])

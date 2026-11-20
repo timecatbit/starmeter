@@ -12,7 +12,7 @@ use crate::runtime::{Runtime, VERSION, now};
 use crate::self_update::{AUTHOR, REPOSITORY};
 use crate::{claude_bridge, discovery, files, object, preferences, pricing, py};
 
-const NATIVE_ONLY: [&str; 10] = [
+const NATIVE_ONLY: [&str; 11] = [
     "color",
     "sfcolor",
     "sfcolors",
@@ -23,6 +23,7 @@ const NATIVE_ONLY: [&str; 10] = [
     "panelstatus",
     "panelradio",
     "panelusagelevel",
+    "panelkey",
 ];
 
 /// A row for SwiftBar's own menu: the panel-only options dropped, system colors kept for contrast.
