@@ -38,6 +38,8 @@ def downloads(number):
     shows instead of the name. In-app updates look these names up; the SwiftBar plugin's is the short one."""
     name = 'starmeter-' + number
     return [
+        (name + '-linux-x64.AppImage', 'Linux · AppImage'),
+        (name + '-linux-x64.deb', 'Linux · Debian/Ubuntu'),
         (name + '-macos-apple-silicon.dmg', 'Mac · Apple Silicon'),
         (name + '-macos-intel.dmg', 'Mac · Intel'),
         (name + '-windows-x64-setup.exe', 'Windows · Installer'),
@@ -54,7 +56,8 @@ def release_notes(number):
     tree = '%s/blob/v%s/' % (REPOSITORY, number)
     # GitHub drops the dots from a heading's anchor: "## 5.23.0" becomes #5230.
     return ('在下方附件中选一个文件：Mac 按芯片选 **Mac · Apple Silicon** 或 **Mac · Intel**，Windows 推荐 **Windows · Installer**，'
-            '已经在用 SwiftBar 的选 **Mac · SwiftBar plugin**。怎么选、怎么安装见 [下载与安装](%sREADME.md#%s)。\n\n'
+            '已经在用 SwiftBar 的选 **Mac · SwiftBar plugin**，Linux 选 **Linux · Debian/Ubuntu** 或任意发行版都能用的 **Linux · AppImage**。'
+            '怎么选、怎么安装见 [下载与安装](%sREADME.md#%s)。\n\n'
             'Mac 独立版预览未做 Apple 公证，首次打开被拦时到「系统设置 → 隐私与安全性 → 仍要打开」。\n\n'
             '本版改动见 [更新记录](%sCHANGELOG.md#%s)。\n'
             % (tree, quote('下载与安装'), tree, number.replace('.', '')))

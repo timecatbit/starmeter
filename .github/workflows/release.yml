@@ -127,7 +127,7 @@ jobs:
             dist/*-windows-x64-setup.exe
           if-no-files-found: error
 
-  # Built and checked on every release, but not published until the Linux tray has been tried on a desktop.
+  # The Linux tray, as an AppImage and a .deb (tried on an XFCE desktop before its first release, 6.0.5).
   linux:
     runs-on: ubuntu-22.04
     timeout-minutes: 60
@@ -159,7 +159,7 @@ jobs:
 
   publish:
     if: github.event_name == 'push'
-    needs: [plugin, macos, windows]
+    needs: [plugin, macos, windows, linux]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -171,6 +171,10 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: starmeter-windows-x64
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: starmeter-linux-x64
           path: dist
       - uses: actions/download-artifact@v4
         with:

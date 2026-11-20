@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Package the Linux tray as an AppImage and a .deb, with the engine, price tables and logos among the app's
-resources; smoke-test the engine first. Not yet among the published downloads: the release builds these to check
-them until the Linux tray has been tried on a desktop."""
+resources; smoke-test the engine first. The release publishes both beside the Mac and Windows downloads."""
 import argparse
 from pathlib import Path
 import shutil

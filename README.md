@@ -54,6 +54,8 @@ Starmeter 是 macOS 菜单栏（独立 App 或 SwiftBar 插件）和 Windows 托
 | Windows 10/11（推荐） | **Windows · Installer** | `starmeter-X.Y.Z-windows-x64-setup.exe` |
 | Windows 10/11，不想安装 | **Windows · Portable** | `starmeter-X.Y.Z-windows-x64.zip` |
 | Mac，现在推荐（需先装 SwiftBar） | **Mac · SwiftBar plugin** | `starmeter-X.Y.Z.zip`，不分芯片 |
+| Ubuntu、Debian 等 | **Linux · Debian/Ubuntu** | `starmeter-X.Y.Z-linux-x64.deb` |
+| 其他 Linux 发行版 | **Linux · AppImage** | `starmeter-X.Y.Z-linux-x64.AppImage` |
 
 不确定 Mac 芯片？点屏幕左上角的苹果菜单 → **关于本机**：显示「芯片：Apple M…」选 Apple Silicon，显示「处理器：Intel…」选 Intel。每个文件旁的 `sha256:` 是 GitHub 给出的校验值，需要时可以和下载的文件比对。
 
@@ -90,6 +92,14 @@ python3 install.py
 **免安装版**：解压 `…-windows-x64.zip`，运行里面的 `Starmeter.exe`。
 
 设置保存在 `%LOCALAPPDATA%\Token Monitor`。
+
+### Linux
+
+**Ubuntu、Debian**：在下载目录运行 `sudo apt install ./starmeter-X.Y.Z-linux-x64.deb`，再从应用菜单打开 Starmeter。
+
+**其他发行版**：给 `…-linux-x64.AppImage` 加上执行权限（`chmod +x`）后直接运行。
+
+星星出现在顶栏或任务栏的托盘里。Linux 的托盘点一下只会弹出菜单，选第一项 **打开面板** 打开面板。GNOME 桌面需要托盘支持（Ubuntu 自带；其他发行版装 AppIndicator 扩展）。设置保存在 `~/.local/share/starmeter`。
 
 ## 更新
 

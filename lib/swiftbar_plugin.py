@@ -1401,6 +1401,8 @@ def update_asset_name(version):
     """The release file this copy updates from; scripts/package.py publishes these names."""
     if MAC_APP:
         return 'starmeter-%s-macos-%s.dmg'%(version,'apple-silicon' if platform.machine()=='arm64' else 'intel')
+    if DESKTOP is not None and platform.system()=='Linux':
+        return 'starmeter-%s-linux-x64.AppImage'%version
     return 'starmeter-%s%s.zip'%(version,'-windows-x64' if DESKTOP is not None else '')
 
 

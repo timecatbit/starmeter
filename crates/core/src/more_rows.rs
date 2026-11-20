@@ -644,6 +644,9 @@ impl Runtime {
         if self.mac_app {
             let chip = if updates::machine() == "arm64" { "apple-silicon" } else { "intel" };
             format!("starmeter-{version}-macos-{chip}.dmg")
+        } else if cfg!(target_os = "linux") && self.is_desktop() {
+            // The Linux tray offers the release once it has a Linux package (the AppImage, beside the .deb).
+            format!("starmeter-{version}-linux-x64.AppImage")
         } else {
             format!("starmeter-{version}{}.zip", if self.is_desktop() { "-windows-x64" } else { "" })
         }

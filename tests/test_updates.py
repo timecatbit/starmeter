@@ -123,9 +123,13 @@ class UpdateTests(unittest.TestCase):
   spec=importlib.util.spec_from_file_location('package_script',SOURCE.parent/'scripts/package.py')
   package=importlib.util.module_from_spec(spec);spec.loader.exec_module(package)
   published={name for name,_ in package.downloads('99.0.0')}
-  self.assertEqual(len(published),5)
+  self.assertEqual(len(published),7)
   self.assertIn(self.m.update_asset_name('99.0.0'),published)
   with patch.object(self.m,'DESKTOP',object()):self.assertIn(self.m.update_asset_name('99.0.0'),published)
+  # The Linux tray looks for its own package, not the Windows archive.
+  with patch.object(self.m,'DESKTOP',object()),patch.object(self.m.platform,'system',return_value='Linux'):
+   self.assertEqual(self.m.update_asset_name('99.0.0'),'starmeter-99.0.0-linux-x64.AppImage')
+   self.assertIn(self.m.update_asset_name('99.0.0'),published)
   for machine in ('arm64','x86_64'):
    with patch.object(self.m,'MAC_APP',True),patch.object(self.m.platform,'machine',return_value=machine):
     self.assertIn(self.m.update_asset_name('99.0.0'),published)

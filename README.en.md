@@ -54,6 +54,8 @@ Download one file from the [latest release](https://github.com/timecatbit/starme
 | Windows 10/11 (recommended) | **Windows · Installer** | `starmeter-X.Y.Z-windows-x64-setup.exe` |
 | Windows 10/11, without installing | **Windows · Portable** | `starmeter-X.Y.Z-windows-x64.zip` |
 | Mac, recommended for now (needs SwiftBar) | **Mac · SwiftBar plugin** | `starmeter-X.Y.Z.zip`, any chip |
+| Ubuntu, Debian and the like | **Linux · Debian/Ubuntu** | `starmeter-X.Y.Z-linux-x64.deb` |
+| Other Linux distributions | **Linux · AppImage** | `starmeter-X.Y.Z-linux-x64.AppImage` |
 
 Not sure which Mac you have? Apple menu → **About This Mac**: "Chip: Apple M…" means Apple Silicon, "Processor: Intel…" means Intel. The `sha256:` beside each file is GitHub's checksum, to compare with your download if you like.
 
@@ -90,6 +92,14 @@ The installer finds the SwiftBar plugin folder and keeps your settings and a bac
 **Portable**: unpack `…-windows-x64.zip` and run `Starmeter.exe` inside.
 
 Settings live in `%LOCALAPPDATA%\Token Monitor`.
+
+### Linux
+
+**Ubuntu, Debian**: in the download folder run `sudo apt install ./starmeter-X.Y.Z-linux-x64.deb`, then open Starmeter from the applications menu.
+
+**Other distributions**: make `…-linux-x64.AppImage` executable (`chmod +x`) and run it.
+
+The star appears in the tray of the top bar or taskbar. A click on a Linux tray only opens the menu: its first item, **打开面板** (Open panel), opens the panel. GNOME needs tray support (built into Ubuntu; elsewhere, install the AppIndicator extension). Settings live in `~/.local/share/starmeter`.
 
 ## Updates
 
