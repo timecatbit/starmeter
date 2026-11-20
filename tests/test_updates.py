@@ -123,7 +123,7 @@ class UpdateTests(unittest.TestCase):
   spec=importlib.util.spec_from_file_location('package_script',SOURCE.parent/'scripts/package.py')
   package=importlib.util.module_from_spec(spec);spec.loader.exec_module(package)
   published={name for name,_ in package.downloads('99.0.0')}
-  self.assertEqual(len(published),7)
+  self.assertEqual(len(published),9)
   self.assertIn(self.m.update_asset_name('99.0.0'),published)
   with patch.object(self.m,'DESKTOP',object()):self.assertIn(self.m.update_asset_name('99.0.0'),published)
   # The Linux tray looks for its own package, not the Windows archive.

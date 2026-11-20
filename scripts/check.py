@@ -92,17 +92,21 @@ def rust():
 
 
 def command_line(engine):
-    """The starmeter command as its packages install it (the engine under that name, the price tables beside it) on a
-    scratch computer with one Magpie record: the version, the figures in JSON for a range and per model, the plans
-    view, English, and a wrong argument."""
+    """The starmeter command as Homebrew installs it (the engine under that name in libexec with the price tables
+    beside it, run through a link in bin) on a scratch computer with one Magpie record: the version, the figures in
+    JSON for a range and per model, the plans view, English, and a wrong argument."""
     with tempfile.TemporaryDirectory(prefix='starmeter-cli-') as scratch:
         root = Path(scratch)
-        folder = root / 'starmeter'
+        folder = root / 'libexec'
         (folder / 'lib').mkdir(parents=True)
         program = folder / ('starmeter.exe' if os.name == 'nt' else 'starmeter')
         shutil.copy2(engine, program)
         for name in ('codex-pricing.json', 'model-pricing.json'):
             shutil.copy2(ROOT / 'lib' / name, folder / 'lib' / name)
+        if os.name != 'nt':
+            (root / 'bin').mkdir()
+            (root / 'bin' / 'starmeter').symlink_to(program)
+            program = root / 'bin' / 'starmeter'
         logs, state, home = root / 'magpie', root / 'state', root / 'home'
         for path in (logs, state, home):
             path.mkdir()

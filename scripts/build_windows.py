@@ -38,6 +38,26 @@ def bounded(what, command, seconds):
     subprocess.run(command, check=True, timeout=seconds)
 
 
+COMMAND = """@echo off
+rem The starmeter command: the engine beside this file, as the command line. Add this folder to PATH to type
+rem starmeter anywhere.
+"%~dp0starmeter-engine.exe" cli %*
+exit /b %errorlevel%
+"""
+
+
+def add_command(folder):
+    """bin\\starmeter.cmd beside the engine; the installer and the ZIP take the whole folder."""
+    (folder / 'bin' / 'starmeter.cmd').write_text(COMMAND.replace('\n', '\r\n'), encoding='ascii', newline='')
+
+
+def check_command(folder, release):
+    """The starmeter command answers from where it was put."""
+    done = subprocess.run([str(folder / 'bin' / 'starmeter.cmd'), '--version'], capture_output=True, text=True, timeout=60)
+    if done.returncode != 0 or done.stdout.strip() != 'starmeter ' + release:
+        raise SystemExit('bin\\starmeter.cmd --version answered %r (%d): %s' % (done.stdout, done.returncode, done.stderr))
+
+
 def smoke(folder, scratch, program='starmeter-engine.exe'):
     """The engine beside the program, with private settings and no automatic network checks."""
     home = scratch / 'home'
@@ -78,6 +98,7 @@ def check_installer(setup, scratch):
     if registry('TokenMonitor') != '"%s" --background' % program:
         raise SystemExit('The sign-in entry does not start the installed copy.')
     smoke(installed, scratch / 'installed-smoke')
+    check_command(installed, version())
     bounded('Silent uninstall', [str(installed / 'unins000.exe'), '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART',
                                  '/LOG=%s' % (scratch / 'uninstall.log')], 300)
     # The uninstaller finishes from a copy of itself in the temp folder, after this process has returned.
@@ -111,7 +132,9 @@ def main():
     folder = scratch / 'Starmeter'
     engine = build_engine(scratch / 'engine' / 'starmeter-engine.exe')
     build_app(folder, 'app', engine=engine)
+    add_command(folder)
     smoke(folder, scratch / 'smoke')
+    check_command(folder, release)
     archive = output / portable
     archive.unlink(missing_ok=True)
     with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as bundle:

@@ -1,5 +1,6 @@
-# A release is published only after the SwiftBar plugin ZIP, both Mac disk images and the Windows installer are
-# built and pass their checks. Run by hand (workflow_dispatch) to build everything without publishing.
+# A release is published only after the SwiftBar plugin ZIP and the Mac command line, both Mac disk images, the
+# Windows installer and the Linux packages with their command line are built and pass their checks. Run by hand
+# (workflow_dispatch) to build everything without publishing.
 name: Release
 
 on:
@@ -127,7 +128,8 @@ jobs:
             dist/*-windows-x64-setup.exe
           if-no-files-found: error
 
-  # The Linux tray, as an AppImage and a .deb (tried on an XFCE desktop before its first release, 6.0.5).
+  # The Linux tray, as an AppImage and a .deb (tried on an XFCE desktop before its first release, 6.0.5), and the
+  # starmeter command on its own.
   linux:
     runs-on: ubuntu-22.04
     timeout-minutes: 60
@@ -155,6 +157,7 @@ jobs:
           path: |
             dist/*.AppImage
             dist/*.deb
+            dist/*-cli.tar.gz
           if-no-files-found: error
 
   publish:

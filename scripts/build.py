@@ -101,8 +101,12 @@ def resources(engine=None):
 
 
 def tauri_config(flavor, engine=None):
-    """The flavor's names and the shipped files, laid over app/src-tauri/tauri.conf.json."""
-    return dict(FLAVORS[flavor], bundle={'resources': resources(engine)})
+    """The flavor's names and the shipped files, laid over app/src-tauri/tauri.conf.json. The app's .deb also puts the
+    starmeter command on the PATH: a script that runs the engine among its resources."""
+    bundle = {'resources': resources(engine)}
+    if flavor == 'app' and engine:
+        bundle['linux'] = {'deb': {'files': {'/usr/bin/starmeter': 'linux/starmeter'}}}
+    return dict(FLAVORS[flavor], bundle=bundle)
 
 
 def build_app(output, flavor='app', universal=False, target=None, bundles=None, identity='-', engine=None):

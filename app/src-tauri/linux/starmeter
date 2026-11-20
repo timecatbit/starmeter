@@ -1,0 +1,4 @@
+#!/bin/sh
+# The starmeter command from the Starmeter .deb: the engine the package keeps among the app's resources
+# (/usr/lib/Starmeter, Tauri's resource folder for the product), run as the command line.
+exec /usr/lib/Starmeter/bin/starmeter-engine cli "$@"

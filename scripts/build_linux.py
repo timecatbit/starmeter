@@ -1,15 +1,29 @@
 #!/usr/bin/env python3
 """Package the Linux tray as an AppImage and a .deb, with the engine, price tables and logos among the app's
-resources; smoke-test the engine first. The release publishes both beside the Mac and Windows downloads."""
+resources (the .deb also installs the starmeter command), and the starmeter command on its own; smoke-test the
+engine first. The release publishes them beside the Mac and Windows downloads."""
 import argparse
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import tempfile
 
 from build import ROOT, build_app, build_engine
 from build_windows import smoke
-from package import version
+from package import command_line_archive, verify_command_line, version
+
+
+def check_deb(package):
+    """The .deb installs /usr/bin/starmeter, executable, and the engine where that script runs it from."""
+    listing = subprocess.run(['dpkg-deb', '-c', str(package)], capture_output=True, text=True, check=True).stdout.splitlines()
+    entries = {line.split()[-1]: line.split()[0] for line in listing if line.strip()}
+    command = entries.get('./usr/bin/starmeter', '')
+    if not command.startswith('-rwx') or './usr/lib/Starmeter/bin/starmeter-engine' not in entries:
+        raise SystemExit('The .deb lacks /usr/bin/starmeter or the engine it runs:\n' + '\n'.join(listing))
+    script = (ROOT / 'app/src-tauri/linux/starmeter').read_text(encoding='utf-8')
+    if '/usr/lib/Starmeter/bin/starmeter-engine cli' not in script:
+        raise SystemExit('/usr/bin/starmeter does not run the engine the .deb ships.')
 
 
 def main():
@@ -36,6 +50,8 @@ def main():
             raise SystemExit('Expected one %s, found %d.' % (suffix, len(built)))
         shutil.copy2(built[0], output / (name + suffix))
         print(output / (name + suffix))
+    check_deb(output / (name + '.deb'))
+    verify_command_line(command_line_archive(engine, output, name + '-cli.tar.gz'))
     shutil.rmtree(scratch, ignore_errors=True)
 
 
