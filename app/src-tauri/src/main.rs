@@ -96,6 +96,8 @@ fn star_anchor(app: &AppHandle, rect: Option<tauri::Rect>) -> (f64, f64) {
 
 fn handle_menu(app: &AppHandle, id: &str) {
     match id {
+        // Linux: by the pointer, where the menu was (the tray there doesn't say where the star is).
+        "open" => panel::open(app, star_anchor(app, None), false),
         "modules" => panel::open(app, star_anchor(app, None), true),
         "detect" => {
             let app = app.clone();
@@ -131,7 +133,9 @@ fn open_page(app: &AppHandle, url: &str) {
     host::open_link(app.clone(), url.to_owned());
 }
 
-/// The star's right-click menu: 主页模块…, 自动检测…, the login item and notifications, 关于 Starmeter, 退出.
+/// The star's right-click menu: 主页模块…, 自动检测…, the login item and notifications, 关于 Starmeter, 退出. On Linux it
+/// starts with 打开面板: the tray there (AppIndicator) hands no click to the app, and any click opens this menu, so the
+/// panel had no way in.
 fn star_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let version = starmeter_core::VERSION;
     let login = CheckMenuItem::with_id(
@@ -158,19 +162,27 @@ fn star_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             &MenuItem::with_id(app, "repository", "作者 timecatbit · GitHub 仓库", true, None::<&str>)?,
         ],
     )?;
-    Menu::with_items(
-        app,
-        &[
-            &MenuItem::with_id(app, "modules", "主页模块…", true, None::<&str>)?,
-            &MenuItem::with_id(app, "detect", "自动检测…", true, None::<&str>)?,
-            &PredefinedMenuItem::separator(app)?,
-            &login,
-            &notices,
-            &about,
-            &PredefinedMenuItem::separator(app)?,
-            &MenuItem::with_id(app, "quit", "退出 Starmeter", true, None::<&str>)?,
-        ],
-    )
+    let open = MenuItem::with_id(app, "open", "打开面板", true, None::<&str>)?;
+    let modules = MenuItem::with_id(app, "modules", "主页模块…", true, None::<&str>)?;
+    let detect = MenuItem::with_id(app, "detect", "自动检测…", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "退出 Starmeter", true, None::<&str>)?;
+    let (first, second, third) =
+        (PredefinedMenuItem::separator(app)?, PredefinedMenuItem::separator(app)?, PredefinedMenuItem::separator(app)?);
+    let mut items: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> = Vec::new();
+    if cfg!(target_os = "linux") {
+        items.extend([&open as &dyn tauri::menu::IsMenuItem<tauri::Wry>, &first]);
+    }
+    items.extend([
+        &modules as &dyn tauri::menu::IsMenuItem<tauri::Wry>,
+        &detect,
+        &second,
+        &login,
+        &notices,
+        &about,
+        &third,
+        &quit,
+    ]);
+    Menu::with_items(app, &items)
 }
 
 fn build_star(app: &AppHandle) -> tauri::Result<()> {
