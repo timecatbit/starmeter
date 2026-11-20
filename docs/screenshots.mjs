@@ -129,7 +129,7 @@ const shots = {
     const page = await open(context);
     await row(page, 'DeepSeek API').click();
     await page.locator('.page').waitFor();
-    await page.locator('.detail-row', { hasText: 'lab' }).first().click();
+    await page.locator('.detail-row', { hasText: 'demo' }).first().click();
     await page.waitForTimeout(500);
     await panelShot(page, `api-${context.look}.png`);
   },
