@@ -910,6 +910,34 @@ test('a source whose reading ends without figures is not waited for: the share p
   await expect(copy).toBeEnabled();
 });
 
+test('the range menu closes when Tab or Shift+Tab leaves it, or the panel goes away, the choice as it was (MENU-1, MENU-2)', async ({ page }) => {
+  await open(page);
+  const trigger = page.getByRole('button', { name: /^统计范围/ });
+  const menuOpen = () => page.evaluate(async () => (await import('/src/lib/ui.svelte.ts')).panel.menuOpen);
+  for (const key of ['Tab', 'Shift+Tab']) {
+    await trigger.focus();
+    await page.keyboard.press('Enter');
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    // The arrows still move through the choices while it is open.
+    await page.keyboard.press('ArrowDown');
+    await expect(page.locator('.option.lit')).toHaveText('昨天');
+    await page.keyboard.press(key);
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.getByRole('listbox')).toHaveCount(0);
+    await expect(trigger).toContainText('今天');
+    // No longer holding the refreshes back.
+    expect(await menuOpen()).toBe(false);
+  }
+  // The panel going away while the menu is open (a click on the desktop hides it): opened again, the menu is folded,
+  // the range as it was (MENU-2).
+  await trigger.click();
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+  await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  await expect(trigger).toContainText('今天');
+  expect(await menuOpen()).toBe(false);
+});
+
 test('the share page picks its range, the homepage\'s own, and draws that range', async ({ page }) => {
   await open(page);
   await button(page, '分享用量图').click();

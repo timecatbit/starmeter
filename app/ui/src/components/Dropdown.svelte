@@ -31,6 +31,9 @@
     const bottom = (root?.closest('.viewport') ?? root?.closest('.window'))?.getBoundingClientRect().bottom ?? window.innerHeight;
     room = root ? Math.max(96, bottom - root.getBoundingClientRect().bottom - 10) : 0;
     window.addEventListener('pointerdown', outside, true);
+    // The panel going away (a click on the desktop hides it) closes the menu too, as a system menu would: opened again,
+    // the panel shows the range as it was, folded, and refreshes again.
+    window.addEventListener('blur', close);
     // Focusing would scroll the page to show the whole menu, jolting it up under the pointer.
     queueMicrotask(() => { menu?.focus({ preventScroll: true }); reveal(); });
   }
@@ -39,6 +42,7 @@
     open = false;
     panel.menuOpen = false;
     window.removeEventListener('pointerdown', outside, true);
+    window.removeEventListener('blur', close);
   }
   /** Keeps the lit option in view inside the menu, never scrolling the page. */
   function reveal() {
@@ -59,6 +63,8 @@
     else if (event.key === 'ArrowDown') { event.preventDefault(); lit = (lit + 1) % options.length; reveal(); }
     else if (event.key === 'ArrowUp') { event.preventDefault(); lit = (lit - 1 + options.length) % options.length; reveal(); }
     else if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); pick(options[lit].value); }
+    // Tab or Shift+Tab leaves the menu: it closes with the choice as it was, and the focus goes on its way.
+    else if (event.key === 'Tab') close();
     // The ends of the list (and its pages) are the menu's, not the page's: left to the browser, they scrolled what is
     // around the menu, and the menu with it, out of sight.
     else if (event.key === 'Home' || event.key === 'PageUp') { event.preventDefault(); lit = 0; reveal(); }
@@ -73,7 +79,8 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions (the keys belong to the open menu) -->
-<span class="dropdown" class:field bind:this={root} onkeydown={keydown}>
+<span class="dropdown" class:field bind:this={root} onkeydown={keydown}
+  onfocusout={(event) => { if (open && root && !root.contains(event.relatedTarget as Node | null)) close(); }}>
   <button class="trigger pressable" class:open style:font-size="{size}px" aria-haspopup="listbox" aria-expanded={open}
     aria-label="{label} · {current}" onclick={() => (open ? close() : show())}>
     <span class="current">{current}</span>
