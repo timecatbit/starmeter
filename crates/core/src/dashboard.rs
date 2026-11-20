@@ -874,6 +874,32 @@ impl Runtime {
 
     // The dashboard
 
+    /// One range's figures as the homepage has them, read when the cache is due: this computer's sources with the
+    /// other computers' added (多台电脑合并), and the read's error.
+    pub fn range_with_devices(&self, range: &str) -> runtime::Loaded {
+        let (bundle, error) = self.range_usage(Some(range), None);
+        let bundle = bundle.and_then(|bundle| {
+            let record = self.with_devices(range, object! { "payload" => bundle });
+            record.get("payload").and_then(Json::as_object).cloned()
+        });
+        (bundle, error)
+    }
+
+    /// The homepage's dashboard for a range other than the one on screen, from range_with_devices, with the cards
+    /// grouped as asked (a phone's or the command line's own choice), the computer's grouping when none is. Runs
+    /// inside a render.
+    pub fn range_dashboard(&self, range: &str, group: Option<&str>, loaded: runtime::Loaded, now: f64) -> Object {
+        let (bundle, error) = loaded;
+        let mut data = self.cached_data();
+        data.insert("range_usage", bundle.map(Json::Object).unwrap_or(Json::Null));
+        data.insert("range_usage_error", error.clone().map(Json::from).unwrap_or(Json::Null));
+        data.insert("displayed_range", range);
+        if let Some(group) = group {
+            data.insert("displayed_group", group);
+        }
+        self.dashboard_payload(&data, error.as_deref(), now)
+    }
+
     /// Everything the homepage draws for the range on screen. data holds the cached bundle and its error, the
     /// OpenCodex health, the exchange rate and the service statuses.
     pub fn dashboard_payload(&self, data: &Object, range_error: Option<&str>, now: f64) -> Object {
@@ -1340,5 +1366,153 @@ impl Runtime {
             payload.insert("devices", devices);
         }
         payload
+    }
+}
+
+/// The fields a gateway's counted part replaces on a card when Summary adds it (the panel's summaryPart).
+const COUNTED_FIELDS: [&str; 7] = ["cost", "tokens", "requests", "unpriced", "cache", "cacheInputs", "history"];
+
+/// What Summary adds for each card, in the panel's order: nothing for one it leaves out, the counted part where a
+/// gateway logged the rest.
+pub fn summary_parts(dashboard: &Object) -> Vec<Object> {
+    dashboard
+        .get("providers")
+        .and_then(Json::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Json::as_object)
+        .filter(|card| card.get("summaryIncluded") != Some(&Json::Bool(false)))
+        .map(|card| {
+            let mut part = card.clone();
+            if let Some(counted) = card.get("counted").and_then(Json::as_object) {
+                for field in COUNTED_FIELDS {
+                    part.insert(field, counted.get(field).cloned().unwrap_or(Json::Null));
+                }
+            }
+            part
+        })
+        .collect()
+}
+
+/// Summary's figures as the homepage and the share picture show them: the estimate of the sources that have one
+/// (partial when a source is unavailable or has unpriced requests), tokens and requests of the available sources
+/// (null when none is), the cache share weighed by each source's cache-eligible input, and the trend's totals.
+pub fn summary_totals(dashboard: &Object) -> Object {
+    let parts = summary_parts(dashboard);
+    let valid: Vec<&Object> = parts.iter().filter(|part| part.get("available").is_some_and(Json::is_truthy)).collect();
+    let costs: Vec<f64> = valid.iter().filter_map(|part| part.get("cost").and_then(Json::number)).collect();
+    let partial = valid.len() != parts.len() || valid.iter().any(|part| figure(part.get("unpriced")) > 0.0);
+    let sum = |field: &str| -> Json {
+        if valid.is_empty() { Json::Null } else { Json::Double(valid.iter().map(|part| figure(part.get(field))).sum()) }
+    };
+    let cached: Vec<(f64, f64)> = valid
+        .iter()
+        .filter_map(|part| {
+            let share = part.get("cache").and_then(Json::number)?;
+            let inputs = part.get("cacheInputs").and_then(Json::number).unwrap_or_else(|| figure(part.get("tokens")));
+            Some((share, inputs))
+        })
+        .collect();
+    let weight: f64 = cached.iter().map(|(_, inputs)| inputs).sum();
+    let slots = dashboard.get("dates").and_then(Json::as_array).map_or(0, Vec::len);
+    let history: Vec<Json> = (0..slots)
+        .map(|index| {
+            let total: f64 = parts
+                .iter()
+                .map(|part| {
+                    part.get("history")
+                        .and_then(Json::as_array)
+                        .and_then(|series| series.get(index))
+                        .and_then(Json::number)
+                        .unwrap_or(0.0)
+                        .max(0.0)
+                })
+                .sum();
+            Json::Double(total)
+        })
+        .collect();
+    object! {
+        "cost" => if costs.is_empty() { Json::Null } else { Json::Double(costs.iter().sum()) },
+        "costPartial" => partial,
+        "tokens" => sum("tokens"),
+        "requests" => sum("requests"),
+        "cache" => if weight > 0.0 {
+            Json::Double(cached.iter().map(|(share, inputs)| share * inputs).sum::<f64>() / weight)
+        } else {
+            Json::Null
+        },
+        "history" => Json::Array(history),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fixture(name: &str, range: &str) -> Object {
+        let path = format!("{}/../../app/ui/fixtures/{name}.json", env!("CARGO_MANIFEST_DIR"));
+        let data = std::fs::read(path).expect("the panel's fixture");
+        let value = Json::parse(&data).expect("JSON");
+        value
+            .get("dashboards")
+            .and_then(|dashboards| dashboards.get(range))
+            .and_then(Json::as_object)
+            .cloned()
+            .expect("range")
+    }
+
+    fn number(totals: &Object, field: &str) -> Option<f64> {
+        totals.get(field).and_then(Json::number)
+    }
+
+    #[test]
+    fn summary_adds_what_the_homepage_adds() {
+        // The panel's fixture: 61.96M tokens today, Codex counted by Magpie in part, Qoder all unpriced.
+        let totals = summary_totals(&fixture("default", "today"));
+        assert_eq!(number(&totals, "tokens"), Some(61_956_680.0));
+        assert_eq!(number(&totals, "requests"), Some(436.0));
+        assert!((number(&totals, "cost").unwrap() - 21.775984).abs() < 1e-9);
+        assert_eq!(totals.get("costPartial"), Some(&Json::Bool(true)));
+        assert!((number(&totals, "cache").unwrap() - 0.919649114).abs() < 1e-6);
+        let history = totals.get("history").and_then(Json::as_array).unwrap();
+        assert_eq!(history.len(), fixture("default", "today").get("dates").and_then(Json::as_array).unwrap().len());
+        let week = summary_totals(&fixture("default", "7d"));
+        assert_eq!(number(&week, "tokens"), Some(505_419_755.0));
+        assert_eq!(number(&week, "requests"), Some(2969.0));
+    }
+
+    #[test]
+    fn summary_has_no_figures_before_a_source_is_read() {
+        let totals = summary_totals(&fixture("pending", "today"));
+        assert_eq!(totals.get("tokens"), Some(&Json::Null));
+        assert_eq!(totals.get("cost"), Some(&Json::Null));
+        assert_eq!(totals.get("cache"), Some(&Json::Null));
+        assert_eq!(totals.get("costPartial"), Some(&Json::Bool(true)));
+    }
+
+    #[test]
+    fn the_cache_share_is_weighed_by_cache_eligible_input() {
+        // SHARE-2: 100 eligible tokens all read from cache, 100 none; 9,900 more output on the first changes nothing.
+        let card = |id: &str, tokens: f64, cache: f64| -> Json {
+            object! {
+                "id" => id, "available" => true, "summaryIncluded" => true, "tokens" => tokens, "cost" => 1.0,
+                "requests" => 1, "unpriced" => 0, "cache" => cache, "cacheInputs" => 100, "history" => Json::Array(vec![]),
+            }
+            .into()
+        };
+        let dashboard = object! { "providers" => Json::Array(vec![card("a", 10_000.0, 1.0), card("b", 100.0, 0.0)]) };
+        let totals = summary_totals(&dashboard);
+        assert_eq!(number(&totals, "cache"), Some(0.5));
+        assert_eq!(totals.get("costPartial"), Some(&Json::Bool(false)));
+        let left_out = object! {
+            "providers" => Json::Array(vec![card("a", 10.0, 1.0), {
+                let mut gateway = card("b", 5.0, 0.0);
+                if let Json::Object(fields) = &mut gateway {
+                    fields.insert("summaryIncluded", false);
+                }
+                gateway
+            }]),
+        };
+        assert_eq!(number(&summary_totals(&left_out), "tokens"), Some(10.0));
     }
 }

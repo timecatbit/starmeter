@@ -13,7 +13,7 @@ use starmeter_core::desktop::{self, Shell};
 use starmeter_core::host::{self, DesktopHost, Host, HostFailure, connections, terminal_jobs};
 use starmeter_core::json::{Json, Object};
 use starmeter_core::runtime::{Runtime, now};
-use starmeter_core::{discovery, files, object};
+use starmeter_core::{discovery, files};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::DialogExt;
 
@@ -142,23 +142,9 @@ impl Engine {
     /// none is.
     pub fn dashboard_grouped(&self, range: &str, group: Option<&str>) -> Value {
         let runtime = self.runtime();
-        let (bundle, error) = runtime.range_usage(Some(range), None);
-        // With the other computers' figures for the range (多台电脑合并), as the homepage has them.
-        let bundle = bundle.and_then(|bundle| {
-            let record = runtime.with_devices(range, object! { "payload" => bundle });
-            record.get("payload").and_then(Json::as_object).cloned()
-        });
+        let loaded = runtime.range_with_devices(range);
         let _turn = self.rendering.lock().expect("the render lock");
-        let value = runtime.render(|| {
-            let mut data = runtime.cached_data();
-            data.insert("range_usage", bundle.map(Json::Object).unwrap_or(Json::Null));
-            data.insert("range_usage_error", error.clone().map(Json::from).unwrap_or(Json::Null));
-            data.insert("displayed_range", range);
-            if let Some(group) = group {
-                data.insert("displayed_group", group);
-            }
-            runtime.dashboard_payload(&data, error.as_deref(), now())
-        });
+        let value = runtime.render(|| runtime.range_dashboard(range, group, loaded, now()));
         to_value(Json::Object(value))
     }
 
