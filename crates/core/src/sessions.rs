@@ -23,6 +23,8 @@ pub const ACTIVE: f64 = 86400.0;
 /// A running session silent this long has most likely stopped without saying so: it is idle.
 const STALLED: f64 = 600.0;
 const TAIL: usize = 512 * 1024;
+/// How far back a session's state is looked for when the usual tail holds none (a long tool output can fill it).
+const FAR: usize = 16 * 1024 * 1024;
 const DETAIL: usize = 2 * 1024 * 1024;
 const TURNS: usize = 8;
 const CLAUDE_WINDOWS: [f64; 2] = [200_000.0, 1_000_000.0];
@@ -60,6 +62,20 @@ fn rows_at_end(path: &str, size: usize) -> Result<Vec<Object>, FileError> {
         .filter_map(|line| Json::parse_selected(line, &Selection::All, true).ok())
         .filter_map(|value| value.as_object().cloned())
         .collect())
+}
+
+/// The complete JSON lines at a file's end: the usual tail, else twice as far back each time (up to FAR) until `enough`
+/// finds what it needs among them. A long tool output can push a turn's start, or every whole line, out of the tail.
+fn rows_back(path: &str, enough: impl Fn(&[Object]) -> bool) -> Result<Vec<Object>, FileError> {
+    let length = std::fs::metadata(path).map_err(|_| FileError::of_kind("unreadable", "OSError"))?.len();
+    let mut size = TAIL;
+    loop {
+        let rows = rows_at_end(path, size)?;
+        if enough(&rows) || size as u64 >= length || size >= FAR {
+            return Ok(rows);
+        }
+        size *= 2;
+    }
 }
 
 /// The complete JSON lines in the first `size` bytes of a file, in order.
@@ -117,7 +133,10 @@ fn kind_is(row: &Object, kind: &str) -> bool {
 fn claude(path: &str) -> Result<Option<Object>, FileError> {
     let (mut last, mut reply, mut folder) = (None::<Object>, None::<Object>, None::<Json>);
     let (mut named, mut made) = (None::<String>, None::<String>);
-    for row in rows_at_end(path, TAIL)? {
+    let said = |row: &Object| {
+        (kind_is(row, "assistant") || kind_is(row, "user")) && !row.get("isSidechain").is_some_and(Json::is_truthy)
+    };
+    for row in rows_back(path, |rows| rows.iter().any(said))? {
         if kind_is(&row, "custom-title") {
             named = text(row.get("customTitle")).or(named);
         } else if kind_is(&row, "ai-title") {
@@ -171,7 +190,11 @@ fn codex(path: &str) -> Result<Option<Object>, ReadError> {
     }
     let mut folder = if kind_is(head, "session_meta") { payload.get("cwd").cloned() } else { None };
     let (mut state, mut model, mut context, mut effort) = (None::<&str>, Json::Null, Json::Null, None::<String>);
-    for row in rows_at_end(path, TAIL)? {
+    let marks = |row: &Object| {
+        let kind = row.get("payload").and_then(|payload| payload.get("type")).and_then(Json::as_str);
+        matches!(kind, Some("task_started" | "task_complete" | "turn_aborted"))
+    };
+    for row in rows_back(path, |rows| rows.iter().any(marks))? {
         let data = row.get("payload").and_then(Json::as_object).cloned().unwrap_or_default();
         let kind = data.get("type").and_then(Json::as_str);
         if kind_is(&row, "turn_context") {

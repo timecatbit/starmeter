@@ -1366,6 +1366,15 @@ class SessionParityTests(unittest.TestCase):
             meta, {'type': 'event_msg', 'payload': {'type': 'task_started'}}, {'type': 'turn_context', 'payload': {'model': 'gpt-6.2-astra', 'effort': 'high'}},
             {'type': 'response_item', 'payload': {'type': 'message', 'content': 'x' * 600_000}}, count(3),
             {'type': 'event_msg', 'payload': {'type': 'task_complete'}}], age=3)
+        # A long tool output pushes the turn's start, or every whole line, out of the usual tail: still running.
+        busy = '019a2222-3333-7444-8555-666677778888'
+        write(codex / 'sessions' / '2026' / '11' / '18' / ('rollout-2026-11-18T10-00-00-%s.jsonl' % busy), [
+            {'type': 'session_meta', 'payload': {'id': busy, 'cwd': '/w/ops'}}, {'type': 'turn_context', 'payload': {'model': 'gpt-6.2-sol'}},
+            {'type': 'event_msg', 'payload': {'type': 'task_started'}},
+            {'type': 'response_item', 'payload': {'type': 'function_call_output', 'output': 'y' * 540_000}}, count(4)], age=2.5)
+        write(claude / 'p' / 'long-output.jsonl', [{'type': 'user', 'message': {'content': 'go'}},
+            {'type': 'assistant', 'message': {'model': 'claude-opus-5-5', 'usage': usage(10), 'stop_reason': 'tool_use'}},
+            {'type': 'user', 'message': {'content': [{'type': 'tool_result', 'content': 'z' * 600_000}]}}], age=1.5)
         (codex / 'session_index.jsonl').write_text(json.dumps({'id': thread, 'thread_name': '服务器管理'}) + '\n' + json.dumps({'id': long, 'thread_name': '长对话'}) + '\n')
         app = {'7a5d1c2e-0000-4000-8000-000000000001': {'title': 'App 名字', 'effort': 'xhigh'}, 'busy': {'title': 'Busy', 'effort': None}}
         plugin = __import__('types').ModuleType('plugin_sessions')
@@ -1377,9 +1386,10 @@ class SessionParityTests(unittest.TestCase):
                 got = swift('sessions.active', [str(claude)], str(codex), now, prices, app)
                 same(self, expected, got)
                 # Within the day, the running one gone quiet as idle; the one older than a day left out; the segments one session.
-                self.assertEqual([(s['state'], s['tool']) for s in got], [('running', 'Claude'), ('running', 'ChatGPT'), ('waiting', 'ChatGPT'), ('waiting', 'Claude'), ('waiting', 'Claude')])
-                self.assertEqual((got[2]['title'], got[2]['model'], got[2]['effort']), ('长对话', 'gpt-6.2-astra', 'high'))
-                if prices:self.assertEqual(got[2]['spent']['requests'], 3)
+                self.assertEqual([(s['state'], s['tool']) for s in got], [('running', 'Claude'), ('running', 'Claude'), ('running', 'ChatGPT'), ('running', 'ChatGPT'),
+                                                                           ('waiting', 'ChatGPT'), ('waiting', 'Claude'), ('waiting', 'Claude')])
+                self.assertEqual((got[4]['title'], got[4]['model'], got[4]['effort']), ('长对话', 'gpt-6.2-astra', 'high'))
+                if prices:self.assertEqual(got[4]['spent']['requests'], 3)
         # The turns as listed: one with no request left out, MCP tools by their own name.
         turns = [{'at': None, 'requests': 4, 'tokens': 1200, 'cost': 0.4, 'unpriced': 1,
                   'tools': {'mcp__ccd_turn__update_plan': 2, 'mcp__other__update_plan': 1, 'Bash': 3, 'mcp__a___b': 1, 'mcp__x__': 1}},

@@ -17,6 +17,7 @@ import swiftbar_projects
 ACTIVE = 86400  # A session stays listed a day after its last change.
 STALLED = 600   # A running session silent this long has most likely stopped without saying so: it is idle.
 TAIL = 512 * 1024
+FAR = 16 * 1024 * 1024  # How far back a session's state is looked for when the usual tail holds none.
 # Claude's context window: 200K, unless a request already went past it (the 1M window).
 CLAUDE_WINDOWS = (200_000, 1_000_000)
 
@@ -49,6 +50,17 @@ def rows_at_end(path, size=TAIL):
             if isinstance(row, dict):rows.append(row)
         except ValueError:continue
     return rows
+
+
+def rows_back(path, enough):
+    """The complete JSON lines at a file's end: the usual tail, else twice as far back each time (up to FAR) until
+    `enough` finds what it needs among them. A long tool output can push a turn's start, or every whole line, out of
+    the tail."""
+    length = os.path.getsize(path); size = TAIL
+    while True:
+        rows = rows_at_end(path, size)
+        if enough(rows) or size >= length or size >= FAR:return rows
+        size *= 2
 
 
 def rows_at_start(path, size=TAIL):
@@ -96,7 +108,7 @@ def claude(path):
     """A Claude Code transcript: waiting once the last reply ended its turn, running otherwise. Its title is the
     last one the transcript records: the name the user or the App gave it, else the one Claude Code made up."""
     last = reply = None; folder = None; named = made = None
-    for row in rows_at_end(path):
+    for row in rows_back(path, lambda rows: any(r.get('type') in ('assistant', 'user') and not r.get('isSidechain') for r in rows)):
         if row.get('type') == 'custom-title':named = text(row.get('customTitle')) or named
         elif row.get('type') == 'ai-title':made = text(row.get('aiTitle')) or made
         if row.get('isSidechain'):continue
@@ -126,7 +138,7 @@ def codex(path):
     if isinstance(payload.get('source'), dict) and 'subagent' in payload['source']:return None
     folder = payload.get('cwd') if head.get('type') == 'session_meta' else None
     state = None; model = None; context = None; effort = None
-    for row in rows_at_end(path):
+    for row in rows_back(path, lambda rows: any(isinstance(r.get('payload'), dict) and r['payload'].get('type') in ('task_started', 'task_complete', 'turn_aborted') for r in rows)):
         data = row.get('payload') if isinstance(row.get('payload'), dict) else {}
         kind = data.get('type')
         if row.get('type') == 'turn_context':model = data.get('model') or model;effort = text(data.get('effort')) or effort
