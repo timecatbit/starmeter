@@ -596,6 +596,26 @@ test('on the phone: the homepage read-only, its figures asked for with the key, 
   await expect(page.locator('.dashboard')).toBeVisible();
 });
 
+test('on the phone: a slow reading of the range before never takes the page back', async ({ page }) => {
+  await servePhone(page);
+  await page.goto('/#k=' + PHONE_KEY);
+  await expect(page.locator('.dashboard')).toBeVisible();
+  // Today's next reading is held back; the week is picked meanwhile and arrives at once.
+  let release = () => {};
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  await page.route('**/api/snapshot', async (route) => { await held; await route.fallback(); });
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await page.getByRole('button', { name: /^统计范围/ }).click();
+  await page.getByRole('option', { name: '近 7 天' }).click();
+  await expect(page.locator('.summary .reading')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^统计范围/ })).toContainText('近 7 天');
+  const week = await page.locator('.figure').first().textContent();
+  release();
+  await page.waitForTimeout(600);
+  await expect(page.getByRole('button', { name: /^统计范围/ })).toContainText('近 7 天');
+  await expect(page.locator('.figure').first()).toHaveText(week!);
+});
+
 test('on the phone: one reading at a time, and a computer out of reach or a stale link said at the foot', async ({ page }) => {
   const asked = await servePhone(page);
   await page.goto('/#k=' + PHONE_KEY);

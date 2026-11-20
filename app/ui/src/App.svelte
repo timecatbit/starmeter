@@ -311,18 +311,27 @@
   /** A button held down keeps its look: a data refresh waits until the press ends. */
   let pressing = false;
 
+  /** Counts the range and grouping picks: a reading asked before the last pick (a phone's slow reading of the range it
+   *  had before) is left unused when it answers, so it never takes the page back. Readings between picks all count,
+   *  however they overlap. */
+  let picks = 0;
   async function reload() {
     // A redraw while a native menu is open would close it; it waits until the menu does, or the press ends.
     if (panel.menuOpen || pressing) { deferred = true; return; }
+    const mine = picks;
+    let answer: Snapshot;
     try {
-      interaction.source = await backend.snapshot();
-      phoneProblem = null;
+      answer = await backend.snapshot();
     } catch (error) {
+      if (mine !== picks) return;
       // On a phone a computer out of reach is said on the page, not only in the console.
       if (onPhone) { phoneProblem = error instanceof Error ? error.message : String(error); return; }
       console.error('snapshot failed', error);
       return;
     }
+    if (mine !== picks) return;
+    interaction.source = answer;
+    phoneProblem = null;
     if (pinned && interaction.source.dashboard) {
       feed?.add(interaction.source.dashboard);
       const now = new Date();
@@ -378,6 +387,7 @@
   }
 
   function perform(action: string[]) {
+    if (action[0] === 'set-range' || action[0] === 'set-group') picks++;
     // 在手机上看 from the module grid: its page slides in over the grid.
     if (action[0] === 'show-phone') { panel.hint = null; dir = 1; phoneOpen = true; return; }
     // 新手指引 from 通用: back to the homepage, then the tour.
