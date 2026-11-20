@@ -20,6 +20,7 @@
   import LiveChart from './LiveChart.svelte';
   import ProviderCard from './ProviderCard.svelte';
   import SessionList from './SessionList.svelte';
+  import MoreButton from './MoreButton.svelte';
   import SummaryChart from './SummaryChart.svelte';
 
   let { data, rangeOptions, reveal, glows, summaryGlow, live, leaving = null, onleft, liveStamp, pinned, pinInterval, onrange,
@@ -78,10 +79,18 @@
   });
   // By tool, the tools that used the most first, as the models and projects are.
   const cardList = $derived(data.cards ?? byUsage(data.providers));
+  // Models and projects: the first five, the rest one click away (then the page scrolls to them); by tool every tool,
+  // the ones the user picked. Choosing another grouping starts from five again.
+  const SHOWN = 5;
+  const MORE = 34;
+  let allOf = $state<string | null>(null);
+  const listed = $derived(!data.cards || allOf === data.grouping ? cardList : cardList.slice(0, SHOWN));
+  const unlisted = $derived(cardList.length - listed.length);
   const collapsible = $derived(data.allowCollapse === true && !data.cards);
   const expanded = $derived(new Set(data.expandedProviders ?? []));
   const listHeight = $derived(showingSessions ? sessionsHeight
-    : Math.max(cardList.length === 0 && data.providers.length ? 24 : 0, cardList.reduce((s, p) => s + cardHeight(p), 0)) + (data.providers.length ? 4 : 0));
+    : Math.max(cardList.length === 0 && data.providers.length ? 24 : 0, listed.reduce((s, p) => s + cardHeight(p), 0) + (unlisted ? MORE : 0))
+      + (data.providers.length ? 4 : 0));
   const total = $derived(summaryHeight + heatmapHeight + harnessHeader + groupingHeight + listHeight);
   // A pinned panel fits down to the end of the third card or session (the user makes it taller at its edges).
   const FIT = 3;
@@ -197,10 +206,14 @@
       {#if !cardList.length && data.providers.length}
         <div class="no-calls">{t('此时段暂无调用')}</div>
       {/if}
-      {#each cardList as p (p.id)}
+      {#each listed as p (p.id)}
         <ProviderCard {p} {collapsible} expanded={expanded.has(p.id)} glow={glows[p.id] ?? 0} ontoggle={() => ontoggle(p.id, !expanded.has(p.id))}
           onopen={isGrouped(p) ? undefined : () => onopentool(p.id)} />
       {/each}
+      {#if unlisted}
+        <MoreButton label={t(data.grouping === 'project' ? '查看更多 {n} 个项目' : '查看更多 {n} 个模型', { n: unlisted })}
+          onclick={() => (allOf = data.grouping ?? null)} />
+      {/if}
     {/if}
   </div>
 </div>

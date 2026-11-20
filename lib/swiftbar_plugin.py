@@ -3655,8 +3655,6 @@ def model_title(key):
     return 'Claude '+match.group(1).capitalize()+' '+match.group(2).replace('-','.') if match else key
 
 GROUP_FIELDS=('tokens','cost','requests','unpriced','output','credits','cached','inputs')
-# Past this many, the smallest model or project cards fold into one, so the homepage stays short.
-GROUP_CARDS=9
 
 def group_add(groups, key, tool, row):
     """Add one model or project row of a tool to its group."""
@@ -3669,13 +3667,6 @@ def group_add(groups, key, tool, row):
                         ('output',num('outputTokens')),('credits',num('credits')),('cached',num('cacheReadInputTokens') or num('cachedInputTokens')),
                         ('inputs',num('cacheEligibleInputTokens') if 'cacheEligibleInputTokens' in row else num('inputTokens'))):g[field]+=value
     g['tools'][tool]=g['tools'].get(tool,0.0)+(tokens or num('credits'))
-
-def group_merge(parts):
-    total=dict({field:0.0 for field in GROUP_FIELDS},tools={})
-    for g in parts:
-        for field in GROUP_FIELDS:total[field]+=g[field]
-        for tool,amount in g['tools'].items():total['tools'][tool]=total['tools'].get(tool,0.0)+amount
-    return total
 
 def group_card(card_id, name, mark, accent, g):
     """A model or project card in the shape of a tool's, with the tools that make it up as its rows."""
@@ -3690,10 +3681,9 @@ def group_card(card_id, name, mark, accent, g):
             'priceNote':'%d 次未定价'%unpriced if 0<unpriced<requests and not g['credits'] else None}
 
 def ranked_groups(groups):
-    """Groups with requests, the costliest first; past GROUP_CARDS the rest come back merged, with how many."""
+    """Groups with requests, the costliest first: every one of them, the panel lists five and the rest a tap away."""
     order=sorted((k for k,g in groups.items() if g['requests']),key=lambda k:(-groups[k]['cost'],-groups[k]['tokens'],-groups[k]['credits']))
-    rest=order[GROUP_CARDS:] if len(order)>GROUP_CARDS+1 else []
-    return [(k,groups[k]) for k in order[:len(order)-len(rest)]],(group_merge(groups[k] for k in rest) if rest else None),len(rest)
+    return [(k,groups[k]) for k in order]
 
 def model_cards(selected, counting):
     """One card per model across every tool, as Summary counts: a request a gateway also logged counts once.
@@ -3703,11 +3693,10 @@ def model_cards(selected, counting):
         usage=counting[source]['usage']
         if not usage or usage.get('error'):continue
         for row in usage.get('models') or []:group_add(groups,model_key(row.get('model')),label,row)
-    shown,rest,count=ranked_groups(groups);cards=[]
-    for key,g in shown:
+    cards=[]
+    for key,g in ranked_groups(groups):
         maker=next((tool for prefix,tool in MODEL_MAKERS if key.startswith(prefix)),None)
         cards.append(group_card('model:'+key,model_title(key),module_icon(maker) if maker else {'symbol':'cpu'},maker,g))
-    if rest:cards.append(group_card('model:','其他 %d 个模型'%count,{'symbol':'ellipsis.circle'},None,rest))
     return cards
 
 
@@ -3721,10 +3710,8 @@ def project_cards(selected):
         # A tool that keeps no project lands in 未标注项目 whole.
         for row in usage.get('projects') or [dict(usage['summary'],project='')]:group_add(groups,str(row.get('project') or ''),(source,label),row)
     unmarked=groups.pop('',None)
-    shown,rest,count=ranked_groups(groups)
     def lead(g):return max(g['tools'].items(),key=lambda item:item[1])[0][0]
-    cards=[group_card('project:'+key,key,{'symbol':'folder'},lead(g),g) for key,g in shown]
-    if rest:cards.append(group_card('project:*','其他 %d 个项目'%count,{'symbol':'ellipsis.circle'},lead(rest),rest))
+    cards=[group_card('project:'+key,key,{'symbol':'folder'},lead(g),g) for key,g in ranked_groups(groups)]
     if unmarked and unmarked['requests']:cards.append(group_card('project:','未标注项目',{'symbol':'questionmark.folder'},lead(unmarked),unmarked))
     return cards
 

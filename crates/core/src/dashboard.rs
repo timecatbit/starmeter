@@ -20,7 +20,6 @@ const HEATMAP_DAYS: i64 = 360;
 const HEATMAP_ROW: i64 = 30;
 pub const GROUPINGS: [(&str, &str); 3] = [("tool", "工具"), ("model", "模型"), ("project", "项目")];
 const GATEWAYS: [&str; 2] = ["opencodex", "magpie"];
-const GROUP_CARDS: usize = 9;
 const GROUP_FIELDS: [&str; 8] = ["tokens", "cost", "requests", "unpriced", "output", "credits", "cached", "inputs"];
 const MODEL_MAKERS: [(&str, &str); 19] = [
     ("claude", "claude"),
@@ -379,22 +378,6 @@ fn group_add(groups: &mut IndexMap<String, Group>, key: String, tool: (&str, &st
     group.tool_names.insert(id, tool.1.to_string());
 }
 
-fn group_merge(parts: &[Group]) -> Group {
-    let mut total = Group::default();
-    for group in parts {
-        for field in GROUP_FIELDS {
-            *total.fields.get_mut(field).expect("group field") += group.field(field);
-        }
-        for (tool, amount) in &group.tools {
-            *total.tools.entry(tool.clone()).or_default() += amount;
-            if let Some(name) = group.tool_names.get(tool) {
-                total.tool_names.insert(tool.clone(), name.clone());
-            }
-        }
-    }
-    total
-}
-
 /// A model or project card in the shape of a tool's, with the tools that make it up as its rows.
 fn group_card(id: &str, name: &str, mark: Object, accent: Option<&str>, group: &Group) -> Json {
     let weight: f64 = group.tools.values().sum();
@@ -453,8 +436,8 @@ fn group_card(id: &str, name: &str, mark: Object, accent: Option<&str>, group: &
     card.into()
 }
 
-/// Groups with requests, the costliest first; past the limit the rest come back merged, with how many.
-fn ranked_groups(groups: &IndexMap<String, Group>) -> (Vec<(String, Group)>, Option<Group>, usize) {
+/// Groups with requests, the costliest first: every one of them, the panel lists five and the rest a tap away.
+fn ranked_groups(groups: &IndexMap<String, Group>) -> Vec<(String, Group)> {
     let mut order: Vec<(usize, (String, Group))> = groups
         .iter()
         .filter(|(_, group)| group.field("requests") != 0.0)
@@ -469,15 +452,7 @@ fn ranked_groups(groups: &IndexMap<String, Group>) -> (Vec<(String, Group)>, Opt
         }
         a_index.cmp(b_index)
     });
-    let order: Vec<(String, Group)> = order.into_iter().map(|(_, item)| item).collect();
-    let rest: Vec<(String, Group)> = if order.len() > GROUP_CARDS + 1 { order[GROUP_CARDS..].to_vec() } else { vec![] };
-    let shown = order[..order.len() - rest.len()].to_vec();
-    let merged = if rest.is_empty() {
-        None
-    } else {
-        Some(group_merge(&rest.iter().map(|(_, group)| group.clone()).collect::<Vec<_>>()))
-    };
-    (shown, merged, rest.len())
+    order.into_iter().map(|(_, item)| item).collect()
 }
 
 /// One name per model across tools: lower case, without a provider's path or a date stamp.
@@ -654,25 +629,14 @@ impl Runtime {
                 }
             }
         }
-        let (shown, rest, count) = ranked_groups(&groups);
-        let mut cards: Vec<Json> = shown
+        ranked_groups(&groups)
             .iter()
             .map(|(key, group)| {
                 let maker = MODEL_MAKERS.iter().find(|(prefix, _)| key.starts_with(prefix)).map(|(_, maker)| *maker);
                 let mark = maker.map_or_else(|| object! { "symbol" => "cpu" }, |maker| self.module_icon(maker));
                 group_card(&format!("model:{key}"), &model_title(key), mark, maker, group)
             })
-            .collect();
-        if let Some(rest) = rest {
-            cards.push(group_card(
-                "model:",
-                &format!("其他 {count} 个模型"),
-                object! { "symbol" => "ellipsis.circle" },
-                None,
-                &rest,
-            ));
-        }
-        cards
+            .collect()
     }
 
     fn project_cards(&self, selected: &[Selected]) -> Vec<Json> {
@@ -701,7 +665,6 @@ impl Runtime {
             }
         }
         let unmarked = groups.shift_remove("");
-        let (shown, rest, count) = ranked_groups(&groups);
         let lead = |group: &Group| -> String {
             let mut best: Option<(&String, f64)> = None;
             for (tool, amount) in &group.tools {
@@ -711,21 +674,12 @@ impl Runtime {
             }
             best.map(|(tool, _)| tool.split('\u{1F}').next().unwrap_or("").to_string()).unwrap_or_default()
         };
-        let mut cards: Vec<Json> = shown
+        let mut cards: Vec<Json> = ranked_groups(&groups)
             .iter()
             .map(|(key, group)| {
                 group_card(&format!("project:{key}"), key, object! { "symbol" => "folder" }, Some(&lead(group)), group)
             })
             .collect();
-        if let Some(rest) = rest {
-            cards.push(group_card(
-                "project:*",
-                &format!("其他 {count} 个项目"),
-                object! { "symbol" => "ellipsis.circle" },
-                Some(&lead(&rest)),
-                &rest,
-            ));
-        }
         if let Some(unmarked) = unmarked.filter(|group| group.field("requests") != 0.0) {
             cards.push(group_card(
                 "project:",

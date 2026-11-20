@@ -8,6 +8,7 @@
   import type { Entry } from '../lib/types';
   import DetailList from './DetailList.svelte';
   import Glyph from './Glyph.svelte';
+  import MoreButton from './MoreButton.svelte';
   import StatusLight from './StatusLight.svelte';
 
   let { entry, busy, onopen, onchoose, onfit }: {
@@ -105,10 +106,7 @@
     </div>
   {/each}
   {#if listed.length < sessions.length}
-    <button class="more pressable" onclick={() => (everything = true)}>
-      <span>{t('查看更多 {n} 个会话', { n: sessions.length - listed.length })}</span>
-      <svg width="10" height="7" viewBox="0 0 10 7" aria-hidden="true"><path d="M1 1.2 5 5.2 9 1.2" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" /></svg>
-    </button>
+    <MoreButton label={t('查看更多 {n} 个会话', { n: sessions.length - listed.length })} onclick={() => (everything = true)} />
   {/if}
   {#each notes as note, i (i)}
     <div class="empty">{note.label}</div>
@@ -178,22 +176,5 @@
   .turn-label { font-size: 11px; font-variant-numeric: tabular-nums; }
   .turn-detail { font-size: 10px; color: var(--secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .empty { padding: 2px 12px 10px; font-size: 10.5px; color: var(--secondary); }
-  .more {
-    --press-scale: 0.985;
-    width: calc(100% - 8px);
-    margin: 0 4px 6px;
-    height: 28px;
-    padding: 0 12px;
-    box-sizing: border-box;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    border-radius: 8px;
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--accent);
-  }
-  .more:hover { background: var(--hover); }
-  .more:active { background: var(--press); }
   .settings { margin-top: 2px; }
 </style>

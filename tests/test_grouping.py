@@ -60,14 +60,11 @@ class GroupingTests(unittest.TestCase):
         self.assertEqual([t['name'] for t in star['models']], ['Claude', 'ChatGPT']); self.assertEqual(star['accent'], 'claude')
         self.assertEqual(star['symbol'], 'folder'); self.assertEqual(cards[2]['models'][0]['name'], 'Gemini CLI')
 
-    def test_past_nine_the_smallest_fold_into_one_card(self):
+    def test_every_project_has_its_card(self):
         projects=[{'project':'p%02d'%i,'totalTokens':100-i,'estimatedCostUsd':(100-i)/100,'requests':1} for i in range(12)]
         claude=usage([('claude-opus-5-5',1,1.0,12)],projects=projects)
         cards=self.m.project_cards([('claude','Claude',claude)])
-        self.assertEqual([c['name'] for c in cards][-2:],['p08','其他 3 个项目']);self.assertEqual(len(cards),10)
-        self.assertEqual((cards[-1]['requests'],cards[-1]['tokens']),(3,270))
-        ten=self.m.project_cards([('claude','Claude',usage([('m',1,1.0,10)],projects=projects[:10]))])
-        self.assertEqual(len(ten),10,'Ten fit as they are: folding one card into "其他" saves nothing')
+        self.assertEqual([c['name'] for c in cards],['p%02d'%i for i in range(12)],'None folded into "其他": the panel lists five and the rest a tap away')
 
     def test_readers_keep_only_the_project_folder_name(self):
         import json

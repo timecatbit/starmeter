@@ -355,15 +355,30 @@ test('a new range brings its own dashboard', async ({ page }) => {
   await expect(page.locator('.date').last()).toHaveText('11/19');
 });
 
-test('grouping by model or project swaps the cards, with the pill on the choice', async ({ page }) => {
+test('grouping by model or project swaps the cards, five of them and the rest behind 查看更多', async ({ page }) => {
   await open(page);
   await page.getByRole('radio', { name: '模型' }).click();
   await expect(page.getByRole('radio', { name: '模型' })).toHaveAttribute('aria-checked', 'true');
   await expect(page.locator('.card .name').first()).toHaveText('Claude Opus 5.5');
   await expect(page.locator('.card .name')).toContainText(['Claude Sonnet 5.5']);
+  await expect(page.locator('.card')).toHaveCount(5);
+  await page.getByRole('button', { name: '查看更多 10 个模型' }).click();
+  await expect(page.locator('.card')).toHaveCount(15);
+  await expect(page.getByRole('button', { name: /查看更多/ })).toHaveCount(0);
+  // Nothing folded into “其他”: every model has its card, and the list ends where the last one does.
+  await expect(page.locator('.card .name', { hasText: '其他' })).toHaveCount(0);
+  const last = (await page.locator('.card').last().boundingBox())!;
+  const list = (await page.locator('.dashboard').boundingBox())!;
+  expect(Math.abs(list.y + list.height - (last.y + last.height + 4))).toBeLessThan(2);
   await page.getByRole('radio', { name: '项目' }).click();
   await expect(page.locator('.tabs .note')).toHaveText('按客户端自己的记录');
-  await expect(page.locator('.card .name')).toContainText(['starmeter', '未标注项目']);
+  await expect(page.locator('.card')).toHaveCount(5);
+  await expect(page.locator('.card .name').first()).toHaveText('starmeter');
+  await page.getByRole('button', { name: '查看更多 1 个项目' }).click();
+  await expect(page.locator('.card .name').last()).toHaveText('未标注项目');
+  // Another grouping starts from five again.
+  await page.getByRole('radio', { name: '模型' }).click();
+  await expect(page.locator('.card')).toHaveCount(5);
 });
 
 test('a row opens its page, with usage bars and pace marks, and Esc comes back', async ({ page }) => {
