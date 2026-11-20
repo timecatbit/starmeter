@@ -6,10 +6,10 @@
   import { language, t } from '../lib/i18n.svelte';
   import { shell } from '../lib/backend';
   import { phone, secondsLeft, setPhone } from '../lib/phone.svelte';
-  import { qrModules } from '../lib/qr';
   import { moveWindow, panel } from '../lib/ui.svelte';
   import HintButton from './HintButton.svelte';
   import Icon from './Icon.svelte';
+  import QrCode from './QrCode.svelte';
   import Scroller from './Scroller.svelte';
 
   let { onback, onheight }: { onback: () => void; onheight: (height: number) => void } = $props();
@@ -31,7 +31,6 @@
     const base = reach === 'public' ? view?.public ?? null : view?.local ?? null;
     return base ? `${base}&l=${language.current}` : null;
   });
-  const modules = $derived(address ? qrModules(address, 'M') : null);
   const minutes = $derived(view ? Math.max(1, Math.round(secondsLeft() / 60)) : 0);
 
   async function start() {
@@ -136,15 +135,8 @@
             {#if busy}
               <span class="spinner" aria-label={t('生成链接')}></span>
               <span class="wait">{t('正在向 Cloudflare 要链接…')}</span>
-            {:else if modules}
-              <svg viewBox="-4 -4 {modules.length + 8} {modules.length + 8}" width="188" height="188" role="img" aria-label={t('手机扫这个二维码')}>
-                <rect x="-4" y="-4" width={modules.length + 8} height={modules.length + 8} rx="3" fill="#fff" />
-                {#each modules as row, y (y)}
-                  {#each row as dark, x (x)}
-                    {#if dark}<rect {x} {y} width="1.02" height="1.02" fill="#10132a" />{/if}
-                  {/each}
-                {/each}
-              </svg>
+            {:else if address}
+              <QrCode text={address} size={188} label={t('手机扫这个二维码')} />
             {:else if view && !view.local && reach === 'local'}
               <span class="wait">{t('这台电脑没有连上网络')}</span>
             {:else if !failed}
@@ -203,7 +195,6 @@
   .choice { --press-scale: 0.96; position: relative; flex: 1; display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--secondary); border-radius: 6px; }
   .choice.chosen { color: var(--label); font-weight: 600; }
   .code { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 196px; }
-  .code svg { display: block; border-radius: 10px; box-shadow: 0 0 0 0.5px var(--separator); }
   .wait { font-size: 11.5px; color: var(--secondary); }
   .address {
     --press-scale: 0.98; align-self: center; max-width: 100%; padding: 4px 8px; border-radius: 7px; font-size: 11px;

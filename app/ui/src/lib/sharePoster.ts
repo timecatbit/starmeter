@@ -11,7 +11,7 @@ import starmeterMark from '../../../../assets/starmeter-mark.svg?url';
 import { t, t as tr } from './i18n.svelte';
 import { chartPositions } from './chart';
 import { axisTokens, creditsText, currency, legendName, modelAmount, modelName, share, summaryPart, tokenLine, tokens } from './format';
-import { qrModules } from './qr';
+import { qrLook, qrModules } from './qr';
 import { BOTTOM_BAND, dollars, drawBrand, drawMark, load, loadMarks, measure, middleText, shownHeatmap, shownRows, tag, TOP_BAND, WIDTH, type Marks } from './shareCommon';
 import type { Dashboard, ModelUsage, ProviderUsage } from './types';
 
@@ -260,26 +260,21 @@ export interface SignStyle { name: string; small: (size: number) => string; ink:
 function drawQr(ctx: CanvasRenderingContext2D, brand: HTMLImageElement | null, url: string, x: number, y: number, size: number): boolean {
   const modules = qrModules(url, 'Q');
   if (!modules) return false;
-  const n = modules.length, quiet = 2, cell = size / (n + quiet * 2), ox = x + quiet * cell, oy = y + quiet * cell, paper = '#F4F7FF';
+  const { n, dots, eyes, icon } = qrLook(modules);
+  const quiet = 2, cell = size / (n + quiet * 2), ox = x + quiet * cell, oy = y + quiet * cell, paper = '#F4F7FF';
   ctx.fillStyle = paper; ctx.beginPath(); ctx.roundRect(x, y, size, size, size * 0.16); ctx.fill();
   ctx.strokeStyle = 'rgba(31, 58, 122, 0.16)'; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.roundRect(x + 0.4, y + 0.4, size - 0.8, size - 0.8, size * 0.16); ctx.stroke();
   const ink = ctx.createLinearGradient(x, y, x + size * 0.35, y + size);
   ink.addColorStop(0, '#1F3A7A'); ink.addColorStop(0.55, '#0E1D4C'); ink.addColorStop(1, '#050A24');
-  const logo = n >= 29 ? 7 : 5, clear = logo + 2, from = Math.floor((n - clear) / 2);
-  const eye = (mx: number, my: number) => (mx < 7 && my < 7) || (mx >= n - 7 && my < 7) || (mx < 7 && my >= n - 7);
-  const centre = (mx: number, my: number) => mx >= from && mx < from + clear && my >= from && my < from + clear;
   ctx.fillStyle = ink;
-  modules.forEach((row, my) => row.forEach((dark, mx) => {
-    if (!dark || eye(mx, my) || centre(mx, my)) return;
-    ctx.beginPath(); ctx.arc(ox + (mx + 0.5) * cell, oy + (my + 0.5) * cell, cell * 0.43, 0, Math.PI * 2); ctx.fill();
-  }));
-  for (const [fx, fy] of [[0, 0], [n - 7, 0], [0, n - 7]]) {
+  for (const [mx, my] of dots) { ctx.beginPath(); ctx.arc(ox + (mx + 0.5) * cell, oy + (my + 0.5) * cell, cell * 0.43, 0, Math.PI * 2); ctx.fill(); }
+  for (const [fx, fy] of eyes) {
     const ex = ox + fx * cell, ey = oy + fy * cell;
     ctx.fillStyle = ink; ctx.beginPath(); ctx.roundRect(ex, ey, cell * 7, cell * 7, cell * 2.2); ctx.fill();
     ctx.fillStyle = paper; ctx.beginPath(); ctx.roundRect(ex + cell, ey + cell, cell * 5, cell * 5, cell * 1.5); ctx.fill();
     ctx.fillStyle = ink; ctx.beginPath(); ctx.roundRect(ex + cell * 2, ey + cell * 2, cell * 3, cell * 3, cell * 1); ctx.fill();
   }
-  drawBrand(ctx, brand, { x: ox + (from + 1) * cell, y: oy + (from + 1) * cell, w: logo * cell, h: logo * cell });
+  drawBrand(ctx, brand, { x: ox + icon.at * cell, y: oy + icon.at * cell, w: icon.size * cell, h: icon.size * cell });
   return true;
 }
 
