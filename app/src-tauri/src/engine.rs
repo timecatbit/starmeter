@@ -413,9 +413,29 @@ impl DesktopHost for AppHost {
         }
     }
 
+    /// The Claude app where there is one (macOS, Windows), else Claude on the web, where the same account shows its
+    /// usage; said when neither opens.
     fn open_claude(&self) {
         #[cfg(target_os = "macos")]
-        let _ = std::process::Command::new("/usr/bin/open").args(["-a", "Claude"]).status();
+        if std::process::Command::new("/usr/bin/open")
+            .args(["-a", "Claude"])
+            .status()
+            .is_ok_and(|status| status.success())
+        {
+            return;
+        }
+        #[cfg(windows)]
+        if let Some(claude) = std::env::var_os("LOCALAPPDATA")
+            .map(|folder| Path::new(&folder).join("AnthropicClaude").join("claude.exe"))
+            .filter(|path| path.is_file())
+            && std::process::Command::new(claude).spawn().is_ok()
+        {
+            return;
+        }
+        use tauri_plugin_opener::OpenerExt;
+        if self.app.opener().open_url("https://claude.ai/", None::<&str>).is_err() {
+            self.error("无法打开 Claude", "请在浏览器里打开 https://claude.ai/");
+        }
     }
 
     /// The CLI's own update in a terminal tab, with its log, as 5.x ran it.
