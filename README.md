@@ -56,6 +56,8 @@ Starmeter 是 macOS 菜单栏（独立 App 或 SwiftBar 插件）和 Windows 托
 | Mac，现在推荐（需先装 SwiftBar） | **Mac · SwiftBar plugin** | `starmeter-X.Y.Z.zip`，不分芯片 |
 | Ubuntu、Debian 等 | **Linux · Debian/Ubuntu** | `starmeter-X.Y.Z-linux-x64.deb` |
 | 其他 Linux 发行版 | **Linux · AppImage** | `starmeter-X.Y.Z-linux-x64.AppImage` |
+| 只要终端里的 [命令行](#命令行)，Mac | **Mac · Command line** | `starmeter-X.Y.Z-macos-cli.tar.gz`，不分芯片 |
+| 只要终端里的 [命令行](#命令行)，Linux | **Linux · Command line** | `starmeter-X.Y.Z-linux-x64-cli.tar.gz` |
 
 不确定 Mac 芯片？点屏幕左上角的苹果菜单 → **关于本机**：显示「芯片：Apple M…」选 Apple Silicon，显示「处理器：Intel…」选 Intel。每个文件旁的 `sha256:` 是 GitHub 给出的校验值，需要时可以和下载的文件比对。
 
@@ -105,6 +107,7 @@ python3 install.py
 
 - **SwiftBar 插件**：有新版本时，主页“工具更新”下方会出现一行 **Starmeter · 可更新**。点“更新到 X.Y.Z”，确认后插件自动下载、校验并安装，设置、Key 和统计记录都会保留。没有新版本时这一行不显示。
 - **Mac 独立版**：有适用当前芯片的新版本时，面板会链接到发布页。退出旧版，下载同芯片的新 DMG，再替换「应用程序」里的 App；用 Homebrew 安装的运行 `brew upgrade --cask starmeter`。
+- **命令行**：用 Homebrew 安装的运行 `brew upgrade starmeter-cli`；`.deb` 和 Windows 版里的命令随应用一起更新。
 - **价格表**：每天自动更新，新模型的价格不用等新版本。
 
 ### 从 6.0.1 及更早版本升级
@@ -124,6 +127,38 @@ python3 install.py
 - **网关**：Magpie 读取本机的 `usage.jsonl`（默认 `~/.config/magpie`），OpenCodex 读取它自己的日志。同时勾选网关和经过它的客户端（如 ChatGPT、Claude）时，经过网关的请求只按网关计入 Summary，客户端卡片照常显示自己的全部记录并注明“N 次已由 Magpie 计入”。ChatGPT 桌面版的预测消息等附加调用不写进本机的 Codex 记录，只在经过 Magpie 时才统计得到，所以 Magpie 里 ChatGPT 的请求可能比 ChatGPT 卡片多。
 - **DeepSeek Harness** 默认读取 `~/.dsh/sessions`（设置了 `DSH_HOME` 时读其 `sessions` 子目录），也可手选目录。
 - Mac 的高级设置写在 `~/Library/Application Support/SwiftBarToken/config.local.sh`，可用的变量见 [config.example.sh](config.example.sh)。如果命令行工具只在终端初始化时加入 PATH（例如通过 nvm 安装），可在这个文件里把对应的 `bin` 目录加进 PATH。
+
+## 命令行
+
+不打开面板，在终端里也能看用量：`starmeter` 打出今天的 Summary、各工具和订阅额度。它和面板用同一套统计、同样的设置与缓存，数字一致。
+
+```sh
+starmeter                      # 今天概览：Summary、各工具、订阅与额度
+starmeter usage 7d             # 近 7 天的用量与趋势
+starmeter usage -g model -d    # 按模型分组，列出每张卡片的明细
+starmeter quota                # 订阅额度与 API 余额，带各窗口的重置时间
+starmeter usage 30d --json     # 给脚本用的 JSON
+```
+
+**安装**
+
+- **Mac 和 Linux**：用 Homebrew，不必装 App。
+
+  ```sh
+  brew install timecatbit/tap/starmeter-cli
+  ```
+
+- **Ubuntu、Debian**：装了 `.deb` 就有 `starmeter` 命令。
+- **Windows**：安装版和免安装版的 `bin` 文件夹里有 `starmeter.cmd`。把这个文件夹（安装版在 `%LOCALAPPDATA%\Programs\Starmeter\bin`）加入 PATH，就能在任何地方输入 `starmeter`。
+- **手动**：下载发布页上的 **Mac · Command line** 或 **Linux · Command line**，解压后把 `starmeter` 所在的文件夹加入 PATH，旁边的 `lib` 一起保留。Mac 上用浏览器下载的压缩包未经 Apple 公证，首次运行会被系统拦下，推荐用 Homebrew。
+
+**说明**
+
+- 统计范围与主页相同：`today`（默认）、`yesterday`、`24h`、`7d`、`30d`、`week`、`month`、`all`；分组：`tool`（默认）、`model`、`project`。范围和分组可以直接写在命令后，也可以用 `-r`、`-g`。
+- 设置、连接和缓存与这台电脑上的 Starmeter 共用，统计时区、货币和汇率、主页勾选的模块都跟面板一致；主页没有勾选的工具不出现。
+- 订阅额度、API 余额像打开面板时一样，到期才联网刷新；加 `--no-refresh` 直接用上次的结果。
+- 语言跟随系统，可用 `--lang zh|en` 或环境变量 `STARMETER_LANG` 指定。输出到管道或文件时不上色，`--color always|never` 可以改；终端变窄时依次收起占比条、缓存和请求列。
+- `--json` 的键名固定为英文：`summary`（费用、Token、请求、缓存命中率）、`trend`、`tools`、`groups`（按模型或项目分组时）、`quotas`（订阅与 API）。费用同时给出面板所用货币的 `cost` 和美元的 `costUsd`。
 
 ## 隐私
 

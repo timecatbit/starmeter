@@ -56,6 +56,8 @@ Download one file from the [latest release](https://github.com/timecatbit/starme
 | Mac, recommended for now (needs SwiftBar) | **Mac · SwiftBar plugin** | `starmeter-X.Y.Z.zip`, any chip |
 | Ubuntu, Debian and the like | **Linux · Debian/Ubuntu** | `starmeter-X.Y.Z-linux-x64.deb` |
 | Other Linux distributions | **Linux · AppImage** | `starmeter-X.Y.Z-linux-x64.AppImage` |
+| Only the [command line](#command-line), Mac | **Mac · Command line** | `starmeter-X.Y.Z-macos-cli.tar.gz`, any chip |
+| Only the [command line](#command-line), Linux | **Linux · Command line** | `starmeter-X.Y.Z-linux-x64-cli.tar.gz` |
 
 Not sure which Mac you have? Apple menu → **About This Mac**: "Chip: Apple M…" means Apple Silicon, "Processor: Intel…" means Intel. The `sha256:` beside each file is GitHub's checksum, to compare with your download if you like.
 
@@ -105,6 +107,7 @@ The star appears in the tray of the top bar or taskbar. A click on a Linux tray 
 
 - **SwiftBar plugin**: when a new version is out, a **Starmeter · 可更新** row appears under 工具更新 (tool updates). Confirm the update and the plugin downloads, verifies and installs it, keeping settings, keys and statistics. The row isn't there when there's nothing new.
 - **Standalone app**: when there's a new version for your chip, the panel links to the release page; quit the app and replace it with the new disk image for the same chip. With Homebrew, run `brew upgrade --cask starmeter`.
+- **Command line**: with Homebrew, run `brew upgrade starmeter-cli`; the command in the `.deb` and the Windows versions updates with the app.
 - **Price tables** update daily on their own, so new models don't wait for a release.
 
 ### Updating from 6.0.1 or earlier
@@ -124,6 +127,38 @@ From 6.0.2 the downloads are named `starmeter-…`. Versions 6.0.1 and earlier l
 - **Gateways**: Magpie is read from its local `usage.jsonl` (`~/.config/magpie` by default), OpenCodex from its own log. With both a gateway and a client behind it selected (ChatGPT or Claude, say), the requests that went through the gateway count once in Summary, under the gateway; the client's card still shows all its own records and notes "N 次已由 Magpie 计入" (N counted by Magpie). The ChatGPT desktop app's extra calls (message predictions and the like) never reach the local Codex records, so they're only counted through Magpie, which is why Magpie may show more ChatGPT requests than the ChatGPT card.
 - **DeepSeek Harness** reads `~/.dsh/sessions` by default (the `sessions` folder under `DSH_HOME` when set), or a folder you choose.
 - Advanced settings on a Mac go in `~/Library/Application Support/SwiftBarToken/config.local.sh`; see [config.example.sh](config.example.sh) for the variables. If a command line tool is only on PATH once a terminal has set it up (installed through nvm, say), add its `bin` folder to PATH in that file.
+
+## Command line
+
+See your usage in a terminal without opening the panel: `starmeter` prints today's Summary, each tool, and your plans and balances. It counts with the panel's own code, settings and caches, so the figures are the same.
+
+```sh
+starmeter                      # today's overview: Summary, each tool, plans and balances
+starmeter usage 7d             # the last 7 days' usage and trend
+starmeter usage -g model -d    # cards per model, each with its breakdown
+starmeter quota                # plans and APIs, with when each limit resets
+starmeter usage 30d --json     # JSON for scripts
+```
+
+**Install**
+
+- **Mac and Linux**: with Homebrew; the app isn't needed.
+
+  ```sh
+  brew install timecatbit/tap/starmeter-cli
+  ```
+
+- **Ubuntu, Debian**: the `.deb` installs the `starmeter` command.
+- **Windows**: the installed and portable versions have `starmeter.cmd` in their `bin` folder. Add that folder to PATH (`%LOCALAPPDATA%\Programs\Starmeter\bin` for the installed version) to type `starmeter` anywhere.
+- **By hand**: download **Mac · Command line** or **Linux · Command line** from the release page, unpack it and add the folder with `starmeter` in it to PATH, keeping the `lib` folder beside it. On a Mac, an archive downloaded in a browser isn't notarized and is blocked the first time it runs; Homebrew is the easier way.
+
+**Notes**
+
+- The ranges are the homepage's: `today` (the default), `yesterday`, `24h`, `7d`, `30d`, `week`, `month`, `all`; the groupings `tool` (the default), `model` and `project`. Write them after the command, or use `-r` and `-g`.
+- The settings, connections and caches are the Starmeter app's on this computer: the time zone, the currency and rate, and the modules chosen for the homepage all match the panel. A tool that isn't on the homepage doesn't appear.
+- Plans and API balances refresh over the network only when due, as when the panel opens; `--no-refresh` shows their last figures.
+- The language follows the system; `--lang zh|en` or the `STARMETER_LANG` variable chooses one. Output to a pipe or a file has no colour (`--color always|never` changes that), and a narrow terminal drops the share bar, then the cache and request columns.
+- `--json` always has English keys: `summary` (cost, tokens, requests, cache hit rate), `trend`, `tools`, `groups` (cards per model or project) and `quotas` (plans and APIs). Each cost comes as `cost` in the panel's currency and as `costUsd` in dollars.
 
 ## Privacy
 
