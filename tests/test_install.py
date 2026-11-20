@@ -1,5 +1,6 @@
 """Installer staging and rollback, without SwiftBar or a real plugin folder."""
 from contextlib import redirect_stdout
+import errno
 import importlib.util
 import io
 from pathlib import Path
@@ -10,9 +11,10 @@ import unittest
 from unittest.mock import patch
 
 ROOT=Path(__file__).resolve().parents[1]
-sys.path.insert(0,str(ROOT/'scripts'))
+sys.path.insert(0,str(ROOT/'scripts'));sys.path.insert(0,str(ROOT/'lib'))
 spec=importlib.util.spec_from_file_location('install_script',ROOT/'scripts/install.py')
 install=importlib.util.module_from_spec(spec);spec.loader.exec_module(install)
+import swiftbar_config
 
 
 class InstallTests(unittest.TestCase):
@@ -90,6 +92,113 @@ class InstallTests(unittest.TestCase):
         with patch.object(install.shutil,'rmtree',side_effect=OSError('busy')):
             backup=install.back_up(self.dest,[Path('.opencodex-panel/lib')],root)
         self.assertTrue((backup/'.opencodex-panel/lib/old.py').is_file());self.assertTrue(all((root/name).is_dir() for name in old))
+
+
+LEGACY_CONFIG='export KOMARI_BASE_URL=https://monitor.invalid\n'
+
+
+class ConfigMigrationTests(unittest.TestCase):
+    """The plugin folder's old config moves into the state folder once. The installer and the Python reference each
+    carry a copy of migrate_config (a release package ships no lib/ code); both must behave the same."""
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
+    def fresh(self,name,target_text=None):
+        root=Path(self.temp.name)/name;self.dest=root/'plugins';self.state=root/'state'
+        self.legacy=self.dest/'.opencodex-panel/config.local.sh';self.legacy.parent.mkdir(parents=True);self.legacy.write_text(LEGACY_CONFIG)
+        self.target=self.state/'config.local.sh'
+        if target_text is not None:self.state.mkdir();self.target.write_text(target_text)
+    def scratch_files(self):
+        return sorted(p.name for p in self.state.iterdir() if p.name!='config.local.sh') if self.state.exists() else []
+    def assert_migrated(self):
+        self.assertEqual(self.target.read_text(),LEGACY_CONFIG);self.assertEqual(self.target.stat().st_mode&0o777,0o600)
+        self.assertFalse(self.legacy.exists());self.assertEqual(self.scratch_files(),[])
+    def assert_untouched(self):
+        """A failed migration leaves the legacy file and no target at all, not even a partial or scratch one."""
+        self.assertEqual(self.legacy.read_text(),LEGACY_CONFIG);self.assertFalse(self.target.exists());self.assertEqual(self.scratch_files(),[])
+    def each(self,check):
+        for name,module in (('installer',install),('reference',swiftbar_config)):
+            with self.subTest(name):
+                self.fresh(name);check(module)
+    def test_the_legacy_config_moves_into_the_state_folder_once(self):
+        def check(module):
+            module.migrate_config(self.dest,self.state);self.assert_migrated()
+            # An explicit import never replaces the file that is now there.
+            with self.assertRaises(ValueError):module.migrate_config(self.dest,self.state,self.target)
+            self.assertEqual(self.target.read_text(),LEGACY_CONFIG)
+        self.each(check)
+    def test_a_read_that_fails_leaves_nothing_and_the_next_install_migrates(self):
+        # The report: a read error while copying left a zero-byte target, and the reinstall kept it as the user's file.
+        def check(module):
+            real=Path.read_bytes
+            def read_bytes(path):
+                if path==self.legacy:raise OSError('synthetic input read failure')
+                return real(path)
+            with patch.object(Path,'read_bytes',read_bytes),self.assertRaises(OSError):module.migrate_config(self.dest,self.state)
+            self.assert_untouched()
+            module.migrate_config(self.dest,self.state);self.assert_migrated()
+        self.each(check)
+    def test_a_write_that_fails_leaves_nothing_and_the_next_install_migrates(self):
+        def check(module):
+            with patch.object(install.os,'fsync',side_effect=OSError('disk full')),self.assertRaises(OSError):module.migrate_config(self.dest,self.state)
+            self.assert_untouched()
+            module.migrate_config(self.dest,self.state);self.assert_migrated()
+        self.each(check)
+    def test_an_existing_user_file_wins_even_when_it_is_empty(self):
+        # A file the user emptied on purpose can't be told from one a failure left; both stay, the legacy file goes to the backup.
+        for name,module in (('installer',install),('reference',swiftbar_config)):
+            with self.subTest(name):
+                for text in ('# examples only\n',''):
+                    self.fresh(name+str(len(text)),text);module.migrate_config(self.dest,self.state)
+                    self.assertEqual(self.target.read_text(),text);self.assertFalse(self.legacy.exists());self.assertEqual(self.scratch_files(),[])
+                    (self.dest/'given.sh').write_text('# given\n')
+                    with self.assertRaises(ValueError):module.migrate_config(self.dest,self.state,self.dest/'given.sh')
+                    self.assertEqual(self.target.read_text(),text)
+    def test_a_file_created_while_the_copy_was_written_wins(self):
+        def check(module):
+            self.state.mkdir()
+            real=install.os.chmod
+            def chmod(path,mode):
+                real(path,mode);self.target.write_text('# saved from the panel meanwhile\n')
+            with patch.object(install.os,'chmod',chmod):module.migrate_config(self.dest,self.state)
+            self.assertEqual(self.target.read_text(),'# saved from the panel meanwhile\n');self.assertFalse(self.legacy.exists());self.assertEqual(self.scratch_files(),[])
+        self.each(check)
+    def test_a_volume_without_hard_links_still_publishes_whole(self):
+        def check(module):
+            with patch.object(install.os,'link',side_effect=PermissionError('no hard links')):module.migrate_config(self.dest,self.state)
+            self.assert_migrated()
+        self.each(check)
+    NO_LINKS=OSError(errno.ENOTSUP,'no hard links on this volume')
+    def test_a_file_created_just_before_the_fallback_rename_wins(self):
+        # The reopened report: without hard links, a file another writer created after the target check and before the
+        # rename was replaced. The exclusive rename refuses it however late it appears: here, right before the call.
+        def check(module):
+            real=module.rename_exclusive
+            def rename_exclusive(source,target):
+                Path(target).write_text('# saved from the panel meanwhile\n');real(source,target)
+            with patch.object(install.os,'link',side_effect=self.NO_LINKS),patch.object(module,'rename_exclusive',rename_exclusive):
+                module.migrate_config(self.dest,self.state)
+            self.assertEqual(self.target.read_text(),'# saved from the panel meanwhile\n');self.assertFalse(self.legacy.exists());self.assertEqual(self.scratch_files(),[])
+        self.each(check)
+    def test_the_exclusive_rename_moves_a_file_or_refuses_an_existing_one(self):
+        def check(module):
+            self.state.mkdir();source=self.state/'source';taken=self.state/'taken';source.write_text('copy')
+            module.rename_exclusive(source,self.target)
+            self.assertEqual(self.target.read_text(),'copy');self.assertFalse(source.exists())
+            source.write_text('another copy');taken.write_text('theirs')
+            with self.assertRaises(FileExistsError):module.rename_exclusive(source,taken)
+            self.assertEqual(taken.read_text(),'theirs');self.assertEqual(source.read_text(),'another copy')
+        self.each(check)
+    def test_a_volume_with_neither_hard_links_nor_an_exclusive_rename_keeps_the_legacy_file(self):
+        # Nothing to publish with exclusively: the copy is dropped, the legacy file stays and the error says a reinstall migrates again.
+        def check(module):
+            with patch.object(install.os,'link',side_effect=self.NO_LINKS),\
+                 patch.object(module,'rename_exclusive',side_effect=OSError(errno.ENOTSUP,'RENAME_EXCL unsupported')),\
+                 self.assertRaises(OSError) as refused:
+                module.migrate_config(self.dest,self.state)
+            self.assertIn('重新安装',str(refused.exception));self.assertNotIsInstance(refused.exception,FileExistsError)
+            self.assert_untouched()
+            module.migrate_config(self.dest,self.state);self.assert_migrated()
+        self.each(check)
 
 
 if __name__=='__main__':

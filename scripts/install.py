@@ -2,13 +2,16 @@
 """Install this plugin into a selected SwiftBar directory, with a local backup. Standard library only and Python
 3.9 compatible: an installed 5.x plugin runs this file from the release zip when it updates itself."""
 import argparse
+import ctypes
 from datetime import datetime
+import errno
 import os
 from pathlib import Path
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import uuid
 
 ENTRY = 'starmeter.30s.sh'
@@ -33,19 +36,81 @@ def data_files(folder, names):
     return [name for name in names if not (name.endswith('.json') or name.endswith('LICENSE'))]
 
 def migrate_config(destination, state, explicit=None):
-    """An existing user file always wins; checkout config is never imported silently."""
+    """An existing user file always wins, whatever it holds; checkout config is never imported silently. The copy is
+    read and written in full beside the target before it takes the target's name, so a read or write that fails
+    leaves nothing there and the next install migrates again. The name is taken by an operation that never replaces
+    a file; when the volume has none, the legacy file stays where it was and the install reports it."""
     target = Path(state) / 'config.local.sh'
     legacy = Path(destination) / '.opencodex-panel/config.local.sh'
     source = Path(explicit).expanduser() if explicit else legacy
     if explicit and target.exists():
         raise ValueError('本机配置已存在；请在连接设置中修改，不覆盖现有文件。')
     if not target.exists() and source.is_file():
+        contents = source.read_bytes()
         target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        fd = os.open(str(target), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-        with os.fdopen(fd, 'wb') as out: out.write(source.read_bytes())
+        fd, temporary = tempfile.mkstemp(prefix='.config-', dir=str(target.parent))
+        try:
+            with os.fdopen(fd, 'wb') as out:
+                out.write(contents)
+                out.flush()
+                os.fsync(out.fileno())
+            os.chmod(temporary, 0o600)
+            publish_config(temporary, target)
+        finally:
+            if os.path.exists(temporary): os.unlink(temporary)
     # The installer already backed up the legacy file before this migration.
     if legacy.exists(): legacy.unlink()
     return target
+
+def publish_config(temporary, target):
+    """Give the finished copy the target's name in one step that never replaces a file: a hard link, or on a volume
+    without hard links the system's exclusive rename. A file that appeared there meanwhile wins either way, with no
+    window between a check and the rename. A volume with neither operation leaves the copy unpublished: the caller
+    keeps the legacy file and the next install migrates again."""
+    try:
+        os.link(temporary, target)
+        return
+    except FileExistsError:
+        return
+    except OSError:
+        pass
+    try:
+        rename_exclusive(temporary, target)
+    except FileExistsError:
+        pass
+    except OSError as error:
+        if error.errno not in NO_EXCLUSIVE_RENAME: raise
+        raise OSError(error.errno, '本机配置没有迁移：这个卷既不支持硬链接，也不支持不覆盖已有文件的改名，复制件无法独占发布。'
+                      '旧配置原样保留，重新安装会再次迁移。') from error
+
+# The system's rename that refuses an existing target: macOS renamex_np with RENAME_EXCL, Linux renameat2 with
+# RENAME_NOREPLACE; and the errors a system or volume without it gives.
+RENAME_EXCL = 0x4
+RENAME_NOREPLACE = 0x1
+AT_FDCWD = -100
+NO_EXCLUSIVE_RENAME = {errno.ENOTSUP, errno.EOPNOTSUPP, errno.EINVAL, errno.ENOSYS}
+
+def rename_exclusive(source, target):
+    """Rename source to target, refusing with FileExistsError when target exists: the check and the rename are one
+    operation in the kernel. OSError with an errno in NO_EXCLUSIVE_RENAME when this system or volume has no such rename."""
+    if sys.platform == 'darwin':
+        name = 'renamex_np'
+        signature = (ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint)
+        arguments = (os.fsencode(source), os.fsencode(target), RENAME_EXCL)
+    elif sys.platform.startswith('linux'):
+        name = 'renameat2'
+        signature = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint)
+        arguments = (AT_FDCWD, os.fsencode(source), AT_FDCWD, os.fsencode(target), RENAME_NOREPLACE)
+    else:
+        raise OSError(errno.ENOTSUP, 'no exclusive rename on ' + sys.platform)
+    try:
+        rename = getattr(ctypes.CDLL(None, use_errno=True), name)
+    except (AttributeError, OSError):
+        raise OSError(errno.ENOSYS, name + ' is not available on this system') from None
+    rename.argtypes, rename.restype = signature, ctypes.c_int
+    if rename(*arguments) != 0:
+        code = ctypes.get_errno()
+        raise OSError(code, os.strerror(code), str(source), None, str(target))
 
 def copy(source, target):
     target.parent.mkdir(parents=True, exist_ok=True)
