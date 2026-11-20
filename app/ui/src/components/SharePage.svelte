@@ -61,7 +61,9 @@
     if (option?.action && key !== chosenRange) onrange?.(option.action);
   }
   const pictures = new Map<string, Picture>();
-  let picture = $state<Picture | null>(null);
+  // Raw, not proxied: it is compared with the kept pictures by identity, which a proxy of it never matches (a kept
+  // picture read as unused and was released while the page could still show it).
+  let picture = $state.raw<Picture | null>(null);
   /** The style the picture on screen was drawn in: the menu changes at once, the picture once it is drawn. */
   let drawnStyle = $state<ShareStyle>('card');
   let failed = $state(false);
