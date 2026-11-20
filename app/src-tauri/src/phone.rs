@@ -299,21 +299,36 @@ fn phone_snapshot(app: &AppHandle, range: Option<&str>) -> Value {
     snapshot["moduleOptions"] = json!([]);
     if let Some(entries) = snapshot.get_mut("entries").and_then(Value::as_array_mut) {
         for entry in entries {
-            // 会话 keeps its sessions (titles, models, tokens: no paths) for the phone's 会话 tab, nothing to do in them.
-            let sessions = entry.get("label").and_then(Value::as_str) == Some("会话");
-            if !sessions && let Some(entry) = entry.as_object_mut() {
-                entry.insert("children".into(), json!([]));
+            // 会话 keeps its sessions (titles, models, tokens: no paths) for the phone's 会话 tab, and the mark the panel
+            // knows the row by; its switch (这一轮完成时提醒) is the computer's.
+            let mark = json!(["refresh-source", "sessions"]);
+            let sessions = entry.get("onOpenAction") == Some(&mark);
+            if let Some(object) = entry.as_object_mut() {
+                let children = object.entry("children").or_insert_with(|| json!([]));
+                match children.as_array_mut() {
+                    Some(children) if sessions => {
+                        children.retain(|child| child.get("action").is_none());
+                        while children.last().is_some_and(|child| child.get("separator").is_some()) {
+                            children.pop();
+                        }
+                    }
+                    _ => *children = json!([]),
+                }
             }
             strip(entry);
+            if sessions {
+                entry["onOpenAction"] = mark;
+            }
         }
     }
     snapshot
 }
 
-/// Nothing to do on a phone: actions and links go, all the way down.
+/// Nothing to do on a phone: actions and links go, all the way down. The values' shorter forms stay, for a narrow
+/// screen.
 fn strip(entry: &mut Value) {
     if let Some(object) = entry.as_object_mut() {
-        for name in ["action", "onOpenAction", "href", "fallbacks"] {
+        for name in ["action", "onOpenAction", "href"] {
             object.remove(name);
         }
         if let Some(children) = object.get_mut("children").and_then(Value::as_array_mut) {

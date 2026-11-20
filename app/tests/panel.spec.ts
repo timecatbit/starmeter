@@ -424,7 +424,11 @@ test('on the phone: the homepage read-only, its figures asked for with the key, 
     asked.push(url.pathname + url.search);
     const range = url.searchParams.get('range') ?? 'today';
     const snapshot = { ...fixture.snapshot, dashboard: fixture.dashboards[range], moduleOptions: [],
-      entries: fixture.snapshot.entries.map((e: { children: unknown[] }) => ({ ...e, children: [], onOpenAction: undefined })),
+      // As phone.rs sends them: 会话 keeps its sessions and its mark, the rest their rows only.
+      entries: fixture.snapshot.entries.map((e: { children: { action?: string[]; separator?: boolean }[]; onOpenAction?: string[] }) =>
+        e.onOpenAction?.[1] === 'sessions'
+          ? { ...e, children: e.children.filter((c) => !c.action).filter((c, i, all) => !(c.separator && i === all.length - 1)) }
+          : { ...e, children: [], onOpenAction: undefined }),
       rangeOptions: fixture.snapshot.rangeOptions.map((o: { action: string[] }) => ({ ...o, checked: o.action[1] === range })) };
     // The fixtures name their logos; the app sends the files themselves: a blank one stands in.
     const body = JSON.stringify(url.pathname.endsWith('dashboard') ? fixture.dashboards[range] : snapshot)
@@ -439,6 +443,18 @@ test('on the phone: the homepage read-only, its figures asked for with the key, 
   await expect(button(page, '主页模块与设置')).toHaveCount(0);
   await expect(button(page, '分享用量图')).toHaveCount(0);
   await expect(page.locator('.card').first()).toBeVisible();
+  // The rows read as they do on the computer, their usage bars too, and don't open: their insides stay there.
+  const plan = page.locator('button.row', { hasText: 'Claude 订阅' });
+  await expect(plan).toBeDisabled();
+  await expect(plan).toHaveClass(/tall/);
+  await expect(plan.locator('.title')).toHaveAttribute('style', /var\(--label\)/);
+  await expect(plan.locator('.gauge')).toBeVisible();
+  await expect(page.locator('button.row', { hasText: 'Komari 监控' }).locator('.value')).toHaveAttribute('style', /var\(--label\)/);
+  // 会话 is the fourth tab, as on the computer, without the computer's switch.
+  await page.getByRole('radio', { name: '会话' }).click();
+  await expect(page.getByText('重做设置页的分段控件')).toBeVisible();
+  await expect(page.getByText('这一轮完成时提醒')).toHaveCount(0);
+  await page.getByRole('radio', { name: '工具' }).click();
   await page.getByRole('button', { name: /^统计范围/ }).click();
   await page.getByRole('option', { name: '近 7 天' }).click();
   await expect.poll(() => asked.some((path) => path.includes('range=7d'))).toBe(true);

@@ -1,6 +1,7 @@
 <script lang="ts">
   // A homepage row: its icon or status light, the name, the figure on the right (an accent pill, a configured light, or
   // coloured by usage), a thin usage bar under the name, a detail line, and an arrow when it opens a page.
+  import { onPhone } from '../lib/backend';
   import { barColor, usageColor } from '../lib/colors';
   import { actionable, configured, gauge as hasGauge, usageShare } from '../lib/detail';
   import { font, width } from '../lib/measure';
@@ -14,8 +15,10 @@
   const marked = $derived(entry.checked !== undefined && (entry.image !== undefined || entry.symbol !== undefined));
   const left = $derived(entry.section ? 12 : column + (marked ? 20 : 0));
   const canAct = $derived(actionable(entry));
+  /** On a phone the rows' insides stay on the computer: they read as they do there, and don't open. */
+  const full = $derived(canAct || onPhone);
   const trailing = $derived(entry.children.length ? 32 : 12);
-  const labelFont = $derived(entry.section ? font(10.5, 500) : canAct ? font(12) : font(10.5));
+  const labelFont = $derived(entry.section ? font(10.5, 500) : full ? font(12) : font(10.5));
   const valueWidth = (value: string) => width(value, font(11, 400)) + (entry.attention ? 16 : configured(value) !== null ? 12 : 0);
   /** A value too wide for its row gives way to its shorter forms, so neither the title nor the value is cut. */
   const value = $derived.by(() => {
@@ -24,18 +27,18 @@
     for (const form of [entry.value, ...(entry.fallbacks ?? [])]) if (valueWidth(form) <= room) return form;
     return entry.fallbacks?.at(-1) ?? entry.value;
   });
-  const gauge = $derived(hasGauge(entry));
   const usage = $derived(usageShare(entry));
+  const gauge = $derived(onPhone ? usage !== null : hasGauge(entry));
   const configuredState = $derived(configured(value));
-  const labelColor = $derived(entry.action?.[0] === 'stop' ? 'var(--red)' : canAct || entry.usageLevel !== undefined || entry.checked === true ? 'var(--label)' : 'var(--secondary)');
-  const valueColor = $derived(usageColor(entry.usageLevel) ?? (canAct ? 'var(--label)' : 'var(--secondary)'));
+  const labelColor = $derived(entry.action?.[0] === 'stop' ? 'var(--red)' : full || entry.usageLevel !== undefined || entry.checked === true ? 'var(--label)' : 'var(--secondary)');
+  const valueColor = $derived(usageColor(entry.usageLevel) ?? (full ? 'var(--label)' : 'var(--secondary)'));
 </script>
 
 {#if entry.section}
   <div class="section" style:padding-left="{left}px">{entry.label}</div>
 {:else}
-  <button class="row pressable" class:detailed={entry.detail !== undefined} class:tall={canAct} disabled={!canAct} data-key={entry.onOpenAction?.[1]}
-    style:padding-left="{left}px" style:padding-right="{trailing}px" style:--title-size={canAct ? '12px' : '10.5px'}
+  <button class="row pressable" class:detailed={entry.detail !== undefined} class:tall={full} disabled={!canAct} data-key={entry.onOpenAction?.[1]}
+    style:padding-left="{left}px" style:padding-right="{trailing}px" style:--title-size={full ? '12px' : '10.5px'}
     onclick={() => onactivate(entry)}>
     {#if entry.checked !== undefined}
       <span class="box" class:radio={entry.radio} class:on={entry.checked}>
