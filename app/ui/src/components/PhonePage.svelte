@@ -36,13 +36,33 @@
   });
   const minutes = $derived(view ? Math.max(1, Math.round(secondsLeft() / 60)) : 0);
 
-  async function start() {
+  /** Each start (opening the page, 重新开始) begins a round and 停止 ends it. What a step of an earlier round answers
+   *  late (the public link asked for before 停止) is dropped: it can't keep the new code waiting, or set its error
+   *  beside it. */
+  let round = 0;
+  /** Starts the server; false, with the reason in `failed`, when it couldn't. */
+  async function start(): Promise<boolean> {
+    const mine = ++round;
     failed = null;
-    try { setPhone(await shell.phoneStart()); } catch (error) { failed = String(error); }
+    busy = false;
+    try {
+      const started = await shell.phoneStart();
+      if (mine === round) setPhone(started);
+      return true;
+    } catch (error) {
+      if (mine === round) failed = String(error);
+      return false;
+    }
+  }
+  /** A start that fails (its port taken for a moment) stays in the code's place with its reason and 重试, instead of
+   *  leaving a page with neither a code nor a way on. */
+  async function begin() {
+    stopped = false;
+    if (!(await start())) stopped = true;
   }
   let tick: ReturnType<typeof setInterval> | undefined;
   onMount(() => {
-    void start();
+    void begin();
     // Asked after while the page is open: a public link whose cloudflared has ended is taken down, and said so.
     tick = setInterval(async () => {
       if (stopped) return;
@@ -69,10 +89,19 @@
   }
   async function openPublic() {
     choosing++;
+    const mine = round;
     asking = null;
     busy = true;
     failed = null;
-    try { setPhone(await shell.phonePublic()); } catch (error) { failed = String(error); reach = 'local'; }
+    try {
+      const opened = await shell.phonePublic();
+      if (mine !== round) return;
+      setPhone(opened);
+    } catch (error) {
+      if (mine !== round) return;
+      failed = String(error);
+      reach = 'local';
+    }
     busy = false;
   }
   async function closePublic() {
@@ -80,6 +109,8 @@
     reach = 'local';
   }
   async function stop() {
+    round++;
+    busy = false;
     await shell.phoneStop();
     setPhone(null);
     choosing++;
@@ -87,10 +118,6 @@
     failed = null;
     reach = 'local';
     stopped = true;
-  }
-  async function restart() {
-    stopped = false;
-    await start();
   }
   async function copy() {
     if (!address) return;
@@ -137,13 +164,14 @@
           <div class="code">
             <div class="stopped" role="status">
               <span class="stopped-glyph"><Icon name="iphone" size={22} /></span>
-              <span class="stopped-title">{t('已停止')}</span>
-              <span class="stopped-detail">{t('手机上的页面已断开')}</span>
+              <span class="stopped-title">{t(failed ? '没能开启' : '已停止')}</span>
+              <span class="stopped-detail">{t(failed ? '原因在下面，可以再试一次' : '手机上的页面已断开')}</span>
             </div>
           </div>
-          <p class="note">{t('原来的二维码和链接已失效。点“重新开始”生成新的二维码，手机再扫一次就能看。')}</p>
+          {#if failed}<p class="failed">{t(failed)}</p>
+          {:else}<p class="note">{t('原来的二维码和链接已失效。点“重新开始”生成新的二维码，手机再扫一次就能看。')}</p>{/if}
           <div class="actions">
-            <button class="action primary pressable" onclick={restart}>{t('重新开始')}</button>
+            <button class="action primary pressable" onclick={begin}>{t(failed ? '重试' : '重新开始')}</button>
           </div>
         {:else if asking}
           <div class="ask">
@@ -179,7 +207,7 @@
           {/if}
         {/if}
 
-        {#if failed}<p class="failed">{t(failed)}</p>{/if}
+        {#if failed && !stopped}<p class="failed">{t(failed)}</p>{/if}
 
         {#if view && !stopped}
           <!-- What the code is for: on the same network until 停止; the public link, while it is up, for its hour. -->
@@ -229,7 +257,7 @@
   }
   .stopped-glyph { opacity: 0.7; margin-bottom: 4px; }
   .stopped-title { font-size: 14px; font-weight: 600; color: var(--label); }
-  .stopped-detail { font-size: 11px; }
+  .stopped-detail { font-size: 11px; line-height: 1.4; padding: 0 16px; text-align: center; }
   .reach.off { opacity: 0.45; }
   .wait { font-size: 11.5px; color: var(--secondary); }
   .address {

@@ -615,6 +615,65 @@ test('在手机上看: a code for the same network, a public link only after a y
   await expect(page.getByRole('button', { name: /^在手机上看/ }).locator('.dot')).toHaveCount(0);
 });
 
+/** The panel's own copy of the backend module (a dev server that has reloaded it serves it under a new address), with
+ *  its shell: a test swaps one of the shell's calls on it. */
+const panelShell = `(async () => {
+  const loaded = performance.getEntriesByType('resource').map((entry) => entry.name).filter((name) => name.includes('/src/lib/backend.ts'));
+  return (await import(/* @vite-ignore */ loaded.at(-1) ?? '/src/lib/backend.ts')).shell;
+})()`;
+
+test('在手机上看: a public link still being made when 停止 is pressed leaves the next start alone (PHONE-3)', async ({ page }) => {
+  await open(page);
+  await button(page, '主页模块与设置').click();
+  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  const phone = page.locator('.phone-page');
+  await expect(phone.locator('svg.qr')).toBeVisible();
+  // The public link takes its time, and answers as the host does once the server it was for has stopped.
+  await page.evaluate(async (source) => {
+    const shell = await eval(source);
+    const w = window as unknown as { letGo: () => void };
+    shell.phonePublic = () => new Promise((_, refuse) => (w.letGo = () => refuse('手机查看已经关闭')));
+  }, panelShell);
+  await page.getByRole('radio', { name: '任何网络' }).click();
+  await button(page, '生成链接').click();
+  await expect(phone.locator('.wait')).toHaveText('正在向 Cloudflare 要链接…');
+  await button(page, '停止').click();
+  await button(page, '重新开始').click();
+  // The new round's code, on the same network, without the old request's wait.
+  await expect(phone.locator('svg.qr')).toBeVisible();
+  await expect(phone.locator('.wait')).toHaveCount(0);
+  await expect(page.getByRole('radio', { name: '同一个网络' })).toHaveAttribute('aria-checked', 'true');
+  // The old request answers late: nothing of it shows beside the new code.
+  await page.evaluate(() => (window as unknown as { letGo: () => void }).letGo());
+  await page.waitForTimeout(200);
+  await expect(phone.locator('.failed')).toHaveCount(0);
+  await expect(phone.locator('svg.qr')).toBeVisible();
+  await expect(phone.locator('.address')).toHaveText('http://192.168.1.20:51234/');
+});
+
+test('在手机上看: a start that fails once says why and offers 重试, which starts it (PHONE-4)', async ({ page }) => {
+  await open(page);
+  await button(page, '主页模块与设置').click();
+  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  const phone = page.locator('.phone-page');
+  await expect(phone.locator('svg.qr')).toBeVisible();
+  // The next start fails once (its port taken for a moment), then works.
+  await page.evaluate(async (source) => {
+    const shell = await eval(source);
+    const real = shell.phoneStart;
+    let once = true;
+    shell.phoneStart = () => (once ? ((once = false), Promise.reject('这台电脑暂时开不了端口，稍后再试')) : real());
+  }, panelShell);
+  await button(page, '停止').click();
+  await button(page, '重新开始').click();
+  await expect(phone.getByRole('status')).toContainText('没能开启');
+  await expect(phone.locator('.failed')).toHaveText('这台电脑暂时开不了端口，稍后再试');
+  await button(page, '重试').click();
+  await expect(phone.locator('svg.qr')).toBeVisible();
+  await expect(phone.locator('.failed')).toHaveCount(0);
+  await expect(button(page, '停止')).toBeVisible();
+});
+
 test('在手机上看: a public link that fails goes back to the same network and says why, until the next try', async ({ page }) => {
   await open(page, '?tunnel-fails');
   await button(page, '主页模块与设置').click();

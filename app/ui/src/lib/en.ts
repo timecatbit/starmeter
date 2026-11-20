@@ -155,6 +155,7 @@ export const phrases: Record<string, string> = {
   '只读：手机上只能看主页和工具页，不能改设置。点“停止”或退出 App 前一直开着。': 'Read-only: the phone sees the homepage and tool pages and changes nothing. It stays on until you stop it or quit the app.',
   关闭外网链接: 'Close the public link', 停止: 'Stop', 已停止: 'Stopped', 重新开始: 'Start again',
   手机上的页面已断开: "The phone's page is disconnected",
+  没能开启: "Couldn't start", '原因在下面，可以再试一次': 'See why below, then try again', 重试: 'Try again',
   '中国大陆部分地区打不开 Cloudflare 的链接。手机和电脑能连同一个 Wi-Fi 时，用“同一个网络”更稳。': 'In parts of mainland China, Cloudflare links don\'t open. When the phone can join the same Wi-Fi, Same network is more reliable.',
   '原来的二维码和链接已失效。点“重新开始”生成新的二维码，手机再扫一次就能看。': 'The old code and link no longer open. Start again for a new code, and scan it once more.',
   先打开手机查看: 'Turn on the phone view first', 手机查看已经关闭: 'The phone view was stopped',
