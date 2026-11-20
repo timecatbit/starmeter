@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // The website's and the READMEs' screenshots, taken from the panel's made-up fixtures (app/ui/fixtures), never from
 // a real machine: usage, accounts, keys and sessions there are all invented. Each picture comes in Chinese and in
-// English (the panel's 外观与设置 → 语言) and in a light and a dark copy, at 2x: the Chinese ones into docs/images/, the
+// English (the panel's 通用 → 语言) and in a light and a dark copy, at 2x: the Chinese ones into docs/images/, the
 // English ones into docs/images/en/, beside copies of the logo (Pages serves docs/ alone; scripts/make_logo.py makes
 // the originals in assets/). Run it again whenever the panel, the share pictures or the logo change:
 //
@@ -73,7 +73,7 @@ const STILL = `
   *, *::after { caret-color: transparent !important; }
 `;
 
-async function open(context, { height = PANEL_HEIGHT } = {}) {
+async function open(context, { height = PANEL_HEIGHT, query = '' } = {}) {
   const page = await context.newPage();
   // The panel takes the window's height less 16 (shell.info in backend.ts); the page is made taller than that so the
   // margin under the panel fits too.
@@ -83,7 +83,7 @@ async function open(context, { height = PANEL_HEIGHT } = {}) {
   const errors = [];
   // A resize observer that sees a size change it caused in the same frame says so; it is a notice, not a failure.
   page.on('pageerror', (error) => { if (!/ResizeObserver loop/.test(String(error))) errors.push(String(error)); });
-  await page.goto(`${context.base}/`);
+  await page.goto(`${context.base}/${query}`);
   await page.locator('.dashboard').waitFor();
   await page.addStyleTag({ content: STILL });
   // Opening asks for a fresh reading; let it land and the trend draw itself in.
@@ -168,9 +168,10 @@ const shots = {
     await page.waitForTimeout(600);
     await panelShot(page, `modules-${context.look}.png`);
   },
-  // The share page: the picture previewed in the panel, with its styles and what to do with it.
+  // The share page: the picture previewed in the panel, with its styles and what to do with it, as the Mac app has
+  // it (?mac: its share button too).
   async sharePage(context) {
-    const page = await open(context, { height: 900 });
+    const page = await open(context, { height: 900, query: '?mac' });
     await button(page, context.names.share).click();
     await page.locator('.share-page .stage img').waitFor();
     await page.waitForTimeout(600);
