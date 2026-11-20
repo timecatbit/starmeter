@@ -747,9 +747,14 @@ test('the share page picks its range, the homepage\'s own, and draws that range'
   const preview = page.locator('.stage img');
   await expect(preview).toBeVisible();
   const today = await preview.getAttribute('src');
+  const copy = page.getByRole('button', { name: '复制图片' });
+  await expect(copy).toBeEnabled();
   await choose(page, /^时间范围/, '近 7 天');
+  // Until the week's picture is drawn, nothing gives away today's under the week's name.
+  await expect(copy).toBeDisabled();
   await expect(page.locator('.share-page .title')).toHaveText('分享用量图近 7 天');
   await expect(preview).not.toHaveAttribute('src', today!);
+  await expect(copy).toBeEnabled();
   await page.keyboard.press('Escape');
   await expect(page.locator('.picker .current')).toHaveText('近 7 天');
 });

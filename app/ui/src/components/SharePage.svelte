@@ -68,11 +68,14 @@
   const canShare = onPhone ? web.canSharePicture() : mac && (inTauri || (typeof location !== 'undefined' && new URLSearchParams(location.search).has('mac')));
 
   // Each style drawn once per range, light or dark and number of tools, then kept while the page is open.
+  const pictureKey = (range: string) => `${range}:${style}${dark ? ':dark' : ':light'}:${shownTools}`;
+  /** Which picture is on screen: until the one for the current choices is drawn, the last one stays in sight. */
+  let drawnKey = $state<string | null>(null);
   $effect(() => {
-    const figures = frozen, count = shownTools, key = `${figures.rangeKey}:${style}${dark ? ':dark' : ':light'}:${count}`, wantsDark = dark;
+    const figures = frozen, count = shownTools, key = pictureKey(figures.rangeKey), wantsDark = dark;
     remember(STYLE, style);
     const known = pictures.get(key);
-    if (known) { picture = known; drawnStyle = style; failed = false; return; }
+    if (known) { picture = known; drawnStyle = style; drawnKey = key; failed = false; return; }
     let current = true;
     const wanted = style;
     void renderPicture(wanted, figures, project, wantsDark, count).then((drawn) => {
@@ -80,10 +83,14 @@
       if (drawn) pictures.set(key, drawn);
       picture = drawn;
       drawnStyle = wanted;
+      drawnKey = drawn ? key : null;
       failed = !drawn;
     });
     return () => { current = false; };
   });
+  /** Copy, save and share give the picture of what the page says: the range picked (its figures arrived), the style,
+   *  the colours and the number of tools. Until it is drawn they wait, rather than give the last one away. */
+  const ready = $derived(picture !== null && frozen.rangeKey === chosenRange && drawnKey === pictureKey(chosenRange));
   onDestroy(() => { for (const p of pictures.values()) URL.revokeObjectURL(p.url); clearTimeout(resultTimer); });
 
   // The picture on a stage as tall as the column beside it, fitted whole (never cut): changing the style, the colours
@@ -116,14 +123,14 @@
     resultTimer = setTimeout(() => (result = null), 2000);
   }
   async function copy() {
-    if (!picture || busy) return;
+    if (!picture || !ready || busy) return;
     busy = 'copy';
     const ok = onPhone ? await web.copyPicture(picture.png) : await shell.copyPicture(picture.png).catch(() => false);
     busy = null;
     settle('copy', ok);
   }
   async function save() {
-    if (!picture || busy) return;
+    if (!picture || !ready || busy) return;
     busy = 'save';
     const ok = onPhone ? web.savePicture(picture.png, fileName) : await shell.savePicture(picture.png, fileName).catch(() => false);
     busy = null;
@@ -131,7 +138,7 @@
     if (ok && !onPhone) settle('save', true);
   }
   async function share() {
-    if (!picture || busy || !shareButton) return;
+    if (!picture || !ready || busy || !shareButton) return;
     busy = 'share';
     const box = shareButton.getBoundingClientRect();
     if (onPhone) await web.sharePicture(picture.png, fileName);
@@ -157,15 +164,15 @@
 
 {#snippet act(which: 'share' | 'copy' | 'save', primary: boolean)}
   {#if which === 'share'}
-    <button class="action pressable" class:primary bind:this={shareButton} disabled={!picture} onclick={share}>
+    <button class="action pressable" class:primary bind:this={shareButton} disabled={!ready} onclick={share}>
       <Icon name="square.and.arrow.up" size={14} system />{t('分享…')}
     </button>
   {:else if which === 'copy'}
-    <button class="action pressable" class:primary class:done={copied === '已复制'} class:failed={copied === '复制失败'} disabled={!picture} onclick={copy}>
+    <button class="action pressable" class:primary class:done={copied === '已复制'} class:failed={copied === '复制失败'} disabled={!ready} onclick={copy}>
       <Icon name={copied === '已复制' ? 'checkmark' : 'doc.on.doc'} size={14} system />{t(copied ?? '复制图片')}
     </button>
   {:else}
-    <button class="action pressable" class:primary class:done={!!saved} disabled={!picture} onclick={save}>
+    <button class="action pressable" class:primary class:done={!!saved} disabled={!ready} onclick={save}>
       <Icon name={saved ? 'checkmark' : 'square.and.arrow.down'} size={14} system />{t(saved ?? (onPhone ? '保存图片' : '保存…'))}
     </button>
   {/if}
