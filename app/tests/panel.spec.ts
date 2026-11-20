@@ -883,6 +883,17 @@ test('back on a range seen before, the share page draws its figures as they are 
   await expect(page.locator('.share-page .title')).toHaveText('分享用量图今天');
   await expect(page.getByRole('button', { name: '复制图片' })).toBeEnabled();
   await expect(preview).not.toHaveAttribute('src', first!);
+  // What it would export is the very picture the page draws when opened afresh, byte for byte.
+  const bytes = () => preview.evaluate(async (img: HTMLImageElement) => {
+    const data = new Uint8Array(await (await fetch(img.src)).arrayBuffer());
+    const sum = await crypto.subtle.digest('SHA-256', data);
+    return Array.from(new Uint8Array(sum)).map((b) => b.toString(16).padStart(2, '0')).join('');
+  });
+  const exported = await bytes();
+  await page.keyboard.press('Escape');
+  await button(page, '分享用量图').click();
+  await expect(page.getByRole('button', { name: '复制图片' })).toBeEnabled();
+  expect(await bytes()).toBe(exported);
 });
 
 test('the share page picks its range, the homepage\'s own, and draws that range', async ({ page }) => {
