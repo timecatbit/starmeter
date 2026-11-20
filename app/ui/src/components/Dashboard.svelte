@@ -178,7 +178,8 @@
         <span class="figure" style:left="{x}px"><Figure value={values[i]} size={22} room={third - 4} {align} color={glowColour} /></span>
       {/each}
       {#each legendCells as cell, i (i)}
-        <span class="swatch" style:left="{left + cell.x}px" style:top="{96 + cell.row * 17}px" style:height="{i === 0 ? 3 : 2}px" style:background={legendColours[i]}></span>
+        <!-- Centred on the name's middle (Chinese and capitals, 8.5pt type in a line from 90: 95.15), not its top. -->
+        <span class="swatch" style:left="{left + cell.x}px" style:top="{95.15 - (i === 0 ? 1.5 : 1) + cell.row * 17}px" style:height="{i === 0 ? 3 : 2}px" style:background={legendColours[i]}></span>
         <span class="legend" style:left="{left + cell.x + 16}px" style:top="{90 + cell.row * 17}px" style:width="{cell.w - 16}px">{legend[i]}</span>
       {/each}
       <div class="trend" style:transform="translateY({extra}px)">
