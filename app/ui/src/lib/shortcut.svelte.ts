@@ -53,6 +53,6 @@ export function shortcutRow(): Entry {
     action: ['set-shortcut', choice] });
   const taken = shortcut.taken && shortcut.current !== 'none';
   return { label: '全局快捷键', symbol: 'keyboard', value: taken ? `${shortcutLabel(shortcut.current)} · 当前被占用` : shortcutLabel(shortcut.current),
-    detail: taken ? '这个组合键现在被系统或其他程序占用，按了没反应；换一个，或退出占用它的程序后再打开面板' : '在任何地方按下即可打开或收起面板',
+    detail: taken ? '这个组合键现在被系统或其他程序占用，按了没反应；换一个，或退出占用它的程序后再打开一次面板' : '在任何地方按下即可打开或收起面板',
     children: SHORTCUTS.map(radio) };
 }

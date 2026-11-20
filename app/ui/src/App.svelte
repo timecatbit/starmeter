@@ -13,7 +13,7 @@
   import { answer as answerQuestion, ask, show as showQuestion } from './lib/ask.svelte';
   import { chooseLanguage, localize, source, t } from './lib/i18n.svelte';
   import { phoneStatus } from './lib/phone.svelte';
-  import { chooseShortcut, restoreShortcut } from './lib/shortcut.svelte';
+  import { chooseShortcut, restoreShortcut, shortcut } from './lib/shortcut.svelte';
   import { panel } from './lib/ui.svelte';
   import type { Dashboard as DashboardData, Entry, ShellInfo, Snapshot } from './lib/types';
   import Dashboard from './components/Dashboard.svelte';
@@ -561,6 +561,8 @@
     if (maxHeight) info = { ...info, maxHeight };
     startOver(modules);
     void reload();
+    // A shortcut another app held: tried again each time the panel opens, so quitting that app is enough.
+    if (shortcut.taken) void restoreShortcut();
     if (modules) void phoneStatus();
     if (!modules) perform(['refresh-view']);
     if (!modules && firstRuns) void shell.guideShown().then((shown) => {
