@@ -98,6 +98,13 @@ impl Engine {
             desktop::environment(Shell::current(), std::env::vars().collect(), &self.resources);
         let argv0 = std::env::args().next().unwrap_or_else(|| "starmeter".into());
         let mut runtime = Runtime::new(environment, &argv0);
+        // The price tables where this runtime's environment says they are (the bundle's lib/), and the copies the daily
+        // update leaves. The runtime the engine started with guessed them from the program's own folder (on a .deb,
+        // /usr/bin/lib, where there are none), and the folders, set only once, kept that guess: every model unpriced.
+        starmeter_core::pricing::set_folders(vec![
+            starmeter_core::runtime::lib_directory(&runtime.plugin).into(),
+            format!("{}/pricing", runtime.state_dir).into(),
+        ]);
         runtime.host =
             Arc::new(AppHost { app: self.app.clone(), state: runtime.state_dir.clone(), engine: Arc::downgrade(self) });
         runtime.host_cadence = Some(Box::new(|| (watched(), false)));
