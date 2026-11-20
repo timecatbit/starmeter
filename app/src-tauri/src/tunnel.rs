@@ -8,7 +8,7 @@
 
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -22,6 +22,8 @@ const RELEASES: &str = "https://api.github.com/repos/cloudflare/cloudflared/rele
 pub struct Tunnel {
     pub url: String,
     child: Option<Child>,
+    /// The pipe the watcher waits on (macOS, Linux): closed, it ends cloudflared.
+    guard: Option<ChildStdin>,
     /// Cleared when cloudflared ends on its own (its connection to Cloudflare lost for good).
     alive: Arc<AtomicBool>,
 }
@@ -33,11 +35,47 @@ impl Tunnel {
     }
 
     pub fn stop(&mut self) {
-        if let Some(mut child) = self.child.take() {
-            let _ = child.kill();
-            let _ = child.wait();
+        if let Some(child) = self.child.take() {
+            end(child, self.guard.take());
         }
     }
+}
+
+/// Ends cloudflared: the watcher's pipe closed first, so it ends cloudflared itself; the watcher killed only if it
+/// doesn't go within a moment.
+fn end(mut child: Child, guard: Option<ChildStdin>) {
+    drop(guard);
+    let until = Instant::now() + Duration::from_secs(3);
+    while Instant::now() < until {
+        if child.try_wait().ok().flatten().is_some() {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+/// How cloudflared is run. On macOS and Linux under a small shell that waits on a pipe from this app: however the app
+/// ends (quit, a crash, a force quit), the pipe closes and the shell ends cloudflared, so no tunnel outlives the app;
+/// it had kept running when the app was killed, quietly enough over http2 never to notice. The shell lets go of the
+/// error output it passed on, so cloudflared ending on its own still ends the stream read here.
+#[cfg(unix)]
+fn command(program: &Path) -> Command {
+    let mut command = Command::new("/bin/sh");
+    command
+        .arg("-c")
+        .arg(r#""$0" "$@" </dev/null & child=$!; exec 2>&-; read -r _; kill "$child" 2>/dev/null; wait "$child""#)
+        .arg(program)
+        .stdin(Stdio::piped());
+    command
+}
+
+#[cfg(not(unix))]
+fn command(program: &Path) -> Command {
+    let mut command = Command::new(program);
+    command.stdin(Stdio::null());
+    command
 }
 
 impl Drop for Tunnel {
@@ -145,13 +183,19 @@ fn download(app: &AppHandle) -> Result<PathBuf, String> {
 enum Heard {
     Address(String),
     Connected,
-    Ended(String),
+    Ended(String, bool),
 }
 
-/// Why cloudflared ended before the link worked, from what it printed last.
-fn reason(said: &[String]) -> String {
+/// Why cloudflared ended before the link worked, from what it printed last; and whether it was the edge's addresses it
+/// couldn't look up (a proxy's or VPN's DNS that doesn't answer SRV queries), which naming the edge gets past.
+fn reason(said: &[String]) -> (String, bool) {
     let all = said.join("\n");
-    if all.contains("origintunneld") || all.contains("edge discovery") {
+    let unfound = all.contains("origintunneld") || all.contains("edge discovery");
+    (message(&all, unfound), unfound)
+}
+
+fn message(all: &str, unfound: bool) -> String {
+    if unfound {
         "这个网络的 DNS 查不到 Cloudflare 隧道的地址（常见于代理或 VPN），换个网络或关掉代理再试".into()
     } else if all.contains("429") || all.contains("Too Many Requests") {
         "Cloudflare 暂时不给新的临时链接，稍后再试".into()
@@ -169,20 +213,31 @@ fn address(line: &str) -> Option<String> {
     (url.ends_with(".trycloudflare.com") && url.len() > "https://.trycloudflare.com".len()).then(|| url.to_string())
 }
 
-/// Starts the tunnel to the phone server and waits for its address.
+/// Cloudflare's tunnel servers by name, for when they can't be looked up the usual way; over TCP (http2), which a proxy
+/// carries where QUIC may not get through.
+const NAMED_EDGE: [&str; 6] =
+    ["--edge", "region1.v2.argotunnel.com:7844", "--edge", "region2.v2.argotunnel.com:7844", "--protocol", "http2"];
+
+/// Starts the tunnel to the phone server and waits for its address. On a network whose DNS doesn't answer the SRV
+/// query cloudflared finds Cloudflare's servers with (a proxy's or VPN's, though the network itself works), once more
+/// with the servers named.
 pub fn open(app: &AppHandle, port: u16) -> Result<Tunnel, String> {
     let program = match existing(app) {
         Some(program) => program,
         None => download(app)?,
     };
-    start(&program, port)
+    match start(&program, port, &[]) {
+        Err((_, true)) => start(&program, port, &NAMED_EDGE).map_err(|(why, _)| why),
+        other => other.map_err(|(why, _)| why),
+    }
 }
 
-fn start(program: &Path, port: u16) -> Result<Tunnel, String> {
-    let mut command = Command::new(program);
+fn start(program: &Path, port: u16, extra: &[&str]) -> Result<Tunnel, (String, bool)> {
+    let mut command = command(program);
     command
-        .args(["tunnel", "--no-autoupdate", "--url", &format!("http://127.0.0.1:{port}")])
-        .stdin(Stdio::null())
+        .args(["tunnel", "--no-autoupdate"])
+        .args(extra)
+        .args(["--url", &format!("http://127.0.0.1:{port}")])
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
     #[cfg(windows)]
@@ -190,10 +245,11 @@ fn start(program: &Path, port: u16) -> Result<Tunnel, String> {
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x0800_0000);
     }
-    let mut child = command.spawn().map_err(|error| format!("cloudflared 没能启动：{error}"))?;
+    let mut child = command.spawn().map_err(|error| (format!("cloudflared 没能启动：{error}"), false))?;
+    let guard = child.stdin.take();
     let Some(output) = child.stderr.take() else {
-        let _ = child.kill();
-        return Err("cloudflared 没能启动".into());
+        end(child, guard);
+        return Err(("cloudflared 没能启动".into(), false));
     };
     let (tell, heard) = mpsc::channel();
     let alive = Arc::new(AtomicBool::new(true));
@@ -221,7 +277,8 @@ fn start(program: &Path, port: u16) -> Result<Tunnel, String> {
             }
         }
         running.store(false, Ordering::SeqCst);
-        let _ = tell.send(Heard::Ended(reason(&said)));
+        let (why, unfound) = reason(&said);
+        let _ = tell.send(Heard::Ended(why, unfound));
     });
     let deadline = Instant::now() + Duration::from_secs(45);
     let mut url: Option<String> = None;
@@ -229,15 +286,14 @@ fn start(program: &Path, port: u16) -> Result<Tunnel, String> {
         match heard.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
             Ok(Heard::Address(given)) => url = Some(given),
             Ok(Heard::Connected) if url.is_some() => {
-                return Ok(Tunnel { url: url.unwrap_or_default(), child: Some(child), alive });
+                return Ok(Tunnel { url: url.unwrap_or_default(), child: Some(child), guard, alive });
             }
             Ok(Heard::Connected) => {}
-            Ok(Heard::Ended(why)) => break why,
-            Err(_) => break "Cloudflare 这次没有给出链接，稍后再试".into(),
+            Ok(Heard::Ended(why, unfound)) => break (why, unfound),
+            Err(_) => break ("Cloudflare 这次没有给出链接，稍后再试".into(), false),
         }
     };
-    let _ = child.kill();
-    let _ = child.wait();
+    end(child, guard);
     Err(failed)
 }
 
@@ -249,9 +305,11 @@ mod tests {
     fn why_cloudflared_ended() {
         let dns = "2026-11-20T01:58:31Z ERR edge discovery: error looking up Cloudflare edge IPs: the DNS query failed \
                    error=\"lookup _v2-origintunneld._tcp.argotunnel.com on 198.19.0.3:53: no such host\"";
-        assert!(reason(&[dns.into()]).contains("DNS"));
-        assert!(reason(&["ERR failed to request quick Tunnel: 429 Too Many Requests".into()]).contains("暂时不给"));
-        assert!(reason(&[]).contains("没有连上"));
+        let (why, unfound) = reason(&[dns.into()]);
+        assert!(why.contains("DNS") && unfound);
+        let (why, unfound) = reason(&["ERR failed to request quick Tunnel: 429 Too Many Requests".into()]);
+        assert!(why.contains("暂时不给") && !unfound);
+        assert!(reason(&[]).0.contains("没有连上"));
     }
 
     #[test]
