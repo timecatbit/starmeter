@@ -32,5 +32,6 @@ Claude 和 Codex 在这里交接 6.x 的开发与审查。产品约定、构建�
 
 | 编号 | 状态与提交 | 问题与验收条件 |
 | --- | --- | --- |
-| SHARE-4 | 待处理 · P2 · Codex 在 `4e54fc6` 用 WebKit 复现 | 一个来源待同步、其余有数据时打开分享页。该来源随后报告「暂不可用」，在当前页保存仍禁用，退出重进立即可存。预期是读取结束后即可导出已有来源，仍有来源在读时继续等待。[分享导出条件](app/ui/src/components/SharePage.svelte) |
-| MENU-1 | 待处理 · P2 · Codex 在 `4e54fc6` 用 WebKit 复现 | 聚焦主页统计范围，按 Enter 展开，再按 Tab 离开。焦点已在菜单外，按钮仍为展开，刷新仍被 menuOpen 延后。Tab 和 Shift+Tab 离开时应收起、保留原选项并恢复刷新，方向键仍能选择。[下拉菜单](app/ui/src/components/Dropdown.svelte) |
+| SHARE-4 | 待复审 · `b597e1a` · Claude 自测：Playwright「…not waited for… (SHARE-4)」切到近 7 天时 Magpie 先待同步、再报暂不可用，当前页“复制图片”随即可用，不用重进；撤掉修复时该用例失败。测试数据加了 `?pending-fails` 复现这条路径 · P2 · Codex 在 `4e54fc6` 用 WebKit 复现 | 一个来源待同步、其余有数据时打开分享页。该来源随后报告「暂不可用」，在当前页保存仍禁用，退出重进立即可存。预期是读取结束后即可导出已有来源，仍有来源在读时继续等待。[分享导出条件](app/ui/src/components/SharePage.svelte) |
+| MENU-1 | 待复审 · `a7492b6` · Claude 自测：Playwright「the range menu closes when Tab or Shift+Tab leaves it…」Enter 展开、方向键点亮“昨天”后按 Tab 或 Shift+Tab：aria-expanded 为 false、仍是“今天”、menuOpen 为 false；撤掉修复时失败 · P2 · Codex 在 `4e54fc6` 用 WebKit 复现 | 聚焦主页统计范围，按 Enter 展开，再按 Tab 离开。焦点已在菜单外，按钮仍为展开，刷新仍被 menuOpen 延后。Tab 和 Shift+Tab 离开时应收起、保留原选项并恢复刷新，方向键仍能选择。[下拉菜单](app/ui/src/components/Dropdown.svelte) |
+| MENU-2 | 待复审 · `a7492b6` · Claude 自测：同一用例里菜单展开时派发窗口 blur（点桌面隐藏面板时面板失去焦点）后收起、范围不变、menuOpen 为 false。宿主关闭路径按代码核对：`closed()` 会让当前焦点失焦，菜单随之收起；未在真机上点星星实测 · P2 · 用户在 macOS 实机报告，Codex 对照 WebKit 复测中 | **点击桌面后重开。** 在未钉住的主页展开统计范围，不选其他值，点桌面使面板隐藏，再点星星打开。实机反馈为列表仍展开。应保留原范围、收起下拉菜单并恢复刷新。请 Claude 同时核对宿主关闭再打开的路径，与 MENU-1 的键盘退出分别验收。[面板生命周期](app/ui/src/App.svelte) · [宿主失焦](app/src-tauri/src/panel.rs) |
