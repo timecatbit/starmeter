@@ -1115,10 +1115,11 @@ impl Runtime {
             if let Some(others) = part.get("others").and_then(Json::as_object) {
                 // This computer's ChatGPT records defer to OpenCodex; the other computers' count.
                 let counted = provider(source, label, others, "", "已同步");
-                let kept: Object = ["cost", "tokens", "output", "requests", "unpriced", "cache", "cacheInputs", "history"]
-                    .into_iter()
-                    .map(|field| (field, counted.get(field).cloned().unwrap_or(Json::Null)))
-                    .collect();
+                let kept: Object =
+                    ["cost", "tokens", "output", "requests", "unpriced", "cache", "cacheInputs", "history"]
+                        .into_iter()
+                        .map(|field| (field, counted.get(field).cloned().unwrap_or(Json::Null)))
+                        .collect();
                 providers[index].insert("summaryIncluded", true);
                 providers[index].insert("counted", kept);
                 providers[index].insert("subtitle", "本机记录未计入 Summary");
@@ -1133,10 +1134,11 @@ impl Runtime {
                 if !carried.is_empty() {
                     let counted_usage = part.get("counted").and_then(Json::as_object).cloned().unwrap_or_default();
                     let counted = provider(source, label, &counted_usage, "", "已同步");
-                    let kept: Object = ["cost", "tokens", "output", "requests", "unpriced", "cache", "cacheInputs", "history"]
-                        .into_iter()
-                        .map(|field| (field, counted.get(field).cloned().unwrap_or(Json::Null)))
-                        .collect();
+                    let kept: Object =
+                        ["cost", "tokens", "output", "requests", "unpriced", "cache", "cacheInputs", "history"]
+                            .into_iter()
+                            .map(|field| (field, counted.get(field).cloned().unwrap_or(Json::Null)))
+                            .collect();
                     providers[index].insert("counted", kept);
                     let total: i64 = carried.iter().map(|(_, count)| count.integer().unwrap_or(0)).sum();
                     providers[index].insert("subtitle", format!("{total} 次已由 {names} 计入"));
