@@ -121,7 +121,7 @@ test('English: the phone view and its public link', async ({ page }) => {
   const left = new Leftovers();
   await english(page, '?no-cloudflared');
   await page.getByRole('button', { name: 'Modules and settings', exact: true }).click();
-  await page.getByRole('button', { name: /^View on your phone/ }).click();
+  await page.getByRole('button', { name: /^Phone view/ }).click();
   await expect(page.locator('.phone-page svg[role="img"]')).toBeVisible();
   await left.take(page, 'phone');
   await page.getByRole('radio', { name: 'Any network' }).click();

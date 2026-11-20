@@ -129,14 +129,15 @@ export const phrases: Record<string, string> = {
   快捷键已被占用: 'Shortcut taken', '这个组合键已被系统或其他程序占用，换一个试试。': 'The system or another app already uses this combination; try another.',
   // 多台电脑合并
   // 在手机上看
-  在手机上看: 'View on your phone', 扫码在手机浏览器里看: 'Scan to view in your phone\'s browser',
+  // Short enough for its cell in the module grid.
+  在手机上看: 'Phone view', 扫码在手机浏览器里看: 'Scan with your phone',
   '外网链接断开了，可以重新生成': 'The public link dropped; you can make a new one',
   '这个网络的 DNS 查不到 Cloudflare 隧道的地址（常见于代理或 VPN），换个网络或关掉代理再试':
     'This network\'s DNS can\'t find Cloudflare\'s tunnel servers (common behind a proxy or VPN); try another network or turn the proxy off',
   'Cloudflare 暂时不给新的临时链接，稍后再试': 'Cloudflare isn\'t giving out new temporary links right now; try again later',
   'Cloudflare 这次没有连上，稍后再试': 'Couldn\'t connect to Cloudflare this time; try again later',
   '连不上电脑：电脑可能睡着了、换了网络，或者已经停止手机查看': 'Can\'t reach the computer: it may be asleep, on another network, or no longer sharing with the phone',
-  '链接已失效：在电脑上重新打开“在手机上看”，再扫一次码': 'This link no longer works: open View on your phone on the computer again and scan the new code',
+  '链接已失效：在电脑上重新打开“在手机上看”，再扫一次码': 'This link no longer works: open Phone view on the computer again and scan the new code',
   开着: 'On', 手机在哪: 'Where the phone is', 同一个网络: 'Same network', 任何网络: 'Any network',
   '经 Cloudflare 生成外网链接？': 'Make a public link through Cloudflare?',
   '手机不在同一个网络时用：Cloudflare 给一个临时的 https 地址，转到这台电脑。主页的数字会经过 Cloudflare；链接带一次性口令，停止或一小时后失效。':
