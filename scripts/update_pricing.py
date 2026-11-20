@@ -77,6 +77,39 @@ def stamped(path, result, committed):
     return result
 
 
+def model_aliases(repo):
+    """The model names ccusage prices as another model's. Its pricing.rs had them in pricing_alias as
+    `"gpt-5.6" => Some("gpt-5.6-sol")`; since November 2026 they are the ALIASES table in pricing/data.rs, as
+    `("gpt-5.6", "gpt-5.6-sol")`. Neither found, the update stops and says so rather than writing a table without."""
+    source = repo / 'rust/crates/ccusage-core/src'
+    data = source / 'pricing/data.rs'
+    if data.exists() and 'static ALIASES' in (text := data.read_text()):
+        body = text.split('static ALIASES', 1)[1].split('\n];', 1)[0]
+        return dict(re.findall(r'\(\s*"([^"]+)",\s*"([^"]+)"\s*\)', body))
+    pricing = (source / 'pricing.rs').read_text()
+    if 'fn pricing_alias(' in pricing:
+        body = pricing.split('fn pricing_alias(', 1)[1].split('\n}\n', 1)[0]
+        return dict(re.findall(r'"([^"]+)" => Some\("([^"]+)"\)', body))
+    raise SystemExit("ccusage's model aliases are in neither pricing/data.rs (ALIASES) nor pricing.rs (pricing_alias)")
+
+
+def auto_review_fallbacks(repo):
+    """Which model codex-auto-review stood for from which day, newest first. ccusage kept the timeline in
+    codex-auto-review-fallbacks.json; since November 2026 it is CODEX_AUTO_REVIEW_FALLBACKS in parser/model.rs, as
+    `CodexAutoReviewFallback::new((2026, 7, 30), "gpt-5.6-luna")`, its last entry naming the default model's constant."""
+    codex = repo / 'rust/adapters/codex/src'
+    listed = codex / 'codex-auto-review-fallbacks.json'
+    if listed.exists():
+        return json.loads(listed.read_text())
+    model = codex / 'parser/model.rs'
+    text = model.read_text() if model.exists() else ''
+    default = re.search(r'CODEX_AUTO_REVIEW_DEFAULT_MODEL: &str = "([^"]+)"', text)
+    entries = re.findall(r'CodexAutoReviewFallback::new\(\((\d+),\s*(\d+),\s*(\d+)\),\s*(?:"([^"]+)"|CODEX_AUTO_REVIEW_DEFAULT_MODEL)\)', text)
+    if not entries or (default is None and any(not name for *_, name in entries)):
+        raise SystemExit("ccusage's codex-auto-review timeline is in neither codex-auto-review-fallbacks.json nor parser/model.rs")
+    return [{'releasedOn': '%04d-%02d-%02d' % (int(y), int(m), int(d)), 'model': name or default.group(1)} for y, m, d, name in entries]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('ccusage', type=Path, help='Path to a ccusage git checkout')
@@ -91,14 +124,12 @@ def main():
         built = datetime.fromtimestamp(locked, timezone.utc).date().isoformat()
         added = newer_openai(json.loads(args.models_dev.read_text()), snapshot, built)
     models = table(dict(snapshot, **added), OPENAI)
-    pricing = (repo / 'rust/crates/ccusage-core/src/pricing.rs').read_text()
-    body = pricing.split('fn pricing_alias(', 1)[1].split('\n}\n', 1)[0]
-    aliases = dict(re.findall(r'"([^"]+)" => Some\("([^"]+)"\)', body))
+    aliases = model_aliases(repo)
     multipliers = {}
     for tier in ('fast', 'flex', 'ultrafast'):
         exact = json.loads((repo / 'rust/crates/ccusage-core/src' / (tier + '-multiplier-overrides.json')).read_text())['exact']
         multipliers[tier] = {name: value for name, value in sorted(exact.items()) if name in models}
-    fallbacks = json.loads((repo / 'rust/adapters/codex/src/codex-auto-review-fallbacks.json').read_text())
+    fallbacks = auto_review_fallbacks(repo)
     commit = subprocess.run(['git', '-C', str(repo), 'rev-parse', 'HEAD'], capture_output=True, text=True, check=True).stdout.strip()
     # The commit time orders tables: installed plugins keep whichever copy is newest.
     committed = subprocess.run(['git', '-C', str(repo), 'log', '-1', '--format=%cI'], capture_output=True, text=True, check=True).stdout.strip()

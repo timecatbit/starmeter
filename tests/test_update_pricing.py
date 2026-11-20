@@ -16,6 +16,49 @@ TEXT = {'input': ['text'], 'output': ['text']}
 
 
 class UpdatePricingTests(unittest.TestCase):
+
+    def test_the_auto_review_timeline_is_read_where_ccusage_keeps_it(self):
+        with tempfile.TemporaryDirectory() as folder:
+            repo = Path(folder)
+            codex = repo / 'rust/adapters/codex/src'
+            (codex / 'parser').mkdir(parents=True)
+            # Since November 2026: a constant in parser/model.rs, the last entry naming the default model's constant.
+            (codex / 'parser/model.rs').write_text('const CODEX_AUTO_REVIEW_DEFAULT_MODEL: &str = "gpt-5";\n'
+                                                   'const CODEX_AUTO_REVIEW_FALLBACKS: &[CodexAutoReviewFallback] = &[\n'
+                                                   '    CodexAutoReviewFallback::new((2026, 7, 30), "gpt-5.6-luna"),\n'
+                                                   '    CodexAutoReviewFallback::new((2025, 8, 7), CODEX_AUTO_REVIEW_DEFAULT_MODEL),\n];\n')
+            self.assertEqual(update.auto_review_fallbacks(repo),
+                             [{'releasedOn': '2026-07-30', 'model': 'gpt-5.6-luna'}, {'releasedOn': '2025-08-07', 'model': 'gpt-5'}])
+            # Before: a JSON file, taken as it is.
+            (codex / 'codex-auto-review-fallbacks.json').write_text('[{"releasedOn": "2026-03-05", "model": "gpt-5.4"}]')
+            self.assertEqual(update.auto_review_fallbacks(repo), [{'releasedOn': '2026-03-05', 'model': 'gpt-5.4'}])
+            # Neither: the update stops with a reason.
+            (codex / 'codex-auto-review-fallbacks.json').unlink()
+            (codex / 'parser/model.rs').write_text('')
+            with self.assertRaises(SystemExit):
+                update.auto_review_fallbacks(repo)
+
+    def test_model_aliases_are_read_where_ccusage_keeps_them(self):
+        with tempfile.TemporaryDirectory() as folder:
+            repo = Path(folder)
+            source = repo / 'rust/crates/ccusage-core/src'
+            (source / 'pricing').mkdir(parents=True)
+            # Before November 2026: a match in pricing.rs.
+            (source / 'pricing.rs').write_text('fn other() {}\n\nfn pricing_alias(model: &str) -> Option<&str> {\n'
+                                               '    match model {\n        "gpt-5.6" => Some("gpt-5.6-sol"),\n'
+                                               '        "gpt-reserve" => Some("gpt-5.6-luna"),\n        _ => None,\n    }\n}\n')
+            self.assertEqual(update.model_aliases(repo), {'gpt-5.6': 'gpt-5.6-sol', 'gpt-reserve': 'gpt-5.6-luna'})
+            # Since: the ALIASES table in pricing/data.rs, which pricing.rs no longer defines.
+            (source / 'pricing.rs').write_text('use data::ALIASES;\n')
+            (source / 'pricing/data.rs').write_text('pub(super) static OTHER: &[(&str, &[&str])] = &[("qwen3-32b", &["thinking"])];\n\n'
+                                                    'pub(super) static ALIASES: &[(&str, &str)] = &[\n    ("gpt-reserve", "gpt-5.6-luna"),\n'
+                                                    '    ("gpt-5.6", "gpt-5.6-sol"),\n    ("gpt-5.3-spark", "gpt-5.3-codex-spark"),\n];\n')
+            self.assertEqual(update.model_aliases(repo), {'gpt-reserve': 'gpt-5.6-luna', 'gpt-5.6': 'gpt-5.6-sol', 'gpt-5.3-spark': 'gpt-5.3-codex-spark'})
+            # Neither: the update stops with a reason, not an IndexError.
+            (source / 'pricing/data.rs').write_text('')
+            with self.assertRaises(SystemExit) as stopped:
+                update.model_aliases(repo)
+            self.assertIn('ALIASES', str(stopped.exception))
     def test_models_dev_adds_only_newer_openai_text_models_ccusage_lacks(self):
         snapshot = {'gpt-6.1-sol': {'cost': {'input': 2, 'output': 10}}}
         cost = {'input': 2, 'output': 10, 'cache_read': 0.1, 'cache_write': 2.5,
