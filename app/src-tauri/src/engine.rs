@@ -457,24 +457,15 @@ impl DesktopHost for AppHost {
     }
 }
 
-/// The background clock: every minute what is due is read, except while pinned (the live tick reads then); and while
-/// the models write and the star shows their speed, the speed alone every ten seconds (today from the local logs, a
-/// few hundredths of a second once caught up), so the figure keeps up without reading everything more often.
+/// The background clock: every minute what is due is read, except while pinned (the live tick reads then).
 pub fn start_clock(engine: Arc<Engine>, pinned: impl Fn() -> bool + Send + 'static) {
     std::thread::Builder::new()
         .name("starmeter-clock".into())
         .spawn(move || {
-            let mut ticks = 0u32;
             loop {
-                std::thread::sleep(Duration::from_secs(10));
-                ticks += 1;
-                if pinned() {
-                    continue;
-                }
-                if ticks.is_multiple_of(6) {
+                std::thread::sleep(Duration::from_secs(60));
+                if !pinned() {
                     engine.refresh();
-                } else if engine.runtime().speed_active() && engine.runtime().refresh_menu_speed().is_some() {
-                    crate::panel::update_star(&engine.app);
                 }
             }
         })

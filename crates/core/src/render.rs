@@ -248,7 +248,6 @@ impl Runtime {
             }
             "--background-refresh" | "--background-refresh-wait" => {
                 self.background_refresh(first == "--background-refresh-wait");
-                self.follow_menu_speed();
                 0
             }
             "--refresh-range" => {

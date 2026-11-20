@@ -32,7 +32,7 @@ APPEARANCES = ('solid', 'frosted', 'glass')
 # The Harness cards on the homepage, one per tool (the default), per model or per project.
 GROUPINGS = ('tool', 'model', 'project')
 # Beside the menu bar star: nothing (the default), today's API-equivalent estimate, or the tightest subscription window.
-MENU_BAR = ('none', 'cost', 'quota', 'speed')
+MENU_BAR = ('none', 'cost', 'quota')
 # API-equivalent estimates read in US dollars, or in yuan at the day's reference rate (or one the user fixed).
 CURRENCIES = ('USD', 'CNY')
 # How often a pinned panel re-reads the range on screen, in seconds.

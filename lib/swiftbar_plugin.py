@@ -2283,7 +2283,7 @@ def usage_ranges_due():
     weighed=[k for k in view_settings()['subscriptionPrices'] if module_enabled(k) and module_enabled(catalog.SUBSCRIPTION_USAGE[k])]
     if weighed and key!='month' and cache_due(read_cache(range_cache_name('month')),refresh_ttl(600)):due.append('month')
     # Today's estimate beside the star stays as current as the homepage would.
-    if view_settings()['menuBar'] in ('cost','speed') and key!='today' and cache_due(read_cache(range_cache_name('today')),refresh_ttl(60)):due.append('today')
+    if view_settings()['menuBar']=='cost' and key!='today' and cache_due(read_cache(range_cache_name('today')),refresh_ttl(60)):due.append('today')
     return due
 
 
@@ -2459,7 +2459,7 @@ def deepseek_balance(data):
     return "", None
 
 
-MENU_BAR_LABELS={'none':'只显示星星','cost':'今天的 API 估算','quota':'最紧张的订阅额度','speed':'输出速度'}
+MENU_BAR_LABELS={'none':'只显示星星','cost':'今天的 API 估算','quota':'最紧张的订阅额度'}
 
 def today_counted():
     """What Summary counts of today, source by source, and when today was read, or None until it has been read."""
@@ -2473,41 +2473,6 @@ def today_counted():
     return (float(at) if isinstance(at,(int,float)) else 0.0),summaries
 
 
-def output_speed():
-    """Output tokens a second over the minute just past: from the latest reading of today at least 55 seconds back (or,
-    with less read so far, the earliest, ten seconds back at least) to the newest, so a reading every ten seconds while
-    the models write moves the figure without making it jump. Readings more than five minutes apart, or fewer tokens
-    (a new day), start over. Kept beside the readings so a render in between shows the same figure; None without a
-    pair to compare, or once the newest is three minutes old."""
-    found=today_counted()
-    if not found:return None
-    at,summaries=found
-    output=sum(s['outputTokens'] for s in summaries if isinstance(s.get('outputTokens'),int))
-    state=read_cache('menu_speed')
-    samples=state.get('samples') if isinstance(state.get('samples'),list) else []
-    samples=[s for s in samples if isinstance(s,list) and len(s)==2 and isinstance(s[0],(int,float)) and isinstance(s[1],int)]
-    last=samples[-1] if samples else None
-    if last is None or float(last[0])!=at:
-        if last is None or output<last[1] or not 0<at-last[0]<=300:
-            samples=[[at,output]];rate=None
-        else:
-            samples=samples+[[at,output]]
-            older=[s for s in samples[:-1] if at-s[0]>=55]
-            base=older[-1] if older else samples[0]
-            rate=(output-base[1])/(at-base[0]) if at-base[0]>=10 else None
-            samples=samples[samples.index(base):]
-        state={'schema':1,'samples':samples,'rate':rate}
-        write_json_cache(cache_path('menu_speed'),state)
-    rate=state.get('rate')
-    if not isinstance(rate,(int,float)) or time.time()-at>180:return None
-    return float(rate)
-
-
-def speed_text(rate):
-    """42 tok/s; 1.2K tok/s from a thousand on."""
-    return '%d tok/s'%int(rate+0.5) if rate<999.5 else '%.1fK tok/s'%(rate/1000)
-
-
 def devices_row():
     """多台电脑合并 on the 数据 page. Merging the other computers' figures lives in the Rust engine only; this
     reference draws the row as it stands before a folder is picked."""
@@ -2519,10 +2484,6 @@ def devices_row():
 def menu_bar_value(data=None):
     """The figure the user chose to show beside the star, or ''. Nothing about states or failures: those stay in the panel."""
     choice=view_settings()['menuBar']
-    if choice=='speed':
-        rate=output_speed()
-        # Nothing while the models write nothing: the star alone, not a 0 to read.
-        return speed_text(rate) if rate is not None and rate>=0.5 else ''
     if choice=='cost':
         found=today_counted()
         if not found:return ''
@@ -4419,7 +4380,7 @@ def run_action(name, extra):
         key=extra[0] if len(extra)==1 else ''
         if key not in preferences.MENU_BAR:raise ValueError('invalid menu bar value')
         preferences.update(STATE_DIR,'menu-bar',key)
-        if key in ('cost','speed'):schedule_background_refresh()
+        if key=='cost':schedule_background_refresh()
     elif name == "set-group":
         key=extra[0] if len(extra)==1 else ''
         if key not in GROUPINGS:raise ValueError('invalid grouping')

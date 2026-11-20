@@ -151,7 +151,7 @@ export async function snapshot(): Promise<Snapshot> {
   s.theme = prefs.theme;
   s.pinInterval = state.pinInterval;
   const today = state.menuBar === 'cost' ? (await dashboard('today')).providers.reduce((sum, p) => sum + ((p.counted ?? p).cost ?? 0), 0) : 0;
-  s.menuBarText = state.menuBar === 'cost' ? (state.cny ? '¥' + (today * 7.1).toFixed(2) : '$' + today.toFixed(2)) : state.menuBar === 'quota' ? '91%' : state.menuBar === 'speed' ? '42 tok/s' : '';
+  s.menuBarText = state.menuBar === 'cost' ? (state.cny ? '¥' + (today * 7.1).toFixed(2) : '$' + today.toFixed(2)) : state.menuBar === 'quota' ? '91%' : '';
   for (const option of s.moduleOptions ?? []) {
     if (option.action?.[0] === 'set-module') {
       const on = prefs.visible.includes(option.action[1]);

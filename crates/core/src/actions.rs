@@ -1331,8 +1331,8 @@ impl Runtime {
                     return invalid("invalid menu bar value");
                 }
                 self.update("menu-bar", Some(&key), None)?;
-                // Today is read every minute for these: the first reading starts now.
-                if key == "cost" || key == "speed" {
+                // Today is read every minute for the estimate: the first reading starts now.
+                if key == "cost" {
                     self.schedule_background_refresh();
                 }
             }

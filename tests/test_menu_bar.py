@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 import sys
@@ -20,7 +21,7 @@ class MenuBarTests(unittest.TestCase):
         env.start(); self.addCleanup(env.stop)
         self.m = types.ModuleType('menu_bar_test'); exec(compile((ROOT / 'lib/swiftbar_plugin.py').read_text(), 'plugin', 'exec'), self.m.__dict__)
         for key in ('claude', 'codex'):preferences.update(self.m.STATE_DIR, 'module', key, 'true')
-        # Choosing the estimate or the speed starts a background read: none here, it would write into the folder
+        # Choosing the estimate starts a background read: none here, it would write into the folder
         # being cleaned up.
         background = patch.object(self.m, 'schedule_background_refresh'); background.start(); self.addCleanup(background.stop)
 
@@ -61,44 +62,19 @@ class MenuBarTests(unittest.TestCase):
         rows = next(o for o in self.m.module_options() if o['label'] == '通用')['children']
         row = next(r for r in rows if r['label'] == '菜单栏显示')
         self.assertEqual(row['value'], '只显示星星')
-        self.assertEqual([c['action'] for c in row['children']], [['set-menu-bar', 'none'], ['set-menu-bar', 'cost'], ['set-menu-bar', 'quota'],
-                                                                 ['set-menu-bar', 'speed']])
+        self.assertEqual([c['action'] for c in row['children']], [['set-menu-bar', 'none'], ['set-menu-bar', 'cost'], ['set-menu-bar', 'quota']])
 
-    def test_output_speed_between_two_readings(self):
-        self.m.run_action('set-menu-bar', ['speed'])
-        now = time.time()
-        self.assertEqual(self.m.menu_bar_value({}), '', 'Nothing until today has been read')
-        self.today(1, 1, (1000, 0), now - 60)
-        self.assertEqual(self.m.menu_bar_value({}), '', 'One reading has nothing to compare with')
-        self.today(1, 1, (3000, 1000), now)
-        self.assertEqual(self.m.menu_bar_value({}), '50 tok/s')
-        self.assertEqual(self.m.menu_bar_value({}), '50 tok/s', 'A render between readings shows the same figure')
-        self.today(1, 1, (3000, 1000), now + 60)
-        self.assertEqual(self.m.menu_bar_value({}), '', 'Nothing written: the star alone, not a 0')
-        self.today(1, 1, (123000, 1000), now + 120)
-        self.assertEqual(self.m.menu_bar_value({}), '2.0K tok/s')
-        self.today(1, 1, (10, 0), now + 180)
-        self.assertEqual(self.m.menu_bar_value({}), '', 'A new day starts from nothing')
-        self.today(1, 1, (5000, 0), now + 900)
-        self.assertEqual(self.m.menu_bar_value({}), '', 'Readings too far apart say nothing')
+    def test_the_output_speed_is_gone(self):
+        """输出速度 beside the star was taken out: a stored choice reads as the star alone, and it cannot be chosen."""
+        preferences.update(self.m.STATE_DIR, 'menu-bar', 'cost')
+        place = Path(self.m.STATE_DIR, 'preferences.json')
+        place.write_text(json.dumps(dict(json.loads(place.read_text()), menuBar='speed')))
+        self.assertEqual(self.m.view_settings()['menuBar'], 'none')
+        self.today(1, 1, (3000, 1000))
+        self.assertEqual(self.m.menu_bar_value({}), '')
+        with self.assertRaises(ValueError):self.m.run_action('set-menu-bar', ['speed'])
         with patch.object(self.m, 'selected_range', return_value='7d'):
-            self.assertIn('today', self.m.usage_ranges_due(), 'Today is read every minute for the figure')
-        self.today(1, 1, (5600, 0), now + 960)
-        with patch.object(self.m.time, 'time', return_value=now + 960 + 181):
-            self.assertEqual(self.m.menu_bar_value({}), '', 'A reading over three minutes old is not kept in sight')
-        with self.assertRaises(ValueError):self.m.run_action('set-menu-bar', ['loud'])
-
-    def test_output_speed_over_the_minute_just_past_when_read_every_ten_seconds(self):
-        self.m.run_action('set-menu-bar', ['speed'])
-        now = time.time() - 100
-        # Read every ten seconds, the star drawn after each: the speed over the last minute, from the reading 60 s back.
-        for step in range(8):
-            self.today(1, 1, (step * 600, 0), now + step * 10)
-            figure = self.m.menu_bar_value({})
-        self.assertEqual(figure, '60 tok/s')
-        self.today(1, 1, (7 * 600 + 6000, 0), now + 80)
-        self.assertEqual(self.m.menu_bar_value({}), '150 tok/s', 'A burst moves the figure at the next reading, spread over the minute')
-        self.assertLessEqual(len(self.m.read_cache('menu_speed')['samples']), 8, 'Only the minute or so in use is kept')
+            self.assertNotIn('today', self.m.usage_ranges_due(), 'Nothing reads today every minute for it')
 
     def test_settings_are_pages_by_what_they_are_for(self):
         options = self.m.module_options()

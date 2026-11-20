@@ -683,8 +683,7 @@ function settingsPages(prefs) {
   ];
   const general = [
     entry('菜单栏显示', { symbol: 'menubar.rectangle', value: '只显示星星' }, [radio('只显示星星', ['set-menu-bar', 'none'], true),
-      radio('今天的 API 估算', ['set-menu-bar', 'cost'], false), radio('最紧张的订阅额度', ['set-menu-bar', 'quota'], false),
-      radio('输出速度', ['set-menu-bar', 'speed'], false)]),
+      radio('今天的 API 估算', ['set-menu-bar', 'cost'], false), radio('最紧张的订阅额度', ['set-menu-bar', 'quota'], false)]),
     entry('钉住时刷新', { symbol: 'pin', value: '每 2 秒' }, [1, 2, 5].map((s) => radio(`每 ${s} 秒`, ['set-pin-interval', String(s)], s === 2))),
     entry('模块与配置', { section: true }),
     entry('自动检测', { symbol: 'sparkle.magnifyingglass' }, [entry('确认后覆盖当前模块选择；不读取对话正文，不显示 Key'), separator(),

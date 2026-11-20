@@ -33,7 +33,7 @@ Starmeter 是 macOS 菜单栏（独立 App 或 SwiftBar 插件）和 Windows 托
 - **在手机上看**：齿轮里的“在手机上看”给出一个二维码，手机扫一下就在浏览器里看主页（只读，可以换统计范围、点进工具页，也能生成分享图存到相册或发给朋友）。默认在同一个网络里直连电脑；手机不在同一个网络时可选“任何网络”，确认后经 Cloudflare 生成临时外网链接（第一次要下载 cloudflared），一小时后关闭；同一个网络里一直开着，直到点“停止”或退出 App。
 - **提醒**：订阅窗口用到 90%（可改为 70%、80% 或关闭）时发通知；余额类 API 可以按币种设置低于多少时提醒；可选在每周额度快重置却还没怎么用时提醒。
 - **工具更新**：已勾选客户端有新版本时提醒，Claude Code 和 Codex CLI 可一键在终端更新。
-- **其他**：菜单栏星星旁可选显示今天的 API 估算、最紧张的订阅额度或输出速度（如 42 tok/s）；可设全局快捷键（如 ⌃⌥S，Windows 是 Ctrl+Alt+S），在任何地方按下即可打开或收起面板；当前范围的用量可导出成 CSV 或 JSON；可选读取 Claude、OpenAI、Cursor 的官方状态页，服务出问题时标在卡片上；API 等值估算可以改用人民币显示；Komari 服务器监控；浅色、深色或跟随系统。
+- **其他**：菜单栏星星旁可选显示今天的 API 估算或最紧张的订阅额度；可设全局快捷键（如 ⌃⌥S，Windows 是 Ctrl+Alt+S），在任何地方按下即可打开或收起面板；当前范围的用量可导出成 CSV 或 JSON；可选读取 Claude、OpenAI、Cursor 的官方状态页，服务出问题时标在卡片上；API 等值估算可以改用人民币显示；Komari 服务器监控；浅色、深色或跟随系统。
 
 <p align="center">
   <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/models-dark.png"><img src="docs/images/models-light.png" width="240" align="top" alt="按模型查看：每个模型的费用、Token 和来自哪些工具"></picture>

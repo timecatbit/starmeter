@@ -535,7 +535,7 @@ impl Runtime {
         {
             due.push("month".into());
         }
-        if ["cost", "speed"].iter().any(|choice| settings.get("menuBar") == Some(&Json::from(*choice)))
+        if settings.get("menuBar") == Some(&Json::from("cost"))
             && key != "today"
             && self.cache_due(&self.read_cache(&self.range_cache_name(Some("today"))), self.refresh_ttl(60.0))
         {
@@ -565,41 +565,6 @@ impl Runtime {
             !due.is_empty()
         })
         .unwrap_or(false)
-    }
-
-    /// The star's speed alone, while the models write: today re-read from the local logs (a reading caught up with them
-    /// costs a few hundredths of a second), nothing else. The figure it gives, or None when another read holds the lock
-    /// or the star shows something else.
-    pub fn refresh_menu_speed(&self) -> Option<String> {
-        if self.settings().get("menuBar") != Some(&Json::from("speed")) {
-            return None;
-        }
-        self.with_lock("range-refresh.lock", false, || {
-            self.range_usage(Some("today"), Some(10.0));
-        })?;
-        Some(self.menu_bar_value(None))
-    }
-
-    /// SwiftBar's run comes once a minute; while the models write, the background run it started stays a minute more,
-    /// reading the speed every ten seconds and redrawing the star when it changes. One at a time.
-    pub fn follow_menu_speed(&self) {
-        if !self.speed_active() {
-            return;
-        }
-        let _ = self.with_lock("menu-speed.lock", false, || {
-            let mut shown = self.menu_bar_value(None);
-            for _ in 0..5 {
-                std::thread::sleep(std::time::Duration::from_secs(10));
-                let Some(figure) = self.refresh_menu_speed() else { break };
-                if figure != shown {
-                    shown = figure;
-                    self.refresh_swiftbar();
-                }
-                if !self.speed_active() {
-                    break;
-                }
-            }
-        });
     }
 
     /// A pinned panel's tick: the range on screen re-read from the local logs, and the active sessions.
