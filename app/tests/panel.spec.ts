@@ -546,7 +546,15 @@ test('on the phone: the homepage read-only, its figures asked for with the key, 
   await page.getByRole('radio', { name: '会话' }).click();
   await expect(page.getByText('重做设置页的分段控件')).toBeVisible();
   await expect(page.getByText('这一轮完成时提醒')).toHaveCount(0);
+  // The cards grouped by model or project on the phone itself: asked for, drawn, and the computer's choice untouched.
+  await page.getByRole('radio', { name: '模型' }).click();
+  await expect.poll(() => asked.some((path) => path.includes('group=model'))).toBe(true);
+  await expect(page.locator('.card .name').first()).toHaveText('Claude Opus 5.5');
+  await expect(page.getByRole('radio', { name: '模型' })).toHaveAttribute('aria-checked', 'true');
+  await page.getByRole('radio', { name: '项目' }).click();
+  await expect(page.locator('.card .name').first()).toHaveText('starmeter');
   await page.getByRole('radio', { name: '工具' }).click();
+  await expect(page.locator('.card .name').first()).not.toHaveText('starmeter');
   await page.getByRole('button', { name: /^统计范围/ }).click();
   await page.getByRole('option', { name: '近 7 天' }).click();
   await expect.poll(() => asked.some((path) => path.includes('range=7d'))).toBe(true);

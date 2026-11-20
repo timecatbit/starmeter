@@ -23,6 +23,7 @@ use crate::data::Data;
 /// until it is stopped or the app quits.
 const PUBLIC_LIFETIME: Duration = Duration::from_secs(3600);
 const RANGES: [&str; 8] = ["today", "yesterday", "24h", "7d", "30d", "week", "month", "all"];
+const GROUPS: [&str; 3] = ["tool", "model", "project"];
 
 #[derive(Default)]
 pub struct Phone {
@@ -258,10 +259,13 @@ fn answer(app: &AppHandle, mut stream: TcpStream, key: &str) -> std::io::Result<
         }
         let range =
             query.split('&').find_map(|pair| pair.strip_prefix("range=")).filter(|range| RANGES.contains(range));
+        // The phone's own grouping of the cards, as its range is its own: the computer's choices stay as they are.
+        let group =
+            query.split('&').find_map(|pair| pair.strip_prefix("group=")).filter(|group| GROUPS.contains(group));
         looking(app);
         let body = match call {
-            "snapshot" => phone_snapshot(app, range),
-            "dashboard" => dashboard(app, range.unwrap_or("today")),
+            "snapshot" => phone_snapshot(app, range, group),
+            "dashboard" => dashboard(app, range.unwrap_or("today"), group),
             _ => return respond(&mut stream, 404, "text/plain; charset=utf-8", b"not here", true),
         };
         return respond(&mut stream, 200, "application/json; charset=utf-8", body.to_string().as_bytes(), true);
@@ -319,9 +323,9 @@ fn respond(stream: &mut TcpStream, status: u16, kind: &str, body: &[u8], fresh: 
     stream.flush()
 }
 
-fn dashboard(app: &AppHandle, range: &str) -> Value {
+fn dashboard(app: &AppHandle, range: &str, group: Option<&str>) -> Value {
     match &*app.state::<Data>() {
-        Data::Engine(engine) => engine.dashboard(range),
+        Data::Engine(engine) => engine.dashboard_grouped(range, group),
         Data::SwiftBar(files) => files.snapshot().get("dashboard").cloned().unwrap_or(Value::Null),
         Data::Fixtures(fixtures) => fixtures.lock().expect("the fixtures").dashboard(range),
     }
@@ -329,24 +333,32 @@ fn dashboard(app: &AppHandle, range: &str) -> Value {
 
 /// What a phone sees: the homepage for the range it asked for, and nothing else. The settings name folders and key
 /// files, and the rows' insides hold addresses and paths: both stay on the computer.
-fn phone_snapshot(app: &AppHandle, range: Option<&str>) -> Value {
+fn phone_snapshot(app: &AppHandle, range: Option<&str>, group: Option<&str>) -> Value {
     let mut snapshot = match &*app.state::<Data>() {
         Data::Engine(engine) => engine.snapshot(),
         Data::SwiftBar(files) => files.snapshot(),
         Data::Fixtures(fixtures) => fixtures.lock().expect("the fixtures").snapshot(),
     };
-    if let Some(range) = range {
-        let asked = dashboard(app, range);
-        if asked.get("rangeKey").and_then(Value::as_str) == Some(range) {
+    if range.is_some() || group.is_some() {
+        let current = snapshot.pointer("/dashboard/rangeKey").and_then(Value::as_str).unwrap_or("today").to_string();
+        let wanted = range.unwrap_or(current.as_str());
+        let asked = dashboard(app, wanted, group);
+        if asked.get("rangeKey").and_then(Value::as_str) == Some(wanted) {
             snapshot["dashboard"] = asked;
             if let Some(options) = snapshot.get_mut("rangeOptions").and_then(Value::as_array_mut) {
                 for option in options {
                     let mine =
-                        option.get("action").and_then(|action| action.get(1)).and_then(Value::as_str) == Some(range);
+                        option.get("action").and_then(|action| action.get(1)).and_then(Value::as_str) == Some(wanted);
                     option["checked"] = json!(mine);
                 }
             }
         }
+    }
+    // The plugin's panel has the computer's grouping only: no choices on the phone that would do nothing.
+    if matches!(&*app.state::<Data>(), Data::SwiftBar(_))
+        && let Some(groupings) = snapshot.pointer_mut("/dashboard/groupings").and_then(Value::as_array_mut)
+    {
+        groupings.retain(|grouping| grouping.get("key").and_then(Value::as_str) == Some("tool"));
     }
     snapshot["moduleOptions"] = json!([]);
     if let Some(entries) = snapshot.get_mut("entries").and_then(Value::as_array_mut) {

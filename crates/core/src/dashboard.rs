@@ -1270,9 +1270,11 @@ impl Runtime {
             }
             None => String::new(),
         };
-        let grouping = settings
-            .get("groupBy")
+        // A phone's own grouping (在手机上看) for this reading, else the computer's.
+        let grouping = data
+            .get("displayed_group")
             .and_then(Json::as_str)
+            .or_else(|| settings.get("groupBy").and_then(Json::as_str))
             .filter(|value| GROUPINGS.iter().any(|(key, _)| key == value))
             .unwrap_or("tool")
             .to_string();

@@ -3959,7 +3959,9 @@ def dashboard_payload(data):
     if reads:
         read=datetime.fromtimestamp(min(reads),now.tzinfo)
         updated='更新时间：'+read.strftime('%H:%M' if read.date()==now.date() else '%m/%d %H:%M')
-    grouping=view_settings()['groupBy'] if view_settings()['groupBy'] in GROUPINGS else 'tool'
+    # A phone's own grouping (在手机上看) for this reading, else the computer's.
+    grouping=data.get('displayed_group') or view_settings()['groupBy']
+    if grouping not in GROUPINGS:grouping='tool'
     cards=(model_cards(selected,counting) if grouping=='model' else project_cards(selected) if grouping=='project' else None) if bundle else None
     return {'date':now.date().isoformat(),'dates':labels,'providers':providers,'rangeKey':key,'rangeLabel':RANGES[key],
             'grouping':grouping,'groupings':[{'key':k,'label':v} for k,v in GROUPINGS.items()],'cards':cards,'currency':currency_unit(data),

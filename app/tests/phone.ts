@@ -23,7 +23,11 @@ export async function servePhone(page: Page, key = PHONE_KEY): Promise<string[]>
     const url = new URL(request.url());
     asked.push(url.pathname + url.search);
     const range = url.searchParams.get('range') ?? 'today';
-    const snapshot = { ...data.snapshot, dashboard: data.dashboards[range], moduleOptions: [],
+    // The phone's own grouping: the cards grouped as asked, the computer's (by tool) otherwise.
+    const group = url.searchParams.get('group') ?? 'tool';
+    const grouped = { ...data.dashboards[range], grouping: group, cards: group === 'tool' ? null : data.cards[range]?.[group] ?? [],
+      groupNote: group === 'project' ? '按客户端自己的记录' : null };
+    const snapshot = { ...data.snapshot, dashboard: grouped, moduleOptions: [],
       // As phone.rs sends them: 会话 keeps its sessions and its mark, the rest their rows only.
       entries: data.snapshot.entries.map((e: Row) =>
         e.onOpenAction?.[1] === 'sessions'
@@ -31,7 +35,7 @@ export async function servePhone(page: Page, key = PHONE_KEY): Promise<string[]>
           : { ...e, children: [], onOpenAction: undefined }),
       rangeOptions: data.snapshot.rangeOptions.map((o: { action: string[] }) => ({ ...o, checked: o.action[1] === range })) };
     // The fixtures name their logos; the app sends the files themselves: a blank one stands in.
-    const body = JSON.stringify(url.pathname.endsWith('dashboard') ? data.dashboards[range] : snapshot)
+    const body = JSON.stringify(url.pathname.endsWith('dashboard') ? grouped : snapshot)
       .replace(/"logo:[^"]*"/g, JSON.stringify(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>').toString('base64')));
     return route.fulfill({ contentType: 'application/json', body });
   });

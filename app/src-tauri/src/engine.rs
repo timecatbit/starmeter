@@ -135,6 +135,12 @@ impl Engine {
 
     /// One range's dashboard without changing the one on screen; reads it if the cache has none.
     pub fn dashboard(&self, range: &str) -> Value {
+        self.dashboard_grouped(range, None)
+    }
+
+    /// The dashboard for a range with the cards grouped as asked (a phone's own choice), the computer's grouping when
+    /// none is.
+    pub fn dashboard_grouped(&self, range: &str, group: Option<&str>) -> Value {
         let runtime = self.runtime();
         let (bundle, error) = runtime.range_usage(Some(range), None);
         let _turn = self.rendering.lock().expect("the render lock");
@@ -143,6 +149,9 @@ impl Engine {
             data.insert("range_usage", bundle.map(Json::Object).unwrap_or(Json::Null));
             data.insert("range_usage_error", error.clone().map(Json::from).unwrap_or(Json::Null));
             data.insert("displayed_range", range);
+            if let Some(group) = group {
+                data.insert("displayed_group", group);
+            }
             runtime.dashboard_payload(&data, error.as_deref(), now())
         });
         to_value(Json::Object(value))
