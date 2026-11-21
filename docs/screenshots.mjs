@@ -83,12 +83,14 @@ const STILL = `
   *, *::after { caret-color: transparent !important; }
 `;
 
-async function open(context, { height = PANEL_HEIGHT, query = '' } = {}) {
+async function open(context, { height = PANEL_HEIGHT, query = '', style = 'standard' } = {}) {
   const page = await context.newPage();
   // The panel takes the window's height less 16 (shell.info in backend.ts); the page is made taller than that so the
   // margin under the panel fits too.
   await page.addInitScript((inner) => Object.defineProperty(window, 'innerHeight', { get: () => inner, configurable: true }), height + 16);
   await page.addInitScript((language) => localStorage.setItem('starmeter.language', language), context.lang);
+  // 外观 → 风格, set on every page: the storage outlives a page within the context.
+  await page.addInitScript((look) => localStorage.setItem('starmeter.style', look), style);
   await page.setViewportSize({ width: 588 + 2 * MARGIN + 40, height: height + 2 * MARGIN + 40 });
   const errors = [];
   // A resize observer that sees a size change it caused in the same frame says so; it is a notice, not a failure.
@@ -162,6 +164,12 @@ const shots = {
     await page.getByLabel(context.names.live).waitFor();
     await page.waitForTimeout(9_000);
     await panelShot(page, `live-${context.look}.png`);
+  },
+  // 外观 → 风格 → 手绘: the homepage drawn by hand, ink on dotted paper (light) or chalk on a blackboard (dark).
+  async sketch(context) {
+    const page = await open(context, { height: 640, style: 'sketch' });
+    await page.waitForTimeout(400);
+    await panelShot(page, `sketch-${context.look}.png`);
   },
   // The cards grouped by model instead of by tool.
   async models(context) {
