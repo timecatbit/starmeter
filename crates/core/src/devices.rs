@@ -282,10 +282,13 @@ impl Runtime {
         files::replace_atomically(&path, Json::Object(file).serialized().as_bytes(), ".device-", || Ok(())).is_ok()
     }
 
-    /// The other computers' files, newest first; this computer's own is left out.
+    /// The other computers' files, newest first, one each; this computer's own is left out. A cloud drive keeps a
+    /// conflicted copy of a file under another name (`…sync-conflict….json`, `… (conflicted copy).json`), so a computer
+    /// is known by the device the file names, not by the file's name: a copy counted it twice, or this one as another.
     pub fn other_devices(&self) -> Vec<Object> {
         let Some(root) = self.devices_root() else { return vec![] };
-        let mine = format!("{}.json", self.device_id());
+        let id = self.device_id();
+        let mine = format!("{id}.json");
         let mut found: Vec<Object> = std::fs::read_dir(&root)
             .map(|entries| {
                 entries
@@ -306,6 +309,11 @@ impl Runtime {
         found.sort_by(|a, b| {
             let at = |file: &Object| file.get("updatedAt").and_then(Json::number).unwrap_or(0.0);
             at(b).total_cmp(&at(a))
+        });
+        let mut seen = std::collections::HashSet::new();
+        found.retain(|file| match file.get("device").and_then(Json::as_str) {
+            Some(device) => device != id && seen.insert(device.to_string()),
+            None => true,
         });
         found
     }
@@ -353,8 +361,18 @@ impl Runtime {
     /// Stops merging: this computer's file leaves the folder, so the others stop counting it, and the folder is
     /// forgotten here.
     pub fn leave_devices(&self) {
-        if let Some(root) = self.devices_root() {
-            let _ = std::fs::remove_file(root.join(format!("{}.json", self.device_id())));
+        let Some(root) = self.devices_root() else { return };
+        let id = self.device_id();
+        let _ = std::fs::remove_file(root.join(format!("{id}.json")));
+        // A cloud drive's conflicted copies of it too, which name this computer inside.
+        for entry in std::fs::read_dir(&root).into_iter().flatten().flatten() {
+            let path = entry.path();
+            let named = path.extension().is_some_and(|extension| extension == "json")
+                && read_object(&path)
+                    .is_some_and(|file| file.get("device").and_then(Json::as_str) == Some(id.as_str()));
+            if named {
+                let _ = std::fs::remove_file(&path);
+            }
         }
     }
 }
@@ -462,6 +480,24 @@ mod tests {
             .and_then(|t| t.get("sources"))
             .and_then(|s| s.get("claude"));
         assert_eq!(theirs.and_then(|c| c.get("summary")).and_then(|s| s.get("totalTokens")), Some(&Json::Int(40)));
+        // A cloud drive's conflicted copies, of B's file and of A's own: still one other computer and 140, and the
+        // newer of B's two files counts.
+        let devices = folder.join(FOLDER);
+        let file = |runtime: &Runtime| devices.join(format!("{}.json", runtime.device_id()));
+        let older = std::fs::read_to_string(file(&b)).unwrap().replace("\"updatedAt\":", "\"updatedAt\":1,\"was\":");
+        std::fs::write(devices.join(format!("{}.sync-conflict-20261121-101500-ABCDEF.json", b.device_id())), older)
+            .unwrap();
+        std::fs::copy(file(&a), devices.join(format!("{} (conflicted copy).json", a.device_id()))).unwrap();
+        assert_eq!(a.other_devices().len(), 1, "B once, and not A's own copy");
+        assert!(a.other_devices()[0].get("was").is_none(), "B's newer file");
+        assert!(b.other_devices().len() == 1, "A once, though its copy sits beside it");
+        let merged = b.with_devices("today", b.read_cache(&b.range_cache_name(Some("today"))));
+        let payload = merged.get("payload").unwrap();
+        assert_eq!(
+            payload.get("claude").and_then(|c| c.get("summary")).and_then(|s| s.get("totalTokens")),
+            Some(&Json::Int(140))
+        );
+        assert_eq!(payload.get("devices"), Some(&Json::Int(1)));
         b.leave_devices();
         assert!(a.other_devices().is_empty(), "leaving takes the file away");
         let _ = std::fs::remove_dir_all(&base);
