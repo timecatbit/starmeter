@@ -35,7 +35,11 @@ def without_wayland(appdir, output):
     made a second time with linuxdeploy, Tauri's own copy, told to leave them out."""
     for library in (appdir / 'usr' / 'lib').glob('libwayland-*.so*'):
         library.unlink()
-    tools = Path(os.environ.get('XDG_CACHE_HOME') or Path.home() / '.cache') / 'tauri'
+    for path in [appdir, *appdir.rglob('*')]:
+        if not path.is_symlink():
+            mode = path.stat().st_mode & 0o777
+            path.chmod(open_mode(mode, path.is_dir()))
+    tools =Path(os.environ.get('XDG_CACHE_HOME') or Path.home() / '.cache') / 'tauri'
     environment = dict(os.environ, ARCH='x86_64', LDAI_OUTPUT=str(output), APPIMAGE_EXTRACT_AND_RUN='1')
     output.unlink(missing_ok=True)
     subprocess.run([str(tools / 'linuxdeploy-x86_64.AppImage'), '--appdir', str(appdir), '--exclude-library', 'libwayland-*',
@@ -43,14 +47,30 @@ def without_wayland(appdir, output):
     check_appimage(output)
 
 
+def open_mode(mode, directory):
+    """Everyone reads a file of the AppImage and runs its programs and folders; only the owner writes. The AppImage holds
+    its files as root's, and Tauri keeps the tools it downloads at 0770, AppRun among them: anyone else, as the AppImage
+    catalog's test, was refused AppRun.wrapped (Permission denied) and the app never started."""
+    runs = directory or mode & 0o111
+    return (mode | 0o644 | (0o755 if runs else 0)) & ~0o022
+
+
 def check_appimage(image):
-    """The AppImage carries no Wayland client library of its own (see without_wayland)."""
+    """The AppImage carries no Wayland client library of its own (see without_wayland), and everyone may read its files
+    and run its programs (open_mode)."""
     with tempfile.TemporaryDirectory(prefix='starmeter-appimage-') as scratch:
         subprocess.run([str(image), '--appimage-extract'], cwd=scratch, check=True, stdout=subprocess.DEVNULL,
                        env=dict(os.environ, APPIMAGE_EXTRACT_AND_RUN='1'))
-        carried = sorted(path.name for path in (Path(scratch) / 'squashfs-root' / 'usr' / 'lib').glob('libwayland-*.so*'))
+        root = Path(scratch) / 'squashfs-root'
+        carried = sorted(path.name for path in (root / 'usr' / 'lib').glob('libwayland-*.so*'))
         if carried:
             raise SystemExit('The AppImage carries Wayland client libraries: ' + ', '.join(carried))
+        # The extraction makes its folders as it likes; the files keep the modes the AppImage holds.
+        closed = sorted(str(path.relative_to(root)) for path in root.rglob('*')
+                        if path.is_file() and not path.is_symlink()
+                        and (mode := path.stat().st_mode & 0o777) != open_mode(mode, False))
+        if closed:
+            raise SystemExit('Files of the AppImage not everyone may read or run: ' + ', '.join(closed[:20]))
 
 
 def main():
