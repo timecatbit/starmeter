@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 // The website's and the READMEs' screenshots, taken from the panel's made-up fixtures (app/ui/fixtures), never from
-// a real machine: usage, accounts, keys and sessions there are all invented. Each picture comes in Chinese and in
-// English (the panel's 通用 → 语言) and in a light and a dark copy, at 2x: the Chinese ones into docs/images/, the
-// English ones into docs/images/en/, beside copies of the logo (Pages serves docs/ alone; scripts/make_logo.py makes
-// the originals in assets/). Run it again whenever the panel, the share pictures or the logo change:
+// a real machine: usage, accounts, keys and sessions there are all invented. Each picture comes in Simplified Chinese,
+// Traditional Chinese and English (the panel's 通用 → 语言) and in a light and a dark copy, at 2x: the Simplified ones
+// into docs/images/, the Traditional ones into docs/images/zh-Hant/ (README.zh-Hant.md and the site's 繁體中文 show
+// them), the English ones into docs/images/en/, beside copies of the logo (Pages serves docs/ alone;
+// scripts/make_logo.py makes the originals in assets/). Run it again whenever the panel, the share pictures or the logo
+// change:
 //
 //   node docs/screenshots.mjs
 //   node docs/screenshots.mjs live share     (only those pictures)
-//   node docs/screenshots.mjs en             (only the English ones)
+//   node docs/screenshots.mjs en zh-Hant     (only the English and Traditional ones)
 //
 // It starts the UI's Vite dev server on a port of its own and stops it at the end. To use a server that is already
 // running (the sandbox can't always start one), point PLAYWRIGHT_BASE_URL at it, as for the UI tests:
@@ -21,13 +23,21 @@ import { spawn } from 'node:child_process';
 import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { toHant } from '../app/ui/src/lib/hant.ts';
 
 const app = new URL('../app/', import.meta.url);
 const images = new URL('./images/', import.meta.url);
-const LANGUAGES = { zh: { folder: images, locale: 'zh-CN' }, en: { folder: new URL('en/', images), locale: 'en-US' } };
+const LANGUAGES = {
+  zh: { folder: images, locale: 'zh-CN' },
+  'zh-Hant': { folder: new URL('zh-Hant/', images), locale: 'zh-TW' },
+  en: { folder: new URL('en/', images), locale: 'en-US' },
+};
 /** What the pictures find their way by: rows, tabs and buttons as each language names them. */
+const zh = { subscription: 'Claude 订阅', sessions: '会话', pin: /^钉住/, live: '实时用量图', model: '模型', modules: '主页模块与设置', share: '分享用量图' };
 const NAMES = {
-  zh: { subscription: 'Claude 订阅', sessions: '会话', pin: /^钉住/, live: '实时用量图', model: '模型', modules: '主页模块与设置', share: '分享用量图' },
+  zh,
+  // The Simplified names as the panel converts them (hant.ts).
+  'zh-Hant': Object.fromEntries(Object.entries(zh).map(([key, name]) => [key, name instanceof RegExp ? new RegExp(toHant(name.source)) : toHant(name)])),
   en: { subscription: 'Claude plan', sessions: 'Sessions', pin: /^Pin/, live: 'Live usage chart', model: 'Model', modules: 'Modules and settings', share: 'Share usage picture' },
 };
 const { webkit } = createRequire(new URL('package.json', app))('@playwright/test');
@@ -241,7 +251,7 @@ const shots = {
 const asked = process.argv.slice(2);
 const only = asked.filter((name) => !(name in LANGUAGES)), languages = asked.filter((name) => name in LANGUAGES);
 const unknown = only.filter((name) => !(name in shots));
-if (unknown.length) throw new Error(`Unknown picture ${unknown.join(', ')}; pick from ${Object.keys(shots).join(', ')}, or zh / en.`);
+if (unknown.length) throw new Error(`Unknown picture ${unknown.join(', ')}; pick from ${Object.keys(shots).join(', ')}, or zh / zh-Hant / en.`);
 for (const { folder } of Object.values(LANGUAGES)) mkdirSync(folder, { recursive: true });
 for (const logo of ['starmeter.svg', 'starmeter-small.svg', 'starmeter-mark.svg']) copyFileSync(new URL(`../assets/${logo}`, import.meta.url), new URL(logo, images));
 const server = await startServer();
