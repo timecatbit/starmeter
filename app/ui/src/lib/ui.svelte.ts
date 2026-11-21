@@ -58,3 +58,12 @@ export async function moveWindow() {
   }
 }
 
+/** A left press on a pinned panel's top strip moves the window. It listens for mousedown, as Tauri's own drag regions
+ *  do: WebKit sends one for every press, but no pointerdown while it still counts an earlier press as held (one whose
+ *  release a window drag kept). */
+export function grabWindow(event: MouseEvent) {
+  if (event.button !== 0 || !panel.pinned) return;
+  event.preventDefault();
+  void moveWindow();
+}
+

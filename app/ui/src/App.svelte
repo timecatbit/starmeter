@@ -14,7 +14,7 @@
   import { chooseLanguage, localize, source, t } from './lib/i18n.svelte';
   import { phoneStatus } from './lib/phone.svelte';
   import { chooseShortcut, restoreShortcut, shortcut } from './lib/shortcut.svelte';
-  import { panel } from './lib/ui.svelte';
+  import { grabWindow, panel } from './lib/ui.svelte';
   import type { Dashboard as DashboardData, Entry, ShellInfo, Snapshot } from './lib/types';
   import Dashboard from './components/Dashboard.svelte';
   import DetailPage from './components/DetailPage.svelte';
@@ -722,6 +722,9 @@
   {#if pinned && !grid}
     <!-- Pinned: a grabber says the top moves the panel; a thick corner, as iOS draws one, resizes it. -->
     <span class="grabber" class:faded={!chromeShown} transition:fade={{ duration: panel.reduceMotion ? 0 : 200 }} aria-hidden="true"></span>
+    <!-- The grabber and a little around it move the window on every page, whatever the page has scrolled under it
+         (the homepage sits 8pt in, its own strip below that). It ends above the header's buttons, at 11 and 14pt. -->
+    <div class="strip" onmousedown={grabWindow} aria-hidden="true"></div>
     <span class="corner" class:faded={!chromeShown} role="separator" aria-label={t('拖动调整大小')} transition:fade={{ duration: panel.reduceMotion ? 0 : 200 }}
       onpointerdown={cornerDown} onpointermove={cornerMove} onpointerup={cornerUp} onpointercancel={cornerUp}>
       <!-- Its bend shares the window corner's centre (13pt in from both edges), 5pt inside the edge. -->
@@ -801,6 +804,16 @@
     background: var(--knob);
     pointer-events: none;
   }
+  .strip {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 11px;
+    z-index: 4;
+    cursor: grab;
+  }
+  .strip:active { cursor: grabbing; }
   .corner {
     position: absolute;
     right: 0;

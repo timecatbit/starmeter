@@ -1610,3 +1610,68 @@ test('in the module grid a checkbox, an icon and a name sit on one line, in the 
     expect(Math.abs((await setting.locator('.name').boundingBox())!.x - (await module.locator('.name').boundingBox())!.x)).toBeLessThanOrEqual(0.5);
   }).toPass();
 });
+
+test('pinned, a press on the grabber or just around it moves the window on every page, scrolled or not (PIN-1)', async ({ page }) => {
+  await open(page);
+  await button(page, '钉住面板').click();
+  const grabber = page.locator('.grabber');
+  await expect(grabber).toBeVisible();
+  await page.evaluate(async (source) => {
+    const shell = await eval(source);
+    const w = window as unknown as { drags: number };
+    w.drags = 0;
+    shell.drag = () => { w.drags++; return Promise.resolve(); };
+  }, panelShell);
+  const drags = () => page.evaluate(() => (window as unknown as { drags: number }).drags);
+  const frame = (await page.locator('.window').boundingBox())!;
+  let count = 0;
+  const moves = async (x: number, y: number) => {
+    await page.mouse.move(frame.x + x, frame.y + y);
+    await page.mouse.down();
+    await page.mouse.up();
+    expect(await drags(), `a press ${y}pt down, ${x}pt in`).toBe(++count);
+  };
+  // On the grabber (4 to 8pt down), above and below it, at its ends and out at the sides; below, the header's strip.
+  for (const y of [1, 4, 6, 8, 10]) for (const x of [12, 165, 180, 195, 348]) await moves(x, y);
+  await moves(150, 24);
+  // The header's buttons start below it and keep their whole place.
+  for (const control of [button(page, '取消钉住面板'), button(page, '主页模块与设置'), button(page, '分享用量图'), page.getByRole('button', { name: /统计范围/ }).first()]) {
+    const box = (await control.boundingBox())!;
+    expect(await control.evaluate((element, [x, y]) => document.elementFromPoint(x, y)?.closest('button') === element, [box.x + box.width / 2, box.y + 0.5])).toBe(true);
+  }
+  // A press after one whose release the window drag kept comes without a pointerdown: it still moves the window.
+  await page.mouse.move(frame.x + 180, frame.y + 6);
+  await page.mouse.down();
+  await page.mouse.down();
+  await page.mouse.up();
+  expect(await drags()).toBe(count += 2);
+  await page.mouse.move(frame.x + 150, frame.y + 24);
+  await page.mouse.down();
+  await page.mouse.down();
+  await page.mouse.up();
+  expect(await drags()).toBe(count += 2);
+  // The homepage scrolled: its header has gone up, and the grabber's place still moves the window.
+  const viewport = page.locator('.home .viewport');
+  await page.mouse.move(frame.x + 180, frame.y + 300);
+  await page.mouse.wheel(0, 110);
+  await expect.poll(() => viewport.evaluate((element) => element.scrollTop)).toBeGreaterThan(100);
+  await moves(180, 6);
+  await moves(60, 10);
+  // Faded once the pointer rests, it moves the window all the same.
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('panel-hover', { detail: false })));
+  await expect(grabber).toHaveClass(/faded/);
+  await moves(180, 6);
+  // The share page, by the grabber and by its own strip.
+  await button(page, '分享用量图').click();
+  await expect(page.locator('.share-page, .share').first()).toBeVisible();
+  await moves(180, 6);
+  await moves(348, 30);
+  await page.keyboard.press('Escape');
+  // Unpinned, the top is the page's again and nothing moves the window.
+  await button(page, '取消钉住面板').click();
+  await expect(page.locator('.strip')).toHaveCount(0);
+  await page.mouse.move(frame.x + 180, frame.y + 6);
+  await page.mouse.down();
+  await page.mouse.up();
+  expect(await drags()).toBe(count);
+});

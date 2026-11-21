@@ -10,7 +10,7 @@
   import { renderPicture, shareStyles, type Picture, type ShareStyle } from '../lib/share';
   import { SCALE, shownRows } from '../lib/shareCommon';
   import { SHARE_TOOLS, SHARE_TOOLS_MOST } from '../lib/sharePoster';
-  import { moveWindow, panel } from '../lib/ui.svelte';
+  import { grabWindow, panel } from '../lib/ui.svelte';
   import type { Dashboard, Entry, Project } from '../lib/types';
   import Dropdown from './Dropdown.svelte';
   import HintButton from './HintButton.svelte';
@@ -231,7 +231,7 @@
 <div class="share-page">
   <!-- Pinned, the header's free space moves the window, as a title bar would. -->
   <div class="grip" class:movable={panel.pinned} aria-hidden="true"
-    onpointerdown={(event) => { if (event.button === 0 && panel.pinned) { event.preventDefault(); void moveWindow(); } }}></div>
+    onmousedown={grabWindow}></div>
   <span class="back"><HintButton icon="chevron.left" size={17} hint={t('返回')} label={t('返回')} onclick={onback} /></span>
   <span class="page-glyph"><Icon name="square.and.arrow.up" size={17} system /></span>
   <h2 class="title">{t('分享用量图')}<span class="range">{frozen.rangeLabel}</span></h2>

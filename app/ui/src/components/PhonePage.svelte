@@ -7,7 +7,7 @@
   import { language, t } from '../lib/i18n.svelte';
   import { shell } from '../lib/backend';
   import { phone, secondsLeft, setPhone } from '../lib/phone.svelte';
-  import { moveWindow, panel } from '../lib/ui.svelte';
+  import { grabWindow, panel } from '../lib/ui.svelte';
   import HintButton from './HintButton.svelte';
   import Icon from './Icon.svelte';
   import QrCode from './QrCode.svelte';
@@ -145,7 +145,7 @@
 
 <div class="phone-page">
   <div class="grip" class:movable={panel.pinned} aria-hidden="true"
-    onpointerdown={(event) => { if (event.button === 0 && panel.pinned) { event.preventDefault(); void moveWindow(); } }}></div>
+    onmousedown={grabWindow}></div>
   <span class="back"><HintButton icon="chevron.left" size={17} hint={t('返回')} label={t('返回')} onclick={onback} /></span>
   <span class="page-glyph"><Icon name="iphone" size={17} /></span>
   <h2 class="title">{t('在手机上看')}</h2>

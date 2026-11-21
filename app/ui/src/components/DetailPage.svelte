@@ -9,7 +9,7 @@
   import Glyph from './Glyph.svelte';
   import HintButton from './HintButton.svelte';
   import Scroller from './Scroller.svelte';
-  import { moveWindow, panel } from '../lib/ui.svelte';
+  import { grabWindow, panel } from '../lib/ui.svelte';
 
   let { page, open, busy, scrollTop = $bindable(0), onback, onopen, onchoose, ontoggled, onheight }: {
     page: Entry; open: Set<string>; busy: string[] | null; scrollTop?: number;
@@ -28,7 +28,7 @@
 <div class="page">
   <!-- Pinned, the header's free space moves the window, as a title bar would. -->
   <div class="grip" class:movable={panel.pinned} aria-hidden="true"
-    onpointerdown={(event) => { if (event.button === 0 && panel.pinned) { event.preventDefault(); void moveWindow(); } }}></div>
+    onmousedown={grabWindow}></div>
   <span class="back"><HintButton icon="chevron.left" size={17} hint={t('返回')} label={t('返回')} onclick={onback} /></span>
   {#if hasGlyph}<span class="page-glyph"><Glyph image={page.image} template={page.template} symbol={page.symbol} size={18} /></span>{/if}
   <h2 class="title" style:left="{titleX}px" style:width="{W - 16 - valueWidth - 8 - titleX}px">{page.label}</h2>

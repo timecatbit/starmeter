@@ -2,7 +2,7 @@
 //! back, the confirmation alert, the share menu, a picture on the pasteboard, the menu bar figure's font and the user
 //! notification permission. All of them run on the main thread.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::ptr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{OnceLock, mpsc};
@@ -19,6 +19,12 @@ const CORNER_RADIUS: f64 = 13.0;
 // UNUserNotificationCenter lives in its own framework; nothing else links it.
 #[link(name = "UserNotifications", kind = "framework")]
 unsafe extern "C" {}
+
+#[link(name = "CoreGraphics", kind = "framework")]
+unsafe extern "C" {
+    /// Whether a mouse button is down now, from any thread (state 0: the session's, button 0: the left one).
+    fn CGEventSourceButtonState(state: i32, button: u32) -> bool;
+}
 
 thread_local! {
     /// The app that was in front when the panel opened.
@@ -160,6 +166,8 @@ thread_local! {
     /// The last left press on the panel, and the monitor that keeps it.
     static PRESS: RefCell<Option<Retained<AnyObject>>> = const { RefCell::new(None) };
     static PRESS_MONITOR: RefCell<Option<Retained<AnyObject>>> = const { RefCell::new(None) };
+    /// The app has had the release of that press.
+    static RELEASED: Cell<bool> = const { Cell::new(true) };
 }
 
 unsafe extern "C-unwind" fn accepts_first_mouse(view: *mut AnyObject, selector: Sel, event: *mut AnyObject) -> Bool {
@@ -179,7 +187,7 @@ unsafe extern "C-unwind" fn accepts_first_mouse(view: *mut AnyObject, selector: 
 /// A pinned panel is mostly not the key window (the user works in another app beside it), and a web view lets the
 /// first click on such a window only bring it forward: a press on the top strip moved nothing until a second one.
 /// Pinned, the web view takes the first click as well, as a floating palette does; unpinned it answers as before.
-/// The press on the panel is kept too, for `drag` to move the window from.
+/// The press on the panel is kept too, for `drag` to move the window from, and whether its release came.
 pub fn take_first_clicks(panel: &WebviewWindow) {
     let _ = panel.with_webview(|webview| unsafe {
         let view = webview.inner() as *mut AnyObject;
@@ -207,19 +215,23 @@ pub fn take_first_clicks(panel: &WebviewWindow) {
     });
     let Ok(window) = panel.ns_window() else { return };
     let window = window as usize;
-    // NSEventMaskLeftMouseDown: every left press in the app, kept when it is on the panel, passed on unchanged.
+    // NSEventMaskLeftMouseDown and Up: every left press and release in the app, passed on unchanged; a press is kept
+    // when it is on the panel.
     let block = RcBlock::new(move |event: *mut AnyObject| -> *mut AnyObject {
         unsafe {
+            let kind: usize = msg_send![event, type];
             let on: *mut AnyObject = msg_send![event, window];
-            if on as usize == window {
+            if kind == 2 {
+                RELEASED.set(true);
+            } else if on as usize == window {
                 PRESS.with(|press| *press.borrow_mut() = Retained::retain(event));
+                RELEASED.set(false);
             }
         }
         event
     });
     unsafe {
-        let monitor: *mut AnyObject =
-            msg_send![class!(NSEvent), addLocalMonitorForEventsMatchingMask: 1u64 << 1, handler: &*block];
+        let monitor: *mut AnyObject = msg_send![class!(NSEvent), addLocalMonitorForEventsMatchingMask: (1u64 << 1) | (1u64 << 2), handler: &*block];
         PRESS_MONITOR.with(|kept| *kept.borrow_mut() = Retained::retain(monitor));
     }
 }
@@ -238,7 +250,50 @@ pub fn drag(panel: &WebviewWindow) -> bool {
         }
         let _: () = msg_send![window.cast::<AnyObject>(), performWindowDragWithEvent: &*press];
     }
+    // The window server runs the drag and keeps its release, so WebKit still counts the button held and makes the
+    // next press a pointer move, without a pointerdown: the corner, a menu or the strip took the second press after a
+    // move. Once the button is up (and the app has had a moment to hear the release itself), the web view gets it.
+    let (panel, dragged) = (panel.clone(), Retained::as_ptr(&press) as usize);
+    std::thread::spawn(move || {
+        while unsafe { CGEventSourceButtonState(0, 0) } {
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let target = panel.clone();
+        let _ = panel.run_on_main_thread(move || release(&target, dragged));
+    });
     true
+}
+
+/// Sends the panel the release of the press it was dragged from, where that press was in the window (the window moved
+/// with the pointer, so the pointer is there still), unless the app had it or a new press came since.
+fn release(panel: &WebviewWindow, dragged: usize) {
+    let Some(press) = PRESS.with(|press| press.borrow().clone()) else { return };
+    if Retained::as_ptr(&press) as usize != dragged || RELEASED.replace(true) {
+        return;
+    }
+    let Ok(window) = panel.ns_window() else { return };
+    unsafe {
+        let location: NSPoint = msg_send![&*press, locationInWindow];
+        let number: isize = msg_send![&*press, windowNumber];
+        let clicks: isize = msg_send![&*press, clickCount];
+        if let Some(up) = left_mouse_up(location, number, clicks) {
+            let _: () = msg_send![window.cast::<AnyObject>(), sendEvent: &*up];
+        }
+    }
+}
+
+/// A left release at a point of a window, now.
+fn left_mouse_up(location: NSPoint, window_number: isize, clicks: isize) -> Option<Retained<AnyObject>> {
+    unsafe {
+        let process: *mut AnyObject = msg_send![class!(NSProcessInfo), processInfo];
+        let now: f64 = msg_send![process, systemUptime];
+        // NSEventTypeLeftMouseUp.
+        let up: *mut AnyObject = msg_send![class!(NSEvent), mouseEventWithType: 2usize, location: location,
+            modifierFlags: 0usize, timestamp: now, windowNumber: window_number, context: ptr::null_mut::<AnyObject>(),
+            eventNumber: 0isize, clickCount: clicks, pressure: 0.0f32];
+        Retained::retain(up)
+    }
 }
 
 // MARK: Where the panel goes
@@ -858,5 +913,18 @@ mod tests {
             }
         }
         assert!(super::symbol_png("no.such.symbol.anywhere", 15.0).is_none());
+    }
+
+    /// The release handed to the web view after a window drag is a left mouse-up where the press was, built with the
+    /// argument types AppKit declares (objc2 checks them in debug builds).
+    #[test]
+    fn the_release_after_a_drag_is_a_left_mouse_up_where_the_press_was() {
+        let up = super::left_mouse_up(objc2_foundation::NSPoint::new(120.0, 290.0), 0, 1).expect("an event");
+        unsafe {
+            let kind: usize = objc2::msg_send![&*up, type];
+            let at: objc2_foundation::NSPoint = objc2::msg_send![&*up, locationInWindow];
+            let clicks: isize = objc2::msg_send![&*up, clickCount];
+            assert_eq!((kind, at.x, at.y, clicks), (2, 120.0, 290.0, 1));
+        }
     }
 }

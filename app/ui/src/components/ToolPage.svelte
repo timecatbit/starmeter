@@ -5,7 +5,7 @@
   import { t } from '../lib/i18n.svelte';
   import { accent, alpha } from '../lib/colors';
   import { clientLine, colourOf, headline, modelAmount, modelName, notes, share, tokens } from '../lib/format';
-  import { moveWindow, panel } from '../lib/ui.svelte';
+  import { grabWindow, panel } from '../lib/ui.svelte';
   import type { Dashboard, Entry, ProviderUsage } from '../lib/types';
   import DetailList from './DetailList.svelte';
   import Glyph from './Glyph.svelte';
@@ -44,7 +44,7 @@
 <div class="page">
   <!-- Pinned, the header's free space moves the window, as a title bar would. -->
   <div class="grip" class:movable={panel.pinned} aria-hidden="true"
-    onpointerdown={(event) => { if (event.button === 0 && panel.pinned) { event.preventDefault(); void moveWindow(); } }}></div>
+    onmousedown={grabWindow}></div>
   <span class="back"><HintButton icon="chevron.left" size={17} hint={t('返回')} label={t('返回')} onclick={onback} /></span>
   <span class="page-glyph"><Glyph image={p.image} template={p.template} symbol={p.symbol} size={18} /></span>
   <h2 class="title">{p.name}</h2>

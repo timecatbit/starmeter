@@ -9,7 +9,7 @@
   import { blockHeight, HeatmapLayout, panelDot, rows as heatmapRows } from '../lib/heatmap';
   import type { LiveFeed } from '../lib/live';
   import { font, width } from '../lib/measure';
-  import { moveWindow, panel } from '../lib/ui.svelte';
+  import { grabWindow, panel } from '../lib/ui.svelte';
   import type { Dashboard, Entry } from '../lib/types';
   import markSvg from '../../../../assets/starmeter-mark.svg?raw';
   import Dropdown from './Dropdown.svelte';
@@ -136,12 +136,6 @@
   }
 
   const glowColour = $derived(blend(labelColour(panel.dark, 0.85), totalColor(panel.dark), summaryGlow * 0.85));
-  /** Pinned, the header's free space moves the window, as a title bar would. */
-  function grab(event: PointerEvent) {
-    if (event.button !== 0 || !panel.pinned) return;
-    event.preventDefault();
-    void moveWindow();
-  }
   function cardHeight(p: Dashboard['providers'][number]) {
     if (collapsible && !expanded.has(p.id)) return 52;
     const clients = p.available && p.clients?.length ? 16 : 0;
@@ -151,7 +145,8 @@
 
 <div class="dashboard" style:width="{inner}px" style:height="{total}px">
   <div class="summary" style:height="{summaryHeight}px">
-    <div class="grip" class:movable={panel.pinned} onpointerdown={grab} aria-hidden="true"></div>
+    <!-- Pinned, the header's free space moves the window, as a title bar would. -->
+    <div class="grip" class:movable={panel.pinned} onmousedown={grabWindow} aria-hidden="true"></div>
     <h1 class="heading" style:width="{(readonly ? firstButton : leftmost) - 6 - 12}px"><span class="brand" aria-hidden="true">{@html mark}</span>Starmeter</h1>
     <div class="buttons">
       <!-- The pin first, then settings and share; on a Mac the symbols are the system's own. A phone shares, and
