@@ -78,9 +78,14 @@
       button.setAttribute('aria-pressed', String(button.getAttribute('data-lang') === lang));
     });
   }
+  // The language last chosen: hant.js can arrive after another was picked, and then changes nothing (SITE-1).
+  var wanted = null;
   function show(lang) {
+    wanted = lang;
     pressed(lang);
-    if (lang === 'zh-Hant' && !window.toHant) return withHant(function () { show(lang); }, function () { show('zh'); });
+    if (lang === 'zh-Hant' && !window.toHant) {
+      return withHant(function () { if (wanted === lang) show(lang); }, function () { if (wanted === lang) show('zh'); });
+    }
     root.classList.toggle('en', lang === 'en');
     root.classList.toggle('hant', lang === 'zh-Hant');
     root.lang = { zh: 'zh-CN', 'zh-Hant': 'zh-Hant', en: 'en' }[lang];
