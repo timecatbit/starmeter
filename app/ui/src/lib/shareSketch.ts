@@ -1,21 +1,32 @@
 // 手绘: drawn by hand in coloured lines. By day coloured markers on dotted journal paper, by night coloured chalk on a
 // blackboard. Every line wobbles a little (seeded, so a picture drawn twice is the same): a squiggle under the title,
 // a highlighter swash behind the estimate, the figures in sketched boxes, the trend in pencil over hatching, each tool's
-// mark in a circle of its colour and its models as hatched bars.
+// mark in a circle of its colour and its models as hatched bars. Letters in Chalkboard SE, Chinese in the panel's own
+// 手绘 faces (霞鹜文楷, 霞鹜文楷 TC for Traditional; sketch.css), loaded before the picture is drawn.
 import { smoothCurves, tracePath } from './chart';
+import { traditional } from './i18n.svelte';
 import { canvasFor, drawMark, measure, middleText, text, WIDTH } from './shareCommon';
 import { amountWidth, drawAmount, drawMasthead, drawMembers, drawSignature, figures, fitAmount, GROTESK, HERO_BASELINE, layout, poster, posterFont, ROWS, seeded, tickBox, SHARE_TOOLS } from './sharePoster';
 import { PENS, SKETCH } from './sketchPalette';
 import type { Dashboard, Project } from './types';
 
 const M = 26, INNER = WIDTH - M * 2;
-const HAND = `'Chalkboard SE', 'Noteworthy', 'Segoe Print', 'Ink Free', ${GROTESK}`;
+const KAI = ["'Starmeter Kai'", "'Starmeter Kai TC'"];
+const hand = () => `'Chalkboard SE', 'Noteworthy', 'Segoe Print', 'Ink Free', ${(traditional() ? [...KAI].reverse() : KAI).join(', ')}, ${GROTESK}`;
+let HAND = hand();
 const h = (size: number, weight = 700) => posterFont(size, weight, HAND);
+
+/** The Chinese faces, read before drawing: a canvas only writes in a face already loaded. */
+async function loadKai() {
+  await Promise.all(KAI.map((face) => document.fonts.load(`500 16px ${face}`, '用量').catch(() => [])));
+}
 
 const palettes = SKETCH;
 const pens = PENS;
 
 export async function drawSketchPicture(d: Dashboard, project: Project, dark: boolean, tools = SHARE_TOOLS): Promise<HTMLCanvasElement> {
+  HAND = hand();
+  await loadKai();
   const c = dark ? palettes.dark : palettes.light;
   const p = await poster(d, c.ink, tools), L = layout(p), height = L.height;
   const { canvas, ctx } = canvasFor(height);
