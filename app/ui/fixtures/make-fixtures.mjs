@@ -525,41 +525,44 @@ function sessionRows(state) {
     entry('最近一天没有 Claude Code 或 Codex 会话'), separator(), alert(false)]);
   const round = (label, detail) => entry(label, { detail });
   const claude = moduleIcon('claude-subscription'), chatgpt = moduleIcon('chatgpt');
-  // Seven sessions, the running ones first: five show, the rest behind 查看更多. Each card's figure is what the whole
-  // session has cost. The last two share a name (two worktrees' sessions can): the key tells them apart.
+  // Seven sessions, the running ones first: five show, the rest behind 查看更多. Each card's figure is what the session
+  // cost today (the range shown); what the whole session cost heads its turns. The last two share a name (two runs of
+  // a program in one folder have no title): the engine adds when each began, and the key tells them apart. The last
+  // spent nothing today, and a note under the list says what the figures count.
   return entry('会话', { symbol: 'terminal', value: '3 运行中 · 4 空闲', onOpenAction: ['refresh-source', 'sessions'] }, [
     entry('重做设置页的分段控件', { ...claude, key: 'session-1', statusLight: 'new', value: '$6.90', detail: '运行中 4 分钟 · Opus 5.5 · xhigh · 上下文 62%' }, [
-      entry('starmeter · 最近 3 轮'),
+      entry('starmeter · 最近 3 轮 · 累计 $6.90'),
       round('15:36 · 2.41M Token · $0.92', '9 次请求 · Edit ×6 · Bash ×4 · Read ×3 · update_plan ×1'),
       round('15:12 · 5.07M Token · $1.88', '21 次请求 · Bash ×12 · Read ×7 · Edit ×5 · Grep ×2'),
       round('更早开始 · 11.3M Token · $4.10', '44 次请求 · Bash ×30 · Write ×3 · Read ×2 · Edit ×2'),
     ]),
     entry('harbor-api', { ...chatgpt, key: 'session-2', statusLight: 'new', value: '已知 $1.71', detail: '运行中 · gpt-5.5-codex · high · 上下文 38%' }, [
-      entry('最近 2 轮'),
+      entry('最近 2 轮 · 累计 已知 $1.71'),
       round('15:31 · 1.20M Token · $0.51', '6 次请求 · shell ×5 · apply_patch ×2'),
       round('14:58 · 3.62M Token · 已知 $1.20', '14 次请求 · shell ×9 · apply_patch ×4 · web_search ×1'),
     ]),
     entry('修订论文的评估章节', { ...claude, key: 'session-3', statusLight: 'new', value: '$0.21', detail: '运行中 1 分钟 · Opus 5.5 · high · 上下文 17%' }, [
-      entry('NetServe · 最近 1 轮'),
+      entry('NetServe · 最近 1 轮 · 累计 $0.21'),
       round('15:35 · 318.4K Token · $0.21', '3 次请求 · Read ×4 · Grep ×1'),
     ]),
     entry('迁移博客的图片目录', { ...claude, key: 'session-4', statusLight: 'unknown', value: '$2.36', detail: '空闲 6 分钟 · Fable 5.2 · medium · 上下文 21%' }, [
-      entry('field-notes · 最近 1 轮'),
+      entry('field-notes · 最近 1 轮 · 累计 $14.08'),
       round('15:29 · 640.2K Token · $0.12', '4 次请求 · Bash ×3 · Read ×2'),
     ]),
     entry('整理本周的周报', { ...chatgpt, key: 'session-5', statusLight: 'unknown', value: '$0.48', detail: '空闲 12 分钟 · gpt-5.5 · medium · 上下文 9%' }, [
-      entry('最近 1 轮'),
+      entry('最近 1 轮 · 累计 $0.48'),
       round('15:23 · 402.7K Token · $0.48', '5 次请求 · shell ×2'),
     ]),
-    entry('修好 CI 的缓存', { ...claude, key: 'session-6', statusLight: 'unknown', value: '$1.04', detail: '空闲 2 小时 · Fable 5.2 · medium · 上下文 14%' }, [
-      entry('最近 2 轮'),
-      round('15:17 · 520.1K Token · $0.31', '6 次请求 · Edit ×3 · Bash ×2'),
-      round('15:02 · 1.31M Token · $0.73', '11 次请求 · Bash ×6 · Read ×4'),
+    entry('修好 CI 的缓存 · 13:02', { ...claude, key: 'session-6', statusLight: 'unknown', value: '$1.04', detail: '空闲 2 小时 · Fable 5.2 · medium · 上下文 14%' }, [
+      entry('最近 2 轮 · 累计 $1.04'),
+      round('13:17 · 520.1K Token · $0.31', '6 次请求 · Edit ×3 · Bash ×2'),
+      round('13:02 · 1.31M Token · $0.73', '11 次请求 · Bash ×6 · Read ×4'),
     ]),
-    entry('修好 CI 的缓存', { ...claude, key: 'session-7', statusLight: 'unknown', value: '$3.12', detail: '空闲 5 小时 · Opus 5.5 · high · 上下文 44%' }, [
-      entry('harbor-api · 最近 1 轮'),
-      round('15:10 · 2.02M Token · $0.86', '12 次请求 · Bash ×9 · Edit ×2'),
+    entry('修好 CI 的缓存 · 11-20 21:10', { ...claude, key: 'session-7', statusLight: 'unknown', value: '$0.00', detail: '空闲 18 小时 · Opus 5.5 · high · 上下文 44%' }, [
+      entry('harbor-api · 最近 1 轮 · 累计 $3.12'),
+      round('21:10 · 2.02M Token · $0.86', '12 次请求 · Bash ×9 · Edit ×2'),
     ]),
+    entry('最近一天活动过的会话 · 金额只算今天'),
     separator(),
     alert(true),
   ]);

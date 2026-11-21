@@ -124,6 +124,29 @@ fn kind_is(row: &Object, kind: &str) -> bool {
     row.get("type") == Some(&Json::from(kind))
 }
 
+/// A row a fork copied from the session it began from: Claude Code keeps that session's ID on the history it copies
+/// into a fork's (or a hand-off's) transcript, so the row is that session's to count, not this one's. A session handed
+/// off from a long one otherwise showed all of the long one's cost again.
+fn copied(row: &Object, own: &str) -> bool {
+    row.get("sessionId").and_then(Json::as_str).is_some_and(|id| !id.is_empty() && id != own)
+}
+
+/// A transcript's own session ID: its file's name.
+fn own_id(path: &str) -> String {
+    Path::new(path).file_stem().map(|stem| stem.to_string_lossy().into_owned()).unwrap_or_default()
+}
+
+/// When a session began: the first time its first file records (a fork's is the session it began from).
+fn started(path: &str) -> Json {
+    rows_at_start(path, TAIL)
+        .ok()
+        .into_iter()
+        .flatten()
+        .map(|row| stamp(row.get("timestamp")))
+        .find(|at| !at.is_null())
+        .unwrap_or(Json::Null)
+}
+
 /// A Claude Code transcript: waiting once the last reply ended its turn, running otherwise. Its title is the last
 /// one the transcript records: the user's or the App's, else the one Claude Code made up.
 fn claude(path: &str) -> Result<Option<Object>, FileError> {
@@ -336,7 +359,11 @@ fn last_turns(turns: Vec<Object>) -> Vec<Json> {
 fn claude_turns(path: &str, price: &Price) -> Result<Vec<Json>, FileError> {
     let mut turns = vec![turn(Json::Null)];
     let mut seen: HashSet<String> = HashSet::new();
+    let own = own_id(path);
     for row in rows_at_end(path, DETAIL)? {
+        if copied(&row, &own) {
+            continue;
+        }
         let message = row.get("message").and_then(Json::as_object).cloned().unwrap_or_default();
         let content = message.get("content");
         if kind_is(&row, "user")
@@ -490,11 +517,25 @@ fn codex_file_turns(path: &str, price: &Price) -> Result<Vec<Object>, FileError>
 /// one reading stopped still counts once.
 const SEEN_KEPT: usize = 256;
 
+/// How far back each request's time and cost are kept beside a session's total: past the longest range but 全部
+/// (a month, 30 days), which is the whole session's.
+const SPENDS_KEPT: f64 = 40.0 * 86400.0;
+/// The session-spent cache's schema: 2 added each request's time and cost and when the session began.
+const SPENT_SCHEMA: i64 = 2;
+
 /// What a whole session has cost: every request in its transcript, counted as the turns count them (a Claude reply
-/// streamed over several lines once; each change of Codex's running token total once). With `kept`, the tally of the
-/// last reading (by inode and the offset it stopped at), only what was written since is read: a long running session
-/// isn't read whole every half minute. Gives the cost and the tally to keep.
-fn spent(path: &str, tool: &str, price: &Price, kept: Option<&Object>) -> Result<(Json, Object), FileError> {
+/// streamed over several lines once; each change of Codex's running token total once). A Claude fork's copied
+/// history is left to the session it came from. With `kept`, the tally of the last reading (by inode and the offset it
+/// stopped at), only what was written since is read: a long running session isn't read whole every half minute. The
+/// tally also keeps each request since `since` as [its time, its cost or null], for what the session cost in a range.
+/// Gives the cost and the tally to keep.
+fn spent(
+    path: &str,
+    tool: &str,
+    price: &Price,
+    kept: Option<&Object>,
+    since: f64,
+) -> Result<(Json, Object), FileError> {
     let unreadable = || FileError::of_kind("unreadable", "OSError");
     let state = state_of(Path::new(path)).ok_or_else(unreadable)?;
     let resumed = kept.filter(|kept| {
@@ -511,7 +552,9 @@ fn spent(path: &str, tool: &str, price: &Price, kept: Option<&Object>) -> Result
         .unwrap_or_default();
     let mut model = field("model").unwrap_or(Json::Null);
     let mut total: Option<Option<Json>> = field("total").map(|total| total.get("value").cloned());
+    let mut spends: Vec<Json> = field("spends").and_then(|value| value.as_array().cloned()).unwrap_or_default();
     let start = field("offset").and_then(|value| value.integer()).unwrap_or(0) as u64;
+    let own = own_id(path);
 
     let mut file = File::open(path).map_err(|_| unreadable())?;
     file.seek(SeekFrom::Start(start)).map_err(|_| unreadable())?;
@@ -520,11 +563,15 @@ fn spent(path: &str, tool: &str, price: &Price, kept: Option<&Object>) -> Result
     // Complete lines only: one being written is read next time.
     let complete = data.iter().rposition(|&byte| byte == b'\n').map_or(0, |at| at + 1);
     let mut known: HashSet<String> = seen.iter().cloned().collect();
-    let mut add_request = |model: Option<&Json>, usage: &Object| {
+    let mut add_request = |model: Option<&Json>, usage: &Object, at: Json| {
         requests += 1;
-        match price(model, usage) {
+        let priced = price(model, usage);
+        match priced {
             Some(spent) => cost += spent,
             None => unpriced += 1,
+        }
+        if at.number().is_some_and(|at| at >= since) {
+            spends.push(Json::Array(vec![at, priced.map_or(Json::Null, Json::Double)]));
         }
     };
     for line in data[..complete].split(|&byte| byte == b'\n') {
@@ -534,7 +581,7 @@ fn spent(path: &str, tool: &str, price: &Price, kept: Option<&Object>) -> Result
             continue;
         };
         if tool == "Claude" {
-            if !kind_is(&row, "assistant") {
+            if !kind_is(&row, "assistant") || copied(&row, &own) {
                 continue;
             }
             let message = row.get("message").and_then(Json::as_object).cloned().unwrap_or_default();
@@ -544,7 +591,7 @@ fn spent(path: &str, tool: &str, price: &Price, kept: Option<&Object>) -> Result
             {
                 known.insert(key.clone());
                 seen.push(key);
-                add_request(message.get("model"), usage);
+                add_request(message.get("model"), usage, stamp(row.get("timestamp")));
             }
         } else {
             let data = row.get("payload").and_then(Json::as_object).cloned().unwrap_or_default();
@@ -563,16 +610,19 @@ fn spent(path: &str, tool: &str, price: &Price, kept: Option<&Object>) -> Result
                     continue;
                 }
                 total = Some(running);
-                add_request(Some(&model), &last);
+                add_request(Some(&model), &last, stamp(row.get("timestamp")));
             }
         }
     }
     let cut = seen.len().saturating_sub(SEEN_KEPT);
     seen.drain(..cut);
+    // The oldest go as they pass out of every range a session's cost is shown in.
+    spends.retain(|spend| spend_parts(spend).0.is_some_and(|at| at >= since));
     let tally = object! {
         "inode" => state.inode, "offset" => (start + complete as u64) as i64, "requests" => requests,
         "cost" => cost, "unpriced" => unpriced, "seen" => Json::Array(seen.into_iter().map(Json::from).collect()),
         "model" => model, "total" => total.map_or(Json::Null, |value| object! { "value" => value.unwrap_or(Json::Null) }.into()),
+        "spends" => Json::Array(spends),
     };
     Ok((object! { "requests" => requests, "cost" => cost, "unpriced" => unpriced }.into(), tally))
 }
@@ -623,11 +673,43 @@ struct Candidate {
 /// A Codex thread's files as found: its ID when the names give it, and each file with when it last changed.
 type Thread = (Option<String>, Vec<(f64, String)>);
 
+/// A kept request's time and cost (None when unpriced).
+fn spend_parts(spend: &Json) -> (Option<f64>, Option<f64>) {
+    let pair = spend.as_array();
+    (
+        pair.and_then(|pair| pair.first()).and_then(Json::number),
+        pair.and_then(|pair| pair.get(1)).and_then(Json::python_float),
+    )
+}
+
+/// What the requests between start and end (both counted) cost, of each range: [key, start, end]. The requests come
+/// in the order the files hold them, so the sum is the one Python's reading makes.
+fn range_costs<'a>(spends: impl Iterator<Item = &'a Json> + Clone, ranges: &[(String, f64, f64)]) -> Json {
+    let mut out = Object::new();
+    for (key, start, end) in ranges {
+        let (mut requests, mut cost, mut unpriced) = (0i64, 0.0, 0i64);
+        for spend in spends.clone() {
+            let (Some(at), spent) = spend_parts(spend) else { continue };
+            if at < *start || at > *end {
+                continue;
+            }
+            requests += 1;
+            match spent {
+                Some(spent) => cost += spent,
+                None => unpriced += 1,
+            }
+        }
+        out.insert(key.as_str(), object! { "requests" => requests, "cost" => cost, "unpriced" => unpriced });
+    }
+    Json::Object(out)
+}
+
 /// Sessions changed in the last day, the running ones first, then the most recent; a running one silent for ten minutes
 /// has stopped without saying so and is idle. A long Codex thread written in segments is one session. With prices,
-/// each carries its last turns and what the whole session has cost. `tallies`, kept between readings by session, lets the cost be read from where the last reading stopped, and a
-/// transcript unchanged since (a pinned panel reads every second or two, a day of sessions is many files) is not read
-/// again: what was read then serves.
+/// each carries its last turns and what the whole session has cost, and of each range in `ranges` ([key, start, end];
+/// 全部 is the whole session) what it cost then. `tallies`, kept between readings by session, lets the cost be read
+/// from where the last reading stopped, and a transcript unchanged since (a pinned panel reads every second or two, a
+/// day of sessions is many files) is not read again: what was read then serves.
 pub fn active(
     claude_roots: &[String],
     codex_root: Option<&str>,
@@ -635,6 +717,7 @@ pub fn active(
     prices: Option<&HashMap<&str, Price>>,
     claude_app: &HashMap<String, (Option<String>, Option<String>)>,
     tallies: Option<&mut Object>,
+    ranges: &[(String, f64, f64)],
 ) -> Vec<Json> {
     let previous = tallies.as_deref().cloned().unwrap_or_default();
     let mut kept = Object::new();
@@ -702,8 +785,22 @@ pub fn active(
         });
         let read = match unchanged {
             Some(before) => before.get("read").and_then(Json::as_object).cloned(),
-            None if tool == "Claude" => claude(&path).ok().flatten(),
-            None => codex(&path).ok().flatten(),
+            None => {
+                let read = if tool == "Claude" { claude(&path).ok().flatten() } else { codex(&path).ok().flatten() };
+                // When it began, for telling apart sessions of one name: a file's start stays as it grows.
+                let before = previous.get(&file).and_then(Json::as_object).filter(|before| {
+                    before.get("inode").and_then(Json::integer) == Some(state.inode) && files.len() == 1
+                });
+                read.map(|mut read| {
+                    let began = before
+                        .and_then(|before| before.get("read"))
+                        .and_then(|read| read.get("started"))
+                        .cloned()
+                        .unwrap_or_else(|| started(&files[0]));
+                    read.insert("started", began);
+                    read
+                })
+            }
         };
         let Some(raw) = read else { continue };
         let mut session = raw.clone();
@@ -736,6 +833,7 @@ pub fn active(
             session.insert("turns", turns.clone());
             // Each file's count, kept by file: an unchanged one is not read again, a grown one from where it stopped.
             let (mut requests, mut cost, mut unpriced, mut whole) = (Json::Int(0), 0.0, Json::Int(0), true);
+            let mut spends: Vec<Json> = Vec::new();
             for segment in &files {
                 let key = hash(segment);
                 let before = previous.get(&key).and_then(Json::as_object);
@@ -745,7 +843,7 @@ pub fn active(
                 };
                 let mut tally = match before.filter(|before| before.get("print") == Some(&now_print)) {
                     Some(before) => before.clone(),
-                    None => match spent(segment, tool, price, before) {
+                    None => match spent(segment, tool, price, before, now - SPENDS_KEPT) {
                         Ok((_, mut tally)) => {
                             tally.insert("print", now_print);
                             tally
@@ -759,6 +857,7 @@ pub fn active(
                 requests = add(&requests, tally.get("requests").unwrap_or(&Json::Int(0)));
                 cost += tally.get("cost").and_then(Json::python_float).unwrap_or(0.0);
                 unpriced = add(&unpriced, tally.get("unpriced").unwrap_or(&Json::Int(0)));
+                spends.extend(tally.get("spends").and_then(Json::as_array).into_iter().flatten().cloned());
                 if *segment == path {
                     tally.insert("read", Json::Object(raw.clone()));
                     tally.insert("turns", turns.clone());
@@ -769,7 +868,11 @@ pub fn active(
             session.insert(
                 "spent",
                 if whole {
-                    object! { "requests" => requests, "cost" => cost, "unpriced" => unpriced }.into()
+                    object! {
+                        "requests" => requests, "cost" => cost, "unpriced" => unpriced,
+                        "ranges" => range_costs(spends.iter(), ranges),
+                    }
+                    .into()
                 } else {
                     Json::Null
                 },
@@ -856,16 +959,32 @@ impl Runtime {
             let app = claude_app::session_settings(&self.source_path("claude"), now - ACTIVE);
             let prices = self.session_prices();
             let codex_root = self.codex_home_absolute();
-            // Each session's cost read so far, by session, kept beside the sessions to go on from.
-            let mut tallies =
-                self.read_cache("session-spent").get("sessions").and_then(Json::as_object).cloned().unwrap_or_default();
+            // Each session's cost read so far, by session, kept beside the sessions to go on from. Schema 2 keeps each
+            // request's time with its cost and when the session began: a tally from before is read again from the start.
+            let record = self.read_cache("session-spent");
+            let mut tallies = record
+                .get("sessions")
+                .and_then(Json::as_object)
+                .filter(|_| record.get("schema").and_then(Json::integer) == Some(SPENT_SCHEMA))
+                .cloned()
+                .unwrap_or_default();
             let before = tallies.clone();
-            let found = active(&roots, Some(&codex_root), now, Some(&prices), &app, Some(&mut tallies));
+            // What each session cost in every range the panel can show; 全部 is the whole session's.
+            let zone = self.local_zone();
+            let ranges: Vec<(String, f64, f64)> = crate::runtime::RANGES
+                .iter()
+                .filter(|(key, _)| *key != "all")
+                .map(|(key, _)| {
+                    let (start, end) = self.range_bounds(key, now, &zone);
+                    (key.to_string(), start, end)
+                })
+                .collect();
+            let found = active(&roots, Some(&codex_root), now, Some(&prices), &app, Some(&mut tallies), &ranges);
             // Written only when something changed: unchanged transcripts leave it as it was.
             if tallies != before {
                 self.write_json_cache(
                     &self.cache_path("session-spent"),
-                    &object! { "schema" => 1, "sessions" => tallies }.into(),
+                    &object! { "schema" => SPENT_SCHEMA, "sessions" => tallies }.into(),
                 );
             }
             if self.settings().get("sessionAlerts").is_some_and(Json::is_truthy) {
@@ -892,13 +1011,13 @@ impl Runtime {
 
 #[cfg(test)]
 mod tests {
-    use super::{Price, active, spent};
+    use super::{Price, active, range_costs, spent};
     use crate::json::{Json, Object};
     use std::collections::HashMap;
 
     fn line(id: &str, output: i64) -> String {
         format!(
-            "{{\"type\":\"assistant\",\"message\":{{\"id\":\"{id}\",\"model\":\"m\",\"usage\":{{\"input_tokens\":10,\"output_tokens\":{output}}}}}}}\n"
+            "{{\"type\":\"assistant\",\"timestamp\":\"2026-11-21T10:00:{output:02}Z\",\"message\":{{\"id\":\"{id}\",\"model\":\"m\",\"usage\":{{\"input_tokens\":10,\"output_tokens\":{output}}}}}}}\n"
         )
     }
 
@@ -912,7 +1031,7 @@ mod tests {
         // A reply streamed over two lines, a second reply, and a line still being written.
         std::fs::write(&path, format!("{}{}{}{{\"type\":\"assist", line("a", 5), line("a", 5), line("b", 7))).unwrap();
         let path = path.to_string_lossy().into_owned();
-        let (first, tally) = spent(&path, "Claude", &price, None).unwrap();
+        let (first, tally) = spent(&path, "Claude", &price, None, 0.0).unwrap();
         assert_eq!(first.get("requests").and_then(Json::integer), Some(2));
         // The half-written line finished, the streamed reply "b" continued across the stop, and a new reply.
         let mut whole = std::fs::read_to_string(&path).unwrap();
@@ -920,10 +1039,54 @@ mod tests {
         whole += &line("b", 7);
         whole += &line("c", 11);
         std::fs::write(&path, &whole).unwrap();
-        let (resumed, _) = spent(&path, "Claude", &price, Some(&tally)).unwrap();
-        let (fresh, _) = spent(&path, "Claude", &price, None).unwrap();
+        let (resumed, resumed_tally) = spent(&path, "Claude", &price, Some(&tally), 0.0).unwrap();
+        let (fresh, fresh_tally) = spent(&path, "Claude", &price, None, 0.0).unwrap();
         assert_eq!(resumed.serialized(), fresh.serialized());
         assert_eq!(fresh.get("requests").and_then(Json::integer), Some(3));
+        // Each request's time and cost, kept as a whole reading keeps them.
+        assert_eq!(resumed_tally.get("spends"), fresh_tally.get("spends"));
+        let _ = std::fs::remove_dir_all(&folder);
+    }
+
+    #[test]
+    fn a_session_costs_its_own_requests_and_each_range_counts_both_ends() {
+        let folder = std::env::temp_dir().join(format!("starmeter-own-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        let own = "7a5d1c2e-0000-4000-8000-000000000002";
+        let path = folder.join(format!("{own}.jsonl"));
+        let reply = |session: &str, id: &str, at: &str| {
+            format!(
+                "{{\"type\":\"assistant\",\"sessionId\":\"{session}\",\"timestamp\":\"{at}\",\"message\":{{\"id\":\"{id}\",\"model\":\"m\",\"usage\":{{\"input_tokens\":10,\"output_tokens\":5}}}}}}\n"
+            )
+        };
+        // The history a hand-off copied from the session it came from, then two replies of its own.
+        let first = "7a5d1c2e-0000-4000-8000-000000000001";
+        std::fs::write(
+            &path,
+            reply(first, "a", "2026-11-20T10:00:00Z")
+                + &reply(first, "b", "2026-11-20T11:00:00Z")
+                + &reply(own, "c", "2026-11-21T09:00:00Z")
+                + &reply(own, "d", "2026-11-21T10:00:00Z"),
+        )
+        .unwrap();
+        let path = path.to_string_lossy().into_owned();
+        let price: Price = Box::new(|_, _| Some(0.25));
+        let (whole, tally) = spent(&path, "Claude", &price, None, 0.0).unwrap();
+        assert_eq!(whole.get("requests").and_then(Json::integer), Some(2), "the copied history is not its own");
+        let at = |text: &str| crate::time::IsoTime::parse(text).unwrap().timestamp(&jiff::tz::TimeZone::UTC);
+        let spends = tally.get("spends").and_then(Json::as_array).cloned().unwrap();
+        let ranges = vec![
+            ("from 9".to_string(), at("2026-11-21T09:00:00Z"), at("2026-11-21T09:30:00Z")),
+            ("to 10".to_string(), at("2026-11-21T09:30:00Z"), at("2026-11-21T10:00:00Z")),
+            ("between".to_string(), at("2026-11-21T09:00:01Z"), at("2026-11-21T09:59:59Z")),
+        ];
+        let costs = range_costs(spends.iter(), &ranges);
+        let requests = |key: &str| costs.get(key).and_then(|figure| figure.get("requests")).and_then(Json::integer);
+        assert_eq!((requests("from 9"), requests("to 10"), requests("between")), (Some(1), Some(1), Some(0)));
+        assert_eq!(costs.get("from 9").and_then(|figure| figure.get("cost")).and_then(Json::python_float), Some(0.25));
+        // Kept only as far back as asked: the older go.
+        let (_, recent) = spent(&path, "Claude", &price, None, at("2026-11-21T09:30:00Z")).unwrap();
+        assert_eq!(recent.get("spends").and_then(Json::as_array).map(Vec::len), Some(1));
         let _ = std::fs::remove_dir_all(&folder);
     }
 
@@ -945,15 +1108,15 @@ mod tests {
         let now = crate::runtime::now();
         let state = |found: &[Json]| found[0].get("state").and_then(Json::as_str).map(String::from);
         let mut tallies = Object::new();
-        let first = active(&roots, None, now, Some(&prices), &HashMap::new(), Some(&mut tallies));
+        let first = active(&roots, None, now, Some(&prices), &HashMap::new(), Some(&mut tallies), &[]);
         assert_eq!(state(&first).as_deref(), Some("waiting"));
         // Rewritten in place to the same length and time: taken for unchanged, what was read before serves.
         std::fs::write(&path, turn("tool_use")).unwrap();
         std::fs::File::options().write(true).open(&path).unwrap().set_modified(written).unwrap();
-        let again = active(&roots, None, now, Some(&prices), &HashMap::new(), Some(&mut tallies));
+        let again = active(&roots, None, now, Some(&prices), &HashMap::new(), Some(&mut tallies), &[]);
         assert_eq!(state(&again).as_deref(), Some("waiting"));
         assert_eq!(again[0].get("spent"), first[0].get("spent"));
-        let fresh = active(&roots, None, now, Some(&prices), &HashMap::new(), None);
+        let fresh = active(&roots, None, now, Some(&prices), &HashMap::new(), None, &[]);
         assert_eq!(state(&fresh).as_deref(), Some("running"));
         let _ = std::fs::remove_dir_all(&folder);
     }
@@ -988,7 +1151,8 @@ mod tests {
         let codex = root.to_string_lossy().into_owned();
         let now = crate::runtime::now();
         let mut tallies = Object::new();
-        let read = |tallies: &mut Object| active(&[], Some(&codex), now, Some(&prices), &HashMap::new(), Some(tallies));
+        let read =
+            |tallies: &mut Object| active(&[], Some(&codex), now, Some(&prices), &HashMap::new(), Some(tallies), &[]);
         // The later segment alone: one turn, one request.
         std::fs::write(segment("10-00-00", "b"), turn("10:00:00", 2, true)).unwrap();
         let first = read(&mut tallies);

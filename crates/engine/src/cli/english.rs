@@ -161,7 +161,7 @@ pub static WHOLE: [Rule; 2] = [
 ];
 
 /// One part of the engine's text.
-pub static RULES: [Rule; 66] = [
+pub static RULES: [Rule; 68] = [
     rule!(r"^已用 (\d+(?:\.\d+)?%)$", |m| format!("{} used", group(m, 1))),
     rule!(r"^已用 (\d+(?:\.\d+)?%) 截至 (.+)$", |m| format!("{} used as of {}", group(m, 1), group(m, 2))),
     rule!(r"^已用 (.+)$", |m| format!("Used: {}", translate(group(m, 1)))),
@@ -239,6 +239,14 @@ pub static RULES: [Rule; 66] = [
     } else {
         format!("Last {} turns", group(m, 1))
     }),
+    rule!(r"^累计 (.+)$", |m| {
+        let total = translate(group(m, 1));
+        match total.strip_prefix("Known ") {
+            Some(rest) => format!("Total known {rest}"),
+            None => format!("Total {total}"),
+        }
+    }),
+    rule!(r"^金额只算(.+)$", |m| format!("amounts cover {}", translate(group(m, 1)).to_lowercase())),
     rule!(r"^运行中 (.+)$", |m| format!("Running {}", translate(group(m, 1)))),
     rule!(r"^空闲 (.+)$", |m| format!("Idle {}", translate(group(m, 1)))),
     rule!(r"^(\d+) 分钟$", |m| format!("{} min", group(m, 1))),

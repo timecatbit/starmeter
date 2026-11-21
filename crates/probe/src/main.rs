@@ -291,18 +291,29 @@ fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
             )
         }
         "sessions.turnLines" => {
-            // [turns, unit, project]: a session's turns as the menu lists them.
+            // [turns, unit, project, total]: a session's turns as the menu lists them.
             let runtime = Runtime::from_process();
             let turns: Vec<Object> = args
                 .first()
                 .and_then(Json::as_array)
                 .map(|turns| turns.iter().filter_map(|turn| turn.as_object().cloned()).collect())
                 .unwrap_or_default();
-            let lines = runtime.turn_lines(&turns, args.get(1).unwrap_or(&Json::Null), text(2));
+            let lines = runtime.turn_lines(&turns, args.get(1).unwrap_or(&Json::Null), text(2), text(3));
             Ok(Json::from(lines))
         }
+        "sessions.lines" => {
+            // [data, range]: the 会话 rows for the data given, with that range chosen, in this environment's currency.
+            let runtime = Runtime::from_process();
+            runtime.write_json_cache(
+                &runtime.cache_path("view-range"),
+                &object! { "schema" => 1, "range" => text(1).unwrap_or("today") }.into(),
+            );
+            let data = args.first().and_then(Json::as_object).cloned().unwrap_or_default();
+            let unit = runtime.currency_unit(&data);
+            Ok(Json::from(runtime.sessions_lines(&data, &unit)))
+        }
         "sessions.active" => {
-            // [claude roots, codex root, now, with prices, claude app map]
+            // [claude roots, codex root, now, with prices, claude app map, ranges as [key, start, end]]
             let runtime = Runtime::from_process();
             let mut app: HashMap<String, (Option<String>, Option<String>)> = HashMap::new();
             for (key, value) in args.get(4).and_then(Json::as_object).into_iter().flat_map(|map| map.iter()) {
@@ -311,6 +322,16 @@ fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
             }
             let prices = runtime.session_prices();
             let with_prices = args.get(3) == Some(&Json::Bool(true));
+            let ranges: Vec<(String, f64, f64)> = args
+                .get(5)
+                .and_then(Json::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|range| {
+                    let [key, start, end] = range.as_array()?.as_slice() else { return None };
+                    Some((key.as_str()?.to_string(), start.number()?, end.number()?))
+                })
+                .collect();
             let found = sessions::active(
                 &strings(args.first()),
                 text(1),
@@ -318,6 +339,7 @@ fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
                 if with_prices { Some(&prices) } else { None },
                 &app,
                 None,
+                &ranges,
             );
             Ok(Json::Array(found))
         }

@@ -11,7 +11,7 @@ use crate::rows::{
     BAD_COLOR, KOMARI_ONLINE, MENU_ICON_SIZE, MUTED_COLOR, fmt_tokens, item, merged, pad_display, refresh_failed,
     shorten,
 };
-use crate::runtime::{PRODUCT, Runtime, VERSION, now, quote};
+use crate::runtime::{PRODUCT, RANGES, Runtime, VERSION, now, quote};
 use crate::{claude_subscription, dashboard, object, py, updates};
 
 /// An MCP tool by its own name: mcp__ccd_turn__update_plan is update_plan.
@@ -23,9 +23,9 @@ pub fn tool_name(name: &str) -> String {
 }
 
 impl Runtime {
-    /// A session's turns as the menu lists them; a turn that sent no request (stopped before the model answered) is
-    /// left out.
-    pub fn turn_lines(&self, turns: &[Object], unit: &Json, project: Option<&str>) -> Vec<String> {
+    /// A session's turns as the menu lists them, under a heading of its project, how many turns and what the whole
+    /// session has cost (`total`); a turn that sent no request (stopped before the model answered) is left out.
+    pub fn turn_lines(&self, turns: &[Object], unit: &Json, project: Option<&str>, total: Option<&str>) -> Vec<String> {
         let turns: Vec<&Object> = turns.iter().filter(|turn| py::num(turn.get("requests")) != 0.0).collect();
         if turns.is_empty() {
             return vec![];
@@ -34,7 +34,7 @@ impl Runtime {
         let rate = unit.get("rate").and_then(Json::number).unwrap_or(1.0);
         let count = format!("最近 {} 轮", turns.len());
         let heading: Vec<&str> =
-            [project, Some(count.as_str())].into_iter().flatten().filter(|part| !part.is_empty()).collect();
+            [project, Some(count.as_str()), total].into_iter().flatten().filter(|part| !part.is_empty()).collect();
         let mut lines = vec![item(&heading.join(" · "), 2, object! { "color" => MUTED_COLOR, "size" => 11 })];
         for turn in turns {
             let when = turn.get("at").filter(|at| at.is_truthy()).and_then(Json::number).map_or_else(
@@ -274,7 +274,35 @@ impl Runtime {
             None => "待同步".into(),
         };
         let mut lines = vec![item("会话", 0, object! { "badge" => badge, "sfimage" => "terminal" })];
-        for session in found.iter().flatten() {
+        let symbol = unit.get("symbol").and_then(Json::as_str).unwrap_or("$");
+        let rate = unit.get("rate").and_then(Json::number).unwrap_or(1.0);
+        // A cost as the cards write it: 已知 when some requests are unpriced, 费用待定价 when all are.
+        let priced = |figure: Option<&Object>| {
+            let field = |key: &str| py::num(figure.and_then(|figure| figure.get(key)));
+            let (requests, unpriced) = (field("requests"), field("unpriced"));
+            if requests == 0.0 {
+                format!("{symbol}{:.2}", 0.0)
+            } else if requests > unpriced {
+                format!("{}{symbol}{:.2}", if unpriced != 0.0 { "已知 " } else { "" }, field("cost") * rate)
+            } else {
+                "费用待定价".to_string()
+            }
+        };
+        let selected = self.selected_range();
+        // Sessions of one name (untitled ones go by their project folder, and a program's runs have no title) are
+        // told apart by when each began: the time today, the date as well before.
+        let names: Vec<String> = found.iter().flatten().map(session_name).collect();
+        let zone = TimeZone::system();
+        let today = dashboard::format(now(), &zone, "%Y-%m-%d");
+        for (session, name) in found.iter().flatten().zip(&names) {
+            let began = session.get("started").and_then(Json::number);
+            let name = match began.filter(|_| names.iter().filter(|other| *other == name).count() > 1) {
+                Some(at) if dashboard::format(at, &zone, "%Y-%m-%d") == today => {
+                    format!("{name} · {}", dashboard::format(at, &zone, "%H:%M"))
+                }
+                Some(at) => format!("{name} · {}", dashboard::format(at, &zone, "%m-%d %H:%M")),
+                None => name.clone(),
+            };
             let ago = (now() - session.get("at").and_then(Json::number).unwrap_or(0.0)).max(0.0) as i64;
             let model = session
                 .get("model")
@@ -319,18 +347,18 @@ impl Runtime {
                 .into_iter()
                 .filter(|p| !p.is_empty())
                 .collect();
-            // The live figure: what the whole session has cost, rising as it works; this turn's tokens until that is read.
+            // The live figure: what the session cost in the range the panel shows, as the other tabs count, rising as
+            // it works; 全部 (or a reading from before ranges were kept) the whole session. This turn's tokens until
+            // the cost is read. The whole session's cost heads its turns.
             let spent = session.get("spent").and_then(Json::as_object);
             let spent_requests = py::num(spent.and_then(|spent| spent.get("requests")));
+            let ranges = spent.and_then(|spent| spent.get("ranges")).and_then(Json::as_object);
+            let total = (spent_requests > py::num(spent.and_then(|spent| spent.get("unpriced"))))
+                .then(|| format!("累计 {}", priced(spent)));
             let badge = if spent_requests != 0.0 {
-                let unpriced = py::num(spent.and_then(|spent| spent.get("unpriced")));
-                if spent_requests > unpriced {
-                    let symbol = unit.get("symbol").and_then(Json::as_str).unwrap_or("$");
-                    let rate = unit.get("rate").and_then(Json::number).unwrap_or(1.0);
-                    let cost = py::num(spent.and_then(|spent| spent.get("cost")));
-                    format!("{}{symbol}{:.2}", if unpriced != 0.0 { "已知 " } else { "" }, cost * rate)
-                } else {
-                    "费用待定价".to_string()
+                match ranges.filter(|_| selected != "all") {
+                    Some(ranges) => priced(ranges.get(&selected).and_then(Json::as_object)),
+                    None => priced(spent),
                 }
             } else {
                 latest.map_or_else(
@@ -348,20 +376,33 @@ impl Runtime {
                 },
                 &self.brand_icon(if tool == "Claude" { "claude-subscription" } else { "chatgpt" }),
             ]);
-            lines.push(item(&session_name(session), 1, options));
+            lines.push(item(&name, 1, options));
             let project = if session.get("title").is_some_and(Json::is_truthy) {
                 session.get("project").filter(|project| project.is_truthy()).map(|project| py::str(Some(project)))
             } else {
                 None
             };
-            lines.extend(self.turn_lines(&turns, unit, project.as_deref()));
+            lines.extend(self.turn_lines(&turns, unit, project.as_deref(), total.as_deref()));
         }
-        if found.as_ref().is_some_and(Vec::is_empty) {
-            lines.push(item(
+        match found.as_ref() {
+            Some(found) if found.is_empty() => lines.push(item(
                 "最近一天没有 Claude Code 或 Codex 会话",
                 1,
                 object! { "color" => MUTED_COLOR, "size" => 11 },
-            ));
+            )),
+            // Which sessions are listed and what their figures count: the list is the last day's whatever the range.
+            Some(_) => {
+                let counted = match RANGES.iter().find(|(key, _)| *key == selected && *key != "all") {
+                    Some((_, label)) => format!("金额只算{label}"),
+                    None => "金额为会话累计".to_string(),
+                };
+                lines.push(item(
+                    &format!("最近一天活动过的会话 · {counted}"),
+                    1,
+                    object! { "color" => MUTED_COLOR, "size" => 11 },
+                ));
+            }
+            None => {}
         }
         lines.push("-----".into());
         let on = self.settings().get("sessionAlerts").is_some_and(Json::is_truthy);

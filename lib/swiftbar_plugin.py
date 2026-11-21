@@ -2671,8 +2671,11 @@ def sessions_cached(ttl=None):
     previous=(read_cache('sessions').get('payload') or {}).get('sessions')
     def load():
         now=time.time()
+        # What each session cost in every range the panel can show; 全部 is the whole session's.
+        moment=datetime.fromtimestamp(now,local_zone())
+        ranges=[(key,)+tuple(range_bounds(key,moment)) for key in RANGES if key!='all']
         found=live_sessions.active(claude_desktop.project_roots(HOME),chatgpt_home(),now,session_prices(),
-                                   claude_desktop.session_settings(source_path('claude'),now-live_sessions.ACTIVE))
+                                   claude_desktop.session_settings(source_path('claude'),now-live_sessions.ACTIVE),ranges)
         if view_settings()['sessionAlerts']:
             for s in live_sessions.newly_waiting(previous,found,now)[:3]:
                 post_notice('会话完成','%s · %s 这一轮已完成'%(s['tool'],session_name(s)))
@@ -2691,14 +2694,14 @@ def tool_name(name):
     return (name.rsplit('__',1)[-1] or name) if name.startswith('mcp__') else name
 
 
-def turn_lines(turns,unit=None,project=None):
+def turn_lines(turns,unit=None,project=None,total=None):
     """A session's last turns under it, newest first: when it started, its tokens and estimated cost, then its
-    requests and the tools it called. No prompt or reply text. The project folder heads the list. A turn that
-    sent no request (stopped before the model answered) is left out."""
+    requests and the tools it called. No prompt or reply text. The project folder, how many turns and what the whole
+    session has cost (total) head the list. A turn that sent no request (stopped before the model answered) is left out."""
     turns=[t for t in turns or [] if t['requests']]
     if not turns:return []
     unit=unit or {'symbol':'$','rate':1}
-    lines=[item(' · '.join(part for part in (project,'最近 %d 轮'%len(turns)) if part),level=2,color=MUTED,size=11)]
+    lines=[item(' · '.join(part for part in (project,'最近 %d 轮'%len(turns),total) if part),level=2,color=MUTED,size=11)]
     for t in turns:
         when=datetime.fromtimestamp(t['at']).strftime('%H:%M') if t.get('at') else '更早开始'
         priced=t['requests']>t['unpriced']
@@ -2719,7 +2722,23 @@ def sessions_lines(data):
         running=sum(s['state']=='running' for s in found);idle=len(found)-running
         badge=' · '.join(part for part in (('%d 运行中'%running) if running else '',('%d 空闲'%idle) if idle else '') if part) or '没有会话'
     lines=[item('会话',badge=badge,sfimage='terminal')]
-    for s in found or []:
+    unit=currency_unit(data) or {'symbol':'$','rate':1}
+    def priced(figure):
+        """A cost as the cards write it: 已知 when some requests are unpriced, 费用待定价 when all are."""
+        figure=figure or {}
+        if not figure.get('requests'):return unit['symbol']+'%.2f'%0.0
+        if figure['requests']>figure.get('unpriced',0):return ('已知 ' if figure.get('unpriced') else '')+unit['symbol']+'%.2f'%(figure['cost']*unit['rate'])
+        return '费用待定价'
+    selected=selected_range()
+    # Sessions of one name (untitled ones go by their project folder, and a program's runs have no title) are told
+    # apart by when each began: the time today, the date as well before.
+    names=[session_name(s) for s in found or []]
+    today=datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d')
+    for s,name in zip(found or [],names):
+        began=s.get('started')
+        if isinstance(began,(int,float)) and names.count(name)>1:
+            moment=datetime.fromtimestamp(began)
+            name='%s · %s'%(name,moment.strftime('%H:%M' if moment.strftime('%Y-%m-%d')==today else '%m-%d %H:%M'))
         ago=max(0,int(time.time()-s['at']))
         # The model already says whose it is, so "Claude" goes; the line stays short enough not to wrap.
         model=model_title(model_key(s['model'])).removeprefix('Claude ') if s.get('model') else ''
@@ -2736,16 +2755,22 @@ def sessions_lines(data):
         else:state='空闲' if ago<60 else '空闲 '+lasted(ago)
         detail=' · '.join(part for part in (state,model,s.get('effort') or '',
                                               '上下文 %d%%'%round(100*s['context']) if s.get('context') is not None else '') if part)
-        # The live figure: what the whole session has cost, rising as it works; this turn's tokens until that is read.
-        spent=s.get('spent') or {};unit=currency_unit(data)
-        if spent.get('requests'):
-            live=(('已知 ' if spent['unpriced'] else '')+unit['symbol']+'%.2f'%(spent['cost']*unit['rate'])) if spent['requests']>spent['unpriced'] else '费用待定价'
+        # The live figure: what the session cost in the range the panel shows, as the other tabs count, rising as it
+        # works; 全部 (or a reading from before ranges were kept) the whole session. This turn's tokens until the cost
+        # is read. The whole session's cost heads its turns.
+        spent=s.get('spent') or {};ranges=spent.get('ranges')
+        total='累计 '+priced(spent) if spent.get('requests',0)>spent.get('unpriced',0) else None
+        if spent.get('requests'):live=priced(ranges.get(selected) if isinstance(ranges,dict) and selected!='all' else spent)
         else:live=fmt_tokens(latest['tokens'])+' Token' if latest else ('运行中' if running else '空闲')
         # Two sessions can share a name: the panel tells them apart by panelkey.
-        lines.append(item(session_name(s),level=1,badge=live,paneldetail=detail,panelstatus='new' if running else 'unknown',panelkey=s.get('id'),
+        lines.append(item(name,level=1,badge=live,paneldetail=detail,panelstatus='new' if running else 'unknown',panelkey=s.get('id'),
                           **brand_icon('claude-subscription' if s['tool']=='Claude' else 'chatgpt')))
-        lines.extend(turn_lines(turns,currency_unit(data),s.get('project') if s.get('title') else None))
+        lines.extend(turn_lines(turns,unit,s.get('project') if s.get('title') else None,total))
     if found is not None and not found:lines.append(item('最近一天没有 Claude Code 或 Codex 会话',level=1,color=MUTED,size=11))
+    # Which sessions are listed and what their figures count: the list is the last day's whatever the range.
+    elif found:
+        counted='金额只算'+RANGES[selected] if selected!='all' else '金额为会话累计'
+        lines.append(item('最近一天活动过的会话 · '+counted,level=1,color=MUTED,size=11))
     lines.append('-----')
     alerts_on=view_settings()['sessionAlerts']
     lines.append(item('这一轮完成时提醒',level=1,sfimage='bell',checked=alerts_on,paneldetail='运行中的会话这一轮完成时发通知',

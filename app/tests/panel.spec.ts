@@ -217,7 +217,7 @@ test('Token/s is the last minute\'s output over 60 seconds, even just after pinn
   expect(Math.round(rates[3])).toBe(0);
 });
 
-test('会话 sits beside the groupings: running first, what each has cost, five shown and the rest behind 查看更多', async ({ page }) => {
+test('会话 sits beside the groupings: running first, what each cost in the range, five shown and the rest behind 查看更多', async ({ page }) => {
   await open(page);
   // Its row leaves the other rows for the tab.
   await expect(page.locator('.row .title', { hasText: /^会话$/ })).toHaveCount(0);
@@ -225,7 +225,7 @@ test('会话 sits beside the groupings: running first, what each has cost, five 
   const cards = page.locator('.session');
   await expect(cards).toHaveCount(5);
   await expect(cards.first().locator('.title')).toHaveText('重做设置页的分段控件');
-  // On the right, what the whole session has cost; this turn's tokens and cost under its state.
+  // On the right, what the session cost in the range shown (today); this turn's tokens and cost under its state.
   await expect(cards.first().locator('.value')).toHaveText('$6.90');
   await expect(cards.first()).toContainText('运行中 4 分钟');
   await expect(cards.first()).toContainText('本轮 2.41M Token · $0.92 · 9 次请求');
@@ -236,17 +236,26 @@ test('会话 sits beside the groupings: running first, what each has cost, five 
   await page.getByRole('button', { name: '查看更多 2 个会话' }).click();
   await expect(cards).toHaveCount(7);
   await expect(page.getByRole('button', { name: /查看更多/ })).toHaveCount(0);
-  await expect(cards.last()).toContainText('空闲 5 小时');
-  // Two sessions of the same name are still two: opening one opens only it.
-  await expect(cards.nth(5).locator('.title')).toHaveText('修好 CI 的缓存');
-  await expect(cards.nth(6).locator('.title')).toHaveText('修好 CI 的缓存');
+  await expect(cards.last()).toContainText('空闲 18 小时');
+  // Nothing spent today: the figure is there, drawn quieter than one that has spent.
+  await expect(cards.last().locator('.value')).toHaveText('$0.00');
+  const weight = (card: typeof cards) => card.locator('.value').evaluate((e) => Number(getComputedStyle(e).fontWeight));
+  expect(await weight(cards.last())).toBeLessThan(await weight(cards.first()));
+  // Two sessions of one name are told apart by when each began, and are still two: opening one opens only it.
+  await expect(cards.nth(5).locator('.title')).toHaveText('修好 CI 的缓存 · 13:02');
+  await expect(cards.nth(6).locator('.title')).toHaveText('修好 CI 的缓存 · 11-20 21:10');
   await cards.nth(6).locator('.head').click();
   await expect(cards.nth(6).locator('.turn')).toHaveCount(1);
   await expect(cards.nth(5).locator('.turn')).toHaveCount(0);
+  // Opened, a card's turns are headed by what the whole session has cost.
+  await expect(cards.nth(6).locator('.turn-heading')).toHaveText('harbor-api · 最近 1 轮 · 累计 $3.12');
   await cards.nth(6).locator('.head').click();
+  // Under the list, what is listed and what the figures count.
+  await expect(page.locator('.session-list .empty')).toHaveText('最近一天活动过的会话 · 金额只算今天');
   // A card opens its last turns.
   await cards.first().locator('.head').click();
   await expect(cards.first().locator('.turn')).toHaveCount(3);
+  await expect(cards.first().locator('.turn-heading')).toHaveText('starmeter · 最近 3 轮 · 累计 $6.90');
   await expect(page.getByRole('switch', { name: /这一轮完成时提醒/ })).toBeVisible();
   // The choice is remembered.
   await page.reload();

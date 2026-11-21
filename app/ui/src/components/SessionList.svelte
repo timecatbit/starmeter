@@ -1,8 +1,10 @@
 <script lang="ts">
   // 会话: the Claude Code and Codex sessions of the last day as cards, the fourth choice beside 工具 / 模型 / 项目.
-  // A session is running or it is not. Its card leads with its tool's logo, its title and this turn's tokens (the last
-  // turn's once it has finished), read again with every pinned tick so the number moves as the session works; a click
-  // opens its last turns. The alert switch closes the list; a pinned panel fits down to the third session.
+  // A session is running or it is not. Its card leads with its tool's logo, its title and what it cost in the range
+  // shown, as the other tabs count (the whole session's under 全部), read again with every pinned tick so the number
+  // moves as the session works; nothing spent in the range reads quieter. A click opens its last turns, headed by what
+  // the whole session has cost. A note under the list says what the figures count. The alert switch closes the list;
+  // a pinned panel fits down to the third session.
   import { panel } from '../lib/ui.svelte';
   import { t } from '../lib/i18n.svelte';
   import type { Entry } from '../lib/types';
@@ -32,6 +34,8 @@
     }));
   });
   const keyOf = (s: Entry) => keys.get(s) ?? s.label;
+  /** Nothing spent in the range shown: the amount is all zeros (¥0.00, $0.00), drawn quieter. */
+  const spentNothing = (s: Entry) => /^\D*0[.,]00$/.test(s.value ?? '');
   const listed = $derived(everything ? sessions : sessions.slice(0, SHOWN));
   const notes = $derived(entry.children.filter((c) => c.statusLight === undefined && !c.separator && c.checked === undefined && !c.action));
   const settings = $derived(entry.children.filter((c) => c.checked !== undefined));
@@ -57,7 +61,7 @@
   /** A session's turns: the heading (project · 最近 N 轮), then the turns, newest first. */
   const turnsOf = (s: Entry) => s.children.filter((c) => c.detail !== undefined);
   /** This turn's tokens and cost (its row's last two parts) and requests and tools, under the session's state; the
-   *  card's figure on the right is what the whole session has cost. */
+   *  card's figure on the right is what the session cost in the range shown. */
   function latest(s: Entry): string | null {
     const turn = turnsOf(s)[0];
     if (!turn) return null;
@@ -98,7 +102,7 @@
       <button class="head pressable" aria-expanded={open} onclick={() => toggle(keyOf(s))}>
         <span class="logo"><Glyph image={s.image} template={s.template} symbol={s.symbol ?? 'terminal'} size={14} /></span>
         <span class="title">{s.label}</span>
-        <span class="value" class:glow={glowing.has(keyOf(s))}>{s.value ?? ''}</span>
+        <span class="value" class:glow={glowing.has(keyOf(s))} class:none={spentNothing(s)}>{s.value ?? ''}</span>
       </button>
       <div class="line"><StatusLight state={s.statusLight ?? 'unknown'} /><span class="text">{s.detail ?? ''}</span></div>
       {#if more}<div class="line muted"><span class="text">{more}</span></div>{/if}
@@ -164,6 +168,7 @@
     font-family: ui-rounded, -apple-system, sans-serif;
     transition: color 1.2s ease-out;
   }
+  .value.none { color: var(--secondary); font-weight: 500; }
   .value.glow { color: var(--accent); transition: none; }
   .line {
     display: flex;

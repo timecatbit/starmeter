@@ -1393,15 +1393,23 @@ class SessionParityTests(unittest.TestCase):
         usage = lambda n: {'input_tokens': n, 'cache_read_input_tokens': 10, 'cache_creation_input_tokens': 5, 'output_tokens': 3}
         talk = [
             {'type': 'ai-title', 'aiTitle': 'Made up'}, {'type': 'user', 'timestamp': '2026-11-18T10:00:00Z', 'message': {'content': 'hi'}},
-            {'type': 'assistant', 'cwd': '/w/app', 'message': {'id': 'm1', 'model': 'claude-opus-5-5', 'usage': usage(1000),
+            {'type': 'assistant', 'cwd': '/w/app', 'timestamp': '2026-11-18T10:01:00Z', 'message': {'id': 'm1', 'model': 'claude-opus-5-5', 'usage': usage(1000),
              'content': [{'type': 'tool_use', 'name': 'Bash'}, {'type': 'text'}]}},
             {'type': 'assistant', 'message': {'id': 'm1', 'model': 'claude-opus-5-5', 'usage': usage(1000), 'content': [{'type': 'tool_use', 'name': 'Read'}]}},
             {'type': 'assistant', 'isSidechain': True, 'message': {'id': 's1', 'model': 'claude-haiku-5-5', 'usage': usage(50), 'stop_reason': 'end_turn'}},
             {'type': 'user', 'message': {'content': [{'type': 'tool_result'}]}}, {'type': 'user', 'isMeta': True, 'message': {'content': 'meta'}},
             {'type': 'user', 'timestamp': '2026-11-18T10:05:00.123456Z', 'message': {'content': [{'type': 'text', 'text': 'more'}]}},
-            {'type': 'assistant', 'message': {'id': 'm2', 'model': 'mystery', 'usage': usage(300000), 'stop_reason': 'end_turn'}},
+            {'type': 'assistant', 'timestamp': '2026-11-18T10:06:00.500Z', 'message': {'id': 'm2', 'model': 'mystery', 'usage': usage(300000), 'stop_reason': 'end_turn'}},
             {'type': 'custom-title', 'customTitle': ' 维护 '}, 'not json']
         write(claude / 'p' / '7a5d1c2e-0000-4000-8000-000000000001.jsonl', talk, age=5)
+        # A session handed off from it: its history copied under the first session's ID, its own rows under its own.
+        # Only its own request is its cost and its turn.
+        own = '7a5d1c2e-0000-4000-8000-000000000002'
+        copy = [dict(row, sessionId='7a5d1c2e-0000-4000-8000-000000000001') for row in talk if isinstance(row, dict)]
+        write(claude / 'p' / (own + '.jsonl'), copy + [
+            {'type': 'user', 'sessionId': own, 'timestamp': '2026-11-18T11:00:00Z', 'message': {'content': 'carry on'}},
+            {'type': 'assistant', 'sessionId': own, 'timestamp': '2026-11-18T11:00:30Z', 'message': {'id': 'm3', 'model': 'claude-opus-5-5', 'usage': usage(40), 'stop_reason': 'end_turn'}},
+            {'type': 'custom-title', 'sessionId': own, 'customTitle': '接手'}], age=4)
         write(claude / 'p' / 'busy.jsonl', [{'type': 'user', 'message': {'content': 'go'}}, {'type': 'assistant', 'message': {'model': 'claude-fable-5-2', 'usage': usage(10)}}], age=1)
         write(claude / 'p' / 'stalled.jsonl', [{'type': 'assistant', 'message': {'stop_reason': 'tool_use'}}], age=live_sessions.STALLED + 5)
         write(claude / 'p' / 'old.jsonl', [{'type': 'assistant', 'message': {'stop_reason': 'end_turn'}}], age=live_sessions.ACTIVE + 5)
@@ -1412,7 +1420,7 @@ class SessionParityTests(unittest.TestCase):
             {'type': 'turn_context', 'payload': {'model': 'gpt-6.2-sol', 'effort': 'ultra'}},
             {'type': 'event_msg', 'timestamp': '2026-11-18T10:00:00Z', 'payload': {'type': 'task_started'}},
             {'type': 'response_item', 'payload': {'type': 'function_call', 'name': 'exec'}}, {'type': 'response_item', 'payload': {'type': 'local_shell_call'}},
-            {'type': 'event_msg', 'payload': {'type': 'token_count', 'info': {'model_context_window': 1000, 'total_token_usage': {'t': 1},
+            {'type': 'event_msg', 'timestamp': '2026-11-18T10:02:00Z', 'payload': {'type': 'token_count', 'info': {'model_context_window': 1000, 'total_token_usage': {'t': 1},
              'last_token_usage': {'input_tokens': 300, 'output_tokens': 50, 'cached_input_tokens': 100}}}},
             {'type': 'event_msg', 'payload': {'type': 'token_count', 'info': {'total_token_usage': {'t': 1}, 'last_token_usage': {'input_tokens': 300}}}},
             {'type': 'turn_context', 'payload': {'model': 'codex-auto-review'}},
@@ -1458,17 +1466,31 @@ class SessionParityTests(unittest.TestCase):
         plugin = __import__('types').ModuleType('plugin_sessions')
         with unittest.mock.patch.dict(os.environ, {'OCX_PLUGIN_PATH': str(ROOT / 'starmeter.30s.sh')}):
             exec(compile((ROOT / 'lib/swiftbar_plugin.py').read_text(), 'plugin', 'exec'), plugin.__dict__)
+        at = lambda text: datetime.fromisoformat(text.replace('Z', '+00:00')).timestamp()
+        # Both ends count: a request at a range's very start or end is in it.
+        ranges = [['today', at('2026-11-18T10:02:00Z'), at('2026-11-18T10:06:00.500Z')], ['yesterday', at('2026-11-17T00:00:00Z'), at('2026-11-17T23:59:59Z')],
+                  ['24h', 0.0, at('2026-11-19T00:00:00Z')]]
         for prices in (False, True):
             with self.subTest(prices=prices):
-                expected = live_sessions.active([claude], codex, now, plugin.session_prices() if prices else None, app)
-                got = swift('sessions.active', [str(claude)], str(codex), now, prices, app)
+                expected = live_sessions.active([claude], codex, now, plugin.session_prices() if prices else None, app, ranges)
+                got = swift('sessions.active', [str(claude)], str(codex), now, prices, app, ranges)
                 same(self, expected, got)
                 # Within the day, the running one gone quiet as idle; the one older than a day left out; the segments one session.
                 self.assertEqual([(s['state'], s['tool']) for s in got], [('running', 'Claude'), ('running', 'Claude'), ('running', 'ChatGPT'), ('running', 'ChatGPT'),
-                                                                           ('running', 'ChatGPT'), ('waiting', 'ChatGPT'), ('waiting', 'Claude'), ('waiting', 'Claude')])
+                                                                           ('running', 'ChatGPT'), ('waiting', 'ChatGPT'), ('waiting', 'Claude'), ('waiting', 'Claude'), ('waiting', 'Claude')])
                 self.assertEqual((got[5]['title'], got[5]['model'], got[5]['effort']), ('长对话', 'gpt-6.2-astra', 'high'))
+                talked = next(s for s in got if s['title'] == '维护'); handed = next(s for s in got if s['title'] == '接手')
+                # When each began: the first time its first file records (the hand-off's, the session it came from).
+                self.assertEqual((talked['started'], handed['started']), (at('2026-11-18T10:00:00Z'),) * 2)
                 if prices:
                     self.assertEqual(got[5]['spent']['requests'], 3)
+                    # What each range holds: 10:01 is before today's start, 10:06.5 at its very end; the copied history
+                    # is the first session's, not the hand-off's.
+                    self.assertEqual({key: figure['requests'] for key, figure in talked['spent']['ranges'].items()}, {'today': 1, 'yesterday': 0, '24h': 2})
+                    self.assertEqual((handed['spent']['requests'], handed['spent']['ranges']['24h']['requests']), (1, 1))
+                    self.assertEqual([t['requests'] for t in handed['turns']], [1], 'Only its own turn')
+                    thread_session = next(s for s in got if s['title'] == '服务器管理')
+                    self.assertEqual(thread_session['spent']['ranges']['today']['requests'], 1, "A Codex request's time is its token count's")
                     self.assertEqual([(t['requests'], t['tools']) for t in got[5]['turns']], [(1, {}), (2, {'exec': 1})], 'Across segments, a turn that runs on is one')
                     self.assertEqual([t['requests'] for t in got[4]['turns']], [0, 1], 'The turn under way, with no request yet, is listed')
         # The turns as listed: one with no request left out, MCP tools by their own name.
@@ -1477,8 +1499,49 @@ class SessionParityTests(unittest.TestCase):
                  {'at': now, 'requests': 0, 'tokens': 0, 'cost': 0, 'unpriced': 0, 'tools': {}}]
         unit = {'symbol': '¥', 'rate': 7.1}
         for case in (turns, turns[1:], []):
-            with self.subTest(turns=len(case)):
-                self.assertEqual(swift('sessions.turnLines', case, unit, 'ops'), plugin.turn_lines(case, unit, 'ops'))
+            for total in (None, '累计 ¥3.10'):
+                with self.subTest(turns=len(case), total=total):
+                    self.assertEqual(swift('sessions.turnLines', case, unit, 'ops', total), plugin.turn_lines(case, unit, 'ops', total))
+
+
+    def test_session_rows_count_the_range_shown_and_tell_apart_sessions_of_one_name(self):
+        temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
+        root = Path(temp.name); now = time.time()
+        figure = lambda requests, cost, unpriced=0: {'requests': requests, 'cost': cost, 'unpriced': unpriced}
+        turns = [{'at': now - 7400, 'requests': 2, 'tokens': 1000, 'cost': 0.2, 'unpriced': 0, 'tools': {'Bash': 1}}]
+        base = {'tool': 'Claude', 'state': 'waiting', 'title': None, 'project': 'swiftbar-token-monitor', 'model': 'claude-fable-5-1',
+                'effort': None, 'context': 0.5, 'at': now - 7300.5, 'turns': turns}
+        sessions = [
+            # Two runs of a program in one folder, untitled: told apart by when each began (one today, one days ago).
+            dict(base, id='a', started=now - 7500, spent=dict(figure(4, 5.5), ranges={'today': figure(2, 1.25), 'yesterday': figure(0, 0.0), '24h': figure(4, 5.5)})),
+            dict(base, id='b', started=now - 3 * 86400, spent=dict(figure(3, 2.0, 1), ranges={'today': figure(0, 0.0), 'yesterday': figure(3, 2.0, 1), '24h': figure(0, 0.0)})),
+            dict(base, id='c', title='维护', started=now - 100, spent=dict(figure(1, 0.3), ranges={'today': figure(1, 0.3)})),
+            # A reading from before ranges were kept: the whole session.
+            dict(base, id='d', title='旧读取', started=None, spent=figure(2, 0.9)),
+            dict(base, id='e', title='全未定价', started=None, spent=dict(figure(2, 0.0, 2), ranges={'today': figure(2, 0.0, 2)})),
+            dict(base, id='f', title='还没读到', started=None, spent=None),
+        ]
+        data = {'sessions': {'sessions': sessions}}
+        environment = {'OCX_STATE_DIR': str(root / 'state'), 'OCX_CACHE_DIR': str(root / 'cache'), 'OCX_PLUGIN_PATH': str(ROOT / 'starmeter.30s.sh')}
+        (root / 'state').mkdir()
+        with unittest.mock.patch.dict(os.environ, environment):
+            plugin = __import__('types').ModuleType('plugin_session_rows')
+            exec(compile((ROOT / 'lib/swiftbar_plugin.py').read_text(), 'plugin', 'exec'), plugin.__dict__)
+            for key in ('today', 'yesterday', 'all'):
+                with self.subTest(range=key):
+                    plugin.write_json_cache(plugin.cache_path('view-range'), {'schema': 1, 'range': key})
+                    expected = plugin.sessions_lines(data)
+                    got = swift('sessions.lines', data, key)
+                    self.assertEqual(got, expected)
+                    text = '\n'.join(got)
+                    if key == 'today':
+                        self.assertIn('swiftbar-token-monitor · ' + datetime.fromtimestamp(now - 7500).strftime('%H:%M'), text)
+                        self.assertIn('swiftbar-token-monitor · ' + datetime.fromtimestamp(now - 3 * 86400).strftime('%m-%d %H:%M'), text)
+                        self.assertIn('badge=$1.25', text); self.assertIn('badge=$0.00', text)
+                        self.assertIn('累计 $5.50', text); self.assertIn('累计 已知 $2.00', text)
+                        self.assertIn('最近一天活动过的会话 · 金额只算今天', text)
+                    if key == 'all':
+                        self.assertIn('badge=$5.50', text); self.assertIn('最近一天活动过的会话 · 金额为会话累计', text)
 
 
 @unittest.skipUnless(PROBE, 'Rust engine probe not built')

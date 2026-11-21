@@ -64,6 +64,7 @@ export const phrases: Record<string, string> = {
   // Sessions
   更早开始: 'Started earlier', 这一轮完成时提醒: 'Notify when a turn finishes', 运行中的会话这一轮完成时发通知: 'A notification when a running session finishes its turn',
   没有会话: 'No sessions', '最近一天没有 Claude Code 或 Codex 会话': 'No Claude Code or Codex sessions in the last day',
+  最近一天活动过的会话: 'Sessions active in the last day', 金额为会话累计: 'amounts are each session’s total',
   运行中: 'Running', 空闲: 'Idle', 本轮: 'This turn', 上一轮: 'Last turn', 等待输入: 'Waiting',
   // Monitoring and updates
   'Komari 监控': 'Komari status', '打开 Komari 面板': 'Open the Komari panel', 刷新监控数据: 'Refresh monitoring data', 在线: 'Online',
@@ -285,6 +286,9 @@ export const rules: Rule[] = [
   [/^(\d+) 空闲$/, (m) => `${m[1]} idle`],
   [/^(\d+) 等待输入$/, (m) => `${m[1]} waiting`],
   [/^最近 (\d+) 轮$/, (m) => (m[1] === '1' ? 'Last turn' : `Last ${m[1]} turns`)],
+  // A session's whole cost over its turns, and the range its card's figure counts.
+  [/^累计 (.+)$/, (m, tr) => `Total ${tr(m[1]).replace(/^Known /, 'known ')}`],
+  [/^金额只算(.+)$/, (m, tr) => `amounts cover ${tr(m[1]).toLowerCase()}`],
   [/^运行中 (.+)$/, (m, tr) => `Running ${tr(m[1])}`],
   [/^空闲 (.+)$/, (m, tr) => `Idle ${tr(m[1])}`],
   [/^(\d+) 分钟$/, (m) => `${m[1]} min`],

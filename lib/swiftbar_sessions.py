@@ -96,6 +96,13 @@ def first_row(path):
         except ValueError:return {}
 
 
+def copied(row, own):
+    """A row a fork copied from the session it began from: Claude Code keeps that session's ID on the history it copies
+    into a fork's (or a hand-off's) transcript, so the row is that session's to count, not this one's."""
+    value = row.get('sessionId')
+    return isinstance(value, str) and value != '' and value != own
+
+
 def number(value):
     return value if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0 else 0
 
@@ -186,6 +193,13 @@ def stamp(value):
     except ValueError:return None
 
 
+def started(path):
+    """When a session began: the first time its first file records (a fork's is the session it began from)."""
+    try:rows = rows_at_start(path)
+    except OSError:return None
+    return next((at for at in (stamp(row.get('timestamp')) for row in rows) if at is not None), None)
+
+
 def turn(at):
     return {'at': at, 'requests': 0, 'tokens': 0, 'cost': 0.0, 'unpriced': 0, 'tools': {}}
 
@@ -195,8 +209,9 @@ def claude_turns(path, price):
     estimated cost and the tools it called. A reply streamed over several lines counts once; a subagent's work
     (sidechain rows) belongs to the turn that started it. price(model, usage) gives a request's cost or None."""
     # A turn that began before the part read is counted from where reading starts, and marked so.
-    turns = [turn(None)]; current = turns[0]; seen = set()
+    turns = [turn(None)]; current = turns[0]; seen = set(); own = Path(path).stem
     for row in rows_at_end(path, DETAIL):
+        if copied(row, own):continue
         message = row.get('message') if isinstance(row.get('message'), dict) else {}
         content = message.get('content')
         if row.get('type') == 'user' and not row.get('isSidechain') and not row.get('isMeta'):
@@ -273,27 +288,45 @@ def codex_file_turns(path, price):
 
 def spent(path, tool, price):
     """What a whole session has cost: every request in its transcript, counted as the turns count them (a Claude reply
-    streamed over several lines once; each change of Codex's running token total once). price(model, usage)."""
-    out = {'requests': 0, 'cost': 0.0, 'unpriced': 0}; seen = set(); model = None; total = None
-    def add(model, usage):
+    streamed over several lines once; each change of Codex's running token total once); a Claude fork's copied
+    history is left to the session it came from. price(model, usage). 'spends' holds each request's time and cost
+    (None when unpriced), in order, for what the session cost in a range."""
+    out = {'requests': 0, 'cost': 0.0, 'unpriced': 0, 'spends': []}; seen = set(); model = None; total = None
+    own = Path(path).stem
+    def add(model, usage, at):
         out['requests'] += 1
         cost = price(model, usage)
         if cost is None:out['unpriced'] += 1
         else:out['cost'] += cost
+        if at is not None:out['spends'].append((at, cost))
     for row in rows_at_end(path, os.path.getsize(path) + 1):
         if tool == 'Claude':
-            if row.get('type') != 'assistant':continue
+            if row.get('type') != 'assistant' or copied(row, own):continue
             message = row.get('message') if isinstance(row.get('message'), dict) else {}
             usage = message.get('usage'); key = message.get('id') or row.get('uuid')
             if isinstance(usage, dict) and key not in seen:
-                seen.add(key); add(message.get('model'), usage)
+                seen.add(key); add(message.get('model'), usage, stamp(row.get('timestamp')))
         else:
             data = row.get('payload') if isinstance(row.get('payload'), dict) else {}
             if row.get('type') == 'turn_context':model = data.get('model') or model
             if data.get('type') == 'token_count' and isinstance(data.get('info'), dict):
                 info = data['info']; running = info.get('total_token_usage'); last = info.get('last_token_usage') or {}
                 if not last or running == total:continue
-                total = running; add(model, last)
+                total = running; add(model, last, stamp(row.get('timestamp')))
+    return out
+
+
+def range_costs(spends, ranges):
+    """What the requests between start and end (both counted) cost, of each range: (key, start, end)."""
+    out = {}
+    for key, start, end in ranges or []:
+        figure = {'requests': 0, 'cost': 0.0, 'unpriced': 0}
+        for at, cost in spends:
+            if at < start or at > end:continue
+            figure['requests'] += 1
+            if cost is None:figure['unpriced'] += 1
+            else:figure['cost'] += cost
+        out[key] = figure
     return out
 
 
@@ -309,10 +342,11 @@ def recent(root, pattern, since):
     except OSError:return []
 
 
-def active(claude_roots, codex_root, now, prices=None, claude_app=None):
+def active(claude_roots, codex_root, now, prices=None, claude_app=None, ranges=None):
     """Sessions changed in the last day, the running ones first, then the most recent. A running one silent for ten
     minutes has stopped without saying so: it is idle. A long Codex thread written in segments is one session.
-    With prices (tool -> price(model, usage)), each carries its last turns and what the whole session has cost.
+    With prices (tool -> price(model, usage)), each carries its last turns and what the whole session has cost, and
+    of each range in ranges ((key, start, end); 全部 is the whole session) what it cost then.
     claude_app maps a transcript's session ID to the Claude App's title and effort for it."""
     found = []; titles = None
     def digest(text):return hashlib.sha256(str(text).encode()).hexdigest()[:16]
@@ -345,7 +379,8 @@ def active(claude_roots, codex_root, now, prices=None, claude_app=None):
         else:
             titles = codex_titles(codex_root) if titles is None else titles
             session['title'] = titles.get(thread) if thread else None
-        entry = dict(session, id=ident, at=changed)
+        # When it began, for telling apart sessions of one name.
+        entry = dict(session, started=started(files[0]), id=ident, at=changed)
         # The turns and the whole session's cost are read here, so the path itself never leaves this function.
         if prices:
             entry['turns'] = detail(path if session['tool'] == 'Claude' else files, session['tool'], prices)
@@ -353,7 +388,8 @@ def active(claude_roots, codex_root, now, prices=None, claude_app=None):
                 parts = [spent(segment, session['tool'], prices[session['tool']]) for segment in files]
                 cost = 0.0
                 for part in parts:cost += part['cost']
-                entry['spent'] = {'requests': sum(part['requests'] for part in parts), 'cost': cost, 'unpriced': sum(part['unpriced'] for part in parts)}
+                entry['spent'] = {'requests': sum(part['requests'] for part in parts), 'cost': cost, 'unpriced': sum(part['unpriced'] for part in parts),
+                                  'ranges': range_costs([spend for part in parts for spend in part['spends']], ranges)}
             except (OSError, ValueError, TypeError, AttributeError, KeyError):entry['spent'] = None
         found.append(entry)
     # The running ones first, then the most recent.
