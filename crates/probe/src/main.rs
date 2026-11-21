@@ -304,7 +304,8 @@ fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
             Ok(Json::from(lines))
         }
         "sessions.lines" => {
-            // [data, range]: the 会话 rows for the data given, with that range chosen, in this environment's currency.
+            // [data, range, asked]: the 会话 rows for the data given, with that range chosen on the computer, in this
+            // environment's currency; with asked, in that range instead (a phone's choice).
             let runtime = Runtime::from_process();
             runtime.write_json_cache(
                 &runtime.cache_path("view-range"),
@@ -312,7 +313,10 @@ fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
             );
             let data = args.first().and_then(Json::as_object).cloned().unwrap_or_default();
             let unit = runtime.currency_unit(&data);
-            Ok(Json::from(runtime.sessions_lines(&data, &unit)))
+            Ok(Json::from(match text(2) {
+                Some(asked) => runtime.sessions_lines_in(&data, &unit, asked),
+                None => runtime.sessions_lines(&data, &unit),
+            }))
         }
         "sessions.active" => {
             // [claude roots, codex root, now, with prices, claude app map, ranges as [key, start, end]]

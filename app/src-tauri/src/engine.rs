@@ -155,6 +155,18 @@ impl Engine {
         to_value(Json::Object(value))
     }
 
+    /// The 会话 row with its figures and note in `range`, for a phone that chose another range than this computer.
+    pub fn sessions_entry(&self, range: &str) -> Value {
+        let runtime = self.runtime();
+        let _turn = self.rendering.lock().expect("the render lock");
+        let entry = runtime.render(|| {
+            let data = runtime.cached_data();
+            let lines = runtime.sessions_lines_in(&data, &runtime.currency_unit(&data), range);
+            starmeter_core::panel_snapshot::panel_entries(&lines).into_iter().next().unwrap_or(Json::Null)
+        });
+        to_value(entry)
+    }
+
     pub fn menu_bar_text(&self) -> String {
         let runtime = self.runtime();
         let _turn = self.rendering.lock().expect("the render lock");

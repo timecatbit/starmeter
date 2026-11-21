@@ -345,6 +345,19 @@ fn phone_snapshot(app: &AppHandle, range: Option<&str>, group: Option<&str>) -> 
         let asked = dashboard(app, wanted, group);
         if asked.get("rangeKey").and_then(Value::as_str) == Some(wanted) {
             snapshot["dashboard"] = asked;
+            // 会话's figures and its note count a range too: the phone's, not the one the computer shows.
+            if let Data::Engine(engine) = &*app.state::<Data>() {
+                let mark = json!(["refresh-source", "sessions"]);
+                let fresh = engine.sessions_entry(wanted);
+                let entries = snapshot.get_mut("entries").and_then(Value::as_array_mut);
+                if let (Some(children), Some(entry)) = (
+                    fresh.get("children").cloned(),
+                    entries
+                        .and_then(|entries| entries.iter_mut().find(|entry| entry.get("onOpenAction") == Some(&mark))),
+                ) {
+                    entry["children"] = children;
+                }
+            }
             if let Some(options) = snapshot.get_mut("rangeOptions").and_then(Value::as_array_mut) {
                 for option in options {
                     let mine =

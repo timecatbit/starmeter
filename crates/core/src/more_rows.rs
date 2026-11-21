@@ -251,7 +251,13 @@ impl Runtime {
 
     // Sessions
 
+    /// 会话 as the panel shows it, its figures in the range chosen on this computer.
     pub fn sessions_lines(&self, data: &Object, unit: &Json) -> Vec<String> {
+        self.sessions_lines_in(data, unit, &self.selected_range())
+    }
+
+    /// 会话 with its figures and note in `selected`: a phone reads the range it chose, the computer keeping its own.
+    pub fn sessions_lines_in(&self, data: &Object, unit: &Json, selected: &str) -> Vec<String> {
         let found: Option<Vec<Object>> = object(data, "sessions")
             .get("sessions")
             .and_then(Json::as_array)
@@ -288,7 +294,7 @@ impl Runtime {
                 "费用待定价".to_string()
             }
         };
-        let selected = self.selected_range();
+        let selected = selected.to_string();
         // Sessions of one name (untitled ones go by their project folder, and a program's runs have no title) are
         // told apart by when each began: the time today, the date as well before.
         let names: Vec<String> = found.iter().flatten().map(session_name).collect();

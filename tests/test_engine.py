@@ -1576,6 +1576,8 @@ class SessionParityTests(unittest.TestCase):
                         self.assertIn('最近一天活动过的会话 · 金额只算今天', text)
                     if key == 'all':
                         self.assertIn('badge=$5.50', text); self.assertIn('最近一天活动过的会话 · 金额为会话累计', text)
+                    # PHONE-6: a phone's range, the computer keeping today: the rows are the phone's range's.
+                    self.assertEqual(swift('sessions.lines', data, 'today', key), expected)
 
 
 @unittest.skipUnless(PROBE, 'Rust engine probe not built')
