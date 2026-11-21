@@ -177,6 +177,18 @@ def local_zone():
         with open('/etc/localtime', 'rb') as handle: return ZoneInfo.from_file(handle)
     except (OSError, ValueError): return datetime.now().astimezone().tzinfo
 
+def zone_key(zone, now=None):
+    """A counting zone as range caches know it: its IANA name (the system's from where /etc/localtime points), else its
+    offsets from UTC on the first of January and of July this year, in seconds."""
+    if getattr(zone, 'key', None):return zone.key
+    try:
+        target = os.path.realpath('/etc/localtime')
+        if 'zoneinfo/' in target and zone is not None and getattr(zone, 'key', 1) is None:return target.split('zoneinfo/', 1)[1]
+    except OSError:pass
+    year = datetime.fromtimestamp(now or time.time(), zone).year
+    offset = lambda month: int(datetime(year, month, 1, 12, tzinfo=zone).utcoffset().total_seconds())
+    return '%d/%d' % (offset(1), offset(7))
+
 def range_cache_name(key=None):
     settings = view_settings()
     # A new price table changes every estimate, so each table's stamp is part of the cache key; a model
@@ -184,13 +196,8 @@ def range_cache_name(key=None):
     pricing = [sources.pricing(name).get('source', {}).get(field) for name in PRICING_TABLES for field in ('commit','committedAt')]
     scope = [('collector','ccusage-v2'), ('pricing', pricing), ('keep', settings['keepCleanedUsage'])] + [(k, source_path(k)) for k in preferences.USAGE if k in settings['visible']]
     if 'claude' in settings['visible']:scope.append(('claude-projects',[str(p) for p in claude_desktop.project_roots(HOME)]))
-    # The counting time zone sets where each day begins: a change reads afresh (as local_zone, a name that is no zone counts as none).
-    zone = os.environ.get('OCX_TIMEZONE') or os.environ.get('TZ') or ''
-    try:
-        from zoneinfo import ZoneInfo
-        if zone:ZoneInfo(zone)
-    except (ValueError, KeyError):zone = ''
-    scope.append(('zone', zone))
+    # The counting time zone sets where each day begins: a change reads afresh, the system's too when no zone is set.
+    scope.append(('zone', zone_key(local_zone())))
     fingerprint = hashlib.sha256(json.dumps(scope).encode()).hexdigest()[:12]
     return 'range_usage_' + (key or selected_range()) + '_' + fingerprint
 

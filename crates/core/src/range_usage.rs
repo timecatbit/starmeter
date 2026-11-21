@@ -129,13 +129,9 @@ impl Runtime {
             let roots = claude_app::project_roots(&self.home, &self.environment);
             scope.push(Json::Array(vec!["claude-projects".into(), Json::from(roots)]));
         }
-        // The counting time zone sets where each day begins: a change reads afresh (as local_zone, a name that is no
-        // zone counts as none).
-        let zone = ["OCX_TIMEZONE", "TZ"]
-            .into_iter()
-            .find_map(|name| self.env(name))
-            .filter(|name| TimeZone::get(name).is_ok());
-        scope.push(Json::Array(vec!["zone".into(), Json::from(zone.unwrap_or(""))]));
+        // The counting time zone sets where each day begins: a change reads afresh, the system's too when no zone is
+        // set (the computer moved to another zone, a TZ that only the system reads).
+        scope.push(Json::Array(vec!["zone".into(), Json::from(zone_key(&self.local_zone(), now()))]));
         let key = key.map(String::from).unwrap_or_else(|| self.selected_range());
         let digest = py::sha256_hex(py::dumps(&Json::Array(scope)).as_bytes());
         format!("range_usage_{key}_{}", &digest[..12])
@@ -436,6 +432,20 @@ impl Runtime {
         }
         (false, power.get("battery").is_some_and(Json::is_truthy))
     }
+}
+
+/// A counting zone as range caches know it: its IANA name, else (a zone the system gives without one) its offsets from
+/// UTC on the first of January and of July this year, in seconds.
+pub fn zone_key(zone: &TimeZone, now: f64) -> String {
+    if let Some(name) = zone.iana_name() {
+        return name.to_string();
+    }
+    let year = Wall::at(now, zone).year;
+    let offset = |month: i64| {
+        let midday = Wall::date(year, month, 1, zone).timestamp() + 43200.0;
+        jiff::Timestamp::from_second(midday as i64).map_or(0, |at| zone.to_offset(at).seconds())
+    };
+    format!("{}/{}", offset(1), offset(7))
 }
 
 pub fn range_bounds(key: &str, now: f64, zone: &TimeZone) -> (f64, f64) {

@@ -119,3 +119,58 @@ fn detect_adds_a_tool_found_after_the_first_run_and_keeps_the_other_choices() {
     assert!(text.contains("Everything found on this computer is on the homepage already."), "{text}");
     let _ = std::fs::remove_dir_all(folder);
 }
+
+#[test]
+fn today_follows_the_system_zone_when_none_is_set() {
+    // RANGE-4: no counting zone set, the system's changes (here a TZ only the system reads, ":Zone"): the cached 今天
+    // of the zone before must not serve the new one.
+    let folder = std::env::temp_dir().join(format!("starmeter-zone-{}", std::process::id()));
+    let (home, state) = (folder.join("home"), folder.join("state"));
+    let logs = home.join(".config").join("magpie");
+    for path in [&state, &logs] {
+        std::fs::create_dir_all(path).expect("folder");
+    }
+    std::fs::write(state.join("preferences.json"), r#"{"schema": 1, "visible": ["summary", "magpie"]}"#)
+        .expect("preferences");
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("clock").as_secs_f64();
+    // Taipei's day begins 8 hours before UTC's: a moment between the two beginnings is today in one zone and not in
+    // the other, whatever the hour.
+    let utc_day = (now / 86400.0).floor() * 86400.0;
+    let taipei_day = ((now + 28800.0) / 86400.0).floor() * 86400.0 - 28800.0;
+    let between = (utc_day + taipei_day) / 2.0;
+    let record = |at: f64, tokens: i64| {
+        format!(
+            "{{\"t\": {at}, \"agent\": \"codex\", \"provider\": \"test\", \"model\": \"gpt-5.4\", \"in\": {tokens}, \"out\": 0}}\n"
+        )
+    };
+    std::fs::write(logs.join("usage.jsonl"), record(between, 100) + &record(now - 30.0, 40)).expect("records");
+    let today = |cache: &str, zone: &str| {
+        let output = Command::new(env!("CARGO_BIN_EXE_starmeter-engine"))
+            .args(["cli", "usage", "today", "--json", "--no-refresh"])
+            .env("HOME", &home)
+            .env("USERPROFILE", &home)
+            .env("XDG_CONFIG_HOME", home.join(".config"))
+            .env("OCX_STATE_DIR", &state)
+            .env("OCX_CACHE_DIR", folder.join(cache))
+            .env("OCX_MAC_CACHE_DIR", folder.join(cache))
+            .env("OCX_PRICING_UPDATES", "0")
+            .env("OCX_SELF_UPDATES", "0")
+            .env("TZ", zone)
+            .env_remove("OCX_TIMEZONE")
+            .env_remove("MAGPIE_USAGE_DIR")
+            .stdin(Stdio::null())
+            .output()
+            .expect("the engine");
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        let json = String::from_utf8(output.stdout).expect("UTF-8");
+        let at = json.find("\"id\": \"magpie\"").expect("Magpie's card");
+        let tokens = &json[at..][json[at..].find("\"tokens\": ").expect("tokens") + 10..];
+        tokens[..tokens.find(|c: char| !c.is_ascii_digit()).unwrap_or(tokens.len())].parse::<i64>().expect("a number")
+    };
+    let taipei = today("cache", ":Asia/Taipei");
+    let utc = today("cache", ":UTC");
+    let fresh = today("fresh", ":UTC");
+    assert_eq!(utc, fresh, "the system's new zone reads today afresh (Taipei read {taipei})");
+    assert_ne!(taipei, utc, "the two zones' todays differ by the record between their beginnings");
+    let _ = std::fs::remove_dir_all(folder);
+}
