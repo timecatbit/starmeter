@@ -54,7 +54,7 @@
     </clipPath>
   </defs>
   {#if sketch}
-    <path d={axes} fill="none" stroke="var(--label)" stroke-opacity="0.8" stroke-width="1.2" stroke-linecap="round" />
+    <path d={axes} fill="none" stroke="var(--label)" stroke-opacity="0.5" stroke-width="1.1" stroke-linecap="round" />
   {:else}
     {#each [0, 0.5, 1] as f (f)}
       <line x1={plot.x} x2={plot.x + plot.w} y1={bottom - f * plot.h} y2={bottom - f * plot.h}

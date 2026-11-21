@@ -1,12 +1,12 @@
 /* 手绘 (外观 → 风格, style.svelte.ts): the panel drawn in coloured markers, as the 手绘 share picture is (shareSketch.ts,
-   its inks in sketchPalette.ts). By day on dotted journal paper, by night in chalk on a blackboard, whatever the
-   background chosen, the blackboard with faint chalk dust. A coral squiggle under the name; the three figures each in
-   a box drawn in its own pen, the estimate over a highlighter swash; the trend hatched in teal under a coral line drawn
-   twice, on axes sketched in ink, a ring by hand round its latest reading; each tool's mark ringed by hand in its pen,
-   its amount in that pen and its models as hatched bars; the tab and segment chosen ringed in coral. The boxes, axes
-   and rings are the picture's own strokes (sketchStrokes.ts: each line twice, sides past the corners, rings past where
-   they began); charts, bars and icons go through the `hand` filter (index.html) and wobble a little; the words never
-   do. The page keeps its layout: only colours, faces and strokes change, and the figures sit inside their boxes. */
+   its inks in sketchPalette.ts). By day on warm, finely dotted paper, by night in chalk on a blackboard, whatever the
+   background chosen. A coral squiggle under the name; the three figures each in its own pen (blue, green, violet), the
+   estimate over a highlighter swash; the trend hatched in teal under a coral line drawn twice, on axes sketched in ink,
+   a ring by hand round its latest reading; each tool's mark ringed by hand in its pen, its amount in that pen and its
+   models as hatched bars; the tab and segment chosen ringed in coral. The axes and rings are the picture's own strokes
+   (sketchStrokes.ts: each line twice, rings past where they began); charts, bars and icons go through the `hand`
+   filter (index.html) and wobble a little; the words never do. The page keeps its layout: only colours, faces and
+   strokes change. */
 
 /* Chalkboard SE (Segoe Print on Windows) for the letters, drawn at the system face's width: by the app's WKWebView,
    Chalkboard writes its figures 5% wider than SF Rounded (so 97%). WebKit honours size-adjust but not the ascent and
@@ -74,8 +74,8 @@
     'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', 'PingFang SC', system-ui, sans-serif;
   --rounded: var(--hand);
   font-synthesis: none;
-  --paper: #fffdf7;
-  --dots: rgba(60, 60, 90, 0.13);
+  --paper: #fdfaf4;
+  --dots: rgba(92, 78, 60, 0.11);
   --solid: var(--paper);
   --label: #2d2a33;
   --secondary: rgba(45, 42, 51, 0.62);
@@ -91,7 +91,9 @@
   --ink: #2d2a33;
   --coral: #f0565a;
   --highlight: rgba(255, 214, 64, 0.55);
-  --dust: none, none, none;
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.36 0 0 0 0 0.29 0 0 0 0 0.2 0 0 0 0.06 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  --glow: radial-gradient(120% 60% at 50% -8%, rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0) 70%);
+  --shade: radial-gradient(150% 110% at 50% 45%, rgba(150, 120, 80, 0) 58%, rgba(150, 120, 80, 0.08) 100%);
   font-family: var(--hand);
 }
 :root[data-style='sketch']:lang(zh-Hant) {
@@ -100,8 +102,8 @@
 }
 /* The blackboard, by night. */
 :root[data-style='sketch'][data-theme='dark'] {
-  --paper: #243029;
-  --dots: rgba(255, 255, 255, 0.05);
+  --paper: #1f2924;
+  --dots: rgba(255, 255, 255, 0.045);
   --label: #f1efe7;
   --secondary: rgba(241, 239, 231, 0.62);
   --tertiary: rgba(241, 239, 231, 0.32);
@@ -115,15 +117,15 @@
   --on-accent: #1d2340;
   --ink: #f1efe7;
   --coral: #ff8787;
-  --highlight: rgba(255, 224, 102, 0.28);
-  --dust: radial-gradient(circle at 18% 14%, rgba(255, 255, 255, 0.04), transparent 110px),
-    radial-gradient(circle at 80% 46%, rgba(255, 255, 255, 0.035), transparent 140px),
-    radial-gradient(circle at 30% 82%, rgba(255, 255, 255, 0.035), transparent 120px);
+  --highlight: rgba(255, 224, 102, 0.2);
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  --glow: radial-gradient(110% 70% at 28% 6%, rgba(236, 240, 230, 0.06), rgba(236, 240, 230, 0) 70%);
+  --shade: radial-gradient(150% 110% at 50% 45%, rgba(0, 0, 0, 0) 52%, rgba(0, 0, 0, 0.3) 100%);
 }
 @media (prefers-color-scheme: dark) {
   :root[data-style='sketch']:not([data-theme='light']) {
-    --paper: #243029;
-    --dots: rgba(255, 255, 255, 0.05);
+    --paper: #1f2924;
+    --dots: rgba(255, 255, 255, 0.045);
     --label: #f1efe7;
     --secondary: rgba(241, 239, 231, 0.62);
     --tertiary: rgba(241, 239, 231, 0.32);
@@ -137,18 +139,19 @@
     --on-accent: #1d2340;
     --ink: #f1efe7;
     --coral: #ff8787;
-    --highlight: rgba(255, 224, 102, 0.28);
-    --dust: radial-gradient(circle at 18% 14%, rgba(255, 255, 255, 0.04), transparent 110px),
-      radial-gradient(circle at 80% 46%, rgba(255, 255, 255, 0.035), transparent 140px),
-      radial-gradient(circle at 30% 82%, rgba(255, 255, 255, 0.035), transparent 120px);
+    --highlight: rgba(255, 224, 102, 0.2);
+    --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    --glow: radial-gradient(110% 70% at 28% 6%, rgba(236, 240, 230, 0.06), rgba(236, 240, 230, 0) 70%);
+    --shade: radial-gradient(150% 110% at 50% 45%, rgba(0, 0, 0, 0) 52%, rgba(0, 0, 0, 0.3) 100%);
   }
 }
 
-/* The paper (or the blackboard, dusted with chalk), dotted, under every page. */
+/* The paper under every page: warm ivory with a faint grain, lit softly from the top and a touch deeper at the edges,
+   finely dotted; by night a blackboard with a chalk haze and darker edges. */
 :root[data-style='sketch'] .window {
   background-color: var(--paper);
-  background-image: var(--dust), radial-gradient(circle, var(--dots) 0.9px, transparent 1.2px);
-  background-size: auto, auto, auto, 14px 14px;
+  background-image: var(--grain), var(--glow), var(--shade), radial-gradient(circle, var(--dots) 0.75px, transparent 1.1px);
+  background-size: 180px 180px, 100% 100%, 100% 100%, 15px 15px;
 }
 /* The hand's lines. */
 :root[data-style='sketch'] :is(svg.chart, svg.squares, svg.icon, svg.chevron, svg.arrow, .live canvas, .fill, .gauge-fill, .bar-fill) {
@@ -163,7 +166,7 @@
   text-underline-offset: 3px;
   text-decoration-skip-ink: none;
 }
-/* The estimate over a highlighter swash, in its box (Dashboard.svelte draws the boxes). */
+/* The estimate over a highlighter swash. */
 :root[data-style='sketch'] .figure.first .num {
   text-decoration: underline var(--highlight);
   text-decoration-thickness: 0.42em;

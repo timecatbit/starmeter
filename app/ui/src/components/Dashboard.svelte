@@ -4,7 +4,6 @@
   import { byUsage } from '../lib/order';
   import { blend, label as labelColour, toolColour, summaryColour } from '../lib/colors';
   import { pen } from '../lib/sketchPalette';
-  import { handBox, seeded } from '../lib/sketchStrokes';
   import { style } from '../lib/style.svelte';
   import { t } from '../lib/i18n.svelte';
   import { chartExtra, labelColumn, legendLabels, legendLayout, summaryProviders } from '../lib/chart';
@@ -114,9 +113,6 @@
   const legend = $derived(legendLabels(data));
   /** 手绘's three figures in the 手绘 picture's pens: blue, green, violet. */
   const figurePens = $derived(style.current === 'sketch' ? (['blue', 'green', 'violet'] as const).map((name) => pen(name, panel.dark)) : null);
-  /** 手绘: each figure in a box drawn in its pen, its name and figure inside from the left, as the picture boxes them. */
-  const figureBoxes = $derived(figurePens ? [0, 1, 2].map((i) => handBox(seeded(17 + i), left + third * i + 2 * i, 37, third - 4, 47)) : null);
-  const boxInset = $derived(figurePens ? 7 : 0);
   const legendColours = $derived([summaryColour(panel.dark), ...counted.map((p) => toolColour(p.id, panel.dark))]);
   const legendCells = $derived(legendLayout(legend, right - left).flatMap((row, r) => row.map((cell) => ({ ...cell, row: r }))));
   // 多台电脑合并: the other computers counted in, beside the update time (this one included).
@@ -174,19 +170,12 @@
       </span>
     </div>
     {#if showSummary}
-      {#if figureBoxes && figurePens}
-        <svg class="boxes" width={inner} height="92" aria-hidden="true">
-          {#each figureBoxes as d, i (i)}
-            <path {d} fill="none" stroke={figurePens[i]} stroke-width="1.4" stroke-linecap="round" />
-          {/each}
-        </svg>
-      {/if}
       {#each [0, 1, 2] as i (i)}
-        {@const x = left + third * i + 2 * i + boxInset}
-        {@const align = figurePens ? 'left' : (['left', 'center', 'right'] as const)[i]}
-        <span class="figure-label" style:left="{x}px" style:width="{third - 4 - 2 * boxInset}px" style:text-align={align}>{labels[i]}</span>
-        <!-- 手绘: each figure in its own pen inside its box, the estimate over a highlighter swash. -->
-        <span class="figure" class:first={i === 0} style:left="{x}px" style:--pen={figurePens?.[i]}><Figure value={values[i]} size={22} room={third - 4 - 2 * boxInset} {align}
+        {@const x = left + third * i + 2 * i}
+        {@const align = (['left', 'center', 'right'] as const)[i]}
+        <span class="figure-label" style:left="{x}px" style:width="{third - 4}px" style:text-align={align}>{labels[i]}</span>
+        <!-- 手绘: each figure in its own pen, the estimate over a highlighter swash. -->
+        <span class="figure" class:first={i === 0} style:left="{x}px" style:--pen={figurePens?.[i]}><Figure value={values[i]} size={22} room={third - 4} {align}
           color={figurePens?.[i] ?? glowColour} /></span>
       {/each}
       {#each legendCells as cell, i (i)}
@@ -293,7 +282,6 @@
     overflow: clip visible;
   }
   .figure { top: 55px; }
-  .boxes { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
   .swatch {
     width: 11px;
     border-radius: 1.5px;
