@@ -333,3 +333,49 @@ fn a_yes_to_detect_keeps_what_the_panel_changed_while_it_asked() {
     assert!(!homepage.contains(&"claude-api".to_string()), "{homepage:?}");
     let _ = std::fs::remove_dir_all(&folder);
 }
+
+/// RANGE-3: two records in the last millisecond before midnight (23:59:59.996 and 23:59:59.9997) are yesterday's, a
+/// record at midnight is today's, whatever the precision a source writes.
+#[test]
+fn the_last_millisecond_before_midnight_is_yesterdays() {
+    let (folder, mut environment) = scratch();
+    environment.insert("OCX_TIMEZONE".into(), "Asia/Taipei".into());
+    let probe = runtime(environment.clone());
+    let midnight = probe.range_bounds("today", now(), &probe.local_zone()).0;
+    let record = |t: f64, tokens: i64| {
+        Json::Object(object! {
+            "t" => t, "agent" => "codex", "provider" => "test", "model" => "gpt-5.4", "in" => tokens, "out" => 0,
+        })
+        .serialized()
+    };
+    let lines = [record(midnight - 0.004, 10), record(midnight - 0.0003, 20), record(midnight, 5)].join("\n");
+    std::fs::write(folder.join("magpie").join("usage.jsonl"), lines + "\n").expect("records");
+    let runtime = runtime(environment);
+    let words = Words { english: false };
+    for (range, tokens) in [("yesterday", 30.0), ("today", 5.0)] {
+        let options = parse(&arguments(&format!("usage -r {range} --no-refresh"))).expect("options");
+        let (report, failed) = read(&runtime, &options, words);
+        assert!(!failed);
+        assert_eq!(report.tokens, Some(tokens), "{range}");
+    }
+    let _ = std::fs::remove_dir_all(folder);
+}
+
+/// RANGE-2: the counting time zone is part of a range's cache, so a change reads the days afresh; a name that is no
+/// zone counts as none, as it does for the days themselves.
+#[test]
+fn a_new_counting_time_zone_reads_the_range_afresh() {
+    let (folder, mut environment) = scratch();
+    let name = |environment: &HashMap<String, String>| runtime(environment.clone()).range_cache_name(Some("today"));
+    environment.insert("OCX_TIMEZONE".into(), "Asia/Taipei".into());
+    let taipei = name(&environment);
+    environment.insert("OCX_TIMEZONE".into(), "UTC".into());
+    let utc = name(&environment);
+    assert_ne!(taipei, utc);
+    environment.insert("OCX_TIMEZONE".into(), "Nowhere/Here".into());
+    let nowhere = name(&environment);
+    environment.remove("OCX_TIMEZONE");
+    environment.remove("TZ");
+    assert_eq!(nowhere, name(&environment));
+    let _ = std::fs::remove_dir_all(folder);
+}

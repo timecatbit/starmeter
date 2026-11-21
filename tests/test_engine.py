@@ -1,6 +1,7 @@
 """Holds the Rust engine (crates/) against the Python reference: the same inputs must give the same answers, down
 to int-or-float and key order, because 5.x and 6 share state files. Calls not ported yet are skipped."""
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -780,7 +781,7 @@ class ClockChangeRangeTests(unittest.TestCase):
     def test_calendar_ranges_keep_the_zones_days_on_a_clock_change(self):
         spring, autumn = 1772985600.0, 1793552400.0
         # Today began at midnight EST, 11 real hours before the spring noon, and at midnight EDT, 13 before the autumn one.
-        expected = {('today', spring): (1772946000.0, spring), ('yesterday', spring): (1772859600.0, 1772945999.999),
+        expected = {('today', spring): (1772946000.0, spring), ('yesterday', spring): (1772859600.0, math.nextafter(1772946000.0, -math.inf)),
                     ('7d', spring): (1772427600.0, spring), ('week', spring): (1772427600.0, spring), ('month', spring): (1772341200.0, spring),
                     ('today', autumn): (1793505600.0, autumn), ('30d', autumn): (1791000000.0, autumn), ('all', autumn): (0, autumn)}
         for (key, noon), bounds in expected.items():

@@ -129,6 +129,13 @@ impl Runtime {
             let roots = claude_app::project_roots(&self.home, &self.environment);
             scope.push(Json::Array(vec!["claude-projects".into(), Json::from(roots)]));
         }
+        // The counting time zone sets where each day begins: a change reads afresh (as local_zone, a name that is no
+        // zone counts as none).
+        let zone = ["OCX_TIMEZONE", "TZ"]
+            .into_iter()
+            .find_map(|name| self.env(name))
+            .filter(|name| TimeZone::get(name).is_ok());
+        scope.push(Json::Array(vec!["zone".into(), Json::from(zone.unwrap_or(""))]));
         let key = key.map(String::from).unwrap_or_else(|| self.selected_range());
         let digest = py::sha256_hex(py::dumps(&Json::Array(scope)).as_bytes());
         format!("range_usage_{key}_{}", &digest[..12])
@@ -439,9 +446,10 @@ pub fn range_bounds(key: &str, now: f64, zone: &TimeZone) -> (f64, f64) {
     }
     let wall = Wall::at(now, zone);
     let day = Wall::date(wall.year, wall.month, wall.day, zone);
-    // Yesterday ends just before midnight: every reader counts both ends, and midnight belongs to today.
+    // Yesterday ends at the last moment before midnight a timestamp can hold: every reader counts both ends, and
+    // midnight belongs to today. A millisecond before left a record at 23:59:59.9997 in neither day.
     if key == "yesterday" {
-        return (day.adding_days(-1).timestamp(), day.timestamp() - 0.001);
+        return (day.adding_days(-1).timestamp(), day.timestamp().next_down());
     }
     let start = match key {
         "today" => Some(day.clone()),
@@ -594,7 +602,7 @@ mod tests {
         // 2026-03-08 12:00 EDT: today began at midnight EST, 11 real hours earlier.
         let spring = 1_772_985_600.0;
         assert_eq!(range_bounds("today", spring, &new_york), (1_772_946_000.0, spring));
-        assert_eq!(range_bounds("yesterday", spring, &new_york), (1_772_859_600.0, 1_772_945_999.999));
+        assert_eq!(range_bounds("yesterday", spring, &new_york), (1_772_859_600.0, 1_772_946_000f64.next_down()));
         assert_eq!(range_bounds("7d", spring, &new_york).0, 1_772_427_600.0, "2026-03-02 00:00 EST");
         assert_eq!(range_bounds("week", spring, &new_york).0, 1_772_427_600.0, "Monday 2026-03-02");
         assert_eq!(range_bounds("month", spring, &new_york).0, 1_772_341_200.0, "2026-03-01 00:00 EST");

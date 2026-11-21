@@ -11,6 +11,7 @@ OpenCodex 鉴权用 ~/.opencodex/admin-api-token。
 """
 
 import json
+import math
 import plistlib
 import platform
 import uuid
@@ -183,6 +184,13 @@ def range_cache_name(key=None):
     pricing = [sources.pricing(name).get('source', {}).get(field) for name in PRICING_TABLES for field in ('commit','committedAt')]
     scope = [('collector','ccusage-v2'), ('pricing', pricing), ('keep', settings['keepCleanedUsage'])] + [(k, source_path(k)) for k in preferences.USAGE if k in settings['visible']]
     if 'claude' in settings['visible']:scope.append(('claude-projects',[str(p) for p in claude_desktop.project_roots(HOME)]))
+    # The counting time zone sets where each day begins: a change reads afresh (as local_zone, a name that is no zone counts as none).
+    zone = os.environ.get('OCX_TIMEZONE') or os.environ.get('TZ') or ''
+    try:
+        from zoneinfo import ZoneInfo
+        if zone:ZoneInfo(zone)
+    except (ValueError, KeyError):zone = ''
+    scope.append(('zone', zone))
     fingerprint = hashlib.sha256(json.dumps(scope).encode()).hexdigest()[:12]
     return 'range_usage_' + (key or selected_range()) + '_' + fingerprint
 
@@ -1870,7 +1878,7 @@ def selected_range():
 def range_bounds(key,now=None):
     now=now or usage_now();day=now.replace(hour=0,minute=0,second=0,microsecond=0)
     # Yesterday ends just before midnight: every reader counts both ends, and midnight belongs to today.
-    if key=='yesterday':return (day-timedelta(days=1)).timestamp(),day.timestamp()-0.001
+    if key=='yesterday':return (day-timedelta(days=1)).timestamp(),math.nextafter(day.timestamp(),-math.inf)
     # The last 24 hours are 86,400 seconds back from this moment, whatever the clocks did: a wall-clock day back is 23
     # or 25 hours on the day a zone changes its clocks. The calendar ranges below keep the zone's days.
     if key=='24h':return now.timestamp()-86400,now.timestamp()
