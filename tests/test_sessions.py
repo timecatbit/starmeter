@@ -125,6 +125,8 @@ class SessionPanelTests(unittest.TestCase):
 
     def test_homepage_row_counts_and_lists_each_session(self):
         now = time.time()
+        # The last 30 days: a session idle 3 hours is still listed when the test runs just after midnight.
+        self.m.write_json_cache(self.m.cache_path('view-range'), {'schema': 1, 'range': 'all'})
         data = {'sessions': {'sessions': [{'tool': 'Claude', 'state': 'running', 'project': 'starmeter', 'model': 'claude-opus-5-5-20261101', 'context': 0.38, 'at': now, 'id': 'a'},
                                           {'tool': 'ChatGPT', 'state': 'waiting', 'project': None, 'model': None, 'context': None, 'at': now - 200, 'id': 'b'}]}}
         lines = self.m.sessions_lines(data)

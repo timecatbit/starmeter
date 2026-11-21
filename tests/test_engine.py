@@ -1578,7 +1578,10 @@ class SessionParityTests(unittest.TestCase):
                     self.assertEqual(got, expected)
                     text = '\n'.join(got)
                     if key == 'today':
-                        self.assertIn('swiftbar-token-monitor · ' + datetime.fromtimestamp(now - 7500).strftime('%H:%M'), text)
+                        # Begun today: the time alone; just after midnight it began yesterday, and the day comes too.
+                        began = datetime.fromtimestamp(now - 7500)
+                        shown = began.strftime('%H:%M' if began.date() == datetime.fromtimestamp(now).date() else '%m-%d %H:%M')
+                        self.assertIn('swiftbar-token-monitor · ' + shown, text)
                         self.assertIn('swiftbar-token-monitor · ' + datetime.fromtimestamp(now - 3 * 86400).strftime('%m-%d %H:%M'), text)
                         self.assertIn('badge=$1.25', text); self.assertIn('badge=$0.00', text)
                         self.assertIn('累计 $5.50', text); self.assertIn('累计 已知 $2.00', text)
