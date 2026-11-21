@@ -1,0 +1,111 @@
+/* 手绘 (外观 → 风格, style.svelte.ts): the panel drawn by hand, as the 手绘 share picture is (shareSketch.ts). By day
+   coloured ink on dotted journal paper, by night chalk on a blackboard, whatever the background chosen; the words in a
+   hand's letters, the lines a little unsteady: the charts, the heatmap, the bars and the icons go through the `hand`
+   filter (index.html), and the words never do, so they stay sharp. The page keeps its layout: only colours, faces and
+   strokes change. */
+/* The hands, drawn no wider than the system faces (measured in the app's WKWebView: Chalkboard SE's figures 5% wider
+   than SF Rounded's, 翩翩体 3% wider than PingFang): a line keeps its length, so every page fits where it did. 翩翩体 is
+   macOS's, where Font Book has installed it; else the usual face. */
+@font-face { font-family: 'Starmeter Hand'; src: local('ChalkboardSE-Light'), local('Chalkboard SE Light'); font-weight: 100 349; size-adjust: 97%; }
+@font-face { font-family: 'Starmeter Hand'; src: local('ChalkboardSE-Regular'), local('Chalkboard SE Regular'); font-weight: 350 549; size-adjust: 97%; }
+@font-face { font-family: 'Starmeter Hand'; src: local('ChalkboardSE-Bold'), local('Chalkboard SE Bold'); font-weight: 550 900; size-adjust: 97%; }
+@font-face { font-family: 'Starmeter Hand SC'; src: local('HanziPenSC-W3'), local('HanziPen SC Regular'); font-weight: 100 549; size-adjust: 97%; }
+@font-face { font-family: 'Starmeter Hand SC'; src: local('HanziPenSC-W5'), local('HanziPen SC Bold'); font-weight: 550 900; size-adjust: 97%; }
+@font-face { font-family: 'Starmeter Hand TC'; src: local('HanziPenTC-W3'), local('HanziPen TC Regular'); font-weight: 100 549; size-adjust: 97%; }
+@font-face { font-family: 'Starmeter Hand TC'; src: local('HanziPenTC-W5'), local('HanziPen TC Bold'); font-weight: 550 900; size-adjust: 97%; }
+@font-face { font-family: 'Starmeter Hand Windows'; src: local('Segoe Print'); size-adjust: 88%; }
+
+:root[data-style='sketch'] {
+  --hand: 'Starmeter Hand', 'Starmeter Hand SC', 'Starmeter Hand Windows', -apple-system, BlinkMacSystemFont,
+    'PingFang SC', 'Microsoft YaHei UI', system-ui, sans-serif;
+  --rounded: var(--hand);
+  --paper: #fffdf7;
+  --dots: rgba(60, 60, 90, 0.13);
+  --solid: var(--paper);
+  --label: #2d2a33;
+  --secondary: rgba(45, 42, 51, 0.62);
+  --tertiary: rgba(45, 42, 51, 0.34);
+  --separator: rgba(45, 42, 51, 0.18);
+  --divider: rgba(45, 42, 51, 0.24);
+  --rim: rgba(45, 42, 51, 0.05);
+  --hover: rgba(45, 42, 51, 0.06);
+  --press: rgba(45, 42, 51, 0.11);
+  --track: rgba(45, 42, 51, 0.1);
+  --accent: #3b5bdb;
+  --on-accent: white;
+  --ink: #2d2a33;
+  --highlight: rgba(255, 214, 64, 0.55);
+  font-family: var(--hand);
+}
+:root[data-style='sketch']:lang(zh-Hant) {
+  --hand: 'Starmeter Hand', 'Starmeter Hand TC', 'Starmeter Hand Windows', -apple-system, BlinkMacSystemFont,
+    'PingFang TC', 'Microsoft JhengHei UI', system-ui, sans-serif;
+}
+/* The blackboard, by night. */
+:root[data-style='sketch'][data-theme='dark'] {
+  --paper: #243029;
+  --dots: rgba(255, 255, 255, 0.05);
+  --label: #f1efe7;
+  --secondary: rgba(241, 239, 231, 0.62);
+  --tertiary: rgba(241, 239, 231, 0.32);
+  --separator: rgba(241, 239, 231, 0.16);
+  --divider: rgba(241, 239, 231, 0.22);
+  --rim: rgba(241, 239, 231, 0.05);
+  --hover: rgba(241, 239, 231, 0.07);
+  --press: rgba(241, 239, 231, 0.13);
+  --track: rgba(241, 239, 231, 0.12);
+  --accent: #91a7ff;
+  --on-accent: #1d2340;
+  --ink: #f1efe7;
+  --highlight: rgba(255, 224, 102, 0.28);
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-style='sketch']:not([data-theme='light']) {
+    --paper: #243029;
+    --dots: rgba(255, 255, 255, 0.05);
+    --label: #f1efe7;
+    --secondary: rgba(241, 239, 231, 0.62);
+    --tertiary: rgba(241, 239, 231, 0.32);
+    --separator: rgba(241, 239, 231, 0.16);
+    --divider: rgba(241, 239, 231, 0.22);
+    --rim: rgba(241, 239, 231, 0.05);
+    --hover: rgba(241, 239, 231, 0.07);
+    --press: rgba(241, 239, 231, 0.13);
+    --track: rgba(241, 239, 231, 0.12);
+    --accent: #91a7ff;
+    --on-accent: #1d2340;
+    --ink: #f1efe7;
+    --highlight: rgba(255, 224, 102, 0.28);
+  }
+}
+
+/* The paper (or the blackboard), dotted, under every page. */
+:root[data-style='sketch'] .window {
+  background-color: var(--paper);
+  background-image: radial-gradient(circle, var(--dots) 0.9px, transparent 1.2px);
+  background-size: 14px 14px;
+}
+/* The hand's lines. */
+:root[data-style='sketch'] :is(svg.chart, svg.squares, svg.icon, svg.chevron, svg.arrow, .track, .gauge, .live canvas) {
+  filter: url(#hand);
+}
+/* A choice marked as a hand rings it: a loose pencil loop round the tab or segment chosen. */
+:root[data-style='sketch'] .segments {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--separator);
+  border-radius: 225px 12px 255px 12px / 12px 255px 12px 225px;
+}
+:root[data-style='sketch'] .segments .block,
+:root[data-style='sketch'] .guide .pill,
+:root[data-style='sketch'] .tabs .pill {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.3px var(--ink);
+  border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+  filter: url(#hand);
+}
+:root[data-style='sketch'] :is(.segment, .choice).chosen {
+  color: var(--label);
+}
+:root[data-style='sketch'] .tab.chosen {
+  color: var(--label);
+}

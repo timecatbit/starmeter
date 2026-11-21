@@ -5,6 +5,7 @@
   // page stays, saying so in the code's place, with 重新开始 for a new code (the old one's key no longer opens).
   import { onDestroy, onMount } from 'svelte';
   import { language, t } from '../lib/i18n.svelte';
+  import { style } from '../lib/style.svelte';
   import { shell } from '../lib/backend';
   import { phone, secondsLeft, setPhone } from '../lib/phone.svelte';
   import { grabWindow, panel } from '../lib/ui.svelte';
@@ -29,10 +30,10 @@
   let copiedTimer: ReturnType<typeof setTimeout> | undefined;
 
   const view = $derived(phone.view);
-  // The phone opens in this panel's language.
+  // The phone opens in this panel's language, and its look (手绘).
   const address = $derived.by(() => {
     const base = reach === 'public' ? view?.public ?? null : view?.local ?? null;
-    return base ? `${base}&l=${language.current}` : null;
+    return base ? `${base}&l=${language.current}${style.current === 'sketch' ? '&s=sketch' : ''}` : null;
   });
   const minutes = $derived(view ? Math.max(1, Math.round(secondsLeft() / 60)) : 0);
 

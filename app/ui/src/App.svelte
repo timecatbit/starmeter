@@ -12,6 +12,7 @@
   import { pageIn, pageOut } from './lib/motion';
   import { answer as answerQuestion, ask, show as showQuestion } from './lib/ask.svelte';
   import { chooseLanguage, localize, restoreLanguage, source, t } from './lib/i18n.svelte';
+  import { chooseStyle } from './lib/style.svelte';
   import { phoneStatus } from './lib/phone.svelte';
   import { chooseShortcut, restoreShortcut, shortcut } from './lib/shortcut.svelte';
   import { grabWindow, panel } from './lib/ui.svelte';
@@ -415,6 +416,8 @@
     if (action[0] === 'panel-modules') { openSettings(); return; }
     // The language is the panel's own choice: no engine action, the page redraws in it at once.
     if (action[0] === 'set-language') { chooseLanguage(action[1]); return; }
+    // So is the look (外观 → 风格: 标准 or 手绘).
+    if (action[0] === 'set-style') { chooseStyle(action[1]); return; }
     // So is the global shortcut: registered by the shell, kept only when the system let us have it.
     if (action[0] === 'set-shortcut') {
       void chooseShortcut(action[1]).then((ok) => {

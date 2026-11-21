@@ -1713,3 +1713,40 @@ test('在手机上看: a status answer from before 停止 and 重新开始 leave
   await expect(phone.locator('.address')).toHaveText('http://192.168.1.20:49002/');
   await expect(phone.locator('svg.qr')).toBeVisible();
 });
+
+test('外观 → 风格 draws the panel by hand, in faces scaled to the usual width, kept across a reload, and back', async ({ page }) => {
+  await open(page);
+  const standard = await page.locator('.window').boundingBox();
+  await button(page, '主页模块与设置').click();
+  await button(page, '外观').click();
+  await expect(page.getByRole('radio', { name: '标准' })).toHaveAttribute('aria-checked', 'true');
+  await page.getByRole('radio', { name: '手绘' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-style', 'sketch');
+  await expect(page.getByRole('radio', { name: '手绘' })).toHaveAttribute('aria-checked', 'true');
+  // The hand's letters, scaled to the system faces' width: a line keeps its length.
+  const widths = await page.evaluate(async () => {
+    await document.fonts.load('13px "Starmeter Hand"', 'A');
+    const width = (family: string) => {
+      const span = Object.assign(document.createElement('span'), { textContent: 'ChatGPT 14.46M Token · 45 requests' });
+      Object.assign(span.style, { position: 'absolute', fontSize: '13px', fontFamily: family, whiteSpace: 'nowrap' });
+      document.body.append(span);
+      const measured = span.getBoundingClientRect().width;
+      span.remove();
+      return measured;
+    };
+    return { hand: width('"Starmeter Hand"'), chalkboard: width('"Chalkboard SE"') };
+  });
+  // Chalkboard SE at 97%, no wider than San Francisco (this test's WebKit has no San Francisco to compare with).
+  expect(widths.hand / widths.chalkboard).toBeCloseTo(0.97, 2);
+  expect(await page.locator('.window').evaluate((e) => getComputedStyle(e).fontFamily)).toContain('Starmeter Hand');
+  // Kept: the homepage drawn by hand after a reload, laid out as before.
+  await page.reload();
+  await expect(page.locator('.dashboard')).toBeVisible();
+  await expect(page.locator('html')).toHaveAttribute('data-style', 'sketch');
+  expect((await page.locator('.window').boundingBox())!.width).toBe(standard!.width);
+  // And back to the standard look.
+  await button(page, '主页模块与设置').click();
+  await button(page, '外观').click();
+  await page.getByRole('radio', { name: '标准' }).click();
+  await expect(page.locator('html')).not.toHaveAttribute('data-style', 'sketch');
+});

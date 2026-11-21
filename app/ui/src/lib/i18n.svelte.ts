@@ -9,6 +9,7 @@ import { phrases, rules, whole } from './en';
 import { toHant } from './hant';
 import { phoneRow } from './phone.svelte';
 import { shortcutRow } from './shortcut.svelte';
+import { withStyle } from './style.svelte';
 import type { Dashboard, Entry, ProviderUsage, Snapshot } from './types';
 
 export type Language = 'zh' | 'zh-Hant' | 'en';
@@ -179,7 +180,7 @@ function withLanguage(list: Entry[]): Entry[] {
 /** The snapshot as the panel shows it: the language row added, and every text in the language chosen (in English,
  *  what the dictionary knows). */
 export function localize(s: Snapshot): Snapshot {
-  const options = s.moduleOptions ? withLanguage(s.moduleOptions) : s.moduleOptions;
+  const options = s.moduleOptions ? withStyle(withLanguage(s.moduleOptions)) : s.moduleOptions;
   if (language.current === 'zh') return { ...s, moduleOptions: options };
   return {
     ...s, entries: s.entries.map(entry), moduleOptions: options?.map(entry), rangeOptions: s.rangeOptions?.map(entry),

@@ -132,7 +132,7 @@ export const phrases: Record<string, string> = {
   本次读取失败: 'This read failed', '令牌已过期，请在 Claude Code 里运行 /login': 'The token expired; run /login in Claude Code',
   网络连接超时: 'The connection timed out', 保留最近一次成功的数据: 'keeping the last good data',
   // Share page
-  风格: 'Style', 色彩: 'Colours', 工具数量: 'Tools',
+  风格: 'Style', 标准: 'Standard', 色彩: 'Colours', 工具数量: 'Tools',
   // 新手指引
   帮助: 'Help', 新手指引: 'Quick tour', 界面语言: 'Language', 跳过: 'Skip', 开始: 'Start', 上一步: 'Back', 下一步: 'Next',
   '欢迎使用 Starmeter': 'Welcome to Starmeter',
