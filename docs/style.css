@@ -248,6 +248,11 @@ h2 { font-size: clamp(28px, 4vw, 40px); font-weight: 700; }
 .feature .shot { justify-self: center; width: 100%; max-width: 440px; }
 .feature.wide .shot { max-width: 668px; }
 .feature + .feature { padding-top: 40px; }
+/* Two looks overlapping, the dark one a step lower and in front: 手绘 by day and by night. */
+.feature .shot.pair { display: grid; grid-template-columns: repeat(25, 1fr); align-items: start; }
+.feature .shot.pair img { grid-row: 1; }
+.feature .shot.pair img:first-child { grid-column: 1 / 17; }
+.feature .shot.pair img:last-child { grid-column: 10 / 26; margin-top: 64px; position: relative; }
 .feature ul { list-style: none; padding: 0; margin: 26px 0 0; display: grid; gap: 12px; }
 .feature li { position: relative; padding-left: 24px; color: var(--muted); }
 .feature li b { color: var(--text); font-weight: 650; }
