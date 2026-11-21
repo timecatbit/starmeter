@@ -1547,6 +1547,48 @@ class SessionParityTests(unittest.TestCase):
         self.assertEqual(grown['requests'], 1502)
         self.assertAlmostEqual(grown['cost'] - first['cost'], first['cost'] / 1501, places=12)
 
+    def test_a_kept_session_cost_follows_the_prices_in_effect(self):
+        """SESSION-7: the cost kept between processes is counted again when the prices change: a model priced for the
+        first time, then its price raised."""
+        temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
+        root = Path(temp.name); codex = root / 'codex'; pricing = root / 'pricing'
+        pricing.mkdir(); (root / 'state').mkdir()
+        moment = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+        usage = {'input_tokens': 1000000, 'cached_input_tokens': 0, 'output_tokens': 0, 'total_tokens': 1000000}
+        rows = [{'timestamp': moment, 'type': 'session_meta', 'payload': {'id': '0199-p', 'cwd': '/w/prices', 'model_provider': 'openai'}},
+                {'timestamp': moment, 'type': 'turn_context', 'payload': {'model': 'gpt-test-price'}},
+                {'timestamp': moment, 'type': 'event_msg', 'payload': {'type': 'token_count', 'info': {
+                    'total_token_usage': usage, 'last_token_usage': usage, 'model_context_window': 400000}}},
+                {'timestamp': moment, 'type': 'event_msg', 'payload': {'type': 'task_complete'}}]
+        path = codex / 'sessions' / time.strftime('%Y/%m/%d') / 'rollout-2026-11-21T10-00-00-0199-p.jsonl'
+        path.parent.mkdir(parents=True); path.write_text(''.join(json.dumps(row) + '\n' for row in rows))
+        table = json.loads((ROOT / 'lib' / 'codex-pricing.json').read_text())
+        def prices(rate):
+            models = dict(table['models'], **({'gpt-test-price': {'input': rate, 'output': rate, 'cacheRead': rate, 'cacheWrite': rate}} if rate else {}))
+            (pricing / 'codex-pricing.json').write_text(json.dumps(dict(table, models=models)))
+        # Each reading its own process, reading the prices from this test's table.
+        environment = dict(os.environ, HOME=str(root / 'home'), CODEX_HOME=str(codex), OCX_STATE_DIR=str(root / 'state'),
+                           OCX_CACHE_DIR=str(root / 'cache'), OCX_PLUGIN_PATH=str(ROOT / 'starmeter.30s.sh'), STARMETER_PRICING=str(pricing))
+        for name in ('CLAUDE_CONFIG_DIR', 'XDG_CONFIG_HOME', 'OCX_CHATGPT_HOME'):environment.pop(name, None)
+        def spent():
+            done = subprocess.run([PROBE], input=json.dumps({'call': 'runtime', 'args': ['sessions']}).encode(), capture_output=True, check=True, env=environment)
+            result = probed(done.stdout)['result']
+            found = [s for s in result['payload']['sessions'] if s['tool'] == 'ChatGPT']
+            self.assertEqual(len(found), 1)
+            return found[0]['spent']
+        prices(None)
+        first = spent()
+        self.assertEqual((first['requests'], first['unpriced']), (1, 1))
+        prices(2.0)
+        priced = spent()
+        self.assertEqual((priced['requests'], priced['unpriced']), (1, 0), 'Priced for the first time')
+        self.assertAlmostEqual(priced['cost'], 2.0)
+        prices(5.0)
+        raised = spent()
+        self.assertEqual((raised['requests'], raised['unpriced']), (1, 0))
+        self.assertAlmostEqual(raised['cost'], 5.0)
+        self.assertAlmostEqual(raised['ranges']['today']['cost'], 5.0)
+
     def test_session_rows_count_the_range_shown_and_tell_apart_sessions_of_one_name(self):
         temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
         root = Path(temp.name); now = time.time()

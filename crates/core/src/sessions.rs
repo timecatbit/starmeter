@@ -526,8 +526,21 @@ const SPENDS_KEPT: f64 = 26.0 * 3600.0;
 const DAYS_KEPT: i64 = 40;
 /// The session-spent cache's own version, beside the schema 1 every cache record carries (a record of another schema
 /// reads as empty): 3 keeps each session's cost by day in the counting zone and its last day of requests one by one,
-/// and when it began.
-const SPENT_VERSION: i64 = 3;
+/// and when it began; 4 keeps the prices it was counted with and each file's last bytes read.
+const SPENT_VERSION: i64 = 4;
+/// How much of a transcript, up to where the last reading stopped, must be as it was for the reading to go on.
+const CHECKED: u64 = 4096;
+
+/// A digest of the bytes of a file just before `offset` (CHECKED of them, or all there are): when they differ from the
+/// last reading's, something above the new lines was written over.
+fn tail_of(path: &str, offset: u64) -> Option<String> {
+    let mut file = File::open(path).ok()?;
+    let from = offset.saturating_sub(CHECKED);
+    file.seek(SeekFrom::Start(from)).ok()?;
+    let mut bytes = vec![0; (offset - from) as usize];
+    file.read_exact(&mut bytes).ok()?;
+    Some(py::sha256_hex(&bytes)[..16].to_string())
+}
 
 /// A moment's day in a zone, as 2026-11-21.
 fn day_of(at: f64, zone: &TimeZone) -> String {
@@ -538,7 +551,9 @@ fn day_of(at: f64, zone: &TimeZone) -> String {
 /// What a whole session has cost: every request in its transcript, counted as the turns count them (a Claude reply
 /// streamed over several lines once; each change of Codex's running token total once). A Claude fork's copied
 /// history is left to the session it came from. With `kept`, the tally of the last reading (by inode and the offset it
-/// stopped at), only what was written since is read: a long running session isn't read whole every half minute. The
+/// stopped at), only what was written since is read: a long running session isn't read whole every half minute. A
+/// file that changed without growing, or whose bytes before that offset are no longer those read, was written over in
+/// place and is read again from the start. The
 /// tally also keeps, for what the session cost in a range, its cost by day in `zone` ({day: [requests, cost,
 /// unpriced]}, in the order the days come) and each request since `since` as [its time, its cost or null]; a tally of
 /// another zone is read afresh. Gives the cost and the tally to keep.
@@ -553,10 +568,17 @@ fn spent(
     let unreadable = || FileError::of_kind("unreadable", "OSError");
     let state = state_of(Path::new(path)).ok_or_else(unreadable)?;
     let counted = zone_key(zone, since);
+    // Only read when the file changed: grown, it goes on from where the last reading stopped, provided what was read
+    // is still there as it was.
     let resumed = kept.filter(|kept| {
+        let offset = kept.get("offset").and_then(Json::integer).filter(|offset| (0..state.size).contains(offset));
         kept.get("inode").and_then(Json::integer) == Some(state.inode)
-            && kept.get("offset").and_then(Json::integer).is_some_and(|offset| offset <= state.size)
             && kept.get("zone").and_then(Json::as_str) == Some(counted.as_str())
+            && offset.is_some_and(|offset| {
+                kept.get("tail")
+                    .and_then(Json::as_str)
+                    .is_some_and(|tail| tail_of(path, offset as u64).as_deref() == Some(tail))
+            })
     });
     let field = |name: &str| resumed.and_then(|kept| kept.get(name)).cloned();
     let mut requests = field("requests").and_then(|value| value.integer()).unwrap_or(0);
@@ -653,8 +675,10 @@ fn spent(
         .filter(|(day, _)| day.as_str() >= oldest.as_str())
         .map(|(day, figure)| (day.as_str(), figure.clone()))
         .collect();
+    let offset = start + complete as u64;
     let tally = object! {
-        "inode" => state.inode, "offset" => (start + complete as u64) as i64, "requests" => requests,
+        "inode" => state.inode, "offset" => offset as i64, "tail" => tail_of(path, offset).map_or(Json::Null, Json::from),
+        "requests" => requests,
         "cost" => cost, "unpriced" => unpriced, "seen" => Json::Array(seen.into_iter().map(Json::from).collect()),
         "model" => model, "total" => total.map_or(Json::Null, |value| object! { "value" => value.unwrap_or(Json::Null) }.into()),
         "zone" => counted, "days" => Json::Object(days), "spends" => Json::Array(spends),
@@ -907,7 +931,11 @@ pub fn active(
                     whole = false;
                     continue;
                 };
-                let mut tally = match before.filter(|before| before.get("print") == Some(&now_print)) {
+                // Unchanged, and counted in the zone counted in now: as it was. Otherwise read (on) again.
+                let mut tally = match before.filter(|before| {
+                    before.get("print") == Some(&now_print)
+                        && before.get("zone").and_then(Json::as_str) == Some(zone_key(zone, now - SPENDS_KEPT).as_str())
+                }) {
                     Some(before) => before.clone(),
                     None => match spent(segment, tool, price, before, now - SPENDS_KEPT, zone) {
                         Ok((_, mut tally)) => {
@@ -1039,14 +1067,17 @@ impl Runtime {
             let app = claude_app::session_settings(&self.source_path("claude"), listed_since(&ranges, now));
             let prices = self.session_prices();
             let codex_root = self.codex_home_absolute();
-            // Each session's cost read so far, by session, kept beside the sessions to go on from. Version 2 keeps each
-            // request's time with its cost and when the session began: a tally from before is read again from the
-            // start, once. (A schema 2 record was never read back, so every refresh read each session whole.)
+            // Each session's cost read so far, by session, kept beside the sessions to go on from. A tally of another
+            // version, or counted with other prices (a price table updated, a model priced for the first time, this
+            // app's own prices changed), is read again from the start, once. (A schema 2 record was never read back,
+            // so every refresh read each session whole.)
             let record = self.read_cache("session-spent");
+            let priced_with = crate::pricing::fingerprint();
             let mut tallies = record
                 .get("sessions")
                 .and_then(Json::as_object)
                 .filter(|_| record.get("version").and_then(Json::integer) == Some(SPENT_VERSION))
+                .filter(|_| record.get("prices").and_then(Json::as_str) == Some(priced_with.as_str()))
                 .cloned()
                 .unwrap_or_default();
             let before = tallies.clone();
@@ -1063,7 +1094,7 @@ impl Runtime {
             if tallies != before {
                 self.write_json_cache(
                     &self.cache_path("session-spent"),
-                    &object! { "schema" => 1, "version" => SPENT_VERSION, "sessions" => tallies }.into(),
+                    &object! { "schema" => 1, "version" => SPENT_VERSION, "prices" => priced_with, "sessions" => tallies }.into(),
                 );
             }
             if self.settings().get("sessionAlerts").is_some_and(Json::is_truthy) {
@@ -1093,6 +1124,7 @@ mod tests {
     use super::{Price, active, range_costs, spent};
     use crate::json::{Json, Object};
     use std::collections::HashMap;
+    use std::io::Write;
 
     fn line(id: &str, output: i64) -> String {
         format!(
@@ -1176,6 +1208,126 @@ mod tests {
         let (_, again) = spent(&path, "Claude", &price, Some(&tally), at("2026-11-21T00:00:00Z"), &taipei).unwrap();
         let days = again.get("days").and_then(Json::as_object).cloned().unwrap();
         assert_eq!(days.get("2026-11-21").and_then(|day| day.as_array()).and_then(|day| day[0].integer()), Some(3));
+        let _ = std::fs::remove_dir_all(&folder);
+    }
+
+    #[test]
+    fn a_transcript_written_over_in_place_is_counted_again() {
+        // SESSION-6: changed without growing, or changed above the new lines, it is read again from the start; grown
+        // only, it is read on from where it stopped.
+        let folder = std::env::temp_dir().join(format!("starmeter-rewritten-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        let file = folder.join("session.jsonl");
+        let path = file.to_string_lossy().into_owned();
+        let reply = |id: &str, input: i64| {
+            format!(
+                "{{\"type\":\"assistant\",\"timestamp\":\"2026-11-21T10:00:00Z\",\"message\":{{\"id\":\"{id}\",\"model\":\"m\",\"usage\":{{\"input_tokens\":{input},\"output_tokens\":0}}}}}}\n"
+            )
+        };
+        let price: Price =
+            Box::new(|_, usage| Some(usage.get("input_tokens").and_then(Json::integer)? as f64 / 1_000_000.0 * 3.0));
+        let utc = jiff::tz::TimeZone::UTC;
+        let cost = |figure: &Json| figure.get("cost").and_then(Json::python_float).unwrap();
+        let fresh = || spent(&path, "Claude", &price, None, 0.0, &utc).unwrap().0;
+        std::fs::write(&file, reply("a", 1_000_000)).unwrap();
+        let (first, tally) = spent(&path, "Claude", &price, None, 0.0, &utc).unwrap();
+        assert_eq!(cost(&first), 3.0);
+        // 1,000,000 input tokens written over as 2,000,000: the same file, the same length.
+        std::fs::write(&file, reply("a", 2_000_000)).unwrap();
+        let (again, tally) = spent(&path, "Claude", &price, Some(&tally), 0.0, &utc).unwrap();
+        assert_eq!(cost(&again), 6.0);
+        assert_eq!(again.serialized(), fresh().serialized());
+        // Written over again and grown: the new line alone would keep the old count above it.
+        std::fs::write(&file, reply("a", 3_000_000) + &reply("b", 1_000_000)).unwrap();
+        let (grown, tally) = spent(&path, "Claude", &price, Some(&tally), 0.0, &utc).unwrap();
+        assert_eq!((grown.get("requests").and_then(Json::integer), cost(&grown)), (Some(2), 12.0));
+        // Only grown: read on, and the same as a whole reading.
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&file)
+            .unwrap()
+            .write_all(reply("c", 1_000_000).as_bytes())
+            .unwrap();
+        let (resumed, _) = spent(&path, "Claude", &price, Some(&tally), 0.0, &utc).unwrap();
+        assert_eq!(cost(&resumed), 15.0);
+        assert_eq!(resumed.serialized(), fresh().serialized());
+        let _ = std::fs::remove_dir_all(&folder);
+    }
+
+    #[test]
+    fn a_new_counting_zone_puts_a_kept_sessions_cost_in_its_own_days() {
+        // SESSION-5: $3 before Taipei's midnight, $6 after. Taipei's today is $6; in UTC both are today's, $9, though the
+        // transcript is unchanged and its tally kept.
+        let folder = std::env::temp_dir().join(format!("starmeter-zones-{}", std::process::id()));
+        let file = folder.join("p").join("session.jsonl");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        let reply = |id: &str, at: &str, output: i64| {
+            format!(
+                "{{\"type\":\"assistant\",\"timestamp\":\"{at}\",\"message\":{{\"id\":\"{id}\",\"model\":\"m\",\"stop_reason\":\"end_turn\",\"usage\":{{\"input_tokens\":1,\"output_tokens\":{output}}}}}}}\n"
+            )
+        };
+        std::fs::write(&file, reply("a", "2026-11-20T15:30:00Z", 3) + &reply("b", "2026-11-20T16:30:00Z", 6)).unwrap();
+        let utc = jiff::tz::TimeZone::UTC;
+        let taipei = jiff::tz::TimeZone::get("Asia/Taipei").unwrap();
+        let at = |text: &str| crate::time::IsoTime::parse(text).unwrap().timestamp(&utc);
+        let now = at("2026-11-20T20:00:00Z");
+        let written = std::time::UNIX_EPOCH + std::time::Duration::from_secs_f64(now - 60.0);
+        std::fs::File::options().write(true).open(&file).unwrap().set_modified(written).unwrap();
+        let price: Price = Box::new(|_, usage| Some(usage.get("output_tokens").and_then(Json::integer)? as f64));
+        let prices = HashMap::from([("Claude", price)]);
+        let roots = [folder.to_string_lossy().into_owned()];
+        let today = |found: &[Json]| {
+            found[0]
+                .get("spent")
+                .and_then(|spent| spent.get("ranges"))
+                .and_then(|ranges| ranges.get("today"))
+                .and_then(|today| today.get("cost"))
+                .and_then(Json::python_float)
+        };
+        let in_taipei = [("today".to_string(), at("2026-11-20T16:00:00Z"), now)];
+        let in_utc = [("today".to_string(), at("2026-11-20T00:00:00Z"), now)];
+        let mut tallies = Object::new();
+        let first = active(
+            &roots,
+            None,
+            now,
+            Some(&prices),
+            &HashMap::new(),
+            Some(&mut tallies),
+            super::Counting { ranges: &in_taipei, zone: &taipei },
+        );
+        assert_eq!(today(&first), Some(6.0));
+        let again = active(
+            &roots,
+            None,
+            now,
+            Some(&prices),
+            &HashMap::new(),
+            Some(&mut tallies),
+            super::Counting { ranges: &in_utc, zone: &utc },
+        );
+        assert_eq!(today(&again), Some(9.0));
+        let fresh = active(
+            &roots,
+            None,
+            now,
+            Some(&prices),
+            &HashMap::new(),
+            None,
+            super::Counting { ranges: &in_utc, zone: &utc },
+        );
+        assert_eq!(today(&fresh), Some(9.0));
+        // Back in Taipei, from the UTC tally: $6 again.
+        let back = active(
+            &roots,
+            None,
+            now,
+            Some(&prices),
+            &HashMap::new(),
+            Some(&mut tallies),
+            super::Counting { ranges: &in_taipei, zone: &taipei },
+        );
+        assert_eq!(today(&back), Some(6.0));
         let _ = std::fs::remove_dir_all(&folder);
     }
 

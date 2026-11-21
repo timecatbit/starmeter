@@ -120,6 +120,14 @@ pub fn committed(table: &Object) -> f64 {
     IsoTime::parse(&py::str(Some(text))).map_or(0.0, |time| time.timestamp(&TimeZone::system()))
 }
 
+/// The prices in effect, as a short digest: both tables as read and this build (Claude's prices are built in), so a
+/// cost kept from other prices is counted again.
+pub fn fingerprint() -> String {
+    let tables = ["model-pricing.json", "codex-pricing.json"].map(|name| Json::Object(table(name)).serialized());
+    let text = format!("{}\n{}\n{}", tables[0], tables[1], env!("CARGO_PKG_VERSION"));
+    py::sha256_hex(text.as_bytes())[..16].to_string()
+}
+
 /// The newest valid copy of a table, cached until `reset`; empty when no folder has a valid one.
 pub fn table(name: &str) -> Object {
     let mut loaded = LOADED.lock().expect("pricing cache");
