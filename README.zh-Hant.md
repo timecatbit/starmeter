@@ -17,13 +17,13 @@
   <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/zh-Hant/live-dark.png"><img src="docs/images/zh-Hant/live-light.png" width="250" align="top" alt="釘住後的即時圖：近 1 分鐘新增的 Token"></picture>
 </p>
 
-Starmeter 是 macOS 選單欄（獨立 App 或 SwiftBar 外掛）和 Windows、Linux 托盤裡的一顆星星，終端裡也能用 `starmeter` 命令看。它只讀本機已有的用量記錄和你啟用的官方接口，不需要帳號、不經過任何中轉伺服器。免費開源。介面有簡體中文、繁體中文和英文，在“齒輪 → 通用 → 語言”切換。
+Starmeter 是 macOS 選單欄（獨立 App 或 SwiftBar 外掛）和 Windows、Linux 托盤裡的一顆星星，終端裡也能用 `starmeter` 命令看。它只讀本機已有的用量記錄和你啟用的官方介面，不需要帳號、不經過任何中轉伺服器。免費開源。介面有簡體中文、繁體中文和英文，在“齒輪 → 通用 → 語言”切換。
 
 原名 Token Monitor，設定和 Key 都會保留。從 6.0.2 起下載檔案改名為 `starmeter-…`，6.0.1 及更早的版本收不到這次自動更新，請按下面的“[從 6.0.1 及更早版本升級](#從-601-及更早版本升級)”手動升級一次，之後照常自動更新。
 
 ## 能看什麼
 
-- **工具 Token 用量**：Claude（桌面 App 和 VS Code、JetBrains、終端裡的 Claude Code）、ChatGPT（Codex）、OpenCodex、Magpie、OpenCode、DeepSeek Harness、WorkBuddy、Qoder（國內版 Qoder CN）、Gemini CLI、Cursor（桌面版和 Cursor CLI）。顯示 Token、請求、快取命中、模型分布、趨勢圖和用量熱力圖，並按模型官方價估算 API 等值費用。範圍可選今天、昨天、近 24 小時、近 7/30 天、本週、本月或全部；卡片按用量從多到少排，可以按工具、按模型或按專案（會話所在的專案資料夾）查看。網關（Magpie、OpenCodex）和經過它的客戶端會各記一遍同一請求，Summary 只算一次。工具自己清理掉的舊記錄（Claude Code 預設只留 30 天）仍會計入，可以關閉。在 Windows 上，正在執行的 WSL 發行版裡的 Claude Code 和 Codex 也一起統計。
+- **工具 Token 用量**：Claude（桌面 App 和 VS Code、JetBrains、終端裡的 Claude Code）、ChatGPT（Codex）、OpenCodex、Magpie、OpenCode、DeepSeek Harness、WorkBuddy、Qoder（國內版 Qoder CN）、Gemini CLI、Cursor（桌面版和 Cursor CLI）。顯示 Token、請求、快取命中、模型分布、趨勢圖和用量熱力圖，並按模型官方價估算 API 等值費用。範圍可選今天、昨天、近 24 小時、近 7/30 天、本週、本月或全部；卡片按用量從多到少排，可以按工具、按模型或按專案（會話所在的專案資料夾）查看。閘道（Magpie、OpenCodex）和經過它的客戶端會各記一遍同一請求，Summary 只算一次。工具自己清理掉的舊記錄（Claude Code 預設只留 30 天）仍會計入，可以關閉。在 Windows 上，正在執行的 WSL 發行版裡的 Claude Code 和 Codex 也一起統計。
 - **訂閱額度**：ChatGPT、Claude、MiniMax、Cursor 顯示已用百分比和重置時間，70% 起變橙、90% 起變紅，並寫出比勻速多用還是少用；Qoder 讀取 Qoder CN App 本機記錄的 Credits 用量；Gemini、Grok、Kimi 可以手動標記。填上每月訂閱價後，側欄寫本月用量值訂閱價的幾倍（按 API 官方價估算）。
 - **API 餘額與花費**：DeepSeek、Kimi、Grok 顯示餘額；Qoder 用組織 API Key（團隊版/企業版）顯示組織共享的加購 Credits；Claude 顯示本月花費（需要管理員 Key）；ChatGPT、Gemini 可以測試 Key 是否可用。每個 API 可以儲存多把 Key，主頁顯示合計和 Key 數量，如“餘額 ¥12.00 (3)”。
 - **會話**：工具 / 模型 / 專案旁的第四個標籤，列出所選統計範圍裡活動過的 Claude Code 與 Codex 會話，正在執行的和最新活躍的在前，先列 5 個，其餘點“查看更多”。每個會話一張卡：這個會話在所選統計範圍裡花了多少（和其他標籤同一口徑，釘住時即時跳動）、是否正在執行、這一輪用了多少 Token、上下文用了多少，點開看整個會話的累計花費和最近幾輪各用了多少 Token、費用和工具；可選在一輪完成時提醒。
@@ -34,7 +34,7 @@ Starmeter 是 macOS 選單欄（獨立 App 或 SwiftBar 外掛）和 Windows、L
 - **在手機上看**：齒輪裡的“在手機上看”給出一個QR碼，手機掃一下就在瀏覽器裡看主頁（只讀，可以換統計範圍、按工具/模型/專案分組、看會話、點進工具頁，也能生成分享圖存到相冊或發給朋友）。預設在同一個網路裡直連電腦；手機不在同一個網路時可選“任何網路”，確認後經 Cloudflare 生成臨時外網連結（第一次要下載 cloudflared），一小時後關閉；同一個網路裡一直開著，直到點“停止”或退出 App。
 - **提醒**：訂閱視窗用到 90%（可改為 70%、80% 或關閉）時發通知；餘額類 API 可以按幣種設定低於多少時提醒；可選在每週額度快重置卻還沒怎麼用時提醒。
 - **工具更新**：已勾選客戶端有新版本時提醒，Claude Code 和 Codex CLI 可一鍵在終端更新。
-- **其他**：選單欄星星旁可選顯示今天的 API 估算或最緊張的訂閱額度；可設全局快捷鍵（如 ⌃⌥S，Windows 是 Ctrl+Alt+S），在任何地方按下即可打開或收起面板；當前範圍的用量可匯出成 CSV 或 JSON；可選讀取 Claude、OpenAI、Cursor 的官方狀態頁，服務出問題時標在卡片上；API 等值估算可以改用人民幣顯示；Komari 伺服器監控；淺色、深色或跟隨系統。
+- **其他**：選單欄星星旁可選顯示今天的 API 估算或最緊張的訂閱額度；可設全域快速鍵（如 ⌃⌥S，Windows 是 Ctrl+Alt+S），在任何地方按下即可打開或收起面板；當前範圍的用量可匯出成 CSV 或 JSON；可選讀取 Claude、OpenAI、Cursor 的官方狀態頁，服務出問題時標在卡片上；API 等值估算可以改用人民幣顯示；Komari 伺服器監控；淺色、深色或跟隨系統。
 
 <p align="center">
   <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/zh-Hant/models-dark.png"><img src="docs/images/zh-Hant/models-light.png" width="240" align="top" alt="按模型查看：每個模型的費用、Token 和來自哪些工具"></picture>
@@ -50,17 +50,17 @@ Starmeter 是 macOS 選單欄（獨立 App 或 SwiftBar 外掛）和 Windows、L
 
 | 你的電腦 | 發佈頁上的名字 | 檔案名 |
 | --- | --- | --- |
-| Mac，Apple M 系列芯片（未公證） | **Mac · Apple Silicon** | `starmeter-X.Y.Z-macos-apple-silicon.dmg` |
+| Mac，Apple M 系列晶片（未公證） | **Mac · Apple Silicon** | `starmeter-X.Y.Z-macos-apple-silicon.dmg` |
 | Mac，Intel 處理器（未公證） | **Mac · Intel** | `starmeter-X.Y.Z-macos-intel.dmg` |
 | Windows 10/11（推薦） | **Windows · Installer** | `starmeter-X.Y.Z-windows-x64-setup.exe` |
 | Windows 10/11，不想安裝 | **Windows · Portable** | `starmeter-X.Y.Z-windows-x64.zip` |
-| Mac，現在推薦（需先裝 SwiftBar） | **Mac · SwiftBar plugin** | `starmeter-X.Y.Z.zip`，不分芯片 |
+| Mac，現在推薦（需先裝 SwiftBar） | **Mac · SwiftBar plugin** | `starmeter-X.Y.Z.zip`，不分晶片 |
 | Ubuntu、Debian 等 | **Linux · Debian/Ubuntu** | `starmeter-X.Y.Z-linux-x64.deb` |
 | 其他 Linux 發行版 | **Linux · AppImage** | `starmeter-X.Y.Z-linux-x64.AppImage` |
-| 只要終端裡的 [命令列](#命令列)，Mac | **Mac · Command line** | `starmeter-X.Y.Z-macos-cli.tar.gz`，不分芯片 |
+| 只要終端裡的 [命令列](#命令列)，Mac | **Mac · Command line** | `starmeter-X.Y.Z-macos-cli.tar.gz`，不分晶片 |
 | 只要終端裡的 [命令列](#命令列)，Linux | **Linux · Command line** | `starmeter-X.Y.Z-linux-x64-cli.tar.gz` |
 
-不確定 Mac 芯片？點螢幕左上角的蘋果選單 → **關於本機**：顯示「芯片：Apple M…」選 Apple Silicon，顯示「處理器：Intel…」選 Intel。每個檔案旁的 `sha256:` 是 GitHub 給出的校驗值，需要時可以和下載的檔案比對。
+不確定 Mac 晶片？點螢幕左上角的蘋果選單 → **關於本機**：顯示「晶片：Apple M…」選 Apple Silicon，顯示「處理器：Intel…」選 Intel。每個檔案旁的 `sha256:` 是 GitHub 給出的校驗值，需要時可以和下載的檔案比對。
 
 ### Mac：獨立版還是 SwiftBar 外掛？
 
@@ -74,7 +74,7 @@ Starmeter 是 macOS 選單欄（獨立 App 或 SwiftBar 外掛）和 Windows、L
 
 **獨立版**：打開 DMG，把 **Starmeter** 拖到 **應用程式**，推出鏡像，再從應用程式打開。**預覽未做 Apple 公證**。若首次打開被攔，確認下載自專案發佈頁後，到「系統設定 → 隱私與安全性 → 仍要打開」。受公司管理的 Mac 可能無法放行。兩版共用本機設定和 Key；從外掛切換到獨立版時，先在 SwiftBar 停用本外掛，避免兩個星星和重復提醒。
 
-**用 Homebrew 裝獨立版**：會按芯片選對 DMG。
+**用 Homebrew 裝獨立版**：會按晶片選對 DMG。
 
 ```sh
 brew install --cask timecatbit/tap/starmeter
@@ -107,7 +107,7 @@ python3 install.py
 ## 更新
 
 - **SwiftBar 外掛**：有新版本時，主頁“工具更新”下方會出現一行 **Starmeter**，右側寫著“可更新 X.Y.Z”。點“更新到 X.Y.Z”，確認後外掛自動下載、校驗並安裝，設定、Key 和統計記錄都會保留。沒有新版本時這一行不顯示。
-- **Mac 獨立版**：有適用當前芯片的新版本時，面板會連結到發佈頁。退出舊版，下載同芯片的新 DMG，再替換「應用程式」裡的 App；用 Homebrew 安裝的執行 `brew upgrade --cask starmeter`。
+- **Mac 獨立版**：有適用當前晶片的新版本時，面板會連結到發佈頁。退出舊版，下載同晶片的新 DMG，再替換「應用程式」裡的 App；用 Homebrew 安裝的執行 `brew upgrade --cask starmeter`。
 - **命令列**：用 Homebrew 安裝的執行 `brew upgrade starmeter-cli`；`.deb` 和 Windows 版裡的命令隨應用一起更新。
 - **價格表**：每天自動更新，新模型的價格不用等新版本。
 
@@ -116,16 +116,16 @@ python3 install.py
 6.0.2 起下載檔案改名為 `starmeter-…`，6.0.1 及更早的版本按舊名字找更新，收不到這一版，需要手動升級一次；設定、Key 和統計記錄都會保留。
 
 - **SwiftBar 外掛**：下載發佈頁上的 **Mac · SwiftBar plugin**，解壓後在目錄裡執行 `python3 install.py`。
-- **Mac 獨立版**：退出舊版，下載同芯片的新 DMG，替換「應用程式」裡的 App；用 Homebrew 安裝的執行 `brew upgrade --cask starmeter`。
+- **Mac 獨立版**：退出舊版，下載同晶片的新 DMG，替換「應用程式」裡的 App；用 Homebrew 安裝的執行 `brew upgrade --cask starmeter`。
 - **Windows**：從托盤退出舊版，執行新的 `starmeter-X.Y.Z-windows-x64-setup.exe` 覆蓋安裝；免安裝版解壓新的 zip 替換舊資料夾。
 
 ## 使用
 
-- **左鍵星星**打開主頁，預設顯示今天。首次安裝會在後台讀取這台電腦已有的用量記錄；選「全部」可以查看仍儲存在本機的記錄，不需要發起新調用。已經刪除、從未同步到本機或沒有記錄 Token 的對話無法補算。
+- **左鍵星星**打開主頁，預設顯示今天。首次安裝會在後台讀取這台電腦已有的用量記錄；選「全部」可以查看仍儲存在本機的記錄，不需要發起新呼叫。已經刪除、從未同步到本機或沒有記錄 Token 的對話無法補算。
 - 第一次打開時，面板會在主頁上帶你走一遍：歡迎頁可以直接選簡體中文、繁體中文或 English，接著依次點亮用量總覽、統計範圍、卡片、訂閱與 API 和標題欄的按鈕。這台電腦上還沒找到任何工具時，指引改為說明去哪裡勾選工具或自動檢測；工具還在第一次讀取時，會說明數字稍後自己出現。之後在“齒輪 → 通用 → 新手指引”可以再看。
 - 標題旁依次是圖釘（釘住）、齒輪（主頁模組與設定）、分享和統計範圍。點帶箭頭的行進入它的詳情頁，點返回、按 Esc 或觸控板雙指右滑回到主頁。
 - **右鍵星星 → 主頁模組…** 選擇要顯示的模組，並設定記錄目錄、Key 和連接；**自動檢測…** 按本機已安裝的工具重新勾選模組，確認前不會改動任何設定。
-- **網關**：Magpie 讀取本機的 `usage.jsonl`（預設 `~/.config/magpie`），OpenCodex 讀取它自己的日誌。同時勾選網關和經過它的客戶端（如 ChatGPT、Claude）時，經過網關的請求只按網關計入 Summary，客戶端卡片照常顯示自己的全部記錄並注明“N 次已由 Magpie 計入”。ChatGPT 桌面版的預測消息等附加調用不寫進本機的 Codex 記錄，只在經過 Magpie 時才統計得到，所以 Magpie 裡 ChatGPT 的請求可能比 ChatGPT 卡片多。
+- **閘道**：Magpie 讀取本機的 `usage.jsonl`（預設 `~/.config/magpie`），OpenCodex 讀取它自己的日誌。同時勾選閘道和經過它的客戶端（如 ChatGPT、Claude）時，經過閘道的請求只按閘道計入 Summary，客戶端卡片照常顯示自己的全部記錄並注明“N 次已由 Magpie 計入”。ChatGPT 桌面版的預測消息等附加呼叫不寫進本機的 Codex 記錄，只在經過 Magpie 時才統計得到，所以 Magpie 裡 ChatGPT 的請求可能比 ChatGPT 卡片多。
 - **DeepSeek Harness** 預設讀取 `~/.dsh/sessions`（設定了 `DSH_HOME` 時讀其 `sessions` 子目錄），也可手選目錄。
 - Mac 的進階設定寫在 `~/Library/Application Support/SwiftBarToken/config.local.sh`，可用的變量見 [config.example.sh](config.example.sh)。如果命令列工具只在終端初始化時加入 PATH（例如透過 nvm 安裝），可在這個檔案裡把對應的 `bin` 目錄加進 PATH。
 
@@ -167,12 +167,12 @@ starmeter usage 30d --json     # 給腳本用的 JSON
 
 - 本機日誌只讀取，只記錄用量數字；專案只記資料夾名。不儲存對話內容。
 - Key 只儲存在本機，檔案只有你自己能讀，介面上不顯示 Key 內容。
-- Claude 訂閱用量只在你啟用後，用本機 Claude Code 的登入向 Anthropic 的用量接口查詢；令牌只在內存裡，不刷新、不寫回。
+- Claude 訂閱用量只在你啟用後，用本機 Claude Code 的登入向 Anthropic 的用量介面查詢；令牌只在內存裡，不刷新、不寫回。
 - Cursor 的用量讀取預設關閉。開啟後只讀取本機已儲存的 Cursor 登入，令牌只在內存裡、只發往 cursor.com 查詢本帳戶的用量記錄，不儲存、不刷新、不改寫。
-- 只向你啟用的服務的官方接口查詢。另外每天從 GitHub 檢查一次價格表和外掛新版本，請求不帶 Cookie 或任何標識；不需要的話，在 `config.local.sh` 加 `export OCX_PRICING_UPDATES=0` 或 `export OCX_SELF_UPDATES=0` 即可關閉。服務狀態頁和人民幣匯率只在你開啟後才讀取。
+- 只向你啟用的服務的官方介面查詢。另外每天從 GitHub 檢查一次價格表和外掛新版本，請求不帶 Cookie 或任何標識；不需要的話，在 `config.local.sh` 加 `export OCX_PRICING_UPDATES=0` 或 `export OCX_SELF_UPDATES=0` 即可關閉。服務狀態頁和人民幣匯率只在你開啟後才讀取。
 - 多台電腦合併只寫到你自己選的同步資料夾，由你的網盤同步，Starmeter 不經過任何伺服器；檔案裡只有電腦名稱、工具、模型和用量數字，沒有路徑、專案、對話或 Key。
 - 在手機上看時，資料只在區域網裡從這台電腦直接發到手機，連結帶一次性口令，沒有口令打不開；只有選了“任何網路”才經過 Cloudflare 的臨時連結（第一次從 GitHub 下載 cloudflared），一小時後關閉；點“停止”或退出 App 時全部關閉。
-- 費用是按官方 API 價格算出的等值估算，不是你的訂閱賬單；沒有價格的模型只統計 Token，不會憑空填個零。
+- 費用是按官方 API 價格算出的等值估算，不是你的訂閱帳單；沒有價格的模型只統計 Token，不會憑空填個零。
 
 ## 開發
 

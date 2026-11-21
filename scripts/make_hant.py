@@ -32,7 +32,7 @@ CHINESE = re.compile(r'[\u3400-\u4dbf\u4e00-\u9fff]+')
 
 # Characters ICU writes in a form Taiwan doesn't (啓 for 啟).
 VARIANTS = {'啓': '啟', '鈎': '鉤', '綫': '線', '衆': '眾', '爲': '為', '僞': '偽', '裏': '裡', '眞': '真', '敎': '教',
-            '値': '值', '吿': '告', '靑': '青', '淸': '清', '鷄': '雞', '麪': '麵', '峯': '峰', '羣': '群', '牀': '床'}
+            '値': '值', '吿': '告', '靑': '青', '淸': '清', '鷄': '雞', '麪': '麵', '峯': '峰', '羣': '群', '牀': '床', '竪': '豎'}
 # Characters ICU gets wrong whatever their context (沉 is not 沈), or leaves where Taiwan writes another (面板里 is
 # 面板裡; Starmeter's 里 is always "in", never a distance): fixed in every phrase too.
 FORCED = {'沉': '沉', '里': '裡'}
@@ -52,6 +52,8 @@ WORDS = {
     '优化': '最佳化', '支持': '支援', '线程': '執行緒', '日志': '日誌', '激活': '啟用', '卸载': '解除安裝',
     '源代码': '原始碼', '默认值': '預設值', '高级': '進階', '通过': '透過', '兼容': '相容', '录制': '錄製',
     '每周': '每週', '上周': '上週', '下周': '下週', '周报': '週報', '一周': '一週', '两周': '兩週', '周末': '週末',
+    '芯片': '晶片', '账单': '帳單', '接口': '介面', '网关': '閘道', '调用': '呼叫', '全局快捷键': '全域快速鍵', '全局': '全域',
+    '快捷键': '快速鍵',
     '配置': '設定', '实时': '即時', '运行中': '執行中', '自定义': '自訂', '交互': '互動', '界面': '介面', '屏幕截图': '螢幕截圖',
 }
 # Words whose Taiwan form would be longer than the Simplified one (a label laid out for it would wrap): kept as ICU
