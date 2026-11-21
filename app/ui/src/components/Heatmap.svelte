@@ -4,7 +4,7 @@
   // speck, one yet to come a fainter one. The dot of now (this hour, or today) wears a ring. Several days by the hour get
   // an hour axis. Pointing at a dot reads it out on the line under them, where the streak (or why there's nothing yet)
   // sits otherwise; only this block redraws as the pointer moves.
-  import { heatmapFuture, heatmapShades, label, totalColor } from '../lib/colors';
+  import { heatmapFuture, heatmapShades, label, summaryColour } from '../lib/colors';
   import { t } from '../lib/i18n.svelte';
   import { detail, dotRadius, HeatmapLayout, levels as shadeLevels, note, past as pastCount, rows as rowCount } from '../lib/heatmap';
   import { font, width } from '../lib/measure';
@@ -54,7 +54,7 @@
       {#if now !== null && squares[now]}
         {@const square = squares[now]}
         <circle class="now" cx={square.x + square.size / 2} cy={square.y + square.size / 2} r={square.size / 2 + 1.6}
-          fill="none" stroke={totalColor(panel.dark)} stroke-width="1" />
+          fill="none" stroke={summaryColour(panel.dark)} stroke-width="1" />
       {/if}
       {#if pointed !== null && squares[pointed]}
         {@const square = squares[pointed]}

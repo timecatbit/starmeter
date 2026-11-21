@@ -87,7 +87,8 @@
     </span>
     {#if share !== null}
       <span class="bar">
-        <span class="bar-fill" style:width="max(4px, {share * 100}%)" style:background={barColor(entry.usageLevel, panel.dark)}></span>
+        <span class="bar-fill" style:width="max(4px, {share * 100}%)" style:background={barColor(entry.usageLevel, panel.dark)}
+          style:--pen={barColor(entry.usageLevel, panel.dark)}></span>
         {#if evenPace !== null}
           <span class="pace" style:left="clamp(0px, calc({evenPace * 100}% - 1px), calc(100% - 2px))"></span>
         {/if}

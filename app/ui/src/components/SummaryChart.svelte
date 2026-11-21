@@ -1,7 +1,9 @@
 <script lang="ts">
   // The trend under Summary: each counted tool as a thin line, their total as a soft area with a ringed end, the axis in
   // the column the heatmap's row names share, and the notes (partial data, when it was read) faint above the plot.
-  import { accent, alpha, totalColor } from '../lib/colors';
+  import { alpha, toolColour, summaryColour } from '../lib/colors';
+  import { pen } from '../lib/sketchPalette';
+  import { style } from '../lib/style.svelte';
   import { chartAxis, chartPositions, labelColumn, seriesOf, smoothCurves, summaryProviders, svgPath } from '../lib/chart';
   import { panel } from '../lib/ui.svelte';
   import type { Dashboard } from '../lib/types';
@@ -19,7 +21,7 @@
   const totals = $derived(Array.from({ length: n }, (_, i) => series.reduce((s, row) => s + row[i], 0)));
   const positions = $derived(chartPositions(data));
   const curves = $derived(n > 1 ? smoothCurves(series, positions, plot, axis.ceiling) : []);
-  const total = $derived(totalColor(panel.dark));
+  const total = $derived(summaryColour(panel.dark));
   const bottom = $derived(plot.y + plot.h);
   const area = $derived(curves.length ? svgPath(curves[curves.length - 1]) + `L${plot.x + plot.w},${bottom}L${plot.x},${bottom}Z` : '');
   const end = $derived(n > 1 ? [plot.x + positions[n - 1] * plot.w, bottom - (totals[n - 1] / axis.ceiling) * plot.h] : [0, 0]);
@@ -38,6 +40,10 @@
       <stop offset="0" stop-color={alpha(total, panel.dark ? 0.16 : 0.11)} />
       <stop offset="1" stop-color={alpha(total, 0)} />
     </linearGradient>
+    <!-- 手绘: the trend hatched in the teal pen under the coral line, as the 手绘 picture draws it. -->
+    <pattern id="{gradient}-hatch" width="4.2" height="4.2" patternUnits="userSpaceOnUse" patternTransform="rotate(-37)">
+      <line x1="0" y1="0" x2="0" y2="4.2" stroke={pen('teal', panel.dark)} stroke-width="1" stroke-opacity="0.75" />
+    </pattern>
     <clipPath id="{gradient}-reveal">
       <rect x={plot.x - 6} y={plot.y - 10} width={(plot.w + 12) * reveal} height={plot.h + 20} />
     </clipPath>
@@ -50,15 +56,15 @@
     <!-- The grid is all there is to draw. -->
   {:else if n === 1}
     {#each series as values, i (i)}
-      <circle cx={plot.x + plot.w / 2} cy={bottom - (values[0] / axis.ceiling) * plot.h} r="2.5" fill={accent(providers[i].id, panel.dark)} />
+      <circle cx={plot.x + plot.w / 2} cy={bottom - (values[0] / axis.ceiling) * plot.h} r="2.5" fill={toolColour(providers[i].id, panel.dark)} />
     {/each}
     <circle cx={plot.x + plot.w / 2} cy={bottom - (totals[0] / axis.ceiling) * plot.h} r="3" fill={total} />
   {:else if n > 1}
     <g clip-path="url(#{gradient}-reveal)">
-      <path d={area} fill="url(#{gradient}-fill)" />
+      <path d={area} fill="url(#{gradient}-{style.current === 'sketch' ? 'hatch' : 'fill'})" />
       {#each curves as curve, i (i)}
         {@const isTotal = i === curves.length - 1}
-        <path d={svgPath(curve)} fill="none" stroke={isTotal ? total : alpha(accent(providers[i].id, panel.dark), 0.8)} stroke-width={isTotal ? 1.8 : 1.2}
+        <path d={svgPath(curve)} fill="none" stroke={isTotal ? total : alpha(toolColour(providers[i].id, panel.dark), 0.8)} stroke-width={isTotal ? (style.current === 'sketch' ? 2.4 : 1.8) : 1.2}
           stroke-linecap="round" stroke-linejoin="round" />
       {/each}
       <circle cx={end[0]} cy={end[1]} r="5" fill={alpha(total, 0.18)} />

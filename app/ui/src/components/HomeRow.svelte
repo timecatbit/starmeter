@@ -64,7 +64,8 @@
         {/if}
       </span>
       {#if gauge && usage !== null}
-        <span class="gauge"><span class="gauge-fill" style:width="max(3px, {usage * 100}%)" style:background={barColor(entry.usageLevel, panel.dark)}></span></span>
+        <span class="gauge"><span class="gauge-fill" style:width="max(3px, {usage * 100}%)" style:background={barColor(entry.usageLevel, panel.dark)}
+          style:--pen={barColor(entry.usageLevel, panel.dark)}></span></span>
       {/if}
       {#if entry.detail}<span class="detail">{entry.detail}</span>{/if}
     </span>

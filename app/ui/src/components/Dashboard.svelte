@@ -2,7 +2,9 @@
   // The homepage's top: the heading and its buttons, Summary's three figures, the legend and trend (or the live chart
   // while pinned), the heatmap, the grouping tabs and the Harness cards, or 会话's session cards.
   import { byUsage } from '../lib/order';
-  import { accent, blend, label as labelColour, totalColor } from '../lib/colors';
+  import { blend, label as labelColour, toolColour, summaryColour } from '../lib/colors';
+  import { pen } from '../lib/sketchPalette';
+  import { style } from '../lib/style.svelte';
   import { t } from '../lib/i18n.svelte';
   import { chartExtra, labelColumn, legendLabels, legendLayout, summaryProviders } from '../lib/chart';
   import { isGrouped, money, tokens } from '../lib/format';
@@ -109,7 +111,9 @@
     valid.length ? String(valid.reduce((s, p) => s + p.requests, 0)) : '—']);
   const third = $derived((right - left) / 3);
   const legend = $derived(legendLabels(data));
-  const legendColours = $derived([totalColor(panel.dark), ...counted.map((p) => accent(p.id, panel.dark))]);
+  /** 手绘's three figures in the 手绘 picture's pens: blue, green, violet. */
+  const figurePens = $derived(style.current === 'sketch' ? (['blue', 'green', 'violet'] as const).map((name) => pen(name, panel.dark)) : null);
+  const legendColours = $derived([summaryColour(panel.dark), ...counted.map((p) => toolColour(p.id, panel.dark))]);
   const legendCells = $derived(legendLayout(legend, right - left).flatMap((row, r) => row.map((cell) => ({ ...cell, row: r }))));
   // 多台电脑合并: the other computers counted in, beside the update time (this one included).
   const note = $derived([data.chartStatus, liveStamp ?? data.updated ?? '', data.devices ? t('含 {n} 台电脑', { n: data.devices + 1 }) : '']
@@ -135,7 +139,7 @@
     if (option?.action && key !== chosen) onrange(option.action);
   }
 
-  const glowColour = $derived(blend(labelColour(panel.dark, 0.85), totalColor(panel.dark), summaryGlow * 0.85));
+  const glowColour = $derived(blend(labelColour(panel.dark, 0.85), summaryColour(panel.dark), summaryGlow * 0.85));
   function cardHeight(p: Dashboard['providers'][number]) {
     if (collapsible && !expanded.has(p.id)) return 52;
     const clients = p.available && p.clients?.length ? 16 : 0;
@@ -170,7 +174,9 @@
         {@const x = left + third * i + 2 * i}
         {@const align = (['left', 'center', 'right'] as const)[i]}
         <span class="figure-label" style:left="{x}px" style:width="{third - 4}px" style:text-align={align}>{labels[i]}</span>
-        <span class="figure" style:left="{x}px"><Figure value={values[i]} size={22} room={third - 4} {align} color={glowColour} /></span>
+        <!-- 手绘: each figure in its own pen, the estimate over a highlighter swash, the others underlined by hand. -->
+        <span class="figure" class:first={i === 0} style:left="{x}px" style:--pen={figurePens?.[i]}><Figure value={values[i]} size={22} room={third - 4} {align}
+          color={figurePens?.[i] ?? glowColour} /></span>
       {/each}
       {#each legendCells as cell, i (i)}
         <!-- Centred on the name's middle (Chinese and capitals, 8.5pt type in a line from 90: 95.15), not its top. -->

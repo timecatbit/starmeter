@@ -3,7 +3,7 @@
   // gateway's clients), then its settings as the module grid has them (where it reads from, what to open).
   import { chartPositions, smoothCurves, svgPath } from '../lib/chart';
   import { t } from '../lib/i18n.svelte';
-  import { accent, alpha } from '../lib/colors';
+  import { alpha, toolColour } from '../lib/colors';
   import { clientLine, colourOf, headline, modelAmount, modelName, notes, share, tokens } from '../lib/format';
   import { grabWindow, panel } from '../lib/ui.svelte';
   import type { Dashboard, Entry, ProviderUsage } from '../lib/types';
@@ -18,7 +18,7 @@
   } = $props();
 
   let open = $state(new Set<string>());
-  const colour = $derived(accent(colourOf(p), panel.dark));
+  const colour = $derived(toolColour(colourOf(p), panel.dark));
   const credits = $derived(p.tokens === 0 && p.credits !== null);
   const figures = $derived<[string, string][]>(p.available ? [
     credits ? ['Credits', String(Math.round(p.credits ?? 0))] : [t('Token'), tokens(p.tokens)],

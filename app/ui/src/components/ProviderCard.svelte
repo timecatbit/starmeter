@@ -4,7 +4,7 @@
   // lines show, and a click on the card unfolds it in place (again folds it); the arrow at its right is a button of its
   // own that opens the tool's page. Not folded, a click anywhere on the card opens the page. One gesture each: the
   // card's click never means one thing first and another the second time.
-  import { accent, alpha, blend, label as labelColour } from '../lib/colors';
+  import { alpha, blend, label as labelColour, toolColour } from '../lib/colors';
   import { t } from '../lib/i18n.svelte';
   import { clientLine, colourOf, headline, isGrouped, modelAmount, modelName, notes, share, statsForms, tokenLine } from '../lib/format';
   import { figureWidth, font, ROUNDED, width } from '../lib/measure';
@@ -20,7 +20,7 @@
   const right = $derived(panel.width - 28);
   /** A model's share bar: 44pt at the panel's own width, longer in a pinned panel made wider, so the row fills. */
   const bar = $derived(Math.round(Math.min(200, 44 + (panel.width - 360) * 0.45)));
-  const colour = $derived(accent(colourOf(p), panel.dark));
+  const colour = $derived(toolColour(colourOf(p), panel.dark));
   const headerRight = $derived(collapsible ? right - 21 : right);
   const cost = $derived(p.available ? headline(p) : '—');
   const costWidth = $derived(Math.min(130, figureWidth(cost.slice(0, 1), font(16 * 0.62, 500, ROUNDED)) + figureWidth(cost.slice(1), font(16, 600, ROUNDED)) + 1));
@@ -55,7 +55,7 @@
   const height = $derived(collapsible && !expanded ? 52 : p.available ? 52 + clientHeight + Math.max(1, p.models.length) * 18 + 8 : 52);
 </script>
 
-<div class="card" class:opens={!!onopen || collapsible} style:height="{height}px">
+<div class="card" class:opens={!!onopen || collapsible} style:height="{height}px" style:--pen={colour}>
   {#if collapsible}
     <button class="open pressable" aria-label={t(expanded ? '收起 {name} 明细' : '展开 {name} 明细', { name: p.name })} aria-expanded={expanded} onclick={ontoggle}></button>
     {#if onopen}

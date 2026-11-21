@@ -6,7 +6,7 @@
   // live marks come in. Unpinning plays the same in reverse and hands back to the trend. A new reading lands with a
   // ripple, 实时 breathes, and the last minute's rate reads at the top right in Token/s. Beside 实时, Token / Token/s
   // turns the line into that rate over the last minute (remembered): how fast the models are writing, rising and easing.
-  import { accent, alpha, label as labelColour, starAccent, totalColor } from '../lib/colors';
+  import { accent, alpha, label as labelColour, starAccent, toolColour, summaryColour } from '../lib/colors';
   import { t } from '../lib/i18n.svelte';
   import { chartAxis, chartPositions, seriesOf, smoothCurves, summaryProviders, tracePath } from '../lib/chart';
   import { tokens } from '../lib/format';
@@ -134,7 +134,7 @@
       shown = range;
       const y = (value: number) => bottom - ((value - range.lo) / range.height) * plot.h;
       const secondary = labelColour(dark, dark ? 0.55 : 0.5), tertiary = labelColour(dark, dark ? 0.25 : 0.26);
-      const accentColour = starAccent(dark), total = totalColor(dark);
+      const accentColour = starAccent(dark), total = summaryColour(dark);
       ctx.setTransform(scale, 0, 0, scale, 0, 0);
       ctx.clearRect(0, 0, W + PAD, H);
       const text = (value: string, x: number, top: number, size: number, colour: string, align: CanvasTextAlign = 'left', weight = 400, family = SANS) => {
@@ -335,9 +335,9 @@
           const top = steps((s) => level(id, s));
           ctx.beginPath(); ctx.moveTo(...top.from); forward(top);
           ctx.lineTo(...below.steps.at(-1)!.to); backward(below); ctx.closePath();
-          ctx.fillStyle = alpha(accent(id, dark), dark ? 0.32 : 0.26); ctx.fill();
+          ctx.fillStyle = alpha(toolColour(id, dark), dark ? 0.32 : 0.26); ctx.fill();
           ctx.beginPath(); ctx.moveTo(...top.from); forward(top);
-          ctx.lineWidth = 1; ctx.lineJoin = 'round'; ctx.strokeStyle = alpha(accent(id, dark), 0.9); ctx.stroke();
+          ctx.lineWidth = 1; ctx.lineJoin = 'round'; ctx.strokeStyle = alpha(toolColour(id, dark), 0.9); ctx.stroke();
           below = top;
         }
         path(null); ctx.lineWidth = 1.8; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.strokeStyle = total; ctx.stroke();

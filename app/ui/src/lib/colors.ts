@@ -1,6 +1,9 @@
 // The panel's colours. Text and fills come from CSS variables (app.css) that follow light and dark; the colours code
 // needs by value (chart lines, canvases, the share pictures) are here, as the 5.x panel picked them.
 
+import { pen, toolPen } from './sketchPalette';
+import { style } from './style.svelte';
+
 const rgb = (r: number, g: number, b: number) => `rgb(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)})`;
 
 /** The system colours AppKit gives, light and dark. */
@@ -34,15 +37,27 @@ export function accent(id: string, dark: boolean): string {
 
 /** Summary's total: the soft teal of the mark's night sky. */
 export const totalColor = (dark: boolean) => (dark ? rgb(0.43, 0.79, 0.75) : rgb(0.15, 0.47, 0.46));
+
+/** A tool's colour in the panel: its own, or its pen when the panel is drawn by hand (外观 → 风格 → 手绘). The share
+ *  pictures keep accent(), whatever the panel's look. */
+export const toolColour = (id: string, dark: boolean) => (style.current === 'sketch' ? toolPen(id, dark) : accent(id, dark));
+/** Summary's total in the panel: the soft teal, or by hand the coral pen the 手绘 picture draws its trend with. */
+export const summaryColour = (dark: boolean) => (style.current === 'sketch' ? pen('coral', dark) : totalColor(dark));
 /** The panel's accent, as magpie's: a soft indigo, periwinkle in the dark. */
 export const starAccent = (dark: boolean) => (dark ? rgb(0.647, 0.706, 0.988) : rgb(0.345, 0.31, 0.89));
 export const statusGreen = (dark: boolean) => (dark ? rgb(0.49, 0.79, 0.61) : rgb(0.18, 0.49, 0.31));
 /** The label colour at an opacity, as AppKit's labelColor.withAlphaComponent. */
 export const label = (dark: boolean, alpha: number) => (dark ? `rgba(255, 255, 255, ${alpha})` : `rgba(0, 0, 0, ${alpha})`);
 
-/** A colour at a given opacity; takes rgb(...) strings. */
+/** rgb(...) for #RRGGBB (the pens'), other colours as they are. */
+const fromHex = (colour: string) => {
+  const hex = colour.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+  return hex ? `rgb(${parseInt(hex[1], 16)}, ${parseInt(hex[2], 16)}, ${parseInt(hex[3], 16)})` : colour;
+};
+
+/** A colour at a given opacity; takes rgb(...) strings and #RRGGBB. */
 export function alpha(colour: string, amount: number): string {
-  const match = colour.match(/rgba?\(([^)]+)\)/);
+  const match = fromHex(colour).match(/rgba?\(([^)]+)\)/);
   if (!match) return colour;
   const [r, g, b, a = '1'] = match[1].split(',').map((s) => s.trim());
   return `rgba(${r}, ${g}, ${b}, ${Number(a) * amount})`;
@@ -51,14 +66,14 @@ export function alpha(colour: string, amount: number): string {
 /** Part way from one colour to another, for a figure that glows in its tool's colour as it grows. */
 export function blend(from: string, to: string, t: number): string {
   if (t <= 0) return from;
-  const parse = (c: string) => (c.match(/rgba?\(([^)]+)\)/)?.[1].split(',').map((s) => Number(s.trim())) ?? [0, 0, 0, 1]);
+  const parse = (c: string) => (fromHex(c).match(/rgba?\(([^)]+)\)/)?.[1].split(',').map((s) => Number(s.trim())) ?? [0, 0, 0, 1]);
   const [a, b] = [parse(from), parse(to)];
   const mix = (i: number) => (a[i] ?? 1) + ((b[i] ?? 1) - (a[i] ?? 1)) * t;
   return `rgba(${Math.round(mix(0))}, ${Math.round(mix(1))}, ${Math.round(mix(2))}, ${mix(3)})`;
 }
 
 /** The heatmap's five steps: empty, then four of the total's colour. */
-export const heatmapShades = (dark: boolean) => [label(dark, dark ? 0.26 : 0.2), ...[0.55, 0.7, 0.85, 1].map((a) => alpha(totalColor(dark), a))];
+export const heatmapShades = (dark: boolean) => [label(dark, dark ? 0.26 : 0.2), ...[0.55, 0.7, 0.85, 1].map((a) => alpha(summaryColour(dark), a))];
 /** A dot still to come: barely there, so the row runs on without the future reading as empty hours. */
 export const heatmapFuture = (dark: boolean) => label(dark, dark ? 0.13 : 0.1);
 

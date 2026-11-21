@@ -1739,6 +1739,14 @@ test('外观 → 风格 draws the panel by hand, in faces scaled to the usual wi
   // Chalkboard SE at 97%, no wider than San Francisco (this test's WebKit has no San Francisco to compare with).
   expect(widths.hand / widths.chalkboard).toBeCloseTo(0.97, 2);
   expect(await page.locator('.window').evaluate((e) => getComputedStyle(e).fontFamily)).toContain('Starmeter Hand');
+  // Coloured strokes, as the 手绘 picture draws: a wavy line under the name, each tool's models hatched in its pen.
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.card .fill').first()).toBeVisible();
+  await expect(page.locator('h1.heading')).toHaveCSS('text-decoration-style', 'wavy');
+  const bar = page.locator('.card .fill').first();
+  expect(await bar.evaluate((e) => getComputedStyle(e).backgroundImage)).toContain('repeating-linear-gradient');
+  expect(await page.locator('.card').first().evaluate((e) => getComputedStyle(e).getPropertyValue('--pen'))).toMatch(/^#/);
   // Kept: the homepage drawn by hand after a reload, laid out as before.
   await page.reload();
   await expect(page.locator('.dashboard')).toBeVisible();
