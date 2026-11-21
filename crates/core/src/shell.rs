@@ -163,6 +163,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&folder);
     }
 
+    /// Unix only: its PATH separator is the colon a Windows folder starts with.
+    #[cfg(unix)]
     #[test]
     fn elsewhere_the_name_itself_runs_and_only_path_is_read() {
         let folder = npm_folder("unix");
