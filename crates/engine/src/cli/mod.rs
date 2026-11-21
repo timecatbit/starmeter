@@ -257,6 +257,15 @@ fn confirm(question: &str) -> bool {
         && ["y", "yes"].contains(&answer.trim().to_lowercase().as_str())
 }
 
+/// Puts each module on the homepage as the panel's switch does, into the selection as it is when the user says yes,
+/// not as it was when the question was asked: a module turned on or off in the panel meanwhile stays so.
+fn put_on_homepage(state: &Path, keys: &[String]) -> Result<(), preferences::Error> {
+    for key in keys {
+        preferences::update(state, "module", Some(key), Some("true"))?;
+    }
+    Ok(())
+}
+
 /// starmeter detect: the modules found on this computer, those not on the homepage yet added when the user says so
 /// (or with --yes). Unlike the panel's 自动检测, which replaces the selection, nothing chosen is taken away.
 fn detect(runtime: &Runtime, options: &Options, words: Words, out: &mut impl Write) -> i32 {
@@ -289,9 +298,7 @@ fn detect(runtime: &Runtime, options: &Options, words: Words, out: &mut impl Wri
                     format!("把 {} 加到主页？", list(&new))
                 })));
     let added = if add {
-        let mut chosen = homepage.clone();
-        chosen.extend(new.iter().cloned());
-        if let Err(error) = discovery::replace_selection(&runtime.state_dir, &chosen) {
+        if let Err(error) = put_on_homepage(state, &new) {
             eprintln!("starmeter: {error}");
             return 1;
         }
@@ -299,10 +306,12 @@ fn detect(runtime: &Runtime, options: &Options, words: Words, out: &mut impl Wri
     } else {
         Vec::new()
     };
+    // As the homepage is now: the user may have changed it in the panel while this asked.
+    let homepage = shown(&preferences::read(state));
     if options.json {
         let keys = |keys: &[String]| Json::Array(keys.iter().map(|key| Json::from(key.as_str())).collect());
         let value = starmeter_core::object! {
-            "found" => keys(&found), "homepage" => keys(&shown(&preferences::read(state))), "new" => keys(&new),
+            "found" => keys(&found), "homepage" => keys(&homepage), "new" => keys(&new),
             "added" => keys(&added),
         };
         return emit(out, &(pretty(&Json::Object(value), 0) + "\n"), 0);
@@ -317,10 +326,10 @@ fn detect(runtime: &Runtime, options: &Options, words: Words, out: &mut impl Wri
         preferences::MODULES.iter().filter(|module| found.iter().any(|key| key == module.key)).collect();
     let room = listed.iter().map(|module| terminal::width(&words.text(&module.label))).max().unwrap_or(0);
     for module in listed {
-        let (mark, note) = if homepage.iter().any(|key| key == module.key) {
-            ("✓", words.own("已在主页", "on the homepage"))
-        } else if added.iter().any(|key| key == module.key) {
+        let (mark, note) = if added.iter().any(|key| key == module.key) {
             ("+", words.own("已加到主页", "added to the homepage"))
+        } else if homepage.iter().any(|key| key == module.key) {
+            ("✓", words.own("已在主页", "on the homepage"))
         } else {
             ("+", words.own("新找到，未在主页", "found, not on the homepage"))
         };

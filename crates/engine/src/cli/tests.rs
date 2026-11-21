@@ -305,3 +305,31 @@ fn a_note_without_a_table_wraps_to_a_narrow_terminal() {
     assert!(text.lines().all(|line| visible(line) <= 40), "{text}");
     assert!(text.contains("starmeter detect"), "{text}");
 }
+
+/// CLI-7: while `starmeter detect` waits for its y, the user turns Claude API off and Gemini on in the panel. The yes
+/// adds Magpie to the selection as it is then: both changes stay.
+#[test]
+fn a_yes_to_detect_keeps_what_the_panel_changed_while_it_asked() {
+    let folder = std::env::temp_dir().join(format!("starmeter-detect-{}", random_hex(8)));
+    let state = folder.join("settings");
+    std::fs::create_dir_all(&state).expect("settings");
+    let mut settings = preferences::read(&state);
+    settings.insert("visible", Json::Array(vec!["summary".into(), "claude-api".into()]));
+    preferences::write(&state, settings).expect("preferences");
+    let shown = || -> Vec<String> {
+        let settings = preferences::read(&state);
+        let listed = settings.get("visible").and_then(Json::as_array).cloned().unwrap_or_default();
+        listed.iter().filter_map(Json::as_str).map(String::from).collect()
+    };
+    // Asked with Summary and Claude API on the homepage, Magpie found: then the panel's two switches.
+    let new = vec!["magpie".to_string()];
+    preferences::update(&state, "module", Some("claude-api"), Some("false")).expect("Claude API off");
+    preferences::update(&state, "module", Some("gemini"), Some("true")).expect("Gemini on");
+    put_on_homepage(&state, &new).expect("yes");
+    let homepage = shown();
+    assert!(homepage.contains(&"magpie".to_string()), "{homepage:?}");
+    assert!(homepage.contains(&"gemini".to_string()), "{homepage:?}");
+    assert!(homepage.contains(&"summary".to_string()), "{homepage:?}");
+    assert!(!homepage.contains(&"claude-api".to_string()), "{homepage:?}");
+    let _ = std::fs::remove_dir_all(&folder);
+}
