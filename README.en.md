@@ -186,6 +186,15 @@ node docs/screenshots.mjs   # retake the screenshots from test data
 
 To release, keep the version in the `Cargo.toml` workspace, `app/src-tauri/tauri.conf.json`, `app/package.json` and the entry script's `xbar.version` in step, add the version to the CHANGELOG, then push a `v<version>` tag; GitHub Actions builds and publishes. Conventions are in [AGENTS.md](AGENTS.md) and changes in [CHANGELOG.md](CHANGELOG.md) (both in Chinese).
 
+## Star history
+
+<a href="https://www.star-history.com/#timecatbit/starmeter&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=timecatbit/starmeter&type=Date&theme=dark">
+    <img src="https://api.star-history.com/svg?repos=timecatbit/starmeter&type=Date" width="600" alt="Starmeter’s GitHub stars over time">
+  </picture>
+</a>
+
 ## License
 
 [MIT](LICENSE) © timecatbit. Brand marks belong to their owners and only identify the services; the icon files' license is in [assets/logos/LICENSE](assets/logos/LICENSE).

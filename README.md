@@ -186,6 +186,15 @@ node docs/screenshots.mjs   # 用测试数据重新生成截图
 
 发布新版本：`Cargo.toml` 工作区、`app/src-tauri/tauri.conf.json`、`app/package.json` 和入口文件 `xbar.version` 的版本号保持一致，CHANGELOG 写好这一版，然后推送 `v版本号` 标签，GitHub Actions 会自动打包并发布。维护约定见 [AGENTS.md](AGENTS.md)，更新记录见 [CHANGELOG.md](CHANGELOG.md)。
 
+## Star 趋势
+
+<a href="https://www.star-history.com/#timecatbit/starmeter&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=timecatbit/starmeter&type=Date&theme=dark">
+    <img src="https://api.star-history.com/svg?repos=timecatbit/starmeter&type=Date" width="600" alt="Starmeter 在 GitHub 上的 Star 数随时间的变化">
+  </picture>
+</a>
+
 ## 许可
 
 [MIT](LICENSE) © timecatbit。品牌标志归各自所有者，仅用于标识服务，图标文件的许可见 [assets/logos/LICENSE](assets/logos/LICENSE)。
