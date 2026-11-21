@@ -474,8 +474,8 @@ mod tests {
     fn a_traditional_row_converts_its_words_and_not_where_it_points() {
         let line = "主页模块… | badge=\"本周 3 项\" tooltip=设置 bash=/bin/bash param1=\"/Users/a/软件:配置文件/starmeter.30s.sh\"";
         let shown = super::traditional_menu_line(line);
-        assert!(shown.starts_with("主頁模組… | "), "{shown}");
-        assert!(shown.contains("badge=\"本週 3 項\"") && shown.contains("tooltip=設定"), "{shown}");
+        assert!(shown.starts_with("主頁模塊… | "), "{shown}");
+        assert!(shown.contains("badge=\"本週 3 項\"") && shown.contains("tooltip=設置"), "{shown}");
         assert!(shown.contains("/Users/a/软件:配置文件/starmeter.30s.sh"), "the path stays: {shown}");
         assert_eq!(super::traditional_menu_line("---"), "---");
     }

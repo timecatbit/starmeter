@@ -386,7 +386,7 @@ fn in_traditional_chinese_the_text_reads_as_the_panel_converts_it() {
     let words = Words { english: false, traditional: true };
     assert_eq!(words.text("订阅 · 余额 · 本周"), "訂閱 · 餘額 · 本週");
     assert_eq!(words.say("近 {n} 天", &[("n", "7")]), "近 7 天");
-    assert_eq!(words.page("项目 · 设置\n".to_string()), "專案 · 設定\n");
+    assert_eq!(words.page("项目 · 设置\n".to_string()), "項目 · 設置\n");
     assert_eq!(super::parse(&["--lang".into(), "zh-TW".into()]).unwrap().language.as_deref(), Some("zh-Hant"));
     assert!(super::parse(&["--lang".into(), "fr".into()]).is_err());
 }

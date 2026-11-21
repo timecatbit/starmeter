@@ -4,9 +4,10 @@
 Everything Starmeter writes is Simplified Chinese at the source; 繁體中文 is that text converted at the edges, as English
 is translated. The conversion is the system's ICU (Hans-Hant, through scripts/hant_icu.swift, so macOS only), taken
 two ways: every character on its own (for any text, a session's title among it), and every run of Chinese in the
-sources in context, kept as a phrase wherever the context changes a character (头发 → 頭髮, 一只 → 一隻). On top come
-the Taiwan forms of a few characters ICU writes otherwise (啓 → 啟) and of the words software is written with there
-(设置 → 設定, 软件 → 軟體); a replaced word keeps its length, so no page lays out wider.
+sources in context, kept as a phrase wherever the context changes a character (头发 → 頭髮, 一只 → 一隻, 本周 → 本週).
+It converts characters only, never words (设置 stays 設置, 软件 軟件): the text reads the same wherever Traditional
+Chinese is read, and every line keeps its length. On top come the common forms of a few characters ICU writes
+otherwise (啓 → 啟) and the ones it gets wrong (沉 is not 沈, 录制 is 錄製).
 
 Run it again after adding Chinese text with a character or word it doesn't know:
 
@@ -30,35 +31,20 @@ SOURCES = [ROOT / 'crates', ROOT / 'app/src-tauri/src', ROOT / 'app/ui/src', ROO
 OUTPUTS = (ROOT / 'app/ui/src/lib/hant.ts', ROOT / 'crates/core/src/hant.rs', ROOT / 'docs/hant.js')
 CHINESE = re.compile(r'[\u3400-\u4dbf\u4e00-\u9fff]+')
 
-# Characters ICU writes in a form Taiwan doesn't (啓 for 啟).
+# Characters ICU writes in a rarer form than the one Traditional Chinese is usually printed in (啓 for 啟).
 VARIANTS = {'啓': '啟', '鈎': '鉤', '綫': '線', '衆': '眾', '爲': '為', '僞': '偽', '裏': '裡', '眞': '真', '敎': '教',
             '値': '值', '吿': '告', '靑': '青', '淸': '清', '鷄': '雞', '麪': '麵', '峯': '峰', '羣': '群', '牀': '床', '竪': '豎'}
-# Characters ICU gets wrong whatever their context (沉 is not 沈), or leaves where Taiwan writes another (面板里 is
-# 面板裡; Starmeter's 里 is always "in", never a distance): fixed in every phrase too.
+# Characters ICU gets wrong whatever their context (沉 is not 沈), or leaves in the rarer form (面板里 is 面板裡;
+# Starmeter's 里 is always "in", never a distance): fixed in every phrase too.
 FORCED = {'沉': '沉', '里': '裡'}
 # A character's form on its own, where ICU's is the rarer one; in context the phrases decide (一只 is 一隻).
 SINGLE = {'只': '只', '系': '系', '尽': '盡', '里': '裡', '划': '劃'}
 
-# The words software is written with in Taiwan, longest first where one holds another. Each keeps its length, or is
-# shorter: a page laid out for the Simplified text never grows.
+# Characters whose form their context decides, where ICU misses it: each phrase is the same length as the Simplified.
 WORDS = {
-    '设置': '設定', '软件': '軟體', '硬件': '硬體', '默认': '預設', '文件夹': '資料夾', '文件': '檔案', '信息': '資訊',
-    '网络': '網路', '局域网': '區域網', '链接': '連結', '保存': '儲存', '加载': '載入', '服务器': '伺服器', '数据': '資料',
-    '内存': '記憶體', '缓存': '快取', '插件': '外掛', '模块': '模組', '二维码': 'QR碼', '菜单': '選單', '屏幕': '螢幕',
-    '鼠标': '滑鼠', '用户': '使用者', '视频': '影片', '搜索': '搜尋', '图标': '圖示', '窗口': '視窗', '运行': '執行',
-    '登录': '登入', '刷新': '重新整理', '项目': '專案', '账户': '帳戶', '账号': '帳號', '启动': '啟動', '回复': '回覆',
-    '导出': '匯出', '导入': '匯入', '粘贴': '貼上', '创建': '建立', '代码': '程式碼', '程序': '程式', '终端': '終端機',
-    '命令行': '命令列', '字符': '字元', '打印': '列印', '剪贴板': '剪貼簿', '设备': '裝置', '质量': '品質',
-    '优化': '最佳化', '支持': '支援', '线程': '執行緒', '日志': '日誌', '激活': '啟用', '卸载': '解除安裝',
-    '源代码': '原始碼', '默认值': '預設值', '高级': '進階', '通过': '透過', '兼容': '相容', '录制': '錄製',
-    '每周': '每週', '上周': '上週', '下周': '下週', '周报': '週報', '一周': '一週', '两周': '兩週', '周末': '週末',
-    '芯片': '晶片', '账单': '帳單', '接口': '介面', '网关': '閘道', '调用': '呼叫', '全局快捷键': '全域快速鍵', '全局': '全域',
-    '快捷键': '快速鍵',
-    '配置': '設定', '实时': '即時', '运行中': '執行中', '自定义': '自訂', '交互': '互動', '界面': '介面', '屏幕截图': '螢幕截圖',
+    '录制': '錄製', '每周': '每週', '上周': '上週', '下周': '下週', '周报': '週報', '一周': '一週', '两周': '兩週',
+    '周末': '週末',
 }
-# Words whose Taiwan form would be longer than the Simplified one (a label laid out for it would wrap): kept as ICU
-# writes them.
-LONGER = {'刷新', '内存', '代码', '终端', '优化', '线程', '卸载', '源代码'}
 
 
 def icu(lines):
@@ -84,7 +70,7 @@ def corpus():
 
 
 def fix(text, simplified=None):
-    """ICU's Traditional text with Taiwan's forms, and the characters it always gets wrong put right."""
+    """ICU's Traditional text in the common forms, and the characters it always gets wrong put right."""
     text = ''.join(VARIANTS.get(character, character) for character in text)
     if simplified is not None and len(simplified) == len(text):
         text = ''.join(FORCED.get(source, target) for source, target in zip(simplified, text))
@@ -137,8 +123,6 @@ def main():
             else:
                 kept[run] = traditional
     for simplified, traditional in WORDS.items():
-        if simplified in LONGER and len(traditional) > len(simplified):
-            continue
         kept[simplified] = traditional
     write(chars, kept)
     print('%d characters, %d phrases' % (len(chars), len(kept)))
@@ -148,7 +132,7 @@ def write(chars, phrases):
     pairs = ''.join(simplified + traditional for simplified, traditional in sorted(chars.items()))
     ordered = sorted(phrases.items(), key=lambda item: (-len(item[0]), item[0]))
     longest = max(len(simplified) for simplified, _ in ordered)
-    note = 'Generated by scripts/make_hant.py from the system\'s ICU (Hans-Hant) and its Taiwan words; run it again, don\'t edit.'
+    note = 'Generated by scripts/make_hant.py from the system\'s ICU (Hans-Hant); run it again, don\'t edit.'
     ts = [
         '// 繁體中文: Simplified Chinese to Traditional, as the panel converts its text (see i18n.svelte.ts).',
         '// ' + note,
@@ -244,8 +228,8 @@ def write(chars, phrases):
         'mod tests {',
         '    #[test]',
         '    fn the_words_and_their_context_convert_as_taiwan_writes_them() {',
-        '        // A word of Taiwan\'s, a character its context decides (余额, 本周), one ICU writes otherwise (启): and Latin as it is.',
-        '        assert_eq!(super::convert("设置 · 余额 · 本周 · 项目 · 启动 · Token"), "設定 · 餘額 · 本週 · 專案 · 啟動 · Token");',
+        '        // Characters only, never words; the context decides a character (余额, 本周); ICU\'s rarer form put right (启).',
+        '        assert_eq!(super::convert("设置 · 余额 · 本周 · 项目 · 启动 · Token"), "設置 · 餘額 · 本週 · 項目 · 啟動 · Token");',
         '    }',
         '}',
         '',

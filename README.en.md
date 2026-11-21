@@ -160,7 +160,7 @@ starmeter usage 30d --json     # JSON for scripts
 - The settings, connections and caches are the Starmeter app's on this computer: the time zone, the currency and rate, and the modules chosen for the homepage all match the panel. A tool that isn't on the homepage doesn't appear.
 - With only the command line installed, its first run finds the tools on this computer, as the app's first launch does. For a tool installed later, `starmeter detect` shows what it finds and `--yes` adds the new ones to the homepage, leaving your other choices as they are.
 - Plans and API balances refresh over the network only when due, as when the panel opens; `--no-refresh` shows their last figures.
-- The language follows the system (Traditional Chinese on a Taiwan, Hong Kong or Macau system); `--lang zh|zh-Hant|en` or the `STARMETER_LANG` variable chooses one. Output to a pipe or a file has no colour (`--color always|never` changes that), and a narrow terminal drops the share bar, then the cache and request columns.
+- The language follows the system (Traditional Chinese on a system in Traditional Chinese); `--lang zh|zh-Hant|en` or the `STARMETER_LANG` variable chooses one. Output to a pipe or a file has no colour (`--color always|never` changes that), and a narrow terminal drops the share bar, then the cache and request columns.
 - `--json` always has English keys: `summary` (cost, tokens, requests, cache hit rate), `trend`, `tools`, `groups` (cards per model or project) and `quotas` (plans and APIs). Each cost comes as `cost` in the panel's currency and as `costUsd` in dollars.
 
 ## Privacy

@@ -533,10 +533,10 @@ mod tests {
             all(Language::Traditional, true),
             [
                 "打開面板",
-                "主頁模組…",
+                "主頁模塊…",
                 "自動檢測…",
-                "登入時啟動",
-                "通知設定…",
+                "登錄時啟動",
+                "通知設置…",
                 "關於 Starmeter",
                 "版本 6.0.8 · 更新記錄",
                 "作者 timecatbit · GitHub 倉庫",

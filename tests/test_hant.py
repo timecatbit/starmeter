@@ -1,5 +1,5 @@
 """繁體中文 (scripts/make_hant.py): the Traditional README is README.md as the converter writes it, and the converter
-the panel and the engine share keeps its words."""
+the panel and the engine share converts characters, never words."""
 import importlib.util
 import re
 from pathlib import Path
@@ -16,12 +16,11 @@ class HantTests(unittest.TestCase):
         self.assertEqual((ROOT / 'README.zh-Hant.md').read_text(encoding='utf-8'), make_hant.readme(),
                          'README.md changed: run python3 scripts/make_hant.py --readme')
 
-    def test_words_context_and_the_characters_taiwan_writes(self):
+    def test_characters_in_their_context_and_never_words(self):
         chars, phrases = make_hant.tables()
         convert = lambda text: make_hant.convert(text, chars, phrases)
-        self.assertEqual(convert('设置 · 余额 · 本周 · 项目 · 启动 · 面板里 · 每周 · Token'), '設定 · 餘額 · 本週 · 專案 · 啟動 · 面板裡 · 每週 · Token')
-        # A word whose Taiwan form is longer would lay out wider: kept as ICU writes it.
-        self.assertEqual(convert('刷新'), '刷新')
+        # Characters only, never words: every line keeps its length.
+        self.assertEqual(convert('设置 · 余额 · 本周 · 项目 · 启动 · 面板里 · 每周 · 软件 · Token'), '設置 · 餘額 · 本週 · 項目 · 啟動 · 面板裡 · 每週 · 軟件 · Token')
 
     def test_the_panel_the_engine_and_the_website_share_one_table(self):
         rust = (ROOT / 'crates/core/src/hant.rs').read_text(encoding='utf-8')

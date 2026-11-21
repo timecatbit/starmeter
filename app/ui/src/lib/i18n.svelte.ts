@@ -1,6 +1,6 @@
 // The panel in Simplified Chinese, Traditional Chinese or English (通用 → 语言). Simplified Chinese is the source: the
 // engine and the panel write it, English comes from the dictionary in en.ts at the edges and 繁體中文 from the converter
-// in hant.ts (the system's ICU and Taiwan's words, built by scripts/make_hant.py). localize() turns a snapshot's text
+// in hant.ts (the system's ICU, character by character in context, built by scripts/make_hant.py). localize() turns a snapshot's text
 // into the language as it arrives, so every page lays out and measures what it shows; t() does the panel's own words.
 // Text the English dictionary doesn't know (a session's title, a project's folder, a new message) stays as it is; the
 // English test lists any of the panel's own text left untranslated. The converter takes any Chinese.

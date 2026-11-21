@@ -160,7 +160,7 @@ starmeter usage 30d --json     # 给脚本用的 JSON
 - 设置、连接和缓存与这台电脑上的 Starmeter 共用，统计时区、货币和汇率、主页勾选的模块都跟面板一致；主页没有勾选的工具不出现。
 - 只装命令行时，第一次运行会像 App 第一次打开一样自动检测本机的工具。之后装了新工具，运行 `starmeter detect` 看看找到了什么，加 `--yes` 把新找到的加到主页；已有的勾选不会改动。
 - 订阅额度、API 余额像打开面板时一样，到期才联网刷新；加 `--no-refresh` 直接用上次的结果。
-- 语言跟随系统（台湾、香港、澳门的系统用繁體中文），可用 `--lang zh|zh-Hant|en` 或环境变量 `STARMETER_LANG` 指定。输出到管道或文件时不上色，`--color always|never` 可以改；终端变窄时依次收起占比条、缓存和请求列。
+- 语言跟随系统（系统是繁体中文时用繁體中文），可用 `--lang zh|zh-Hant|en` 或环境变量 `STARMETER_LANG` 指定。输出到管道或文件时不上色，`--color always|never` 可以改；终端变窄时依次收起占比条、缓存和请求列。
 - `--json` 的键名固定为英文：`summary`（费用、Token、请求、缓存命中率）、`trend`、`tools`、`groups`（按模型或项目分组时）、`quotas`（订阅与 API）。费用同时给出面板所用货币的 `cost` 和美元的 `costUsd`。
 
 ## 隐私

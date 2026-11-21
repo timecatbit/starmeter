@@ -53,9 +53,9 @@ test('繁體中文: the homepage, its pages, the groupings and 會話', async ({
   await traditional(page);
   await expect(page.locator('html')).toHaveAttribute('lang', 'zh-Hant');
   await left.take(page, 'home');
-  // Taiwan's words, in the cards' groupings and the plans.
+  // The cards' groupings, each character converted.
   const tabs = page.getByRole('radiogroup', { name: '卡片分組' }).getByRole('radio');
-  await expect(tabs).toHaveText(['工具', '模型', '專案', '會話']);
+  await expect(tabs).toHaveText(['工具', '模型', '項目', '會話']);
   for (const tab of await tabs.all()) {
     await tab.click();
     await page.waitForTimeout(400);
@@ -72,7 +72,7 @@ test('繁體中文: the homepage, its pages, the groupings and 會話', async ({
     await back(page);
   }
   // The modules and settings, and the language row offering each language by its own name.
-  await page.getByRole('button', { name: '主頁模組與設定', exact: true }).click();
+  await page.getByRole('button', { name: '主頁模塊與設置', exact: true }).click();
   await page.waitForTimeout(450);
   await left.take(page, 'modules');
   await page.getByRole('button', { name: '通用', exact: true }).click();
