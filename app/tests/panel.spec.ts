@@ -1675,3 +1675,32 @@ test('pinned, a press on the grabber or just around it moves the window on every
   await page.mouse.up();
   expect(await drags()).toBe(count);
 });
+
+test('在手机上看: a status answer from before 停止 and 重新开始 leaves the new address alone (PHONE-5)', async ({ page }) => {
+  await open(page);
+  // Each start a new port; the status asked every ten seconds is held back, and answers with the first address.
+  await page.evaluate(async (source) => {
+    const shell = await eval(source);
+    const w = window as unknown as { port: number; answer: () => void };
+    const view = (port: number) => ({ local: `http://192.168.1.20:${port}/#k=0123456789abcdef0123456789abcdef`, public: null, secondsLeft: 0 });
+    w.port = 49000;
+    shell.phoneStart = () => Promise.resolve(view(++w.port));
+    shell.phoneStatus = () => { const first = view(49001); return new Promise((resolve) => (w.answer = () => resolve(first))); };
+  }, panelShell);
+  // The page's ten seconds on a clock the test moves (installed now: the module lookup above reads real timings).
+  await page.clock.install();
+  await button(page, '主页模块与设置').click();
+  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  const phone = page.locator('.phone-page');
+  await expect(phone.locator('.address')).toHaveText('http://192.168.1.20:49001/');
+  // The status is asked, and still out when 停止 and 重新开始 bring a new address.
+  await page.clock.fastForward(10_500);
+  await expect.poll(() => page.evaluate(() => typeof (window as unknown as { answer?: () => void }).answer)).toBe('function');
+  await button(page, '停止').click();
+  await button(page, '重新开始').click();
+  await expect(phone.locator('.address')).toHaveText('http://192.168.1.20:49002/');
+  await page.evaluate(() => (window as unknown as { answer: () => void }).answer());
+  await page.waitForTimeout(200);
+  await expect(phone.locator('.address')).toHaveText('http://192.168.1.20:49002/');
+  await expect(phone.locator('svg.qr')).toBeVisible();
+});

@@ -36,9 +36,9 @@
   });
   const minutes = $derived(view ? Math.max(1, Math.round(secondsLeft() / 60)) : 0);
 
-  /** Each start (opening the page, 重新开始) begins a round and 停止 ends it. What a step of an earlier round answers
-   *  late (the public link asked for before 停止) is dropped: it can't keep the new code waiting, or set its error
-   *  beside it. */
+  /** Each start (opening the page, 重新开始) begins a round, and 停止 or leaving the page ends it. What a step of an
+   *  earlier round answers late (the public link asked for before 停止, the status asked every ten seconds) is
+   *  dropped: it can't keep the new code waiting, set its error beside it, or put back the address that has gone. */
   let round = 0;
   /** Starts the server; false, with the reason in `failed`, when it couldn't. */
   async function start(): Promise<boolean> {
@@ -66,12 +66,15 @@
     // Asked after while the page is open: a public link whose cloudflared has ended is taken down, and said so.
     tick = setInterval(async () => {
       if (stopped) return;
+      const mine = round;
       const had = !!phone.view?.public;
-      setPhone(await shell.phoneStatus().catch(() => phone.view));
+      const status = await shell.phoneStatus().catch(() => phone.view);
+      if (mine !== round) return;
+      setPhone(status);
       if (had && !phone.view?.public && reach === 'public') { reach = 'local'; failed = '外网链接断开了，可以重新生成'; }
     }, 10_000);
   });
-  onDestroy(() => { clearInterval(tick); clearTimeout(copiedTimer); });
+  onDestroy(() => { round++; clearInterval(tick); clearTimeout(copiedTimer); });
 
   /** The latest choice. 任何网络 asks the host whether cloudflared is there before its question; an answer that comes
    *  back after a later choice (同一个网络 again, or the link asked for) is dropped, so it can't take the local code
@@ -105,7 +108,10 @@
     busy = false;
   }
   async function closePublic() {
-    setPhone(await shell.phonePrivate().catch(() => phone.view));
+    const mine = round;
+    const closed = await shell.phonePrivate().catch(() => phone.view);
+    if (mine !== round) return;
+    setPhone(closed);
     reach = 'local';
   }
   async function stop() {
