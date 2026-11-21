@@ -520,8 +520,9 @@ const SEEN_KEPT: usize = 256;
 /// How far back each request's time and cost are kept beside a session's total: past the longest range but 全部
 /// (a month, 30 days), which is the whole session's.
 const SPENDS_KEPT: f64 = 40.0 * 86400.0;
-/// The session-spent cache's schema: 2 added each request's time and cost and when the session began.
-const SPENT_SCHEMA: i64 = 2;
+/// The session-spent cache's own version, beside the schema 1 every cache record carries (a record of another schema
+/// reads as empty): 2 added each request's time and cost and when the session began.
+const SPENT_VERSION: i64 = 2;
 
 /// What a whole session has cost: every request in its transcript, counted as the turns count them (a Claude reply
 /// streamed over several lines once; each change of Codex's running token total once). A Claude fork's copied
@@ -959,13 +960,14 @@ impl Runtime {
             let app = claude_app::session_settings(&self.source_path("claude"), now - ACTIVE);
             let prices = self.session_prices();
             let codex_root = self.codex_home_absolute();
-            // Each session's cost read so far, by session, kept beside the sessions to go on from. Schema 2 keeps each
-            // request's time with its cost and when the session began: a tally from before is read again from the start.
+            // Each session's cost read so far, by session, kept beside the sessions to go on from. Version 2 keeps each
+            // request's time with its cost and when the session began: a tally from before is read again from the
+            // start, once. (A schema 2 record was never read back, so every refresh read each session whole.)
             let record = self.read_cache("session-spent");
             let mut tallies = record
                 .get("sessions")
                 .and_then(Json::as_object)
-                .filter(|_| record.get("schema").and_then(Json::integer) == Some(SPENT_SCHEMA))
+                .filter(|_| record.get("version").and_then(Json::integer) == Some(SPENT_VERSION))
                 .cloned()
                 .unwrap_or_default();
             let before = tallies.clone();
@@ -984,7 +986,7 @@ impl Runtime {
             if tallies != before {
                 self.write_json_cache(
                     &self.cache_path("session-spent"),
-                    &object! { "schema" => SPENT_SCHEMA, "sessions" => tallies }.into(),
+                    &object! { "schema" => 1, "version" => SPENT_VERSION, "sessions" => tallies }.into(),
                 );
             }
             if self.settings().get("sessionAlerts").is_some_and(Json::is_truthy) {

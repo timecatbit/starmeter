@@ -1504,6 +1504,40 @@ class SessionParityTests(unittest.TestCase):
                     self.assertEqual(swift('sessions.turnLines', case, unit, 'ops', total), plugin.turn_lines(case, unit, 'ops', total))
 
 
+    def test_a_new_process_reads_on_from_the_session_cost_cache(self):
+        """SESSION-4: the cost read so far is kept between processes, so an unchanged transcript is not read again and a
+        grown one only from where the last reading stopped."""
+        temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
+        root = Path(temp.name); home = root / 'home'
+        path = home / '.claude' / 'projects' / 'p' / '7a5d1c2e-0000-4000-8000-0000000000aa.jsonl'
+        path.parent.mkdir(parents=True); (root / 'state').mkdir()
+        moment = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+        reply = lambda index, output=5: json.dumps({'type': 'assistant', 'sessionId': path.stem, 'timestamp': moment, 'message': {
+            'id': 'm%04d' % index, 'model': 'claude-opus-5-5', 'usage': {'input_tokens': 1000, 'output_tokens': output}, 'stop_reason': 'end_turn'}}) + '\n'
+        path.write_text(''.join(reply(index) for index in range(1501)))
+        environment = {'HOME': str(home), 'OCX_STATE_DIR': str(root / 'state'), 'OCX_CACHE_DIR': str(root / 'cache'),
+                       'OCX_PLUGIN_PATH': str(ROOT / 'starmeter.30s.sh')}
+        def spent():
+            with unittest.mock.patch.dict(os.environ, environment):
+                for name in ('CLAUDE_CONFIG_DIR', 'XDG_CONFIG_HOME', 'CODEX_HOME', 'OCX_CHATGPT_HOME'):os.environ.pop(name, None)
+                result = swift('runtime', 'sessions')
+            return result['payload']['sessions'][0]['spent']
+        first = spent()
+        self.assertEqual(first['requests'], 1501)
+        # The first record rewritten in place, its length, inode and modification time kept: a reading from the start
+        # would count the change.
+        before = path.stat()
+        with open(path, 'r+b') as handle:
+            data = handle.read(); handle.seek(0); handle.write(data.replace(b'"output_tokens": 5', b'"output_tokens": 9', 1))
+        os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+        self.assertEqual((path.stat().st_ino, path.stat().st_size), (before.st_ino, before.st_size))
+        self.assertEqual(spent(), first, 'An unchanged transcript is not read again')
+        # One more request: only it is read, the edited first record still as first read.
+        with open(path, 'ab') as handle:handle.write(reply(1501).encode())
+        grown = spent()
+        self.assertEqual(grown['requests'], 1502)
+        self.assertAlmostEqual(grown['cost'] - first['cost'], first['cost'] / 1501, places=12)
+
     def test_session_rows_count_the_range_shown_and_tell_apart_sessions_of_one_name(self):
         temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
         root = Path(temp.name); now = time.time()

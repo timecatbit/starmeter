@@ -125,6 +125,8 @@ fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
                     Ok(background::service_status::read_all(&wanted, "test").into())
                 }
                 "fx" => Ok(loaded(runtime.exchange_rate_load())),
+                // The sessions read now, through the cache a background refresh keeps (session-spent among it).
+                "sessions" => Ok(loaded(runtime.sessions_cached(Some(0.0)))),
                 "ttl" => Ok(runtime.refresh_ttl(args.get(2).and_then(Json::number).unwrap_or(0.0)).into()),
                 "snapshot" => {
                     // [snapshot, routes, now]: the dashboard's clock, so both sides build it at one instant.
