@@ -45,8 +45,11 @@
   }
 }
 
-/* The language not chosen is hidden; without the script, Chinese shows. */
+/* The language not chosen is hidden; without the script, Chinese shows. 繁體中文 is the Chinese converted in place by
+   site.js: until then it waits hidden (a moment at most), and draws in the Traditional faces. */
 html.en .zh, html:not(.en) .en { display: none !important; }
+html.hant:not(.hant-ready) .zh { visibility: hidden; }
+html.hant { --font: -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text', 'Segoe UI', 'PingFang TC', 'Microsoft JhengHei UI', system-ui, sans-serif; }
 
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; scroll-padding-top: 72px; }
@@ -98,16 +101,21 @@ p { margin: 0; }
 .links { display: flex; gap: 22px; margin-left: auto; font-size: 14.5px; }
 .links a { text-decoration: none; color: var(--muted); }
 .links a:hover { color: var(--text); }
-.lang {
+/* The language switch: 简 · 繁 · EN, the one chosen filled. */
+.lang { display: inline-flex; gap: 2px; padding: 3px; border-radius: 999px; background: var(--accent-soft); }
+.lang button {
   font: 600 13px var(--font);
-  color: var(--text);
-  background: var(--accent-soft);
+  color: var(--muted);
+  background: transparent;
   border: 0;
   border-radius: 999px;
-  padding: 6px 13px;
+  padding: 3px 10px;
   cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease, transform 0.15s ease;
 }
-.lang:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.lang button:hover { color: var(--text); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.lang button:active { transform: scale(0.93); }
+.lang button[aria-pressed="true"] { color: var(--accent-text); background: var(--accent); }
 @media (max-width: 640px) {
   .links a:not(:last-child) { display: none; }
   .nav { gap: 14px; }
@@ -376,6 +384,8 @@ a.platform:hover { transform: translateY(-2px); box-shadow: inset 0 0 0 1.5px va
 .platform.brew { justify-content: center; }
 .platform.brew code { font: 13px/1.5 var(--mono); overflow-wrap: break-word; margin: 4px 0 10px; }
 .platform.brew code span { white-space: nowrap; }
+.platform.brew button .done, .platform.brew button.copied .idle { display: none; }
+.platform.brew button.copied .done { display: inline; }
 .platform.brew button {
   align-self: flex-start;
   font: 600 13px var(--font);

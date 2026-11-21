@@ -1,6 +1,7 @@
-// The language switch (the choice is kept for the next visit), the copy button for the Homebrew command, and the
-// page's motion: twinkling halftone skies, pieces rising into view and the effects tied to scrolling. Motion runs only
-// when the page set html.motion (the system doesn't ask to reduce motion); otherwise the skies hold still.
+// The language switch (简体中文, 繁體中文 or English, kept for the next visit), the copy buttons for the Homebrew
+// commands, and the page's motion: twinkling halftone skies, pieces rising into view and the effects tied to scrolling.
+// Motion runs only when the page set html.motion (the system doesn't ask to reduce motion); otherwise the skies hold
+// still.
 (function () {
   var root = document.documentElement;
   var titles = {
@@ -11,30 +12,103 @@
     zh: document.querySelector('meta[name="description"]').content,
     en: 'Starmeter shows the tokens and API-equivalent cost of Claude Code, Codex, Cursor, Gemini CLI and more, your subscription limits, API balances and active sessions, in the macOS menu bar and the Windows and Linux tray. Free, open source, and your data stays on your computer.',
   };
+  var HAN = /[\u3400-\u9fff]/;
 
-  function show(lang) {
-    root.classList.toggle('en', lang === 'en');
-    root.lang = lang === 'en' ? 'en' : 'zh-CN';
-    document.title = titles[lang];
-    document.querySelector('meta[name="description"]').content = descriptions[lang];
+  // 繁體中文: the page is written in Simplified Chinese and English; Traditional is the Simplified text converted in
+  // place (hant.js, the panel's own tables), with the original kept to go back to. The pictures come from
+  // images/zh-Hant/ and the README links go to README.zh-Hant.md.
+  var parts = null;
+  // Collected the first time the page turns Traditional, when hant.js is there.
+  function chineseParts() {
+    if (parts) return parts;
+    parts = [];
+    var texts = new Set(), elements = new Set();
+    document.querySelectorAll('.zh').forEach(function (element) {
+      var walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      for (var node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (texts.has(node) || !HAN.test(node.nodeValue)) continue;
+        texts.add(node);
+        parts.push({ node: node, text: node.nodeValue, hant: window.toHant(node.nodeValue) });
+      }
+      [element].concat([].slice.call(element.querySelectorAll('*'))).forEach(function (item) {
+        if (elements.has(item)) return;
+        elements.add(item);
+        ['alt', 'src', 'srcset', 'href'].forEach(function (name) {
+          var value = item.getAttribute(name), hant = value === null ? null : traditional(name, value);
+          if (hant !== null && hant !== value) parts.push({ element: item, name: name, text: value, hant: hant });
+        });
+      });
+    });
+    return parts;
   }
-  show(root.classList.contains('en') ? 'en' : 'zh');
+  function traditional(name, value) {
+    if (name === 'alt') return window.toHant(value);
+    if (/^images\/(?!en\/|zh-Hant\/)/.test(value)) return value.replace(/^images\//, 'images/zh-Hant/');
+    var readme = 'https://github.com/timecatbit/starmeter#';
+    if (name === 'href' && value.indexOf(readme) === 0) return 'https://github.com/timecatbit/starmeter/blob/main/README.zh-Hant.md#' + window.toHant(value.slice(readme.length));
+    return null;
+  }
+  function convert(on) {
+    if (!on && !parts) return;
+    chineseParts().forEach(function (part) {
+      var value = on ? part.hant : part.text;
+      if (part.node) {
+        if (part.node.nodeValue !== value) part.node.nodeValue = value;
+      } else if (part.element.getAttribute(part.name) !== value) {
+        part.element.setAttribute(part.name, value);
+      }
+    });
+  }
+  // hant.js, fetched once: the head already asked for it when the page opens in 繁體中文.
+  function withHant(done, failed) {
+    if (window.toHant) return done();
+    var script = document.getElementById('hant');
+    if (!script) {
+      script = document.createElement('script');
+      script.src = 'hant.js';
+      script.id = 'hant';
+      document.head.appendChild(script);
+    }
+    script.addEventListener('load', done);
+    script.addEventListener('error', failed);
+  }
 
-  document.querySelector('[data-switch-lang]').addEventListener('click', function () {
-    var lang = root.classList.contains('en') ? 'zh' : 'en';
-    show(lang);
-    try { localStorage.setItem('starmeter-lang', lang); } catch (e) {}
-    var url = new URL(location.href);
-    url.searchParams.delete('lang');
-    history.replaceState(null, '', url);
+  function pressed(lang) {
+    document.querySelectorAll('[data-lang]').forEach(function (button) {
+      button.setAttribute('aria-pressed', String(button.getAttribute('data-lang') === lang));
+    });
+  }
+  function show(lang) {
+    pressed(lang);
+    if (lang === 'zh-Hant' && !window.toHant) return withHant(function () { show(lang); }, function () { show('zh'); });
+    root.classList.toggle('en', lang === 'en');
+    root.classList.toggle('hant', lang === 'zh-Hant');
+    root.lang = { zh: 'zh-CN', 'zh-Hant': 'zh-Hant', en: 'en' }[lang];
+    convert(lang === 'zh-Hant');
+    if (lang === 'zh-Hant') root.classList.add('hant-ready');
+    document.title = lang === 'zh-Hant' ? window.toHant(titles.zh) : titles[lang];
+    document.querySelector('meta[name="description"]').content = lang === 'zh-Hant' ? window.toHant(descriptions.zh) : descriptions[lang];
+  }
+  show(root.classList.contains('en') ? 'en' : root.classList.contains('hant') ? 'zh-Hant' : 'zh');
+
+  document.querySelectorAll('[data-lang]').forEach(function (button) {
+    button.addEventListener('click', function () {
+      var lang = button.getAttribute('data-lang');
+      show(lang);
+      try { localStorage.setItem('starmeter-lang', lang); } catch (e) {}
+      var url = new URL(location.href);
+      url.searchParams.delete('lang');
+      history.replaceState(null, '', url);
+    });
   });
 
   document.querySelectorAll('[data-copy]').forEach(function (button) {
-    var label = button.innerHTML;
+    var timer = 0;
     button.addEventListener('click', function () {
       navigator.clipboard.writeText(button.getAttribute('data-copy')).then(function () {
-        button.innerHTML = '<span class="zh">已复制</span><span class="en">Copied</span>';
-        setTimeout(function () { button.innerHTML = label; }, 1800);
+        button.classList.add('copied');
+        clearTimeout(timer);
+        timer = setTimeout(function () { button.classList.remove('copied'); }, 1800);
       });
     });
   });

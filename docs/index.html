@@ -15,16 +15,30 @@
   <link rel="icon" href="images/starmeter-small.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
   <script>
-    // The language before anything is drawn: ?lang=, then the last choice, then the browser's.
+    // The language before anything is drawn: ?lang=, then the last choice, then the browser's (Taiwan, Hong Kong, Macau
+    // or a Traditional script read 繁體中文).
     (function () {
+      var root = document.documentElement, known = { zh: 1, 'zh-Hant': 1, en: 1 };
       var asked = new URLSearchParams(location.search).get('lang'), saved = null;
       try { saved = localStorage.getItem('starmeter-lang'); } catch (e) {}
-      var lang = asked === 'en' || asked === 'zh' ? asked : saved || ((navigator.language || '').toLowerCase().indexOf('zh') === 0 ? 'zh' : 'en');
-      if (lang === 'en') { document.documentElement.classList.add('en'); document.documentElement.lang = 'en'; }
+      var browser = (navigator.language || '').toLowerCase();
+      var lang = known[asked] ? asked : known[saved] ? saved : /^zh-(tw|hk|mo|hant)/.test(browser) ? 'zh-Hant' : browser.indexOf('zh') === 0 ? 'zh' : 'en';
+      if (lang === 'en') { root.classList.add('en'); root.lang = 'en'; }
+      // 繁體中文 is the Simplified text converted in place by site.js with hant.js (scripts/make_hant.py writes it, from
+      // the panel's own tables). The Chinese waits hidden for it, a moment at most; if it can't load, Simplified shows.
+      if (lang === 'zh-Hant') {
+        root.classList.add('hant');
+        root.lang = 'zh-Hant';
+        var script = document.createElement('script');
+        script.src = 'hant.js';
+        script.id = 'hant';
+        script.onerror = function () { root.classList.remove('hant'); root.classList.add('hant-ready'); root.lang = 'zh-CN'; };
+        document.head.appendChild(script);
+        setTimeout(function () { root.classList.add('hant-ready'); }, 2500);
+      }
       // Motion unless the system asks for less. What waits to be revealed is hidden from the first paint, so if site.js
       // never runs, everything is shown after a moment instead.
       if (window.matchMedia && matchMedia('(prefers-reduced-motion: no-preference)').matches && 'IntersectionObserver' in window) {
-        var root = document.documentElement;
         root.classList.add('motion');
         setTimeout(function () { if (!root.classList.contains('ready')) root.classList.remove('motion'); }, 2500);
       }
@@ -40,7 +54,9 @@
       <a href="#download"><span class="zh">下载</span><span class="en">Download</span></a>
       <a href="https://github.com/timecatbit/starmeter">GitHub</a>
     </nav>
-    <button class="lang" type="button" data-switch-lang><span class="zh" lang="en">EN</span><span class="en" lang="zh-CN">中文</span></button>
+    <div class="lang" role="group" aria-label="Language">
+      <button type="button" data-lang="zh" lang="zh-Hans" aria-label="简体中文">简</button><button type="button" data-lang="zh-Hant" lang="zh-Hant" aria-label="繁體中文">繁</button><button type="button" data-lang="en" lang="en" aria-label="English">EN</button>
+    </div>
   </header>
 
   <main id="top">
@@ -74,7 +90,7 @@
         <picture class="side right zh"><source media="(prefers-color-scheme: dark)" srcset="images/live-dark.png"><img src="images/live-light.png" width="440" height="610" alt="" loading="lazy"></picture>
         <picture class="side right en"><source media="(prefers-color-scheme: dark)" srcset="images/en/live-dark.png"><img src="images/en/live-light.png" width="440" height="610" alt="" loading="lazy"></picture>
       </div>
-      <p class="note"><span class="zh">截图都由测试数据生成。界面有中文和英文，在设置里切换。</span><span class="en">Screenshots are made from test data. The panel speaks Chinese and English; switch in Settings.</span></p>
+      <p class="note"><span class="zh">截图都由测试数据生成。界面有简体中文、繁體中文和英文，在设置里切换。</span><span class="en">Screenshots are made from test data. The panel speaks Simplified Chinese, Traditional Chinese and English; switch in Settings.</span></p>
     </section>
 
     <section class="tools" aria-labelledby="tools-title">
@@ -232,7 +248,7 @@
             <dt><span class="zh">菜单栏数字</span><span class="en">Menu bar figure</span></dt><dd><span class="zh">星星旁可加今天的估算或最紧张的额度。</span><span class="en">Today's estimate or the tightest limit beside the star.</span></dd>
             <dt><span class="zh">人民币显示</span><span class="en">Yuan</span></dt><dd><span class="zh">估算按欧洲央行参考汇率换算，或填固定汇率。</span><span class="en">Estimates at the ECB reference rate, or a rate you set.</span></dd>
             <dt><span class="zh">深浅色</span><span class="en">Light and dark</span></dt><dd><span class="zh">跟随系统，或固定浅色、深色。</span><span class="en">Follow the system, or pick one.</span></dd>
-            <dt><span class="zh">中文与英文</span><span class="en">Chinese and English</span></dt><dd><span class="zh">第一次打开时，欢迎页就能选中文或 English，之后在设置里切换。</span><span class="en">Pick English on the welcome screen the first time, or later in Settings.</span></dd>
+            <dt><span class="zh">三种语言</span><span class="en">Three languages</span></dt><dd><span class="zh">简体中文、繁體中文和 English，第一次打开时在欢迎页就能选，之后在设置里切换。</span><span class="en">Simplified Chinese, Traditional Chinese and English: pick one on the welcome screen the first time, or later in Settings.</span></dd>
           </dl>
         </div>
         <div>
@@ -316,7 +332,7 @@
         <div class="platform brew">
           <span class="os">Homebrew · <span class="zh">Mac 独立版</span><span class="en">Mac app</span></span>
           <code>brew install --cask timecatbit/tap/starmeter</code>
-          <button type="button" data-copy="brew install --cask timecatbit/tap/starmeter"><span class="zh">复制</span><span class="en">Copy</span></button>
+          <button type="button" data-copy="brew install --cask timecatbit/tap/starmeter"><span class="idle"><span class="zh">复制</span><span class="en">Copy</span></span><span class="done"><span class="zh">已复制</span><span class="en">Copied</span></span></button>
         </div>
         <a class="platform" href="https://github.com/timecatbit/starmeter/releases/latest">
           <span class="os">Linux</span><b>Linux · Debian/Ubuntu</b>
@@ -329,7 +345,7 @@
         <div class="platform brew">
           <span class="os">Homebrew · <span class="zh">命令行</span><span class="en">Command line</span></span>
           <code>brew install <span>timecatbit/tap/starmeter-cli</span></code>
-          <button type="button" data-copy="brew install timecatbit/tap/starmeter-cli"><span class="zh">复制</span><span class="en">Copy</span></button>
+          <button type="button" data-copy="brew install timecatbit/tap/starmeter-cli"><span class="idle"><span class="zh">复制</span><span class="en">Copy</span></span><span class="done"><span class="zh">已复制</span><span class="en">Copied</span></span></button>
         </div>
       </div>
       <p class="note">

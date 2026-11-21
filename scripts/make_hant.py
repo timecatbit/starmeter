@@ -12,7 +12,8 @@ Run it again after adding Chinese text with a character or word it doesn't know:
 
     python3 scripts/make_hant.py
 
-It writes app/ui/src/lib/hant.ts and crates/core/src/hant.rs from the same tables. After README.md changes:
+It writes app/ui/src/lib/hant.ts, crates/core/src/hant.rs and docs/hant.js (the website's 繁體中文) from the same
+tables. After README.md changes:
 
     python3 scripts/make_hant.py --readme
 
@@ -26,7 +27,7 @@ import subprocess
 ROOT = Path(__file__).resolve().parents[1]
 SOURCES = [ROOT / 'crates', ROOT / 'app/src-tauri/src', ROOT / 'app/ui/src', ROOT / 'app/ui/fixtures/make-fixtures.mjs',
            ROOT / 'starmeter.30s.sh', ROOT / 'README.md', ROOT / 'CHANGELOG.md', ROOT / 'docs/index.html', ROOT / 'docs/site.js']
-OUTPUTS = (ROOT / 'app/ui/src/lib/hant.ts', ROOT / 'crates/core/src/hant.rs')
+OUTPUTS = (ROOT / 'app/ui/src/lib/hant.ts', ROOT / 'crates/core/src/hant.rs', ROOT / 'docs/hant.js')
 CHINESE = re.compile(r'[\u3400-\u4dbf\u4e00-\u9fff]+')
 
 # Characters ICU writes in a form Taiwan doesn't (啓 for 啟).
@@ -250,6 +251,42 @@ def write(chars, phrases):
     OUTPUTS[1].write_text('\n'.join(rs), encoding='utf-8')
     # As cargo fmt would write it, so the check finds nothing to change.
     subprocess.run(['rustfmt', '--edition', '2024', str(OUTPUTS[1])], check=False)
+    # The website has no build step: plain JavaScript, loaded only when a visitor reads it in 繁體中文 (see site.js).
+    js = [
+        '// 繁體中文 for the website: Simplified Chinese to Traditional, as the panel converts its text (site.js uses it).',
+        '// ' + note,
+        '(function () {',
+        '  var PAIRS = ' + json_string(pairs) + ';',
+        '  var PHRASES = [',
+        *['    [%s, %s],' % (json_string(a), json_string(b)) for a, b in ordered],
+        '  ];',
+        '  var LONGEST = %d;' % longest,
+        '  var chars = null, phrases = null;',
+        '  // The text in Traditional Chinese: the longest phrase known at each place, else each character on its own.',
+        '  window.toHant = function (text) {',
+        '    if (!/[\u3400-\u9fff]/.test(text)) return text;',
+        '    if (!chars) {',
+        '      chars = new Map();',
+        '      for (var c = 0; c < PAIRS.length; c += 2) chars.set(PAIRS[c], PAIRS[c + 1]);',
+        '      phrases = new Map(PHRASES);',
+        '    }',
+        '    var out = \'\', i = 0;',
+        '    while (i < text.length) {',
+        '      var matched = false;',
+        '      for (var size = Math.min(LONGEST, text.length - i); size > 1; size--) {',
+        '        var found = phrases.get(text.slice(i, i + size));',
+        '        if (found !== undefined) { out += found; i += size; matched = true; break; }',
+        '      }',
+        '      if (matched) continue;',
+        '      out += chars.has(text[i]) ? chars.get(text[i]) : text[i];',
+        '      i++;',
+        '    }',
+        '    return out;',
+        '  };',
+        '})();',
+        '',
+    ]
+    OUTPUTS[2].write_text('\n'.join(js), encoding='utf-8')
 
 
 def json_string(text):
