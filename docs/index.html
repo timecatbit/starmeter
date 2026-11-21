@@ -15,8 +15,8 @@
   <link rel="icon" href="images/starmeter-small.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
   <script>
-    // The language before anything is drawn: ?lang=, then the last choice, then the browser's (Taiwan, Hong Kong, Macau
-    // or a Traditional script read 繁體中文).
+    // The language before anything is drawn: ?lang=, then the last choice, then the browser's (one set to Traditional
+    // Chinese reads 繁體中文).
     (function () {
       var root = document.documentElement, known = { zh: 1, 'zh-Hant': 1, en: 1 };
       var asked = new URLSearchParams(location.search).get('lang'), saved = null;
