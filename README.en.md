@@ -105,7 +105,7 @@ The star appears in the tray of the top bar or taskbar. A click on a Linux tray 
 
 ## Updates
 
-- **SwiftBar plugin**: when a new version is out, a **Starmeter** row with the new version number appears under **Tool updates**. Confirm the update and the plugin downloads, verifies and installs it, keeping settings, keys and statistics. The row isn't there when there's nothing new.
+- **SwiftBar plugin**: when a new version is out, a **Starmeter** row saying "X.Y.Z available" appears under **Tool updates**. Choose **Update to X.Y.Z…** and confirm, and the plugin downloads, verifies and installs it, keeping settings, keys and statistics. The row isn't there when there's nothing new.
 - **Standalone app**: when there's a new version for your chip, the panel links to the release page; quit the app and replace it with the new disk image for the same chip. With Homebrew, run `brew upgrade --cask starmeter`.
 - **Command line**: with Homebrew, run `brew upgrade starmeter-cli`; the command in the `.deb` and the Windows versions updates with the app.
 - **Price tables** update daily on their own, so new models don't wait for a release.

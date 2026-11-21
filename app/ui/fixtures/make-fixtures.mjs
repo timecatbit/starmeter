@@ -585,14 +585,19 @@ function komariRows(state) {
   ]);
 }
 
-function updateRows() {
-  return entry('工具更新', { symbol: 'arrow.down.circle', attention: true, value: '3 项待更新', fallbacks: ['3 项'], onOpenAction: ['refresh-source', 'updates'] }, [
-    entry('Claude', { statusLight: 'new', detail: '6.6395.1 → 6.7012.0 · 点击打开 App 更新', href: 'file:///Applications/Claude.app' }),
-    entry('Claude Code', { statusLight: 'new', detail: '2.1.327 → 2.1.330 · Claude 官方 · 点击运行 claude update', action: ['update-cli', 'claude-code'] }),
-    entry('Codex', { statusLight: 'new', detail: '0.170.0 → 0.171.2 · Homebrew Cask · 点击运行 codex update', action: ['update-cli', 'codex-cli'] }),
-    entry('ChatGPT', { statusLight: 'ok', detail: '已是最新 · 26.1118.10442', href: 'file:///Applications/ChatGPT.app' }),
-    entry('Cursor', { statusLight: 'unknown', detail: '在 App 内检查更新', href: 'file:///Applications/Cursor.app' }),
-    entry('Gemini CLI', { statusLight: 'issue', detail: '检查失败：npm 无响应，稍后重试', action: ['check-app-updates'] }),
+// As the engine writes them (more_rows.rs, app_update_lines): each tool's name and status, then its versions, channel
+// and what a click does; a check that failed gives its reason. The manual ones say where to look.
+function updateRows(state) {
+  const failed = state === 'failed', count = failed ? 2 : 3;
+  return entry('工具更新', { symbol: 'arrow.down.circle', attention: true, value: `${count} 项待更新`, fallbacks: [`${count} 项`], onOpenAction: ['refresh-source', 'updates'] }, [
+    entry('Claude · 有新版本', { statusLight: 'new', detail: '6.6395.1 → 6.7012.0 · 点击打开 App 更新', href: 'file:///Applications/Claude.app' }),
+    entry('Claude Code · 有新版本', { statusLight: 'new', detail: '2.1.327 → 2.1.330 · Claude 官方 · 点击运行 claude update', action: ['update-cli', 'claude-code'] }),
+    failed
+      ? entry('Codex · 检查失败，稍后重试', { statusLight: 'issue', detail: '0.170.0 · Homebrew Cask · formulae.brew.sh 返回 HTTP 503' })
+      : entry('Codex · 有新版本', { statusLight: 'new', detail: '0.170.0 → 0.171.2 · Homebrew Cask · 点击运行 codex update', action: ['update-cli', 'codex-cli'] }),
+    entry('ChatGPT · 已是最新', { statusLight: 'ok', detail: '26.1118.10442', href: 'file:///Applications/ChatGPT.app' }),
+    entry('Cursor · 在 App 内检查更新', { statusLight: 'unknown', detail: '尚未接入自动版本检查', href: 'file:///Applications/Cursor.app' }),
+    entry('Gemini CLI · 在官网查看更新', { statusLight: 'unknown', detail: '尚未接入自动版本检查', href: 'https://github.com/google-gemini/gemini-cli/releases' }),
     separator(),
     entry('立即检查更新', { symbol: 'arrow.clockwise', action: ['check-app-updates'] }),
     entry('查看最近 CLI 更新日志', { symbol: 'doc.text', action: ['open-cli-update-log'] }),
@@ -600,10 +605,17 @@ function updateRows() {
   ]);
 }
 
-function selfUpdateRow() {
-  return entry('Starmeter · 可更新', { symbol: 'sparkles', attention: true, value: '6.0.1' }, [
-    entry('更新到 6.0.1…', { symbol: 'arrow.down.circle', action: ['self-update', '6.0.1'] }),
-    entry('更新记录', { href: 'https://github.com/timecatbit/starmeter/blob/main/CHANGELOG.md' }),
+// The SwiftBar plugin's own update, as the engine writes it (more_rows.rs, self_update_lines): a new version, the
+// update under way (pending) or one that failed (failed).
+function selfUpdateRow(state) {
+  const running = state === 'pending', failed = state === 'failed';
+  return entry('Starmeter', { image: logo('starmeter-mark.svg'), template: true, attention: !failed, value: running ? '正在更新' : failed ? '更新失败' : '可更新 6.0.9' }, [
+    entry('当前 6.0.8 → 最新 6.0.9'),
+    ...(running ? [entry('正在下载并安装，完成后自动刷新')] : [
+      ...(failed ? [entry('安装包校验失败', { statusLight: 'issue', detail: `日志：${HOME}/Library/Application Support/SwiftBarToken/logs/self-update.log` })] : []),
+      entry(failed ? '重试更新到 6.0.9…' : '更新到 6.0.9…', { symbol: 'arrow.down.circle', action: ['update-self'] }),
+    ]),
+    entry('查看更新内容', { symbol: 'arrow.up.right', href: 'https://github.com/timecatbit/starmeter/releases/tag/v6.0.9' }),
   ]);
 }
 
@@ -742,8 +754,8 @@ function homeEntries(state) {
   add(separator(), null);
   add(sessionRows(state), 'sessions');
   add(komariRows(state), 'komari');
-  add(updateRows(), 'updates');
-  add(selfUpdateRow(), null);
+  add(updateRows(state), 'updates');
+  add(selfUpdateRow(state), null);
   return { rows, keys };
 }
 

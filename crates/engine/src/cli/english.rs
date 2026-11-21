@@ -161,7 +161,7 @@ pub static WHOLE: [Rule; 2] = [
 ];
 
 /// One part of the engine's text.
-pub static RULES: [Rule; 68] = [
+pub static RULES: [Rule; 75] = [
     rule!(r"^已用 (\d+(?:\.\d+)?%)$", |m| format!("{} used", group(m, 1))),
     rule!(r"^已用 (\d+(?:\.\d+)?%) 截至 (.+)$", |m| format!("{} used as of {}", group(m, 1), group(m, 2))),
     rule!(r"^已用 (.+)$", |m| format!("Used: {}", translate(group(m, 1)))),
@@ -258,6 +258,13 @@ pub static RULES: [Rule; 68] = [
     rule!(r"^(\d+) 项$", |m| group(m, 1).to_string()),
     rule!(r"^点击运行 (.+)$", |m| format!("Click to run {}", group(m, 1))),
     rule!(r"^更新到 (.+)$", |m| format!("Update to {}", group(m, 1))),
+    rule!(r"^重试更新到 (.+)$", |m| format!("Retry the update to {}", group(m, 1))),
+    rule!(r"^可更新 (.+)$", |m| format!("{} available", group(m, 1))),
+    rule!(r"^当前 (.+) → 最新 (.+)$", |m| format!("Current {} → latest {}", group(m, 1), group(m, 2))),
+    rule!(r"^已自动更新至 (.+)$", |m| format!("Updated automatically to {}", group(m, 1))),
+    rule!(r"^(.+) 返回 HTTP (\d+)$", |m| format!("{}: HTTP {}", group(m, 1), group(m, 2))),
+    rule!(r"^找不到版本 (.+) 的发布$", |m| format!("No release for version {}", group(m, 1))),
+    rule!(r"^安装程序退出码 (-?\d+)$", |m| format!("The installer exited with code {}", group(m, 1))),
     rule!(r"^打开 (.+)$", |m| format!("Open {}", translate(group(m, 1)))),
     rule!(r"^(.+) (\d+(?:\.\d+)?%)$", |m| format!("{} {}", translate(group(m, 1)), group(m, 2))),
 ];

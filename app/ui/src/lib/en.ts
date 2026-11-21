@@ -69,9 +69,31 @@ export const phrases: Record<string, string> = {
   // Monitoring and updates
   'Komari 监控': 'Komari status', '打开 Komari 面板': 'Open the Komari panel', 刷新监控数据: 'Refresh monitoring data', 在线: 'Online',
   离线: 'Offline', '到期 长期': 'No expiry', 工具更新: 'Tool updates', 立即检查更新: 'Check for updates now',
-  '查看最近 CLI 更新日志': 'Show the latest CLI update log', '选择工具…': 'Choose tools…', 'Starmeter · 可更新': 'Starmeter · Update available',
+  '查看最近 CLI 更新日志': 'Show the latest CLI update log', '选择工具…': 'Choose tools…',
   更新记录: 'Changelog', '点击打开 App 更新': 'Click to update in the app', 'Claude 官方': 'Official', 'Homebrew Cask': 'Homebrew Cask',
-  已是最新: 'Up to date', '在 App 内检查更新': 'Checked in the app', '检查失败：npm 无响应，稍后重试': 'Check failed: npm didn\'t answer; trying again later',
+  // A tool's update status, the line under it and why a check failed (updates.rs, more_rows.rs)
+  有新版本: 'Update available', 已是最新: 'Up to date', 等待检查: 'Waiting to check', 公开渠道暂无更新: 'Nothing new on the public channel',
+  未安装: 'Not installed', 更新渠道待确认: 'Update channel not known yet', 安装渠道待确认: 'Install channel not known yet',
+  '在 App 内检查更新': 'Check in the app', 在官网查看更新: 'Check on the website', 尚未接入自动版本检查: 'No automatic version check yet',
+  版本待确认: 'Version not known yet', 已下载: 'Downloaded', 客户端更新源: 'The client\'s update feed',
+  'Homebrew 自定义 Cask': 'Custom Homebrew cask', 'Homebrew 自定义 Formula': 'Custom Homebrew formula',
+  '检查失败，稍后重试': 'Check failed; trying again later', 读取本机版本失败: 'Couldn\'t read the installed version',
+  版本信息无法识别: 'Version information not recognized', '证书验证失败（Python 缺少根证书）': 'Certificate check failed (Python lacks root certificates)',
+  '连接超时（检查网络或代理）': 'Connection timed out (check the network or proxy)', '域名无法解析（检查网络或代理）': 'Couldn\'t resolve the host (check the network or proxy)',
+  '连接被拒绝（检查代理）': 'Connection refused (check the proxy)', '无法连接（检查网络或代理）': 'Couldn\'t connect (check the network or proxy)',
+  // OpenCodex updating itself
+  自动更新中: 'Updating automatically', 正在自动更新: 'Updating automatically', 等待自动更新: 'Waiting to update automatically',
+  正在确认更新任务: 'Checking the update job', 正在重启并确认版本: 'Restarting and checking the version',
+  '新版本已启动，正在确认运行状态': 'The new version started; checking that it runs', 此安装方式需手动更新: 'This install is updated by hand',
+  '自动更新未完成，1 小时后重试': 'The automatic update didn\'t finish; trying again in 1 hour',
+  '自动更新暂未启动，1 小时后重试': 'The automatic update hasn\'t started; trying again in 1 hour',
+  '更新结果暂未确认，1 小时后重新检查': 'The update isn\'t confirmed yet; checking again in 1 hour',
+  // Starmeter updating itself, and why an update failed (self_update.rs)
+  正在更新: 'Updating', 更新失败: 'Update failed', '打开 GitHub 发布页': 'Open the release on GitHub', 查看更新内容: 'What\'s new',
+  '正在下载并安装，完成后自动刷新': 'Downloading and installing; refreshes when done', 日志: 'Log', 安装失败: 'Install failed',
+  '安装失败：下载失败': 'Install failed: the download failed', 安装包大小异常: 'The package\'s size is wrong',
+  安装包结构异常: 'The package\'s layout is wrong', 安装包校验失败: 'The package failed its checksum',
+  发布中没有安装包: 'The release has no package', 发布中没有校验值: 'The release has no checksum', 校验值格式错误: 'The checksum is malformed',
   // The settings: 外观, 通用, 提醒 and 数据
   允许折叠: 'Allow folding', '卡片折成两行，点卡片就地展开': 'Cards fold to two lines and open where they are', 外观: 'Appearance', 通用: 'General', 提醒: 'Alerts', 跟随系统: 'System', 浅色: 'Light', 深色: 'Dark', 实色: 'Solid',
   磨砂: 'Frosted', 玻璃: 'Glass', 显示: 'Display', '语言 Language': 'Language', 金额显示: 'Currency', '美元（$）': 'US dollar ($)',
@@ -301,6 +323,13 @@ export const rules: Rule[] = [
   [/^(\d+) 项$/, (m) => m[1]],
   [/^点击运行 (.+)$/, (m) => `Click to run ${m[1]}`],
   [/^更新到 (.+)$/, (m) => `Update to ${m[1]}`],
+  [/^重试更新到 (.+)$/, (m) => `Retry the update to ${m[1]}`],
+  [/^可更新 (.+)$/, (m) => `${m[1]} available`],
+  [/^当前 (.+) → 最新 (.+)$/, (m) => `Current ${m[1]} → latest ${m[2]}`],
+  [/^已自动更新至 (.+)$/, (m) => `Updated automatically to ${m[1]}`],
+  [/^(.+) 返回 HTTP (\d+)$/, (m) => `${m[1]}: HTTP ${m[2]}`],
+  [/^找不到版本 (.+) 的发布$/, (m) => `No release for version ${m[1]}`],
+  [/^安装程序退出码 (-?\d+)$/, (m) => `The installer exited with code ${m[1]}`],
   // Rows that open something
   [/^打开 (.+)$/, (m, tr) => `Open ${tr(m[1])}`],
   // A name and its share (a window of a plan, a client): last, after the rules that know their own names.
