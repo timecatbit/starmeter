@@ -258,10 +258,27 @@ impl Runtime {
 
     /// 会话 with its figures and note in `selected`: a phone reads the range it chose, the computer keeping its own.
     pub fn sessions_lines_in(&self, data: &Object, unit: &Json, selected: &str) -> Vec<String> {
-        let found: Option<Vec<Object>> = object(data, "sessions")
-            .get("sessions")
-            .and_then(Json::as_array)
-            .map(|rows| rows.iter().filter_map(Json::as_object).cloned().collect());
+        let selected = selected.to_string();
+        // The sessions active in the range shown: a request in it, or a change in it (one that hasn't asked yet). 全部
+        // lists every session read, the last month's.
+        let (start, end) = self.range_bounds(&selected, now(), &self.local_zone());
+        let active_then = |session: &Object| {
+            let asked = session
+                .get("spent")
+                .and_then(|spent| spent.get("ranges"))
+                .and_then(|ranges| ranges.get(&selected))
+                .and_then(|figure| figure.get("requests"))
+                .and_then(Json::integer)
+                .unwrap_or(0);
+            let at = session.get("at").and_then(Json::number).unwrap_or(0.0);
+            selected == "all" || asked > 0 || (start <= at && at <= end)
+        };
+        let found: Option<Vec<Object>> =
+            object(data, "sessions").get("sessions").and_then(Json::as_array).map(|rows| {
+                rows.iter().filter_map(Json::as_object).filter(|session| active_then(session)).cloned().collect()
+            });
+        let label =
+            RANGES.iter().find(|(key, _)| *key == selected && *key != "all").map_or("近 30 天", |(_, label)| *label);
         let error = failure(data, "sessions");
         let badge = match &found {
             Some(found) => {
@@ -294,7 +311,6 @@ impl Runtime {
                 "费用待定价".to_string()
             }
         };
-        let selected = selected.to_string();
         // Sessions of one name (untitled ones go by their project folder, and a program's runs have no title) are
         // told apart by when each began: the time today, the date as well before.
         let names: Vec<String> = found.iter().flatten().map(session_name).collect();
@@ -392,18 +408,19 @@ impl Runtime {
         }
         match found.as_ref() {
             Some(found) if found.is_empty() => lines.push(item(
-                "最近一天没有 Claude Code 或 Codex 会话",
+                &format!("{label}没有 Claude Code 或 Codex 会话"),
                 1,
                 object! { "color" => MUTED_COLOR, "size" => 11 },
             )),
-            // Which sessions are listed and what their figures count: the list is the last day's whatever the range.
+            // Which sessions are listed and what their figures count.
             Some(_) => {
-                let counted = match RANGES.iter().find(|(key, _)| *key == selected && *key != "all") {
-                    Some((_, label)) => format!("金额只算{label}"),
-                    None => "金额为会话累计".to_string(),
+                let counted = if selected == "all" {
+                    "金额为会话累计".to_string()
+                } else {
+                    format!("金额只算{label}")
                 };
                 lines.push(item(
-                    &format!("最近一天活动过的会话 · {counted}"),
+                    &format!("{label}活动过的会话 · {counted}"),
                     1,
                     object! { "color" => MUTED_COLOR, "size" => 11 },
                 ));

@@ -522,13 +522,13 @@ function apiRows(state) {
 function sessionRows(state) {
   const alert = (on) => entry('这一轮完成时提醒', { symbol: 'bell', detail: '运行中的会话这一轮完成时发通知', checked: on, action: ['set-session-alerts', on ? 'false' : 'true'] });
   if (state === 'pending') return entry('会话', { symbol: 'terminal', value: '没有会话', onOpenAction: ['refresh-source', 'sessions'] }, [
-    entry('最近一天没有 Claude Code 或 Codex 会话'), separator(), alert(false)]);
+    entry('今天没有 Claude Code 或 Codex 会话'), separator(), alert(false)]);
   const round = (label, detail) => entry(label, { detail });
   const claude = moduleIcon('claude-subscription'), chatgpt = moduleIcon('chatgpt');
-  // Seven sessions, the running ones first: five show, the rest behind 查看更多. Each card's figure is what the session
-  // cost today (the range shown); what the whole session cost heads its turns. The last two share a name (two runs of
-  // a program in one folder have no title): the engine adds when each began, and the key tells them apart. The last
-  // spent nothing today, and a note under the list says what the figures count.
+  // Seven sessions active today (the range shown), the running ones first: five show, the rest behind 查看更多. Each
+  // card's figure is what the session cost today; what the whole session cost heads its turns. The last two share a
+  // name (two runs of a program in one folder have no title): the engine adds when each began, and the key tells them
+  // apart. The last changed today without asking anything, and a note under the list says what is listed and counted.
   return entry('会话', { symbol: 'terminal', value: '3 运行中 · 4 空闲', onOpenAction: ['refresh-source', 'sessions'] }, [
     entry('重做设置页的分段控件', { ...claude, key: 'session-1', statusLight: 'new', value: '$6.90', detail: '运行中 4 分钟 · Opus 5.5 · xhigh · 上下文 62%' }, [
       entry('starmeter · 最近 3 轮 · 累计 $6.90'),
@@ -558,11 +558,11 @@ function sessionRows(state) {
       round('13:17 · 520.1K Token · $0.31', '6 次请求 · Edit ×3 · Bash ×2'),
       round('13:02 · 1.31M Token · $0.73', '11 次请求 · Bash ×6 · Read ×4'),
     ]),
-    entry('修好 CI 的缓存 · 11-20 21:10', { ...claude, key: 'session-7', statusLight: 'unknown', value: '$0.00', detail: '空闲 18 小时 · Opus 5.5 · high · 上下文 44%' }, [
+    entry('修好 CI 的缓存 · 11-20 21:10', { ...claude, key: 'session-7', statusLight: 'unknown', value: '$0.00', detail: '空闲 3 小时 · Opus 5.5 · high · 上下文 44%' }, [
       entry('harbor-api · 最近 1 轮 · 累计 $3.12'),
-      round('21:10 · 2.02M Token · $0.86', '12 次请求 · Bash ×9 · Edit ×2'),
+      round('更早开始 · 2.02M Token · $0.86', '12 次请求 · Bash ×9 · Edit ×2'),
     ]),
-    entry('最近一天活动过的会话 · 金额只算今天'),
+    entry('今天活动过的会话 · 金额只算今天'),
     separator(),
     alert(true),
   ]);

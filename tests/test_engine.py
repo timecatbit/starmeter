@@ -1410,7 +1410,9 @@ class SessionParityTests(unittest.TestCase):
             {'type': 'user', 'sessionId': own, 'timestamp': '2026-11-18T11:00:00Z', 'message': {'content': 'carry on'}},
             {'type': 'assistant', 'sessionId': own, 'timestamp': '2026-11-18T11:00:30Z', 'message': {'id': 'm3', 'model': 'claude-opus-5-5', 'usage': usage(40), 'stop_reason': 'end_turn'}},
             {'type': 'custom-title', 'sessionId': own, 'customTitle': '接手'}], age=4)
-        write(claude / 'p' / 'busy.jsonl', [{'type': 'user', 'message': {'content': 'go'}}, {'type': 'assistant', 'message': {'model': 'claude-fable-5-2', 'usage': usage(10)}}], age=1)
+        an_hour_ago = datetime.fromtimestamp(now - 3600, timezone.utc).isoformat().replace('+00:00', 'Z')
+        write(claude / 'p' / 'busy.jsonl', [{'type': 'user', 'message': {'content': 'go'}},
+              {'type': 'assistant', 'timestamp': an_hour_ago, 'message': {'model': 'claude-fable-5-2', 'usage': usage(10)}}], age=1)
         write(claude / 'p' / 'stalled.jsonl', [{'type': 'assistant', 'message': {'stop_reason': 'tool_use'}}], age=live_sessions.STALLED + 5)
         write(claude / 'p' / 'old.jsonl', [{'type': 'assistant', 'message': {'stop_reason': 'end_turn'}}], age=live_sessions.ACTIVE + 5)
         write(claude / 'p' / 'subagents' / 'x.jsonl', [{'type': 'assistant'}], age=1)
@@ -1467,27 +1469,34 @@ class SessionParityTests(unittest.TestCase):
         with unittest.mock.patch.dict(os.environ, {'OCX_PLUGIN_PATH': str(ROOT / 'starmeter.30s.sh')}):
             exec(compile((ROOT / 'lib/swiftbar_plugin.py').read_text(), 'plugin', 'exec'), plugin.__dict__)
         at = lambda text: datetime.fromisoformat(text.replace('Z', '+00:00')).timestamp()
-        # Both ends count: a request at a range's very start or end is in it.
-        ranges = [['today', at('2026-11-18T10:02:00Z'), at('2026-11-18T10:06:00.500Z')], ['yesterday', at('2026-11-17T00:00:00Z'), at('2026-11-17T23:59:59Z')],
-                  ['24h', 0.0, at('2026-11-19T00:00:00Z')]]
-        for prices in (False, True):
+        # The calendar ranges are summed day by day in the zone (UTC here); the last 24 hours request by request, both
+        # ends counted (an hour ago is this window's very start), from what the last 26 hours hold.
+        ranges = [['today', at('2026-11-18T00:00:00Z'), now], ['yesterday', at('2026-11-17T00:00:00Z'), math.nextafter(at('2026-11-18T00:00:00Z'), -math.inf)],
+                  ['24h', at(an_hour_ago), now - 1800]]
+        from zoneinfo import ZoneInfo
+        # Without ranges, the last day's sessions; with them, those since the earliest range began (the one changed two
+        # days ago among them).
+        for prices, wanted in ((False, []), (True, ranges)):
             with self.subTest(prices=prices):
-                expected = live_sessions.active([claude], codex, now, plugin.session_prices() if prices else None, app, ranges)
-                got = swift('sessions.active', [str(claude)], str(codex), now, prices, app, ranges)
+                expected = live_sessions.active([claude], codex, now, plugin.session_prices() if prices else None, app, wanted, ZoneInfo('UTC'))
+                got = swift('sessions.active', [str(claude)], str(codex), now, prices, app, wanted, 'UTC')
                 same(self, expected, got)
-                # Within the day, the running one gone quiet as idle; the one older than a day left out; the segments one session.
-                self.assertEqual([(s['state'], s['tool']) for s in got], [('running', 'Claude'), ('running', 'Claude'), ('running', 'ChatGPT'), ('running', 'ChatGPT'),
-                                                                           ('running', 'ChatGPT'), ('waiting', 'ChatGPT'), ('waiting', 'Claude'), ('waiting', 'Claude'), ('waiting', 'Claude')])
+                # The running one gone quiet as idle; the segments one session.
+                listed = [('running', 'Claude'), ('running', 'Claude'), ('running', 'ChatGPT'), ('running', 'ChatGPT'),
+                          ('running', 'ChatGPT'), ('waiting', 'ChatGPT'), ('waiting', 'Claude'), ('waiting', 'Claude'), ('waiting', 'Claude')]
+                self.assertEqual([(s['state'], s['tool']) for s in got], listed + ([('waiting', 'Claude')] if wanted else []))
                 self.assertEqual((got[5]['title'], got[5]['model'], got[5]['effort']), ('长对话', 'gpt-6.2-astra', 'high'))
                 talked = next(s for s in got if s['title'] == '维护'); handed = next(s for s in got if s['title'] == '接手')
                 # When each began: the first time its first file records (the hand-off's, the session it came from).
                 self.assertEqual((talked['started'], handed['started']), (at('2026-11-18T10:00:00Z'),) * 2)
                 if prices:
                     self.assertEqual(got[5]['spent']['requests'], 3)
-                    # What each range holds: 10:01 is before today's start, 10:06.5 at its very end; the copied history
-                    # is the first session's, not the hand-off's.
-                    self.assertEqual({key: figure['requests'] for key, figure in talked['spent']['ranges'].items()}, {'today': 1, 'yesterday': 0, '24h': 2})
-                    self.assertEqual((handed['spent']['requests'], handed['spent']['ranges']['24h']['requests']), (1, 1))
+                    # What each range holds: both timed replies are that day's, and older than the last 26 hours; the
+                    # copied history is the first session's, not the hand-off's.
+                    self.assertEqual({key: figure['requests'] for key, figure in talked['spent']['ranges'].items()}, {'today': 2, 'yesterday': 0, '24h': 0})
+                    busy = next(s for s in got if s['title'] == 'Busy')
+                    self.assertEqual(busy['spent']['ranges']['24h']['requests'], 1, 'A request at the very start of the 24 hours is in them')
+                    self.assertEqual((handed['spent']['requests'], handed['spent']['ranges']['today']['requests']), (1, 1))
                     self.assertEqual([t['requests'] for t in handed['turns']], [1], 'Only its own turn')
                     thread_session = next(s for s in got if s['title'] == '服务器管理')
                     self.assertEqual(thread_session['spent']['ranges']['today']['requests'], 1, "A Codex request's time is its token count's")
@@ -1544,7 +1553,7 @@ class SessionParityTests(unittest.TestCase):
         figure = lambda requests, cost, unpriced=0: {'requests': requests, 'cost': cost, 'unpriced': unpriced}
         turns = [{'at': now - 7400, 'requests': 2, 'tokens': 1000, 'cost': 0.2, 'unpriced': 0, 'tools': {'Bash': 1}}]
         base = {'tool': 'Claude', 'state': 'waiting', 'title': None, 'project': 'swiftbar-token-monitor', 'model': 'claude-fable-5-1',
-                'effort': None, 'context': 0.5, 'at': now - 7300.5, 'turns': turns}
+                'effort': None, 'context': 0.5, 'at': now - 30.5, 'turns': turns}
         sessions = [
             # Two runs of a program in one folder, untitled: told apart by when each began (one today, one days ago).
             dict(base, id='a', started=now - 7500, spent=dict(figure(4, 5.5), ranges={'today': figure(2, 1.25), 'yesterday': figure(0, 0.0), '24h': figure(4, 5.5)})),
@@ -1573,9 +1582,13 @@ class SessionParityTests(unittest.TestCase):
                         self.assertIn('swiftbar-token-monitor · ' + datetime.fromtimestamp(now - 3 * 86400).strftime('%m-%d %H:%M'), text)
                         self.assertIn('badge=$1.25', text); self.assertIn('badge=$0.00', text)
                         self.assertIn('累计 $5.50', text); self.assertIn('累计 已知 $2.00', text)
-                        self.assertIn('最近一天活动过的会话 · 金额只算今天', text)
+                        self.assertIn('今天活动过的会话 · 金额只算今天', text)
+                    if key == 'yesterday':
+                        # Only the session that asked yesterday: the others changed today and asked nothing yesterday.
+                        self.assertEqual(text.count('panelkey='), 1); self.assertIn('badge="已知 $2.00"', text)
+                        self.assertIn('昨天活动过的会话 · 金额只算昨天', text)
                     if key == 'all':
-                        self.assertIn('badge=$5.50', text); self.assertIn('最近一天活动过的会话 · 金额为会话累计', text)
+                        self.assertIn('badge=$5.50', text); self.assertIn('近 30 天活动过的会话 · 金额为会话累计', text)
                     # PHONE-6: a phone's range, the computer keeping today: the rows are the phone's range's.
                     self.assertEqual(swift('sessions.lines', data, 'today', key), expected)
 

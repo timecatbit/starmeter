@@ -236,8 +236,8 @@ test('会话 sits beside the groupings: running first, what each cost in the ran
   await page.getByRole('button', { name: '查看更多 2 个会话' }).click();
   await expect(cards).toHaveCount(7);
   await expect(page.getByRole('button', { name: /查看更多/ })).toHaveCount(0);
-  await expect(cards.last()).toContainText('空闲 18 小时');
-  // Nothing spent today: the figure is there, drawn quieter than one that has spent.
+  await expect(cards.last()).toContainText('空闲 3 小时');
+  // Changed today, nothing spent: the figure is there, drawn quieter than one that has spent.
   await expect(cards.last().locator('.value')).toHaveText('$0.00');
   const weight = (card: typeof cards) => card.locator('.value').evaluate((e) => Number(getComputedStyle(e).fontWeight));
   expect(await weight(cards.last())).toBeLessThan(await weight(cards.first()));
@@ -250,8 +250,8 @@ test('会话 sits beside the groupings: running first, what each cost in the ran
   // Opened, a card's turns are headed by what the whole session has cost.
   await expect(cards.nth(6).locator('.turn-heading')).toHaveText('harbor-api · 最近 1 轮 · 累计 $3.12');
   await cards.nth(6).locator('.head').click();
-  // Under the list, what is listed and what the figures count.
-  await expect(page.locator('.session-list .empty')).toHaveText('最近一天活动过的会话 · 金额只算今天');
+  // Under the list, which sessions are listed (those active in the range) and what the figures count.
+  await expect(page.locator('.session-list .empty')).toHaveText('今天活动过的会话 · 金额只算今天');
   // A card opens its last turns.
   await cards.first().locator('.head').click();
   await expect(cards.first().locator('.turn')).toHaveCount(3);

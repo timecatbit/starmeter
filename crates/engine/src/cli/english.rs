@@ -110,6 +110,11 @@ macro_rules! rule {
     };
 }
 
+/// A range after "active": today, yesterday, this week; in the last 7 days.
+fn during(range: &str) -> String {
+    if range.starts_with("Last ") { format!("in the {}", range.to_lowercase()) } else { range.to_lowercase() }
+}
+
 fn group<'a>(m: &'a Captures<'_>, index: usize) -> &'a str {
     m.get(index).map_or("", |found| found.as_str())
 }
@@ -161,7 +166,7 @@ pub static WHOLE: [Rule; 2] = [
 ];
 
 /// One part of the engine's text.
-pub static RULES: [Rule; 75] = [
+pub static RULES: [Rule; 77] = [
     rule!(r"^已用 (\d+(?:\.\d+)?%)$", |m| format!("{} used", group(m, 1))),
     rule!(r"^已用 (\d+(?:\.\d+)?%) 截至 (.+)$", |m| format!("{} used as of {}", group(m, 1), group(m, 2))),
     rule!(r"^已用 (.+)$", |m| format!("Used: {}", translate(group(m, 1)))),
@@ -247,6 +252,11 @@ pub static RULES: [Rule; 75] = [
         }
     }),
     rule!(r"^金额只算(.+)$", |m| format!("amounts cover {}", translate(group(m, 1)).to_lowercase())),
+    rule!(r"^(.+)活动过的会话$", |m| format!("Sessions active {}", during(&translate(group(m, 1))))),
+    rule!(r"^(.+)没有 Claude Code 或 Codex 会话$", |m| format!(
+        "No Claude Code or Codex sessions {}",
+        during(&translate(group(m, 1)))
+    )),
     rule!(r"^运行中 (.+)$", |m| format!("Running {}", translate(group(m, 1)))),
     rule!(r"^空闲 (.+)$", |m| format!("Idle {}", translate(group(m, 1)))),
     rule!(r"^(\d+) 分钟$", |m| format!("{} min", group(m, 1))),

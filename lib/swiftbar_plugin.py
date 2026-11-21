@@ -2678,11 +2678,12 @@ def sessions_cached(ttl=None):
     previous=(read_cache('sessions').get('payload') or {}).get('sessions')
     def load():
         now=time.time()
-        # What each session cost in every range the panel can show; 全部 is the whole session's.
-        moment=datetime.fromtimestamp(now,local_zone())
+        # What each session cost in every range the panel can show; 全部 is the whole session's. Sessions are listed
+        # from the earliest range's start.
+        zone=local_zone();moment=datetime.fromtimestamp(now,zone)
         ranges=[(key,)+tuple(range_bounds(key,moment)) for key in RANGES if key!='all']
         found=live_sessions.active(claude_desktop.project_roots(HOME),chatgpt_home(),now,session_prices(),
-                                   claude_desktop.session_settings(source_path('claude'),now-live_sessions.ACTIVE),ranges)
+                                   claude_desktop.session_settings(source_path('claude'),live_sessions.listed_since(ranges,now)),ranges,zone)
         if view_settings()['sessionAlerts']:
             for s in live_sessions.newly_waiting(previous,found,now)[:3]:
                 post_notice('会话完成','%s · %s 这一轮已完成'%(s['tool'],session_name(s)))
@@ -2724,6 +2725,15 @@ def turn_lines(turns,unit=None,project=None,total=None):
 def sessions_lines(data):
     """会话: how many Claude Code and Codex sessions are running or idle, each in the sidebar with what it has cost."""
     payload=data.get('sessions') or {};found=payload.get('sessions');error=data.get('sessions_error')
+    selected=selected_range()
+    # The sessions active in the range shown: a request in it, or a change in it (one that hasn't asked yet). 全部
+    # lists every session read, the last month's.
+    start,end=range_bounds(selected)
+    def active_then(s):
+        figure=((s.get('spent') or {}).get('ranges') or {}).get(selected) or {}
+        return selected=='all' or figure.get('requests',0)>0 or start<=s.get('at',0)<=end
+    if found is not None:found=[s for s in found if active_then(s)]
+    label=RANGES[selected] if selected!='all' else '近 30 天'
     if found is None:badge='读取失败' if refresh_failed(error) else '待同步'
     else:
         running=sum(s['state']=='running' for s in found);idle=len(found)-running
@@ -2736,7 +2746,6 @@ def sessions_lines(data):
         if not figure.get('requests'):return unit['symbol']+'%.2f'%0.0
         if figure['requests']>figure.get('unpriced',0):return ('已知 ' if figure.get('unpriced') else '')+unit['symbol']+'%.2f'%(figure['cost']*unit['rate'])
         return '费用待定价'
-    selected=selected_range()
     # Sessions of one name (untitled ones go by their project folder, and a program's runs have no title) are told
     # apart by when each began: the time today, the date as well before.
     names=[session_name(s) for s in found or []]
@@ -2773,11 +2782,11 @@ def sessions_lines(data):
         lines.append(item(name,level=1,badge=live,paneldetail=detail,panelstatus='new' if running else 'unknown',panelkey=s.get('id'),
                           **brand_icon('claude-subscription' if s['tool']=='Claude' else 'chatgpt')))
         lines.extend(turn_lines(turns,unit,s.get('project') if s.get('title') else None,total))
-    if found is not None and not found:lines.append(item('最近一天没有 Claude Code 或 Codex 会话',level=1,color=MUTED,size=11))
-    # Which sessions are listed and what their figures count: the list is the last day's whatever the range.
+    if found is not None and not found:lines.append(item(label+'没有 Claude Code 或 Codex 会话',level=1,color=MUTED,size=11))
+    # Which sessions are listed and what their figures count.
     elif found:
-        counted='金额只算'+RANGES[selected] if selected!='all' else '金额为会话累计'
-        lines.append(item('最近一天活动过的会话 · '+counted,level=1,color=MUTED,size=11))
+        counted='金额只算'+label if selected!='all' else '金额为会话累计'
+        lines.append(item(label+'活动过的会话 · '+counted,level=1,color=MUTED,size=11))
     lines.append('-----')
     alerts_on=view_settings()['sessionAlerts']
     lines.append(item('这一轮完成时提醒',level=1,sfimage='bell',checked=alerts_on,paneldetail='运行中的会话这一轮完成时发通知',

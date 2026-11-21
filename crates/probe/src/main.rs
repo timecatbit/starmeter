@@ -319,7 +319,7 @@ fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
             }))
         }
         "sessions.active" => {
-            // [claude roots, codex root, now, with prices, claude app map, ranges as [key, start, end]]
+            // [claude roots, codex root, now, with prices, claude app map, ranges as [key, start, end], zone name]
             let runtime = Runtime::from_process();
             let mut app: HashMap<String, (Option<String>, Option<String>)> = HashMap::new();
             for (key, value) in args.get(4).and_then(Json::as_object).into_iter().flat_map(|map| map.iter()) {
@@ -338,6 +338,7 @@ fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
                     Some((key.as_str()?.to_string(), start.number()?, end.number()?))
                 })
                 .collect();
+            let zone = text(6).and_then(|name| jiff::tz::TimeZone::get(name).ok()).unwrap_or(jiff::tz::TimeZone::UTC);
             let found = sessions::active(
                 &strings(args.first()),
                 text(1),
@@ -345,7 +346,7 @@ fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
                 if with_prices { Some(&prices) } else { None },
                 &app,
                 None,
-                &ranges,
+                sessions::Counting { ranges: &ranges, zone: &zone },
             );
             Ok(Json::Array(found))
         }

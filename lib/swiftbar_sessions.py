@@ -15,6 +15,7 @@ from pathlib import Path
 import swiftbar_projects
 
 ACTIVE = 86400  # A session stays listed a day after its last change.
+SPENDS_KEPT = 26 * 3600  # A request's own time and cost count only in the last 24 hours; older ones go by their day.
 STALLED = 600   # A running session silent this long has most likely stopped without saying so: it is idle.
 TAIL = 512 * 1024
 FAR = 16 * 1024 * 1024  # How far back a session's state is looked for when the usual tail holds none.
@@ -286,19 +287,31 @@ def codex_file_turns(path, price):
     return turns
 
 
-def spent(path, tool, price):
+def day_of(at, zone):
+    """A moment's day in a zone, as 2026-11-21."""
+    from datetime import datetime
+    return datetime.fromtimestamp(at, zone).strftime('%Y-%m-%d')
+
+
+def spent(path, tool, price, zone=None, since=0):
     """What a whole session has cost: every request in its transcript, counted as the turns count them (a Claude reply
     streamed over several lines once; each change of Codex's running token total once); a Claude fork's copied
-    history is left to the session it came from. price(model, usage). 'spends' holds each request's time and cost
-    (None when unpriced), in order, for what the session cost in a range."""
-    out = {'requests': 0, 'cost': 0.0, 'unpriced': 0, 'spends': []}; seen = set(); model = None; total = None
+    history is left to the session it came from. price(model, usage). For what the session cost in a range, 'days'
+    holds its cost by day in zone ({day: [requests, cost, unpriced]}, in the order the days come) and 'spends' each
+    request since `since`: its time and cost (None when unpriced), in order."""
+    out = {'requests': 0, 'cost': 0.0, 'unpriced': 0, 'days': {}, 'spends': []}; seen = set(); model = None; total = None
     own = Path(path).stem
     def add(model, usage, at):
         out['requests'] += 1
         cost = price(model, usage)
         if cost is None:out['unpriced'] += 1
         else:out['cost'] += cost
-        if at is not None:out['spends'].append((at, cost))
+        if at is None:return
+        day = out['days'].setdefault(day_of(at, zone), [0, 0.0, 0])
+        day[0] += 1
+        if cost is None:day[2] += 1
+        else:day[1] += cost
+        if at >= since:out['spends'].append((at, cost))
     for row in rows_at_end(path, os.path.getsize(path) + 1):
         if tool == 'Claude':
             if row.get('type') != 'assistant' or copied(row, own):continue
@@ -316,18 +329,31 @@ def spent(path, tool, price):
     return out
 
 
-def range_costs(spends, ranges):
-    """What the requests between start and end (both counted) cost, of each range: (key, start, end)."""
+def range_costs(parts, ranges, zone=None):
+    """What the session cost in each range ((key, start, end), both ends counted), from its files' readings in order:
+    the last 24 hours request by request, the others (each from a midnight in zone) day by day."""
     out = {}
     for key, start, end in ranges or []:
         figure = {'requests': 0, 'cost': 0.0, 'unpriced': 0}
-        for at, cost in spends:
-            if at < start or at > end:continue
-            figure['requests'] += 1
-            if cost is None:figure['unpriced'] += 1
-            else:figure['cost'] += cost
+        if key == '24h':
+            for at, cost in (spend for part in parts for spend in part['spends']):
+                if at < start or at > end:continue
+                figure['requests'] += 1
+                if cost is None:figure['unpriced'] += 1
+                else:figure['cost'] += cost
+        else:
+            # Yesterday ends a hair before midnight, which a day's rounding can carry over: it is one day.
+            first = day_of(start, zone); last = first if key == 'yesterday' else day_of(end, zone)
+            for day, (requests, cost, unpriced) in ((d, f) for part in parts for d, f in part['days'].items()):
+                if day < first or day > last:continue
+                figure['requests'] += requests; figure['cost'] += cost; figure['unpriced'] += unpriced
         out[key] = figure
     return out
+
+
+def listed_since(ranges, now):
+    """From when sessions are listed: the earliest range's start (a month, 30 days), else the last day."""
+    return min([now - ACTIVE] + [start for _, start, _ in ranges or []])
 
 
 def detail(session_path, tool, prices):
@@ -342,15 +368,16 @@ def recent(root, pattern, since):
     except OSError:return []
 
 
-def active(claude_roots, codex_root, now, prices=None, claude_app=None, ranges=None):
-    """Sessions changed in the last day, the running ones first, then the most recent. A running one silent for ten
-    minutes has stopped without saying so: it is idle. A long Codex thread written in segments is one session.
-    With prices (tool -> price(model, usage)), each carries its last turns and what the whole session has cost, and
-    of each range in ranges ((key, start, end); 全部 is the whole session) what it cost then.
-    claude_app maps a transcript's session ID to the Claude App's title and effort for it."""
-    found = []; titles = None
+def active(claude_roots, codex_root, now, prices=None, claude_app=None, ranges=None, zone=None):
+    """Sessions changed since the earliest range in ranges began (the last day without ranges), the running ones
+    first, then the most recent. A running one silent for ten minutes has stopped without saying so: it is idle. A long
+    Codex thread written in segments is one session. With prices (tool -> price(model, usage)), each carries its last
+    turns and what the whole session has cost, and of each range in ranges ((key, start, end); 全部 is the whole
+    session) what it cost then, its days in zone. claude_app maps a transcript's session ID to the Claude App's title
+    and effort for it."""
+    found = []; titles = None; since = listed_since(ranges, now)
     def digest(text):return hashlib.sha256(str(text).encode()).hexdigest()[:16]
-    candidates = [(claude, p, [p], digest(p), None) for root in claude_roots for p in recent(root, '*/*.jsonl', now - ACTIVE)
+    candidates = [(claude, p, [p], digest(p), None) for root in claude_roots for p in recent(root, '*/*.jsonl', since)
                   if 'subagents' not in p.parts]
     if codex_root:
         # A rollout is filed under the day its thread started, and a thread can still be going days later. A long
@@ -365,7 +392,7 @@ def active(claude_roots, codex_root, now, prices=None, claude_app=None, ranges=N
         for key, (thread, segments) in threads.items():
             # In the order they were written, by name: a segment put back from a copy carries a new modification time.
             segments.sort(key=lambda item: (item[1].name, str(item[1])))
-            if segments[-1][0] < now - ACTIVE:continue
+            if segments[-1][0] < since:continue
             candidates.append((codex, segments[-1][1], [p for _, p in segments], digest(key), thread))
     for read, path, files, ident, thread in candidates:
         try:
@@ -385,11 +412,11 @@ def active(claude_roots, codex_root, now, prices=None, claude_app=None, ranges=N
         if prices:
             entry['turns'] = detail(path if session['tool'] == 'Claude' else files, session['tool'], prices)
             try:
-                parts = [spent(segment, session['tool'], prices[session['tool']]) for segment in files]
+                parts = [spent(segment, session['tool'], prices[session['tool']], zone, now - SPENDS_KEPT) for segment in files]
                 cost = 0.0
                 for part in parts:cost += part['cost']
                 entry['spent'] = {'requests': sum(part['requests'] for part in parts), 'cost': cost, 'unpriced': sum(part['unpriced'] for part in parts),
-                                  'ranges': range_costs([spend for part in parts for spend in part['spends']], ranges)}
+                                  'ranges': range_costs(parts, ranges, zone)}
             except (OSError, ValueError, TypeError, AttributeError, KeyError):entry['spent'] = None
         found.append(entry)
     # The running ones first, then the most recent.
