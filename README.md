@@ -198,4 +198,4 @@ node docs/screenshots.mjs   # 用测试数据重新生成截图
 
 ## 许可
 
-[MIT](LICENSE) © timecatbit。品牌标志归各自所有者，仅用于标识服务，图标文件的许可见 [assets/logos/LICENSE](assets/logos/LICENSE)。
+[MIT](LICENSE) © timecatbit。品牌标志归各自所有者，仅用于标识服务，图标文件的许可见 [assets/logos/LICENSE](assets/logos/LICENSE)。手绘风格的中文字体霞鹜文楷和霞鹜文楷 TC 使用 SIL Open Font License 1.1，随 App 打包的是它们的网页子集，许可文本随字体放在 [app/ui/public/fonts](app/ui/public/fonts)。

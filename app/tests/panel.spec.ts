@@ -1739,6 +1739,10 @@ test('外观 → 风格 draws the panel by hand, in faces scaled to the usual wi
   // Chalkboard SE at 97%, no wider than San Francisco (this test's WebKit has no San Francisco to compare with).
   expect(widths.hand / widths.chalkboard).toBeCloseTo(0.97, 2);
   expect(await page.locator('.window').evaluate((e) => getComputedStyle(e).fontFamily)).toContain('Starmeter Hand');
+  // Chinese in 霞鹜文楷, bundled with the app and loaded from its own files; only Chinese: letters stay in Chalkboard.
+  expect(await page.locator('.window').evaluate((e) => getComputedStyle(e).fontFamily)).toContain('Starmeter Kai');
+  expect(await page.evaluate(async () => (await document.fonts.load('16px "Starmeter Kai"', '用量')).length)).toBeGreaterThan(0);
+  expect(await page.evaluate(async () => (await document.fonts.load('16px "Starmeter Kai"', 'Magpie')).length)).toBe(0);
   // Coloured strokes, as the 手绘 picture draws: a wavy line under the name, each tool's models hatched in its pen.
   await page.keyboard.press('Escape');
   await page.keyboard.press('Escape');

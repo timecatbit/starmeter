@@ -198,4 +198,4 @@ To release, keep the version in the `Cargo.toml` workspace, `app/src-tauri/tauri
 
 ## License
 
-[MIT](LICENSE) © timecatbit. Brand marks belong to their owners and only identify the services; the icon files' license is in [assets/logos/LICENSE](assets/logos/LICENSE).
+[MIT](LICENSE) © timecatbit. Brand marks belong to their owners and only identify the services; the icon files' license is in [assets/logos/LICENSE](assets/logos/LICENSE). The hand-drawn look's Chinese faces, LXGW WenKai and LXGW WenKai TC, are under the SIL Open Font License 1.1; the app bundles web subsets of them, their license texts beside them in [app/ui/public/fonts](app/ui/public/fonts).
