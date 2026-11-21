@@ -88,9 +88,16 @@ pub fn detach(arguments: &[&str], environment: Option<&[(String, String)]>) {
 
 /// The first executable of that name on PATH, as shutil.which.
 pub fn which(name: &str, environment: &std::collections::HashMap<String, String>) -> Option<String> {
-    let (separator, suffixes): (char, &[&str]) =
-        if cfg!(windows) { (';', &["", ".exe", ".cmd", ".bat"]) } else { (':', &[""]) };
-    let path = environment.get("PATH").map(String::as_str).unwrap_or("");
+    which_on(name, environment, cfg!(windows))
+}
+
+/// On Windows the variable is as often Path as PATH (the system reads names in any case), and only a file with a
+/// program's extension runs: npm puts a POSIX script `codex` beside `codex.cmd`, and the script, found first, could
+/// not run, so the version read failed; nor was a CLI on Path found at all.
+fn which_on(name: &str, environment: &std::collections::HashMap<String, String>, windows: bool) -> Option<String> {
+    let (separator, suffixes): (char, &[&str]) = if windows { (';', &[".exe", ".cmd", ".bat"]) } else { (':', &[""]) };
+    let named = |key: &&String| if windows { key.eq_ignore_ascii_case("PATH") } else { *key == "PATH" };
+    let path = environment.iter().find(|(key, _)| named(key)).map_or("", |(_, value)| value.as_str());
     for folder in path.split(separator).filter(|folder| !folder.is_empty()) {
         for suffix in suffixes {
             let candidate = format!("{folder}/{name}{suffix}");
@@ -120,4 +127,50 @@ fn runnable(metadata: &std::fs::Metadata) -> bool {
 #[cfg(not(unix))]
 fn runnable(_metadata: &std::fs::Metadata) -> bool {
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    /// A folder with the files npm leaves for a CLI on Windows: the POSIX script and the batch file beside it.
+    fn npm_folder(tag: &str) -> std::path::PathBuf {
+        let folder = std::env::temp_dir().join(format!("starmeter-which-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&folder);
+        std::fs::create_dir_all(&folder).unwrap();
+        for name in ["codex", "codex.cmd"] {
+            let file = folder.join(name);
+            std::fs::write(&file, "").unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
+        }
+        folder
+    }
+
+    #[test]
+    fn on_windows_the_batch_file_is_found_beside_the_script_on_path_in_any_case() {
+        let folder = npm_folder("windows");
+        let at = folder.to_string_lossy().into_owned();
+        let found = format!("{at}/codex.cmd");
+        for key in ["PATH", "Path", "path"] {
+            let environment = HashMap::from([(key.to_string(), format!("C:\\nothing;{at}"))]);
+            assert_eq!(super::which_on("codex", &environment, true), Some(found.clone()), "{key}");
+        }
+        assert_eq!(super::which_on("codex", &HashMap::new(), true), None);
+        let _ = std::fs::remove_dir_all(&folder);
+    }
+
+    #[test]
+    fn elsewhere_the_name_itself_runs_and_only_path_is_read() {
+        let folder = npm_folder("unix");
+        let at = folder.to_string_lossy().into_owned();
+        let environment = HashMap::from([("PATH".to_string(), format!("/nothing:{at}"))]);
+        assert_eq!(super::which_on("codex", &environment, false), Some(format!("{at}/codex")));
+        let environment = HashMap::from([("Path".to_string(), at.clone())]);
+        assert_eq!(super::which_on("codex", &environment, false), None);
+        let _ = std::fs::remove_dir_all(&folder);
+    }
 }
