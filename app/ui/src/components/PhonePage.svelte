@@ -269,7 +269,7 @@
   .wait { font-size: 11.5px; color: var(--secondary); }
   .address {
     --press-scale: 0.98; align-self: center; max-width: 100%; padding: 4px 8px; border-radius: 7px; font-size: 11px;
-    color: var(--secondary); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    color: var(--secondary); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; overflow: clip visible; text-overflow: ellipsis;
   }
   .address:hover { background: var(--hover); }
   .manual-note { margin: 0; font-size: 10.5px; color: var(--orange); text-align: center; }

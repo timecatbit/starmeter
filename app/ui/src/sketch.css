@@ -9,8 +9,9 @@
 /* Chalkboard SE (Segoe Print on Windows) for the letters, drawn at the system face's width: by the app's WKWebView,
    Chalkboard writes its figures 5% wider than SF Rounded (so 97%). WebKit honours size-adjust but not the ascent and
    descent overrides, so in the app Chalkboard keeps its own taller line box (1.38 em at 97%, against San Francisco's
-   1.18), and every tail of a g or p sits inside it; the overrides give Chromium (a Mac viewing the phone page) the same
-   1.18 em box as the system face.
+   1.18), taller than the rows laid out for the system face: text cut short with an ellipsis clips only across
+   (`overflow: hidden; overflow: clip visible`, in each component), so no tail of a g or p is cut off. The overrides
+   give Chromium (a Mac viewing the phone page) the same 1.18 em box as the system face.
    Chinese in 霞鹜文楷 (Simplified) and 霞鹜文楷 TC (Traditional), bundled with the app as WOFF2 subsets of their
    common characters and the panel's own (public/fonts, each beside its SIL Open Font License; scripts/make_fonts.py
    makes them), each the other's fallback, and only ever for Chinese (their unicode-range, the blocks the script keeps):

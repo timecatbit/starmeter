@@ -23,6 +23,7 @@
     font-family: var(--rounded);
     white-space: nowrap;
     overflow: hidden;
+    overflow: clip visible;
     line-height: 1.2;
   }
   .body { font-weight: var(--weight); }

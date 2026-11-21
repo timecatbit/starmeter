@@ -99,6 +99,7 @@
     position: absolute;
     white-space: nowrap;
     overflow: hidden;
+    overflow: clip visible;
     line-height: 1.2;
   }
   .axis {

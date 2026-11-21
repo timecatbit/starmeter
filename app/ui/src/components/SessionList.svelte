@@ -158,6 +158,7 @@
     font-weight: 600;
     white-space: nowrap;
     overflow: hidden;
+    overflow: clip visible;
     text-overflow: ellipsis;
   }
   .value {
@@ -180,7 +181,7 @@
     color: var(--secondary);
   }
   .line.muted { padding-left: 28px; color: var(--tertiary, var(--secondary)); opacity: 0.85; }
-  .text { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .text { min-width: 0; white-space: nowrap; overflow: hidden; overflow: clip visible; text-overflow: ellipsis; }
   .turns {
     margin: 4px 12px 0 18px;
     padding-left: 10px;
@@ -189,7 +190,7 @@
   .turn-heading { font-size: 10px; color: var(--secondary); height: 16px; line-height: 16px; }
   .turn { display: flex; flex-direction: column; padding: 2px 0; }
   .turn-label { font-size: 11px; font-variant-numeric: tabular-nums; }
-  .turn-detail { font-size: 10px; color: var(--secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .turn-detail { font-size: 10px; color: var(--secondary); white-space: nowrap; overflow: hidden; overflow: clip visible; text-overflow: ellipsis; }
   .empty { padding: 2px 12px 10px; font-size: 10.5px; color: var(--secondary); }
   .settings { margin-top: 2px; }
 </style>

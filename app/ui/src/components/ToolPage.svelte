@@ -123,6 +123,7 @@
     line-height: 20px;
     white-space: nowrap;
     overflow: hidden;
+    overflow: clip visible;
     text-overflow: ellipsis;
     pointer-events: none;
   }
@@ -150,7 +151,7 @@
     gap: 2px;
   }
   .figure-name { font-size: 10px; color: var(--secondary); }
-  .figure-value { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .figure-value { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; overflow: clip visible; text-overflow: ellipsis; }
   .note { margin: 0 0 4px; font-size: 11px; color: var(--secondary); }
   .note.warning { color: var(--orange); }
   .quiet { margin: 4px 0; font-size: 11px; color: var(--secondary); }
@@ -166,7 +167,7 @@
     padding: 4px 0 7px;
     position: relative;
   }
-  .model-name { font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .model-name { font-size: 11.5px; white-space: nowrap; overflow: hidden; overflow: clip visible; text-overflow: ellipsis; }
   .price { margin-left: 5px; font-size: 9.5px; color: var(--orange); }
   .model-amount { font-size: 11.5px; text-align: right; }
   .model-share { font-size: 10.5px; color: var(--secondary); text-align: right; }

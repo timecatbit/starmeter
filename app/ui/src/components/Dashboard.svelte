@@ -253,6 +253,7 @@
     line-height: 1.2;
     white-space: nowrap;
     overflow: hidden;
+    overflow: clip visible;
     text-overflow: ellipsis;
     display: flex;
     align-items: center;
@@ -278,6 +279,7 @@
     font-size: 10px;
     color: var(--secondary);
     overflow: hidden;
+    overflow: clip visible;
   }
   .figure { top: 55px; }
   .swatch {
@@ -288,6 +290,7 @@
     font-size: 8.5px;
     color: var(--secondary);
     overflow: hidden;
+    overflow: clip visible;
     text-overflow: ellipsis;
   }
   /* The chart's layer spans the header too; clicks go through to the buttons. */

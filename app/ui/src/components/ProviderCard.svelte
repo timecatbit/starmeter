@@ -130,6 +130,7 @@
     position: absolute;
     white-space: nowrap;
     overflow: hidden;
+    overflow: clip visible;
     text-overflow: ellipsis;
     line-height: 1.2;
   }

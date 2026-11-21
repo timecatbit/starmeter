@@ -68,6 +68,7 @@
     text-align: right;
     white-space: nowrap;
     overflow: hidden;
+    overflow: clip visible;
     text-overflow: ellipsis;
   }
 </style>

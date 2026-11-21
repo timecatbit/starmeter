@@ -121,6 +121,7 @@
     line-height: 16px;
     white-space: nowrap;
     overflow: hidden;
+    overflow: clip visible;
     text-overflow: ellipsis;
   }
   .dot {
@@ -135,6 +136,7 @@
     color: var(--secondary);
     white-space: nowrap;
     overflow: hidden;
+    overflow: clip visible;
     text-overflow: ellipsis;
     line-height: 13px;
   }

@@ -71,6 +71,7 @@
     line-height: 20px;
     white-space: nowrap;
     overflow: hidden;
+    overflow: clip visible;
     text-overflow: ellipsis;
   }
   .value {
@@ -82,6 +83,7 @@
     text-align: right;
     white-space: nowrap;
     overflow: hidden;
+    overflow: clip visible;
     text-overflow: ellipsis;
     line-height: 16px;
   }
