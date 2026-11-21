@@ -101,11 +101,11 @@ Settings live in `%LOCALAPPDATA%\Token Monitor`.
 
 **Other distributions**: make `…-linux-x64.AppImage` executable (`chmod +x`) and run it.
 
-The star appears in the tray of the top bar or taskbar. A click on a Linux tray only opens the menu: its first item, **打开面板** (Open panel), opens the panel. GNOME needs tray support (built into Ubuntu; elsewhere, install the AppIndicator extension). Settings live in `~/.local/share/starmeter`.
+The star appears in the tray of the top bar or taskbar. A click on a Linux tray only opens the menu: its first item, **Open panel**, opens the panel. GNOME needs tray support (built into Ubuntu; elsewhere, install the AppIndicator extension). Settings live in `~/.local/share/starmeter`.
 
 ## Updates
 
-- **SwiftBar plugin**: when a new version is out, a **Starmeter · 可更新** row appears under 工具更新 (tool updates). Confirm the update and the plugin downloads, verifies and installs it, keeping settings, keys and statistics. The row isn't there when there's nothing new.
+- **SwiftBar plugin**: when a new version is out, a **Starmeter** row with the new version number appears under **Tool updates**. Confirm the update and the plugin downloads, verifies and installs it, keeping settings, keys and statistics. The row isn't there when there's nothing new.
 - **Standalone app**: when there's a new version for your chip, the panel links to the release page; quit the app and replace it with the new disk image for the same chip. With Homebrew, run `brew upgrade --cask starmeter`.
 - **Command line**: with Homebrew, run `brew upgrade starmeter-cli`; the command in the `.deb` and the Windows versions updates with the app.
 - **Price tables** update daily on their own, so new models don't wait for a release.
@@ -120,11 +120,11 @@ From 6.0.2 the downloads are named `starmeter-…`. Versions 6.0.1 and earlier l
 
 ## Using it
 
-- **Click the star** for the home page, showing today. On first run it reads the usage records already on this computer in the background; choose 全部 (everything) to see all that's still kept locally, without making new calls. Conversations that were deleted, never synced here or logged no tokens can't be counted.
+- **Click the star** for the home page, showing today. On first run it reads the usage records already on this computer in the background; choose **All time** to see all that's still kept locally, without making new calls. Conversations that were deleted, never synced here or logged no tokens can't be counted.
 - The first time it opens, the panel walks you through its homepage: the welcome screen lets you pick English straight away, then it lights up the overview, the range, the cards, the plan and API rows and the header's buttons in turn. With no tool found on this computer yet, it shows where to choose your tools or auto-detect them instead; while the first reading is still under way, it says the figures will appear by themselves. Replay it from the gear → General → Quick tour.
 - Beside the heading are the pin, the gear (modules and settings), share and the range. A row with an arrow opens its page; the back button, Esc or a two-finger swipe right return home.
-- **Right-click the star → 主页模块…** (home modules) to choose what the home page shows and set folders, keys and connections; **自动检测…** (detect) re-selects modules from the tools installed here, and changes nothing until you confirm.
-- **Gateways**: Magpie is read from its local `usage.jsonl` (`~/.config/magpie` by default), OpenCodex from its own log. With both a gateway and a client behind it selected (ChatGPT or Claude, say), the requests that went through the gateway count once in Summary, under the gateway; the client's card still shows all its own records and notes "N 次已由 Magpie 计入" (N counted by Magpie). The ChatGPT desktop app's extra calls (message predictions and the like) never reach the local Codex records, so they're only counted through Magpie, which is why Magpie may show more ChatGPT requests than the ChatGPT card.
+- **Right-click the star → Home modules…** to choose what the home page shows and set folders, keys and connections; **Auto-detect…** re-selects modules from the tools installed here, and changes nothing until you confirm. The menu follows the language you pick in the panel. With the SwiftBar plugin the right-click menu is SwiftBar's own and stays in Chinese, with the same two items at the top.
+- **Gateways**: Magpie is read from its local `usage.jsonl` (`~/.config/magpie` by default), OpenCodex from its own log. With both a gateway and a client behind it selected (ChatGPT or Claude, say), the requests that went through the gateway count once in Summary, under the gateway; the client's card still shows all its own records and notes "N counted by Magpie". The ChatGPT desktop app's extra calls (message predictions and the like) never reach the local Codex records, so they're only counted through Magpie, which is why Magpie may show more ChatGPT requests than the ChatGPT card.
 - **DeepSeek Harness** reads `~/.dsh/sessions` by default (the `sessions` folder under `DSH_HOME` when set), or a folder you choose.
 - Advanced settings on a Mac go in `~/Library/Application Support/SwiftBarToken/config.local.sh`; see [config.example.sh](config.example.sh) for the variables. If a command line tool is only on PATH once a terminal has set it up (installed through nvm, say), add its `bin` folder to PATH in that file.
 
