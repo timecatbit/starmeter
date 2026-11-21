@@ -3,6 +3,7 @@
 // arrives, so every page lays out and measures the English it shows; t() does the panel's own words. Text the
 // dictionary doesn't know (a session's title, a project's folder, a new message) stays as it is; the English test lists
 // any of the panel's own text left untranslated.
+import { shell } from './backend';
 import { phrases, rules, whole } from './en';
 import { phoneRow } from './phone.svelte';
 import { shortcutRow } from './shortcut.svelte';
@@ -28,6 +29,16 @@ export const english = () => language.current === 'en';
 export function chooseLanguage(next: string) {
   language.current = next === 'en' ? 'en' : 'zh';
   try { localStorage.setItem(KEY, language.current); } catch { /* the choice lasts this session */ }
+  void shell.setLanguage(language.current);
+}
+
+/** The shell's own words (the star's right-click menu) follow the panel: told at each choice, and as the panel loads
+ *  when this panel ever had one. A panel that never chose leaves the shell as it is, so SwiftBar's panel, with
+ *  storage of its own, doesn't turn the app's menu back to Chinese. */
+export function restoreLanguage() {
+  let chosen = false;
+  try { chosen = localStorage.getItem(KEY) !== null; } catch { /* nothing kept */ }
+  if (chosen) void shell.setLanguage(language.current);
 }
 
 const CJK = /[㐀-鿿（-？、-。]/;
@@ -123,8 +134,8 @@ function dashboard(d: Dashboard): Dashboard {
 }
 
 /** The 语言 row, first in 通用: 中文 / English. The choice is the panel's own (kept in the web view's
- *  storage), not the engine's, so the engine's other output (menus, notifications) stays Chinese. The 新手指引 row
- *  under 帮助 is the panel's own too. */
+ *  storage), not the engine's: the star's right-click menu follows it (restoreLanguage), the engine's other output
+ *  (SwiftBar's menu, notifications) stays Chinese. The 新手指引 row under 帮助 is the panel's own too. */
 function withLanguage(list: Entry[]): Entry[] {
   const radio = (label: string, key: Language): Entry => ({ label, children: [], radio: true, checked: language.current === key, action: ['set-language', key] });
   const out = list.map((e) => {

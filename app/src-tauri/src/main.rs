@@ -12,6 +12,7 @@ mod engine;
 mod fixtures;
 mod guide;
 mod host;
+mod language;
 #[cfg(target_os = "macos")]
 mod macos;
 mod panel;
@@ -141,39 +142,75 @@ fn open_page(app: &AppHandle, url: &str) {
     host::open_link(app.clone(), url.to_owned());
 }
 
-/// The star's right-click menu: 主页模块…, 自动检测…, the login item and notifications, 关于 Starmeter, 退出. On Linux it
-/// starts with 打开面板: the tray there (AppIndicator) hands no click to the app, and any click opens this menu, so the
-/// panel had no way in.
+/// The star menu's words, in the panel's language (language.rs). English takes the panel's own words where it has
+/// them (en.ts: 主页模块 Home modules, 自动检测 Auto-detect, 更新记录 Changelog).
+struct StarLabels {
+    open: &'static str,
+    modules: &'static str,
+    detect: &'static str,
+    login: &'static str,
+    notices: &'static str,
+    about: &'static str,
+    changelog: String,
+    repository: &'static str,
+    quit: &'static str,
+}
+
+fn star_labels(english: bool, version: &str, notices_answered: bool) -> StarLabels {
+    if english {
+        StarLabels {
+            open: "Open panel",
+            modules: "Home modules…",
+            detect: "Auto-detect…",
+            login: "Start at login",
+            notices: if notices_answered { "Notification settings…" } else { "Turn on notifications…" },
+            about: "About Starmeter",
+            changelog: format!("Version {version} · Changelog"),
+            repository: "By timecatbit · GitHub repository",
+            quit: "Quit Starmeter",
+        }
+    } else {
+        StarLabels {
+            open: "打开面板",
+            modules: "主页模块…",
+            detect: "自动检测…",
+            login: "登录时启动",
+            notices: if notices_answered { "通知设置…" } else { "开启系统通知…" },
+            about: "关于 Starmeter",
+            changelog: format!("版本 {version} · 更新记录"),
+            repository: "作者 timecatbit · GitHub 仓库",
+            quit: "退出 Starmeter",
+        }
+    }
+}
+
+/// The star's right-click menu: 主页模块…, 自动检测…, the login item and notifications, 关于 Starmeter, 退出, in the
+/// panel's language. On Linux it starts with 打开面板: the tray there (AppIndicator) hands no click to the app, and any
+/// click opens this menu, so the panel had no way in.
 fn star_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
-    let version = starmeter_core::VERSION;
+    let words = star_labels(language::english(), starmeter_core::VERSION, host::notifications_answered());
     let login = CheckMenuItem::with_id(
         app,
         "login",
-        "登录时启动",
+        words.login,
         true,
         app.autolaunch().is_enabled().unwrap_or(false),
         None::<&str>,
     )?;
-    let notices = MenuItem::with_id(
-        app,
-        "notices",
-        if host::notifications_answered() { "通知设置…" } else { "开启系统通知…" },
-        true,
-        None::<&str>,
-    )?;
+    let notices = MenuItem::with_id(app, "notices", words.notices, true, None::<&str>)?;
     let about = Submenu::with_items(
         app,
-        "关于 Starmeter",
+        words.about,
         true,
         &[
-            &MenuItem::with_id(app, "changelog", format!("版本 {version} · 更新记录"), true, None::<&str>)?,
-            &MenuItem::with_id(app, "repository", "作者 timecatbit · GitHub 仓库", true, None::<&str>)?,
+            &MenuItem::with_id(app, "changelog", words.changelog, true, None::<&str>)?,
+            &MenuItem::with_id(app, "repository", words.repository, true, None::<&str>)?,
         ],
     )?;
-    let open = MenuItem::with_id(app, "open", "打开面板", true, None::<&str>)?;
-    let modules = MenuItem::with_id(app, "modules", "主页模块…", true, None::<&str>)?;
-    let detect = MenuItem::with_id(app, "detect", "自动检测…", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "退出 Starmeter", true, None::<&str>)?;
+    let open = MenuItem::with_id(app, "open", words.open, true, None::<&str>)?;
+    let modules = MenuItem::with_id(app, "modules", words.modules, true, None::<&str>)?;
+    let detect = MenuItem::with_id(app, "detect", words.detect, true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", words.quit, true, None::<&str>)?;
     let (first, second, third) =
         (PredefinedMenuItem::separator(app)?, PredefinedMenuItem::separator(app)?, PredefinedMenuItem::separator(app)?);
     let mut items: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> = Vec::new();
@@ -191,6 +228,13 @@ fn star_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         &quit,
     ]);
     Menu::with_items(app, &items)
+}
+
+/// The star's menu built afresh (the login item's tick, the notifications item, the language); false without a star
+/// (SwiftBar's panel) or a menu.
+fn refresh_star_menu(app: &AppHandle) -> bool {
+    let (Some(tray), Ok(menu)) = (app.tray_by_id("star"), star_menu(app)) else { return false };
+    tray.set_menu(Some(menu)).is_ok()
 }
 
 fn build_star(app: &AppHandle) -> tauri::Result<()> {
@@ -213,9 +257,7 @@ fn build_star(app: &AppHandle) -> tauri::Result<()> {
                 // The right-click menu replaces the panel; the menu's own items then decide.
                 TrayIconEvent::Click { button: MouseButton::Right, button_state: MouseButtonState::Down, .. } => {
                     panel::close(app, false);
-                    if let Ok(menu) = star_menu(app) {
-                        let _ = tray.set_menu(Some(menu));
-                    }
+                    refresh_star_menu(app);
                 }
                 _ => {}
             }
@@ -240,8 +282,7 @@ fn take_over_star(app: &AppHandle) {
         if secondary {
             // The right-click menu replaces the panel; its own items then decide.
             panel::close(&app, false);
-            if let (Some(tray), Ok(menu)) = (app.tray_by_id("star"), star_menu(&app)) {
-                let _ = tray.set_menu(Some(menu));
+            if refresh_star_menu(&app) {
                 macos::pop_star_menu();
             }
         } else {
@@ -350,6 +391,7 @@ fn main() {
             shortcut::set_shortcut,
             guide::guide_shown,
             guide::mark_guide_shown,
+            language::set_language,
             phone::phone_start,
             phone::phone_status,
             phone::phone_stop,
@@ -447,7 +489,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{Mode, opens_at_launch, request};
+    use super::{Mode, opens_at_launch, request, star_labels};
 
     #[test]
     fn on_linux_the_first_launch_opens_the_panel_and_later_ones_stay_in_the_tray() {
@@ -459,5 +501,61 @@ mod tests {
         assert!(swiftbar.mode == Mode::SwiftBar);
         assert!(opens_at_launch(&swiftbar, false, || true), "SwiftBar's click always opens it");
         assert!(opens_at_launch(&swiftbar, true, || panic!("not asked: SwiftBar's panel opens anyway")));
+    }
+
+    #[test]
+    fn the_star_menu_speaks_the_panels_language() {
+        let all = |english, answered| {
+            let words = star_labels(english, "6.0.8", answered);
+            [
+                words.open,
+                words.modules,
+                words.detect,
+                words.login,
+                words.notices,
+                words.about,
+                &words.changelog,
+                words.repository,
+                words.quit,
+            ]
+            .map(str::to_owned)
+        };
+        assert_eq!(
+            all(false, true),
+            [
+                "打开面板",
+                "主页模块…",
+                "自动检测…",
+                "登录时启动",
+                "通知设置…",
+                "关于 Starmeter",
+                "版本 6.0.8 · 更新记录",
+                "作者 timecatbit · GitHub 仓库",
+                "退出 Starmeter",
+            ]
+        );
+        assert_eq!(
+            all(true, true),
+            [
+                "Open panel",
+                "Home modules…",
+                "Auto-detect…",
+                "Start at login",
+                "Notification settings…",
+                "About Starmeter",
+                "Version 6.0.8 · Changelog",
+                "By timecatbit · GitHub repository",
+                "Quit Starmeter",
+            ]
+        );
+        assert_eq!(star_labels(false, "6.0.8", false).notices, "开启系统通知…");
+        assert_eq!(star_labels(true, "6.0.8", false).notices, "Turn on notifications…");
+        // English shows no Chinese at all.
+        let chinese = |text: &str| {
+            text.chars().any(|c| ('\u{3000}'..='\u{9fff}').contains(&c) || ('\u{ff00}'..='\u{ffef}').contains(&c))
+        };
+        for answered in [false, true] {
+            assert!(all(true, answered).iter().all(|text| !chinese(text)), "{:?}", all(true, answered));
+        }
     }
 }

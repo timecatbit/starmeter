@@ -11,7 +11,7 @@
   import { font, width as measure } from './lib/measure';
   import { pageIn, pageOut } from './lib/motion';
   import { answer as answerQuestion, ask, show as showQuestion } from './lib/ask.svelte';
-  import { chooseLanguage, localize, source, t } from './lib/i18n.svelte';
+  import { chooseLanguage, localize, restoreLanguage, source, t } from './lib/i18n.svelte';
   import { phoneStatus } from './lib/phone.svelte';
   import { chooseShortcut, restoreShortcut, shortcut } from './lib/shortcut.svelte';
   import { grabWindow, panel } from './lib/ui.svelte';
@@ -664,8 +664,9 @@
       // Pinned and not in front, the page hears no pointer: the shell tells when it comes over the panel or leaves.
       // The shell says only in and out (not every move): in, they stay until the pointer leaves.
       shell.onHover((inside) => { if (!pinned) return; if (inside) showChrome(null); else if (!cornerFrom) showChrome(700); })];
-    // The shell starts with no global shortcut; the one chosen is handed over again.
+    // The shell starts with no global shortcut; the one chosen is handed over again, and the language for its menu.
     void restoreShortcut();
+    restoreLanguage();
     void shell.info().then((value) => {
       info = value;
       opened(value.modules);
