@@ -189,10 +189,10 @@ To release, keep the version in the `Cargo.toml` workspace, `app/src-tauri/tauri
 
 ## Star history
 
-<a href="https://www.star-history.com/#timecatbit/starmeter&Date">
+<a href="https://github.com/timecatbit/starmeter/stargazers">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=timecatbit/starmeter&type=Date&theme=dark">
-    <img src="https://api.star-history.com/svg?repos=timecatbit/starmeter&type=Date" width="600" alt="Starmeter’s GitHub stars over time">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/timecatbit/starmeter/stars/stars-dark.svg">
+    <img src="https://raw.githubusercontent.com/timecatbit/starmeter/stars/stars.svg" width="600" alt="Starmeter’s GitHub stars over time">
   </picture>
 </a>
 

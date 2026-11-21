@@ -189,10 +189,10 @@ node docs/screenshots.mjs   # 用測試數據重新生成截圖
 
 ## Star 趨勢
 
-<a href="https://www.star-history.com/#timecatbit/starmeter&Date">
+<a href="https://github.com/timecatbit/starmeter/stargazers">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=timecatbit/starmeter&type=Date&theme=dark">
-    <img src="https://api.star-history.com/svg?repos=timecatbit/starmeter&type=Date" width="600" alt="Starmeter 在 GitHub 上的 Star 數隨時間的變化">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/timecatbit/starmeter/stars/stars-dark.svg">
+    <img src="https://raw.githubusercontent.com/timecatbit/starmeter/stars/stars.svg" width="600" alt="Starmeter 在 GitHub 上的 Star 數隨時間的變化">
   </picture>
 </a>
 
