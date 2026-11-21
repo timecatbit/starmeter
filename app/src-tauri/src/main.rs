@@ -51,6 +51,14 @@ fn request(args: &[String], identifier: &str) -> Request {
     }
 }
 
+/// Whether this launch opens the panel. On Linux the first launch does too: the tray there (AppIndicator) hands no
+/// click to the app, and a desktop may show no tray at all, so a first launch from the app menu showed nothing, the
+/// star's menu at most. It opens on the tour instead; once the tour has been shown, a launch (the login item's
+/// included) stays in the tray.
+fn opens_at_launch(launch: &Request, linux: bool, tour_shown: impl FnOnce() -> bool) -> bool {
+    launch.show || (linux && launch.mode == Mode::Standalone && !tour_shown())
+}
+
 /// Where the panel opens without a star click: under the pointer (SwiftBar's star is where the user clicked), or at
 /// the top right for a launch check.
 fn pointer_anchor(app: &AppHandle) -> (f64, f64) {
@@ -395,7 +403,7 @@ fn main() {
                 macos::track_hover(&window, move |inside| panel::hovered(&hover, inside));
             }
             let _ = window;
-            if launch.show {
+            if opens_at_launch(&launch, cfg!(target_os = "linux"), guide::guide_shown) {
                 let anchor = if mode == Mode::SwiftBar { pointer_anchor(&handle) } else { star_anchor(&handle, None) };
                 let modules = requested_modules(&handle, &args).unwrap_or(launch.modules);
                 panel::open(&handle, anchor, modules);
@@ -435,4 +443,21 @@ fn main() {
         }
         let _ = app;
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Mode, opens_at_launch, request};
+
+    #[test]
+    fn on_linux_the_first_launch_opens_the_panel_and_later_ones_stay_in_the_tray() {
+        let plain = request(&["Starmeter".to_string()], "com.timecatbit.starmeter");
+        assert!(opens_at_launch(&plain, true, || false), "Linux, the tour not shown yet");
+        assert!(!opens_at_launch(&plain, true, || true), "Linux, the tour shown");
+        assert!(!opens_at_launch(&plain, false, || false), "macOS and Windows: the star is there to click");
+        let swiftbar = request(&["Starmeter".to_string(), "--swiftbar-panel".to_string()], "com.timecatbit.starmeter");
+        assert!(swiftbar.mode == Mode::SwiftBar);
+        assert!(opens_at_launch(&swiftbar, false, || true), "SwiftBar's click always opens it");
+        assert!(opens_at_launch(&swiftbar, true, || panic!("not asked: SwiftBar's panel opens anyway")));
+    }
 }
