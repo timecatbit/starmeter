@@ -5,7 +5,7 @@
 <p align="center"><b>在菜单栏一眼看清 AI 编程工具用了多少。</b><br>
 各工具的 Token 和 API 等值费用、订阅额度、API 余额、正在跑的会话，点一下星星就在同一个面板里。</p>
 
-<p align="center"><b>简体中文</b> · <a href="README.en.md">English</a> · <a href="https://timecatbit.github.io/starmeter/">网站</a> · <a href="#下载与安装">下载与安装</a></p>
+<p align="center"><b>简体中文</b> · <a href="README.zh-Hant.md">繁體中文</a> · <a href="README.en.md">English</a> · <a href="https://timecatbit.github.io/starmeter/">网站</a> · <a href="#下载与安装">下载与安装</a></p>
 
 > [!IMPORTANT]
 > **Mac 用户请先用 SwiftBar 插件版。**

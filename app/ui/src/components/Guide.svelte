@@ -15,7 +15,9 @@
   // themselves. A stop whose part isn't on the homepage (no plan or API rows, Summary turned off) is left out.
   // Esc skips, Enter and the arrow keys move.
   import { onMount, tick } from 'svelte';
-  import { chooseLanguage, language, t } from '../lib/i18n.svelte';
+  import { chooseLanguage, language, NAMES, t, type Language } from '../lib/i18n.svelte';
+  /** The tour's first card offers each language by its own name: 简体中文, 繁體中文, English. */
+  const LANGUAGES: Language[] = ['zh', 'zh-Hant', 'en'];
   import { panel } from '../lib/ui.svelte';
 
   let { container, stage, rowKeys, onfinish, onmodules }: {
@@ -187,11 +189,11 @@
         <p class="body">{t(stop.body)}</p>
         {#if index === 0}
           <div class="language" role="radiogroup" aria-label={t('界面语言')}>
-            <span class="pill" class:right={language.current === 'en'}></span>
-            <button class="choice pressable" class:chosen={language.current !== 'en'} role="radio" aria-checked={language.current !== 'en'}
-              onclick={() => chooseLanguage('zh')}>中文</button>
-            <button class="choice pressable" class:chosen={language.current === 'en'} role="radio" aria-checked={language.current === 'en'}
-              onclick={() => chooseLanguage('en')}>English</button>
+            <span class="pill" style:transform="translateX({LANGUAGES.indexOf(language.current) * 100}%)"></span>
+            {#each LANGUAGES as key (key)}
+              <button class="choice pressable" class:chosen={language.current === key} role="radio" aria-checked={language.current === key}
+                onclick={() => chooseLanguage(key)}>{NAMES[key]}</button>
+            {/each}
           </div>
         {/if}
         {#if last}<p class="later">{t('以后可以在 齿轮 → 通用 → 新手指引 再看一遍。')}</p>{/if}
@@ -270,13 +272,12 @@
     top: 2px;
     bottom: 2px;
     left: 2px;
-    width: calc(50% - 2px);
+    width: calc((100% - 4px) / 3);
     border-radius: 6px;
     background: var(--solid);
     box-shadow: 0 0 0 0.5px var(--separator), 0 1px 3px rgba(0, 0, 0, 0.1);
     transition: transform 0.22s var(--page-curve);
   }
-  .pill.right { transform: translateX(100%); }
   .still .pill { transition: none; }
   .choice {
     --press-scale: 0.96;

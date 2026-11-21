@@ -5,7 +5,7 @@
 <p align="center"><b>See how much your AI coding tools use, from the menu bar.</b><br>
 Each tool's tokens and API-equivalent cost, subscription limits, API balances and running sessions, in one panel behind a star.</p>
 
-<p align="center"><a href="README.md">简体中文</a> · <b>English</b> · <a href="https://timecatbit.github.io/starmeter/">Website</a> · <a href="#download-and-install">Download and install</a></p>
+<p align="center"><a href="README.md">简体中文</a> · <a href="README.zh-Hant.md">繁體中文</a> · <b>English</b> · <a href="https://timecatbit.github.io/starmeter/">Website</a> · <a href="#download-and-install">Download and install</a></p>
 
 > [!IMPORTANT]
 > **On a Mac, start with the SwiftBar plugin for now.**

@@ -26,6 +26,22 @@ const NATIVE_ONLY: [&str; 11] = [
     "panelkey",
 ];
 
+/// A row of SwiftBar's own menu in 繁體中文: its words (the label, the figure beside it, the tooltip) converted; the
+/// options that say where a click goes (a script, a folder) as they are.
+pub fn traditional_menu_line(line: &str) -> String {
+    let Some(at) = line.find(" | ") else { return crate::hant::convert(line) };
+    let mut options = Options::new();
+    for part in shell_split(&line[at + 3..]) {
+        if let Some((key, value)) = part.split_once('=') {
+            let shown =
+                if ["badge", "tooltip"].contains(&key) { crate::hant::convert(value) } else { value.to_string() };
+            options.insert(key, shown);
+        }
+    }
+    let rest: Vec<String> = options.iter().map(|(key, value)| as_option(key, value)).collect();
+    format!("{} | {}", crate::hant::convert(&line[..at]), rest.join(" "))
+}
+
 /// A row for SwiftBar's own menu: the panel-only options dropped, system colors kept for contrast.
 pub fn native_menu_line(line: &str) -> String {
     let Some(at) = line.find(" | ") else { return line.to_string() };
@@ -219,13 +235,21 @@ impl Runtime {
             lines.extend(self.module_menu_lines());
             let mut text = vec![self.title(Some(data)), "---".into()];
             text.extend(lines.iter().map(|line| native_menu_line(line)));
-            return text.join("\n");
+            return self.menu_in_language(text);
         }
         let snapshot = self.panel_snapshot(data, Some(dashboard), Some(options), moment);
         self.write_json_cache(&self.cache_path("panel-view"), &Json::Object(snapshot));
         let mut text = vec![self.panel_title(&self.title(Some(data))), "---".into()];
         text.extend(native.iter().map(|line| native_menu_line(line)));
-        text.join("\n")
+        self.menu_in_language(text)
+    }
+
+    /// SwiftBar's menu, its rows in 繁體中文 when a panel chose it on this computer.
+    fn menu_in_language(&self, text: Vec<String>) -> String {
+        if !self.traditional() {
+            return text.join("\n");
+        }
+        text.iter().map(|line| traditional_menu_line(line)).collect::<Vec<_>>().join("\n")
     }
 
     /// One run of the entry: a background mode, an action, or the menu.
@@ -441,5 +465,18 @@ impl Runtime {
             }
         }
         0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_traditional_row_converts_its_words_and_not_where_it_points() {
+        let line = "主页模块… | badge=\"本周 3 项\" tooltip=设置 bash=/bin/bash param1=\"/Users/a/软件:配置文件/starmeter.30s.sh\"";
+        let shown = super::traditional_menu_line(line);
+        assert!(shown.starts_with("主頁模組… | "), "{shown}");
+        assert!(shown.contains("badge=\"本週 3 項\"") && shown.contains("tooltip=設定"), "{shown}");
+        assert!(shown.contains("/Users/a/软件:配置文件/starmeter.30s.sh"), "the path stays: {shown}");
+        assert_eq!(super::traditional_menu_line("---"), "---");
     }
 }

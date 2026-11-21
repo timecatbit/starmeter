@@ -61,7 +61,7 @@ fn visible(line: &str) -> usize {
 #[test]
 fn the_overview_shows_the_homepages_figures_at_every_width() {
     let (dashboard, entries) = fixture("today");
-    let report = build(&dashboard, &entries, "Asia/Shanghai", Words { english: false });
+    let report = build(&dashboard, &entries, "Asia/Shanghai", Words { english: false, traditional: false });
     // Summary as the homepage and the share picture add it.
     assert_eq!(report.tokens, Some(61_956_680.0));
     assert_eq!(report.requests, Some(436.0));
@@ -92,7 +92,7 @@ fn the_overview_shows_the_homepages_figures_at_every_width() {
 #[test]
 fn english_reads_as_the_panel_writes_it() {
     let (dashboard, entries) = fixture("7d");
-    let report = build(&dashboard, &entries, "Asia/Shanghai", Words { english: true });
+    let report = build(&dashboard, &entries, "Asia/Shanghai", Words { english: true, traditional: false });
     let text = render(&report, View::Overview, 100, &Paint { colour: false });
     assert!(text.contains("AI usage · Last 7 days"), "{text}");
     assert!(text.contains("Known API estimate"), "{text}");
@@ -109,7 +109,7 @@ fn english_reads_as_the_panel_writes_it() {
 #[test]
 fn json_carries_the_figures_for_scripts() {
     let (dashboard, entries) = fixture("today");
-    let report = build(&dashboard, &entries, "Asia/Shanghai", Words { english: false });
+    let report = build(&dashboard, &entries, "Asia/Shanghai", Words { english: false, traditional: false });
     let value = Json::parse(pretty(&report.json(&["usage", "quotas"]), 0).as_bytes()).expect("valid JSON");
     let summary = value.get("summary").expect("summary");
     assert_eq!(summary.get("tokens").and_then(Json::integer), Some(61_956_680));
@@ -158,7 +158,7 @@ fn scratch() -> (std::path::PathBuf, HashMap<String, String>) {
 fn the_figures_are_the_ones_the_app_reads_for_the_range() {
     let (folder, environment) = scratch();
     let runtime = runtime(environment);
-    let words = Words { english: false };
+    let words = Words { english: false, traditional: false };
     for (range, group) in [("today", "tool"), ("7d", "model"), ("all", "project")] {
         let options = parse(&arguments(&format!("usage -r {range} -g {group} --no-refresh"))).expect("options");
         let (report, failed) = read(&runtime, &options, words);
@@ -203,7 +203,7 @@ fn grouped(range: &str, grouping: &str) -> (Object, Vec<Json>) {
 fn the_overview_draws_the_grouping_asked_for_and_keeps_the_plans() {
     // CLI-1: starmeter -g model printed the tools.
     let (dashboard, entries) = grouped("7d", "model");
-    let report = build(&dashboard, &entries, "Asia/Shanghai", Words { english: false });
+    let report = build(&dashboard, &entries, "Asia/Shanghai", Words { english: false, traditional: false });
     let first =
         report.groups.as_ref().and_then(|groups| groups.first()).map(|row| row.name.clone()).expect("a model card");
     let text = render(&report, View::Overview, 100, &Paint { colour: false });
@@ -213,7 +213,7 @@ fn the_overview_draws_the_grouping_asked_for_and_keeps_the_plans() {
     assert!(!table.contains("  工具 "), "{text}");
     assert!(text.contains("ChatGPT 订阅"), "{text}");
     let (dashboard, entries) = grouped("7d", "project");
-    let report = build(&dashboard, &entries, "Asia/Shanghai", Words { english: true });
+    let report = build(&dashboard, &entries, "Asia/Shanghai", Words { english: true, traditional: false });
     let text = render(&report, View::Overview, 100, &Paint { colour: false });
     assert!(
         text.contains("  Project") && text.contains("Clients' own logs") && text.contains("Plans and balances"),
@@ -224,7 +224,7 @@ fn the_overview_draws_the_grouping_asked_for_and_keeps_the_plans() {
 #[test]
 fn an_empty_table_says_what_the_range_lacks() {
     // CLI-2: only a homepage with no tools is told to choose some.
-    let words = Words { english: false };
+    let words = Words { english: false, traditional: false };
     let say = |dashboard: &Object, view: View| {
         render(&build(dashboard, &[], "Asia/Shanghai", words), view, 100, &Paint { colour: false })
     };
@@ -287,7 +287,7 @@ fn a_note_without_a_table_wraps_to_a_narrow_terminal() {
     // CLI-6: with no plans or APIs, quota's English note ran 97 columns on a 40-column terminal.
     let (dashboard, _) = fixture("today");
     for english in [true, false] {
-        let report = build(&dashboard, &[], "Asia/Shanghai", Words { english });
+        let report = build(&dashboard, &[], "Asia/Shanghai", Words { english, traditional: false });
         for columns in [40, 32] {
             let text = render(&report, View::Quota, columns, &Paint { colour: true });
             assert!(text.lines().all(|line| visible(line) <= columns), "{columns}: {text}");
@@ -297,7 +297,7 @@ fn a_note_without_a_table_wraps_to_a_narrow_terminal() {
     let (mut nothing, _) = fixture("today");
     nothing.insert("providers", Json::Array(vec![]));
     let text = render(
-        &build(&nothing, &[], "Asia/Shanghai", Words { english: true }),
+        &build(&nothing, &[], "Asia/Shanghai", Words { english: true, traditional: false }),
         View::Overview,
         40,
         &Paint { colour: false },
@@ -351,7 +351,7 @@ fn the_last_millisecond_before_midnight_is_yesterdays() {
     let lines = [record(midnight - 0.004, 10), record(midnight - 0.0003, 20), record(midnight, 5)].join("\n");
     std::fs::write(folder.join("magpie").join("usage.jsonl"), lines + "\n").expect("records");
     let runtime = runtime(environment);
-    let words = Words { english: false };
+    let words = Words { english: false, traditional: false };
     for (range, tokens) in [("yesterday", 30.0), ("today", 5.0)] {
         let options = parse(&arguments(&format!("usage -r {range} --no-refresh"))).expect("options");
         let (report, failed) = read(&runtime, &options, words);
@@ -378,4 +378,15 @@ fn a_new_counting_time_zone_reads_the_range_afresh() {
     environment.remove("TZ");
     assert_eq!(nowhere, name(&environment));
     let _ = std::fs::remove_dir_all(folder);
+}
+
+#[test]
+fn in_traditional_chinese_the_text_reads_as_the_panel_converts_it() {
+    // 繁體中文: the engine's words and the panel's converted alike; the JSON's names and keys as they are.
+    let words = Words { english: false, traditional: true };
+    assert_eq!(words.text("订阅 · 余额 · 本周"), "訂閱 · 餘額 · 本週");
+    assert_eq!(words.say("近 {n} 天", &[("n", "7")]), "近 7 天");
+    assert_eq!(words.page("项目 · 设置\n".to_string()), "專案 · 設定\n");
+    assert_eq!(super::parse(&["--lang".into(), "zh-TW".into()]).unwrap().language.as_deref(), Some("zh-Hant"));
+    assert!(super::parse(&["--lang".into(), "fr".into()]).is_err());
 }

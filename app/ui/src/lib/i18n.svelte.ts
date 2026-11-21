@@ -1,23 +1,29 @@
-// The panel in Chinese or English (通用 → 语言). Chinese is the source: the engine and the panel write Chinese,
-// and English comes from the dictionary in en.ts at the edges. localize() turns a snapshot's text into English as it
-// arrives, so every page lays out and measures the English it shows; t() does the panel's own words. Text the
-// dictionary doesn't know (a session's title, a project's folder, a new message) stays as it is; the English test lists
-// any of the panel's own text left untranslated.
+// The panel in Simplified Chinese, Traditional Chinese or English (通用 → 语言). Simplified Chinese is the source: the
+// engine and the panel write it, English comes from the dictionary in en.ts at the edges and 繁體中文 from the converter
+// in hant.ts (the system's ICU and Taiwan's words, built by scripts/make_hant.py). localize() turns a snapshot's text
+// into the language as it arrives, so every page lays out and measures what it shows; t() does the panel's own words.
+// Text the English dictionary doesn't know (a session's title, a project's folder, a new message) stays as it is; the
+// English test lists any of the panel's own text left untranslated. The converter takes any Chinese.
 import { shell } from './backend';
 import { phrases, rules, whole } from './en';
+import { toHant } from './hant';
 import { phoneRow } from './phone.svelte';
 import { shortcutRow } from './shortcut.svelte';
 import type { Dashboard, Entry, ProviderUsage, Snapshot } from './types';
 
-export type Language = 'zh' | 'en';
+export type Language = 'zh' | 'zh-Hant' | 'en';
 const KEY = 'starmeter.language';
+const known = (value: string | null): value is Language => value === 'zh' || value === 'zh-Hant' || value === 'en';
+/** Each language by its own name, as the choices show it whatever the language shown. */
+export const NAMES: Record<Language, string> = { zh: '简体中文', 'zh-Hant': '繁體中文', en: 'English' };
 
 function stored(): Language {
   try {
     // A phone opened from 在手机上看 starts in the computer's language (…&l=en in the address's fragment).
     const asked = typeof location === 'undefined' ? null : new URLSearchParams(location.hash.slice(1)).get('l');
-    if (asked === 'en' || asked === 'zh') return asked;
-    return typeof localStorage !== 'undefined' && localStorage.getItem(KEY) === 'en' ? 'en' : 'zh';
+    if (known(asked)) return asked;
+    const kept = typeof localStorage !== 'undefined' ? localStorage.getItem(KEY) : null;
+    return known(kept) ? kept : 'zh';
   } catch {
     return 'zh';
   }
@@ -25,9 +31,17 @@ function stored(): Language {
 
 export const language = $state({ current: stored() });
 export const english = () => language.current === 'en';
+export const traditional = () => language.current === 'zh-Hant';
+
+/** The page's language, for the fonts' forms (PingFang TC for 繁體中文) and assistive technology. */
+function markPage() {
+  if (typeof document !== 'undefined') document.documentElement.lang = { zh: 'zh-Hans', 'zh-Hant': 'zh-Hant', en: 'en' }[language.current];
+}
+markPage();
 
 export function chooseLanguage(next: string) {
-  language.current = next === 'en' ? 'en' : 'zh';
+  language.current = known(next) ? next : 'zh';
+  markPage();
   try { localStorage.setItem(KEY, language.current); } catch { /* the choice lasts this session */ }
   void shell.setLanguage(language.current);
 }
@@ -86,22 +100,33 @@ export function translate(text: string): string {
 export function t(zh: string, values?: Record<string, string | number>): string {
   const one = values?.n !== undefined && String(values.n) === '1' ? phrases[zh + '|1'] : undefined;
   const text = english() ? (one ?? phrases[zh] ?? translate(zh)) : zh;
-  return values ? text.replace(/\{(\w+)\}/g, (whole, name) => (name in values ? String(values[name]) : whole)) : text;
+  const filled = values ? text.replace(/\{(\w+)\}/g, (whole, name) => (name in values ? String(values[name]) : whole)) : text;
+  return traditional() ? shown(filled) : filled;
 }
 
-/** Whether the engine's text reads as this Chinese phrase, in either language. */
-export const reads = (text: string | null | undefined, zh: string) => text === zh || (text !== null && text !== undefined && text === translate(zh));
+/** A text as the language chosen shows it: English by the dictionary, 繁體中文 by the converter; a language's own name
+ *  (简体中文, 繁體中文) stays as it is. */
+export function shown(text: string): string {
+  if (typeof text !== 'string' || language.current === 'zh') return text;
+  if (english()) return translate(text);
+  return SELF.has(text) ? text : toHant(text);
+}
+const SELF = new Set(Object.values(NAMES));
+
+/** Whether the engine's text reads as this Chinese phrase, in any language. */
+export const reads = (text: string | null | undefined, zh: string) =>
+  text === zh || (text !== null && text !== undefined && (text === translate(zh) || text === toHant(zh)));
 
 /** What a row said in Chinese before it was translated: the panel's logic reads rows by their Chinese wording. */
 export const source = (e: Entry) => e.source ?? e;
 
 function entry(e: Entry): Entry {
-  const label = translate(e.label), value = e.value === undefined ? undefined : translate(e.value);
-  const detail = e.detail === undefined ? undefined : translate(e.detail);
+  const label = shown(e.label), value = e.value === undefined ? undefined : shown(e.value);
+  const detail = e.detail === undefined ? undefined : shown(e.detail);
   const changed = label !== e.label || value !== e.value || detail !== e.detail;
   return {
     ...e, label, value, detail,
-    ...(e.fallbacks ? { fallbacks: e.fallbacks.map(translate) } : {}),
+    ...(e.fallbacks ? { fallbacks: e.fallbacks.map(shown) } : {}),
     ...(changed ? { source: { label: e.label, value: e.value, detail: e.detail } } : {}),
     children: e.children.map(entry),
   };
@@ -109,40 +134,40 @@ function entry(e: Entry): Entry {
 
 function provider(p: ProviderUsage): ProviderUsage {
   return {
-    ...p, name: translate(p.name), subtitle: translate(p.subtitle), status: translate(p.status),
-    priceNote: p.priceNote ? translate(p.priceNote) : p.priceNote, serviceNote: p.serviceNote ? translate(p.serviceNote) : p.serviceNote,
-    models: p.models.map((m) => ({ ...m, name: translate(m.name), priceNote: m.priceNote ? translate(m.priceNote) : m.priceNote })),
-    clients: p.clients ? p.clients.map((c) => ({ ...c, name: translate(c.name) })) : p.clients,
+    ...p, name: shown(p.name), subtitle: shown(p.subtitle), status: shown(p.status),
+    priceNote: p.priceNote ? shown(p.priceNote) : p.priceNote, serviceNote: p.serviceNote ? shown(p.serviceNote) : p.serviceNote,
+    models: p.models.map((m) => ({ ...m, name: shown(m.name), priceNote: m.priceNote ? shown(m.priceNote) : m.priceNote })),
+    clients: p.clients ? p.clients.map((c) => ({ ...c, name: shown(c.name) })) : p.clients,
   };
 }
 
 function dashboard(d: Dashboard): Dashboard {
   const h = d.heatmap;
   return {
-    ...d, rangeLabel: translate(d.rangeLabel), chartUnit: translate(d.chartUnit), chartSpan: translate(d.chartSpan),
-    chartStatus: translate(d.chartStatus), updated: d.updated === undefined ? undefined : translate(d.updated),
-    dates: d.dates.map(translate), period: d.period?.map(translate), groupNote: d.groupNote ? translate(d.groupNote) : d.groupNote,
-    groupings: d.groupings?.map((g) => ({ ...g, label: translate(g.label) })),
-    currency: d.currency ? { ...d.currency, note: d.currency.note === undefined ? undefined : translate(d.currency.note) } : d.currency,
+    ...d, rangeLabel: shown(d.rangeLabel), chartUnit: shown(d.chartUnit), chartSpan: shown(d.chartSpan),
+    chartStatus: shown(d.chartStatus), updated: d.updated === undefined ? undefined : shown(d.updated),
+    dates: d.dates.map(shown), period: d.period?.map(shown), groupNote: d.groupNote ? shown(d.groupNote) : d.groupNote,
+    groupings: d.groupings?.map((g) => ({ ...g, label: shown(g.label) })),
+    currency: d.currency ? { ...d.currency, note: d.currency.note === undefined ? undefined : shown(d.currency.note) } : d.currency,
     providers: d.providers.map(provider), cards: d.cards ? d.cards.map(provider) : d.cards,
     heatmap: h ? {
-      ...h, rowLabels: h.rowLabels?.map(translate), labels: h.labels.map(translate), hint: translate(h.hint),
-      status: h.status === undefined ? undefined : translate(h.status), notice: h.notice === undefined ? undefined : translate(h.notice),
-      streak: h.streak ? translate(h.streak) : h.streak,
+      ...h, rowLabels: h.rowLabels?.map(shown), labels: h.labels.map(shown), hint: shown(h.hint),
+      status: h.status === undefined ? undefined : shown(h.status), notice: h.notice === undefined ? undefined : shown(h.notice),
+      streak: h.streak ? shown(h.streak) : h.streak,
     } : h,
   };
 }
 
-/** The 语言 row, first in 通用: 中文 / English. The choice is the panel's own (kept in the web view's
- *  storage), not the engine's: the star's right-click menu follows it (restoreLanguage), the engine's other output
- *  (SwiftBar's menu, notifications) stays Chinese. The 新手指引 row under 帮助 is the panel's own too. */
+/** The 语言 row, first in 通用: 简体中文 / 繁體中文 / English. The choice is the panel's own (kept in the web view's
+ *  storage), told to the shell: the star's right-click menu follows it (restoreLanguage), and so do the engine's
+ *  notifications and SwiftBar's menu for 繁體中文. The 新手指引 row under 帮助 is the panel's own too. */
 function withLanguage(list: Entry[]): Entry[] {
   const radio = (label: string, key: Language): Entry => ({ label, children: [], radio: true, checked: language.current === key, action: ['set-language', key] });
   const out = list.map((e) => {
     if (e.label !== '通用') return e;
     // 语言 and 全局快捷键 first; 帮助, last: the first-run tour, again.
     return { ...e, children: [
-      { label: '语言 Language', symbol: 'globe', value: language.current === 'en' ? 'English' : '中文', children: [radio('中文', 'zh'), radio('English', 'en')] },
+      { label: '语言 Language', symbol: 'globe', value: NAMES[language.current], children: [radio(NAMES.zh, 'zh'), radio(NAMES['zh-Hant'], 'zh-Hant'), radio(NAMES.en, 'en')] },
       shortcutRow(), ...e.children,
       { label: '帮助', section: true, children: [] }, { label: '新手指引', symbol: 'questionmark.circle', action: ['show-guide'], children: [] }] };
   });
@@ -151,10 +176,11 @@ function withLanguage(list: Entry[]): Entry[] {
   return out;
 }
 
-/** The snapshot as the panel shows it: the language row added, and in English every text the dictionary knows. */
+/** The snapshot as the panel shows it: the language row added, and every text in the language chosen (in English,
+ *  what the dictionary knows). */
 export function localize(s: Snapshot): Snapshot {
   const options = s.moduleOptions ? withLanguage(s.moduleOptions) : s.moduleOptions;
-  if (!english()) return { ...s, moduleOptions: options };
+  if (language.current === 'zh') return { ...s, moduleOptions: options };
   return {
     ...s, entries: s.entries.map(entry), moduleOptions: options?.map(entry), rangeOptions: s.rangeOptions?.map(entry),
     dashboard: s.dashboard ? dashboard(s.dashboard) : s.dashboard,

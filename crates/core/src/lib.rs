@@ -19,6 +19,7 @@ pub mod desktop;
 pub mod devices;
 pub mod discovery;
 pub mod files;
+pub mod hant;
 pub mod harness;
 pub mod host;
 pub mod http;

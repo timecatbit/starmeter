@@ -46,7 +46,7 @@ pub struct Options {
     /// detect: add what it finds without asking.
     pub yes: bool,
     pub colour: String,
-    /// zh or en when asked for; the system's language otherwise.
+    /// zh, zh-Hant or en when asked for (zh-TW and zh-HK are zh-Hant); the system's language otherwise.
     pub language: Option<String>,
 }
 
@@ -102,10 +102,13 @@ pub fn parse(arguments: &[String]) -> Result<Options, String> {
     if !["auto", "always", "never"].contains(&options.colour.as_str()) {
         return Err("--color is auto, always or never".into());
     }
-    if let Some(language) = &options.language
-        && !["zh", "en"].contains(&language.as_str())
-    {
-        return Err("--lang is zh or en".into());
+    if let Some(language) = options.language.as_mut() {
+        *language = match language.to_ascii_lowercase().as_str() {
+            "zh" | "zh-cn" | "zh-hans" => "zh".into(),
+            "zh-hant" | "zh-tw" | "zh-hk" => "zh-Hant".into(),
+            "en" => "en".into(),
+            _ => return Err("--lang is zh, zh-Hant or en".into()),
+        };
     }
     options.command = command.unwrap_or(Command::Overview);
     Ok(options)
@@ -132,7 +135,8 @@ Options:
       --json           the figures for scripts
       --no-refresh     show the plans' and APIs' last figures instead of refreshing those that are due
       --color auto|always|never
-      --lang zh|en     the language (default: the system's; STARMETER_LANG works too)
+      --lang zh|zh-Hant|en
+                       the language (default: the system's; STARMETER_LANG works too)
   -h, --help           this help
   -y, --yes            detect: add without asking (your other choices stay)
   -V, --version        the version
@@ -158,7 +162,8 @@ The settings, connections and caches are the Starmeter app's on this computer; t
       --json           输出 JSON，给脚本用
       --no-refresh     订阅额度、API 余额直接用上次的结果，不刷新到期的数据
       --color auto|always|never
-      --lang zh|en     语言（默认跟随系统；也可设 STARMETER_LANG）
+      --lang zh|zh-Hant|en
+                       语言：简体中文、繁體中文或英文（默认跟随系统；也可设 STARMETER_LANG）
   -h, --help           显示帮助
   -y, --yes            detect：不再询问直接加入（已有的勾选不变）
   -V, --version        显示版本
@@ -354,7 +359,7 @@ fn detect(runtime: &Runtime, options: &Options, words: Words, out: &mut impl Wri
     );
     let text =
         lines.iter().map(|line| text::wrap_line(line, terminal::columns())).collect::<Vec<_>>().join("\n") + "\n";
-    emit(out, &text, 0)
+    emit(out, &words.page(text), 0)
 }
 
 /// Everything one run shows, read the way the homepage reads it.
@@ -422,14 +427,11 @@ pub fn main(arguments: &[String]) -> i32 {
             return 2;
         }
     };
-    let english = match options.language.as_deref() {
-        Some(language) => language == "en",
-        None => !terminal::system_chinese(),
-    };
-    let words = Words { english };
+    let language = options.language.as_deref().unwrap_or_else(|| terminal::system_language());
+    let words = Words { english: language == "en", traditional: language == "zh-Hant" };
     let mut out = std::io::stdout().lock();
     match options.command {
-        Command::Help => return emit(&mut out, &help(words), 0),
+        Command::Help => return emit(&mut out, &words.page(help(words)), 0),
         Command::Detect => return detect(&runtime(std::env::vars().collect()), &options, words, &mut out),
         Command::Version => return emit(&mut out, &format!("starmeter {VERSION}\n"), 0),
         _ => {}
@@ -449,7 +451,12 @@ pub fn main(arguments: &[String]) -> i32 {
             Command::Quota => View::Quota,
             _ => View::Overview,
         };
-        text::render(&report, view, terminal::columns(), &Paint { colour: terminal::colour(&options.colour) })
+        words.page(text::render(
+            &report,
+            view,
+            terminal::columns(),
+            &Paint { colour: terminal::colour(&options.colour) },
+        ))
     };
     emit(&mut out, &text, if failed { 1 } else { 0 })
 }

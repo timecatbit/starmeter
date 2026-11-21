@@ -2,7 +2,7 @@
   // A question answered in place, under the row that asked: a line of text (Return saves, Esc cancels), one of two
   // choices, or a confirmation with what it will do; a notice says what went wrong. No window pops up over the panel.
   import { onDestroy, onMount } from 'svelte';
-  import { t, translate } from '../lib/i18n.svelte';
+  import { shown, t } from '../lib/i18n.svelte';
   import { answer, ask } from '../lib/ask.svelte';
   import { pageCurve } from '../lib/motion';
   import { panel } from '../lib/ui.svelte';
@@ -38,13 +38,13 @@
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions (Return and Esc answer from the field or either button) -->
 <div class="ask" class:sheet class:notice={question.kind === 'notice'} style:margin-left="{indent}px" role="group"
-  aria-label={question.title} onkeydown={keydown} in:grow>
+  aria-label={shown(question.title)} onkeydown={keydown} in:grow>
   <!-- Under its row a field's title only repeats the row's name; what to type is the line that matters. -->
-  {#if sheet || question.kind !== 'text'}<p class="title">{question.title}</p>{/if}
-  {#if question.detail}<p class="detail" class:lead={!sheet && question.kind === 'text'}>{question.detail}</p>{/if}
+  {#if sheet || question.kind !== 'text'}<p class="title">{shown(question.title)}</p>{/if}
+  {#if question.detail}<p class="detail" class:lead={!sheet && question.kind === 'text'}>{shown(question.detail)}</p>{/if}
   {#if question.kind === 'text'}
     <input bind:this={field} class="field" type={question.hidden ? 'password' : 'text'} bind:value={text} autocomplete="off" spellcheck="false"
-      aria-label={question.title} />
+      aria-label={shown(question.title)} />
   {/if}
   <div class="buttons">
     {#if question.kind === 'notice'}
@@ -52,12 +52,12 @@
     {:else}
       <button class="button pressable" onclick={() => answer(question.kind === 'confirm' ? false : null)}>{t('取消')}</button>
       {#if question.kind === 'confirm'}
-        <button class="button primary pressable" class:danger={destructive} onclick={() => answer(true)}>{question.accept ? translate(question.accept) : t('确定')}</button>
+        <button class="button primary pressable" class:danger={destructive} onclick={() => answer(true)}>{question.accept ? shown(question.accept) : t('确定')}</button>
       {:else if question.kind === 'text'}
         <button class="button primary pressable" onclick={() => answer(text)}>{t('保存')}</button>
       {:else if question.kind === 'choice'}
         {#each question.options ?? [] as [label, value] (value)}
-          <button class="button primary pressable" onclick={() => answer(value)}>{label}</button>
+          <button class="button primary pressable" onclick={() => answer(value)}>{shown(label)}</button>
         {/each}
       {/if}
     {/if}

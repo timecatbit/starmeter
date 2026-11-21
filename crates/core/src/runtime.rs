@@ -511,8 +511,21 @@ impl Runtime {
         file.split('.').next().filter(|name| !name.is_empty()).unwrap_or("starmeter").to_string()
     }
 
+    /// Whether a panel chose 繁體中文 on this computer (the `language` file the app keeps in the settings folder both
+    /// panels share): the engine's own words then read in Traditional Chinese too.
+    pub fn traditional(&self) -> bool {
+        std::fs::read_to_string(Path::new(&self.state_dir).join("language")).is_ok_and(|text| text.trim() == "zh-Hant")
+    }
+
+    /// The engine's own Chinese as this computer reads it: converted for 繁體中文, else as written.
+    pub fn shown(&self, text: &str) -> String {
+        if self.traditional() { crate::hant::convert(text) } else { text.to_string() }
+    }
+
     /// A notification from Starmeter: the desktop host's own, the standalone app's, or SwiftBar's.
     pub fn post_notice(&self, subtitle: &str, body: &str) -> bool {
+        let (subtitle, body) = (self.shown(subtitle), self.shown(body));
+        let (subtitle, body) = (subtitle.as_str(), body.as_str());
         if let Some(desktop) = self.desktop() {
             desktop.notify(body, subtitle);
             return true;

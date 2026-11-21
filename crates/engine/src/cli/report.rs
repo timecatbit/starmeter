@@ -13,12 +13,20 @@ use super::figures;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Words {
     pub english: bool,
+    /// 繁體中文: the Chinese converted as the panel converts it.
+    pub traditional: bool,
 }
 
 impl Words {
     /// The engine's text as the panel shows it in this language.
     pub fn text(&self, zh: &str) -> String {
-        if self.english { english::translate(zh) } else { zh.to_string() }
+        if self.english {
+            english::translate(zh)
+        } else if self.traditional {
+            starmeter_core::hant::convert(zh)
+        } else {
+            zh.to_string()
+        }
     }
 
     /// The panel's own words, with {n} and the like filled in.
@@ -28,7 +36,13 @@ impl Words {
         for (name, value) in values {
             text = text.replace(&format!("{{{name}}}"), value);
         }
-        text
+        if self.traditional { starmeter_core::hant::convert(&text) } else { text }
+    }
+
+    /// A page of text as the reader's language writes it: in 繁體中文 all of its Chinese converted, the names in it
+    /// too, as the panel shows them.
+    pub fn page(&self, text: String) -> String {
+        if self.traditional { starmeter_core::hant::convert(&text) } else { text }
     }
 
     /// The command line's own words, which the panel doesn't have.

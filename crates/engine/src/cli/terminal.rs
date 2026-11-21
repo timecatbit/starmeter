@@ -78,46 +78,60 @@ fn enable_colour() -> bool {
     true
 }
 
-/// The language a locale name stands for: Chinese, another language (English), or none (C, POSIX, empty).
-pub fn locale_language(locale: &str) -> Option<bool> {
+/// The language a locale asks for: "zh", "zh-Hant" (Taiwan, Hong Kong, Macau, or Hant written out) or "en" (anything
+/// not Chinese); none for C and POSIX, which say nothing.
+pub fn locale_name(locale: &str) -> Option<&'static str> {
     let name = locale.trim().to_ascii_lowercase();
     if name.is_empty() || name == "c" || name == "posix" || name.starts_with("c.") {
         return None;
     }
-    Some(name.starts_with("zh"))
+    if !name.starts_with("zh") {
+        return Some("en");
+    }
+    let traditional = ["hant", "_tw", "-tw", "_hk", "-hk", "_mo", "-mo"].iter().any(|mark| name.contains(mark));
+    Some(if traditional { "zh-Hant" } else { "zh" })
 }
 
 /// Whether the system asks for Chinese: STARMETER_LANG, then the locale variables in POSIX order, then the system's
 /// own preference (macOS's first language, Windows's display language). Chinese when nothing says, as the panel.
 pub fn system_chinese() -> bool {
-    if let Some(chosen) = std::env::var("STARMETER_LANG").ok().and_then(|value| locale_language(&value)) {
+    system_language() != "en"
+}
+
+/// The language the system asks for, as system_chinese reads it: "zh", "zh-Hant" or "en".
+pub fn system_language() -> &'static str {
+    if let Some(chosen) = std::env::var("STARMETER_LANG").ok().and_then(|value| locale_name(&value)) {
         return chosen;
     }
     for key in ["LC_ALL", "LC_MESSAGES", "LANG"] {
-        if let Some(chosen) = std::env::var(key).ok().and_then(|value| locale_language(&value)) {
+        if let Some(chosen) = std::env::var(key).ok().and_then(|value| locale_name(&value)) {
             return chosen;
         }
     }
-    os_language().unwrap_or(true)
+    os_language().unwrap_or("zh")
 }
 
 #[cfg(target_os = "macos")]
-fn os_language() -> Option<bool> {
+fn os_language() -> Option<&'static str> {
     let output = starmeter_core::shell::run(&["/usr/bin/defaults", "read", "-g", "AppleLanguages"], 2.0, None, None)?;
     let first = output.split(['(', ',', '"', '\n', ' ', ')']).find(|part| !part.trim().is_empty())?;
-    locale_language(first)
+    locale_name(first)
 }
 
 #[cfg(windows)]
-fn os_language() -> Option<bool> {
+fn os_language() -> Option<&'static str> {
     // SAFETY: a plain query of the user's display language.
     let language = unsafe { windows_sys::Win32::Globalization::GetUserDefaultUILanguage() };
-    // The primary language is the low ten bits; 0x04 is Chinese.
-    Some(language & 0x3ff == 0x04)
+    // The primary language is the low ten bits (0x04 is Chinese), the region the rest: 1 Taiwan, 3 Hong Kong, 5 Macau.
+    Some(match (language & 0x3ff, language >> 10) {
+        (0x04, 1 | 3 | 5) => "zh-Hant",
+        (0x04, _) => "zh",
+        _ => "en",
+    })
 }
 
 #[cfg(not(any(target_os = "macos", windows)))]
-fn os_language() -> Option<bool> {
+fn os_language() -> Option<&'static str> {
     None
 }
 
@@ -256,12 +270,18 @@ mod tests {
 
     #[test]
     fn a_locale_says_chinese_or_not() {
-        assert_eq!(locale_language("zh_CN.UTF-8"), Some(true));
-        assert_eq!(locale_language("zh-Hans-CN"), Some(true));
-        assert_eq!(locale_language("en_US.UTF-8"), Some(false));
-        assert_eq!(locale_language("ja_JP.UTF-8"), Some(false));
-        assert_eq!(locale_language("C.UTF-8"), None);
-        assert_eq!(locale_language("POSIX"), None);
-        assert_eq!(locale_language(""), None);
+        assert_eq!(locale_name("zh_CN.UTF-8"), Some("zh"));
+        assert_eq!(locale_name("zh-Hans-CN"), Some("zh"));
+        assert_eq!(locale_name("en_US.UTF-8"), Some("en"));
+        assert_eq!(locale_name("ja_JP.UTF-8"), Some("en"));
+        assert_eq!(locale_name("C.UTF-8"), None);
+        assert_eq!(locale_name("POSIX"), None);
+        assert_eq!(locale_name(""), None);
+        assert_eq!(locale_name("zh_TW.UTF-8"), Some("zh-Hant"));
+        assert_eq!(locale_name("zh-Hant-HK"), Some("zh-Hant"));
+        assert_eq!(locale_name("zh_HK"), Some("zh-Hant"));
+        assert_eq!(locale_name("zh-Hans-CN"), Some("zh"));
+        assert_eq!(locale_name("zh_SG.UTF-8"), Some("zh"));
+        assert_eq!(locale_name("fr_FR.UTF-8"), Some("en"));
     }
 }

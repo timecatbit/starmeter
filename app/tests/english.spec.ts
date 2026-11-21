@@ -7,8 +7,8 @@ import { PHONE_KEY, servePhone, sessionTitles } from './phone';
 // Every page, one after another: longer than a test usually takes.
 test.describe.configure({ timeout: 120_000 });
 
-/** Chinese that is meant to stay: the language row's own name for Chinese. */
-const KEPT = new Set(['中文']);
+/** Chinese that is meant to stay: the languages' own names in the language row and the tour's first card. */
+const KEPT = new Set(['中文', '简体中文', '繁體中文']);
 const CJK = /[㐀-鿿（-？、-。]/;
 
 async function english(page: Page, query = '') {

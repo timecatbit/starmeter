@@ -145,42 +145,37 @@ fn open_page(app: &AppHandle, url: &str) {
 /// The star menu's words, in the panel's language (language.rs). English takes the panel's own words where it has
 /// them (en.ts: 主页模块 Home modules, 自动检测 Auto-detect, 更新记录 Changelog).
 struct StarLabels {
-    open: &'static str,
-    modules: &'static str,
-    detect: &'static str,
-    login: &'static str,
-    notices: &'static str,
-    about: &'static str,
+    open: String,
+    modules: String,
+    detect: String,
+    login: String,
+    notices: String,
+    about: String,
     changelog: String,
-    repository: &'static str,
-    quit: &'static str,
+    repository: String,
+    quit: String,
 }
 
-fn star_labels(english: bool, version: &str, notices_answered: bool) -> StarLabels {
-    if english {
-        StarLabels {
-            open: "Open panel",
-            modules: "Home modules…",
-            detect: "Auto-detect…",
-            login: "Start at login",
-            notices: if notices_answered { "Notification settings…" } else { "Turn on notifications…" },
-            about: "About Starmeter",
-            changelog: format!("Version {version} · Changelog"),
-            repository: "By timecatbit · GitHub repository",
-            quit: "Quit Starmeter",
-        }
-    } else {
-        StarLabels {
-            open: "打开面板",
-            modules: "主页模块…",
-            detect: "自动检测…",
-            login: "登录时启动",
-            notices: if notices_answered { "通知设置…" } else { "开启系统通知…" },
-            about: "关于 Starmeter",
-            changelog: format!("版本 {version} · 更新记录"),
-            repository: "作者 timecatbit · GitHub 仓库",
-            quit: "退出 Starmeter",
-        }
+fn star_labels(language: language::Language, version: &str, notices_answered: bool) -> StarLabels {
+    let pick = |chinese: &str, english: &str| match language {
+        language::Language::Simplified => chinese.to_string(),
+        language::Language::Traditional => starmeter_core::hant::convert(chinese),
+        language::Language::English => english.to_string(),
+    };
+    StarLabels {
+        open: pick("打开面板", "Open panel"),
+        modules: pick("主页模块…", "Home modules…"),
+        detect: pick("自动检测…", "Auto-detect…"),
+        login: pick("登录时启动", "Start at login"),
+        notices: if notices_answered {
+            pick("通知设置…", "Notification settings…")
+        } else {
+            pick("开启系统通知…", "Turn on notifications…")
+        },
+        about: pick("关于 Starmeter", "About Starmeter"),
+        changelog: pick(&format!("版本 {version} · 更新记录"), &format!("Version {version} · Changelog")),
+        repository: pick("作者 timecatbit · GitHub 仓库", "By timecatbit · GitHub repository"),
+        quit: pick("退出 Starmeter", "Quit Starmeter"),
     }
 }
 
@@ -188,7 +183,7 @@ fn star_labels(english: bool, version: &str, notices_answered: bool) -> StarLabe
 /// panel's language. On Linux it starts with 打开面板: the tray there (AppIndicator) hands no click to the app, and any
 /// click opens this menu, so the panel had no way in.
 fn star_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
-    let words = star_labels(language::english(), starmeter_core::VERSION, host::notifications_answered());
+    let words = star_labels(language::current(), starmeter_core::VERSION, host::notifications_answered());
     let login = CheckMenuItem::with_id(
         app,
         "login",
@@ -505,8 +500,9 @@ mod tests {
 
     #[test]
     fn the_star_menu_speaks_the_panels_language() {
-        let all = |english, answered| {
-            let words = star_labels(english, "6.0.8", answered);
+        use super::language::Language;
+        let all = |language, answered| {
+            let words = star_labels(language, "6.0.8", answered);
             [
                 words.open,
                 words.modules,
@@ -514,14 +510,13 @@ mod tests {
                 words.login,
                 words.notices,
                 words.about,
-                &words.changelog,
+                words.changelog,
                 words.repository,
                 words.quit,
             ]
-            .map(str::to_owned)
         };
         assert_eq!(
-            all(false, true),
+            all(Language::Simplified, true),
             [
                 "打开面板",
                 "主页模块…",
@@ -535,7 +530,21 @@ mod tests {
             ]
         );
         assert_eq!(
-            all(true, true),
+            all(Language::Traditional, true),
+            [
+                "打開面板",
+                "主頁模組…",
+                "自動檢測…",
+                "登入時啟動",
+                "通知設定…",
+                "關於 Starmeter",
+                "版本 6.0.8 · 更新記錄",
+                "作者 timecatbit · GitHub 倉庫",
+                "退出 Starmeter",
+            ]
+        );
+        assert_eq!(
+            all(Language::English, true),
             [
                 "Open panel",
                 "Home modules…",
@@ -548,14 +557,19 @@ mod tests {
                 "Quit Starmeter",
             ]
         );
-        assert_eq!(star_labels(false, "6.0.8", false).notices, "开启系统通知…");
-        assert_eq!(star_labels(true, "6.0.8", false).notices, "Turn on notifications…");
+        assert_eq!(star_labels(Language::Simplified, "6.0.8", false).notices, "开启系统通知…");
+        assert_eq!(star_labels(Language::Traditional, "6.0.8", false).notices, "開啟系統通知…");
+        assert_eq!(star_labels(Language::English, "6.0.8", false).notices, "Turn on notifications…");
         // English shows no Chinese at all.
         let chinese = |text: &str| {
             text.chars().any(|c| ('\u{3000}'..='\u{9fff}').contains(&c) || ('\u{ff00}'..='\u{ffef}').contains(&c))
         };
         for answered in [false, true] {
-            assert!(all(true, answered).iter().all(|text| !chinese(text)), "{:?}", all(true, answered));
+            assert!(
+                all(Language::English, answered).iter().all(|text| !chinese(text)),
+                "{:?}",
+                all(Language::English, answered)
+            );
         }
     }
 }
