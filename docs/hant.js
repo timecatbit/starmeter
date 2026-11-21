@@ -32,9 +32,20 @@
     ["标签", "標籤"],
     ["每周", "每週"],
     ["注册", "註冊"],
+    ["荧光", "螢光"],
   ];
   var LONGEST = 2;
   var chars = null, phrases = null;
+  // Where a path (/…, ~/…, C:\\…) that starts at i ends, or -1: a name on disk stays as it is written.
+  function pathEnd(text, i) {
+    if (i > 0 && !/[\s（(「『"'：:=]/.test(text[i - 1])) return -1;
+    var slash = function (c) { return c === '/' || c === '\\'; };
+    var starts = slash(text[i]) || (text[i] === '~' && slash(text[i + 1])) || (/[A-Za-z]/.test(text[i]) && text[i + 1] === ':' && slash(text[i + 2]));
+    if (!starts) return -1;
+    var end = i;
+    while (end < text.length && !/[\s，。；、）)」』"']/.test(text[end])) end++;
+    return end;
+  }
   // The text in Traditional Chinese: the longest phrase known at each place, else each character on its own.
   window.toHant = function (text) {
     if (!/[㐀-鿿]/.test(text)) return text;
@@ -45,6 +56,8 @@
     }
     var out = '', i = 0;
     while (i < text.length) {
+      var end = pathEnd(text, i);
+      if (end >= 0) { out += text.slice(i, end); i = end; continue; }
       var matched = false;
       for (var size = Math.min(LONGEST, text.length - i); size > 1; size--) {
         var found = phrases.get(text.slice(i, i + size));

@@ -36,6 +36,7 @@ const PHRASES: &[(&str, &str)] = &[
     ("标签", "標籤"),
     ("每周", "每週"),
     ("注册", "註冊"),
+    ("荧光", "螢光"),
 ];
 const LONGEST: usize = 2;
 
@@ -51,7 +52,24 @@ fn tables() -> &'static Tables {
     })
 }
 
-/// The text in Traditional Chinese: the longest phrase known at each place, else each character on its own.
+/// Where a path (/…, ~/…, C:\\…) that starts at `i` ends: a name on disk stays as it is written.
+fn path_end(letters: &[char], i: usize) -> Option<usize> {
+    if i > 0 && !(letters[i - 1].is_whitespace() || "（(「『\"'：:=".contains(letters[i - 1])) {
+        return None;
+    }
+    let slash = |at: usize| matches!(letters.get(at), Some('/' | '\\'));
+    let starts = slash(i)
+        || (letters[i] == '~' && slash(i + 1))
+        || (letters[i].is_ascii_alphabetic() && letters.get(i + 1) == Some(&':') && slash(i + 2));
+    if !starts {
+        return None;
+    }
+    let ends = |c: char| c.is_whitespace() || "，。；、）)」』\"'".contains(c);
+    Some(letters[i..].iter().position(|&c| ends(c)).map_or(letters.len(), |at| i + at))
+}
+
+/// The text in Traditional Chinese: the longest phrase known at each place, else each character on its own; a path
+/// in it stays as it is.
 pub fn convert(text: &str) -> String {
     if !text.chars().any(|c| ('\u{3400}'..='\u{9fff}').contains(&c)) {
         return text.to_string();
@@ -61,6 +79,11 @@ pub fn convert(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut i = 0;
     while i < letters.len() {
+        if let Some(end) = path_end(&letters, i) {
+            out.extend(&letters[i..end]);
+            i = end;
+            continue;
+        }
         let mut matched = false;
         for size in (2..=LONGEST.min(letters.len() - i)).rev() {
             let window: String = letters[i..i + size].iter().collect();
@@ -88,5 +111,16 @@ mod tests {
             super::convert("设置 · 余额 · 本周 · 项目 · 启动 · Token"),
             "設置 · 餘額 · 本週 · 項目 · 啟動 · Token"
         );
+    }
+
+    #[test]
+    fn a_path_stays_as_it_is_written() {
+        // A folder on disk named in either script, or both: only the words around it convert.
+        assert_eq!(
+            super::convert("读取目录：/Users/demo/软件開發/项目记录 · 设置"),
+            "讀取目錄：/Users/demo/软件開發/项目记录 · 設置"
+        );
+        assert_eq!(super::convert("~/软件 和 C:\\项目\\记录"), "~/软件 和 C:\\项目\\记录");
+        assert_eq!(super::convert("5/6 在线 · 简体/繁体"), "5/6 在線 · 簡體/繁體");
     }
 }

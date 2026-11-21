@@ -31,13 +31,26 @@ const PHRASES: [string, string][] = [
   ["标签", "標籤"],
   ["每周", "每週"],
   ["注册", "註冊"],
+  ["荧光", "螢光"],
 ];
 const LONGEST = 2;
 
 let chars: Map<string, string> | null = null;
 let phrases: Map<string, string> | null = null;
 
-/** The text in Traditional Chinese: the longest phrase known at each place, else each character on its own. */
+/** Where a path (/…, ~/…, C:\…) that starts at `i` ends, or -1: a name on disk stays as it is written. */
+function pathEnd(text: string, i: number): number {
+  if (i > 0 && !/[\s（(「『"'：:=]/.test(text[i - 1])) return -1;
+  const slash = (c: string | undefined) => c === '/' || c === '\\';
+  const starts = slash(text[i]) || (text[i] === '~' && slash(text[i + 1])) || (/[A-Za-z]/.test(text[i]) && text[i + 1] === ':' && slash(text[i + 2]));
+  if (!starts) return -1;
+  let end = i;
+  while (end < text.length && !/[\s，。；、）)」』"']/.test(text[end])) end++;
+  return end;
+}
+
+/** The text in Traditional Chinese: the longest phrase known at each place, else each character on its own; a path
+ *  in it stays as it is. */
 export function toHant(text: string): string {
   if (!/[\u3400-\u9fff]/.test(text)) return text;
   if (!chars) {
@@ -48,6 +61,8 @@ export function toHant(text: string): string {
   let out = '';
   let i = 0;
   while (i < text.length) {
+    const end = pathEnd(text, i);
+    if (end >= 0) { out += text.slice(i, end); i = end; continue; }
     let matched = false;
     for (let size = Math.min(LONGEST, text.length - i); size > 1; size--) {
       const found = phrases!.get(text.slice(i, i + size));

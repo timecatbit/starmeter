@@ -145,7 +145,19 @@ def write(chars, phrases):
         'let chars: Map<string, string> | null = null;',
         'let phrases: Map<string, string> | null = null;',
         '',
-        '/** The text in Traditional Chinese: the longest phrase known at each place, else each character on its own. */',
+        '/** Where a path (/…, ~/…, C:\\…) that starts at `i` ends, or -1: a name on disk stays as it is written. */',
+        'function pathEnd(text: string, i: number): number {',
+        '  if (i > 0 && !/[\\s（(「『"\'：:=]/.test(text[i - 1])) return -1;',
+        '  const slash = (c: string | undefined) => c === \'/\' || c === \'\\\\\';',
+        '  const starts = slash(text[i]) || (text[i] === \'~\' && slash(text[i + 1])) || (/[A-Za-z]/.test(text[i]) && text[i + 1] === \':\' && slash(text[i + 2]));',
+        '  if (!starts) return -1;',
+        '  let end = i;',
+        '  while (end < text.length && !/[\\s，。；、）)」』"\']/.test(text[end])) end++;',
+        '  return end;',
+        '}',
+        '',
+        '/** The text in Traditional Chinese: the longest phrase known at each place, else each character on its own; a path',
+        ' *  in it stays as it is. */',
         'export function toHant(text: string): string {',
         '  if (!/[\\u3400-\\u9fff]/.test(text)) return text;',
         '  if (!chars) {',
@@ -156,6 +168,8 @@ def write(chars, phrases):
         '  let out = \'\';',
         '  let i = 0;',
         '  while (i < text.length) {',
+        '    const end = pathEnd(text, i);',
+        '    if (end >= 0) { out += text.slice(i, end); i = end; continue; }',
         '    let matched = false;',
         '    for (let size = Math.min(LONGEST, text.length - i); size > 1; size--) {',
         '      const found = phrases!.get(text.slice(i, i + size));',
@@ -196,7 +210,24 @@ def write(chars, phrases):
         '    })',
         '}',
         '',
-        '/// The text in Traditional Chinese: the longest phrase known at each place, else each character on its own.',
+        '/// Where a path (/…, ~/…, C:\\\\…) that starts at `i` ends: a name on disk stays as it is written.',
+        'fn path_end(letters: &[char], i: usize) -> Option<usize> {',
+        '    if i > 0 && !(letters[i - 1].is_whitespace() || "（(「『\\"\'：:=".contains(letters[i - 1])) {',
+        '        return None;',
+        '    }',
+        '    let slash = |at: usize| matches!(letters.get(at), Some(\'/\' | \'\\\\\'));',
+        '    let starts = slash(i)',
+        '        || (letters[i] == \'~\' && slash(i + 1))',
+        '        || (letters[i].is_ascii_alphabetic() && letters.get(i + 1) == Some(&\':\') && slash(i + 2));',
+        '    if !starts {',
+        '        return None;',
+        '    }',
+        '    let ends = |c: char| c.is_whitespace() || "，。；、）)」』\\"\'".contains(c);',
+        '    Some(letters[i..].iter().position(|&c| ends(c)).map_or(letters.len(), |at| i + at))',
+        '}',
+        '',
+        '/// The text in Traditional Chinese: the longest phrase known at each place, else each character on its own; a path',
+        '/// in it stays as it is.',
         'pub fn convert(text: &str) -> String {',
         '    if !text.chars().any(|c| (\'\\u{3400}\'..=\'\\u{9fff}\').contains(&c)) {',
         '        return text.to_string();',
@@ -206,6 +237,11 @@ def write(chars, phrases):
         '    let mut out = String::with_capacity(text.len());',
         '    let mut i = 0;',
         '    while i < letters.len() {',
+        '        if let Some(end) = path_end(&letters, i) {',
+        '            out.extend(&letters[i..end]);',
+        '            i = end;',
+        '            continue;',
+        '        }',
         '        let mut matched = false;',
         '        for size in (2..=LONGEST.min(letters.len() - i)).rev() {',
         '            let window: String = letters[i..i + size].iter().collect();',
@@ -231,6 +267,14 @@ def write(chars, phrases):
         '        // Characters only, never words; the context decides a character (余额, 本周); ICU\'s rarer form put right (启).',
         '        assert_eq!(super::convert("设置 · 余额 · 本周 · 项目 · 启动 · Token"), "設置 · 餘額 · 本週 · 項目 · 啟動 · Token");',
         '    }',
+        '',
+        '    #[test]',
+        '    fn a_path_stays_as_it_is_written() {',
+        '        // A folder on disk named in either script, or both: only the words around it convert.',
+        '        assert_eq!(super::convert("读取目录：/Users/demo/软件開發/项目记录 · 设置"), "讀取目錄：/Users/demo/软件開發/项目记录 · 設置");',
+        '        assert_eq!(super::convert("~/软件 和 C:\\\\项目\\\\记录"), "~/软件 和 C:\\\\项目\\\\记录");',
+        '        assert_eq!(super::convert("5/6 在线 · 简体/繁体"), "5/6 在線 · 簡體/繁體");',
+        '    }',
         '}',
         '',
     ]
@@ -248,6 +292,16 @@ def write(chars, phrases):
         '  ];',
         '  var LONGEST = %d;' % longest,
         '  var chars = null, phrases = null;',
+        '  // Where a path (/…, ~/…, C:\\\\…) that starts at i ends, or -1: a name on disk stays as it is written.',
+        '  function pathEnd(text, i) {',
+        '    if (i > 0 && !/[\\s（(「『"\'：:=]/.test(text[i - 1])) return -1;',
+        '    var slash = function (c) { return c === \'/\' || c === \'\\\\\'; };',
+        '    var starts = slash(text[i]) || (text[i] === \'~\' && slash(text[i + 1])) || (/[A-Za-z]/.test(text[i]) && text[i + 1] === \':\' && slash(text[i + 2]));',
+        '    if (!starts) return -1;',
+        '    var end = i;',
+        '    while (end < text.length && !/[\\s，。；、）)」』"\']/.test(text[end])) end++;',
+        '    return end;',
+        '  }',
         '  // The text in Traditional Chinese: the longest phrase known at each place, else each character on its own.',
         '  window.toHant = function (text) {',
         '    if (!/[\u3400-\u9fff]/.test(text)) return text;',
@@ -258,6 +312,8 @@ def write(chars, phrases):
         '    }',
         '    var out = \'\', i = 0;',
         '    while (i < text.length) {',
+        '      var end = pathEnd(text, i);',
+        '      if (end >= 0) { out += text.slice(i, end); i = end; continue; }',
         '      var matched = false;',
         '      for (var size = Math.min(LONGEST, text.length - i); size > 1; size--) {',
         '        var found = phrases.get(text.slice(i, i + size));',
@@ -290,11 +346,35 @@ def tables():
     return chars, phrases
 
 
+OPENERS = '（(「『"\'：:='
+CLOSERS = '，。；、）)」』"\''
+
+
+def path_end(text, index):
+    """Where a path (/…, ~/…, C:\\…) that starts at `index` ends, or None: a name on disk stays as it is written."""
+    if index > 0 and not (text[index - 1].isspace() or text[index - 1] in OPENERS):
+        return None
+    slash = lambda at: at < len(text) and text[at] in '/\\'
+    starts = slash(index) or (text[index] == '~' and slash(index + 1)) or (
+        text[index].isascii() and text[index].isalpha() and index + 1 < len(text) and text[index + 1] == ':' and slash(index + 2))
+    if not starts:
+        return None
+    end = index
+    while end < len(text) and not (text[end].isspace() or text[end] in CLOSERS):
+        end += 1
+    return end
+
+
 def convert(text, chars, phrases):
-    """The text in Traditional Chinese, as hant.ts and hant.rs convert it."""
+    """The text in Traditional Chinese, as hant.ts and hant.rs convert it; a path in it stays as it is."""
     longest = max(map(len, phrases))
     out, index = [], 0
     while index < len(text):
+        end = path_end(text, index)
+        if end is not None:
+            out.append(text[index:end])
+            index = end
+            continue
         for size in range(min(longest, len(text) - index), 1, -1):
             found = phrases.get(text[index:index + size])
             if found is not None:

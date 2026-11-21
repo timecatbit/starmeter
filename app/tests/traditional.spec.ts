@@ -106,3 +106,19 @@ test('the tour switches between the three languages on its first card', async ({
   await page.locator('.guide .choice', { hasText: '简体中文' }).click();
   await expect(page.locator('.guide h2')).toHaveText('欢迎使用 Starmeter');
 });
+
+test('繁體中文 leaves a folder on disk as it is named, converting only the words around it (LANG-1)', async ({ page }) => {
+  // A folder named in both scripts at once: on screen it must read as the file system names it.
+  const folder = '/Users/demo/软件開發/项目记录';
+  // The fixtures come to the dev page as a module: the folder is put in as it is served.
+  await page.route('**/fixtures/default.json*', async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({ response, body: (await response.text()).replace('/Users/demo/.claude/projects', folder) });
+  });
+  await traditional(page);
+  await page.getByRole('button', { name: '主頁模塊與設置', exact: true }).click();
+  await page.getByRole('button', { name: 'Claude', exact: true }).click();
+  await expect(page.locator('.page')).toContainText('讀取目錄');
+  await expect(page.locator('.page')).toContainText(folder);
+  expect(await page.locator('.page').innerText()).not.toContain('/Users/demo/軟件開發/項目記錄');
+});
