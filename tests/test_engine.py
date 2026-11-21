@@ -1771,7 +1771,11 @@ class UpdateParityTests(unittest.TestCase):
         npm.parent.mkdir(parents=True); npm.write_text('')
         (npm.parent.parent / 'package.json').write_text(json.dumps({'name': '@openai/codex'}))
         loose = root / 'bin' / 'codex'; loose.parent.mkdir(); loose.write_text('')
-        got = swift('updates.pieces', versions, outputs, casts, [str(cask), str(npm), str(loose)])
+        # Windows npm: the launcher beside node_modules (WIN-3).
+        launcher = root / 'npm-prefix' / 'codex.cmd'
+        package = root / 'npm-prefix' / 'node_modules' / '@openai' / 'codex' / 'package.json'
+        package.parent.mkdir(parents=True); package.write_text(json.dumps({'name': '@openai/codex'})); launcher.write_text('')
+        got = swift('updates.pieces', versions, outputs, casts, [str(cask), str(npm), str(loose), str(launcher)])
         self.assertEqual(got['versions'], [list(plugin.release_version(v)) if plugin.release_version(v) else None for v in versions])
         import re
         self.assertEqual(got['first'], [(lambda m: m[1] if m else None)(re.search(r'\b(\d+(?:\.\d+){1,4}(?:[-+][a-zA-Z0-9.-]+)?)\b', o)) for o in outputs])
@@ -1781,7 +1785,8 @@ class UpdateParityTests(unittest.TestCase):
             try:expected_casts.append(list(plugin.sparkle_release(cast.encode())))
             except Exception:expected_casts.append([None, None])
         self.assertEqual(got['sparkle'], expected_casts)
-        self.assertEqual(got['channels'], [update_channels.codex_channel(p) for p in (cask, npm, loose)])
+        self.assertEqual(got['channels'], [update_channels.codex_channel(p) for p in (cask, npm, loose, launcher)])
+        self.assertEqual(got['channels'][3].get('channelId'), 'npm')
 
 
 if __name__ == '__main__':

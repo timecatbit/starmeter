@@ -301,6 +301,18 @@ pub fn codex_channel(binary: &str) -> Object {
         }
         parent = parent_of(&parent);
     }
+    // A Windows npm launcher (codex.cmd) sits beside node_modules, not linked into the package.
+    let launcher = Path::new(&path);
+    let batch = launcher
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("cmd") || extension.eq_ignore_ascii_case("bat"));
+    if batch && let Some(folder) = launcher.parent() {
+        let package = folder.join("node_modules").join("@openai").join("codex").join("package.json");
+        if claude_app::read_object(&package.to_string_lossy()).get("name") == Some(&Json::from("@openai/codex")) {
+            return object! { "channel" => "npm", "channelId" => "npm", "releaseURL" => "https://registry.npmjs.org/@openai/codex/latest" };
+        }
+    }
     object! { "channel" => "安装渠道待确认" }
 }
 
@@ -1003,5 +1015,25 @@ impl Runtime {
                 save(&mut state, object! { "message" => "正在确认更新任务" });
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// WIN-3: npm on Windows puts codex.cmd in its prefix folder beside node_modules/@openai/codex, with no link into
+    /// the package; that launcher is the npm channel, and a launcher with no package beside it says nothing.
+    #[test]
+    fn a_windows_npm_launcher_beside_its_package_is_the_npm_channel() {
+        let prefix = std::env::temp_dir().join(format!("starmeter-npm-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&prefix);
+        let package = prefix.join("node_modules").join("@openai").join("codex");
+        std::fs::create_dir_all(&package).unwrap();
+        let launcher = prefix.join("codex.cmd");
+        std::fs::write(&launcher, "").unwrap();
+        assert_eq!(super::codex_channel(&launcher.to_string_lossy()).get("channelId"), None, "no package yet");
+        std::fs::write(package.join("package.json"), r#"{"name": "@openai/codex", "version": "1.2.3"}"#).unwrap();
+        let channel = super::codex_channel(&launcher.to_string_lossy());
+        assert_eq!(channel.get("channelId").and_then(crate::json::Json::as_str), Some("npm"));
+        let _ = std::fs::remove_dir_all(&prefix);
     }
 }
