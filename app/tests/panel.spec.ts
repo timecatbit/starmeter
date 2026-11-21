@@ -1751,6 +1751,14 @@ test('外观 → 风格 draws the panel by hand, in faces scaled to the usual wi
   const bar = page.locator('.card .fill').first();
   expect(await bar.evaluate((e) => getComputedStyle(e).backgroundImage)).toContain('repeating-linear-gradient');
   expect(await page.locator('.card').first().evaluate((e) => getComputedStyle(e).getPropertyValue('--pen'))).toMatch(/^#/);
+  // The picture's own strokes: the three figures boxed in their pens, each tool's mark ringed by hand, the trend on
+  // sketched axes with a ring round its latest reading in place of the grid and the dot.
+  await expect(page.locator('svg.boxes path')).toHaveCount(3);
+  await expect(page.locator('.card svg.ring path').first()).toHaveAttribute('stroke', /^#/);
+  await expect(page.locator('svg.chart > line')).toHaveCount(0);
+  await expect(page.locator('svg.chart circle')).toHaveCount(0);
+  // Chalkboard's line box is taller than a row's: a name clips only across, so the tail of its g is never cut off.
+  expect(await page.locator('.card .name').first().evaluate((e) => [getComputedStyle(e).overflowX, getComputedStyle(e).overflowY])).toEqual(['clip', 'visible']);
   // Kept: the homepage drawn by hand after a reload, laid out as before.
   await page.reload();
   await expect(page.locator('.dashboard')).toBeVisible();

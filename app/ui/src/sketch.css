@@ -1,10 +1,12 @@
 /* 手绘 (外观 → 风格, style.svelte.ts): the panel drawn in coloured markers, as the 手绘 share picture is (shareSketch.ts,
    its inks in sketchPalette.ts). By day on dotted journal paper, by night in chalk on a blackboard, whatever the
-   background chosen. A coral squiggle under the name; the estimate over a highlighter swash, the three figures each in
-   its own pen and underlined by hand; the trend hatched in teal under a coral line; each tool's mark ringed in its pen,
-   its amount in that pen and its models as hatched bars; the tab and segment chosen ringed in pencil. Charts, bars and
-   icons go through the `hand` filter (index.html) and wobble a little; the words never do. The page keeps its layout:
-   only colours, faces and strokes change. */
+   background chosen, the blackboard with faint chalk dust. A coral squiggle under the name; the three figures each in
+   a box drawn in its own pen, the estimate over a highlighter swash; the trend hatched in teal under a coral line drawn
+   twice, on axes sketched in ink, a ring by hand round its latest reading; each tool's mark ringed by hand in its pen,
+   its amount in that pen and its models as hatched bars; the tab and segment chosen ringed in coral. The boxes, axes
+   and rings are the picture's own strokes (sketchStrokes.ts: each line twice, sides past the corners, rings past where
+   they began); charts, bars and icons go through the `hand` filter (index.html) and wobble a little; the words never
+   do. The page keeps its layout: only colours, faces and strokes change, and the figures sit inside their boxes. */
 
 /* Chalkboard SE (Segoe Print on Windows) for the letters, drawn at the system face's width: by the app's WKWebView,
    Chalkboard writes its figures 5% wider than SF Rounded (so 97%). WebKit honours size-adjust but not the ascent and
@@ -89,6 +91,7 @@
   --ink: #2d2a33;
   --coral: #f0565a;
   --highlight: rgba(255, 214, 64, 0.55);
+  --dust: none, none, none;
   font-family: var(--hand);
 }
 :root[data-style='sketch']:lang(zh-Hant) {
@@ -113,6 +116,9 @@
   --ink: #f1efe7;
   --coral: #ff8787;
   --highlight: rgba(255, 224, 102, 0.28);
+  --dust: radial-gradient(circle at 18% 14%, rgba(255, 255, 255, 0.04), transparent 110px),
+    radial-gradient(circle at 80% 46%, rgba(255, 255, 255, 0.035), transparent 140px),
+    radial-gradient(circle at 30% 82%, rgba(255, 255, 255, 0.035), transparent 120px);
 }
 @media (prefers-color-scheme: dark) {
   :root[data-style='sketch']:not([data-theme='light']) {
@@ -132,14 +138,17 @@
     --ink: #f1efe7;
     --coral: #ff8787;
     --highlight: rgba(255, 224, 102, 0.28);
+    --dust: radial-gradient(circle at 18% 14%, rgba(255, 255, 255, 0.04), transparent 110px),
+      radial-gradient(circle at 80% 46%, rgba(255, 255, 255, 0.035), transparent 140px),
+      radial-gradient(circle at 30% 82%, rgba(255, 255, 255, 0.035), transparent 120px);
   }
 }
 
-/* The paper (or the blackboard), dotted, under every page. */
+/* The paper (or the blackboard, dusted with chalk), dotted, under every page. */
 :root[data-style='sketch'] .window {
   background-color: var(--paper);
-  background-image: radial-gradient(circle, var(--dots) 0.9px, transparent 1.2px);
-  background-size: 14px 14px;
+  background-image: var(--dust), radial-gradient(circle, var(--dots) 0.9px, transparent 1.2px);
+  background-size: auto, auto, auto, 14px 14px;
 }
 /* The hand's lines. */
 :root[data-style='sketch'] :is(svg.chart, svg.squares, svg.icon, svg.chevron, svg.arrow, .live canvas, .fill, .gauge-fill, .bar-fill) {
@@ -154,33 +163,15 @@
   text-underline-offset: 3px;
   text-decoration-skip-ink: none;
 }
-/* The figures in their pens: the estimate over a highlighter swash, the others underlined by hand. */
+/* The estimate over a highlighter swash, in its box (Dashboard.svelte draws the boxes). */
 :root[data-style='sketch'] .figure.first .num {
   text-decoration: underline var(--highlight);
   text-decoration-thickness: 0.42em;
   text-underline-offset: -0.34em;
   text-decoration-skip-ink: none;
 }
-:root[data-style='sketch'] .figure:not(.first) .num {
-  text-decoration: underline wavy var(--pen);
-  text-decoration-thickness: 1.3px;
-  text-underline-offset: 2px;
-  text-decoration-skip-ink: none;
-}
 
-/* Each tool: its mark ringed in its pen, its amount in that pen, its models as hatched bars over a pencil line. */
-:root[data-style='sketch'] .card .mark {
-  overflow: visible;
-}
-:root[data-style='sketch'] .card .mark::after {
-  content: '';
-  position: absolute;
-  inset: -4px;
-  border: 1.5px solid var(--pen);
-  border-radius: 52% 46% 55% 48% / 50% 54% 46% 50%;
-  filter: url(#hand);
-  pointer-events: none;
-}
+/* Each tool: its amount in its pen, its models as hatched bars over a pencil line (ProviderCard.svelte rings its mark). */
 :root[data-style='sketch'] .card .cost .num {
   color: var(--pen) !important;
 }

@@ -3,6 +3,7 @@
   // the column the heatmap's row names share, and the notes (partial data, when it was read) faint above the plot.
   import { alpha, toolColour, summaryColour } from '../lib/colors';
   import { pen } from '../lib/sketchPalette';
+  import { handLine, handRing, seeded } from '../lib/sketchStrokes';
   import { style } from '../lib/style.svelte';
   import { chartAxis, chartPositions, labelColumn, seriesOf, smoothCurves, summaryProviders, svgPath } from '../lib/chart';
   import { panel } from '../lib/ui.svelte';
@@ -32,6 +33,10 @@
   });
   const labelIndices = $derived(n > 1 ? [0, ...(middle !== null ? [middle] : []), n - 1] : []);
   const gradient = `trend-${Math.random().toString(36).slice(2, 8)}`;
+  /** 手绘: the axes sketched in ink in place of the grid, and a ring by hand round the latest reading, as the picture draws. */
+  const sketch = $derived(style.current === 'sketch');
+  const axes = $derived(sketch ? handLine(seeded(3), plot.x - 4, bottom, plot.x + plot.w + 4, bottom) + handLine(seeded(4), plot.x, bottom + 4, plot.x, plot.y - 6) : '');
+  const ring = $derived(sketch && n > 1 ? handRing(seeded(5), end[0], end[1], 4.5) : '');
 </script>
 
 <svg class="chart" width={right + 12} height="230" aria-hidden="true">
@@ -48,10 +53,14 @@
       <rect x={plot.x - 6} y={plot.y - 10} width={(plot.w + 12) * reveal} height={plot.h + 20} />
     </clipPath>
   </defs>
-  {#each [0, 0.5, 1] as f (f)}
-    <line x1={plot.x} x2={plot.x + plot.w} y1={bottom - f * plot.h} y2={bottom - f * plot.h}
-      stroke={panel.dark ? `rgba(255,255,255,${0.1 * (f === 0 ? 0.3 : 0.14)})` : `rgba(0,0,0,${0.1 * (f === 0 ? 0.3 : 0.14)})`} stroke-width="0.5" />
-  {/each}
+  {#if sketch}
+    <path d={axes} fill="none" stroke="var(--label)" stroke-opacity="0.8" stroke-width="1.2" stroke-linecap="round" />
+  {:else}
+    {#each [0, 0.5, 1] as f (f)}
+      <line x1={plot.x} x2={plot.x + plot.w} y1={bottom - f * plot.h} y2={bottom - f * plot.h}
+        stroke={panel.dark ? `rgba(255,255,255,${0.1 * (f === 0 ? 0.3 : 0.14)})` : `rgba(0,0,0,${0.1 * (f === 0 ? 0.3 : 0.14)})`} stroke-width="0.5" />
+    {/each}
+  {/if}
   {#if waiting}
     <!-- The grid is all there is to draw. -->
   {:else if n === 1}
@@ -61,14 +70,22 @@
     <circle cx={plot.x + plot.w / 2} cy={bottom - (totals[0] / axis.ceiling) * plot.h} r="3" fill={total} />
   {:else if n > 1}
     <g clip-path="url(#{gradient}-reveal)">
-      <path d={area} fill="url(#{gradient}-{style.current === 'sketch' ? 'hatch' : 'fill'})" />
+      <path d={area} fill="url(#{gradient}-{sketch ? 'hatch' : 'fill'})" />
       {#each curves as curve, i (i)}
         {@const isTotal = i === curves.length - 1}
-        <path d={svgPath(curve)} fill="none" stroke={isTotal ? total : alpha(toolColour(providers[i].id, panel.dark), 0.8)} stroke-width={isTotal ? (style.current === 'sketch' ? 2.4 : 1.8) : 1.2}
+        <path d={svgPath(curve)} fill="none" stroke={isTotal ? total : alpha(toolColour(providers[i].id, panel.dark), 0.8)} stroke-width={isTotal ? (sketch ? 2.4 : 1.8) : 1.2}
           stroke-linecap="round" stroke-linejoin="round" />
+        {#if isTotal && sketch}
+          <!-- The hand's second pass over the total, a little off the first. -->
+          <path d={svgPath(curve)} transform="translate(0.7 -0.6)" fill="none" stroke={total} stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+        {/if}
       {/each}
-      <circle cx={end[0]} cy={end[1]} r="5" fill={alpha(total, 0.18)} />
-      <circle cx={end[0]} cy={end[1]} r="2.5" fill={total} />
+      {#if sketch}
+        <path d={ring} fill="none" stroke={total} stroke-width="1.7" stroke-linecap="round" />
+      {:else}
+        <circle cx={end[0]} cy={end[1]} r="5" fill={alpha(total, 0.18)} />
+        <circle cx={end[0]} cy={end[1]} r="2.5" fill={total} />
+      {/if}
     </g>
   {/if}
 </svg>

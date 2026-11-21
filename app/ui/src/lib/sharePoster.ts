@@ -313,13 +313,7 @@ export function layout(p: Poster): Layout {
 }
 
 /** A deterministic number in [0, 1) for decorations, so a picture drawn twice looks the same. */
-export function seeded(seed: number): () => number {
-  let state = (seed * 2654435761) >>> 0 || 1;
-  return () => {
-    state ^= state << 13; state >>>= 0; state ^= state >>> 17; state ^= state << 5; state >>>= 0;
-    return state / 4294967296;
-  };
-}
+export { seeded } from './sketchStrokes';
 
 /** Fonts the posters use beyond the panel's: a serif for the night sky, a heavy grotesque for print. */
 export const SERIF = "'Iowan Old Style', 'Palatino', 'Songti SC', 'STSong', 'Noto Serif SC', 'SimSun', serif";

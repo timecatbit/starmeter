@@ -8,6 +8,8 @@
   import { t } from '../lib/i18n.svelte';
   import { clientLine, colourOf, headline, isGrouped, modelAmount, modelName, notes, share, statsForms, tokenLine } from '../lib/format';
   import { figureWidth, font, ROUNDED, width } from '../lib/measure';
+  import { handRing, seeded } from '../lib/sketchStrokes';
+  import { style } from '../lib/style.svelte';
   import { panel } from '../lib/ui.svelte';
   import type { ProviderUsage } from '../lib/types';
   import Figure from './Figure.svelte';
@@ -49,6 +51,8 @@
   const clientHeight = $derived(clients ? 16 : 0);
   const single = $derived(isGrouped(p) && p.models.length === 1 && p.models[0].share >= 0.999 && !p.models[0].priceNote);
   const mid = 15.8;
+  /** 手绘: the mark in a ring of the tool's pen, drawn by hand as the picture rings it (seeded by the tool, so steady). */
+  const ring = $derived(style.current === 'sketch' ? handRing(seeded([...p.id].reduce((n, ch) => n + ch.charCodeAt(0), 7)), 12, 12, 9.5) : '');
   const glowing = $derived(blend(labelColour(panel.dark, 0.85), colour, glow * 0.9));
   /** A figure too wide for its column shrinks rather than cuts, down to 9pt. */
   const fitted = (value: string, size: number, room: number) => { const w = figureWidth(value, font(size)) * 1.02; return w > room ? Math.max(8, (size * room) / w) : size; };
@@ -68,6 +72,11 @@
     {/if}
   {:else if onopen}
     <button class="open pressable" aria-label={t('{name} 详情', { name: p.name })} onclick={onopen}></button>
+  {/if}
+  {#if ring}
+    <svg class="ring" style:left="{left - 5}px" style:top="{mid - 12}px" width="24" height="24" aria-hidden="true">
+      <path d={ring} fill="none" stroke={colour} stroke-width="1.6" stroke-linecap="round" />
+    </svg>
   {/if}
   <span class="mark" style:left="{left}px" style:top="{mid - 7}px">
     {#if p.image || p.symbol}
@@ -161,6 +170,7 @@
   /* The words let the pointer through to the card's button under them. */
   .card.opens > span, .card.opens .models { pointer-events: none; }
   .mark { width: 14px; height: 14px; pointer-events: none; }
+  .ring { position: absolute; overflow: visible; pointer-events: none; }
   .dot {
     position: absolute;
     left: 4.5px;
