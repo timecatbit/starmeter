@@ -12,12 +12,13 @@
    1.18), taller than the rows laid out for the system face: text cut short with an ellipsis clips only across
    (`overflow: hidden; overflow: clip visible`, in each component), so no tail of a g or p is cut off. The overrides
    give Chromium (a Mac viewing the phone page) the same 1.18 em box as the system face.
-   Chinese in 霞鹜文楷 (Simplified) and 霞鹜文楷 TC (Traditional), bundled with the app as WOFF2 subsets of their
+   Chinese in 霞鹜文楷 (Simplified) and 霞鹜文楷 TC (Traditional), in Medium, the heaviest weight they come in, for
+   every weight of the page (the user wanted the Chinese bold), bundled with the app as WOFF2 subsets of their
    common characters and the panel's own (public/fonts, each beside its SIL Open Font License; scripts/make_fonts.py
    makes them), each the other's fallback, and only ever for Chinese (their unicode-range, the blocks the script keeps):
    letters and figures stay in Chalkboard. Every ideograph is 1 em wide, as PingFang's are, and their line box is
-   San Francisco's 1.18 em, every ideograph inside it (0.86 em up, 0.15 down): no scaling. Neither has a bold, and none
-   is made up. */
+   San Francisco's 1.18 em, every ideograph inside it (0.86 em up, 0.14 down): no scaling. No bold is made up (WebKit
+   would widen every character by a pixel). */
 @font-face {
   font-family: 'Starmeter Hand';
   src: local('ChalkboardSE-Light'), local('Chalkboard SE Light');
@@ -47,12 +48,14 @@
 }
 @font-face {
   font-family: 'Starmeter Kai';
-  src: url('/fonts/LXGWWenKai-Regular.subset.woff2') format('woff2');
+  src: url('/fonts/LXGWWenKai-Medium.subset.woff2') format('woff2');
+  font-weight: 100 900;
   unicode-range: U+2E80-2FFF, U+3000-303F, U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF, U+FE30-FE4F, U+FF00-FFEF;
 }
 @font-face {
   font-family: 'Starmeter Kai TC';
-  src: url('/fonts/LXGWWenKaiTC-Regular.subset.woff2') format('woff2');
+  src: url('/fonts/LXGWWenKaiTC-Medium.subset.woff2') format('woff2');
+  font-weight: 100 900;
   unicode-range: U+2E80-2FFF, U+3000-303F, U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF, U+FE30-FE4F, U+FF00-FFEF;
 }
 @font-face {

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """The hand-drawn look's Chinese faces (外观 → 风格 → 手绘, app/ui/src/sketch.css): 霞鹜文楷 for Simplified Chinese,
-霞鹜文楷 TC for Traditional, cut down to the Chinese characters the panel is likely to show and written as WOFF2 into
-app/ui/public/fonts, beside their licence. Letters and figures stay in Chalkboard SE (the user's choice), so the
+霞鹜文楷 TC for Traditional, both in their Medium weight (the heaviest they come in: the user wanted the Chinese bold),
+cut down to the Chinese characters the panel is likely to show and written as WOFF2 into app/ui/public/fonts, beside
+their licence. Letters and figures stay in Chalkboard SE (the user's choice), so the
 subsets hold no Latin at all, only the blocks in CHINESE, the same ranges sketch.css gives as their unicode-range.
 
 The fonts are LXGW's (https://github.com/lxgw/LxgwWenKai, https://github.com/lxgw/LxgwWenkaiTC), under the SIL Open
@@ -12,10 +13,10 @@ Simplified, Big5's 5,401 common ones for Traditional), every character its own t
 scripts/make_hant.py collects it), and the Chinese punctuation. A rarer character, in a session's title say, falls
 back to the system's face.
 
-Download the release's LXGWWenKai-Regular.ttf and LXGWWenKaiTC-Regular.ttf, then, with fonttools and brotli installed
+Download the releases' LXGWWenKai-Medium.ttf and LXGWWenKaiTC-Medium.ttf, then, with fonttools and brotli installed
 (`pip install fonttools brotli`; only this script needs them):
 
-    python3 scripts/make_fonts.py LXGWWenKai-Regular.ttf LXGWWenKaiTC-Regular.ttf
+    python3 scripts/make_fonts.py LXGWWenKai-Medium.ttf LXGWWenKaiTC-Medium.ttf
 """
 import importlib.util
 from pathlib import Path
@@ -78,8 +79,8 @@ def main():
     simplified = {c for c in table('gb2312', 0xB0, 0xF7) | own if chinese(c)}
     traditional = {c for c in table('big5', 0xA4, 0xC6) | own if chinese(c)}
     OUT.mkdir(parents=True, exist_ok=True)
-    subset(sys.argv[1], simplified, OUT / 'LXGWWenKai-Regular.subset.woff2')
-    subset(sys.argv[2], traditional, OUT / 'LXGWWenKaiTC-Regular.subset.woff2')
+    subset(sys.argv[1], simplified, OUT / 'LXGWWenKai-Medium.subset.woff2')
+    subset(sys.argv[2], traditional, OUT / 'LXGWWenKaiTC-Medium.subset.woff2')
 
 
 if __name__ == '__main__':
