@@ -29,16 +29,16 @@ const app = new URL('../app/', import.meta.url);
 const images = new URL('./images/', import.meta.url);
 const LANGUAGES = {
   zh: { folder: images, locale: 'zh-CN' },
-  'zh-Hant': { folder: new URL('zh-Hant/', images), locale: 'zh-TW' },
+  'zh-Hant': { folder: new URL('zh-Hant/', images), locale: 'zh-Hant' },
   en: { folder: new URL('en/', images), locale: 'en-US' },
 };
 /** What the pictures find their way by: rows, tabs and buttons as each language names them. */
-const zh = { subscription: 'Claude 订阅', sessions: '会话', pin: /^钉住/, live: '实时用量图', model: '模型', modules: '主页模块与设置', share: '分享用量图' };
+const zh = { subscription: 'Claude 订阅', tool: '工具', sessions: '会话', pin: /^钉住/, live: '实时用量图', model: '模型', modules: '主页模块与设置', share: '分享用量图' };
 const NAMES = {
   zh,
   // The Simplified names as the panel converts them (hant.ts).
   'zh-Hant': Object.fromEntries(Object.entries(zh).map(([key, name]) => [key, name instanceof RegExp ? new RegExp(toHant(name.source)) : toHant(name)])),
-  en: { subscription: 'Claude plan', sessions: 'Sessions', pin: /^Pin/, live: 'Live usage chart', model: 'Model', modules: 'Modules and settings', share: 'Share usage picture' },
+  en: { subscription: 'Claude plan', tool: 'Tool', sessions: 'Sessions', pin: /^Pin/, live: 'Live usage chart', model: 'Model', modules: 'Modules and settings', share: 'Share usage picture' },
 };
 const { webkit } = createRequire(new URL('package.json', app))('@playwright/test');
 
@@ -168,7 +168,9 @@ const shots = {
   // 外观 → 风格 → 手绘: the homepage drawn by hand, ink on dotted paper (light) or chalk on a blackboard (dark).
   async sketch(context) {
     const page = await open(context, { height: 640, style: 'sketch' });
-    await page.waitForTimeout(400);
+    // The panel keeps the tab chosen last (the sessions and live pictures leave 会话 on): the cards by tool, as on the homepage.
+    await page.getByRole('radio', { name: context.names.tool }).click();
+    await page.waitForTimeout(600);
     await panelShot(page, `sketch-${context.look}.png`);
   },
   // The cards grouped by model instead of by tool.
