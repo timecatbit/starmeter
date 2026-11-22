@@ -79,12 +79,12 @@
     });
   }
   // The language last chosen: hant.js can arrive after another was picked, and then changes nothing (SITE-1).
-  var wanted = null;
+  var chosen = null;
   function show(lang) {
-    wanted = lang;
+    chosen = lang;
     pressed(lang);
     if (lang === 'zh-Hant' && !window.toHant) {
-      return withHant(function () { if (wanted === lang) show(lang); }, function () { if (wanted === lang) show('zh'); });
+      return withHant(function () { if (chosen === lang) show(lang); }, function () { if (chosen === lang) show('zh'); });
     }
     root.classList.toggle('en', lang === 'en');
     root.classList.toggle('hant', lang === 'zh-Hant');
@@ -93,6 +93,8 @@
     if (lang === 'zh-Hant') root.classList.add('hant-ready');
     document.title = lang === 'zh-Hant' ? window.toHant(titles.zh) : titles[lang];
     document.querySelector('meta[name="description"]').content = lang === 'zh-Hant' ? window.toHant(descriptions.zh) : descriptions[lang];
+    // The text has its new shape now; the skies shade around it.
+    document.dispatchEvent(new Event('starmeter-language'));
   }
   show(root.classList.contains('en') ? 'en' : root.classList.contains('hant') ? 'zh-Hant' : 'zh');
 
@@ -120,14 +122,18 @@
 
   // MARK: Motion
 
-  root.classList.add('ready');
+  // What waits hidden to rise comes first, and the page is marked ready only once it will rise: if anything before
+  // that fails, the head shows everything after a moment. The skies and the rest only decorate, so one that fails
+  // leaves the others and the content as they are (SITE-3).
   var moving = root.classList.contains('motion');
-  document.querySelectorAll('canvas.starfield').forEach(function (canvas) { starfield(canvas, moving); });
-  if (moving) {
-    reveal();
-    marquees();
+  if (moving) reveal();
+  root.classList.add('ready');
+  function decorate(what) {
+    try { what(); } catch (error) { console.error(error); }
   }
-  scrolling(moving);
+  document.querySelectorAll('canvas.starfield').forEach(function (canvas) { decorate(function () { starfield(canvas, moving); }); });
+  if (moving) decorate(marquees);
+  decorate(function () { scrolling(moving); });
 
   function clamp(value) { return Math.min(1, Math.max(0, value)); }
 
@@ -365,7 +371,7 @@
       if (layout()) draw(performance.now());
     }).observe(canvas);
     // The other language's text has another shape.
-    document.querySelector('[data-switch-lang]').addEventListener('click', function () {
+    document.addEventListener('starmeter-language', function () {
       shade();
       if (!moving) draw(performance.now());
     });
