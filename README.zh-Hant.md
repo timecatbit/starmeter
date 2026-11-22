@@ -24,7 +24,7 @@ Starmeter 是 macOS 菜單欄（獨立 App 或 SwiftBar 插件）和 Windows、L
 ## 能看什麼
 
 - **工具 Token 用量**：Claude（桌面 App 和 VS Code、JetBrains、終端裡的 Claude Code）、ChatGPT（Codex）、OpenCodex、Magpie、OpenCode、DeepSeek Harness、WorkBuddy、Qoder（國內版 Qoder CN）、Gemini（Gemini CLI 和 Antigravity）、Cursor（桌面版和 Cursor CLI）。顯示 Token、請求、緩存命中、模型分布、趨勢圖和用量熱力圖，並按模型官方價估算 API 等值費用。範圍可選今天、昨天、近 24 小時、近 7/30 天、本週、本月或全部；卡片按用量從多到少排，可以按工具、按模型或按項目（會話所在的項目文件夾）查看。網關（Magpie、OpenCodex）和經過它的客戶端會各記一遍同一請求，Summary 只算一次。工具自己清理掉的舊記錄（Claude Code 默認只留 30 天）仍會計入，可以關閉。在 Windows 上，正在運行的 WSL 發行版裡的 Claude Code 和 Codex 也一起統計。
-- **訂閱額度**：ChatGPT、Claude、MiniMax、Cursor 顯示已用百分比和重置時間，70% 起變橙、90% 起變紅，並寫出比勻速多用還是少用；Qoder 讀取 Qoder CN App 本機記錄的 Credits 用量；Gemini、Grok、Kimi 可以手動標記。填上每月訂閱價後，側欄寫本月用量值訂閱價的幾倍（按 API 官方價估算）。
+- **訂閱額度**：ChatGPT、Claude、MiniMax、Cursor、Gemini 顯示已用百分比和重置時間，70% 起變橙、90% 起變紅，並寫出比勻速多用還是少用；Gemini 的額度來自本機運行的 Antigravity App，Qoder 讀取 Qoder CN App 本機記錄的 Credits 用量；Grok、Kimi 可以手動標記。填上每月訂閱價後，側欄寫本月用量值訂閱價的幾倍（按 API 官方價估算）。
 - **API 餘額與花費**：DeepSeek、Kimi、Grok 顯示餘額；Qoder 用組織 API Key（團隊版/企業版）顯示組織共享的加購 Credits；Claude 顯示本月花費（需要管理員 Key）；ChatGPT、Gemini 可以測試 Key 是否可用。每個 API 可以保存多把 Key，主頁顯示合計和 Key 數量，如“餘額 ¥12.00 (3)”。
 - **會話**：工具 / 模型 / 項目旁的第四個標籤，列出所選統計範圍裡活動過的 Claude Code 與 Codex 會話，正在運行的和最新活躍的在前，先列 5 個，其餘點“查看更多”。每個會話一張卡：這個會話在所選統計範圍裡花了多少（和其他標籤同一口徑，釘住時實時跳動）、是否正在運行、這一輪用了多少 Token、上下文用了多少，點開看整個會話的累計花費和最近幾輪各用了多少 Token、費用和工具；可選在一輪完成時提醒。
 - **釘住實時看**：點標題旁的圖釘，面板浮在其他窗口之上，可以挪動、拉大；趨勢圖換成近 1 分鐘的實時圖（可切換累計 Token 或每秒輸出的 Token/s），下面自動切到正在跑的會話，每 1–5 秒按本機日誌刷新。
@@ -169,6 +169,7 @@ starmeter usage 30d --json     # 給腳本用的 JSON
 - Key 只保存在本機，文件只有你自己能讀，界面上不顯示 Key 內容。
 - Claude 訂閱用量只在你啟用後，用本機 Claude Code 的登錄向 Anthropic 的用量接口查詢；令牌只在內存裡，不刷新、不寫回。
 - Cursor 的用量讀取默認關閉。開啟後只讀取本機已保存的 Cursor 登錄，令牌只在內存裡、只發往 cursor.com 查詢本賬戶的用量記錄，不保存、不刷新、不改寫。
+- Gemini 訂閱的額度只向這台電腦上正在運行的 Antigravity App 詢問（127.0.0.1），用它在本機記下的臨時令牌，令牌只用於這次請求，不保存。
 - 只向你啟用的服務的官方接口查詢。另外每天從 GitHub 檢查一次價格表和插件新版本，請求不帶 Cookie 或任何標識；不需要的話，在 `config.local.sh` 加 `export OCX_PRICING_UPDATES=0` 或 `export OCX_SELF_UPDATES=0` 即可關閉。服務狀態頁和人民幣匯率只在你開啟後才讀取。
 - 多台電腦合併只寫到你自己選的同步文件夾，由你的網盤同步，Starmeter 不經過任何服務器；文件裡只有電腦名稱、工具、模型和用量數字，沒有路徑、項目、對話或 Key。
 - 在手機上看時，數據只在局域網裡從這台電腦直接發到手機，鏈接帶一次性口令，沒有口令打不開；只有選了“任何網絡”才經過 Cloudflare 的臨時鏈接（第一次從 GitHub 下載 cloudflared），一小時後關閉；點“停止”或退出 App 時全部關閉。
