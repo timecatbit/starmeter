@@ -24,7 +24,7 @@ Starmeter 是 macOS 菜單欄（獨立 App 或 SwiftBar 插件）和 Windows、L
 ## 能看什麼
 
 - **工具 Token 用量**：Claude（桌面 App 和 VS Code、JetBrains、終端裡的 Claude Code）、ChatGPT（Codex）、OpenCodex、Magpie、OpenCode、DeepSeek Harness、WorkBuddy、Qoder（國內版 Qoder CN）、Gemini（Gemini CLI 和 Antigravity）、Cursor（桌面版和 Cursor CLI）。顯示 Token、請求、緩存命中、模型分布、趨勢圖和用量熱力圖，並按模型官方價估算 API 等值費用。範圍可選今天、昨天、近 24 小時、近 7/30 天、本週、本月或全部；卡片按用量從多到少排，可以按工具、按模型或按項目（會話所在的項目文件夾）查看。網關（Magpie、OpenCodex）和經過它的客戶端會各記一遍同一請求，Summary 只算一次。工具自己清理掉的舊記錄（Claude Code 默認只留 30 天）仍會計入，可以關閉。在 Windows 上，正在運行的 WSL 發行版裡的 Claude Code 和 Codex 也一起統計。
-- **訂閱額度**：ChatGPT、Claude、MiniMax、Cursor、Gemini 顯示已用百分比和重置時間，70% 起變橙、90% 起變紅，並寫出比勻速多用還是少用。ChatGPT、Claude 在主頁並排畫出 5 小時和本週兩根條，Gemini 則是 Gemini 與“Claude 和 GPT”兩組模型各一根，行尾寫用得更緊的那個。Gemini 的額度來自本機運行的 Antigravity App，Qoder 讀取 Qoder CN App 本機記錄的 Credits 用量；Grok、Kimi 可以手動標記。填上每月訂閱價後，側欄寫本月用量值訂閱價的幾倍（按 API 官方價估算）。
+- **訂閱額度**：ChatGPT、Claude、MiniMax、Cursor、Gemini 顯示已用百分比和重置時間，70% 起變橙、90% 起變紅，並寫出比勻速多用還是少用。ChatGPT、Claude 在主頁名稱下一行列出 5 小時和本週，Gemini 再加一行 Claude 和 GPT 模型的額度，行尾寫最緊的那個。Gemini 的額度來自本機運行的 Antigravity App，Qoder 讀取 Qoder CN App 本機記錄的 Credits 用量；Grok、Kimi 可以手動標記。填上每月訂閱價後，側欄寫本月用量值訂閱價的幾倍（按 API 官方價估算）。
 - **API 餘額與花費**：DeepSeek、Kimi、Grok 顯示餘額；Qoder 用組織 API Key（團隊版/企業版）顯示組織共享的加購 Credits；Claude 顯示本月花費（需要管理員 Key）；ChatGPT、Gemini 可以測試 Key 是否可用。每個 API 可以保存多把 Key，主頁顯示合計和 Key 數量，如“餘額 ¥12.00 (3)”。
 - **會話**：工具 / 模型 / 項目旁的第四個標籤，列出所選統計範圍裡活動過的 Claude Code 與 Codex 會話，正在運行的和最新活躍的在前，先列 5 個，其餘點“查看更多”。每個會話一張卡：這個會話在所選統計範圍裡花了多少（和其他標籤同一口徑，釘住時實時跳動）、是否正在運行、這一輪用了多少 Token、上下文用了多少，點開看整個會話的累計花費和最近幾輪各用了多少 Token、費用和工具；可選在一輪完成時提醒。
 - **釘住實時看**：點標題旁的圖釘，面板浮在其他窗口之上，可以挪動、拉大；趨勢圖換成近 1 分鐘的實時圖（可切換累計 Token 或每秒輸出的 Token/s），下面自動切到正在跑的會話，每 1–5 秒按本機日誌刷新。
