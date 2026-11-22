@@ -122,3 +122,18 @@ test('繁體中文 leaves a folder on disk as it is named, converting only the w
   await expect(page.locator('.page')).toContainText(folder);
   expect(await page.locator('.page').innerText()).not.toContain('/Users/demo/軟件開發/項目記錄');
 });
+
+test('繁體中文 shows a folder with spaces and punctuation in its name exactly as it is on disk (LANG-1)', async ({ page }) => {
+  // After a space, a comma or a bracket the converter can't tell a path goes on; the row says it is one instead.
+  const folder = '/Users/demo/Audio 工作/录音（备份）, 旧/发布 记录';
+  await page.route('**/fixtures/default.json*', async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({ response, body: (await response.text()).replace('/Users/demo/.claude/projects', folder) });
+  });
+  await traditional(page);
+  await page.getByRole('button', { name: '主頁模塊與設置', exact: true }).click();
+  await page.getByRole('button', { name: 'Claude', exact: true }).click();
+  await expect(page.locator('.page')).toContainText('讀取目錄');
+  const lines = (await page.locator('.page .detail').allInnerTexts()).flatMap((text) => text.split('\n'));
+  expect(lines).toContain(folder);
+});

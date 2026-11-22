@@ -401,7 +401,7 @@ function groupCards(key) {
 
 const entry = (label, fields = {}, children = []) => ({ label, children, ...fields });
 const separator = () => ({ label: '', separator: true, children: [] });
-const location = (label, paths) => entry(label, { detail: paths.join('\n') });
+const location = (label, paths) => entry(label, { detail: paths.join('\n'), verbatim: true });
 const HOME = '/Users/demo';
 const STATE = HOME + '/Library/Application Support/SwiftBarToken';
 

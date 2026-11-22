@@ -18,6 +18,8 @@ export interface Entry {
   checked?: boolean;
   radio?: boolean;
   detail?: string;
+  /** The detail is a path or address, shown exactly as written in every language. */
+  verbatim?: boolean;
   value?: string;
   /** Shorter forms of the value, for when the label needs the room. */
   fallbacks?: string[];

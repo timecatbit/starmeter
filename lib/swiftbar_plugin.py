@@ -2988,7 +2988,8 @@ def source_locations(key):
 
 
 def location_entry(label,paths):
-    return {'label':label,'detail':'\n'.join(paths),'children':[]}
+    # A path or address the panel shows exactly as written, never converted to 繁體中文 or English.
+    return {'label':label,'detail':'\n'.join(paths),'verbatim':True,'children':[]}
 
 
 def client_connection_entry(key):

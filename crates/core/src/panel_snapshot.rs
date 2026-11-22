@@ -37,8 +37,9 @@ fn separator() -> Json {
     object! { "label" => "", "separator" => true, "children" => Json::Array(vec![]) }.into()
 }
 
+/// A path or address the panel shows exactly as written: `verbatim` keeps it from 繁體中文 and English (LANG-1).
 fn location_entry(label: &str, paths: &[String]) -> Json {
-    object! { "label" => label, "detail" => paths.join("\n"), "children" => Json::Array(vec![]) }.into()
+    object! { "label" => label, "detail" => paths.join("\n"), "verbatim" => true, "children" => Json::Array(vec![]) }.into()
 }
 
 fn with(label: &str, fields: Object) -> Json {

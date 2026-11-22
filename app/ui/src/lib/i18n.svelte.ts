@@ -123,7 +123,8 @@ export const source = (e: Entry) => e.source ?? e;
 
 function entry(e: Entry): Entry {
   const label = shown(e.label), value = e.value === undefined ? undefined : shown(e.value);
-  const detail = e.detail === undefined ? undefined : shown(e.detail);
+  // A path or address stays as it is on disk (LANG-1): the converter can't tell where one ends.
+  const detail = e.detail === undefined || e.verbatim ? e.detail : shown(e.detail);
   const changed = label !== e.label || value !== e.value || detail !== e.detail;
   return {
     ...e, label, value, detail,
