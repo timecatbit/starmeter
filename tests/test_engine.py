@@ -600,7 +600,7 @@ class HarnessReaderParityTests(unittest.TestCase):
         jsonl(chats / 'session-2.jsonl', [{'sessionId': 'gs2'}, message(3), {'$set': {'messages': [message(3), message(4)]}}, b'not json'])
         jsonl(chats / 'sub' / '7f3c.jsonl', [message(5)])
         (chats / 'session-3.json').write_text(json.dumps({'messages': [{'type': 'gemini', 'id': 'g9', 'tokens': {'input': 1}}]}))  # no time
-        self.compare('gemini', gemini, 'Gemini CLI')
+        self.compare('gemini', gemini, 'Gemini')
         opencode = self.root / 'opencode'
         opencode.mkdir()
         conn = sqlite3.connect(opencode / 'opencode.db')

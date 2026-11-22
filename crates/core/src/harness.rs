@@ -948,7 +948,7 @@ pub fn gemini_usage(
 ) -> Fallible<Object> {
     let root = normalize(&paths::expand_user(root_path).to_string_lossy());
     if !is_directory(&root) {
-        return Ok(object! { "error" => "未找到 Gemini CLI 记录" });
+        return Ok(object! { "error" => "未找到 Gemini 用量记录" });
     }
     let archive = archive.filter(|path| !path.as_os_str().is_empty());
     let tmp = format!("{root}/tmp");
@@ -972,7 +972,7 @@ pub fn gemini_usage(
     }
     let paths = sorted_paths(found.into_iter().collect());
     if paths.is_empty() && !archive.is_some_and(Path::exists) {
-        return Ok(object! { "error" => "暂无 Gemini CLI 记录" });
+        return Ok(object! { "error" => "暂无 Gemini 用量记录" });
     }
     let target = cache.join(format!("harness-gemini-v2-{}.sqlite3", root_identity(&root)));
     files::make_directory(cache, 0o700)?;

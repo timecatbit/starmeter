@@ -27,7 +27,7 @@ export const phrases: Record<string, string> = {
   '缓存 {n}%': 'Cache {n}%', '已定价 {n}%': '{n}% priced', '{n} 次未定价': '{n} unpriced', 缓存: 'Cache', 输出: 'Output', 费用: 'Cost', 会话数: 'Sessions', 输入: 'Input', 缓存读: 'Cache read', 缓存写: 'Cache write',
   // Why a tool's or a plan's figures can't be read (the engine's statuses)
   '未找到 Claude 用量记录': 'No Claude usage records found', 未找到记录目录: 'Records folder not found', 请选择记录目录: 'Choose the records folder',
-  暂无用量记录: 'No usage records yet', '未找到 Gemini CLI 记录': 'No Gemini CLI records found', '暂无 Gemini CLI 记录': 'No Gemini CLI records yet',
+  暂无用量记录: 'No usage records yet', '未找到 Gemini 用量记录': 'No Gemini usage records found', '暂无 Gemini 用量记录': 'No Gemini usage records yet',
   '未找到 OpenCode 数据库': 'OpenCode\'s database not found', 记录暂不可用: 'Records unavailable for now', '未配置 OpenCodex': 'OpenCodex isn\'t set up',
   用量记录暂不可用: 'Usage records unavailable for now', 未开启用量读取: 'Usage reading is off', 用量记录格式异常: 'The usage records are in an unexpected format',
   用量记录过大: 'The usage records are too large', '无法连接 cursor.com': 'Can\'t reach cursor.com',
@@ -155,8 +155,8 @@ export const phrases: Record<string, string> = {
   '最上面是这段时间的 API 等值估算、Token 和请求数，下面是趋势和热力图。第一次读取要一点时间，读到以后数字会自己出现。':
     'At the top: the API-equivalent estimate, tokens and requests for the range; below, the trend and the heatmap. The first reading takes a moment; the figures appear by themselves.',
   还没有用量: 'No usage yet',
-  '这台电脑上还没找到 AI 编程工具的用量记录。Starmeter 读的是 Claude Code、Codex、Cursor、Gemini CLI 等工具自己留在本机的记录：装好其中一个、用过一次，这里就会出现数字。':
-    'No AI coding tool has left usage records on this computer yet. Starmeter reads the records Claude Code, Codex, Cursor, Gemini CLI and others keep here: install one and use it once, and the figures appear.',
+  '这台电脑上还没找到 AI 编程工具的用量记录。Starmeter 读的是 Claude Code、Codex、Cursor、Gemini 等工具自己留在本机的记录：装好其中一个、用过一次，这里就会出现数字。':
+    'No AI coding tool has left usage records on this computer yet. Starmeter reads the records Claude Code, Codex, Cursor, Gemini and others keep here: install one and use it once, and the figures appear.',
   选择要读的工具: 'Choose your tools',
   '点齿轮打开“主页模块”，勾选你在用的工具；工具的记录不在默认位置时，点它的名字选文件夹。“通用”里的“自动检测”会把这台电脑上找得到的都勾上。':
     'The gear opens Home modules: tick the tools you use, and click a tool\'s name to pick its folder when its records live elsewhere. Auto-detect in General ticks every tool it finds on this computer.',

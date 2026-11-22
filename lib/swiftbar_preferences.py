@@ -16,7 +16,7 @@ MODULES = (
     ('claude', 'Claude', 'Harness'),
     ('cursor', 'Cursor', 'Harness'),
     ('deepseek-harness', 'DeepSeek Harness', 'Harness'),
-    ('gemini', 'Gemini CLI', 'Harness'),
+    ('gemini', 'Gemini', 'Harness'),
     ('opencode', 'OpenCode', 'Harness'),
     ('qoder', 'Qoder', 'Harness'),
     ('workbuddy', 'WorkBuddy', 'Harness'),

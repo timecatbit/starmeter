@@ -89,7 +89,7 @@ const tools = [
     models: [['kimi-k2.5', 0.66], ['glm-5', 0.34]], projects: [['field-notes', 1]] },
   { id: 'qoder', name: 'Qoder', start: '2026-09-01', credits: 14, perCredit: 0.7, sessions: 1, quiet: 0.45,
     models: [['qfmodel-pro', 0.72], ['qwen3-coder-plus', 0.28]], projects: [['harbor-api', 1]] },
-  { id: 'gemini', name: 'Gemini CLI', start: '2026-05-12', base: 4.2e6, rate: 0.3e-6, perM: 5, output: 0.04, cache: 0.62, sessions: 1, quiet: 0.3, unpriced: 0.07,
+  { id: 'gemini', name: 'Gemini', start: '2026-05-12', base: 4.2e6, rate: 0.3e-6, perM: 5, output: 0.04, cache: 0.62, sessions: 1, quiet: 0.3, unpriced: 0.07,
     models: [['gemini-3-pro', 0.74], ['gemini-3-flash', 0.19], ['gemini-3.5-preview', 0.07]] },
   { id: 'cursor', name: 'Cursor', start: '2026-08-15', base: 9e6, rate: 0.4e-6, perM: 3.6, output: 0.026, cache: 0.84, sessions: 1, quiet: 0.25,
     models: [['composer-2', 0.6], ['claude-sonnet-5-5', 0.4]] },
@@ -622,7 +622,7 @@ function selfUpdateRow(state) {
 const modules = [
   ['summary', 'Summary', '概览'], ['heatmap', '用量热力图', '概览'],
   ['opencodex', 'OpenCodex', 'Harness'], ['magpie', 'Magpie', 'Harness'], ['codex', 'ChatGPT', 'Harness'], ['claude', 'Claude', 'Harness'],
-  ['cursor', 'Cursor', 'Harness'], ['deepseek-harness', 'DeepSeek Harness', 'Harness'], ['gemini', 'Gemini CLI', 'Harness'], ['opencode', 'OpenCode', 'Harness'],
+  ['cursor', 'Cursor', 'Harness'], ['deepseek-harness', 'DeepSeek Harness', 'Harness'], ['gemini', 'Gemini', 'Harness'], ['opencode', 'OpenCode', 'Harness'],
   ['qoder', 'Qoder', 'Harness'], ['workbuddy', 'WorkBuddy', 'Harness'],
   ...services.map(([key]) => [key, serviceByKey[key].label, serviceByKey[key].category]),
   ['sessions', '会话', '其他'], ['komari', 'Komari 监控', '其他'], ['updates', '工具更新', '其他'],

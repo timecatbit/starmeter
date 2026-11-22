@@ -802,12 +802,12 @@ def gemini_event(row, state):
 def gemini_usage(root, cache, start, end, zone, exclude_proxy=False, carriers=None, archive=None):
     """JSON/JSONL Gemini CLI sessions. Index usage only, including spent rewinds."""
     root = Path(root).expanduser()
-    if not root.is_dir(): return {'error':'未找到 Gemini CLI 记录'}
+    if not root.is_dir(): return {'error':'未找到 Gemini 用量记录'}
     folders = [root/'tmp'] if (root/'tmp').is_dir() else [root]
     paths = sorted({p for folder in folders for p in folder.rglob('session-*.json*') if p.suffix in ('.json','.jsonl')})
     # New subagents may use UUID filenames instead of session-*.
     paths = sorted(set(paths) | {p for folder in folders for p in folder.rglob('chats/**/*.jsonl')})
-    if not paths and not (archive and Path(archive).is_file()): return {'error':'暂无 Gemini CLI 记录'}
+    if not paths and not (archive and Path(archive).is_file()): return {'error':'暂无 Gemini 用量记录'}
     target = Path(cache)/('harness-gemini-v2-'+identity(str(root.resolve()))[:12]+'.sqlite3')
     target.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
     db = sqlite3.connect(target,timeout=10);os.chmod(target,0o600)

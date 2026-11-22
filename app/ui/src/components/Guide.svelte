@@ -52,7 +52,7 @@
     if (stage === 'empty') return [welcome,
       // Only the figures: the panel is short with nothing in it, and the words go under them.
       { title: '还没有用量', targets: ['.summary .figure-label', '.summary .figure'], always: true,
-        body: '这台电脑上还没找到 AI 编程工具的用量记录。Starmeter 读的是 Claude Code、Codex、Cursor、Gemini CLI 等工具自己留在本机的记录：装好其中一个、用过一次，这里就会出现数字。' },
+        body: '这台电脑上还没找到 AI 编程工具的用量记录。Starmeter 读的是 Claude Code、Codex、Cursor、Gemini 等工具自己留在本机的记录：装好其中一个、用过一次，这里就会出现数字。' },
       { title: '选择要读的工具', targets: ['.summary .buttons > .slot:nth-child(2)'], always: true,
         body: '点齿轮打开“主页模块”，勾选你在用的工具；工具的记录不在默认位置时，点它的名字选文件夹。“通用”里的“自动检测”会把这台电脑上找得到的都勾上。',
         action: { label: '打开主页模块', run: () => onmodules() } },

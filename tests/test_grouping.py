@@ -53,12 +53,12 @@ class GroupingTests(unittest.TestCase):
         codex = usage([('gpt-6.2-sol', 30, 2.0, 1)], projects=[{'project': 'starmeter', 'totalTokens': 30, 'estimatedCostUsd': 2.0, 'requests': 1}])
         gemini = usage([('gemini-3-pro', 5, 0.1, 1)])
         magpie = usage([('claude-opus-5-5', 50, 0.5, 1)])
-        cards = self.m.project_cards([('magpie', 'Magpie', magpie), ('claude', 'Claude', claude), ('codex', 'ChatGPT', codex), ('gemini', 'Gemini CLI', gemini)])
+        cards = self.m.project_cards([('magpie', 'Magpie', magpie), ('claude', 'Claude', claude), ('codex', 'ChatGPT', codex), ('gemini', 'Gemini', gemini)])
         self.assertEqual([c['name'] for c in cards], ['starmeter', 'notes', '未标注项目'], 'Gateways are left out; tools without projects go last')
         star = cards[0]
         self.assertEqual((star['tokens'], star['requests'], star['cost']), (90, 2, 2.6))
         self.assertEqual([t['name'] for t in star['models']], ['Claude', 'ChatGPT']); self.assertEqual(star['accent'], 'claude')
-        self.assertEqual(star['symbol'], 'folder'); self.assertEqual(cards[2]['models'][0]['name'], 'Gemini CLI')
+        self.assertEqual(star['symbol'], 'folder'); self.assertEqual(cards[2]['models'][0]['name'], 'Gemini')
 
     def test_every_project_has_its_card(self):
         projects=[{'project':'p%02d'%i,'totalTokens':100-i,'estimatedCostUsd':(100-i)/100,'requests':1} for i in range(12)]

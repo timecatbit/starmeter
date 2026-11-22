@@ -28,7 +28,7 @@ pub static MODULES: LazyLock<Vec<Module>> = LazyLock::new(|| {
         module("claude", "Claude", "Harness"),
         module("cursor", "Cursor", "Harness"),
         module("deepseek-harness", "DeepSeek Harness", "Harness"),
-        module("gemini", "Gemini CLI", "Harness"),
+        module("gemini", "Gemini", "Harness"),
         module("opencode", "OpenCode", "Harness"),
         module("qoder", "Qoder", "Harness"),
         module("workbuddy", "WorkBuddy", "Harness"),
