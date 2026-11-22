@@ -1885,11 +1885,12 @@ def gemini_windows(payload,now):
 
 
 def gemini_window_name(window):
-    """A window's name: 5 小时 and 每周 for Gemini's own, the group's name before them for the others."""
+    """A window's name: 5 小时 and 每周 for Gemini's own, the group's name after them for the others, so that a narrow
+    column (the command line's) that cuts the name still tells the two apart."""
     span='5 小时' if window.get('window')=='5h' else '每周'
     if window.get('group')=='gemini':return span
-    if window.get('group')=='3p':return 'Claude 和 GPT · '+span
-    return '%s · %s'%(window.get('groupName') or '',span)
+    if window.get('group')=='3p':return span+' · Claude 和 GPT'
+    return '%s · %s'%(span,window.get('groupName') or '')
 
 
 def gemini_span(window):

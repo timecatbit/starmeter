@@ -823,13 +823,14 @@ pub fn gemini_windows(payload: &Object, now: f64) -> Vec<Object> {
     windows
 }
 
-/// A window's name: 5 小时 and 每周 for Gemini's own, the group's name before them for the others.
+/// A window's name: 5 小时 and 每周 for Gemini's own, the group's name after them for the others, so that a narrow
+/// column (the command line's) that cuts the name still tells the two apart.
 pub fn gemini_window_name(window: &Object) -> String {
     let span = if window.get("window").and_then(Json::as_str) == Some("5h") { "5 小时" } else { "每周" };
     match window.get("group").and_then(Json::as_str) {
         Some("gemini") => span.to_string(),
-        Some("3p") => format!("Claude 和 GPT · {span}"),
-        _ => format!("{} · {span}", py::str(window.get("groupName"))),
+        Some("3p") => format!("{span} · Claude 和 GPT"),
+        _ => format!("{span} · {}", py::str(window.get("groupName"))),
     }
 }
 
