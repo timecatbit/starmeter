@@ -526,20 +526,37 @@ const SPENDS_KEPT: f64 = 26.0 * 3600.0;
 const DAYS_KEPT: i64 = 40;
 /// The session-spent cache's own version, beside the schema 1 every cache record carries (a record of another schema
 /// reads as empty): 3 keeps each session's cost by day in the counting zone and its last day of requests one by one,
-/// and when it began; 4 keeps the prices it was counted with and each file's last bytes read.
-const SPENT_VERSION: i64 = 4;
-/// How much of a transcript, up to where the last reading stopped, must be as it was for the reading to go on.
-const CHECKED: u64 = 4096;
+/// and when it began; 4 keeps the prices it was counted with; 5 a digest of everything each file's reading read.
+const SPENT_VERSION: i64 = 5;
 
-/// A digest of the bytes of a file just before `offset` (CHECKED of them, or all there are): when they differ from the
-/// last reading's, something above the new lines was written over.
-fn tail_of(path: &str, offset: u64) -> Option<String> {
+/// A digest of a file's first `offset` bytes, all that the last reading read: when it differs, something already
+/// counted was written over, wherever in the file (SESSION-6), and the file is read again from the start. It reads
+/// those bytes again each time a grown file is read on, so it is no cryptographic digest but four lanes of multiply
+/// and rotate that keep pace with the reading itself (a 257 MB transcript in about 22 ms, where SHA-256 takes 450):
+/// a change by accident, not by design, is all it has to catch.
+fn read_digest(path: &str, offset: u64) -> Option<String> {
+    const STEP: u64 = 0x9E37_79B9_7F4A_7C15;
     let mut file = File::open(path).ok()?;
-    let from = offset.saturating_sub(CHECKED);
-    file.seek(SeekFrom::Start(from)).ok()?;
-    let mut bytes = vec![0; (offset - from) as usize];
-    file.read_exact(&mut bytes).ok()?;
-    Some(py::sha256_hex(&bytes)[..16].to_string())
+    let mut lanes: [u64; 4] =
+        [0x243F_6A88_85A3_08D3, 0x1319_8A2E_0370_7344, 0xA409_3822_299F_31D0, 0x082E_FA98_EC4E_6C89];
+    let mut buffer = vec![0u8; 1 << 20];
+    let mut left = offset;
+    while left > 0 {
+        let size = left.min(buffer.len() as u64) as usize;
+        file.read_exact(&mut buffer[..size]).ok()?;
+        let (blocks, rest) = buffer[..size].as_chunks::<32>();
+        for block in blocks {
+            for (lane, word) in lanes.iter_mut().zip(block.as_chunks::<8>().0) {
+                *lane = (*lane ^ u64::from_le_bytes(*word)).wrapping_mul(STEP).rotate_left(29);
+            }
+        }
+        for (k, byte) in rest.iter().enumerate() {
+            lanes[k % 4] = (lanes[k % 4] ^ u64::from(*byte)).wrapping_mul(STEP).rotate_left(29);
+        }
+        left -= size as u64;
+    }
+    let fold = |a: u64, b: u64| (a ^ b.rotate_left(32)).wrapping_mul(STEP);
+    Some(format!("{:016x}{:016x}", fold(lanes[0], lanes[2]), fold(lanes[1], lanes[3]) ^ offset))
 }
 
 /// A moment's day in a zone, as 2026-11-21.
@@ -552,8 +569,8 @@ fn day_of(at: f64, zone: &TimeZone) -> String {
 /// streamed over several lines once; each change of Codex's running token total once). A Claude fork's copied
 /// history is left to the session it came from. With `kept`, the tally of the last reading (by inode and the offset it
 /// stopped at), only what was written since is read: a long running session isn't read whole every half minute. A
-/// file that changed without growing, or whose bytes before that offset are no longer those read, was written over in
-/// place and is read again from the start. The
+/// file that changed without growing, or whose bytes up to that offset are no longer those read (read_digest), was
+/// written over in place and is read again from the start. The
 /// tally also keeps, for what the session cost in a range, its cost by day in `zone` ({day: [requests, cost,
 /// unpriced]}, in the order the days come) and each request since `since` as [its time, its cost or null]; a tally of
 /// another zone is read afresh. Gives the cost and the tally to keep.
@@ -575,9 +592,9 @@ fn spent(
         kept.get("inode").and_then(Json::integer) == Some(state.inode)
             && kept.get("zone").and_then(Json::as_str) == Some(counted.as_str())
             && offset.is_some_and(|offset| {
-                kept.get("tail")
+                kept.get("read")
                     .and_then(Json::as_str)
-                    .is_some_and(|tail| tail_of(path, offset as u64).as_deref() == Some(tail))
+                    .is_some_and(|read| read_digest(path, offset as u64).as_deref() == Some(read))
             })
     });
     let field = |name: &str| resumed.and_then(|kept| kept.get(name)).cloned();
@@ -677,7 +694,7 @@ fn spent(
         .collect();
     let offset = start + complete as u64;
     let tally = object! {
-        "inode" => state.inode, "offset" => offset as i64, "tail" => tail_of(path, offset).map_or(Json::Null, Json::from),
+        "inode" => state.inode, "offset" => offset as i64, "read" => read_digest(path, offset).map_or(Json::Null, Json::from),
         "requests" => requests,
         "cost" => cost, "unpriced" => unpriced, "seen" => Json::Array(seen.into_iter().map(Json::from).collect()),
         "model" => model, "total" => total.map_or(Json::Null, |value| object! { "value" => value.unwrap_or(Json::Null) }.into()),
@@ -1121,9 +1138,9 @@ impl Runtime {
 
 #[cfg(test)]
 mod tests {
-    use super::{Price, active, range_costs, spent};
+    use super::{Price, active, range_costs, read_digest, spent};
     use crate::json::{Json, Object};
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use std::io::Write;
 
     fn line(id: &str, output: i64) -> String {
@@ -1251,6 +1268,40 @@ mod tests {
         let (resumed, _) = spent(&path, "Claude", &price, Some(&tally), 0.0, &utc).unwrap();
         assert_eq!(cost(&resumed), 15.0);
         assert_eq!(resumed.serialized(), fresh().serialized());
+        // Written over far above where it stopped, past any last few kilobytes (Codex's 13,334 bytes and more below
+        // the change), and grown in the same round: read again from the start.
+        let filler: String = (0..120).map(|k| reply(&format!("f{k:03}"), 0)).collect();
+        assert!(filler.len() > 13_334);
+        std::fs::write(&file, reply("a", 1_000_000) + &filler).unwrap();
+        let (_, tally) = spent(&path, "Claude", &price, None, 0.0, &utc).unwrap();
+        std::fs::write(&file, reply("a", 2_000_000) + &filler + &reply("z", 1_000_000)).unwrap();
+        let (far, _) = spent(&path, "Claude", &price, Some(&tally), 0.0, &utc).unwrap();
+        assert_eq!((far.get("requests").and_then(Json::integer), cost(&far)), (Some(122), 9.0));
+        assert_eq!(far.serialized(), fresh().serialized());
+        let _ = std::fs::remove_dir_all(&folder);
+    }
+
+    #[test]
+    fn the_read_digest_follows_every_byte_read() {
+        // Any byte changed, wherever it is, changes it; the same bytes give the same digest at every length.
+        let folder = std::env::temp_dir().join(format!("starmeter-digest-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        let file = folder.join("bytes");
+        let path = file.to_string_lossy().into_owned();
+        let bytes: Vec<u8> = (0..3_000_000u32).map(|k| (k * 7 % 251) as u8).collect();
+        std::fs::write(&file, &bytes).unwrap();
+        let lengths = [0, 1, 31, 32, 33, 1 << 20, (1 << 20) + 5, bytes.len() as u64];
+        let before: Vec<_> = lengths.iter().map(|&n| read_digest(&path, n).unwrap()).collect();
+        assert_eq!(before.iter().collect::<HashSet<_>>().len(), lengths.len());
+        for at in [0, 17, 1 << 20, (1 << 20) + 3, bytes.len() - 1] {
+            let mut changed = bytes.clone();
+            changed[at] ^= 1;
+            std::fs::write(&file, &changed).unwrap();
+            assert_ne!(read_digest(&path, bytes.len() as u64), before.last().cloned(), "byte {at}");
+        }
+        std::fs::write(&file, &bytes).unwrap();
+        assert_eq!(read_digest(&path, bytes.len() as u64), before.last().cloned());
+        assert_eq!(read_digest(&path, bytes.len() as u64 + 1), None);
         let _ = std::fs::remove_dir_all(&folder);
     }
 
