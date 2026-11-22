@@ -105,10 +105,3 @@ def initialize(directory, detected):
         except FileExistsError:return False  # Don't overwrite a concurrent manual choice.
         return True
     finally:os.unlink(temporary)
-
-
-def replace_selection(directory, detected):
-    """Call only after the user confirms the concrete detected selection."""
-    current=preferences.read(directory);chosen=set(detected)
-    current['visible']=[key for key,label,group in preferences.MODULES if key in chosen]
-    preferences.write(directory,current)

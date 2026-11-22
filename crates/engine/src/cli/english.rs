@@ -166,7 +166,7 @@ pub static WHOLE: [Rule; 2] = [
 ];
 
 /// One part of the engine's text.
-pub static RULES: [Rule; 77] = [
+pub static RULES: [Rule; 79] = [
     rule!(r"^已用 (\d+(?:\.\d+)?%)$", |m| format!("{} used", group(m, 1))),
     rule!(r"^已用 (\d+(?:\.\d+)?%) 截至 (.+)$", |m| format!("{} used as of {}", group(m, 1), group(m, 2))),
     rule!(r"^已用 (.+)$", |m| format!("Used: {}", translate(group(m, 1)))),
@@ -191,6 +191,14 @@ pub static RULES: [Rule; 77] = [
     rule!(r"^到期 (.+)$", |m| format!("Expires {}", group(m, 1))),
     rule!(r"^(.+) 订阅$", |m| format!("{} plan", translate(group(m, 1)))),
     rule!(r"^需勾选 (.+)$", |m| format!("Needs {} on", translate(group(m, 1)))),
+    rule!(r"^加到主页：(.+)$", |m| format!(
+        "Add to the homepage: {}",
+        group(m, 1).split('、').map(translate).collect::<Vec<_>>().join(", ")
+    )),
+    rule!(r"^Antigravity 没有给出额度（HTTP (\d+)）$", |m| format!(
+        "Antigravity gave no quota (HTTP {})",
+        group(m, 1)
+    )),
     rule!(r"^(\d+) 分钟前更新$", |m| format!("{} min ago", group(m, 1))),
     rule!(r"^(\d+) 小时前更新$", |m| format!("{} h ago", group(m, 1))),
     rule!(r"^(\d+) 天前更新$", |m| format!("{} {} ago", group(m, 1), plural(group(m, 1), "day", "days"))),
