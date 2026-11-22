@@ -1,7 +1,8 @@
 <script lang="ts">
   // A homepage row: its icon or status light, the name, the figure on the right (an accent pill, a configured light, or
-  // coloured by usage), a thin usage bar under the name (two side by side, each named, for a plan with two limits worth
-  // watching), a detail line, and an arrow when it opens a page.
+  // coloured by usage), a thin usage bar under the name (for a plan with more than one limit, a bar per window, named:
+  // five hours on the left and the week on the right, a line per model group), a detail line, and an arrow when it
+  // opens a page.
   import { onPhone } from '../lib/backend';
   import { barColor, usageColor } from '../lib/colors';
   import { actionable, configured, gauge as hasGauge, usageShare } from '../lib/detail';
@@ -30,8 +31,17 @@
   });
   const usage = $derived(usageShare(entry));
   const gauge = $derived(onPhone ? usage !== null : hasGauge(entry));
-  /** Five hours and the week, or two model groups: the row's figure is the tighter, and each has its bar. */
-  const pair = $derived(entry.gauges?.length === 2 ? entry.gauges : null);
+  /** A plan with more than one limit: a line of meters per model group, five hours on the left and the week on the
+   *  right, the second line headed by its group's name (the first is the plan's own); the row's figure is the tightest. */
+  const lines = $derived.by(() => {
+    const bars = entry.gauges ?? [];
+    if (bars.length < 2) return null;
+    const count = Math.max(...bars.map((bar) => Math.floor(bar.place / 2))) + 1;
+    return Array.from({ length: count }, (_, line) => {
+      const meters = [0, 1].map((column) => bars.find((bar) => bar.place === line * 2 + column));
+      return { group: line > 0 ? meters.find((bar) => bar?.group)?.group : undefined, meters };
+    });
+  });
   const configuredState = $derived(configured(value));
   const labelColor = $derived(entry.action?.[0] === 'stop' ? 'var(--red)' : full || entry.usageLevel !== undefined || entry.checked === true ? 'var(--label)' : 'var(--secondary)');
   const valueColor = $derived(usageColor(entry.usageLevel) ?? (full ? 'var(--label)' : 'var(--secondary)'));
@@ -66,13 +76,23 @@
           {/if}
         {/if}
       </span>
-      {#if gauge && usage !== null && pair}
-        <span class="pair">
-          {#each pair as bar, i (i)}
-            <span class="half">
-              <span class="gauge"><span class="gauge-fill" style:width="max(3px, {bar.used}%)" style:background={barColor(bar.level, panel.dark)}
-                style:--pen={barColor(bar.level, panel.dark)}></span></span>
-              <span class="gauge-name">{bar.label} <span class="num" style:color={usageColor(bar.level)}>{bar.used}%</span></span>
+      {#if gauge && usage !== null && lines}
+        <span class="meters">
+          {#each lines as line, i (i)}
+            {#if line.group}<span class="meter-group">{line.group}</span>{/if}
+            <span class="meter-line">
+              {#each line.meters as bar, column (column)}
+                <!-- The window's name, its bar and its share on one line, as a card's models are; a narrow panel
+                     shortens the name, never the share. -->
+                <span class="meter">
+                  {#if bar}
+                    <span class="meter-name">{bar.label}</span>
+                    <span class="gauge"><span class="gauge-fill" style:width="max(3px, {bar.used}%)" style:background={barColor(bar.level, panel.dark)}
+                      style:--pen={barColor(bar.level, panel.dark)}></span></span>
+                    <span class="meter-share num" style:color={usageColor(bar.level)}>{bar.used}%</span>
+                  {/if}
+                </span>
+              {/each}
             </span>
           {/each}
         </span>
@@ -192,26 +212,48 @@
     background: var(--track);
     overflow: hidden;
   }
-  .pair {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    column-gap: 12px;
-    margin-top: 4px;
-  }
-  .half {
+  .meters {
     display: flex;
     flex-direction: column;
-    min-width: 0;
-  }
-  .pair .gauge { margin-top: 0; }
-  .gauge-name {
-    margin-top: 3px;
+    margin-top: 4px;
     font-size: 10px;
     line-height: 1.2;
+  }
+  .meter-line {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 14px;
+  }
+  .meter-line + .meter-line { margin-top: 4px; }
+  .meter-group {
+    margin-top: 5px;
+    margin-bottom: 2px;
     color: var(--secondary);
-    white-space: nowrap;
+  }
+  .meter {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+  }
+  .meter-name {
+    flex: 0 1 auto;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--secondary);
+  }
+  .meter .gauge {
+    flex: 1 1 24px;
+    min-width: 24px;
+    margin: 0;
+  }
+  .meter-share {
+    flex: none;
+    min-width: 25px;
+    text-align: right;
+    white-space: nowrap;
   }
   .gauge-fill {
     position: absolute;
@@ -235,6 +277,6 @@
     margin-top: -5px;
   }
   .row.detailed .arrow, .row:has(.gauge) .arrow { top: calc(6px + 0.6 * var(--title-size)); }
-  /* Beside the name and its bars, as on a row with one bar, not down by the names under the bars. */
-  .row:has(.pair) .icon { top: 15px; }
+  /* Beside the name and the first line of meters, not down by Gemini 订阅's second group. */
+  .row:has(.meters) .icon { top: 19px; }
 </style>

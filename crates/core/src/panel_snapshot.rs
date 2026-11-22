@@ -189,7 +189,12 @@ pub fn panel_entries(lines: &[String]) -> Vec<Json> {
                     .filter_map(|bar| {
                         let mut fields = bar.split(GAUGE_FIELD);
                         let (name, used, level) = (fields.next()?, fields.next()?.parse::<f64>().ok()?, fields.next()?);
-                        Some(object! { "label" => name, "used" => used, "level" => level }.into())
+                        let place = fields.next()?.parse::<i64>().ok()?;
+                        let mut bar = object! { "label" => name, "used" => used, "level" => level, "place" => place };
+                        if let Some(group) = fields.next().filter(|group| !group.is_empty()) {
+                            bar.insert("group", group);
+                        }
+                        Some(bar.into())
                     })
                     .collect();
                 if !bars.is_empty() {

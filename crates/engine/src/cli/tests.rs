@@ -99,7 +99,8 @@ fn english_reads_as_the_panel_writes_it() {
     assert!(text.contains("Plans and balances"), "{text}");
     assert!(text.contains("ChatGPT plan"), "{text}");
     assert!(text.contains("Used: 5 hours 12% · this week 38%"), "{text}");
-    assert!(text.contains("Used: Gemini 24% · Claude and GPT 18%"), "{text}");
+    // Gemini 订阅's four windows don't fit one figure: the tightest, each window listed under it in the quota view.
+    assert!(text.lines().any(|line| line.contains("Gemini plan") && line.contains("24% used")), "{text}");
     let quota = render(&report, View::Quota, 100, &Paint { colour: false });
     assert!(quota.contains("Resets"), "{quota}");
     assert!(quota.contains("Balance ¥186.40"), "{quota}");

@@ -412,8 +412,10 @@ function subscriptionRows(state) {
     const level = used >= 90 ? 'critical' : used >= 70 ? 'warning' : 'normal';
     return entry(label, { ...(failed ? {} : { usageLevel: level }), value: `已用 ${used}%`, ...(failed ? {} : { detail }) });
   };
-  // The homepage's two bars for a plan with two limits worth watching, as the engine's panelgauges give them.
-  const gauges = (...bars) => (pending || failed ? {} : { gauges: bars.map(([label, used]) => ({ label, used, level: used >= 90 ? 'critical' : used >= 70 ? 'warning' : 'normal' })) });
+  // The homepage's bars for a plan with more than one limit, as the engine's panelgauges give them: five hours on the
+  // left, the week on the right, a line per model group.
+  const gauges = (...bars) => (pending || failed ? {} : {
+    gauges: bars.map(([label, used, group], place) => ({ label, used, level: used >= 90 ? 'critical' : used >= 70 ? 'warning' : 'normal', place, ...(group ? { group } : {}) })) });
   const price = (key, value) => entry('订阅月费…', { symbol: 'dollarsign.circle', value, action: ['set-subscription-price', key] });
   return [
     entry('ChatGPT 订阅', { ...moduleIcon('chatgpt'), ...(pending ? {} : { usageLevel: 'normal' }), value: pending ? '待同步' : '已用 38%',
@@ -464,12 +466,12 @@ function subscriptionRows(state) {
     ]),
     // Antigravity's quota, read from its app on this computer.
     entry('Gemini 订阅', { ...moduleIcon('gemini-subscription'), ...(pending ? {} : { usageLevel: 'normal' }), value: pending ? '待同步' : '已用 24%',
-      ...gauges(['Gemini', 24], ['Claude 和 GPT', 18]), onOpenAction: ['refresh-source', 'gemini-subscription'] }, [
+      ...gauges(['5 小时', 24, 'Gemini'], ['本周', 9], ['5 小时', 6, 'Claude 和 GPT'], ['本周', 18]), onOpenAction: ['refresh-source', 'gemini-subscription'] }, [
       entry('来源 · Antigravity 本机额度'),
       window('5 小时', 24, '重置于 12/01 18:20 · 比匀速少用 12%'),
-      window('每周', 9, '重置于 12/06 09:40 · 比匀速少用 20%'),
+      window('本周', 9, '重置于 12/06 09:40 · 比匀速少用 20%'),
       window('5 小时 · Claude 和 GPT', 6, '重置于 12/01 19:05'),
-      window('每周 · Claude 和 GPT', 18, '重置于 12/06 10:15'),
+      window('本周 · Claude 和 GPT', 18, '重置于 12/06 10:15'),
       updated('刚刚更新'),
       entry('打开 Antigravity', { symbol: 'macwindow', href: 'file:///Applications/Antigravity.app' }),
       entry('打开订阅管理', { symbol: 'arrow.up.right', href: 'https://gemini.google.com' }),

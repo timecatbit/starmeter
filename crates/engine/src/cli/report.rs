@@ -354,13 +354,15 @@ fn quotas(entries: &[Json], words: Words) -> Vec<Quota> {
                     detail: child.get("detail").and_then(Json::as_str).map(|detail| words.text(detail)),
                 })
                 .collect();
-            // The panel's two bars, which a terminal has no room to draw: both their figures, the tighter alone when
-            // the column is narrow.
-            let bars: Vec<String> = entry
-                .get("gauges")
-                .and_then(Json::as_array)
-                .into_iter()
-                .flatten()
+            // The panel's bars, which a terminal has no room to draw: a single line of two plain windows (5 小时,
+            // 本周) as both figures, the tighter alone when the column is narrow; more, or names with their own " · "
+            // (Gemini 订阅's groups), as the tightest, every window listed under it.
+            let gauges: Vec<&Json> = entry.get("gauges").and_then(Json::as_array).into_iter().flatten().collect();
+            let plain = gauges.len() == 2
+                && gauges.iter().all(|bar| bar.get("group").is_none() && !text(bar.get("label")).contains(" · "));
+            let bars: Vec<String> = gauges
+                .iter()
+                .filter(|_| plain)
                 .map(|bar| {
                     format!("{} {}%", text(bar.get("label")), g(bar.get("used").and_then(Json::number).unwrap_or(0.0)))
                 })

@@ -65,27 +65,37 @@ test('the homepage shows Summary, the trend, the heatmap, the cards and the rows
   await expect(page.getByRole('button', { name: /^其余 \d+ 个/ })).toHaveCount(0);
   await expect(page.locator('.card-note').filter({ hasText: '次已由 Magpie 计入' })).toBeVisible();
   await expect(page.locator('.row .title')).toContainText(['ChatGPT 订阅', 'Claude 订阅', 'Cursor 订阅']);
-  // Usage rows carry their 3pt bar, coloured by level (Gemini 订阅's from Antigravity among them); a plan with two
-  // limits worth watching has one for each, side by side, named under it, the row's figure the tighter.
-  await expect(page.locator('.gauge')).toHaveCount(8);
-  const pair = (name: string) => page.locator('button.row', { hasText: name });
-  await expect(pair('ChatGPT 订阅').locator('.value')).toHaveText('已用 38%');
-  await expect(pair('ChatGPT 订阅').locator('.gauge-name')).toHaveText(['5 小时 12%', '本周 38%']);
-  await expect(pair('Claude 订阅').locator('.gauge-name')).toHaveText(['5 小时 22%', '本周 76%']);
-  await expect(pair('Gemini 订阅').locator('.gauge-name')).toHaveText(['Gemini 24%', 'Claude 和 GPT 18%']);
-  await expect(pair('Cursor 订阅').locator('.gauge-name')).toHaveCount(0);
+  // Usage rows carry their 3pt bar, coloured by level (Gemini 订阅's from Antigravity among them); a plan with more
+  // than one limit has a line of meters instead, each window's name, bar and share on it, five hours on the left and
+  // the week on the right, Gemini 订阅's second group on a line of its own under its name; the row's figure the tightest.
+  await expect(page.locator('.gauge')).toHaveCount(10);
+  const plan = (name: string) => page.locator('button.row', { hasText: name });
+  const meters = (name: string) => plan(name).locator('.meter');
+  await expect(plan('ChatGPT 订阅').locator('.value')).toHaveText('已用 38%');
+  await expect(meters('ChatGPT 订阅')).toHaveText(['5 小时 12%', '本周 38%']);
+  await expect(meters('Claude 订阅')).toHaveText(['5 小时 22%', '本周 76%']);
+  await expect(meters('Gemini 订阅')).toHaveText(['5 小时 24%', '本周 9%', '5 小时 6%', '本周 18%']);
+  await expect(plan('Gemini 订阅').locator('.meter-group')).toHaveText(['Claude 和 GPT']);
+  await expect(meters('Cursor 订阅')).toHaveCount(0);
   // Each bar its own share and colour: the week's orange at 76%, five hours' the accent.
-  const claude = await pair('Claude 订阅').locator('.gauge').evaluateAll((bars) => bars.map((bar) => {
+  const claude = await plan('Claude 订阅').locator('.gauge').evaluateAll((bars) => bars.map((bar) => {
     const fill = bar.firstElementChild as HTMLElement;
     return { share: Math.round((fill.getBoundingClientRect().width / bar.getBoundingClientRect().width) * 100), colour: getComputedStyle(fill).backgroundColor };
   }));
   expect(claude.map((bar) => bar.share)).toEqual([22, 76]);
   expect(claude[0].colour).not.toBe(claude[1].colour);
-  // Side by side, the same width, under the name and the figure.
-  const boxes = await pair('ChatGPT 订阅').locator('.gauge').evaluateAll((bars) => bars.map((bar) => bar.getBoundingClientRect().toJSON()));
-  expect(Math.abs(boxes[0].top - boxes[1].top)).toBeLessThan(1);
-  expect(Math.abs(boxes[0].width - boxes[1].width)).toBeLessThan(1);
-  expect(boxes[0].right).toBeLessThan(boxes[1].left);
+  // One line under the name, the two halves the same width; every plan's five hours in one column and its week in
+  // another, Gemini 订阅's second group too, so the homepage reads down the columns.
+  const box = (name: string, selector: string) => plan(name).locator(selector).evaluateAll((all) => all.map((one) => one.getBoundingClientRect().toJSON()));
+  const halves = await box('ChatGPT 订阅', '.meter');
+  expect(Math.abs(halves[0].top - halves[1].top)).toBeLessThan(1);
+  expect(Math.abs(halves[0].width - halves[1].width)).toBeLessThan(1);
+  const columns = async (name: string) => (await box(name, '.gauge')).map((bar) => [Math.round(bar.left), Math.round(bar.right)]);
+  const chatgpt = await columns('ChatGPT 订阅');
+  expect(await columns('Claude 订阅')).toEqual(chatgpt);
+  expect(await columns('Gemini 订阅')).toEqual([...chatgpt, ...chatgpt]);
+  const gemini = await box('Gemini 订阅', '.gauge');
+  expect(gemini[2].top).toBeGreaterThan(gemini[0].bottom + 10);
 });
 
 test('header buttons take clicks, and pinning turns the trend live', async ({ page }) => {
@@ -768,7 +778,7 @@ test('on the phone: the homepage read-only, its figures asked for with the key, 
   await expect(plan).toHaveClass(/tall/);
   await expect(plan.locator('.title')).toHaveAttribute('style', /var\(--label\)/);
   await expect(plan.locator('.gauge')).toHaveCount(2);
-  await expect(plan.locator('.gauge-name')).toHaveText(['5 小时 22%', '本周 76%']);
+  await expect(plan.locator('.meter')).toHaveText(['5 小时 22%', '本周 76%']);
   await expect(page.locator('button.row', { hasText: 'Komari 监控' }).locator('.value')).toHaveAttribute('style', /var\(--label\)/);
   // 会话 is the fourth tab, as on the computer, without the computer's switch.
   await page.getByRole('radio', { name: '会话' }).click();

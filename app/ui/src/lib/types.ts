@@ -24,9 +24,10 @@ export interface Entry {
   /** Shorter forms of the value, for when the label needs the room. */
   fallbacks?: string[];
   usageLevel?: 'normal' | 'warning' | 'critical';
-  /** A plan with two limits worth watching (five hours and the week, or two model groups): a bar for each, in place of
-   *  the single bar of the tightest, with its name and share (percent) under it. */
-  gauges?: { label: string; used: number; level: 'normal' | 'warning' | 'critical' }[];
+  /** A plan with more than one limit: a bar for each window shown, in place of the single bar of the tightest, its name
+   *  and share (percent) under it. `place` 0 and 1 are the first line's left (five hours) and right (the week), 2 and 3
+   *  the second line's; `group`, on a line's first bar, is the model group the line is for (Gemini 订阅's). */
+  gauges?: { label: string; used: number; level: 'normal' | 'warning' | 'critical'; place: number; group?: string }[];
   statusLight?: 'new' | 'ok' | 'issue' | 'unknown';
   /** What tells a row from siblings of the same name (a session's ID). */
   key?: string;

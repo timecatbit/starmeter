@@ -1971,7 +1971,7 @@ class EngineRunParityTests(PanelParityTests):
                             # The most used window leads; Gemini's own come first, five hours before the week; the expired one is gone.
                             self.assertEqual(gemini['value'], '已用 97.6%')
                             self.assertEqual([c['label'] for c in gemini['children'] if c.get('value', '').startswith('已用')],
-                                             ['5 小时', '每周', '每周 · Claude 和 GPT', '5 小时 · Other models'])
+                                             ['5 小时', '本周', '本周 · Claude 和 GPT', '5 小时 · Other models'])
 
     def test_actions_and_panel_requests(self):
         self.settings(visible=['summary', 'claude', 'codex'])

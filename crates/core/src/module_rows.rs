@@ -407,7 +407,7 @@ impl Runtime {
                 merged(&[
                     &object! {
                         "badge" => with_failure(&badge, !windows.is_empty(), failed),
-                        "panelgauges" => rows::gauges(&rows::headline_pair(&gemini_limits(&windows)), closed || failed),
+                        "panelgauges" => rows::gauges(&gemini_bars(&windows), closed || failed),
                     },
                     &self.brand_icon("gemini-subscription"),
                     &object! { "panelusagelevel" => if windows.is_empty() { Json::Null } else { usage_level(most, closed || failed) } },
@@ -839,10 +839,10 @@ pub fn gemini_windows(payload: &Object, now: f64) -> Vec<Object> {
     windows
 }
 
-/// A window's name: 5 小时 and 每周 for Gemini's own, the group's name after them for the others, so that a narrow
+/// A window's name: 5 小时 and 本周 for Gemini's own, the group's name after them for the others, so that a narrow
 /// column (the command line's) that cuts the name still tells the two apart.
 pub fn gemini_window_name(window: &Object) -> String {
-    let span = if window.get("window").and_then(Json::as_str) == Some("5h") { "5 小时" } else { "每周" };
+    let span = if window.get("window").and_then(Json::as_str) == Some("5h") { "5 小时" } else { "本周" };
     match window.get("group").and_then(Json::as_str) {
         Some("gemini") => span.to_string(),
         Some("3p") => format!("{span} · Claude 和 GPT"),
@@ -850,12 +850,26 @@ pub fn gemini_window_name(window: &Object) -> String {
     }
 }
 
-/// The limits Gemini 订阅's homepage bars choose from: with both groups, each group's tightest window under the
-/// group's name (Gemini's models and Claude's with GPT's are separate allowances, picked between by the model one
-/// uses); with one, its windows.
-pub fn gemini_limits(windows: &[Object]) -> Vec<(String, f64, bool)> {
-    let used = |window: &Object| 100.0 - py::num(window.get("remaining"));
-    let mut groups: Vec<(String, f64)> = Vec::new();
+/// Gemini 订阅's homepage bars. Its two groups are separate allowances (Gemini's models, and Claude's with GPT's,
+/// picked between by the model one uses), so each has a line of its own, every window in it: its five hours on the
+/// left, its week on the right, as on every plan's row (a window it lacks leaves its place empty), the group named on
+/// the line's first bar; the panel heads the second line with it. A single group draws its two windows on one line.
+pub fn gemini_bars(windows: &[Object]) -> Vec<rows::Bar> {
+    fn used(window: &Object) -> f64 {
+        100.0 - py::num(window.get("remaining"))
+    }
+    fn five(window: &Object) -> bool {
+        window.get("window").and_then(Json::as_str) == Some("5h")
+    }
+    /// The tightest of some windows, the earlier on a tie (Antigravity gives one of each length).
+    fn tightest<'a>(group: impl Iterator<Item = &'a Object>) -> Option<&'a Object> {
+        group.fold(None, |best: Option<&Object>, window| match best {
+            Some(best) if used(best) >= used(window) => Some(best),
+            _ => Some(window),
+        })
+    }
+    let span = |window: &Object| if five(window) { "5 小时" } else { "本周" };
+    let mut groups: Vec<(String, Vec<&Object>)> = Vec::new();
     for window in windows {
         let name = match window.get("group").and_then(Json::as_str) {
             Some("gemini") => "Gemini".to_string(),
@@ -863,19 +877,27 @@ pub fn gemini_limits(windows: &[Object]) -> Vec<(String, f64, bool)> {
             _ => window.get("groupName").and_then(Json::as_str).unwrap_or("").to_string(),
         };
         match groups.iter_mut().find(|group| group.0 == name) {
-            Some(group) => group.1 = group.1.max(used(window)),
-            None => groups.push((name, used(window))),
+            Some(group) => group.1.push(window),
+            None => groups.push((name, vec![window])),
         }
     }
-    if groups.len() > 1 {
-        return groups.into_iter().map(|(name, used)| (name, used, false)).collect();
+    if groups.len() < 2 {
+        let limits: Vec<(String, f64, bool)> =
+            windows.iter().map(|window| (gemini_window_name(window), used(window), five(window))).collect();
+        return rows::headline_pair(&limits);
     }
-    windows
-        .iter()
-        .map(|window| {
-            (gemini_window_name(window), used(window), window.get("window").and_then(Json::as_str) == Some("5h"))
-        })
-        .collect()
+    groups.truncate(2);
+    let mut bars: Vec<rows::Bar> = Vec::new();
+    for (line, (name, group)) in groups.iter().enumerate() {
+        for column in [0, 1] {
+            let Some(window) = tightest(group.iter().copied().filter(|window| five(window) == (column == 0))) else {
+                continue;
+            };
+            let first = !bars.iter().any(|bar| bar.place / 2 == line);
+            bars.push(rows::Bar::new(line * 2 + column, if first { name } else { "" }, span(window), used(window)));
+        }
+    }
+    bars
 }
 
 /// How long a window runs, for the pace it is used at.

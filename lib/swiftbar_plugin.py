@@ -1761,25 +1761,28 @@ def used_text(percent):
     return '已用 %g%%'%round(min(100,max(0,float(percent))),1)
 
 
-# Between a homepage bar's name, share and level in panelgauges; the bars themselves are split by FALLBACK.
+# Between a homepage bar's name, share, level, place and group in panelgauges; the bars themselves are split by FALLBACK.
 GAUGE_FIELD='\x1e'
 
 
 def headline_pair(limits):
-    """The two limits a plan's homepage row draws as bars, each (name, share used), from (name, used, five hours?):
-    the five-hour one, or else the first, and the tightest of the rest, so the row's figure (the tightest of all) is
-    always one of the two. Fewer than two limits keep the single bar."""
+    """The two limits a plan's homepage row draws as bars on one line, each (place, group, name, share used), from
+    (name, used, five hours?): the five-hour one, or else the first, and the tightest of the rest (the week, or a
+    model's own limit when that is tighter), so the row's figure (the tightest of all) is always one of the two. Places
+    0 and 1 are the first line's left (five hours) and right (the week), 2 and 3 the second's; the group is the model
+    group a line is for (Gemini 订阅's), on its first bar. Fewer than two limits keep the single bar."""
     if len(limits)<2:return []
     first=next((i for i,limit in enumerate(limits) if limit[2]),0)
     tightest=max((limit for i,limit in enumerate(limits) if i!=first),key=lambda limit:limit[1])
-    return [tuple(limits[first][:2]),tuple(tightest[:2])]
+    return [(0,'',limits[first][0],limits[first][1]),(1,'',tightest[0],tightest[1])]
 
 
-def gauges(pair,stale):
-    """The panel's two bars under a homepage row, each its name, share and level; none while the figures are stale or
-    the last read failed, as a single bar isn't drawn then either."""
-    if len(pair)<2 or stale:return None
-    return FALLBACK.join('%s%s%g%s%s'%(name,GAUGE_FIELD,round(min(100,max(0,float(used))),1),GAUGE_FIELD,usage_level(used)) for name,used in pair)
+def gauges(bars,stale):
+    """The panel's bars under a homepage row, each its name, share, level, place and group; none while the figures are
+    stale or the last read failed, as a single bar isn't drawn then either."""
+    if len(bars)<2 or stale:return None
+    return FALLBACK.join(GAUGE_FIELD.join([name,'%g'%round(min(100,max(0,float(used))),1),usage_level(used),str(place),group])
+                         for place,group,name,used in bars)
 
 
 def claude_subscription_lines(data):
@@ -1908,24 +1911,35 @@ def gemini_windows(payload,now):
 
 
 def gemini_window_name(window):
-    """A window's name: 5 小时 and 每周 for Gemini's own, the group's name after them for the others, so that a narrow
+    """A window's name: 5 小时 and 本周 for Gemini's own, the group's name after them for the others, so that a narrow
     column (the command line's) that cuts the name still tells the two apart."""
-    span='5 小时' if window.get('window')=='5h' else '每周'
+    span='5 小时' if window.get('window')=='5h' else '本周'
     if window.get('group')=='gemini':return span
     if window.get('group')=='3p':return span+' · Claude 和 GPT'
     return '%s · %s'%(span,window.get('groupName') or '')
 
 
-def gemini_limits(windows):
-    """The limits Gemini 订阅's homepage bars choose from: with both groups, each group's tightest window under the
-    group's name (Gemini's models and Claude's with GPT's are separate allowances, picked between by the model one
-    uses); with one, its windows."""
+def gemini_bars(windows):
+    """Gemini 订阅's homepage bars. Its two groups are separate allowances (Gemini's models, and Claude's with GPT's,
+    picked between by the model one uses), so each has a line of its own, every window in it: its five hours on the
+    left, its week on the right, as on every plan's row (a window it lacks leaves its place empty), the group named on
+    the line's first bar; the panel heads the second line with it. A single group draws its two windows on one line."""
+    used=lambda w:100-w.get('remaining',0);five=lambda w:w.get('window')=='5h';span=lambda w:'5 小时' if five(w) else '本周'
     groups={}
     for w in windows:
-        name={'gemini':'Gemini','3p':'Claude 和 GPT'}.get(w.get('group')) or str(w.get('groupName') or '')
-        groups[name]=max(groups.get(name,float('-inf')),100-w.get('remaining',0))
-    if len(groups)>1:return [(name,used,False) for name,used in groups.items()]
-    return [(gemini_window_name(w),100-w.get('remaining',0),w.get('window')=='5h') for w in windows]
+        name={'gemini':'Gemini','3p':'Claude 和 GPT'}.get(w.get('group')) or (w.get('groupName') if isinstance(w.get('groupName'),str) else '')
+        groups.setdefault(name,[]).append(w)
+    if len(groups)<2:return headline_pair([(gemini_window_name(w),used(w),five(w)) for w in windows])
+    groups=list(groups.items())[:2]
+    bars=[]
+    for line,(name,group) in enumerate(groups):
+        for column in (0,1):
+            matching=[w for w in group if five(w)==(column==0)]
+            if not matching:continue
+            # The tightest of them, the earlier on a tie (Antigravity gives one of each length).
+            window=max(matching,key=used);first=not any(bar[0]//2==line for bar in bars)
+            bars.append((line*2+column,name if first else '',span(window),used(window)))
+    return bars
 
 
 def gemini_span(window):
@@ -1947,7 +1961,7 @@ def gemini_subscription_lines(data):
     elif most is not None:badge=used_text(most)
     elif closed or not present:badge='打开 Antigravity 后显示' if present or antigravity_app() else '未发现 Antigravity'
     else:badge='待同步'
-    rows=[item(service.label,badge=with_failure(badge,bool(windows),failed),panelgauges=gauges(headline_pair(gemini_limits(windows)),closed or failed),
+    rows=[item(service.label,badge=with_failure(badge,bool(windows),failed),panelgauges=gauges(gemini_bars(windows),closed or failed),
                **brand_icon('gemini-subscription'),
                panelusagelevel=usage_level(most,closed or failed) if windows else None),
           item('来源 · Antigravity 本机额度',level=1,color=MUTED,size=10)]
@@ -3802,8 +3816,9 @@ def panel_entries(lines):
                 bars=[]
                 for bar in attrs["panelgauges"].split(FALLBACK):
                     fields=bar.split(GAUGE_FIELD)
-                    try:bars.append({'label':fields[0],'used':float(fields[1]),'level':fields[2]})
+                    try:bars.append({'label':fields[0],'used':float(fields[1]),'level':fields[2],'place':int(fields[3])})
                     except (IndexError,ValueError):continue
+                    if len(fields)>4 and fields[4]:bars[-1]['group']=fields[4]
                 if bars:entry["gauges"]=bars
             if attrs.get("paneldetail"):
                 entry["detail"] = attrs["paneldetail"]

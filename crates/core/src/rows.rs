@@ -201,13 +201,33 @@ pub fn used_text(percent: f64) -> String {
     format!("已用 {}%", g(round(percent.clamp(0.0, 100.0), 1)))
 }
 
-/// Between a homepage bar's name, share and level in panelgauges; the bars themselves are split by FALLBACK_SEPARATOR.
+/// Between a homepage bar's name, share, level, place and group in panelgauges; the bars themselves are split by
+/// FALLBACK_SEPARATOR.
 pub const GAUGE_FIELD: &str = "\u{1E}";
 
-/// The two limits a plan's homepage row draws as bars, each (name, share used): the five-hour one, or else the first,
-/// and the tightest of the rest, so the row's figure (the tightest of all) is always one of the two. Fewer than two
-/// limits keep the single bar.
-pub fn headline_pair(limits: &[(String, f64, bool)]) -> Vec<(String, f64)> {
+/// A bar under a homepage row.
+#[derive(Debug, PartialEq)]
+pub struct Bar {
+    /// 0 and 1 the left and right of the first line, 2 and 3 of the second: the left a five-hour limit, the right a
+    /// week's.
+    pub place: usize,
+    /// The model group its line is for (Gemini 订阅's), on the line's first bar; a narrow panel shortens it first.
+    pub group: String,
+    /// The window, as its page names it.
+    pub name: String,
+    pub used: f64,
+}
+
+impl Bar {
+    pub fn new(place: usize, group: &str, name: &str, used: f64) -> Bar {
+        Bar { place, group: group.into(), name: name.into(), used }
+    }
+}
+
+/// The two limits a plan's homepage row draws as bars, on one line: the five-hour one, or else the first, and the
+/// tightest of the rest (the week, or a model's own limit when that is tighter), so the row's figure (the tightest of
+/// all) is always one of the two. Fewer than two limits keep the single bar.
+pub fn headline_pair(limits: &[(String, f64, bool)]) -> Vec<Bar> {
     if limits.len() < 2 {
         return Vec::new();
     }
@@ -219,20 +239,22 @@ pub fn headline_pair(limits: &[(String, f64, bool)]) -> Vec<(String, f64)> {
         }
     }
     let tightest = tightest.expect("a second limit");
-    vec![(limits[first].0.clone(), limits[first].1), (tightest.0.clone(), tightest.1)]
+    vec![Bar::new(0, "", &limits[first].0, limits[first].1), Bar::new(1, "", &tightest.0, tightest.1)]
 }
 
-/// The panel's two bars under a homepage row, each its name, share and level; none while the figures are stale or the
-/// last read failed, as a single bar isn't drawn then either.
-pub fn gauges(pair: &[(String, f64)], stale: bool) -> Json {
-    if pair.len() < 2 || stale {
+/// The panel's bars under a homepage row, each its name, share, level, place and group; none while the figures are
+/// stale or the last read failed, as a single bar isn't drawn then either.
+pub fn gauges(bars: &[Bar], stale: bool) -> Json {
+    if bars.len() < 2 || stale {
         return Json::Null;
     }
-    let bars: Vec<String> = pair
+    let bars: Vec<String> = bars
         .iter()
-        .map(|(name, used)| {
-            let level = py::str(Some(&usage_level(Some(*used), false)));
-            format!("{name}{GAUGE_FIELD}{}{GAUGE_FIELD}{level}", g(round(used.clamp(0.0, 100.0), 1)))
+        .map(|bar| {
+            let level = py::str(Some(&usage_level(Some(bar.used), false)));
+            let share = g(round(bar.used.clamp(0.0, 100.0), 1));
+            let field = GAUGE_FIELD;
+            format!("{}{field}{share}{field}{level}{field}{}{field}{}", bar.name, bar.place, bar.group)
         })
         .collect();
     Json::from(bars.join(FALLBACK_SEPARATOR))
@@ -442,7 +464,7 @@ impl Runtime {
 
 #[cfg(test)]
 mod tests {
-    use super::{FALLBACK_SEPARATOR, GAUGE_FIELD, gauges, headline_pair};
+    use super::{Bar, FALLBACK_SEPARATOR, GAUGE_FIELD, gauges, headline_pair};
     use crate::json::Json;
 
     #[test]
@@ -453,19 +475,21 @@ mod tests {
             limit("5 小时", 30.0, true),
             limit("Spark · 本周", 94.5, false),
         ]);
-        assert_eq!(pair, vec![("5 小时".to_string(), 30.0), ("Spark · 本周".to_string(), 94.5)]);
+        assert_eq!(pair, vec![Bar::new(0, "", "5 小时", 30.0), Bar::new(1, "", "Spark · 本周", 94.5)]);
         // No five-hour limit: the first, then the tightest of the rest (the earlier on a tie).
         let pair =
             headline_pair(&[limit("本周", 48.0, false), limit("Fable", 59.0, false), limit("Opus", 59.0, false)]);
-        assert_eq!(pair, vec![("本周".to_string(), 48.0), ("Fable".to_string(), 59.0)]);
+        assert_eq!(pair, vec![Bar::new(0, "", "本周", 48.0), Bar::new(1, "", "Fable", 59.0)]);
         assert!(headline_pair(&[limit("本周", 48.0, false)]).is_empty(), "one limit keeps the single bar");
         let field = GAUGE_FIELD;
         assert_eq!(
-            gauges(&[("5 小时".into(), 100.0 - 94.4), ("本周".into(), 91.0)], false),
-            Json::from(format!("5 小时{field}5.6{field}normal{FALLBACK_SEPARATOR}本周{field}91{field}critical"))
+            gauges(&[Bar::new(0, "", "5 小时", 100.0 - 94.4), Bar::new(1, "Claude 和 GPT", "本周", 91.0)], false),
+            Json::from(format!(
+                "5 小时{field}5.6{field}normal{field}0{field}{FALLBACK_SEPARATOR}本周{field}91{field}critical{field}1{field}Claude 和 GPT"
+            ))
         );
         assert_eq!(
-            gauges(&[("5 小时".into(), 5.0), ("本周".into(), 9.0)], true),
+            gauges(&[Bar::new(0, "", "5 小时", 5.0), Bar::new(1, "", "本周", 9.0)], true),
             Json::Null,
             "stale figures draw no bars"
         );
