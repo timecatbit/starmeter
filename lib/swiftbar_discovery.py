@@ -8,7 +8,7 @@ import swiftbar_catalog as catalog
 import swiftbar_preferences as preferences
 import swiftbar_claude as claude_desktop
 import swiftbar_qoder as qoder
-from swiftbar_sources import dsh_sessions_root, magpie_root
+from swiftbar_sources import antigravity_stores, dsh_sessions_root, magpie_root
 from swiftbar_config import monitor_url
 
 
@@ -59,7 +59,9 @@ def detect(paths, home=None, configured_proxy=False, komari_url='', which=shutil
     except OSError:pass
     if has_records(paths.get('deepseek-harness') or dsh_sessions_root(home),('session*.jsonl','session*.jsonl.zstd')):found.add('deepseek-harness')
     root=Path(paths.get('gemini') or home/'.gemini')
-    if has_records(root/'tmp' if (root/'tmp').is_dir() else root,('session-*.json','session-*.jsonl','chats/**/*.jsonl')):found.add('gemini')
+    # Antigravity is one of Gemini's clients, like Gemini CLI: its app, its agy CLI or a conversation it keeps.
+    antigravity=any((Path(r)/'Antigravity.app').is_dir() for r in app_roots) or which('agy') or antigravity_stores(root)
+    if antigravity or has_records(root/'tmp' if (root/'tmp').is_dir() else root,('session-*.json','session-*.jsonl','chats/**/*.jsonl')):found.add('gemini')
     root=Path(paths.get('workbuddy') or home)
     roots=[root/n/'projects' for n in ('.workbuddy-ai','.workbuddy') if (root/n/'projects').is_dir()]
     if not roots and root!=home:roots=[root/'projects' if (root/'projects').is_dir() else root]

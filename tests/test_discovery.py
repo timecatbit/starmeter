@@ -103,6 +103,18 @@ class DiscoveryTests(unittest.TestCase):
         (self.home/'.claude/projects/p').mkdir(parents=True);(self.home/'.claude/projects/p/a.jsonl').write_text('{}\n')
         self.assertIn('sessions',discovery.detect({},self.home,which=lambda name:None,app_roots=[]))
         self.assertNotIn('sessions',discovery.detect({},self.home/'empty',which=lambda name:None,app_roots=[]))
+    def test_antigravity_turns_on_gemini(self):
+        # Antigravity is one of Gemini's clients, like Gemini CLI: its app, its agy CLI or a conversation it keeps.
+        empty=self.home/'empty';empty.mkdir()
+        self.assertNotIn('gemini',discovery.detect({},empty,which=lambda _:None,app_roots=[]))
+        (self.home/'.gemini/antigravity/conversations').mkdir(parents=True)
+        (self.home/'.gemini/antigravity/conversations/new.db').write_bytes(b'')
+        self.assertNotIn('gemini',self.detect(),'A store not yet written is nothing yet')
+        self.put('.gemini/antigravity-cli/conversations/c1.db','SQLite format 3')
+        self.assertIn('gemini',self.detect())
+        apps=self.home/'Applications';(apps/'Antigravity.app').mkdir(parents=True)
+        self.assertIn('gemini',discovery.detect({},empty,which=lambda _:None,app_roots=[apps]))
+        self.assertIn('gemini',discovery.detect({},empty,which=lambda name:'/opt/homebrew/bin/agy' if name=='agy' else None,app_roots=[]))
     def test_installed_client_can_be_selected_before_first_session(self):
         app=self.home/'Applications/WorkBuddy.app';app.mkdir(parents=True)
         found=discovery.detect({},self.home,which=lambda name:'/test/gemini' if name=='gemini' else None,app_roots=[app.parent])

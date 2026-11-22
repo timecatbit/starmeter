@@ -132,12 +132,17 @@ pub fn detect(inputs: &Inputs) -> Vec<String> {
         found.insert("deepseek-harness");
     }
     let gemini = path("gemini").unwrap_or_else(|| format!("{home}/.gemini"));
+    // Antigravity is one of Gemini's clients, like Gemini CLI: its app, its agy CLI or a conversation it keeps.
+    let antigravity =
+        app(&["Antigravity.app"]) || which("agy") || !crate::harness::antigravity_stores(&gemini).is_empty();
     let gemini_root = if is_dir(&format!("{gemini}/tmp")) { format!("{gemini}/tmp") } else { gemini };
-    if has_records(Some(&gemini_root), |name, relative| {
-        let parts: Vec<&str> = relative.split('/').collect();
-        (name.starts_with("session-") && (name.ends_with(".json") || name.ends_with(".jsonl")))
-            || (name.ends_with(".jsonl") && parts[..parts.len().saturating_sub(1)].contains(&"chats"))
-    }) {
+    if antigravity
+        || has_records(Some(&gemini_root), |name, relative| {
+            let parts: Vec<&str> = relative.split('/').collect();
+            (name.starts_with("session-") && (name.ends_with(".json") || name.ends_with(".jsonl")))
+                || (name.ends_with(".jsonl") && parts[..parts.len().saturating_sub(1)].contains(&"chats"))
+        })
+    {
         found.insert("gemini");
     }
     let workbuddy = path("workbuddy").unwrap_or_else(|| home.to_string());
@@ -273,5 +278,42 @@ impl Runtime {
             environment: &self.environment,
         };
         detect(&inputs)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Inputs, detect};
+    use std::collections::HashMap;
+
+    #[test]
+    fn antigravity_turns_on_gemini() {
+        // Antigravity is one of Gemini's clients, like Gemini CLI: its app or a conversation it keeps.
+        let folder = std::env::temp_dir().join(format!("starmeter-antigravity-detect-{}", std::process::id()));
+        let home = folder.join("home");
+        std::fs::create_dir_all(home.join(".gemini/antigravity/conversations")).unwrap();
+        std::fs::write(home.join(".gemini/antigravity/conversations/new.db"), b"").unwrap();
+        let environment = HashMap::from([("PATH".to_string(), folder.join("bin").to_string_lossy().into_owned())]);
+        let home_text = home.to_string_lossy().into_owned();
+        let found = |app_roots: Vec<String>| {
+            detect(&Inputs {
+                paths: HashMap::new(),
+                home: &home_text,
+                configured_proxy: false,
+                komari_url: "",
+                app_roots,
+                chatgpt_home: None,
+                configured_subscriptions: Vec::new(),
+                environment: &environment,
+            })
+            .contains(&"gemini".to_string())
+        };
+        assert!(!found(Vec::new()), "a store not yet written is nothing yet");
+        std::fs::create_dir_all(folder.join("Applications/Antigravity.app")).unwrap();
+        assert!(found(vec![folder.join("Applications").to_string_lossy().into_owned()]));
+        std::fs::create_dir_all(home.join(".gemini/antigravity-cli/conversations")).unwrap();
+        std::fs::write(home.join(".gemini/antigravity-cli/conversations/c1.db"), b"SQLite format 3").unwrap();
+        assert!(found(Vec::new()));
+        let _ = std::fs::remove_dir_all(&folder);
     }
 }

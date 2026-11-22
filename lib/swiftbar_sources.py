@@ -799,15 +799,171 @@ def gemini_event(row, state):
     return result
 
 
+# Where Antigravity keeps its conversations under the Gemini root, a SQLite store each: the app's, the agy CLI's and
+# the IDE's, with their implicit (background) ones. The older .pb files beside them can only be read through a running
+# Antigravity and are left out.
+ANTIGRAVITY_STORES = ('antigravity/conversations', 'antigravity-cli/conversations', 'antigravity-cli/conversations/implicit',
+                      'antigravity-ide/conversations', 'antigravity-ide/conversations/implicit')
+
+
+def antigravity_stores(root):
+    """Antigravity's conversation stores under a Gemini root; an empty one (created, not yet written) is left alone."""
+    found = []
+    for folder in ANTIGRAVITY_STORES:
+        try:entries = os.listdir(Path(root)/folder)
+        except OSError:continue
+        for name in entries:
+            path = Path(root)/folder/name
+            try:
+                if name.endswith('.db') and path.is_file() and path.stat().st_size > 0:found.append(path)
+            except OSError:pass
+    return sorted(found)
+
+
+def store_state(path):
+    """A store's size and last change (ns), its write-ahead log's included: a conversation being written keeps its
+    newest pages there."""
+    st = path.stat()
+    try:log = Path(str(path)+'-wal').stat(); return st.st_size+log.st_size, max(st.st_mtime_ns, log.st_mtime_ns)
+    except OSError:return st.st_size, st.st_mtime_ns
+
+
+def proto(data):
+    """A protobuf message's fields by number, in order ([(number, int or bytes)]); None when the bytes aren't one.
+    Antigravity's records have no schema to go by: the fields are read by the numbers its own records were seen to use."""
+    fields, at = [], 0
+    def varint():
+        nonlocal at
+        value = 0
+        for shift in range(0, 64, 7):
+            if at >= len(data):return None
+            byte = data[at]; at += 1
+            value |= (byte & 0x7f) << shift
+            if byte < 0x80:return value & 0xffffffffffffffff
+        return None
+    def take(size):
+        nonlocal at
+        if size is None or at+size > len(data):return None
+        part = data[at:at+size]; at += size
+        return part
+    while at < len(data):
+        key = varint()
+        if key is None or key >> 3 == 0:return None
+        kind = key & 7
+        if kind == 0:value = varint()
+        elif kind == 1:part = take(8); value = None if part is None else int.from_bytes(part, 'little')
+        elif kind == 5:part = take(4); value = None if part is None else int.from_bytes(part, 'little')
+        elif kind == 2:value = take(varint())
+        else:return None
+        if value is None:return None
+        fields.append((key >> 3, value))
+    return fields
+
+
+def proto_number(fields, number):
+    return next((v for n, v in fields if n == number and isinstance(v, int)), None)
+
+
+def proto_bytes(fields, number):
+    return next((v for n, v in fields if n == number and isinstance(v, bytes)), None)
+
+
+def proto_text(fields, number):
+    """A field as text; empty text counts as none."""
+    value = proto_bytes(fields, number)
+    try:return value.decode() or None if value is not None else None
+    except UnicodeDecodeError:return None
+
+
+def proto_moment(data):
+    """A timestamp message ({1: seconds, 2: nanoseconds}) as seconds; one before 1970 or from the year 3000 is none."""
+    fields = proto(data) if data is not None else None
+    if not fields or proto_number(fields, 1) is None:return None
+    at = float(proto_number(fields, 1)) + (proto_number(fields, 2) or 0) / 1e9
+    return at if 0 < at < 32503680000 else None
+
+
+def display_model(name):
+    """The model a generation's display name names when it has no id: Gemini 4 Carbon (High) as gemini-4-carbon."""
+    return '-'.join(name.split(' (')[0].strip().lower().split())
+
+
+def antigravity_file(path, changed):
+    """One Antigravity conversation's requests, from its store's gen_metadata: a row each, with its tokens
+    (exa.codeium_common_pb.ModelUsageStats: 2 input not from the cache, 3 output, which is 9 thinking and 10 the
+    answer, 4 written to the cache, 5 read from it, 11 the response), its model (19, else its display name 21) and when
+    its step began (the steps row copying its response, else the one of its generation, else when the conversation
+    began, else the store's last change). A row whose output isn't its two parts was written to another layout and is
+    left out rather than misread."""
+    db = sqlite3.connect(path.resolve().as_uri()+'?mode=ro', uri=True, timeout=2)
+    try:
+        db.execute('PRAGMA query_only=ON')
+        conversation = path.stem; by_response = {}; by_generation = {}
+        for (metadata,) in db.execute('SELECT metadata FROM steps'):
+            fields = proto(metadata) if isinstance(metadata, bytes) else None
+            if fields is None:continue
+            at = proto_moment(proto_bytes(fields, 1))
+            if at is None:continue
+            usage = proto(proto_bytes(fields, 9)) if proto_bytes(fields, 9) is not None else None
+            for key, times in ((proto_text(usage, 11) if usage else None, by_response), (proto_text(fields, 12), by_generation)):
+                if key:times[key] = min(times.get(key, at), at)
+        began = None
+        row = db.execute('SELECT data FROM trajectory_metadata_blob').fetchone()
+        if row and isinstance(row[0], bytes):
+            fields = proto(row[0])
+            if fields:began = proto_moment(proto_bytes(fields, 2))
+        events = []
+        for idx, data in db.execute('SELECT idx, data FROM gen_metadata ORDER BY idx'):
+            top = proto(data) if isinstance(data, bytes) else None
+            generation = proto(proto_bytes(top, 1)) if top and proto_bytes(top, 1) is not None else None
+            usage = proto(proto_bytes(generation, 4)) if generation and proto_bytes(generation, 4) is not None else None
+            if usage is None:continue
+            total, thinking, answer = proto_number(usage, 3), proto_number(usage, 9), proto_number(usage, 10)
+            if thinking is None and answer is None:output = total or 0
+            else:
+                output = (thinking or 0) + (answer or 0)
+                if total is not None and total != output:continue
+            response = proto_text(usage, 11)
+            at = by_response.get(response) if response else None
+            if at is None:
+                generation_id = proto_text(top, 4)
+                at = by_generation.get(generation_id) if generation_id else None
+            if at is None:at = began if began is not None else changed
+            name = proto_text(generation, 21)
+            model = proto_text(generation, 19) or (display_model(name) if name else None)
+            event = metrics(model, proto_number(usage, 2) or 0, output, proto_number(usage, 5) or 0, proto_number(usage, 4) or 0)
+            event.update(id=identity('antigravity', response or '%s:%d' % (conversation, idx or 0)), session=identity(conversation),
+                         timestamp=at, provider='google')
+            events.append(event)
+        return events
+    finally:db.close()
+
+
+def gemini_files(folder, root):
+    """Gemini CLI's session files under a folder: session-*.json(l), and any JSONL in a chats folder (new subagents use
+    UUID names). Looking through the root itself, Antigravity's own folders are left out (its stores are read apart; its
+    config holds a node_modules)."""
+    found = set()
+    for here, folders, files in os.walk(folder):
+        here = Path(here)
+        if here == root:folders[:] = [name for name in folders if not (name.startswith('antigravity') or name == 'config')]
+        parts = here.relative_to(folder).parts
+        for name in files:
+            path = here/name
+            if name.startswith('session-') and '.json' in name and path.suffix in ('.json', '.jsonl'):found.add(path)
+            if name.endswith('.jsonl') and 'chats' in parts:found.add(path)
+    return found
+
+
 def gemini_usage(root, cache, start, end, zone, exclude_proxy=False, carriers=None, archive=None):
-    """JSON/JSONL Gemini CLI sessions. Index usage only, including spent rewinds."""
+    """Gemini's usage on this computer: Gemini CLI's JSON and JSONL sessions (spent rewinds included) and Antigravity's
+    conversations (the app's, the agy CLI's and the IDE's), all under the Gemini root."""
     root = Path(root).expanduser()
     if not root.is_dir(): return {'error':'未找到 Gemini 用量记录'}
     folders = [root/'tmp'] if (root/'tmp').is_dir() else [root]
-    paths = sorted({p for folder in folders for p in folder.rglob('session-*.json*') if p.suffix in ('.json','.jsonl')})
-    # New subagents may use UUID filenames instead of session-*.
-    paths = sorted(set(paths) | {p for folder in folders for p in folder.rglob('chats/**/*.jsonl')})
-    if not paths and not (archive and Path(archive).is_file()): return {'error':'暂无 Gemini 用量记录'}
+    paths = sorted({p for folder in folders for p in gemini_files(folder, root)})
+    stores = antigravity_stores(root)
+    if not paths and not stores and not (archive and Path(archive).is_file()): return {'error':'暂无 Gemini 用量记录'}
     target = Path(cache)/('harness-gemini-v2-'+identity(str(root.resolve()))[:12]+'.sqlite3')
     target.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
     db = sqlite3.connect(target,timeout=10);os.chmod(target,0o600)
@@ -815,7 +971,7 @@ def gemini_usage(root, cache, start, end, zone, exclude_proxy=False, carriers=No
         db.executescript('CREATE TABLE IF NOT EXISTS files(path TEXT PRIMARY KEY,size INTEGER,mtime INTEGER); CREATE TABLE IF NOT EXISTS events(id TEXT,file TEXT,ts REAL,data TEXT,PRIMARY KEY(id,file)); CREATE INDEX IF NOT EXISTS events_ts ON events(ts); CREATE INDEX IF NOT EXISTS events_file ON events(file);')
         errors=0
         # Deleted sessions keep contributing only through the archive, when there is one.
-        with db:forget_missing(db,{identity(str(path)) for path in paths},archive)
+        with db:forget_missing(db,{identity(str(path)) for path in paths+stores},archive)
         for path in paths:
             file_id=identity(str(path));st=path.stat()
             if db.execute('SELECT size,mtime FROM files WHERE path=?',(file_id,)).fetchone()==(st.st_size,st.st_mtime_ns):continue
@@ -846,6 +1002,20 @@ def gemini_usage(root, cache, start, end, zone, exclude_proxy=False, carriers=No
                     for e in events:db.execute('INSERT OR REPLACE INTO events VALUES (?,?,?,?)',(e['id'],file_id,e['timestamp'],json.dumps(e)))
                     db.execute('INSERT OR REPLACE INTO files VALUES (?,?,?)',(file_id,st.st_size,st.st_mtime_ns))
             except (OSError,ValueError,TypeError,KeyError):errors+=1
+        # Antigravity's stores, each read again only when it or its write-ahead log changed. A generation kept in two
+        # stores (the app's and the IDE's) counts once, by its response.
+        for path in stores:
+            file_id=identity(str(path))
+            try:size,mtime=store_state(path)
+            except OSError:errors+=1;continue
+            if db.execute('SELECT size,mtime FROM files WHERE path=?',(file_id,)).fetchone()==(size,mtime):continue
+            if mtime/1e9<start:continue
+            try:events=antigravity_file(path,mtime/1e9)
+            except (OSError,sqlite3.Error):errors+=1;continue
+            with db:
+                db.execute('DELETE FROM events WHERE file=?',(file_id,))
+                for e in events:db.execute('INSERT OR REPLACE INTO events VALUES (?,?,?,?)',(e['id'],file_id,e['timestamp'],json.dumps(e)))
+                db.execute('INSERT OR REPLACE INTO files VALUES (?,?,?)',(file_id,size,mtime))
         result=aggregate(kept.merged(unique_events(db,start,end),archive,start,end),start,end,zone,exclude_proxy,model_cost,carriers)
         if errors:
             result['partial']=True

@@ -590,6 +590,75 @@ class HarnessReaderParityTests(unittest.TestCase):
             {'type': 'assistant', 'timestamp': 'later', 'message': {'id': 'm9', 'usage': {'input_tokens': 10}}}])
         self.compare('qoder', qoder, 'Qoder CN')
 
+    def test_antigravity_conversations_count_as_gemini(self):
+        """Antigravity's conversation stores, read beside Gemini CLI as the one Gemini: tokens, models and times from
+        its protobuf rows, a generation kept in two stores once, a row of another layout left out."""
+        def pb(*fields):
+            def varint(n):
+                out = b''
+                while True:
+                    byte = n & 0x7f; n >>= 7
+                    out += bytes([byte | (0x80 if n else 0)])
+                    if not n:return out
+            data = b''
+            for number, value in fields:
+                if isinstance(value, int):data += varint(number << 3) + varint(value)
+                else:
+                    value = value.encode() if isinstance(value, str) else value
+                    data += varint(number << 3 | 2) + varint(len(value)) + value
+            return data
+        at = lambda text: datetime.fromisoformat(text.replace('Z', '+00:00')).timestamp()
+        moment = lambda text: pb((1, int(at(text))), (2, int(round(at(text) % 1 * 1e9))))
+        def store(path, gens, steps=(), began=None):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            db = sqlite3.connect(path)
+            db.executescript('CREATE TABLE steps(idx integer, step_type integer NOT NULL DEFAULT 0, status integer NOT NULL DEFAULT 0, metadata blob);'
+                             'CREATE TABLE gen_metadata(idx integer PRIMARY KEY, data blob, size integer NOT NULL DEFAULT 0);'
+                             'CREATE TABLE trajectory_metadata_blob(id text DEFAULT "main" PRIMARY KEY, data blob);')
+            for idx, data in enumerate(gens):db.execute('INSERT INTO gen_metadata(idx, data) VALUES (?, ?)', (idx, data))
+            for idx, data in enumerate(steps):db.execute('INSERT INTO steps(idx, metadata) VALUES (?, ?)', (idx, data))
+            if began:db.execute('INSERT INTO trajectory_metadata_blob(data) VALUES (?)', (pb((2, moment(began))),))
+            db.commit(); db.close()
+        generation = lambda usage, *more, uuid=None: pb(*([(4, uuid)] if uuid else []), (1, pb((3, 1427), (4, pb(*usage)), *more)))
+        first = generation([(1, 1427), (2, 13726), (3, 254), (6, 24), (9, 190), (10, 64), (11, 'r1')],
+                           (19, 'gemini-4-carbon'), (21, 'Gemini 4 Carbon (High)'), uuid='g1')
+        gemini = self.root / 'gemini'
+        store(gemini / 'antigravity' / 'conversations' / 'c1.db', [
+            first,
+            # No model id: its display name names it; its time is its generation's step.
+            generation([(2, 2374), (3, 171), (5, 11677), (10, 171), (11, 'r2')], (21, 'Gemini 3.5 Flash (High)'), uuid='g2'),
+            pb((2, b'\x03'), (3, pb((1, 1427)))),                                            # the run's settings, no usage
+            generation([(2, 9), (3, 100), (9, 10), (10, 20), (11, 'r3')], (19, 'gemini-4-carbon')),  # output not its parts
+            generation([(2, 5), (3, 1), (4, 7)], (19, 'claude-sonnet-4-6')),                   # no response, no step
+        ], steps=[
+            pb((1, moment('2026-11-18T02:00:00.500Z')), (12, 'g1')),
+            pb((1, moment('2026-11-18T02:00:01.250Z')), (9, pb((2, 13726), (11, 'r1'))), (12, 'g1')),
+            pb((1, moment('2026-11-18T03:00:00Z')), (12, 'g2')),
+        ], began='2026-11-18T01:00:00Z')
+        # The same generation in the IDE's store: once.
+        store(gemini / 'antigravity-ide' / 'conversations' / 'c1.db', [first], steps=[pb((1, moment('2026-11-18T02:00:01.250Z')), (9, pb((11, 'r1'))))])
+        # The agy CLI's background conversation with neither steps nor a start: dated by its store.
+        quiet = gemini / 'antigravity-cli' / 'conversations' / 'implicit' / 'c3.db'
+        store(quiet, [generation([(2, 40), (3, 2), (10, 2), (11, 'r9')], (19, 'gemini-3.8-flash'))])
+        os.utime(quiet, (self.start + 7200, self.start + 7200))
+        (gemini / 'antigravity' / 'conversations' / 'empty.db').write_bytes(b'')
+        (gemini / 'antigravity' / 'conversations' / 'old.pb').write_bytes(b'\x0a\x00')
+        result = self.compare('gemini', gemini, 'Antigravity alone')
+        self.assertEqual(result['summary']['requests'], 4)
+        self.assertEqual(sorted(m['model'] for m in result['models']), ['claude-sonnet-4-6', 'gemini-3.5-flash', 'gemini-3.8-flash', 'gemini-4-carbon'])
+        self.assertEqual(result['summary']['totalTokens'], 13980 + 14222 + 13 + 42)
+        self.compare('gemini', gemini, 'again, nothing changed')
+        # A generation added to a conversation still being written: read again.
+        db = sqlite3.connect(gemini / 'antigravity' / 'conversations' / 'c1.db')
+        db.execute('INSERT INTO gen_metadata(idx, data) VALUES (9, ?)', (generation([(2, 100), (3, 10), (10, 10), (11, 'r4')], (19, 'gemini-4-carbon')),))
+        db.commit(); db.close()
+        self.assertEqual(self.compare('gemini', gemini, 'one more')['summary']['requests'], 5)
+        # Beside Gemini CLI: both.
+        chats = gemini / 'tmp' / 'abc' / 'chats'; chats.mkdir(parents=True)
+        (chats / 'session-1.json').write_text(json.dumps({'sessionId': 'gs1', 'messages': [{'type': 'gemini', 'id': 'g1', 'model': 'gemini-3-pro',
+            'timestamp': '2026-11-18T10:00:00Z', 'tokens': {'input': 100, 'output': 10, 'cached': 20, 'thoughts': 5, 'tool': 2, 'total': 117}}]}))
+        self.assertEqual(self.compare('gemini', gemini, 'with Gemini CLI')['summary']['requests'], 6)
+
     def test_gemini_and_opencode(self):
         gemini = self.root / 'gemini'
         chats = gemini / 'tmp' / 'abc' / 'chats'

@@ -533,6 +533,11 @@ pub fn sorted_paths(mut paths: Vec<String>) -> Vec<String> {
 
 /// Every file under root, as root + relative path, without following linked folders.
 pub fn walk(root: &str) -> Vec<String> {
+    walk_except(root, &|_| false)
+}
+
+/// walk(), not going into the folders `skip` names (given each folder's path).
+pub fn walk_except(root: &str, skip: &dyn Fn(&str) -> bool) -> Vec<String> {
     // Joined with '/', on Windows too (which takes either separator), so a file's name and its parent folders are
     // always the parts after the last slashes.
     let join = |folder: &str, name: &str| {
@@ -549,7 +554,9 @@ pub fn walk(root: &str) -> Vec<String> {
             let path = join(&folder, &entry.file_name().to_string_lossy());
             let Ok(kind) = entry.file_type() else { continue };
             if kind.is_dir() {
-                pending.push(path);
+                if !skip(&path) {
+                    pending.push(path);
+                }
             } else if std::fs::metadata(&path).is_ok_and(|metadata| !metadata.is_dir()) {
                 found.push(path);
             }
@@ -934,7 +941,8 @@ fn unique_events(db: &Database, start: f64, end: f64) -> Fallible<Vec<Event>> {
 
 // Gemini CLI and OpenCode
 
-/// JSON and JSONL Gemini CLI sessions, usage only, including spent rewinds.
+/// Gemini's usage on this computer: Gemini CLI's JSON and JSONL sessions (spent rewinds included) and Antigravity's
+/// conversations (the app's, the agy CLI's and the IDE's), all under the Gemini root.
 #[allow(clippy::too_many_arguments)]
 pub fn gemini_usage(
     root_path: &str,
@@ -953,9 +961,17 @@ pub fn gemini_usage(
     let archive = archive.filter(|path| !path.as_os_str().is_empty());
     let tmp = format!("{root}/tmp");
     let folders = if is_directory(&tmp) { vec![tmp] } else { vec![root.clone()] };
+    // Without tmp the whole root is looked through, but for Antigravity's own folders (its stores are read below; its
+    // config holds a node_modules).
+    let antigravity_own = |folder: &str| {
+        folder
+            .strip_prefix(&root)
+            .and_then(|rest| rest.strip_prefix('/'))
+            .is_some_and(|top| !top.contains('/') && (top.starts_with("antigravity") || top == "config"))
+    };
     let mut found: HashSet<String> = HashSet::new();
     for folder in &folders {
-        for path in walk(folder) {
+        for path in walk_except(folder, &antigravity_own) {
             let file = name(&path);
             if file.starts_with("session-") && file.contains(".json") && [".json", ".jsonl"].contains(&suffix(&path)) {
                 found.insert(path.clone());
@@ -971,7 +987,8 @@ pub fn gemini_usage(
         }
     }
     let paths = sorted_paths(found.into_iter().collect());
-    if paths.is_empty() && !archive.is_some_and(Path::exists) {
+    let stores = antigravity_stores(&root);
+    if paths.is_empty() && stores.is_empty() && !archive.is_some_and(Path::exists) {
         return Ok(object! { "error" => "暂无 Gemini 用量记录" });
     }
     let target = cache.join(format!("harness-gemini-v2-{}.sqlite3", root_identity(&root)));
@@ -983,8 +1000,30 @@ pub fn gemini_usage(
     )?;
     let mut errors = 0;
     // Deleted sessions keep contributing only through the archive, when there is one.
-    let active: HashSet<String> = paths.iter().map(|path| py::identity(vec![path.as_str().into()])).collect();
+    let active: HashSet<String> =
+        paths.iter().chain(&stores).map(|path| py::identity(vec![path.as_str().into()])).collect();
     transaction(&db, || forget_missing(&db, &active, archive))?;
+    let keep = |file_id: &str, events: &[Event], size: i64, mtime: i64| {
+        transaction(&db, || {
+            db.run("DELETE FROM events WHERE file=?", &[Value::Text(file_id.to_string())])?;
+            for event in events {
+                db.run(
+                    "INSERT OR REPLACE INTO events VALUES (?,?,?,?)",
+                    &[
+                        bind(event.get("id")),
+                        Value::Text(file_id.to_string()),
+                        bind(event.get("timestamp")),
+                        Value::Text(py::dumps(&Json::Object(event.clone()))),
+                    ],
+                )?;
+            }
+            db.run(
+                "INSERT OR REPLACE INTO files VALUES (?,?,?)",
+                &[Value::Text(file_id.to_string()), Value::Integer(size), Value::Integer(mtime)],
+            )?;
+            Ok(())
+        })
+    };
     for path in &paths {
         let file_id = py::identity(vec![path.as_str().into()]);
         let Some(state) = state_of(Path::new(path)) else {
@@ -1009,25 +1048,29 @@ pub fn gemini_usage(
                 continue;
             }
         };
-        transaction(&db, || {
-            db.run("DELETE FROM events WHERE file=?", &[Value::Text(file_id.clone())])?;
-            for event in &events {
-                db.run(
-                    "INSERT OR REPLACE INTO events VALUES (?,?,?,?)",
-                    &[
-                        bind(event.get("id")),
-                        Value::Text(file_id.clone()),
-                        bind(event.get("timestamp")),
-                        Value::Text(py::dumps(&Json::Object(event.clone()))),
-                    ],
-                )?;
-            }
-            db.run(
-                "INSERT OR REPLACE INTO files VALUES (?,?,?)",
-                &[Value::Text(file_id.clone()), Value::Integer(state.size), Value::Integer(state.mtime)],
-            )?;
-            Ok(())
-        })?;
+        keep(&file_id, &events, state.size, state.mtime)?;
+    }
+    // Antigravity's stores, each read again only when it or its write-ahead log changed. A generation kept in two
+    // stores (the app's and the IDE's) counts once, by its response.
+    for path in &stores {
+        let file_id = py::identity(vec![path.as_str().into()]);
+        let Some((size, mtime)) = store_state(path) else {
+            errors += 1;
+            continue;
+        };
+        if let Some(known) = db.first("SELECT size,mtime FROM files WHERE path=?", &[Value::Text(file_id.clone())])?
+            && database::int(&known[0]) == Some(size)
+            && database::int(&known[1]) == Some(mtime)
+        {
+            continue;
+        }
+        if (mtime as f64) / 1e9 < start {
+            continue;
+        }
+        match antigravity_file(path, mtime as f64 / 1e9) {
+            Ok(events) => keep(&file_id, &events, size, mtime)?,
+            Err(_) => errors += 1,
+        }
     }
     let events = archive::merged(unique_events(&db, start, end)?, archive, start, end);
     let mut result = tally::aggregate(&events, start, end, zone, exclude_proxy, Some(&pricing::model_cost), carriers);
@@ -1088,6 +1131,206 @@ fn gemini_file(path: &str, file_state: &mut Object) -> Result<Vec<Event>, FileEr
                 Err(ReadError::File(error)) => return Err(error),
             }
         }
+    }
+    Ok(events)
+}
+
+// Antigravity
+
+/// Where Antigravity keeps its conversations under the Gemini root, a SQLite store each: the app's, the agy CLI's and
+/// the IDE's, with their implicit (background) ones. The older .pb files beside them can only be read through a
+/// running Antigravity and are left out.
+const ANTIGRAVITY_STORES: [&str; 5] = [
+    "antigravity/conversations",
+    "antigravity-cli/conversations",
+    "antigravity-cli/conversations/implicit",
+    "antigravity-ide/conversations",
+    "antigravity-ide/conversations/implicit",
+];
+
+/// Antigravity's conversation stores under a Gemini root; an empty one (created, not yet written) is left alone.
+pub fn antigravity_stores(root: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    for folder in ANTIGRAVITY_STORES {
+        let folder = format!("{root}/{folder}");
+        let Ok(entries) = std::fs::read_dir(&folder) else { continue };
+        for entry in entries.filter_map(Result::ok) {
+            let path = format!("{folder}/{}", entry.file_name().to_string_lossy());
+            if path.ends_with(".db")
+                && std::fs::metadata(&path).is_ok_and(|metadata| metadata.is_file() && metadata.len() > 0)
+            {
+                found.push(path);
+            }
+        }
+    }
+    sorted_paths(found)
+}
+
+/// A store's size and last change, its write-ahead log's included: a conversation being written keeps its newest
+/// pages there.
+fn store_state(path: &str) -> Option<(i64, i64)> {
+    let store = state_of(Path::new(path))?;
+    let log = state_of(Path::new(&format!("{path}-wal")));
+    Some((store.size + log.as_ref().map_or(0, |log| log.size), store.mtime.max(log.map_or(0, |log| log.mtime))))
+}
+
+/// One protobuf field: a number (varint or fixed) or bytes (text or a message).
+#[derive(Clone, Copy)]
+enum Field<'a> {
+    Number(u64),
+    Bytes(&'a [u8]),
+}
+
+/// A protobuf message's fields by number, in order; None when the bytes aren't one. Antigravity's records have no
+/// schema to go by: the fields are read by the numbers its own records were seen to use.
+fn proto(bytes: &[u8]) -> Option<Vec<(u64, Field<'_>)>> {
+    fn varint(bytes: &[u8], at: &mut usize) -> Option<u64> {
+        let mut value = 0u64;
+        for shift in (0..64).step_by(7) {
+            let byte = *bytes.get(*at)?;
+            *at += 1;
+            value |= u64::from(byte & 0x7f) << shift;
+            if byte < 0x80 {
+                return Some(value);
+            }
+        }
+        None
+    }
+    fn take<'a>(bytes: &'a [u8], at: &mut usize, size: usize) -> Option<&'a [u8]> {
+        let part = bytes.get(*at..at.checked_add(size)?)?;
+        *at += size;
+        Some(part)
+    }
+    let mut fields = Vec::new();
+    let mut at = 0;
+    while at < bytes.len() {
+        let key = varint(bytes, &mut at)?;
+        let number = key >> 3;
+        if number == 0 {
+            return None;
+        }
+        let field = match key & 7 {
+            0 => Field::Number(varint(bytes, &mut at)?),
+            1 => Field::Number(u64::from_le_bytes(take(bytes, &mut at, 8)?.try_into().ok()?)),
+            5 => Field::Number(u32::from_le_bytes(take(bytes, &mut at, 4)?.try_into().ok()?).into()),
+            2 => {
+                let size = usize::try_from(varint(bytes, &mut at)?).ok()?;
+                Field::Bytes(take(bytes, &mut at, size)?)
+            }
+            _ => return None,
+        };
+        fields.push((number, field));
+    }
+    Some(fields)
+}
+
+/// A message's first field of this number, as a number.
+fn proto_number(fields: &[(u64, Field)], number: u64) -> Option<u64> {
+    fields.iter().find_map(|(n, field)| match field {
+        Field::Number(value) if *n == number => Some(*value),
+        _ => None,
+    })
+}
+
+/// A message's first field of this number, as bytes.
+fn proto_bytes<'a>(fields: &[(u64, Field<'a>)], number: u64) -> Option<&'a [u8]> {
+    fields.iter().find_map(|(n, field)| match field {
+        Field::Bytes(value) if *n == number => Some(*value),
+        _ => None,
+    })
+}
+
+/// A message's first field of this number, as text; empty text counts as none.
+fn proto_text(fields: &[(u64, Field)], number: u64) -> Option<String> {
+    proto_bytes(fields, number)
+        .and_then(|bytes| std::str::from_utf8(bytes).ok())
+        .filter(|text| !text.is_empty())
+        .map(String::from)
+}
+
+/// A timestamp message ({1: seconds, 2: nanoseconds}) as seconds; one before 1970 or from the year 3000 is none.
+fn proto_moment(bytes: &[u8]) -> Option<f64> {
+    let fields = proto(bytes)?;
+    let at = proto_number(&fields, 1)? as f64 + proto_number(&fields, 2).unwrap_or(0) as f64 / 1e9;
+    (at > 0.0 && at < 32_503_680_000.0).then_some(at)
+}
+
+/// The model a generation's display name names when it has no id of its own: Gemini 4 Carbon (High) as
+/// gemini-4-carbon.
+fn display_model(name: &str) -> String {
+    let base = name.split(" (").next().unwrap_or(name).trim();
+    base.to_lowercase().split_whitespace().collect::<Vec<_>>().join("-")
+}
+
+/// One Antigravity conversation's requests, from its store's gen_metadata: a row each, with its tokens
+/// (exa.codeium_common_pb.ModelUsageStats: 2 input not from the cache, 3 output, which is 9 thinking and 10 the
+/// answer, 4 written to the cache, 5 read from it, 11 the response), its model (19, else its display name 21) and
+/// when its step began (the steps row copying its response, else the one of its generation, else when the
+/// conversation began, else the store's last change). A row whose output isn't its two parts was written to another
+/// layout and is left out rather than misread.
+fn antigravity_file(path: &str, changed: f64) -> Result<Vec<Event>, FileError> {
+    let unreadable = |_| FileError::new("unreadable");
+    let db = Database::open(Path::new(path), 2.0, Mode::ReadOnly).map_err(unreadable)?;
+    db.execute("PRAGMA query_only=ON").map_err(unreadable)?;
+    let conversation = Path::new(path).file_stem().map(|stem| stem.to_string_lossy().into_owned()).unwrap_or_default();
+    let mut by_response: HashMap<String, f64> = HashMap::new();
+    let mut by_generation: HashMap<String, f64> = HashMap::new();
+    for row in db.rows("SELECT metadata FROM steps", &[]).map_err(unreadable)? {
+        let Some(fields) = database::blob(&row[0]).and_then(proto) else { continue };
+        let Some(at) = proto_bytes(&fields, 1).and_then(proto_moment) else { continue };
+        let response = proto_bytes(&fields, 9).and_then(proto).and_then(|usage| proto_text(&usage, 11));
+        for (key, times) in [(response, &mut by_response), (proto_text(&fields, 12), &mut by_generation)] {
+            if let Some(key) = key {
+                let earliest = times.entry(key).or_insert(at);
+                *earliest = earliest.min(at);
+            }
+        }
+    }
+    let began = db.first("SELECT data FROM trajectory_metadata_blob", &[]).ok().flatten().and_then(|row| {
+        let fields = database::blob(&row[0]).and_then(proto)?;
+        proto_bytes(&fields, 2).and_then(proto_moment)
+    });
+    let mut events = Vec::new();
+    for row in db.rows("SELECT idx, data FROM gen_metadata ORDER BY idx", &[]).map_err(unreadable)? {
+        let Some(top) = database::blob(&row[1]).and_then(proto) else { continue };
+        let Some(generation) = proto_bytes(&top, 1).and_then(proto) else { continue };
+        let Some(usage) = proto_bytes(&generation, 4).and_then(proto) else { continue };
+        let total = proto_number(&usage, 3);
+        let output = match (proto_number(&usage, 9), proto_number(&usage, 10)) {
+            (None, None) => total.unwrap_or(0),
+            (thinking, answer) => {
+                let parts = thinking.unwrap_or(0) + answer.unwrap_or(0);
+                if total.is_some_and(|total| total != parts) {
+                    continue;
+                }
+                parts
+            }
+        };
+        let response = proto_text(&usage, 11);
+        let at = response
+            .as_ref()
+            .and_then(|response| by_response.get(response))
+            .or_else(|| proto_text(&top, 4).and_then(|generation| by_generation.get(&generation)))
+            .copied()
+            .or(began)
+            .unwrap_or(changed);
+        let model =
+            proto_text(&generation, 19).or_else(|| proto_text(&generation, 21).map(|name| display_model(&name)));
+        let count = |number| Json::Int(proto_number(&usage, number).unwrap_or(0) as i64);
+        let mut event = metrics(
+            model.map(Json::from).as_ref(),
+            Some(&count(2)),
+            Some(&Json::Int(output as i64)),
+            Some(&count(5)),
+            Some(&count(4)),
+            None,
+        );
+        let key = response.unwrap_or_else(|| format!("{conversation}:{}", database::int(&row[0]).unwrap_or(0)));
+        event.insert("id", py::identity(vec!["antigravity".into(), key.into()]));
+        event.insert("session", py::identity(vec![conversation.as_str().into()]));
+        event.insert("timestamp", at);
+        event.insert("provider", "google");
+        events.push(event);
     }
     Ok(events)
 }
