@@ -264,7 +264,9 @@ class CursorPluginTests(unittest.TestCase):
         self.assertEqual(rows['summary']['symbol'], 'chart.xyaxis.line')
         self.assertEqual(base64.b64decode(rows['cursor']['image'])[:4], b'<svg')
         sidebar = rows['cursor']['children']
-        self.assertEqual(sidebar[0]['action'], ['set-cursor-usage', 'true']);self.assertFalse(sidebar[0]['checked'])
+        # Its page leads with whether it shows on the homepage, then reading Cursor's usage.
+        self.assertEqual((sidebar[0]['label'], sidebar[0]['action']), ('在主页显示', ['set-module', 'cursor', 'true']));self.assertTrue(sidebar[1]['separator'])
+        self.assertEqual(sidebar[2]['action'], ['set-cursor-usage', 'true']);self.assertFalse(sidebar[2]['checked'])
         self.m.preferences.write(self.m.STATE_DIR, dict(self.m.view_settings(), visible=['summary', 'cursor']))
         with patch.object(self.m, 'usage_now', return_value=self.now):
             card = self.m.dashboard_payload({'range_usage': {'range': 'today', 'cursor': {'summary': {'requests': 1, 'totalTokens': 9}}}})['providers'][0]

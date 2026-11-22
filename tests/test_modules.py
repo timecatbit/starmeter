@@ -330,16 +330,28 @@ class ModuleTests(unittest.TestCase):
             self.m.run_action('detect-modules',[])
         confirm.assert_not_called();self.assertEqual(target.read_bytes(),before)
         self.assertEqual(told.call_args.args[0],'没有新找到的模块')
-    def test_looking_again_for_one_tool_puts_it_on_the_homepage_or_says_what_to_do(self):
+    def test_looking_again_for_one_tool_puts_it_on_the_homepage_and_says_so_on_its_row(self):
+        page=lambda key:next(row for row in self.m.module_options() if row.get('action',[None,None])[:2]==['set-module',key])['children']
+        look=lambda key:next(row for row in page(key) if row['label']=='重新查找')
         self.assertNotIn('gemini',preferences.read(self.m.STATE_DIR)['visible'])
-        with patch.object(self.m,'detected_modules',return_value=['summary','gemini']),patch.object(self.m,'dialog_error') as told,patch.object(self.m,'schedule_background_refresh') as refresh:
+        with patch.object(self.m,'detected_modules',return_value=['summary','gemini']),patch.object(self.m,'schedule_background_refresh') as refresh:
             self.m.run_action('detect-source',['gemini'])
-        self.assertIn('gemini',preferences.read(self.m.STATE_DIR)['visible']);told.assert_not_called();refresh.assert_called_once()
+            self.assertEqual((look('gemini')['statusLight'],look('gemini')['detail']),('ok','刚才找到了，已加到主页'))
+            # The page leads with its switch, on now.
+            self.assertEqual((page('gemini')[0]['label'],page('gemini')[0]['checked'],page('gemini')[0]['action']),('在主页显示',True,['set-module','gemini','false']))
+            self.m.run_action('detect-source',['gemini'])
+            self.assertEqual(look('gemini')['detail'],'刚才找到了，已在主页上')
+        self.assertIn('gemini',preferences.read(self.m.STATE_DIR)['visible']);self.assertEqual(refresh.call_count,2)
         before=preferences.read(self.m.STATE_DIR)['visible']
-        with patch.object(self.m,'detected_modules',return_value=['summary']),patch.object(self.m,'dialog_error') as told:
+        with patch.object(self.m,'detected_modules',return_value=['summary']):
             self.m.run_action('detect-source',['qoder'])
+            self.assertEqual(look('qoder')['statusLight'],'issue');self.assertIn('选记录目录',look('qoder')['detail'])
+            self.assertEqual(page('qoder')[0]['checked'],False)
         self.assertEqual(preferences.read(self.m.STATE_DIR)['visible'],before)
-        self.assertEqual(told.call_args.args[0],'这台电脑上没找到 Qoder 的记录');self.assertIn('重新查找',told.call_args.args[1])
+        # Ten minutes on, the row is back to how it was before anyone asked.
+        checks=self.m.read_cache('source-checks');checks['qoder']['checkedAt']-=self.m.LOOKED_FOR+1;self.m.write_json_cache(self.m.cache_path('source-checks'),checks)
+        with patch.object(self.m,'detected_modules',return_value=['summary']):
+            self.assertEqual((look('qoder').get('statusLight'),look('qoder').get('symbol')),(None,'sparkle.magnifyingglass'))
         with self.assertRaises(ValueError):self.m.run_action('detect-source',['nothing'])
     def test_confirmation_is_cancel_by_default(self):
         response=types.SimpleNamespace(returncode=0,stdout='button returned:取消')

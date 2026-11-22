@@ -3022,9 +3022,23 @@ def detection_cache_name():
     return 'configured-sources-'+hashlib.sha256(json.dumps([(k,source_path(k)) for k in preferences.USAGE]).encode()).hexdigest()[:12]
 
 
+LOOKED_FOR = 600  # How long the answer to 重新查找 shows on its row: long enough to read on coming back to the page.
+
+
+def look_again(key, check):
+    """重新查找 on a tool's page, telling right there what the last look found: on the homepage now (green), or what to
+    do next (orange)."""
+    row={'label':'重新查找','action':['detect-source',key],'children':[]}
+    if check and check.get('found'):row.update(statusLight='ok',detail='刚才找到了，已加到主页' if check.get('added') else '刚才找到了，已在主页上')
+    elif check:row.update(statusLight='issue',detail='刚才没找到：装好、用过一次后再查，或选记录目录')
+    else:row['symbol']='sparkle.magnifyingglass'
+    return row
+
+
 def module_connections(data=None):
     detected,_=cached_fetch(detection_cache_name(),lambda:({'modules':detected_modules()},None),300)
     found=set((detected or {}).get('modules',[]));connections={}
+    checks=read_cache('source-checks');now=time.time()
     for key,label,_ in preferences.MODULES:
         if key=='cursor':connections[key]=cursor_connection_entry(key in found);continue
         if key in preferences.USAGE and key!='opencodex':
@@ -3034,7 +3048,8 @@ def module_connections(data=None):
             # 重新查找 looks for this tool again at once and puts it on the homepage when found; going back to finding
             # it automatically only means something once a folder was chosen.
             children=[{'label':('来源 · 自定记录目录' if custom else '来源 · 自动读取本机客户端') if configured else '未发现客户端或用量记录','children':[]},
-                      {'label':'重新查找','symbol':'sparkle.magnifyingglass','action':['detect-source',key],'children':[]},{'label':'选择记录目录…','action':['choose-source',key],'children':[]}]
+                      look_again(key,checks.get(key) if isinstance(checks.get(key),dict) and now-float(checks[key].get('checkedAt') or 0)<LOOKED_FOR else None),
+                      {'label':'选择记录目录…','action':['choose-source',key],'children':[]}]
             if custom:children.append({'label':'恢复自动查找','action':['auto-source',key],'children':[]})
             if configured:
                 locations=source_locations(key)
@@ -3382,8 +3397,11 @@ def module_options(data=None):
         if category!=group:
             options.append({'label':catalog.GROUP_LABELS.get(category,category),'section':True,'children':[]});group=category
         enabled=key in settings['visible']
-        connection=connections.get(key,{})
-        row=dict({'label':label,'checked':enabled,'action':['set-module',key,'false' if enabled else 'true'],'children':connection.get('children',[])},**module_icon(key))
+        connection=connections.get(key,{});toggle=['set-module',key,'false' if enabled else 'true']
+        # A module's page leads with the switch the grid's checkbox is: whether it shows on the homepage.
+        page=list(connection.get('children',[]))
+        if page:page[0:0]=[{'label':'在主页显示','checked':enabled,'action':list(toggle),'children':[]},{'label':'','separator':True,'children':[]}]
+        row=dict({'label':label,'checked':enabled,'action':toggle,'children':page},**module_icon(key))
         if connection.get('value'):row['value']=connection['value']
         options.append(row)
     return options
@@ -4286,13 +4304,16 @@ def run_action(name, extra):
             schedule_background_refresh()
     elif name == 'detect-source':
         # One tool looked for again at once, not from the last five minutes' answer: found, it goes on the homepage;
-        # not found, the page says what to do next.
+        # either way the page says what it found.
         labels={k:label for k,label,_ in preferences.MODULES}
         if len(extra)!=1 or extra[0] not in labels:raise ValueError('invalid source')
         key=extra[0];invalidate_caches([detection_cache_name()])
-        if key in detected_modules():
-            if key not in view_settings()['visible']:preferences.update(STATE_DIR,'module',key,'true')
-        else:dialog_error('这台电脑上没找到 %s 的记录'%labels[key],'装好它、用过一次后再点“重新查找”；记录在别的位置时，点“选择记录目录…”。')
+        found=key in detected_modules();shown=key in view_settings()['visible']
+        if found and not shown:preferences.update(STATE_DIR,'module',key,'true')
+        # The answer shows on the row itself (look_again), where it was asked.
+        checks=read_cache('source-checks');checks['schema']=1
+        checks[key]={'found':found,'added':found and not shown,'checkedAt':time.time()}
+        write_json_cache(cache_path('source-checks'),checks)
         schedule_background_refresh()
     elif name == 'refresh-view':
         schedule_background_refresh()

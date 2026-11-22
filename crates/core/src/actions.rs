@@ -956,27 +956,28 @@ impl Runtime {
             }
             "detect-source" => {
                 // One tool looked for again at once, not from the last five minutes' answer: found, it goes on the
-                // homepage; not found, the page says what to do next.
+                // homepage; either way the answer shows on the row itself (look_again), where it was asked.
                 let key = one();
-                let Some(module) = preferences::MODULES.iter().find(|module| module.key == key) else {
+                if !preferences::MODULES.iter().any(|module| module.key == key) {
                     return invalid("invalid source");
-                };
-                self.invalidate(&[self.detection_cache_name()]);
-                if self.detected_modules().contains(&key) {
-                    let shown = self
-                        .settings()
-                        .get("visible")
-                        .and_then(Json::as_array)
-                        .is_some_and(|visible| visible.iter().any(|item| item.as_str() == Some(key.as_str())));
-                    if !shown {
-                        self.update("module", Some(&key), Some("true"))?;
-                    }
-                } else {
-                    self.dialog_error(
-                        &format!("这台电脑上没找到 {} 的记录", module.label),
-                        "装好它、用过一次后再点“重新查找”；记录在别的位置时，点“选择记录目录…”。",
-                    );
                 }
+                self.invalidate(&[self.detection_cache_name()]);
+                let found = self.detected_modules().contains(&key);
+                let shown = self
+                    .settings()
+                    .get("visible")
+                    .and_then(Json::as_array)
+                    .is_some_and(|visible| visible.iter().any(|item| item.as_str() == Some(key.as_str())));
+                if found && !shown {
+                    self.update("module", Some(&key), Some("true"))?;
+                }
+                let mut checks = self.read_cache("source-checks");
+                checks.insert("schema", 1);
+                checks.insert(
+                    key.as_str(),
+                    object! { "found" => found, "added" => found && !shown, "checkedAt" => now() },
+                );
+                self.write_json_cache(&self.cache_path("source-checks"), &Json::Object(checks));
                 self.schedule_background_refresh();
             }
             "refresh-view" => self.schedule_background_refresh(),

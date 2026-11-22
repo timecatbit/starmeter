@@ -735,7 +735,11 @@ function moduleOptions(prefs, home) {
   for (const [key, label, category] of modules) {
     if (category !== group) { options.push(entry(groupLabels[category] ?? category, { section: true })); group = category; }
     const enabled = prefs.visible.includes(key);
-    const row = entry(label, { checked: enabled, action: ['set-module', key, enabled ? 'false' : 'true'], ...moduleIcon(key) }, connection(key, home));
+    const toggle = ['set-module', key, enabled ? 'false' : 'true'];
+    // A module's page leads with the switch the grid's checkbox is: whether it shows on the homepage.
+    const page = connection(key, home);
+    if (page.length) page.unshift(entry('在主页显示', { checked: enabled, action: [...toggle] }), separator());
+    const row = entry(label, { checked: enabled, action: toggle, ...moduleIcon(key) }, page);
     if (!['summary', 'heatmap', 'sessions', 'updates'].includes(key)) row.value = configuredModules.has(key) ? '已配置' : '未配置';
     options.push(row);
   }

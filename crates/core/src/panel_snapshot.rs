@@ -37,6 +37,30 @@ fn separator() -> Json {
     object! { "label" => "", "separator" => true, "children" => Json::Array(vec![]) }.into()
 }
 
+/// How long the answer to 重新查找 shows on its row: long enough to read on coming back to the page.
+const LOOKED_FOR: f64 = 600.0;
+
+/// 重新查找 on a tool's page, telling right there what the last look found: on the homepage now (green), or what to
+/// do next (orange).
+fn look_again(key: &str, check: Option<&Json>) -> Json {
+    let mut row = object! { "action" => action(&["detect-source", key]) };
+    match check {
+        Some(check) if check.get("found").is_some_and(Json::is_truthy) => {
+            row.insert("statusLight", "ok");
+            let added = check.get("added").is_some_and(Json::is_truthy);
+            row.insert("detail", if added { "刚才找到了，已加到主页" } else { "刚才找到了，已在主页上" });
+        }
+        Some(_) => {
+            row.insert("statusLight", "issue");
+            row.insert("detail", "刚才没找到：装好、用过一次后再查，或选记录目录");
+        }
+        None => {
+            row.insert("symbol", "sparkle.magnifyingglass");
+        }
+    }
+    with("重新查找", row)
+}
+
 /// A path or address the panel shows exactly as written: `verbatim` keeps it from 繁體中文 and English (LANG-1).
 fn location_entry(label: &str, paths: &[String]) -> Json {
     object! { "label" => label, "detail" => paths.join("\n"), "verbatim" => true, "children" => Json::Array(vec![]) }
@@ -612,6 +636,8 @@ impl Runtime {
         let mut connections: HashMap<String, Json> = HashMap::new();
         let settings = self.settings();
         let custom_paths = settings.get("paths").and_then(Json::as_object).cloned().unwrap_or_default();
+        let checks = self.read_cache("source-checks");
+        let now = runtime::now();
         for module in preferences::MODULES.iter() {
             let key = module.key;
             if key == "cursor" {
@@ -636,9 +662,11 @@ impl Runtime {
             // it automatically only means something once a folder was chosen.
             let mut children = vec![
                 leaf(origin),
-                with(
-                    "重新查找",
-                    object! { "symbol" => "sparkle.magnifyingglass", "action" => action(&["detect-source", key]) },
+                look_again(
+                    key,
+                    checks.get(key).filter(|check| {
+                        check.get("checkedAt").and_then(Json::number).is_some_and(|at| now - at < LOOKED_FOR)
+                    }),
                 ),
                 with("选择记录目录…", object! { "action" => action(&["choose-source", key]) }),
             ];
@@ -897,10 +925,17 @@ impl Runtime {
             }
             let enabled = visible.contains(&Json::from(module.key));
             let connection = connections.get(module.key).and_then(Json::as_object).cloned().unwrap_or_default();
+            let toggle = action(&["set-module", module.key, if enabled { "false" } else { "true" }]);
+            // A module's page leads with the switch the grid's checkbox is: whether it shows on the homepage.
+            let mut page = connection.get("children").and_then(Json::as_array).cloned().unwrap_or_default();
+            if !page.is_empty() {
+                page.splice(
+                    0..0,
+                    [with("在主页显示", object! { "checked" => enabled, "action" => toggle.clone() }), separator()],
+                );
+            }
             let mut row = object! {
-                "label" => module.label.as_str(), "checked" => enabled,
-                "action" => action(&["set-module", module.key, if enabled { "false" } else { "true" }]),
-                "children" => connection.get("children").cloned().unwrap_or(Json::Array(vec![])),
+                "label" => module.label.as_str(), "checked" => enabled, "action" => toggle, "children" => Json::Array(page),
             };
             for (field, value) in self.module_icon(module.key).iter() {
                 row.insert(field.clone(), value.clone());
