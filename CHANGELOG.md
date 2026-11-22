@@ -1,5 +1,11 @@
 # 更新记录
 
+## 6.0.13
+
+- 订阅额度在主页上更清楚：ChatGPT、Claude 并排画出 5 小时和本周两根条，条下写窗口名和已用量，左边总是 5 小时、右边总是本周，各订阅上下对齐；行尾仍写用得最紧的那个。Gemini 订阅分成两行，一行是 Gemini 模型、一行是 Claude 和 GPT 模型，四个数都能看到，每行末尾带各自的标志。
+- Gemini 订阅的每周窗口改叫“本周”，和其他订阅一致；Claude 订阅在主页右边也只写最紧的那个数，两个窗口各自写在条下。
+- 命令行：概览里 ChatGPT、Claude 订阅写成“已用 5 小时 12% · 本周 38%”；英文里“Claude and GPT”这类名字保留大写。
+
 ## 6.0.12
 
 - Gemini：工具卡片和模块名改成“Gemini”，和“Gemini 订阅”“Gemini API”并列，跟 Claude、ChatGPT 一样。新增读取 Google Antigravity（App、agy 命令行和 IDE）的对话记录，和 Gemini CLI 一起算在 Gemini 里；Antigravity 里用的 Claude、GPT 模型也按各自官方价估算（Google 的模型名带思考档位，如 `claude-opus-5-5-medium`，会先换成对应的 API 模型名）。
