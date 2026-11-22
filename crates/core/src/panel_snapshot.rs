@@ -358,8 +358,17 @@ impl Runtime {
                 return roots;
             }
         }
-        if key == "gemini" && is_dir(&format!("{root}/tmp")) {
-            return vec![format!("{root}/tmp")];
+        // Gemini CLI's sessions and the folders Antigravity's app, agy CLI and IDE keep their conversations in.
+        if key == "gemini" {
+            let folders: Vec<String> =
+                ["tmp", "antigravity/conversations", "antigravity-cli/conversations", "antigravity-ide/conversations"]
+                    .iter()
+                    .map(|folder| format!("{root}/{folder}"))
+                    .filter(|folder| is_dir(folder))
+                    .collect();
+            if !folders.is_empty() {
+                return folders;
+            }
         }
         if key == "qoder" && is_dir(&format!("{root}/projects")) {
             return vec![format!("{root}/projects")];
@@ -579,13 +588,18 @@ impl Runtime {
             .unwrap_or_else(|| runtime::absolute(&first.to_string_lossy()))
     }
 
-    fn module_connections(&self, data: &Object) -> HashMap<String, Json> {
+    /// The cache of what detection last found here, for these folders: the modules' pages say from it whether each
+    /// tool was found, for five minutes, or until 重新查找 or 开始检测 looks again.
+    pub fn detection_cache_name(&self) -> String {
         let pairs: Vec<Json> = preferences::USAGE
             .iter()
             .map(|key| Json::Array(vec![Json::from(*key), Json::from(self.source_path(key))]))
             .collect();
-        let scope = &py::sha256_hex(py::dumps(&Json::Array(pairs)).as_bytes())[..12];
-        let (detected, _) = self.cached_fetch(&format!("configured-sources-{scope}"), 300.0, 60.0, || {
+        format!("configured-sources-{}", &py::sha256_hex(py::dumps(&Json::Array(pairs)).as_bytes())[..12])
+    }
+
+    fn module_connections(&self, data: &Object) -> HashMap<String, Json> {
+        let (detected, _) = self.cached_fetch(&self.detection_cache_name(), 300.0, 60.0, || {
             let modules: Vec<Json> = self.detected_modules().into_iter().map(Json::from).collect();
             Ok((Some(object! { "modules" => Json::Array(modules) }), None))
         });
@@ -618,11 +632,19 @@ impl Runtime {
             } else {
                 "未发现客户端或用量记录"
             };
+            // 重新查找 looks for this tool again at once and puts it on the homepage when found; going back to finding
+            // it automatically only means something once a folder was chosen.
             let mut children = vec![
                 leaf(origin),
+                with(
+                    "重新查找",
+                    object! { "symbol" => "sparkle.magnifyingglass", "action" => action(&["detect-source", key]) },
+                ),
                 with("选择记录目录…", object! { "action" => action(&["choose-source", key]) }),
-                with("恢复自动查找", object! { "action" => action(&["auto-source", key]) }),
             ];
+            if custom {
+                children.push(with("恢复自动查找", object! { "action" => action(&["auto-source", key]) }));
+            }
             if configured {
                 let locations = self.source_locations(key);
                 let exists = locations.iter().any(|path| Path::new(path).exists());
@@ -657,6 +679,16 @@ impl Runtime {
             if key == "codex" {
                 children[0] = leaf("来源 · 编程客户端的本机记录");
                 children.insert(1, leaf("仅编程会话，不含普通聊天"));
+            }
+            if key == "gemini" && !custom {
+                children[0] = leaf(if configured {
+                    "来源 · Gemini CLI 与 Antigravity"
+                } else {
+                    "未发现 Gemini CLI 或 Antigravity 的记录"
+                });
+                if configured {
+                    children.insert(1, leaf("含 Antigravity 的 App、agy CLI 与 IDE"));
+                }
             }
             if key == "claude" {
                 children[0] = leaf("来源 · Claude 桌面 App 与 Claude Code");
@@ -798,7 +830,7 @@ impl Runtime {
                 object! {
                     "symbol" => "sparkle.magnifyingglass",
                     "children" => Json::Array(vec![
-                        leaf("确认后覆盖当前模块选择；不读取对话正文，不显示 Key"),
+                        leaf("把新找到的加到主页，已勾选的不变；不读取对话正文，不显示 Key"),
                         separator(),
                         with("开始检测…", object! { "symbol" => "sparkle.magnifyingglass", "action" => action(&["detect-modules"]) }),
                     ]),

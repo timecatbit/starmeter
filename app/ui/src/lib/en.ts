@@ -103,7 +103,15 @@ export const phrases: Record<string, string> = {
   'CSV（每天每个工具一行）…': 'CSV (a row per tool per day)…', 'JSON（每个工具的合计与每天）…': 'JSON (each tool\'s totals and days)…',
   模块与配置: 'Modules & setup', 自动检测: 'Auto-detect', '开始检测…': 'Start detecting…', '高级配置文件…': 'Advanced config file…',
   恢复默认模块: 'Restore default modules', 关闭: 'Off',
-  '确认后覆盖当前模块选择；不读取对话正文，不显示 Key': 'Replaces the current modules once you confirm; reads no conversations and shows no keys',
+  '把新找到的加到主页，已勾选的不变；不读取对话正文，不显示 Key': 'Adds what it newly finds to the homepage and keeps what is ticked; reads no conversations and shows no keys',
+  没有新找到的模块: 'Nothing new found', '这台电脑上能找到的都已经在主页上了。': 'Everything found on this computer is on the homepage already.',
+  '只加不减：已勾选的模块保持不变。只检查本机目录与已有配置，不读取对话正文，不显示 Key。':
+    'Only adds: the modules ticked stay as they are. Looks at folders on this computer and the settings saved, reads no conversations and shows no keys.',
+  加到主页: 'Add to the homepage', 重新查找: 'Look again',
+  '装好它、用过一次后再点“重新查找”；记录在别的位置时，点“选择记录目录…”。':
+    'Install it and use it once, then choose Look again; if its records are elsewhere, choose Choose log folder….',
+  '来源 · Gemini CLI 与 Antigravity': 'Source · Gemini CLI and Antigravity', '含 Antigravity 的 App、agy CLI 与 IDE': "Antigravity's app, agy CLI and IDE included",
+  '未发现 Gemini CLI 或 Antigravity 的记录': 'No Gemini CLI or Antigravity records found',
   'API 等值估算按这个汇率换成人民币；订阅月费与 API 实际花费仍是美元': 'API-equivalent estimates use this rate for yuan; subscription prices and actual API spend stay in dollars',
   '每周窗口用了不到 85%，重置前 12 小时提醒': 'A reminder 12 hours before a weekly window resets with under 85% used',
   订阅窗口用到所选比例时通知一次: 'A notification once a subscription window reaches the chosen share',
@@ -272,6 +280,8 @@ export const rules: Rule[] = [
   [/^到期 (.+)$/, (m) => `Expires ${m[1]}`],
   [/^(.+) 订阅$/, (m, tr) => `${tr(m[1])} plan`],
   [/^需勾选 (.+)$/, (m, tr) => `Needs ${tr(m[1])} on`],
+  [/^这台电脑上没找到 (.+) 的记录$/, (m, tr) => `No ${tr(m[1])} records on this computer`],
+  [/^加到主页：(.+)$/, (m, tr) => `Add to the homepage: ${m[1].split('、').map(tr).join(', ')}`],
   // Updated and when
   [/^(\d+) 分钟前更新$/, (m) => `${m[1]} min ago`],
   [/^(\d+) 小时前更新$/, (m) => `${m[1]} h ago`],

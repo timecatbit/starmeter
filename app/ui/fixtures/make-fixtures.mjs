@@ -674,14 +674,16 @@ function connection(key, home) {
   }
   if (['summary', 'heatmap', 'sessions', 'updates'].includes(key)) return [];
   // A Harness: where its records are read.
-  if (!configured) return [entry('未发现客户端或用量记录'), entry('选择记录目录…', { action: ['choose-source', key] }), entry('恢复自动查找', { action: ['auto-source', key] })];
+  const again = entry('重新查找', { symbol: 'sparkle.magnifyingglass', action: ['detect-source', key] });
+  if (!configured) return [entry(key === 'gemini' ? '未发现 Gemini CLI 或 Antigravity 的记录' : '未发现客户端或用量记录'), again, entry('选择记录目录…', { action: ['choose-source', key] })];
   const folders = { magpie: [HOME + '/.config/magpie'], claude: [HOME + '/.claude/projects', HOME + '/Library/Application Support/Claude/claude-code-sessions'],
     codex: [HOME + '/.codex/sessions', HOME + '/.codex/archived_sessions'], opencode: [HOME + '/.local/share/opencode'], qoder: [HOME + '/.qoder-cn/projects'],
     gemini: [HOME + '/.gemini/tmp'] }[key] ?? [HOME + '/.' + key];
   const first = { magpie: [entry('来源 · Magpie 本机网关记录'), entry('只读取 usage.jsonl')], codex: [entry('来源 · 编程客户端的本机记录'), entry('仅编程会话，不含普通聊天')],
-    claude: [entry('来源 · Claude 桌面 App 与 Claude Code'), entry('含 VS Code、JetBrains 与终端里的会话')] }[key] ?? [entry('来源 · 自动读取本机客户端')];
-  return [...first, location('读取目录', folders), entry('在 Finder 中打开', { symbol: 'folder', action: ['reveal-source', key] }),
-    entry(key === 'claude' ? '选择 Claude 数据目录…' : '选择记录目录…', { action: ['choose-source', key] }), entry('恢复自动查找', { action: ['auto-source', key] }),
+    claude: [entry('来源 · Claude 桌面 App 与 Claude Code'), entry('含 VS Code、JetBrains 与终端里的会话')],
+    gemini: [entry('来源 · Gemini CLI 与 Antigravity'), entry('含 Antigravity 的 App、agy CLI 与 IDE')] }[key] ?? [entry('来源 · 自动读取本机客户端')];
+  return [...first, location('读取目录', folders), entry('在 Finder 中打开', { symbol: 'folder', action: ['reveal-source', key] }), again,
+    entry(key === 'claude' ? '选择 Claude 数据目录…' : '选择记录目录…', { action: ['choose-source', key] }),
     ...(key === 'claude' ? [entry('打开 Claude', { symbol: 'macwindow', action: ['open-claude'] })] : [])];
 }
 
@@ -701,7 +703,7 @@ function settingsPages(prefs) {
       radio('今天的 API 估算', ['set-menu-bar', 'cost'], false), radio('最紧张的订阅额度', ['set-menu-bar', 'quota'], false)]),
     entry('钉住时刷新', { symbol: 'pin', value: '每 2 秒' }, [1, 2, 5].map((s) => radio(`每 ${s} 秒`, ['set-pin-interval', String(s)], s === 2))),
     entry('模块与配置', { section: true }),
-    entry('自动检测', { symbol: 'sparkle.magnifyingglass' }, [entry('确认后覆盖当前模块选择；不读取对话正文，不显示 Key'), separator(),
+    entry('自动检测', { symbol: 'sparkle.magnifyingglass' }, [entry('把新找到的加到主页，已勾选的不变；不读取对话正文，不显示 Key'), separator(),
       entry('开始检测…', { symbol: 'sparkle.magnifyingglass', action: ['detect-modules'] })]),
     entry('高级配置文件…', { symbol: 'doc.text', action: ['open-settings'] }),
     entry('恢复默认模块', { action: ['reset-modules'] }),

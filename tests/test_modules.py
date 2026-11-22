@@ -306,13 +306,13 @@ class ModuleTests(unittest.TestCase):
     def test_detection_cancel_preserves_preferences_and_does_not_refresh(self):
         preferences.update(self.m.STATE_DIR,'appearance','solid')
         target=Path(self.m.STATE_DIR)/'preferences.json';before=target.read_bytes()
+        visible=preferences.read(self.m.STATE_DIR)['visible'];self.assertNotIn('codex',visible)
         with patch.object(self.m,'detected_modules',return_value=['summary','heatmap','codex','updates']),patch.object(self.m,'confirm',return_value=False) as confirm,patch.object(self.m,'schedule_background_refresh') as refresh:
             self.m.run_action('detect-modules',[])
         self.assertEqual(target.read_bytes(),before);refresh.assert_not_called()
         message,detail=confirm.call_args.args
-        self.assertIn('覆盖当前模块选择',message);self.assertIn('将启用：ChatGPT\n',detail)
-        self.assertIn('将取消：OpenCodex',detail);self.assertEqual(confirm.call_args.kwargs['accept'],'覆盖当前选项')
-    def test_detection_explicit_confirmation_replaces_selection_only(self):
+        self.assertEqual(message,'加到主页：ChatGPT');self.assertIn('只加不减',detail);self.assertEqual(confirm.call_args.kwargs['accept'],'加到主页')
+    def test_detection_adds_only_what_is_new_and_takes_nothing_off(self):
         preferences.update(self.m.STATE_DIR,'appearance','solid')
         preferences.update(self.m.STATE_DIR,'expanded','claude','true')
         preferences.update(self.m.STATE_DIR,'collapse','false')
@@ -320,9 +320,27 @@ class ModuleTests(unittest.TestCase):
         with patch.object(self.m,'detected_modules',return_value=['summary','codex','updates']),patch.object(self.m,'confirm',return_value=True),patch.object(self.m,'schedule_background_refresh') as refresh:
             self.m.run_action('detect-modules',[])
         after=preferences.read(self.m.STATE_DIR)
-        self.assertEqual(after['visible'],['summary','codex','updates']);refresh.assert_called_once()
+        self.assertEqual(set(after['visible']),set(before['visible'])|{'codex'},'Nothing ticked is taken off');refresh.assert_called_once()
         self.assertEqual(after['appearance'],before['appearance']);self.assertEqual(after['paths'],before['paths'])
         self.assertFalse(after['allowCollapse']);self.assertEqual(after['expandedProviders'],['claude'])
+    def test_detection_with_nothing_new_says_so_and_changes_nothing(self):
+        target=Path(self.m.STATE_DIR)/'preferences.json';preferences.update(self.m.STATE_DIR,'appearance','solid');before=target.read_bytes()
+        visible=preferences.read(self.m.STATE_DIR)['visible']
+        with patch.object(self.m,'detected_modules',return_value=visible[:2]),patch.object(self.m,'confirm') as confirm,patch.object(self.m,'dialog_error') as told:
+            self.m.run_action('detect-modules',[])
+        confirm.assert_not_called();self.assertEqual(target.read_bytes(),before)
+        self.assertEqual(told.call_args.args[0],'没有新找到的模块')
+    def test_looking_again_for_one_tool_puts_it_on_the_homepage_or_says_what_to_do(self):
+        self.assertNotIn('gemini',preferences.read(self.m.STATE_DIR)['visible'])
+        with patch.object(self.m,'detected_modules',return_value=['summary','gemini']),patch.object(self.m,'dialog_error') as told,patch.object(self.m,'schedule_background_refresh') as refresh:
+            self.m.run_action('detect-source',['gemini'])
+        self.assertIn('gemini',preferences.read(self.m.STATE_DIR)['visible']);told.assert_not_called();refresh.assert_called_once()
+        before=preferences.read(self.m.STATE_DIR)['visible']
+        with patch.object(self.m,'detected_modules',return_value=['summary']),patch.object(self.m,'dialog_error') as told:
+            self.m.run_action('detect-source',['qoder'])
+        self.assertEqual(preferences.read(self.m.STATE_DIR)['visible'],before)
+        self.assertEqual(told.call_args.args[0],'这台电脑上没找到 Qoder 的记录');self.assertIn('重新查找',told.call_args.args[1])
+        with self.assertRaises(ValueError):self.m.run_action('detect-source',['nothing'])
     def test_confirmation_is_cancel_by_default(self):
         response=types.SimpleNamespace(returncode=0,stdout='button returned:取消')
         with patch.object(self.m,'applescript',return_value=response) as dialog:

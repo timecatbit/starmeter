@@ -20,7 +20,7 @@ use crate::opencodex::{ENDPOINTS, monitor_url};
 use crate::rows::{g, shorten};
 use crate::runtime::{self, RANGES, Runtime, VERSION, now};
 use crate::tally::archive;
-use crate::{accounts, catalog, claude_app, claude_bridge, dashboard, discovery, keys, object, platform, preferences};
+use crate::{accounts, catalog, claude_app, claude_bridge, dashboard, keys, object, platform, preferences};
 use crate::{py, shell};
 
 #[derive(Clone, Debug)]
@@ -931,29 +931,53 @@ impl Runtime {
                     .collect();
                 let labels: HashMap<&str, String> =
                     preferences::MODULES.iter().map(|module| (module.key, module.label.clone())).collect();
-                let added: Vec<String> = detected
+                let added: Vec<(String, String)> = detected
                     .iter()
                     .filter(|key| !current.contains(key))
-                    .filter_map(|key| labels.get(key.as_str()).cloned())
+                    .filter_map(|key| labels.get(key.as_str()).map(|label| (key.clone(), label.clone())))
                     .collect();
-                let removed: Vec<String> = preferences::MODULES
-                    .iter()
-                    .filter(|module| {
-                        current.iter().any(|key| key == module.key) && !detected.iter().any(|key| key == module.key)
-                    })
-                    .map(|module| module.label.clone())
-                    .collect();
-                let list = |items: &[String]| if items.is_empty() { "无".to_string() } else { items.join("、") };
-                let detail = format!(
-                    "检测到 {} 个模块。确认后将替换当前勾选。\n\n将启用：{}\n将取消：{}\n\n只检查本机目录与已有配置，不读取对话正文，不显示 Key。",
-                    detected.len(),
-                    list(&added),
-                    list(&removed)
-                );
-                if self.confirm("自动检测将覆盖当前模块选择", &detail, "覆盖当前选项") {
-                    discovery::replace_selection(&self.state_dir, &detected)?;
+                // Only what is new is added: what is ticked stays ticked, what was taken off stays off unless found.
+                self.invalidate(&[self.detection_cache_name()]);
+                if added.is_empty() {
+                    self.dialog_error("没有新找到的模块", "这台电脑上能找到的都已经在主页上了。");
+                } else if self.confirm(
+                    &format!(
+                        "加到主页：{}",
+                        added.iter().map(|(_, label)| label.as_str()).collect::<Vec<_>>().join("、")
+                    ),
+                    "只加不减：已勾选的模块保持不变。只检查本机目录与已有配置，不读取对话正文，不显示 Key。",
+                    "加到主页",
+                ) {
+                    for (key, _) in &added {
+                        self.update("module", Some(key), Some("true"))?;
+                    }
                     self.schedule_background_refresh();
                 }
+            }
+            "detect-source" => {
+                // One tool looked for again at once, not from the last five minutes' answer: found, it goes on the
+                // homepage; not found, the page says what to do next.
+                let key = one();
+                let Some(module) = preferences::MODULES.iter().find(|module| module.key == key) else {
+                    return invalid("invalid source");
+                };
+                self.invalidate(&[self.detection_cache_name()]);
+                if self.detected_modules().contains(&key) {
+                    let shown = self
+                        .settings()
+                        .get("visible")
+                        .and_then(Json::as_array)
+                        .is_some_and(|visible| visible.iter().any(|item| item.as_str() == Some(key.as_str())));
+                    if !shown {
+                        self.update("module", Some(&key), Some("true"))?;
+                    }
+                } else {
+                    self.dialog_error(
+                        &format!("这台电脑上没找到 {} 的记录", module.label),
+                        "装好它、用过一次后再点“重新查找”；记录在别的位置时，点“选择记录目录…”。",
+                    );
+                }
+                self.schedule_background_refresh();
             }
             "refresh-view" => self.schedule_background_refresh(),
             "choose-sync-folder" => {

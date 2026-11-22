@@ -2951,7 +2951,7 @@ def detected_modules():
 
 def detection_help_entries():
     return [
-        {'label':'确认后覆盖当前模块选择；不读取对话正文，不显示 Key','children':[]},
+        {'label':'把新找到的加到主页，已勾选的不变；不读取对话正文，不显示 Key','children':[]},
         {'label':'','separator':True,'children':[]},
         {'label':'开始检测…','symbol':'sparkle.magnifyingglass','action':['detect-modules'],'children':[]},
     ]
@@ -2982,7 +2982,10 @@ def source_locations(key):
     if key=='codex':
         roots=[os.path.join(root,n) for n in ('sessions','archived_sessions') if os.path.isdir(os.path.join(root,n))]
         if roots:return roots
-    if key=='gemini' and os.path.isdir(os.path.join(root,'tmp')):return [os.path.join(root,'tmp')]
+    # Gemini CLI's sessions and the folders Antigravity's app, agy CLI and IDE keep their conversations in.
+    if key=='gemini':
+        folders=[os.path.join(root,n) for n in ('tmp','antigravity/conversations','antigravity-cli/conversations','antigravity-ide/conversations') if os.path.isdir(os.path.join(root,n))]
+        if folders:return folders
     if key=='qoder' and os.path.isdir(os.path.join(root,'projects')):return [os.path.join(root,'projects')]
     return [os.path.abspath(root)] if root else []
 
@@ -3013,9 +3016,14 @@ def client_connection_entry(key):
     return {'label':'OpenCodex' if proxy else 'ChatGPT 订阅','value':'已配置' if configured else '未配置','symbol':'network' if proxy else 'person.crop.circle','children':children}
 
 
+def detection_cache_name():
+    """The cache of what detection last found here, for these folders: the modules' pages say from it whether each
+    tool was found, for five minutes, or until 重新查找 or 开始检测 looks again."""
+    return 'configured-sources-'+hashlib.sha256(json.dumps([(k,source_path(k)) for k in preferences.USAGE]).encode()).hexdigest()[:12]
+
+
 def module_connections(data=None):
-    scope=hashlib.sha256(json.dumps([(k,source_path(k)) for k in preferences.USAGE]).encode()).hexdigest()[:12]
-    detected,_=cached_fetch('configured-sources-'+scope,lambda:({'modules':detected_modules()},None),300)
+    detected,_=cached_fetch(detection_cache_name(),lambda:({'modules':detected_modules()},None),300)
     found=set((detected or {}).get('modules',[]));connections={}
     for key,label,_ in preferences.MODULES:
         if key=='cursor':connections[key]=cursor_connection_entry(key in found);continue
@@ -3023,8 +3031,11 @@ def module_connections(data=None):
             custom=bool(view_settings()['paths'].get('claude-app' if key=='claude' else key))
             configured=key in found or bool(custom and os.path.exists(source_path(key)))
             if key=='deepseek-harness':configured=os.path.isdir(source_path(key))
-            children=[{'label':('来源 · 自定记录目录' if custom else '来源 · 自动读取本机客户端') if configured else '未发现客户端或用量记录','children':[]},{'label':'选择记录目录…','action':['choose-source',key],'children':[]},
-                      {'label':'恢复自动查找','action':['auto-source',key],'children':[]}]
+            # 重新查找 looks for this tool again at once and puts it on the homepage when found; going back to finding
+            # it automatically only means something once a folder was chosen.
+            children=[{'label':('来源 · 自定记录目录' if custom else '来源 · 自动读取本机客户端') if configured else '未发现客户端或用量记录','children':[]},
+                      {'label':'重新查找','symbol':'sparkle.magnifyingglass','action':['detect-source',key],'children':[]},{'label':'选择记录目录…','action':['choose-source',key],'children':[]}]
+            if custom:children.append({'label':'恢复自动查找','action':['auto-source',key],'children':[]})
             if configured:
                 locations=source_locations(key)
                 if locations:children.insert(1,location_entry('读取目录' if any(os.path.exists(p) for p in locations) else '默认目录 · 尚未生成',locations))
@@ -3039,6 +3050,9 @@ def module_connections(data=None):
             if key=='codex':
                 children[0]['label']='来源 · 编程客户端的本机记录'
                 children.insert(1,{'label':'仅编程会话，不含普通聊天','children':[]})
+            if key=='gemini' and not custom:
+                children[0]['label']='来源 · Gemini CLI 与 Antigravity' if configured else '未发现 Gemini CLI 或 Antigravity 的记录'
+                if configured:children.insert(1,{'label':'含 Antigravity 的 App、agy CLI 与 IDE','children':[]})
             if key=='claude':
                 children[0]['label']='来源 · Claude 桌面 App 与 Claude Code'
                 children.insert(1,{'label':'含 VS Code、JetBrains 与终端里的会话','children':[]})
@@ -4262,12 +4276,24 @@ def run_action(name, extra):
         if len(extra)!=2:raise ValueError('invalid expansion action')
         preferences.update(STATE_DIR,'expanded',extra[0],extra[1])
     elif name == 'detect-modules':
+        # Only what is new is added: what is ticked stays ticked, what was taken off stays off unless found.
         detected=detected_modules();current=set(view_settings()['visible']);labels={k:label for k,label,_ in preferences.MODULES}
-        added=[labels[k] for k in detected if k not in current]
-        removed=[label for k,label,_ in preferences.MODULES if k in current and k not in detected]
-        detail='检测到 %d 个模块。确认后将替换当前勾选。\n\n将启用：%s\n将取消：%s\n\n只检查本机目录与已有配置，不读取对话正文，不显示 Key。'%(len(detected),'、'.join(added) or '无','、'.join(removed) or '无')
-        if confirm('自动检测将覆盖当前模块选择',detail,accept='覆盖当前选项'):
-            discovery.replace_selection(STATE_DIR,detected);schedule_background_refresh()
+        added=[k for k in detected if k not in current and k in labels]
+        invalidate_caches([detection_cache_name()])
+        if not added:dialog_error('没有新找到的模块','这台电脑上能找到的都已经在主页上了。')
+        elif confirm('加到主页：'+'、'.join(labels[k] for k in added),'只加不减：已勾选的模块保持不变。只检查本机目录与已有配置，不读取对话正文，不显示 Key。',accept='加到主页'):
+            for key in added:preferences.update(STATE_DIR,'module',key,'true')
+            schedule_background_refresh()
+    elif name == 'detect-source':
+        # One tool looked for again at once, not from the last five minutes' answer: found, it goes on the homepage;
+        # not found, the page says what to do next.
+        labels={k:label for k,label,_ in preferences.MODULES}
+        if len(extra)!=1 or extra[0] not in labels:raise ValueError('invalid source')
+        key=extra[0];invalidate_caches([detection_cache_name()])
+        if key in detected_modules():
+            if key not in view_settings()['visible']:preferences.update(STATE_DIR,'module',key,'true')
+        else:dialog_error('这台电脑上没找到 %s 的记录'%labels[key],'装好它、用过一次后再点“重新查找”；记录在别的位置时，点“选择记录目录…”。')
+        schedule_background_refresh()
     elif name == 'refresh-view':
         schedule_background_refresh()
     elif name == 'refresh-source':
