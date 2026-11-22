@@ -125,6 +125,7 @@ python3 install.py
 - 第一次打開時，面板會在主頁上帶你走一遍：歡迎頁可以直接選簡體中文、繁體中文或 English，接著依次點亮用量總覽、統計範圍、卡片、訂閱與 API 和標題欄的按鈕。這台電腦上還沒找到任何工具時，指引改為說明去哪裡勾選工具或自動檢測；工具還在第一次讀取時，會說明數字稍後自己出現。之後在“齒輪 → 通用 → 新手指引”可以再看。
 - 標題旁依次是圖釘（釘住）、齒輪（主頁模塊與設置）、分享和統計範圍。點帶箭頭的行進入它的詳情頁，點返回、按 Esc 或觸控板雙指右滑回到主頁。
 - **右鍵星星 → 主頁模塊…** 選擇要顯示的模塊，並設置記錄目錄、Key 和連接；**自動檢測…** 按本機已安裝的工具重新勾選模塊，確認前不會改動任何設置。
+- **調整主頁順序**：按住訂閱、API 等行片刻，它會浮起，在所在分組裡拖到想要的位置，鬆手即保存；也可以選中一行後按 ⌥↑ / ⌥↓（Windows、Linux 是 Alt+↑ / Alt+↓）。工具卡片仍按用量排。“齒輪 → 通用 → 主頁順序”可以恢復默認順序。
 - **網關**：Magpie 讀取本機的 `usage.jsonl`（默認 `~/.config/magpie`），OpenCodex 讀取它自己的日誌。同時勾選網關和經過它的客戶端（如 ChatGPT、Claude）時，經過網關的請求只按網關計入 Summary，客戶端卡片照常顯示自己的全部記錄並注明“N 次已由 Magpie 計入”。ChatGPT 桌面版的預測消息等附加調用不寫進本機的 Codex 記錄，只在經過 Magpie 時才統計得到，所以 Magpie 裡 ChatGPT 的請求可能比 ChatGPT 卡片多。
 - **DeepSeek Harness** 默認讀取 `~/.dsh/sessions`（設置了 `DSH_HOME` 時讀其 `sessions` 子目錄），也可手選目錄。
 - Mac 的高級設置寫在 `~/Library/Application Support/SwiftBarToken/config.local.sh`，可用的變量見 [config.example.sh](config.example.sh)。如果命令行工具只在終端初始化時加入 PATH（例如通過 nvm 安裝），可在這個文件裡把對應的 `bin` 目錄加進 PATH。
