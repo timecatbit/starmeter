@@ -112,6 +112,8 @@ export const phrases: Record<string, string> = {
   主页顺序: 'Homepage order', 自定义: 'Custom', 恢复默认顺序: 'Restore the default order',
   '在主页按住一行，拖到想要的位置；键盘选中一行后按 ⌥↑ 或 ⌥↓。订阅、API 和其他各自排序，工具卡片按用量排':
     'Hold a row on the homepage and drag it where you want it, or select it with the keyboard and press ⌥↑ or ⌥↓. Plans, APIs and the rest each keep their own order; tool cards go by usage',
+  '在主页按住一行，拖到想要的位置；键盘选中一行后按 Alt+↑ 或 Alt+↓。订阅、API 和其他各自排序，工具卡片按用量排':
+    'Hold a row on the homepage and drag it where you want it, or select it with the keyboard and press Alt+↑ or Alt+↓. Plans, APIs and the rest each keep their own order; tool cards go by usage',
   '把新找到的加到主页，已勾选的不变；不读取对话正文，不显示 Key': 'Adds what it newly finds to the homepage and keeps what is ticked; reads no conversations and shows no keys',
   没有新找到的模块: 'Nothing new found', '这台电脑上能找到的都已经在主页上了。': 'Everything found on this computer is on the homepage already.',
   '只加不减：已勾选的模块保持不变。只检查本机目录与已有配置，不读取对话正文，不显示 Key。':

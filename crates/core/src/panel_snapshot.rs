@@ -1099,9 +1099,11 @@ impl Runtime {
     /// 主页顺序: how to change it (drag a row on the homepage, or ⌥↑ ⌥↓), and the way back once it is changed.
     fn home_order_row(&self) -> Json {
         let custom = self.settings().get("homeOrder").and_then(Json::as_array).is_some_and(|order| !order.is_empty());
-        let mut children = vec![leaf(
-            "在主页按住一行，拖到想要的位置；键盘选中一行后按 ⌥↑ 或 ⌥↓。订阅、API 和其他各自排序，工具卡片按用量排",
-        )];
+        // The keys as the keyboard at hand names them: Option's sign on a Mac, Alt elsewhere.
+        let keys = if cfg!(target_os = "macos") { "⌥↑ 或 ⌥↓" } else { "Alt+↑ 或 Alt+↓" };
+        let mut children = vec![leaf(&format!(
+            "在主页按住一行，拖到想要的位置；键盘选中一行后按 {keys}。订阅、API 和其他各自排序，工具卡片按用量排"
+        ))];
         if custom {
             children.push(separator());
             children.push(with(
