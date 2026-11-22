@@ -57,6 +57,24 @@ for (const [name, query] of [['简体中文', '?lang=zh'], ['English', '?lang=en
   });
 }
 
+test('website: 繁體中文 that failed to load once loads when chosen again, and the buttons say what the page shows (SITE-2)', async ({ page }) => {
+  let asked = 0;
+  await site(page, '?lang=zh', (route) => (++asked === 1 ? route.abort() : serve(route)));
+  const html = page.locator('html');
+  const button = (label: string) => page.getByRole('button', { name: label, exact: true });
+  await button('繁體中文').click();
+  await expect.poll(() => asked).toBe(1);
+  await expect(html).toHaveAttribute('lang', 'zh-CN');
+  await expect(button('简体中文')).toHaveAttribute('aria-pressed', 'true');
+  await expect(button('繁體中文')).toHaveAttribute('aria-pressed', 'false');
+
+  await button('繁體中文').click();
+  await expect(html).toHaveAttribute('lang', 'zh-Hant');
+  expect(asked).toBe(2);
+  await expect(button('繁體中文')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('h1 .zh')).toContainText('編程工具');
+});
+
 test('website: a language chosen while 繁體中文 still loads is the one shown (SITE-1)', async ({ page }) => {
   let release: () => void = () => {};
   const held = new Promise<void>((resolve) => { release = resolve; });

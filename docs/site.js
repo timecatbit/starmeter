@@ -59,14 +59,20 @@
       }
     });
   }
-  // hant.js, fetched once: the head already asked for it when the page opens in 繁體中文.
+  // hant.js, fetched once it loads: the head already asked for it when the page opens in 繁體中文. A request that
+  // failed is marked (here or by the head) and asked again the next time 繁體中文 is chosen (SITE-2).
   function withHant(done, failed) {
     if (window.toHant) return done();
     var script = document.getElementById('hant');
+    if (script && script.hasAttribute('data-failed')) {
+      script.remove();
+      script = null;
+    }
     if (!script) {
       script = document.createElement('script');
       script.src = 'hant.js';
       script.id = 'hant';
+      script.addEventListener('error', function () { script.setAttribute('data-failed', ''); });
       document.head.appendChild(script);
     }
     script.addEventListener('load', done);

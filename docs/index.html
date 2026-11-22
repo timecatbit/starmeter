@@ -32,7 +32,7 @@
         var script = document.createElement('script');
         script.src = 'hant.js';
         script.id = 'hant';
-        script.onerror = function () { root.classList.remove('hant'); root.classList.add('hant-ready'); root.lang = 'zh-CN'; };
+        script.onerror = function () { script.setAttribute('data-failed', ''); root.classList.remove('hant'); root.classList.add('hant-ready'); root.lang = 'zh-CN'; };
         document.head.appendChild(script);
         setTimeout(function () { root.classList.add('hant-ready'); }, 2500);
       }
