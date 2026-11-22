@@ -247,10 +247,11 @@ const during = (range: string) => (/^Last /.test(range) ? `in the ${range.toLowe
 const time = (zh: string) => zh.replace(/^周([一二三四五六日天])/, (_, d: string) => WEEKDAYS[d]);
 
 /** A plan's window and its share inside “Used: …”: a window with a common name (本周, 本周期) is written in lower case
- *  there (“Used: this week 38% · 5 hours 12%”); a model's or an account's own name keeps its capitals. */
+ *  there (“Used: this week 38% · 5 hours 12%”); a name that starts as a model's or an account's own (Fable, Claude 和
+ *  GPT) keeps its capitals. */
 function windowShare(part: string, tr: (text: string) => string): string {
   const named = part.match(/^(.+) (\d+(?:\.\d+)?%)$/);
-  if (!named || !/[\u3400-\u9fff]/.test(named[1])) return tr(part);
+  if (!named || !/[\u3400-\u9fff]/.test(named[1]) || /^[A-Za-z]/.test(named[1])) return tr(part);
   const name = tr(named[1]);
   return `${name.charAt(0).toLowerCase()}${name.slice(1)} ${named[2]}`;
 }

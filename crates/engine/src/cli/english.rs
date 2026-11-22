@@ -145,9 +145,12 @@ fn time(zh: &str) -> String {
         .into_owned()
 }
 
-/// A plan's window and its share inside “Used: …”: a common window name is written in lower case there.
+/// A plan's window and its share inside “Used: …”: a common window name is written in lower case there; one that
+/// starts as a model's or an account's own (Fable, Claude 和 GPT) keeps its capitals.
 fn window_share(part: &str) -> String {
-    let Some(named) = NAMED_SHARE.captures(part).filter(|named| HAN.is_match(group(named, 1))) else {
+    let Some(named) = NAMED_SHARE.captures(part).filter(|named| {
+        HAN.is_match(group(named, 1)) && !group(named, 1).starts_with(|c: char| c.is_ascii_alphabetic())
+    }) else {
         return translate(part);
     };
     let name = translate(group(&named, 1));
@@ -398,6 +401,7 @@ mod tests {
     fn the_engines_text_reads_as_the_panel_writes_it() {
         assert_eq!(translate("已用 本周 38% · 5 小时 12%"), "Used: this week 38% · 5 hours 12%");
         assert_eq!(translate("已用 本周 76% · Fable 41%"), "Used: this week 76% · Fable 41%");
+        assert_eq!(translate("已用 Gemini 24% · Claude 和 GPT 18%"), "Used: Gemini 24% · Claude and GPT 18%");
         assert_eq!(translate("ChatGPT 订阅"), "ChatGPT plan");
         assert_eq!(translate("余额 ¥229.15 (2)"), "Balance ¥229.15 (2)");
         assert_eq!(translate("重置于 周一 18:20 · 比匀速少用 9%"), "Resets Mon 18:20 · 9% behind even pace");
