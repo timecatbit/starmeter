@@ -592,9 +592,9 @@ fn spent(
         kept.get("inode").and_then(Json::integer) == Some(state.inode)
             && kept.get("zone").and_then(Json::as_str) == Some(counted.as_str())
             && offset.is_some_and(|offset| {
-                kept.get("read")
+                kept.get("digest")
                     .and_then(Json::as_str)
-                    .is_some_and(|read| read_digest(path, offset as u64).as_deref() == Some(read))
+                    .is_some_and(|digest| read_digest(path, offset as u64).as_deref() == Some(digest))
             })
     });
     let field = |name: &str| resumed.and_then(|kept| kept.get(name)).cloned();
@@ -694,7 +694,7 @@ fn spent(
         .collect();
     let offset = start + complete as u64;
     let tally = object! {
-        "inode" => state.inode, "offset" => offset as i64, "read" => read_digest(path, offset).map_or(Json::Null, Json::from),
+        "inode" => state.inode, "offset" => offset as i64, "digest" => read_digest(path, offset).map_or(Json::Null, Json::from),
         "requests" => requests,
         "cost" => cost, "unpriced" => unpriced, "seen" => Json::Array(seen.into_iter().map(Json::from).collect()),
         "model" => model, "total" => total.map_or(Json::Null, |value| object! { "value" => value.unwrap_or(Json::Null) }.into()),
