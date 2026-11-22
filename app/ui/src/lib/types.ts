@@ -24,6 +24,9 @@ export interface Entry {
   /** Shorter forms of the value, for when the label needs the room. */
   fallbacks?: string[];
   usageLevel?: 'normal' | 'warning' | 'critical';
+  /** A plan with two limits worth watching (five hours and the week, or two model groups): a bar for each, in place of
+   *  the single bar of the tightest, with its name and share (percent) under it. */
+  gauges?: { label: string; used: number; level: 'normal' | 'warning' | 'critical' }[];
   statusLight?: 'new' | 'ok' | 'issue' | 'unknown';
   /** What tells a row from siblings of the same name (a session's ID). */
   key?: string;

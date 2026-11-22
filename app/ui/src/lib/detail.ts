@@ -50,7 +50,7 @@ export function iconed(e: Entry): Entry {
 export const command = (e: Entry) => !e.children.length && (e.action !== undefined || e.href !== undefined) && e.value === undefined && e.checked === undefined && e.statusLight === undefined;
 export const destructive = (e: Entry) => ['remove-api-key', 'clear-connection', 'stop', 'reset-modules', 'clear-sync-folder'].includes(e.action?.[0] ?? '') || source(e).label.startsWith('删除') || source(e).label.startsWith('清除');
 
-/** "已用 38%", "已用 本周 38% · Fable 39%": the tightest share, for the bar under a usage row. */
+/** "已用 38%", "已用 main 76% · alt 20%": the tightest share, for the bar under a usage row. */
 export function usageShare(e: Entry): number | null {
   const value = source(e).value;
   if (e.usageLevel === undefined || value === undefined) return null;

@@ -1,6 +1,7 @@
 <script lang="ts">
   // A homepage row: its icon or status light, the name, the figure on the right (an accent pill, a configured light, or
-  // coloured by usage), a thin usage bar under the name, a detail line, and an arrow when it opens a page.
+  // coloured by usage), a thin usage bar under the name (two side by side, each named, for a plan with two limits worth
+  // watching), a detail line, and an arrow when it opens a page.
   import { onPhone } from '../lib/backend';
   import { barColor, usageColor } from '../lib/colors';
   import { actionable, configured, gauge as hasGauge, usageShare } from '../lib/detail';
@@ -29,6 +30,8 @@
   });
   const usage = $derived(usageShare(entry));
   const gauge = $derived(onPhone ? usage !== null : hasGauge(entry));
+  /** Five hours and the week, or two model groups: the row's figure is the tighter, and each has its bar. */
+  const pair = $derived(entry.gauges?.length === 2 ? entry.gauges : null);
   const configuredState = $derived(configured(value));
   const labelColor = $derived(entry.action?.[0] === 'stop' ? 'var(--red)' : full || entry.usageLevel !== undefined || entry.checked === true ? 'var(--label)' : 'var(--secondary)');
   const valueColor = $derived(usageColor(entry.usageLevel) ?? (full ? 'var(--label)' : 'var(--secondary)'));
@@ -63,7 +66,17 @@
           {/if}
         {/if}
       </span>
-      {#if gauge && usage !== null}
+      {#if gauge && usage !== null && pair}
+        <span class="pair">
+          {#each pair as bar, i (i)}
+            <span class="half">
+              <span class="gauge"><span class="gauge-fill" style:width="max(3px, {bar.used}%)" style:background={barColor(bar.level, panel.dark)}
+                style:--pen={barColor(bar.level, panel.dark)}></span></span>
+              <span class="gauge-name">{bar.label} <span class="num" style:color={usageColor(bar.level)}>{bar.used}%</span></span>
+            </span>
+          {/each}
+        </span>
+      {:else if gauge && usage !== null}
         <span class="gauge"><span class="gauge-fill" style:width="max(3px, {usage * 100}%)" style:background={barColor(entry.usageLevel, panel.dark)}
           style:--pen={barColor(entry.usageLevel, panel.dark)}></span></span>
       {/if}
@@ -179,6 +192,27 @@
     background: var(--track);
     overflow: hidden;
   }
+  .pair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 12px;
+    margin-top: 4px;
+  }
+  .half {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .pair .gauge { margin-top: 0; }
+  .gauge-name {
+    margin-top: 3px;
+    font-size: 10px;
+    line-height: 1.2;
+    color: var(--secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .gauge-fill {
     position: absolute;
     left: 0;
@@ -201,4 +235,6 @@
     margin-top: -5px;
   }
   .row.detailed .arrow, .row:has(.gauge) .arrow { top: calc(6px + 0.6 * var(--title-size)); }
+  /* Beside the name and its bars, as on a row with one bar, not down by the names under the bars. */
+  .row:has(.pair) .icon { top: 15px; }
 </style>

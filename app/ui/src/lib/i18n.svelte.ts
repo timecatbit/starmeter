@@ -129,6 +129,7 @@ function entry(e: Entry): Entry {
   return {
     ...e, label, value, detail,
     ...(e.fallbacks ? { fallbacks: e.fallbacks.map(shown) } : {}),
+    ...(e.gauges ? { gauges: e.gauges.map((bar) => ({ ...bar, label: shown(bar.label) })) } : {}),
     ...(changed ? { source: { label: e.label, value: e.value, detail: e.detail } } : {}),
     children: e.children.map(entry),
   };

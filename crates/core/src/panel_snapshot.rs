@@ -15,7 +15,7 @@ use crate::files::paths;
 use crate::json::{Json, Object};
 use crate::more_rows::update_attention_count;
 use crate::opencodex::ENDPOINTS;
-use crate::rows::FALLBACK_SEPARATOR;
+use crate::rows::{FALLBACK_SEPARATOR, GAUGE_FIELD};
 use crate::runtime::{self, PRODUCT, RANGES, Runtime, now};
 use crate::{catalog, claude_app, cursor, object, preferences, py};
 
@@ -182,6 +182,19 @@ pub fn panel_entries(lines: &[String]) -> Vec<Json> {
             }
             if let Some(fallback) = attr("panelfallback") {
                 entry.insert("fallbacks", Json::Array(fallback.split(FALLBACK_SEPARATOR).map(Json::from).collect()));
+            }
+            if let Some(gauges) = attr("panelgauges") {
+                let bars: Vec<Json> = gauges
+                    .split(FALLBACK_SEPARATOR)
+                    .filter_map(|bar| {
+                        let mut fields = bar.split(GAUGE_FIELD);
+                        let (name, used, level) = (fields.next()?, fields.next()?.parse::<f64>().ok()?, fields.next()?);
+                        Some(object! { "label" => name, "used" => used, "level" => level }.into())
+                    })
+                    .collect();
+                if !bars.is_empty() {
+                    entry.insert("gauges", Json::Array(bars));
+                }
             }
             if let Some(detail) = attr("paneldetail") {
                 entry.insert("detail", detail);

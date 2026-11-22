@@ -82,7 +82,7 @@ fn the_overview_shows_the_homepages_figures_at_every_width() {
     assert!(wide.contains("今日 AI 用量"), "{wide}");
     assert!(wide.contains("已知 API 估算"), "{wide}");
     assert!(wide.contains("92.0%"), "{wide}");
-    assert!(wide.contains("已用 本周 38% · 5 小时 12%"), "{wide}");
+    assert!(wide.contains("已用 5 小时 12% · 本周 38%"), "{wide}");
     // The costliest tool first, as on the homepage.
     let claude = wide.find("Claude Code").or_else(|| wide.find("Claude")).expect("Claude's row");
     let gemini = wide.find("Gemini").expect("Gemini's row");
@@ -98,7 +98,8 @@ fn english_reads_as_the_panel_writes_it() {
     assert!(text.contains("Known API estimate"), "{text}");
     assert!(text.contains("Plans and balances"), "{text}");
     assert!(text.contains("ChatGPT plan"), "{text}");
-    assert!(text.contains("Used: this week 38% · 5 hours 12%"), "{text}");
+    assert!(text.contains("Used: 5 hours 12% · this week 38%"), "{text}");
+    assert!(text.contains("Used: Gemini 24% · Claude and GPT 18%"), "{text}");
     let quota = render(&report, View::Quota, 100, &Paint { colour: false });
     assert!(quota.contains("Resets"), "{quota}");
     assert!(quota.contains("Balance ¥186.40"), "{quota}");

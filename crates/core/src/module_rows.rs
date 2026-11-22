@@ -145,13 +145,12 @@ impl Runtime {
             error = Some(py::str(Some(fetch)));
         }
         let stale = claude_subscription::claude_usage_stale(&payload);
-        let mut value = if !windows.is_empty() && !stale {
-            let parts: Vec<String> = windows
-                .iter()
-                .take(2)
-                .map(|window| format!("{} {}%", py::str(window.get("label")), g(py::num(window.get("used")))))
-                .collect();
-            format!("已用 {}", parts.join(" · "))
+        let most = windows.iter().map(|window| py::num(window.get("used"))).fold(None, |best: Option<f64>, used| {
+            Some(best.map_or(used, |best| if used > best { used } else { best }))
+        });
+        // The tightest, like every other plan; the homepage's two bars name the limits.
+        let mut value = if let Some(most) = most.filter(|_| !stale) {
+            used_text(most)
         } else {
             py::str(Some(&payload.get("state").cloned().unwrap_or_else(|| Json::from("暂无本机用量快照"))))
         };
@@ -168,15 +167,18 @@ impl Runtime {
             "app-snapshot" => "App 本机快照",
             _ => "Claude App 本机快照",
         };
-        let most = windows.iter().map(|window| py::num(window.get("used"))).fold(None, |best: Option<f64>, used| {
-            Some(best.map_or(used, |best| if used > best { used } else { best }))
-        });
+        let limits: Vec<(String, f64, bool)> = windows
+            .iter()
+            .map(|window| {
+                (py::str(window.get("label")), py::num(window.get("used")), claude_span(window) == Some(5.0 * 3600.0))
+            })
+            .collect();
         let mut rows = vec![
             item(
                 "Claude 订阅",
                 0,
                 merged(&[
-                    &object! { "badge" => value },
+                    &object! { "badge" => value, "panelgauges" => rows::gauges(&rows::headline_pair(&limits), stale || failed) },
                     &self.brand_icon("claude-subscription"),
                     &object! { "panelusagelevel" => usage_level(Some(most.unwrap_or(0.0)), stale || failed || windows.is_empty()) },
                 ]),
@@ -403,7 +405,10 @@ impl Runtime {
                 &service.label(),
                 0,
                 merged(&[
-                    &object! { "badge" => with_failure(&badge, !windows.is_empty(), failed) },
+                    &object! {
+                        "badge" => with_failure(&badge, !windows.is_empty(), failed),
+                        "panelgauges" => rows::gauges(&rows::headline_pair(&gemini_limits(&windows)), closed || failed),
+                    },
                     &self.brand_icon("gemini-subscription"),
                     &object! { "panelusagelevel" => if windows.is_empty() { Json::Null } else { usage_level(most, closed || failed) } },
                 ]),
@@ -751,11 +756,22 @@ impl Runtime {
         if !windows.is_empty() && visible.is_empty() {
             badge = "待刷新".into();
         }
+        let limits: Vec<(String, f64, bool)> = visible
+            .iter()
+            .map(|window| {
+                let name = chatgpt_window_label(window);
+                let five_hours = name == "5 小时";
+                (name, 100.0 - py::num(window.get("remaining")), five_hours)
+            })
+            .collect();
         let mut lines = vec![item(
             &label,
             0,
             merged(&[
-                &object! { "badge" => with_failure(&badge, !visible.is_empty(), failed) },
+                &object! {
+                    "badge" => with_failure(&badge, !visible.is_empty(), failed),
+                    "panelgauges" => rows::gauges(&rows::headline_pair(&limits), failed),
+                },
                 &self.brand_icon("chatgpt"),
                 &object! { "panelusagelevel" => if visible.is_empty() { Json::Null } else { usage_level(most, failed) } },
             ]),
@@ -832,6 +848,34 @@ pub fn gemini_window_name(window: &Object) -> String {
         Some("3p") => format!("{span} · Claude 和 GPT"),
         _ => format!("{span} · {}", py::str(window.get("groupName"))),
     }
+}
+
+/// The limits Gemini 订阅's homepage bars choose from: with both groups, each group's tightest window under the
+/// group's name (Gemini's models and Claude's with GPT's are separate allowances, picked between by the model one
+/// uses); with one, its windows.
+pub fn gemini_limits(windows: &[Object]) -> Vec<(String, f64, bool)> {
+    let used = |window: &Object| 100.0 - py::num(window.get("remaining"));
+    let mut groups: Vec<(String, f64)> = Vec::new();
+    for window in windows {
+        let name = match window.get("group").and_then(Json::as_str) {
+            Some("gemini") => "Gemini".to_string(),
+            Some("3p") => "Claude 和 GPT".to_string(),
+            _ => window.get("groupName").and_then(Json::as_str).unwrap_or("").to_string(),
+        };
+        match groups.iter_mut().find(|group| group.0 == name) {
+            Some(group) => group.1 = group.1.max(used(window)),
+            None => groups.push((name, used(window))),
+        }
+    }
+    if groups.len() > 1 {
+        return groups.into_iter().map(|(name, used)| (name, used, false)).collect();
+    }
+    windows
+        .iter()
+        .map(|window| {
+            (gemini_window_name(window), used(window), window.get("window").and_then(Json::as_str) == Some("5h"))
+        })
+        .collect()
 }
 
 /// How long a window runs, for the pace it is used at.

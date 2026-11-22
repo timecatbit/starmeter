@@ -412,10 +412,12 @@ function subscriptionRows(state) {
     const level = used >= 90 ? 'critical' : used >= 70 ? 'warning' : 'normal';
     return entry(label, { ...(failed ? {} : { usageLevel: level }), value: `已用 ${used}%`, ...(failed ? {} : { detail }) });
   };
+  // The homepage's two bars for a plan with two limits worth watching, as the engine's panelgauges give them.
+  const gauges = (...bars) => (pending || failed ? {} : { gauges: bars.map(([label, used]) => ({ label, used, level: used >= 90 ? 'critical' : used >= 70 ? 'warning' : 'normal' })) });
   const price = (key, value) => entry('订阅月费…', { symbol: 'dollarsign.circle', value, action: ['set-subscription-price', key] });
   return [
-    entry('ChatGPT 订阅', { ...moduleIcon('chatgpt'), ...(pending ? {} : { usageLevel: 'normal' }), value: pending ? '待同步' : '已用 本周 38% · 5 小时 12%',
-      fallbacks: ['已用 38%'], onOpenAction: ['refresh-source', 'chatgpt'] }, pending ? [entry('来源 · 本机登录 · 编程工具额度'), updated('')] : [
+    entry('ChatGPT 订阅', { ...moduleIcon('chatgpt'), ...(pending ? {} : { usageLevel: 'normal' }), value: pending ? '待同步' : '已用 38%',
+      ...gauges(['5 小时', 12], ['本周', 38]), onOpenAction: ['refresh-source', 'chatgpt'] }, pending ? [entry('来源 · 本机登录 · 编程工具额度'), updated('')] : [
       entry('来源 · 本机登录 · 编程工具额度'),
       window('5 小时', 12, '重置于 18:20 · 比匀速少用 9%'),
       window('本周', 38, '重置于 11/23 09:00 · 比匀速多用 6%'),
@@ -426,7 +428,7 @@ function subscriptionRows(state) {
       entry('本月回本 6.2 倍', { detail: '本月 API 等值 $124.40 · 月费 $20.00' }),
     ]),
     entry('Claude 订阅', { ...moduleIcon('claude-subscription'), ...(pending || failed ? {} : { usageLevel: 'warning' }),
-      value: pending ? '待同步' : failed ? '已用 本周 76% · 刷新失败' : '已用 本周 76% · Fable 41%', fallbacks: failed ? ['刷新失败'] : ['已用 76%'],
+      value: pending ? '待同步' : failed ? '已用 76% · 刷新失败' : '已用 76%', ...(failed ? { fallbacks: ['刷新失败'] } : {}), ...gauges(['5 小时', 22], ['本周', 76]),
       onOpenAction: ['refresh-source', 'claude-subscription'] }, [
       entry('来源 · Code 登录'),
       window('本周', 76, '重置于 11/20 22:00 · 比匀速多用 12%'),
@@ -462,12 +464,12 @@ function subscriptionRows(state) {
     ]),
     // Antigravity's quota, read from its app on this computer.
     entry('Gemini 订阅', { ...moduleIcon('gemini-subscription'), ...(pending ? {} : { usageLevel: 'normal' }), value: pending ? '待同步' : '已用 24%',
-      onOpenAction: ['refresh-source', 'gemini-subscription'] }, [
+      ...gauges(['Gemini', 24], ['Claude 和 GPT', 18]), onOpenAction: ['refresh-source', 'gemini-subscription'] }, [
       entry('来源 · Antigravity 本机额度'),
       window('5 小时', 24, '重置于 12/01 18:20 · 比匀速少用 12%'),
       window('每周', 9, '重置于 12/06 09:40 · 比匀速少用 20%'),
-      window('5 小时 · Claude 和 GPT', 0, '重置于 12/01 19:05'),
-      window('每周 · Claude 和 GPT', 3, '重置于 12/06 10:15'),
+      window('5 小时 · Claude 和 GPT', 6, '重置于 12/01 19:05'),
+      window('每周 · Claude 和 GPT', 18, '重置于 12/06 10:15'),
       updated('刚刚更新'),
       entry('打开 Antigravity', { symbol: 'macwindow', href: 'file:///Applications/Antigravity.app' }),
       entry('打开订阅管理', { symbol: 'arrow.up.right', href: 'https://gemini.google.com' }),

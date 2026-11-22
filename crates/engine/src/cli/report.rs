@@ -5,6 +5,7 @@ use starmeter_core::catalog;
 use starmeter_core::dashboard::{summary_parts, summary_totals};
 use starmeter_core::json::{Json, Object};
 use starmeter_core::object;
+use starmeter_core::rows::g;
 
 use super::english;
 use super::figures;
@@ -353,16 +354,29 @@ fn quotas(entries: &[Json], words: Words) -> Vec<Quota> {
                     detail: child.get("detail").and_then(Json::as_str).map(|detail| words.text(detail)),
                 })
                 .collect();
+            // The panel's two bars, which a terminal has no room to draw: both their figures, the tighter alone when
+            // the column is narrow.
+            let bars: Vec<String> = entry
+                .get("gauges")
+                .and_then(Json::as_array)
+                .into_iter()
+                .flatten()
+                .map(|bar| {
+                    format!("{} {}%", text(bar.get("label")), g(bar.get("used").and_then(Json::number).unwrap_or(0.0)))
+                })
+                .collect();
+            let (value, short) = if bars.len() == 2 {
+                (format!("已用 {}", bars.join(" · ")), Some(text(entry.get("value"))))
+            } else {
+                let short =
+                    entry.get("fallbacks").and_then(Json::as_array).and_then(|list| list.last()).and_then(Json::as_str);
+                (text(entry.get("value")), short.map(String::from))
+            };
             Some(Quota {
                 id: service.key.to_string(),
                 name: words.text(&label),
-                value: words.text(&text(entry.get("value"))),
-                short: entry
-                    .get("fallbacks")
-                    .and_then(Json::as_array)
-                    .and_then(|list| list.last())
-                    .and_then(Json::as_str)
-                    .map(|short| words.text(short)),
+                value: words.text(&value),
+                short: short.map(|short| words.text(&short)),
                 tone: Tone::of_level(entry.get("usageLevel").and_then(Json::as_str)),
                 items,
             })

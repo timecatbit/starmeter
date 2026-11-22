@@ -1761,6 +1761,27 @@ def used_text(percent):
     return '已用 %g%%'%round(min(100,max(0,float(percent))),1)
 
 
+# Between a homepage bar's name, share and level in panelgauges; the bars themselves are split by FALLBACK.
+GAUGE_FIELD='\x1e'
+
+
+def headline_pair(limits):
+    """The two limits a plan's homepage row draws as bars, each (name, share used), from (name, used, five hours?):
+    the five-hour one, or else the first, and the tightest of the rest, so the row's figure (the tightest of all) is
+    always one of the two. Fewer than two limits keep the single bar."""
+    if len(limits)<2:return []
+    first=next((i for i,limit in enumerate(limits) if limit[2]),0)
+    tightest=max((limit for i,limit in enumerate(limits) if i!=first),key=lambda limit:limit[1])
+    return [tuple(limits[first][:2]),tuple(tightest[:2])]
+
+
+def gauges(pair,stale):
+    """The panel's two bars under a homepage row, each its name, share and level; none while the figures are stale or
+    the last read failed, as a single bar isn't drawn then either."""
+    if len(pair)<2 or stale:return None
+    return FALLBACK.join('%s%s%g%s%s'%(name,GAUGE_FIELD,round(min(100,max(0,float(used))),1),GAUGE_FIELD,usage_level(used)) for name,used in pair)
+
+
 def claude_subscription_lines(data):
     payload=data.get('claude_subscription')
     if not payload:
@@ -1771,13 +1792,15 @@ def claude_subscription_lines(data):
     live=payload.get('source') in ('live','claude-oauth');error=data.get('claude_subscription_error')
     if payload.get('fetchError'):error=(0,payload['fetchError'],None)
     stale=claude_usage_stale(payload)
-    value='已用 '+' · '.join(w['label']+' %g%%'%w['used'] for w in windows[:2]) if windows and not stale else payload.get('state','暂无本机用量快照')
+    # The tightest, like every other plan; the homepage's two bars name the limits.
+    value=used_text(max(w['used'] for w in windows)) if windows and not stale else payload.get('state','暂无本机用量快照')
     if windows and stale:value='用量待更新' if live else '本机用量待更新'
     failed=refresh_failed(error)
     # Like every other module: the last good figures stay, marked as a failed refresh.
     value=with_failure(value,bool(windows) and not stale,failed)
     source={'claude-oauth':'Code 登录','live':'App 登录 · 手动查询','claude-code':'Code 本机回传','app-snapshot':'App 本机快照'}.get(payload.get('source'),'Claude App 本机快照')
-    rows=[item('Claude 订阅',badge=value,**brand_icon('claude-subscription'),panelusagelevel=usage_level(max((w['used'] for w in windows),default=0),stale or failed or not windows)),
+    limits=[(w['label'],w['used'],claude_span(w)==5*3600) for w in windows]
+    rows=[item('Claude 订阅',badge=value,panelgauges=gauges(headline_pair(limits),stale or failed),**brand_icon('claude-subscription'),panelusagelevel=usage_level(max((w['used'] for w in windows),default=0),stale or failed or not windows)),
           item('来源 · '+source,level=1,color=MUTED,size=10)]
     for w in windows:
         try:resets=parse_iso(w['resetsAt']).timestamp() if w.get('resetsAt') else None
@@ -1893,6 +1916,18 @@ def gemini_window_name(window):
     return '%s · %s'%(span,window.get('groupName') or '')
 
 
+def gemini_limits(windows):
+    """The limits Gemini 订阅's homepage bars choose from: with both groups, each group's tightest window under the
+    group's name (Gemini's models and Claude's with GPT's are separate allowances, picked between by the model one
+    uses); with one, its windows."""
+    groups={}
+    for w in windows:
+        name={'gemini':'Gemini','3p':'Claude 和 GPT'}.get(w.get('group')) or str(w.get('groupName') or '')
+        groups[name]=max(groups.get(name,float('-inf')),100-w.get('remaining',0))
+    if len(groups)>1:return [(name,used,False) for name,used in groups.items()]
+    return [(gemini_window_name(w),100-w.get('remaining',0),w.get('window')=='5h') for w in windows]
+
+
 def gemini_span(window):
     """How long a window runs, for the pace it is used at."""
     return {'5h':5*3600.0,'weekly':7*86400.0}.get(window.get('window'))
@@ -1912,7 +1947,8 @@ def gemini_subscription_lines(data):
     elif most is not None:badge=used_text(most)
     elif closed or not present:badge='打开 Antigravity 后显示' if present or antigravity_app() else '未发现 Antigravity'
     else:badge='待同步'
-    rows=[item(service.label,badge=with_failure(badge,bool(windows),failed),**brand_icon('gemini-subscription'),
+    rows=[item(service.label,badge=with_failure(badge,bool(windows),failed),panelgauges=gauges(headline_pair(gemini_limits(windows)),closed or failed),
+               **brand_icon('gemini-subscription'),
                panelusagelevel=usage_level(most,closed or failed) if windows else None),
           item('来源 · Antigravity 本机额度',level=1,color=MUTED,size=10)]
     for w in windows:
@@ -3000,7 +3036,9 @@ def chatgpt_lines(data):
     most=max((100-w['remaining'] for w in visible),default=None)
     badge=used_text(most) if visible else ('未配置' if not chatgpt_configured() else payload.get('state','待同步'))
     if windows and not visible:badge='待刷新'
-    lines=[item(label,badge=with_failure(badge,bool(visible),failed),**brand_icon('chatgpt'),panelusagelevel=usage_level(most,failed) if visible else None)]
+    limits=[(chatgpt_window_label(w),100-w['remaining'],chatgpt_window_label(w)=='5 小时') for w in visible]
+    lines=[item(label,badge=with_failure(badge,bool(visible),failed),panelgauges=gauges(headline_pair(limits),failed),**brand_icon('chatgpt'),
+                panelusagelevel=usage_level(most,failed) if visible else None)]
     lines.append(item('来源 · 本机登录 · 编程工具额度',level=1,color=MUTED,size=10))
     for w in visible:
         minutes=w.get('minutes') or 0
@@ -3760,6 +3798,13 @@ def panel_entries(lines):
                 entry["value"] = attrs["badge"]
             if attrs.get("panelfallback"):
                 entry["fallbacks"] = attrs["panelfallback"].split(FALLBACK)
+            if attrs.get("panelgauges"):
+                bars=[]
+                for bar in attrs["panelgauges"].split(FALLBACK):
+                    fields=bar.split(GAUGE_FIELD)
+                    try:bars.append({'label':fields[0],'used':float(fields[1]),'level':fields[2]})
+                    except (IndexError,ValueError):continue
+                if bars:entry["gauges"]=bars
             if attrs.get("paneldetail"):
                 entry["detail"] = attrs["paneldetail"]
             if attrs.get("panelkey"):entry["key"] = attrs["panelkey"]
@@ -4138,7 +4183,7 @@ def native_menu_line(line):
     label,separator,raw=line.partition(' | ')
     if not separator:return line
     options=dict(part.split('=',1) for part in shlex.split(raw) if '=' in part)
-    for key in ('color','sfcolor','sfcolors','panelattention','paneldetail','panelfallback','panelsection','panelstatus','panelradio','panelusagelevel','panelkey'):options.pop(key,None)
+    for key in ('color','sfcolor','sfcolors','panelattention','paneldetail','panelfallback','panelgauges','panelsection','panelstatus','panelradio','panelusagelevel','panelkey'):options.pop(key,None)
     return label+separator+' '.join(as_option(k,v) for k,v in options.items())
 
 

@@ -199,7 +199,40 @@ class DesktopTests(unittest.TestCase):
   payload={'source':'claude-oauth','updatedAt':now,'_fetchedAt':now,'windows':[{'label':'本周','used':39,'resetsAt':now+86400}]}
   with patch.object(self.m,'claude_usage_stale',return_value=False):
    row=self.m.panel_entries(self.m.claude_subscription_lines({'claude_subscription':payload,'claude_subscription_error':'HTTP 503'}))[0]
-  self.assertEqual(row['value'],'已用 本周 39% · 刷新失败')
+  self.assertEqual(row['value'],'已用 39% · 刷新失败')
+  self.assertNotIn('gauges',row,'A failed read keeps the figure, not the bars')
+ def test_a_plan_with_two_limits_draws_a_bar_for_each(self):
+  now=self.m.time.time();m=self.m
+  home=lambda lines:m.panel_entries(lines)[0]
+  bars=lambda row:[(bar['label'],bar['used'],bar['level']) for bar in row.get('gauges',[])]
+  def chatgpt(*windows):
+   with patch.object(m,'chatgpt_source',return_value='client'),patch.object(m,'chatgpt_configured',return_value=True):
+    return home(m.chatgpt_lines({'chatgpt':{'_fetchedAt':now,'windows':list(windows)}}))
+  plan=lambda minutes,left:{'name':'codex','minutes':minutes,'remaining':left,'resetsAt':now+9000}
+  spark=lambda left:{'name':'GPT-6-Codex-Spark','minutes':10080,'remaining':left,'resetsAt':now+86400}
+  # Five hours and the week; the row's figure is the tighter.
+  row=chatgpt(plan(10080,40),plan(300,70),spark(96))
+  self.assertEqual(row['value'],'已用 60%');self.assertEqual(bars(row),[('5 小时',30.0,'normal'),('本周',60.0,'normal')])
+  # Another limit tighter than the week takes the second bar, so the figure is always one of the two.
+  row=chatgpt(plan(300,70),plan(10080,40),spark(5.5))
+  self.assertEqual(row['value'],'已用 94.5%');self.assertEqual(bars(row),[('5 小时',30.0,'normal'),('GPT-6-Codex-Spark · 本周',94.5,'critical')])
+  self.assertNotIn('gauges',chatgpt(plan(300,70)),'One limit keeps its single bar')
+  # Claude: no five-hour limit here, so the first and the tightest of the rest; stale figures draw no bars.
+  week=lambda label,used:{'label':label,'used':used,'span':604800,'resetsAt':datetime.fromtimestamp(now+86400,ZoneInfo('UTC')).isoformat()}
+  claude={'source':'claude-oauth','updatedAt':now,'_fetchedAt':now,'windows':[week('本周',48),week('Fable',59)]}
+  with patch.object(m,'claude_usage_stale',return_value=False):row=home(m.claude_subscription_lines({'claude_subscription':claude}))
+  self.assertEqual(row['value'],'已用 59%');self.assertEqual(bars(row),[('本周',48.0,'normal'),('Fable',59.0,'normal')])
+  with patch.object(m,'claude_usage_stale',return_value=True):self.assertNotIn('gauges',home(m.claude_subscription_lines({'claude_subscription':claude})))
+  # Gemini: each model group's tightest window under the group's name; with one group, its windows.
+  window=lambda group,span,left:{'group':group,'groupName':'','window':span,'remaining':left,'resetsAt':now+3600}
+  quota=[window('gemini','5h',94.4),window('gemini','weekly',95.9),window('3p','5h',100),window('3p','weekly',50.3)]
+  def gemini(windows,error=None):
+   with patch.object(m,'connection_ready',return_value=True),patch.object(m,'antigravity_app',return_value=None):
+    return home(m.gemini_subscription_lines({'gemini_subscription':{'_fetchedAt':now,'windows':windows},'gemini_subscription_error':error}))
+  row=gemini(quota)
+  self.assertEqual(row['value'],'已用 49.7%');self.assertEqual(bars(row),[('Gemini',5.6,'normal'),('Claude 和 GPT',49.7,'normal')])
+  self.assertEqual(bars(gemini(quota[:2])),[('5 小时',5.6,'normal'),('每周',4.1,'normal')])
+  self.assertNotIn('gauges',gemini(quota,m.antigravity.NOT_RUNNING),'Antigravity closed: the last figure, marked with its time, and no bars')
  def test_chatgpt_and_minimax_windows_show_their_pace(self):
   now=self.m.time.time()
   minimax={'_fetchedAt':now,'windows':[{'name':'general · 滚动额度','remaining':20,'startsAt':now-9000,'resetsAt':now+9000},{'name':'general · 本周额度','remaining':90,'resetsAt':now+86400}]}

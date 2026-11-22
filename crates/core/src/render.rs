@@ -12,13 +12,14 @@ use crate::runtime::{Runtime, VERSION, now};
 use crate::self_update::{AUTHOR, REPOSITORY};
 use crate::{claude_bridge, discovery, files, object, preferences, pricing, py};
 
-const NATIVE_ONLY: [&str; 11] = [
+const NATIVE_ONLY: [&str; 12] = [
     "color",
     "sfcolor",
     "sfcolors",
     "panelattention",
     "paneldetail",
     "panelfallback",
+    "panelgauges",
     "panelsection",
     "panelstatus",
     "panelradio",

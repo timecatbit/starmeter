@@ -201,6 +201,43 @@ pub fn used_text(percent: f64) -> String {
     format!("已用 {}%", g(round(percent.clamp(0.0, 100.0), 1)))
 }
 
+/// Between a homepage bar's name, share and level in panelgauges; the bars themselves are split by FALLBACK_SEPARATOR.
+pub const GAUGE_FIELD: &str = "\u{1E}";
+
+/// The two limits a plan's homepage row draws as bars, each (name, share used): the five-hour one, or else the first,
+/// and the tightest of the rest, so the row's figure (the tightest of all) is always one of the two. Fewer than two
+/// limits keep the single bar.
+pub fn headline_pair(limits: &[(String, f64, bool)]) -> Vec<(String, f64)> {
+    if limits.len() < 2 {
+        return Vec::new();
+    }
+    let first = limits.iter().position(|limit| limit.2).unwrap_or(0);
+    let mut tightest: Option<&(String, f64, bool)> = None;
+    for (index, limit) in limits.iter().enumerate() {
+        if index != first && tightest.is_none_or(|best| limit.1 > best.1) {
+            tightest = Some(limit);
+        }
+    }
+    let tightest = tightest.expect("a second limit");
+    vec![(limits[first].0.clone(), limits[first].1), (tightest.0.clone(), tightest.1)]
+}
+
+/// The panel's two bars under a homepage row, each its name, share and level; none while the figures are stale or the
+/// last read failed, as a single bar isn't drawn then either.
+pub fn gauges(pair: &[(String, f64)], stale: bool) -> Json {
+    if pair.len() < 2 || stale {
+        return Json::Null;
+    }
+    let bars: Vec<String> = pair
+        .iter()
+        .map(|(name, used)| {
+            let level = py::str(Some(&usage_level(Some(*used), false)));
+            format!("{name}{GAUGE_FIELD}{}{GAUGE_FIELD}{level}", g(round(used.clamp(0.0, 100.0), 1)))
+        })
+        .collect();
+    Json::from(bars.join(FALLBACK_SEPARATOR))
+}
+
 /// Pace through a window: the share used less the share of the window gone by.
 pub fn pace_text(used: f64, resets_at: Option<f64>, span: Option<f64>, now: f64) -> Option<String> {
     let span = span.filter(|span| *span != 0.0)?;
@@ -400,5 +437,37 @@ impl Runtime {
             })
             .collect();
         format!("file://{encoded}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FALLBACK_SEPARATOR, GAUGE_FIELD, gauges, headline_pair};
+    use crate::json::Json;
+
+    #[test]
+    fn a_plan_with_two_limits_draws_five_hours_and_the_tightest_of_the_rest() {
+        let limit = |name: &str, used: f64, five: bool| (name.to_string(), used, five);
+        let pair = headline_pair(&[
+            limit("本周", 60.0, false),
+            limit("5 小时", 30.0, true),
+            limit("Spark · 本周", 94.5, false),
+        ]);
+        assert_eq!(pair, vec![("5 小时".to_string(), 30.0), ("Spark · 本周".to_string(), 94.5)]);
+        // No five-hour limit: the first, then the tightest of the rest (the earlier on a tie).
+        let pair =
+            headline_pair(&[limit("本周", 48.0, false), limit("Fable", 59.0, false), limit("Opus", 59.0, false)]);
+        assert_eq!(pair, vec![("本周".to_string(), 48.0), ("Fable".to_string(), 59.0)]);
+        assert!(headline_pair(&[limit("本周", 48.0, false)]).is_empty(), "one limit keeps the single bar");
+        let field = GAUGE_FIELD;
+        assert_eq!(
+            gauges(&[("5 小时".into(), 100.0 - 94.4), ("本周".into(), 91.0)], false),
+            Json::from(format!("5 小时{field}5.6{field}normal{FALLBACK_SEPARATOR}本周{field}91{field}critical"))
+        );
+        assert_eq!(
+            gauges(&[("5 小时".into(), 5.0), ("本周".into(), 9.0)], true),
+            Json::Null,
+            "stale figures draw no bars"
+        );
     }
 }
