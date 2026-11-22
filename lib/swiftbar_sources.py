@@ -883,9 +883,24 @@ def proto_moment(data):
     return at if 0 < at < 32503680000 else None
 
 
+def antigravity_model(ident):
+    """The API model an Antigravity id names. Google writes its ids as the model and the thinking level chosen
+    (claude-opus-5-5-medium, gemini-3.8-flash-high, gpt-oss-120b-medium), which no price table carries; an Orchestrator
+    runs on the Gemini 4 model it is named for (its own catalog lists gemini-pro-orchestrator as Carbon's)."""
+    ident = ident.lower()
+    base = next((ident[:-len(level)] for level in ('-xhigh', '-high', '-medium', '-low') if ident.endswith(level)), ident)
+    if base == 'gemini-pro-orchestrator':return 'gemini-4-carbon'
+    if base.startswith('gemini-pro-orchestrator-'):return 'gemini-4' + base[len('gemini-pro-orchestrator'):]
+    return base
+
+
 def display_model(name):
-    """The model a generation's display name names when it has no id: Gemini 4 Carbon (High) as gemini-4-carbon."""
-    return '-'.join(name.split(' (')[0].strip().lower().split())
+    """The model a generation's display name names when it has no id of its own, in the ids' own form: Gemini 4 Carbon
+    (High) as gemini-4-carbon, Claude Opus 5.5 (Medium) as claude-opus-5-5, Orchestrator (Neon) as gemini-4-neon."""
+    base, _, level = name.partition(' (')
+    if base.strip() == 'Orchestrator':return 'gemini-4-' + level.rstrip(')').strip().lower()
+    ident = '-'.join(base.strip().lower().split())
+    return ident.replace('.', '-') if ident.startswith('claude-') else ident
 
 
 def antigravity_file(path, changed):
@@ -930,7 +945,8 @@ def antigravity_file(path, changed):
                 at = by_generation.get(generation_id) if generation_id else None
             if at is None:at = began if began is not None else changed
             name = proto_text(generation, 21)
-            model = proto_text(generation, 19) or (display_model(name) if name else None)
+            ident = proto_text(generation, 19)
+            model = antigravity_model(ident) if ident else (display_model(name) if name else None)
             event = metrics(model, proto_number(usage, 2) or 0, output, proto_number(usage, 5) or 0, proto_number(usage, 4) or 0)
             event.update(id=identity('antigravity', response or '%s:%d' % (conversation, idx or 0)), session=identity(conversation),
                          timestamp=at, provider='google')
@@ -955,7 +971,7 @@ def gemini_files(folder, root):
     return found
 
 
-def gemini_usage(root, cache, start, end, zone, exclude_proxy=False, carriers=None, archive=None):
+def gemini_usage(root, cache, start, end, zone, exclude_proxy=False, carriers=None, archive=None, price=model_cost):
     """Gemini's usage on this computer: Gemini CLI's JSON and JSONL sessions (spent rewinds included) and Antigravity's
     conversations (the app's, the agy CLI's and the IDE's), all under the Gemini root."""
     root = Path(root).expanduser()
@@ -964,7 +980,8 @@ def gemini_usage(root, cache, start, end, zone, exclude_proxy=False, carriers=No
     paths = sorted({p for folder in folders for p in gemini_files(folder, root)})
     stores = antigravity_stores(root)
     if not paths and not stores and not (archive and Path(archive).is_file()): return {'error':'暂无 Gemini 用量记录'}
-    target = Path(cache)/('harness-gemini-v2-'+identity(str(root.resolve()))[:12]+'.sqlite3')
+    # v3: Antigravity's models are kept by the API model they name (antigravity_model), so older readings are read again.
+    target = Path(cache)/('harness-gemini-v3-'+identity(str(root.resolve()))[:12]+'.sqlite3')
     target.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
     db = sqlite3.connect(target,timeout=10);os.chmod(target,0o600)
     try:
@@ -1016,7 +1033,9 @@ def gemini_usage(root, cache, start, end, zone, exclude_proxy=False, carriers=No
                 db.execute('DELETE FROM events WHERE file=?',(file_id,))
                 for e in events:db.execute('INSERT OR REPLACE INTO events VALUES (?,?,?,?)',(e['id'],file_id,e['timestamp'],json.dumps(e)))
                 db.execute('INSERT OR REPLACE INTO files VALUES (?,?,?)',(file_id,size,mtime))
-        result=aggregate(kept.merged(unique_events(db,start,end),archive,start,end),start,end,zone,exclude_proxy,model_cost,carriers)
+        # Antigravity serves Claude and GPT models too: each request is priced by the model it names (the plugin
+        # passes magpie_price, as the engine does).
+        result=aggregate(kept.merged(unique_events(db,start,end),archive,start,end),start,end,zone,exclude_proxy,price,carriers)
         if errors:
             result['partial']=True
             if not result['summary']['requests']:result['error']='Gemini 记录格式待检查'

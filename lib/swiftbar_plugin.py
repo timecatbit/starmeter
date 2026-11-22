@@ -2004,9 +2004,10 @@ def ocx_range_usage(key,now):
 def magpie_price(event):
     model=event['model'].lower().rsplit('/',1)[-1]
     if model.startswith('claude-'):
-        one_hour=event['write1h']
+        # Gemini's Antigravity requests come without one-hour writes or fast mode: none of either.
+        one_hour=event.get('write1h',0)
         return claude_price(model,(event['input'],event['output'],event['writes']-one_hour,one_hour,event['cached']),
-                            speed='fast' if event['fast'] else 'standard')
+                            speed='fast' if event.get('fast') else 'standard')
     # Codex's own reviewer (codex-auto-review) bills as a GPT model too.
     if model.startswith(('gpt-','o1','o3','o4','codex-')):
         cost=sources.codex_cost(dict(event,model=model))
@@ -2081,7 +2082,7 @@ def range_usage_cached(key=None,ttl=None):
                 if not root:return {'error':'请选择记录目录'}
                 kept=usage_archive(source,root)
                 if source=='magpie':return sources.jsonl_usage(source,root,CACHE_DIR,start,end,now.tzinfo,carriers=carriers,price=magpie_price,archive=kept)
-                if source=='gemini':return sources.gemini_usage(root,CACHE_DIR,start,end,now.tzinfo,'opencodex' in enabled,carriers,kept)
+                if source=='gemini':return sources.gemini_usage(root,CACHE_DIR,start,end,now.tzinfo,'opencodex' in enabled,carriers,kept,price=magpie_price)
                 if source=='opencode':return sources.opencode_usage(root,start,end,now.tzinfo,'opencodex' in enabled,carriers)
                 return sources.jsonl_usage(source,root,CACHE_DIR,start,end,now.tzinfo,'opencodex' in enabled,carriers,archive=kept)
             except Exception:return {'error':'记录暂不可用'}
@@ -2427,7 +2428,7 @@ def background_refresh(wait=False):
 
 
 # Index generations in use; older generations, removed snapshots and stray temp files are dropped.
-CURRENT_INDEXES = ('claude-app-usage-v5-', 'harness-v4-', 'harness-v6-codex-', 'harness-v6-qoder-', 'harness-v6-magpie-', 'harness-gemini-v2-', 'harness-gateway-v2-')
+CURRENT_INDEXES = ('claude-app-usage-v5-', 'harness-v4-', 'harness-v6-codex-', 'harness-v6-qoder-', 'harness-v6-magpie-', 'harness-gemini-v3-', 'harness-gateway-v2-')
 # Indexes a source outgrew, under a prefix the current ones still match.
 RETIRED_INDEXES = ('harness-v4-magpie-', 'harness-v4-codex-', 'harness-v4-qoder-')
 INDEX_FILE = re.compile(r'(?:claude-app-usage|claude-usage|harness)-.+\.sqlite3(?:-journal|-wal|-shm)?')

@@ -153,7 +153,7 @@ const CURRENT_INDEXES: [&str; 7] = [
     "harness-v6-codex-",
     "harness-v6-qoder-",
     "harness-v6-magpie-",
-    "harness-gemini-v2-",
+    "harness-gemini-v3-",
     "harness-gateway-v2-",
 ];
 const RETIRED_INDEXES: [&str; 3] = ["harness-v4-magpie-", "harness-v4-codex-", "harness-v4-qoder-"];

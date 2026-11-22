@@ -467,7 +467,7 @@ class HarnessReaderParityTests(unittest.TestCase):
         zone = ZoneInfo(self.zone)
         carriers = self.carriers(specs, here) if specs else None
         if source == 'gemini':
-            expected = sources.gemini_usage(root, here, start, end, zone, exclude, carriers, kept[0])
+            expected = sources.gemini_usage(root, here, start, end, zone, exclude, carriers, kept[0], price=self.plugin.magpie_price)
         elif source == 'opencode':
             expected = sources.opencode_usage(root, start, end, zone, exclude, carriers)
         else:
@@ -629,7 +629,9 @@ class HarnessReaderParityTests(unittest.TestCase):
             generation([(2, 2374), (3, 171), (5, 11677), (10, 171), (11, 'r2')], (21, 'Gemini 3.5 Flash (High)'), uuid='g2'),
             pb((2, b'\x03'), (3, pb((1, 1427)))),                                            # the run's settings, no usage
             generation([(2, 9), (3, 100), (9, 10), (10, 20), (11, 'r3')], (19, 'gemini-4-carbon')),  # output not its parts
-            generation([(2, 5), (3, 1), (4, 7)], (19, 'claude-sonnet-4-6')),                   # no response, no step
+            generation([(2, 5), (3, 1), (4, 7)], (19, 'claude-opus-5-5-medium')),              # no response, no step
+            # Google's ids carry the thinking level; an Orchestrator runs on the Gemini 4 model it is named for.
+            generation([(2, 30), (3, 3), (10, 3), (11, 'r5')], (19, 'gemini-pro-orchestrator-neon')),
         ], steps=[
             pb((1, moment('2026-11-18T02:00:00.500Z')), (12, 'g1')),
             pb((1, moment('2026-11-18T02:00:01.250Z')), (9, pb((2, 13726), (11, 'r1'))), (12, 'g1')),
@@ -639,25 +641,28 @@ class HarnessReaderParityTests(unittest.TestCase):
         store(gemini / 'antigravity-ide' / 'conversations' / 'c1.db', [first], steps=[pb((1, moment('2026-11-18T02:00:01.250Z')), (9, pb((11, 'r1'))))])
         # The agy CLI's background conversation with neither steps nor a start: dated by its store.
         quiet = gemini / 'antigravity-cli' / 'conversations' / 'implicit' / 'c3.db'
-        store(quiet, [generation([(2, 40), (3, 2), (10, 2), (11, 'r9')], (19, 'gemini-3.8-flash'))])
+        store(quiet, [generation([(2, 40), (3, 2), (10, 2), (11, 'r9')], (19, 'gemini-3.8-flash-high'))])
         os.utime(quiet, (self.start + 7200, self.start + 7200))
         (gemini / 'antigravity' / 'conversations' / 'empty.db').write_bytes(b'')
         (gemini / 'antigravity' / 'conversations' / 'old.pb').write_bytes(b'\x0a\x00')
         result = self.compare('gemini', gemini, 'Antigravity alone')
-        self.assertEqual(result['summary']['requests'], 4)
-        self.assertEqual(sorted(m['model'] for m in result['models']), ['claude-sonnet-4-6', 'gemini-3.5-flash', 'gemini-3.8-flash', 'gemini-4-carbon'])
-        self.assertEqual(result['summary']['totalTokens'], 13980 + 14222 + 13 + 42)
+        self.assertEqual(result['summary']['requests'], 5)
+        self.assertEqual(sorted(m['model'] for m in result['models']),
+                         ['claude-opus-5-5', 'gemini-3.5-flash', 'gemini-3.8-flash', 'gemini-4-carbon', 'gemini-4-neon'])
+        self.assertEqual(result['summary']['totalTokens'], 13980 + 14222 + 13 + 33 + 42)
+        # Every one priced: Gemini's from the shared table, Claude's from its own, as Magpie prices them.
+        self.assertEqual(result['summary']['unpricedRequests'], 0)
         self.compare('gemini', gemini, 'again, nothing changed')
         # A generation added to a conversation still being written: read again.
         db = sqlite3.connect(gemini / 'antigravity' / 'conversations' / 'c1.db')
         db.execute('INSERT INTO gen_metadata(idx, data) VALUES (9, ?)', (generation([(2, 100), (3, 10), (10, 10), (11, 'r4')], (19, 'gemini-4-carbon')),))
         db.commit(); db.close()
-        self.assertEqual(self.compare('gemini', gemini, 'one more')['summary']['requests'], 5)
+        self.assertEqual(self.compare('gemini', gemini, 'one more')['summary']['requests'], 6)
         # Beside Gemini CLI: both.
         chats = gemini / 'tmp' / 'abc' / 'chats'; chats.mkdir(parents=True)
         (chats / 'session-1.json').write_text(json.dumps({'sessionId': 'gs1', 'messages': [{'type': 'gemini', 'id': 'g1', 'model': 'gemini-3-pro',
             'timestamp': '2026-11-18T10:00:00Z', 'tokens': {'input': 100, 'output': 10, 'cached': 20, 'thoughts': 5, 'tool': 2, 'total': 117}}]}))
-        self.assertEqual(self.compare('gemini', gemini, 'with Gemini CLI')['summary']['requests'], 6)
+        self.assertEqual(self.compare('gemini', gemini, 'with Gemini CLI')['summary']['requests'], 7)
 
     def test_gemini_and_opencode(self):
         gemini = self.root / 'gemini'

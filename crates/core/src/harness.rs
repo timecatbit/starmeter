@@ -991,7 +991,8 @@ pub fn gemini_usage(
     if paths.is_empty() && stores.is_empty() && !archive.is_some_and(Path::exists) {
         return Ok(object! { "error" => "暂无 Gemini 用量记录" });
     }
-    let target = cache.join(format!("harness-gemini-v2-{}.sqlite3", root_identity(&root)));
+    // v3: Antigravity's models are kept by the API model they name (antigravity_model), so older readings are read again.
+    let target = cache.join(format!("harness-gemini-v3-{}.sqlite3", root_identity(&root)));
     files::make_directory(cache, 0o700)?;
     let db = Database::open(&target, 10.0, Mode::ReadWrite)?;
     files::owner_only(&target);
@@ -1073,7 +1074,8 @@ pub fn gemini_usage(
         }
     }
     let events = archive::merged(unique_events(&db, start, end)?, archive, start, end);
-    let mut result = tally::aggregate(&events, start, end, zone, exclude_proxy, Some(&pricing::model_cost), carriers);
+    // Antigravity serves Claude and GPT models too: each request is priced by the model it names, as Magpie's are.
+    let mut result = tally::aggregate(&events, start, end, zone, exclude_proxy, Some(&magpie_price), carriers);
     if errors > 0 {
         result.insert("partial", true);
         if requests_of(&result) == 0.0 {
@@ -1255,11 +1257,28 @@ fn proto_moment(bytes: &[u8]) -> Option<f64> {
     (at > 0.0 && at < 32_503_680_000.0).then_some(at)
 }
 
-/// The model a generation's display name names when it has no id of its own: Gemini 4 Carbon (High) as
-/// gemini-4-carbon.
+/// The API model an Antigravity id names. Google writes its ids as the model and the thinking level chosen
+/// (claude-opus-5-5-medium, gemini-3.8-flash-high, gpt-oss-120b-medium), which no price table carries; an Orchestrator
+/// runs on the Gemini 4 model it is named for (its own catalog lists gemini-pro-orchestrator as Carbon's).
+fn antigravity_model(id: &str) -> String {
+    let id = id.to_lowercase();
+    let base = ["-xhigh", "-high", "-medium", "-low"].iter().find_map(|level| id.strip_suffix(level)).unwrap_or(&id);
+    match base.strip_prefix("gemini-pro-orchestrator") {
+        Some("") => "gemini-4-carbon".into(),
+        Some(variant) if variant.starts_with('-') => format!("gemini-4{variant}"),
+        _ => base.to_string(),
+    }
+}
+
+/// The model a generation's display name names when it has no id of its own, in the ids' own form: Gemini 4 Carbon
+/// (High) as gemini-4-carbon, Claude Opus 5.5 (Medium) as claude-opus-5-5, Orchestrator (Neon) as gemini-4-neon.
 fn display_model(name: &str) -> String {
-    let base = name.split(" (").next().unwrap_or(name).trim();
-    base.to_lowercase().split_whitespace().collect::<Vec<_>>().join("-")
+    let (base, level) = name.split_once(" (").unwrap_or((name, ""));
+    if base.trim() == "Orchestrator" {
+        return format!("gemini-4-{}", level.trim_end_matches(')').trim().to_lowercase());
+    }
+    let id = base.trim().to_lowercase().split_whitespace().collect::<Vec<_>>().join("-");
+    if id.starts_with("claude-") { id.replace('.', "-") } else { id }
 }
 
 /// One Antigravity conversation's requests, from its store's gen_metadata: a row each, with its tokens
@@ -1314,8 +1333,9 @@ fn antigravity_file(path: &str, changed: f64) -> Result<Vec<Event>, FileError> {
             .copied()
             .or(began)
             .unwrap_or(changed);
-        let model =
-            proto_text(&generation, 19).or_else(|| proto_text(&generation, 21).map(|name| display_model(&name)));
+        let model = proto_text(&generation, 19)
+            .map(|id| antigravity_model(&id))
+            .or_else(|| proto_text(&generation, 21).map(|name| display_model(&name)));
         let count = |number| Json::Int(proto_number(&usage, number).unwrap_or(0) as i64);
         let mut event = metrics(
             model.map(Json::from).as_ref(),
@@ -1471,4 +1491,35 @@ pub fn magpie_price(event: &Event) -> Option<f64> {
         }
     }
     pricing::model_cost(event)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{antigravity_model, display_model};
+
+    #[test]
+    fn antigravitys_ids_name_the_api_models_they_run() {
+        // As its own catalog lists them (Antigravity 2.34): the model and the thinking level chosen.
+        for (id, model) in [
+            ("claude-opus-5-5-medium", "claude-opus-5-5"),
+            ("claude-sonnet-5-5-high", "claude-sonnet-5-5"),
+            ("gemini-4-neon-xhigh", "gemini-4-neon"),
+            ("gemini-4-carbon", "gemini-4-carbon"),
+            ("gemini-3.8-flash-low", "gemini-3.8-flash"),
+            ("gpt-oss-120b-medium", "gpt-oss-120b"),
+            ("gemini-pro-orchestrator", "gemini-4-carbon"),
+            ("gemini-pro-orchestrator-argon", "gemini-4-argon"),
+            ("Gemini-4-Hydrogen-High", "gemini-4-hydrogen"),
+        ] {
+            assert_eq!(antigravity_model(id), model, "{id}");
+        }
+        for (name, model) in [
+            ("Claude Opus 5.5 (Medium)", "claude-opus-5-5"),
+            ("Gemini 3.8 Flash (High)", "gemini-3.8-flash"),
+            ("Orchestrator (Neon)", "gemini-4-neon"),
+            ("GPT-OSS 120B (Medium)", "gpt-oss-120b"),
+        ] {
+            assert_eq!(display_model(name), model, "{name}");
+        }
+    }
 }
