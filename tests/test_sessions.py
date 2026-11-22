@@ -107,6 +107,25 @@ class SessionReaderTests(unittest.TestCase):
         turns = sessions.codex_turns(path, lambda model, usage: 0.25 if model == 'gpt-6.2-sol' else None)
         self.assertEqual([(t['requests'], t['tokens'], t['cost'], t['tools']) for t in turns], [(2, 20, 0.5, {'shell': 1})])
 
+    def test_a_request_timed_ahead_of_the_clock_waits_for_its_time(self):
+        # SESSION-8: written by a clock five minutes ahead, $6 at 20:05 counts nowhere at 20:00, as the usage doesn't;
+        # at 20:10 it counts in the total, its day and the last 24 hours.
+        from datetime import datetime, timezone
+        at = lambda text: datetime.fromisoformat(text.replace('Z', '+00:00')).timestamp()
+        reply = lambda key, when, output: {'type': 'assistant', 'timestamp': when, 'message': {'id': key, 'model': 'm', 'stop_reason': 'end_turn',
+                                           'usage': {'input_tokens': 1, 'output_tokens': output}}}
+        path = self.claude / 'p' / 'ahead.jsonl'
+        self.write(path, [reply('a', '2026-11-20T19:59:00Z', 3), reply('b', '2026-11-20T20:05:00Z', 6)])
+        price = lambda model, usage: float(usage['output_tokens'])
+        now = at('2026-11-20T20:00:00Z')
+        ranges = lambda now: [('today', at('2026-11-20T00:00:00Z'), now), ('24h', now - 86400, now)]
+        def figures(now):
+            part = sessions.spent(str(path), 'Claude', price, timezone.utc, now - sessions.SPENDS_KEPT, now)
+            counted = sessions.range_costs([part], ranges(now), timezone.utc)
+            return (part['requests'], part['cost']), [(f['requests'], f['cost']) for f in counted.values()]
+        self.assertEqual(figures(now), ((1, 3.0), [(1, 3.0), (1, 3.0)]))
+        self.assertEqual(figures(at('2026-11-20T20:10:00Z')), ((2, 9.0), [(2, 9.0), (2, 9.0)]))
+
     def test_only_a_turn_that_just_finished_is_news(self):
         now = time.time()
         before = [{'id': 'a', 'state': 'running'}, {'id': 'b', 'state': 'waiting'}]

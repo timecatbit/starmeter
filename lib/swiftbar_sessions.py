@@ -293,17 +293,19 @@ def day_of(at, zone):
     return datetime.fromtimestamp(at, zone).strftime('%Y-%m-%d')
 
 
-def spent(path, tool, price, zone=None, since=0):
+def spent(path, tool, price, zone=None, since=0, until=None):
     """What a whole session has cost: every request in its transcript, counted as the turns count them (a Claude reply
     streamed over several lines once; each change of Codex's running token total once); a Claude fork's copied
     history is left to the session it came from. price(model, usage). For what the session cost in a range, 'days'
     holds its cost by day in zone ({day: [requests, cost, unpriced]}, in the order the days come) and 'spends' each
-    request since `since`: its time and cost (None when unpriced), in order."""
-    out = {'requests': 0, 'cost': 0.0, 'unpriced': 0, 'days': {}, 'spends': []}; seen = set(); model = None; total = None
+    request since `since`: its time and cost (None when unpriced), in order. A request timed after `until` (a clock
+    running ahead wrote it) counts nowhere yet, as the usage doesn't: it waits in 'later' for its time."""
+    out = {'requests': 0, 'cost': 0.0, 'unpriced': 0, 'days': {}, 'spends': [], 'later': []}; seen = set(); model = None; total = None
     own = Path(path).stem
     def add(model, usage, at):
-        out['requests'] += 1
         cost = price(model, usage)
+        if at is not None and until is not None and at > until:out['later'].append((at, cost)); return
+        out['requests'] += 1
         if cost is None:out['unpriced'] += 1
         else:out['cost'] += cost
         if at is None:return
@@ -412,7 +414,7 @@ def active(claude_roots, codex_root, now, prices=None, claude_app=None, ranges=N
         if prices:
             entry['turns'] = detail(path if session['tool'] == 'Claude' else files, session['tool'], prices)
             try:
-                parts = [spent(segment, session['tool'], prices[session['tool']], zone, now - SPENDS_KEPT) for segment in files]
+                parts = [spent(segment, session['tool'], prices[session['tool']], zone, now - SPENDS_KEPT, now) for segment in files]
                 cost = 0.0
                 for part in parts:cost += part['cost']
                 entry['spent'] = {'requests': sum(part['requests'] for part in parts), 'cost': cost, 'unpriced': sum(part['unpriced'] for part in parts),
