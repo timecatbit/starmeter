@@ -201,8 +201,8 @@ pub fn used_text(percent: f64) -> String {
     format!("已用 {}%", g(round(percent.clamp(0.0, 100.0), 1)))
 }
 
-/// Between a homepage bar's name, share, level, place and group in panelgauges; the bars themselves are split by
-/// FALLBACK_SEPARATOR.
+/// Between a homepage bar's name, share, level, place, group and marks in panelgauges; the bars themselves are split
+/// by FALLBACK_SEPARATOR.
 pub const GAUGE_FIELD: &str = "\u{1E}";
 
 /// A bar under a homepage row.
@@ -211,16 +211,19 @@ pub struct Bar {
     /// 0 and 1 the left and right of the first line, 2 and 3 of the second: the left a five-hour limit, the right a
     /// week's.
     pub place: usize,
-    /// The model group its line is for (Gemini 订阅's), on the line's first bar; a narrow panel shortens it first.
+    /// The model group its line is for (Gemini 订阅's), on the line's first bar.
     pub group: String,
     /// The window, as its page names it.
     pub name: String,
     pub used: f64,
+    /// The group's logos (each base64, and whether it takes the text colour), drawn in the icon's column beside a
+    /// second line, whose group the row's own icon doesn't name.
+    pub marks: Vec<(String, bool)>,
 }
 
 impl Bar {
     pub fn new(place: usize, group: &str, name: &str, used: f64) -> Bar {
-        Bar { place, group: group.into(), name: name.into(), used }
+        Bar { place, group: group.into(), name: name.into(), used, marks: Vec::new() }
     }
 }
 
@@ -242,8 +245,9 @@ pub fn headline_pair(limits: &[(String, f64, bool)]) -> Vec<Bar> {
     vec![Bar::new(0, "", &limits[first].0, limits[first].1), Bar::new(1, "", &tightest.0, tightest.1)]
 }
 
-/// The panel's bars under a homepage row, each its name, share, level, place and group; none while the figures are
-/// stale or the last read failed, as a single bar isn't drawn then either.
+/// The panel's bars under a homepage row, each its name, share, level, place, group and marks (image:1 for a
+/// template, :0 otherwise, split by commas); none while the figures are stale or the last read failed, as a single bar
+/// isn't drawn then either.
 pub fn gauges(bars: &[Bar], stale: bool) -> Json {
     if bars.len() < 2 || stale {
         return Json::Null;
@@ -254,7 +258,15 @@ pub fn gauges(bars: &[Bar], stale: bool) -> Json {
             let level = py::str(Some(&usage_level(Some(bar.used), false)));
             let share = g(round(bar.used.clamp(0.0, 100.0), 1));
             let field = GAUGE_FIELD;
-            format!("{}{field}{share}{field}{level}{field}{}{field}{}", bar.name, bar.place, bar.group)
+            let marks: Vec<String> =
+                bar.marks.iter().map(|(image, template)| format!("{image}:{}", u8::from(*template))).collect();
+            format!(
+                "{}{field}{share}{field}{level}{field}{}{field}{}{field}{}",
+                bar.name,
+                bar.place,
+                bar.group,
+                marks.join(",")
+            )
         })
         .collect();
     Json::from(bars.join(FALLBACK_SEPARATOR))
@@ -485,7 +497,7 @@ mod tests {
         assert_eq!(
             gauges(&[Bar::new(0, "", "5 小时", 100.0 - 94.4), Bar::new(1, "Claude 和 GPT", "本周", 91.0)], false),
             Json::from(format!(
-                "5 小时{field}5.6{field}normal{field}0{field}{FALLBACK_SEPARATOR}本周{field}91{field}critical{field}1{field}Claude 和 GPT"
+                "5 小时{field}5.6{field}normal{field}0{field}{field}{FALLBACK_SEPARATOR}本周{field}91{field}critical{field}1{field}Claude 和 GPT{field}"
             ))
         );
         assert_eq!(

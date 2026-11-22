@@ -1761,7 +1761,8 @@ def used_text(percent):
     return '已用 %g%%'%round(min(100,max(0,float(percent))),1)
 
 
-# Between a homepage bar's name, share, level, place and group in panelgauges; the bars themselves are split by FALLBACK.
+# Between a homepage bar's name, share, level, place, group and marks in panelgauges; the bars themselves are split by
+# FALLBACK.
 GAUGE_FIELD='\x1e'
 
 
@@ -1778,11 +1779,27 @@ def headline_pair(limits):
 
 
 def gauges(bars,stale):
-    """The panel's bars under a homepage row, each its name, share, level, place and group; none while the figures are
-    stale or the last read failed, as a single bar isn't drawn then either."""
+    """The panel's bars under a homepage row, each its name, share, level, place, group and marks (image:1 for a
+    template, :0 otherwise, split by commas: the group's logos, drawn in the icon's column beside a second line); none
+    while the figures are stale or the last read failed, as a single bar isn't drawn then either."""
     if len(bars)<2 or stale:return None
-    return FALLBACK.join(GAUGE_FIELD.join([name,'%g'%round(min(100,max(0,float(used))),1),usage_level(used),str(place),group])
-                         for place,group,name,used in bars)
+    def field(bar):
+        place,group,name,used=bar[:4];marks=bar[4] if len(bar)>4 else []
+        return GAUGE_FIELD.join([name,'%g'%round(min(100,max(0,float(used))),1),usage_level(used),str(place),group,
+                                 ','.join('%s:%d'%(image,template) for image,template in marks)])
+    return FALLBACK.join(field(bar) for bar in bars)
+
+
+def gemini_bars_marked(windows):
+    """Gemini 订阅's bars, the line for Claude's with GPT's marked with their logos (the row's own icon is Gemini's)."""
+    bars=gemini_bars(windows)
+    def mark(key):
+        icon=brand_icon(key)
+        return (icon['image'],False) if icon.get('image') else (icon['templateimage'],True) if icon.get('templateimage') else None
+    for index,bar in enumerate(bars):
+        if bar[0]//2==1 and bar[1]=='Claude 和 GPT':
+            bars[index]=bar+([m for m in map(mark,('claude-api','chatgpt-api')) if m],);break
+    return bars
 
 
 def claude_subscription_lines(data):
@@ -1961,7 +1978,7 @@ def gemini_subscription_lines(data):
     elif most is not None:badge=used_text(most)
     elif closed or not present:badge='打开 Antigravity 后显示' if present or antigravity_app() else '未发现 Antigravity'
     else:badge='待同步'
-    rows=[item(service.label,badge=with_failure(badge,bool(windows),failed),panelgauges=gauges(gemini_bars(windows),closed or failed),
+    rows=[item(service.label,badge=with_failure(badge,bool(windows),failed),panelgauges=gauges(gemini_bars_marked(windows),closed or failed),
                **brand_icon('gemini-subscription'),
                panelusagelevel=usage_level(most,closed or failed) if windows else None),
           item('来源 · Antigravity 本机额度',level=1,color=MUTED,size=10)]
@@ -3819,6 +3836,8 @@ def panel_entries(lines):
                     try:bars.append({'label':fields[0],'used':float(fields[1]),'level':fields[2],'place':int(fields[3])})
                     except (IndexError,ValueError):continue
                     if len(fields)>4 and fields[4]:bars[-1]['group']=fields[4]
+                    marks=[{'image':image,'template':template=='1'} for image,_,template in (mark.rpartition(':') for mark in (fields[5] if len(fields)>5 else '').split(',')) if _]
+                    if marks:bars[-1]['marks']=marks
                 if bars:entry["gauges"]=bars
             if attrs.get("paneldetail"):
                 entry["detail"] = attrs["paneldetail"]

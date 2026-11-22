@@ -194,6 +194,16 @@ pub fn panel_entries(lines: &[String]) -> Vec<Json> {
                         if let Some(group) = fields.next().filter(|group| !group.is_empty()) {
                             bar.insert("group", group);
                         }
+                        let marks: Vec<Json> = fields
+                            .next()
+                            .unwrap_or("")
+                            .split(',')
+                            .filter_map(|mark| mark.rsplit_once(':'))
+                            .map(|(image, template)| object! { "image" => image, "template" => template == "1" }.into())
+                            .collect();
+                        if !marks.is_empty() {
+                            bar.insert("marks", Json::Array(marks));
+                        }
                         Some(bar.into())
                     })
                     .collect();

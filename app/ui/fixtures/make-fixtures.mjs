@@ -415,7 +415,8 @@ function subscriptionRows(state) {
   // The homepage's bars for a plan with more than one limit, as the engine's panelgauges give them: five hours on the
   // left, the week on the right, a line per model group.
   const gauges = (...bars) => (pending || failed ? {} : {
-    gauges: bars.map(([label, used, group], place) => ({ label, used, level: used >= 90 ? 'critical' : used >= 70 ? 'warning' : 'normal', place, ...(group ? { group } : {}) })) });
+    gauges: bars.map(([label, used, group, marks], place) => ({ label, used, level: used >= 90 ? 'critical' : used >= 70 ? 'warning' : 'normal', place,
+      ...(group ? { group } : {}), ...(marks ? { marks } : {}) })) });
   const price = (key, value) => entry('订阅月费…', { symbol: 'dollarsign.circle', value, action: ['set-subscription-price', key] });
   return [
     entry('ChatGPT 订阅', { ...moduleIcon('chatgpt'), ...(pending ? {} : { usageLevel: 'normal' }), value: pending ? '待同步' : '已用 38%',
@@ -466,7 +467,8 @@ function subscriptionRows(state) {
     ]),
     // Antigravity's quota, read from its app on this computer.
     entry('Gemini 订阅', { ...moduleIcon('gemini-subscription'), ...(pending ? {} : { usageLevel: 'normal' }), value: pending ? '待同步' : '已用 24%',
-      ...gauges(['5 小时', 24, 'Gemini'], ['本周', 9], ['5 小时', 6, 'Claude 和 GPT'], ['本周', 18]), onOpenAction: ['refresh-source', 'gemini-subscription'] }, [
+      ...gauges(['5 小时', 24, 'Gemini'], ['本周', 9],
+        ['5 小时', 6, 'Claude 和 GPT', [{ image: 'logo:logos/claude.svg', template: false }, { image: 'logo:logos/openai.svg', template: true }]], ['本周', 18]), onOpenAction: ['refresh-source', 'gemini-subscription'] }, [
       entry('来源 · Antigravity 本机额度'),
       window('5 小时', 24, '重置于 12/01 18:20 · 比匀速少用 12%'),
       window('本周', 9, '重置于 12/06 09:40 · 比匀速少用 20%'),

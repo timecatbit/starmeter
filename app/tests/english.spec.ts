@@ -83,16 +83,14 @@ test('English: the homepage, its pages and the card groupings', async ({ page })
   const left = new Leftovers();
   await english(page);
   await left.take(page, 'home');
-  // Tokens are counted in the plural, a plan's limits are named beside their bars, and the heatmap is made of dots.
+  // Tokens are counted in the plural, a plan's limits are named under their bars, and the heatmap is made of dots.
   await expect(page.locator('.card', { has: page.locator('.name', { hasText: /^Magpie$/ }) })).toContainText('7.24M tokens');
   await expect(page.locator('.row', { hasText: 'Claude plan' }).locator('.value')).toHaveText('76% used');
-  await expect(page.locator('.row', { hasText: 'Claude plan' }).locator('.meter')).toHaveText(['5 hours 22%', 'This week 76%']);
-  await expect(page.locator('.row', { hasText: 'Gemini plan' }).locator('.meter')).toHaveText(['5 hours 24%', 'This week 9%', '5 hours 6%', 'This week 18%']);
-  await expect(page.locator('.row', { hasText: 'Gemini plan' }).locator('.meter-group')).toHaveText('Claude and GPT');
-  // The longer English names still leave the bars their room and every name whole.
-  for (const meter of await page.locator('.row', { hasText: 'Gemini plan' }).locator('.meter').all()) {
-    expect(await meter.locator('.meter-name').evaluate((name) => name.scrollWidth <= name.clientWidth)).toBe(true);
-    expect(await meter.locator('.gauge').evaluate((bar) => bar.getBoundingClientRect().width)).toBeGreaterThan(40);
+  await expect(page.locator('.row', { hasText: 'Claude plan' }).locator('.gauge-name')).toHaveText(['5 hours 22%', 'This week 76%']);
+  await expect(page.locator('.row', { hasText: 'Gemini plan' }).locator('.gauge-name')).toHaveText(['5 hours 24%', 'This week 9%', '5 hours 6%', 'This week 18%']);
+  await expect(page.locator('.row', { hasText: 'Gemini plan' }).locator('.marks')).toHaveAttribute('aria-label', 'Claude and GPT');
+  for (const name of await page.locator('.row', { hasText: 'Gemini plan' }).locator('.gauge-label').all()) {
+    expect(await name.evaluate((label) => label.scrollWidth <= label.clientWidth)).toBe(true);
   }
   await expect(page.locator('.heatmap')).toContainText('1 hour per dot');
   const tabs = await page.getByRole('radiogroup', { name: 'Card grouping' }).getByRole('radio').all();

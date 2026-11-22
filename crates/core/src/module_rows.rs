@@ -372,6 +372,20 @@ impl Runtime {
     /// Gemini 订阅: the quota Antigravity's app shows, asked of it on this computer (antigravity.rs). Gemini's five-hour
     /// and weekly limits, then Claude's with GPT's; with the app closed the last figures stay, marked with when they
     /// were read, and a window past its reset is dropped, as it has filled again.
+    /// Gemini 订阅's bars, the line for Claude's with GPT's marked with their logos (the row's own icon is Gemini's).
+    fn gemini_bars_marked(&self, windows: &[Object]) -> Vec<rows::Bar> {
+        let mut bars = gemini_bars(windows);
+        let mark = |key: &str| {
+            let icon = self.brand_icon(key);
+            let image = |name: &str| icon.get(name).and_then(Json::as_str).map(String::from);
+            image("image").map(|image| (image, false)).or_else(|| image("templateimage").map(|image| (image, true)))
+        };
+        if let Some(bar) = bars.iter_mut().find(|bar| bar.place / 2 == 1 && bar.group == "Claude 和 GPT") {
+            bar.marks = ["claude-api", "chatgpt-api"].into_iter().filter_map(mark).collect();
+        }
+        bars
+    }
+
     pub fn gemini_subscription_lines(&self, data: &Object) -> Vec<String> {
         let service = catalog::by_key("gemini-subscription").expect("gemini");
         let payload = object(data, "gemini_subscription");
@@ -407,7 +421,7 @@ impl Runtime {
                 merged(&[
                     &object! {
                         "badge" => with_failure(&badge, !windows.is_empty(), failed),
-                        "panelgauges" => rows::gauges(&gemini_bars(&windows), closed || failed),
+                        "panelgauges" => rows::gauges(&self.gemini_bars_marked(&windows), closed || failed),
                     },
                     &self.brand_icon("gemini-subscription"),
                     &object! { "panelusagelevel" => if windows.is_empty() { Json::Null } else { usage_level(most, closed || failed) } },
