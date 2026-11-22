@@ -396,7 +396,11 @@ impl Runtime {
 /// Which sources have connection settings of their own.
 fn connection_keys(name: &str) -> Option<&'static [&'static str]> {
     Some(match name {
-        "app_updates" | "claude_subscription" | "qoder_subscription" | "cursor_subscription" => &[],
+        "app_updates"
+        | "claude_subscription"
+        | "qoder_subscription"
+        | "cursor_subscription"
+        | "gemini_subscription" => &[],
         "chatgpt" => &["OCX_CHATGPT_HOME"],
         "komari" => &["KOMARI_BASE_URL"],
         "provider_quotas" => &["DEEPSEEK_API_KEY", "DEEPSEEK_API_KEY_FILE"],

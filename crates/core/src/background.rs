@@ -93,7 +93,7 @@ pub mod service_status {
     }
 }
 
-pub const EXTERNAL_TTLS: [(&str, f64); 22] = [
+pub const EXTERNAL_TTLS: [(&str, f64); 23] = [
     ("provider_quotas", 300.0),
     ("badge", 3600.0),
     ("komari", 30.0),
@@ -108,6 +108,7 @@ pub const EXTERNAL_TTLS: [(&str, f64); 22] = [
     ("claude_subscription", 60.0),
     ("qoder_subscription", 60.0),
     ("cursor_subscription", 300.0),
+    ("gemini_subscription", 60.0),
     ("sessions", 30.0),
     ("service_status", 300.0),
     ("exchange_rate", 86400.0),
@@ -120,7 +121,7 @@ pub const EXTERNAL_TTLS: [(&str, f64); 22] = [
 pub const ACCOUNT_SOURCES: [&str; 5] = ["grok", "minimax", "kimi-api", "qoder-api", "claude-api"];
 pub const KEY_TTLS: [(&str, f64); 5] =
     [("deepseek", 300.0), ("kimi-api", 300.0), ("grok", 300.0), ("qoder-api", 300.0), ("claude-api", 1800.0)];
-pub const RESOURCE_CACHES: [(&str, &str); 14] = [
+pub const RESOURCE_CACHES: [(&str, &str); 15] = [
     ("deepseek", "provider_quotas"),
     ("chatgpt", "chatgpt"),
     ("grok", "grok"),
@@ -133,6 +134,7 @@ pub const RESOURCE_CACHES: [(&str, &str); 14] = [
     ("claude-subscription", "claude_subscription"),
     ("qoder-subscription", "qoder_subscription"),
     ("cursor-subscription", "cursor_subscription"),
+    ("gemini-subscription", "gemini_subscription"),
     ("opencodex", "opencodex"),
     ("sessions", "sessions"),
 ];
@@ -249,6 +251,8 @@ impl Runtime {
                 qoder::log_roots(&self.home, &self.environment).iter().any(|root| Path::new(root).is_dir())
             }
             "cursor-subscription" => settings.get("cursorUsage").is_some_and(Json::is_truthy),
+            // Antigravity's app has run here and noted where to ask it for the quota.
+            "gemini-subscription" => crate::antigravity::present(&self.home),
             "chatgpt" => {
                 if self.chatgpt_source() == "proxy" {
                     self.opencodex_configured()
@@ -439,6 +443,17 @@ impl Runtime {
                     Ok(match cursor::plan(&self.home, &self.environment, now()) {
                         Ok(plan) => (Some(plan), None),
                         Err(failure) => (None, Some(failure.to_string())),
+                    })
+                });
+            });
+        }
+        // Asked of Antigravity's app on this computer, every minute while it runs; with it closed only its note is read.
+        if self.module_enabled("gemini-subscription") && crate::antigravity::present(&self.home) {
+            add(&mut loaders, "gemini_subscription", || {
+                self.cached_fetch("gemini_subscription", 60.0, 60.0, || {
+                    Ok(match crate::antigravity::quota(&self.home) {
+                        Ok(quota) => (Some(quota), None),
+                        Err(failure) => (None, Some(failure)),
                     })
                 });
             });

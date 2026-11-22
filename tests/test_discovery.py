@@ -114,6 +114,11 @@ class DiscoveryTests(unittest.TestCase):
         self.assertIn('gemini',self.detect())
         apps=self.home/'Applications';(apps/'Antigravity.app').mkdir(parents=True)
         self.assertIn('gemini',discovery.detect({},empty,which=lambda _:None,app_roots=[apps]))
+        # Its quota is Gemini 订阅's: the app installed (or the Gemini app), or a note its language server left.
+        self.assertIn('gemini-subscription',discovery.detect({},empty,which=lambda _:None,app_roots=[apps]))
+        self.assertNotIn('gemini-subscription',self.detect(),'Conversations alone are no quota to read')
+        self.put('.gemini/antigravity/daemon/hub_1.json',json.dumps({'pid':1,'httpPort':9,'csrfToken':'x'}))
+        self.assertIn('gemini-subscription',self.detect())
         self.assertIn('gemini',discovery.detect({},empty,which=lambda name:'/opt/homebrew/bin/agy' if name=='agy' else None,app_roots=[]))
     def test_installed_client_can_be_selected_before_first_session(self):
         app=self.home/'Applications/WorkBuddy.app';app.mkdir(parents=True)

@@ -568,6 +568,19 @@ impl Runtime {
                 children.push(with("清除连接设置…", object! { "action" => action(&["clear-connection", key]) }));
             }
             children.push(with("打开用量与账单", object! { "symbol" => "arrow.up.right", "href" => url }));
+        } else if key == "gemini-subscription" {
+            // Asked of Antigravity's app on this computer, nothing to set up: where it comes from and when it updates.
+            children = vec![
+                leaf("来源 · Antigravity 本机额度"),
+                leaf("Antigravity 开着时每分钟更新；关着时保留最近一次读到的额度"),
+            ];
+            if let Some(app) = crate::module_rows::antigravity_app(&self.home) {
+                children.push(with(
+                    "打开 Antigravity",
+                    object! { "symbol" => "macwindow", "href" => self.file_href(&app) },
+                ));
+            }
+            children.push(with("打开订阅管理", object! { "symbol" => "arrow.up.right", "href" => url }));
         } else if key == "qoder-subscription" {
             // Read from the Qoder CN app's own log, nothing to set up: where it reads, and how to bring it up to date.
             let roots = qoder::log_roots(&self.home, &self.environment);

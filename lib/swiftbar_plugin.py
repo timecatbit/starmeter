@@ -119,6 +119,7 @@ import swiftbar_desktop_updates as desktop_updates
 import swiftbar_keys as keystore
 import swiftbar_qoder as qoder
 import swiftbar_cursor as cursor
+import swiftbar_antigravity as antigravity
 import swiftbar_alerts as alerts
 import swiftbar_archive as usage_archive_store
 import swiftbar_export as usage_export
@@ -217,7 +218,7 @@ UPDATE_STATUS_CACHE = os.path.join(CACHE_DIR, "badge.json")
 # OpenCodex management endpoints are polled in the background; the health check gates the rest.
 OPENCODEX_ENDPOINTS = {"healthz": ("/healthz", False), "ready": ("/readyz", False), "quota": ("/api/codex-auth/quota", True),
                        "accounts": ("/api/codex-auth/accounts", True), "active": ("/api/codex-auth/active", True)}
-EXTERNAL_TTLS = {"provider_quotas": 300, "badge": 3600, "komari": 30, "app_updates": 21600, "self_update": 21600, "chatgpt": 300, "grok": 300, "minimax": 300, "kimi-api": 300, "qoder-api": 300, "claude-api": 1800, "claude_subscription":60, "qoder_subscription":60, "cursor_subscription":300, "sessions":30, "service_status":300, "exchange_rate":86400}
+EXTERNAL_TTLS = {"provider_quotas": 300, "badge": 3600, "komari": 30, "app_updates": 21600, "self_update": 21600, "chatgpt": 300, "grok": 300, "minimax": 300, "kimi-api": 300, "qoder-api": 300, "claude-api": 1800, "claude_subscription":60, "qoder_subscription":60, "cursor_subscription":300, "gemini_subscription": 60, "sessions":30, "service_status":300, "exchange_rate":86400}
 # Provider accounts read with the user's own key: Grok/Kimi balances, the MiniMax plan and Claude API spend.
 ACCOUNT_SOURCES = ('grok', 'minimax', 'kimi-api', 'qoder-api', 'claude-api')
 # APIs whose named extra keys are queried one by one, each in its own cache.
@@ -256,6 +257,8 @@ def default_ready(key):
     if key=='claude-subscription':return view_settings()['claudeOAuthUsage'] or claude_local.enabled(STATE_DIR) or bool(claude_desktop.subscription(source_path('claude')).get('windows'))
     if key=='qoder-subscription':return any(root.is_dir() for root in qoder.log_roots(HOME))
     if key=='cursor-subscription':return view_settings()['cursorUsage']
+    # Antigravity's app has run here and noted where to ask it for the quota.
+    if key=='gemini-subscription':return antigravity.present(HOME)
     if key in catalog.MANUAL_SUBSCRIPTIONS:return key in view_settings()['configuredSubscriptions']
     if key in catalog.PORTAL_APIS:return any(accounts.credential(name) for name in catalog.credential_names(key))
     if key=='chatgpt':return ocx_configured() if chatgpt_source()=='proxy' else chatgpt_configured()
@@ -307,7 +310,7 @@ def refresh_cadence():
     return False,bool(power.get('battery'))
 
 
-CONNECTION_KEYS={'app_updates':[], 'claude_subscription':[], 'qoder_subscription':[], 'cursor_subscription':[], 'chatgpt':['OCX_CHATGPT_HOME'], 'komari':['KOMARI_BASE_URL'], 'provider_quotas':['DEEPSEEK_API_KEY','DEEPSEEK_API_KEY_FILE'],
+CONNECTION_KEYS={'app_updates':[], 'claude_subscription':[], 'qoder_subscription':[], 'cursor_subscription':[], 'gemini_subscription':[], 'chatgpt':['OCX_CHATGPT_HOME'], 'komari':['KOMARI_BASE_URL'], 'provider_quotas':['DEEPSEEK_API_KEY','DEEPSEEK_API_KEY_FILE'],
                  'grok':['XAI_MANAGEMENT_API_KEY','XAI_MANAGEMENT_API_KEY_FILE','XAI_TEAM_ID'],
                  'minimax':['MINIMAX_API_KEY','MINIMAX_API_KEY_FILE','MINIMAX_REGION'],
                  'kimi-api':['MOONSHOT_API_KEY','MOONSHOT_API_KEY_FILE','MOONSHOT_REGION'],
@@ -1619,6 +1622,7 @@ def resource_lines(data):
         elif key=='claude-subscription':lines.extend(claude_subscription_lines(data))
         elif key=='qoder-subscription':lines.extend(qoder_subscription_lines(data))
         elif key=='cursor-subscription':lines.extend(cursor_subscription_lines(data))
+        elif key=='gemini-subscription':lines.extend(gemini_subscription_lines(data))
         elif service.category=='API':lines.extend(api_lines(key,data))
         elif key in ACCOUNT_SOURCES:lines.extend(provider_account_lines(key,data))
         else:lines.extend(portal_service_lines(key))
@@ -1865,6 +1869,61 @@ def cursor_subscription_lines(data):
     app=update_app_path('cursor')
     if app:rows.append(item('打开 Cursor',level=1,sfimage='macwindow',href='file://'+urllib.parse.quote(app)))
     rows.append(item('打开用量与账单',level=1,sfimage='arrow.up.right',href=service.url))
+    return rows
+
+
+def antigravity_app():
+    """Antigravity's app, where it is installed."""
+    return installed_app_path('Antigravity')
+
+
+def gemini_windows(payload,now):
+    """Gemini 订阅's windows as last read: Gemini's first, then Claude's with GPT's, each five hours before the week; a
+    window past its reset has filled again and is left out."""
+    windows=[w for w in payload.get('windows') or [] if isinstance(w,dict) and not (isinstance(w.get('resetsAt'),(int,float)) and w['resetsAt']<=now)]
+    return sorted(windows,key=lambda w:({'gemini':0,'3p':1}.get(w.get('group'),2),w.get('window')!='5h'))
+
+
+def gemini_window_name(window):
+    """A window's name: 5 小时 and 每周 for Gemini's own, the group's name before them for the others."""
+    span='5 小时' if window.get('window')=='5h' else '每周'
+    if window.get('group')=='gemini':return span
+    if window.get('group')=='3p':return 'Claude 和 GPT · '+span
+    return '%s · %s'%(window.get('groupName') or '',span)
+
+
+def gemini_span(window):
+    """How long a window runs, for the pace it is used at."""
+    return {'5h':5*3600.0,'weekly':7*86400.0}.get(window.get('window'))
+
+
+def gemini_subscription_lines(data):
+    """Gemini 订阅: the quota Antigravity's app shows, asked of it on this computer (swiftbar_antigravity). Gemini's
+    five-hour and weekly limits, then Claude's with GPT's; with the app closed the last figures stay, marked with when
+    they were read, and a window past its reset is dropped, as it has filled again."""
+    service=catalog.BY_KEY['gemini-subscription']
+    payload=data.get('gemini_subscription') or {};error=data.get('gemini_subscription_error')
+    closed=error==antigravity.NOT_RUNNING;failed=refresh_failed(error) and not closed
+    windows=gemini_windows(payload,time.time());read_at=payload.get('_fetchedAt')
+    most=max((100-w.get('remaining',0) for w in windows),default=None)
+    present=connection_ready('gemini-subscription')
+    if most is not None and closed:badge='%s · 截至 %s'%(used_text(most),snapshot_time(read_at or 0))
+    elif most is not None:badge=used_text(most)
+    elif closed or not present:badge='打开 Antigravity 后显示' if present or antigravity_app() else '未发现 Antigravity'
+    else:badge='待同步'
+    rows=[item(service.label,badge=with_failure(badge,bool(windows),failed),**brand_icon('gemini-subscription'),
+               panelusagelevel=usage_level(most,closed or failed) if windows else None),
+          item('来源 · Antigravity 本机额度',level=1,color=MUTED,size=10)]
+    for w in windows:
+        used=100-w.get('remaining',0)
+        rows.append(item(gemini_window_name(w),badge=used_text(used),level=1,panelusagelevel=usage_level(used,closed or failed),
+                         paneldetail=window_detail(used,w.get('resetsAt'),gemini_span(w),read_at,closed or failed)))
+    if closed and read_at:rows.append(item('更新时间',badge=freshness(payload),paneldetail='Antigravity 没开，打开后更新',color=MUTED,size=10,level=1))
+    elif closed or not present:rows.append(item('打开 Antigravity 后更新' if present else '装好 Antigravity 并登录后显示额度',level=1,color=MUTED,size=10))
+    else:rows.append(refresh_row(payload,error))
+    app=antigravity_app()
+    if app:rows.append(item('打开 Antigravity',level=1,sfimage='macwindow',href='file://'+urllib.parse.quote(app)))
+    rows.append(item('打开订阅管理',level=1,sfimage='arrow.up.right',href=service.url))
     return rows
 
 
@@ -2115,6 +2174,8 @@ def external_loaders():
             try:return cursor.plan(HOME),None
             except cursor.CursorError as exc:return None,(0,str(exc),None)
         loaders['cursor_subscription']=lambda:cached_fetch('cursor_subscription',load_cursor_plan,refresh_ttl(EXTERNAL_TTLS['cursor_subscription']))
+    # Asked of Antigravity's app on this computer, every minute while it runs; with it closed only its note is read.
+    if module_enabled('gemini-subscription') and antigravity.present(HOME):loaders['gemini_subscription']=lambda:cached_fetch('gemini_subscription',lambda:antigravity.quota(HOME),EXTERNAL_TTLS['gemini_subscription'])
     if module_enabled('qoder-subscription'):loaders['qoder_subscription']=lambda:cached_fetch('qoder_subscription',lambda:(qoder.snapshot(HOME) or {'empty':True},None),EXTERNAL_TTLS['qoder_subscription'])
     # Each read starts the ChatGPT client's app-server, so a failing client waits its normal interval, not a minute.
     if module_enabled('chatgpt') and chatgpt_source()=='client' and chatgpt_configured():loaders['chatgpt']=lambda:cached_fetch('chatgpt',lambda:(sources.chatgpt_account(home=chatgpt_home()),None),EXTERNAL_TTLS['chatgpt'],retry=EXTERNAL_TTLS['chatgpt'])
@@ -2136,7 +2197,7 @@ def named_key_loaders():
 
 
 # Only these visible resources can request an immediate read from a flyout.
-RESOURCE_CACHES={'deepseek':'provider_quotas','chatgpt':'chatgpt','grok':'grok','minimax':'minimax','kimi-api':'kimi-api','qoder-api':'qoder-api','claude-api':'claude-api','komari':'komari','updates':'app_updates','claude-subscription':'claude_subscription','qoder-subscription':'qoder_subscription','cursor-subscription':'cursor_subscription','opencodex':'opencodex','sessions':'sessions'}
+RESOURCE_CACHES={'deepseek':'provider_quotas','chatgpt':'chatgpt','grok':'grok','minimax':'minimax','kimi-api':'kimi-api','qoder-api':'qoder-api','claude-api':'claude-api','komari':'komari','updates':'app_updates','claude-subscription':'claude_subscription','qoder-subscription':'qoder_subscription','cursor-subscription':'cursor_subscription','gemini-subscription':'gemini_subscription','opencodex':'opencodex','sessions':'sessions'}
 
 def resource_cache_names(source,loaders):
     if source=='opencodex':
@@ -2225,6 +2286,10 @@ def alert_windows(data):
     if module_enabled('minimax'):
         payload=data.get('minimax') or {};current=reading_current(payload,data.get('minimax_error'))
         for w in payload.get('windows') or []:add('minimax','MiniMax 订阅',w['name'],100-w['remaining'],w.get('resetsAt'),minimax_span(w),current)
+    if module_enabled('gemini-subscription'):
+        payload=data.get('gemini_subscription') or {};current=reading_current(payload,data.get('gemini_subscription_error'))
+        for w in gemini_windows(payload,time.time()):
+            add('gemini-subscription','Gemini 订阅',gemini_window_name(w),100-w.get('remaining',0),w.get('resetsAt'),gemini_span(w),current)
     if module_enabled('qoder-subscription'):
         # The App writes its summary only when the user opens Credits usage; past 10 minutes it isn't current.
         payload=data.get('qoder_subscription') or {};current=time.time()-(payload.get('observedAt') or 0)<=600
@@ -3133,6 +3198,12 @@ def service_connection_entry(key,data=None):
         children.append({'label':'选择密钥文件…','action':['configure-connection',key],'children':[]})
         if configured:children.append({'label':'清除连接设置…','action':['clear-connection',key],'children':[]})
         children.append({'label':'打开用量与账单','symbol':'arrow.up.right','href':service.url,'children':[]})
+    elif key=='gemini-subscription':
+        # Asked of Antigravity's app on this computer, nothing to set up: where it comes from and when it updates.
+        children=[{'label':'来源 · Antigravity 本机额度','children':[]},{'label':'Antigravity 开着时每分钟更新；关着时保留最近一次读到的额度','children':[]}]
+        app=antigravity_app()
+        if app:children.append({'label':'打开 Antigravity','symbol':'macwindow','href':'file://'+urllib.parse.quote(app),'children':[]})
+        children.append({'label':'打开订阅管理','symbol':'arrow.up.right','href':service.url,'children':[]})
     elif key=='qoder-subscription':
         # Read from the Qoder CN app's own log, nothing to set up: where it reads, and how to bring it up to date.
         roots=[str(root) for root in qoder.log_roots(HOME)];found=[root for root in roots if os.path.isdir(root)]

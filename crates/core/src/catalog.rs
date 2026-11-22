@@ -36,7 +36,7 @@ pub const SERVICES: [Service; 16] = [
     service("chatgpt", "ChatGPT", "订阅", "https://chatgpt.com", "", "client"),
     service("claude-subscription", "Claude", "订阅", "https://claude.ai/settings/usage", "", "desktop-usage"),
     service("cursor-subscription", "Cursor", "订阅", "https://cursor.com/dashboard", "", "account-usage"),
-    service("gemini-subscription", "Gemini", "订阅", "https://gemini.google.com", "", "portal"),
+    service("gemini-subscription", "Gemini", "订阅", "https://gemini.google.com", "", "antigravity"),
     service("grok-subscription", "Grok", "订阅", "https://grok.com", "", "portal"),
     service("kimi-subscription", "Kimi", "订阅", "https://www.kimi.com", "", "portal"),
     service(

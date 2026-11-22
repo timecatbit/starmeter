@@ -135,6 +135,10 @@ pub fn detect(inputs: &Inputs) -> Vec<String> {
     // Antigravity is one of Gemini's clients, like Gemini CLI: its app, its agy CLI or a conversation it keeps.
     let antigravity =
         app(&["Antigravity.app"]) || which("agy") || !crate::harness::antigravity_stores(&gemini).is_empty();
+    // Gemini 订阅 comes from Antigravity's quota: its app (or the Gemini app beside it) installed, or a note it left.
+    if app(&["Antigravity.app", "Gemini.app"]) || crate::antigravity::present(home) {
+        found.insert("gemini-subscription");
+    }
     let gemini_root = if is_dir(&format!("{gemini}/tmp")) { format!("{gemini}/tmp") } else { gemini };
     if antigravity
         || has_records(Some(&gemini_root), |name, relative| {
@@ -311,6 +315,24 @@ mod tests {
         assert!(!found(Vec::new()), "a store not yet written is nothing yet");
         std::fs::create_dir_all(folder.join("Applications/Antigravity.app")).unwrap();
         assert!(found(vec![folder.join("Applications").to_string_lossy().into_owned()]));
+        // Its quota is Gemini 订阅's, found with the app.
+        let detected = |app_roots: Vec<String>| {
+            detect(&Inputs {
+                paths: HashMap::new(),
+                home: &home_text,
+                configured_proxy: false,
+                komari_url: "",
+                app_roots,
+                chatgpt_home: None,
+                configured_subscriptions: Vec::new(),
+                environment: &environment,
+            })
+        };
+        assert!(
+            detected(vec![folder.join("Applications").to_string_lossy().into_owned()])
+                .contains(&"gemini-subscription".to_string())
+        );
+        assert!(!detected(Vec::new()).contains(&"gemini-subscription".to_string()));
         std::fs::create_dir_all(home.join(".gemini/antigravity-cli/conversations")).unwrap();
         std::fs::write(home.join(".gemini/antigravity-cli/conversations/c1.db"), b"SQLite format 3").unwrap();
         assert!(found(Vec::new()));

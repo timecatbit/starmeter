@@ -280,12 +280,13 @@ class CatalogTests(unittest.TestCase):
             self.assertEqual(fresh,checking)
         self.assertNotIn('PRIVATE',json.dumps(row))
     def test_homepage_badges_say_what_is_known_instead_of_portal_hint(self):
-        for key in ('chatgpt-api','claude-api','minimax-api','gemini-subscription'):preferences.update(self.m.STATE_DIR,'module',key,'true')
-        preferences.update(self.m.STATE_DIR,'subscription','gemini-subscription','true')
-        with patch.dict(os.environ,{'OPENAI_API_KEY':'sk-PRIVATE','ANTHROPIC_API_KEY':'sk-ant-PRIVATE','MINIMAX_PLATFORM_API_KEY':'PRIVATE'}):
+        for key in ('chatgpt-api','claude-api','minimax-api','grok-subscription','gemini-subscription'):preferences.update(self.m.STATE_DIR,'module',key,'true')
+        preferences.update(self.m.STATE_DIR,'subscription','grok-subscription','true')
+        with patch.dict(os.environ,{'OPENAI_API_KEY':'sk-PRIVATE','ANTHROPIC_API_KEY':'sk-ant-PRIVATE','MINIMAX_PLATFORM_API_KEY':'PRIVATE'}),patch.object(self.m,'antigravity_app',return_value=None):
             values=lambda data:{e['label']:e.get('value') for e in self.m.resource_panel_entries(data) if not e.get('separator')}
-            self.assertEqual({k:v for k,v in values({}).items() if k in ('ChatGPT API','Claude API','MiniMax API','Gemini 订阅')},
-                             {'ChatGPT API':'待测试','Claude API':'待同步','MiniMax API':'已配置','Gemini 订阅':'已标记'})
+            # Gemini 订阅 is Antigravity's quota now, not a mark: with no Antigravity here it says so.
+            self.assertEqual({k:v for k,v in values({}).items() if k in ('ChatGPT API','Claude API','MiniMax API','Grok 订阅','Gemini 订阅')},
+                             {'ChatGPT API':'待测试','Claude API':'待同步','MiniMax API':'已配置','Grok 订阅':'已标记','Gemini 订阅':'未发现 Antigravity'})
             with patch.object(self.m.accounts,'check_key',return_value={'valid':False,'state':'Key 无效或无权限'}):
                 self.m.test_api_key('chatgpt-api');self.m.test_api_key('claude-api')
             current=values({'claude-api':{'state':'Key 所属账户没有查看花费的权限','permission':False,'reason':'role'}})

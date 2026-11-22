@@ -250,6 +250,24 @@ impl Runtime {
                 add("minimax", "MiniMax 订阅", &py::str(window.get("name")), used, resets, span, current);
             }
         }
+        if self.module_enabled("gemini-subscription") {
+            let payload = object(data, "gemini_subscription");
+            let current = self.reading_current(Some(&payload), failure(data, "gemini_subscription").as_deref(), now);
+            for window in crate::module_rows::gemini_windows(&payload, now) {
+                let used = 100.0 - window.get("remaining").and_then(Json::number).unwrap_or(0.0);
+                let resets = window.get("resetsAt").cloned().unwrap_or(Json::Null);
+                let span = crate::module_rows::gemini_span(&window).map_or(Json::Null, Json::Double);
+                add(
+                    "gemini-subscription",
+                    "Gemini 订阅",
+                    &crate::module_rows::gemini_window_name(&window),
+                    used,
+                    resets,
+                    span,
+                    current,
+                );
+            }
+        }
         if self.module_enabled("qoder-subscription") {
             // The App writes its summary only when the user opens Credits usage; past 10 minutes it isn't current.
             let payload = object(data, "qoder_subscription");

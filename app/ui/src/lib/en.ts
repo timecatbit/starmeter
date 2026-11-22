@@ -49,6 +49,12 @@ export const phrases: Record<string, string> = {
   'Qoder 桌面 App 的本机日志': 'the Qoder desktop app\'s local logs', '套餐 Credits': 'Plan Credits', '加购 Credits': 'Add-on Credits',
   '在 Qoder 窗口右下角打开 Credits 用量后更新': 'Updates once you open Credits usage at the bottom right of the Qoder window',
   '手动标记，未验证套餐': 'Marked by hand; the plan isn\'t verified', 本机标记文件: 'Local mark file', 清除配置标记: 'Clear the mark',
+  每周: 'Weekly', 'Claude 和 GPT': 'Claude and GPT', 'Antigravity 本机额度': 'Antigravity on this computer',
+  'Antigravity 开着时每分钟更新；关着时保留最近一次读到的额度': 'Updates every minute while Antigravity is open; closed, the last figures read stay',
+  '打开 Antigravity': 'Open Antigravity', '打开 Antigravity 后显示': 'Shows once Antigravity is open', '打开 Antigravity 后更新': 'Updates once Antigravity is open',
+  '未发现 Antigravity': 'No Antigravity found', '装好 Antigravity 并登录后显示额度': 'Install Antigravity and sign in to see the quota',
+  'Antigravity 没开，打开后更新': 'Antigravity is closed; it updates once it is open', 'Antigravity 没有运行': 'Antigravity isn\'t running',
+  'Antigravity 没有给出额度': 'Antigravity gave no quota',
   打开订阅管理: 'Open subscription settings', 刚刚更新: 'Just now', 未开启: 'Off', 未填写: 'Not set', 已标记: 'Marked',
   标记为已配置: 'Mark as set up', 本月已用: 'Spent this month', 与匀速持平: 'on even pace', 未开启读取: 'Reading is off',
   // API keys
@@ -281,6 +287,7 @@ export const rules: Rule[] = [
   [/^(.+) 订阅$/, (m, tr) => `${tr(m[1])} plan`],
   [/^需勾选 (.+)$/, (m, tr) => `Needs ${tr(m[1])} on`],
   [/^加到主页：(.+)$/, (m, tr) => `Add to the homepage: ${m[1].split('、').map(tr).join(', ')}`],
+  [/^Antigravity 没有给出额度（HTTP (\d+)）$/, (m) => `Antigravity gave no quota (HTTP ${m[1]})`],
   // Updated and when
   [/^(\d+) 分钟前更新$/, (m) => `${m[1]} min ago`],
   [/^(\d+) 小时前更新$/, (m) => `${m[1]} h ago`],

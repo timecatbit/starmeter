@@ -56,11 +56,12 @@ fn invalid<T>(message: &str) -> Result<T, ActionError> {
     Err(ActionError(message.to_string()))
 }
 
-const CONNECTION_ORDER: [&str; 12] = [
+const CONNECTION_ORDER: [&str; 13] = [
     "app_updates",
     "claude_subscription",
     "qoder_subscription",
     "cursor_subscription",
+    "gemini_subscription",
     "chatgpt",
     "komari",
     "provider_quotas",

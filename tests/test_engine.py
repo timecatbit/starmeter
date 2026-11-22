@@ -1836,6 +1836,13 @@ class PanelParityTests(BackgroundParityTests):
             'minimax': {'windows': [{'name': '本周额度', 'remaining': 5, 'resetsAt': int(now) + 3600, 'startsAt': int(now) - 6 * 86400}]},
             'kimi-api': {'balance': 12.5, 'currency': 'CNY', 'state': '已同步'},
             'grok': {'balance': 3.25, 'currency': 'USD', 'state': '已同步'},
+            # Antigravity's quota, out of order and with a window already past its reset (dropped by both).
+            'gemini_subscription': {'windows': [
+                {'group': '3p', 'groupName': 'Claude and GPT models', 'window': 'weekly', 'remaining': 100.0, 'resetsAt': now + 6 * 86400},
+                {'group': 'gemini', 'groupName': 'Gemini Models', 'window': 'weekly', 'remaining': 99.4, 'resetsAt': now + 6 * 86400 + 600},
+                {'group': 'gemini', 'groupName': 'Gemini Models', 'window': '5h', 'remaining': 2.4, 'resetsAt': now + 3600},
+                {'group': '3p', 'groupName': 'Claude and GPT models', 'window': '5h', 'remaining': 100.0, 'resetsAt': now - 10},
+                {'group': 'x', 'groupName': 'Other models', 'window': '5h', 'remaining': 50.0, 'resetsAt': None}]},
         }
         for engine in self.states.values():
             scope = hashlib.sha256(os.path.abspath(engine['OCX_STATE_DIR']).encode()).hexdigest()[:16]
@@ -1845,6 +1852,9 @@ class PanelParityTests(BackgroundParityTests):
 
     def test_snapshot_and_alerts(self):
         codex = Path(self.common['HOME']) / '.codex'; codex.mkdir()
+        # Antigravity's app ran here: Gemini 订阅 reads its quota (from the cache above, fresh enough not to ask).
+        daemon = Path(self.common['HOME']) / '.gemini' / 'antigravity' / 'daemon'; daemon.mkdir(parents=True)
+        (daemon / 'hub_9.json').write_text(json.dumps({'pid': os.getpid(), 'httpPort': 9, 'httpsPort': 8, 'csrfToken': 'test'}))
         (codex / 'auth.json').write_text(json.dumps({'auth_mode': 'chatgpt', 'tokens': {'access_token': 'x'}}))
         everything = [m[0] for m in preferences.MODULES]
         keys = {'OCX_SELF_UPDATES': '0', 'MOONSHOT_API_KEY': 'k', 'XAI_TEAM_ID': 't', 'XAI_MANAGEMENT_API_KEY': 'k', 'MINIMAX_API_KEY': 'm'}
@@ -1951,6 +1961,12 @@ class EngineRunParityTests(PanelParityTests):
                         expected = json.loads((self.cache_dir('python') / 'panel-view.json').read_text())
                         got = json.loads((self.cache_dir('swift') / 'panel-view.json').read_text())
                         for key in expected:self.assertEqual(self.steady(expected[key]), self.steady(got.get(key)), key)
+                        gemini = next((e for e in got['entries'] if e.get('label') == 'Gemini 订阅'), None)
+                        if 'gemini-subscription' in values['visible']:
+                            # The most used window leads; Gemini's own come first, five hours before the week; the expired one is gone.
+                            self.assertEqual(gemini['value'], '已用 97.6%')
+                            self.assertEqual([c['label'] for c in gemini['children'] if c.get('value', '').startswith('已用')],
+                                             ['5 小时', '每周', 'Claude 和 GPT · 每周', 'Other models · 5 小时'])
 
     def test_actions_and_panel_requests(self):
         self.settings(visible=['summary', 'claude', 'codex'])

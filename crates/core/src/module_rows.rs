@@ -367,6 +367,90 @@ impl Runtime {
         rows
     }
 
+    /// Gemini 订阅: the quota Antigravity's app shows, asked of it on this computer (antigravity.rs). Gemini's five-hour
+    /// and weekly limits, then Claude's with GPT's; with the app closed the last figures stay, marked with when they
+    /// were read, and a window past its reset is dropped, as it has filled again.
+    pub fn gemini_subscription_lines(&self, data: &Object) -> Vec<String> {
+        let service = catalog::by_key("gemini-subscription").expect("gemini");
+        let payload = object(data, "gemini_subscription");
+        let error = failure(data, "gemini_subscription");
+        let closed = error.as_deref() == Some(crate::antigravity::NOT_RUNNING);
+        let failed = refresh_failed(error.as_deref()) && !closed;
+        let windows = gemini_windows(&payload, now());
+        let read_at = payload.get("_fetchedAt").and_then(Json::number);
+        let most = windows
+            .iter()
+            .map(|window| 100.0 - py::num(window.get("remaining")))
+            .fold(None, |best: Option<f64>, used| {
+                Some(best.map_or(used, |best| if used > best { used } else { best }))
+            });
+        let present = self.connection_ready("gemini-subscription");
+        let badge = match most {
+            Some(most) if closed => {
+                format!("{} · 截至 {}", used_text(most), self.snapshot_time(read_at.unwrap_or(0.0)))
+            }
+            Some(most) => used_text(most),
+            None if closed || !present => if present || antigravity_app(&self.home).is_some() {
+                "打开 Antigravity 后显示"
+            } else {
+                "未发现 Antigravity"
+            }
+            .into(),
+            None => "待同步".into(),
+        };
+        let mut rows = vec![
+            item(
+                &service.label(),
+                0,
+                merged(&[
+                    &object! { "badge" => with_failure(&badge, !windows.is_empty(), failed) },
+                    &self.brand_icon("gemini-subscription"),
+                    &object! { "panelusagelevel" => if windows.is_empty() { Json::Null } else { usage_level(most, closed || failed) } },
+                ]),
+            ),
+            item("来源 · Antigravity 本机额度", 1, muted(10)),
+        ];
+        for window in &windows {
+            let used = 100.0 - py::num(window.get("remaining"));
+            rows.push(item(
+                &gemini_window_name(window),
+                1,
+                object! {
+                    "badge" => used_text(used), "panelusagelevel" => usage_level(Some(used), closed || failed),
+                    "paneldetail" => self.window_detail(used, window.get("resetsAt").and_then(Json::number), gemini_span(window),
+                                                        read_at, closed || failed),
+                },
+            ));
+        }
+        if closed && read_at.is_some() {
+            rows.push(item(
+                "更新时间",
+                1,
+                object! {
+                    "badge" => self.freshness(payload.get("_fetchedAt")), "paneldetail" => "Antigravity 没开，打开后更新",
+                    "color" => MUTED_COLOR, "size" => 10,
+                },
+            ));
+        } else if closed || !present {
+            rows.push(item(
+                if present { "打开 Antigravity 后更新" } else { "装好 Antigravity 并登录后显示额度" },
+                1,
+                muted(10),
+            ));
+        } else {
+            rows.push(self.refresh_row(&payload, error.as_deref(), 1));
+        }
+        if let Some(app) = antigravity_app(&self.home) {
+            rows.push(item(
+                "打开 Antigravity",
+                1,
+                object! { "sfimage" => "macwindow", "href" => self.file_href(&app) },
+            ));
+        }
+        rows.push(item("打开订阅管理", 1, object! { "sfimage" => "arrow.up.right", "href" => service.url }));
+        rows
+    }
+
     pub fn cursor_subscription_lines(&self, data: &Object) -> Vec<String> {
         let service = catalog::by_key("cursor-subscription").expect("cursor");
         let enabled = self.settings().get("cursorUsage").is_some_and(Json::is_truthy);
@@ -706,5 +790,54 @@ impl Runtime {
     /// The installed desktop app an update row or sidebar opens, when there is one.
     pub fn update_app_path(&self, key: &str) -> Option<String> {
         updates::update_apps(key).iter().find_map(|name| updates::installed_app_path(name, &self.home))
+    }
+}
+
+/// Antigravity's app, where it is installed.
+pub fn antigravity_app(home: &str) -> Option<String> {
+    updates::installed_app_path("Antigravity", home)
+}
+
+/// Gemini 订阅's windows as last read: Gemini's first, then Claude's with GPT's, each five hours before the week; a
+/// window past its reset has filled again and is left out.
+pub fn gemini_windows(payload: &Object, now: f64) -> Vec<Object> {
+    let mut windows: Vec<Object> = payload
+        .get("windows")
+        .and_then(Json::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Json::as_object)
+        .filter(|window| window.get("resetsAt").and_then(Json::number).is_none_or(|at| at > now))
+        .cloned()
+        .collect();
+    let rank = |window: &Object| {
+        let group = window.get("group").and_then(Json::as_str).unwrap_or("");
+        let order = match group {
+            "gemini" => 0,
+            "3p" => 1,
+            _ => 2,
+        };
+        (order, i32::from(window.get("window").and_then(Json::as_str) != Some("5h")))
+    };
+    windows.sort_by_key(rank);
+    windows
+}
+
+/// A window's name: 5 小时 and 每周 for Gemini's own, the group's name before them for the others.
+pub fn gemini_window_name(window: &Object) -> String {
+    let span = if window.get("window").and_then(Json::as_str) == Some("5h") { "5 小时" } else { "每周" };
+    match window.get("group").and_then(Json::as_str) {
+        Some("gemini") => span.to_string(),
+        Some("3p") => format!("Claude 和 GPT · {span}"),
+        _ => format!("{} · {span}", py::str(window.get("groupName"))),
+    }
+}
+
+/// How long a window runs, for the pace it is used at.
+pub fn gemini_span(window: &Object) -> Option<f64> {
+    match window.get("window").and_then(Json::as_str) {
+        Some("5h") => Some(5.0 * 3600.0),
+        Some("weekly") => Some(7.0 * 86400.0),
+        _ => None,
     }
 }

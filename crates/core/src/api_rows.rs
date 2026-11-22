@@ -660,6 +660,7 @@ impl Runtime {
                 "claude-subscription" => lines.extend(self.claude_subscription_lines(data)),
                 "qoder-subscription" => lines.extend(self.qoder_subscription_lines(data)),
                 "cursor-subscription" => lines.extend(self.cursor_subscription_lines(data)),
+                "gemini-subscription" => lines.extend(self.gemini_subscription_lines(data)),
                 _ if service.category == "API" => lines.extend(self.api_lines(key, data)),
                 _ if crate::background::ACCOUNT_SOURCES.contains(&key) => {
                     lines.extend(self.provider_account_lines(key, data));

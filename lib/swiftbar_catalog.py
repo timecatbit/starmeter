@@ -25,7 +25,7 @@ SERVICES = (
     Service('chatgpt', 'ChatGPT', '订阅', 'https://chatgpt.com', capability='client'),
     Service('claude-subscription', 'Claude', '订阅', 'https://claude.ai/settings/usage', capability='desktop-usage'),
     Service('cursor-subscription', 'Cursor', '订阅', 'https://cursor.com/dashboard', capability='account-usage'),
-    Service('gemini-subscription', 'Gemini', '订阅', 'https://gemini.google.com'),
+    Service('gemini-subscription', 'Gemini', '订阅', 'https://gemini.google.com', capability='antigravity'),
     Service('grok-subscription', 'Grok', '订阅', 'https://grok.com'),
     Service('kimi-subscription', 'Kimi', '订阅', 'https://www.kimi.com'),
     Service('minimax', 'MiniMax', '订阅', 'https://platform.minimax.io/user-center/payment/token-plan', 'MINIMAX_API_KEY', 'quota'),

@@ -8,6 +8,7 @@ import swiftbar_catalog as catalog
 import swiftbar_preferences as preferences
 import swiftbar_claude as claude_desktop
 import swiftbar_qoder as qoder
+import swiftbar_antigravity as antigravity_quota
 from swiftbar_sources import antigravity_stores, dsh_sessions_root, magpie_root
 from swiftbar_config import monitor_url
 
@@ -61,6 +62,8 @@ def detect(paths, home=None, configured_proxy=False, komari_url='', which=shutil
     root=Path(paths.get('gemini') or home/'.gemini')
     # Antigravity is one of Gemini's clients, like Gemini CLI: its app, its agy CLI or a conversation it keeps.
     antigravity=any((Path(r)/'Antigravity.app').is_dir() for r in app_roots) or which('agy') or antigravity_stores(root)
+    # Gemini 订阅 comes from Antigravity's quota: its app (or the Gemini app beside it) installed, or a note it left.
+    if any((Path(r)/name).is_dir() for r in app_roots for name in ('Antigravity.app','Gemini.app')) or antigravity_quota.present(home):found.add('gemini-subscription')
     if antigravity or has_records(root/'tmp' if (root/'tmp').is_dir() else root,('session-*.json','session-*.jsonl','chats/**/*.jsonl')):found.add('gemini')
     root=Path(paths.get('workbuddy') or home)
     roots=[root/n/'projects' for n in ('.workbuddy-ai','.workbuddy') if (root/n/'projects').is_dir()]

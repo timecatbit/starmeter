@@ -460,11 +460,18 @@ function subscriptionRows(state) {
       updated(failed ? '6 小时前更新' : '12 分钟前更新'),
       entry('在 Qoder 窗口右下角打开 Credits 用量后更新'),
     ]),
-    entry('Gemini 订阅', { ...moduleIcon('gemini-subscription'), value: '已标记', onOpenAction: ['refresh-source', 'gemini-subscription'] }, [
-      entry('手动标记，未验证套餐'),
-      location('本机标记文件', [STATE + '/preferences.json']),
-      entry('清除配置标记', { action: ['set-subscription', 'gemini-subscription', 'false'] }),
+    // Antigravity's quota, read from its app on this computer.
+    entry('Gemini 订阅', { ...moduleIcon('gemini-subscription'), ...(pending ? {} : { usageLevel: 'normal' }), value: pending ? '待同步' : '已用 24%',
+      onOpenAction: ['refresh-source', 'gemini-subscription'] }, [
+      entry('来源 · Antigravity 本机额度'),
+      window('5 小时', 24, '重置于 12/01 18:20 · 比匀速少用 12%'),
+      window('每周', 9, '重置于 12/06 09:40 · 比匀速少用 20%'),
+      window('Claude 和 GPT · 5 小时', 0, '重置于 12/01 19:05'),
+      window('Claude 和 GPT · 每周', 3, '重置于 12/06 10:15'),
+      updated('刚刚更新'),
+      entry('打开 Antigravity', { symbol: 'macwindow', href: 'file:///Applications/Antigravity.app' }),
       entry('打开订阅管理', { symbol: 'arrow.up.right', href: 'https://gemini.google.com' }),
+      price('gemini-subscription', '未填写'),
     ]),
   ];
 }
@@ -661,7 +668,9 @@ function connection(key, home) {
     entry('清除连接设置…', { action: ['clear-connection', 'komari'] })];
   if (key === 'qoder-subscription') return [entry('来源 · Qoder 桌面 App 的本机日志'), entry('在 Qoder 窗口右下角打开 Credits 用量后更新'),
     location('日志目录', [HOME + '/Library/Application Support/com.qodercn.app.stable/logs']), entry('打开订阅用量', { symbol: 'arrow.up.right', href: 'https://qoder.cn/account/usage' })];
-  if (['gemini-subscription', 'grok-subscription', 'kimi-subscription'].includes(key)) return [entry('手动标记，未验证套餐'),
+  if (key === 'gemini-subscription') return [entry('来源 · Antigravity 本机额度'), entry('Antigravity 开着时每分钟更新；关着时保留最近一次读到的额度'),
+    entry('打开 Antigravity', { symbol: 'macwindow', href: 'file:///Applications/Antigravity.app' }), entry('打开订阅管理', { symbol: 'arrow.up.right', href: 'https://gemini.google.com' })];
+  if (['grok-subscription', 'kimi-subscription'].includes(key)) return [entry('手动标记，未验证套餐'),
     ...(configured ? [location('本机标记文件', [STATE + '/preferences.json'])] : []),
     entry(configured ? '清除配置标记' : '标记为已配置', { action: ['set-subscription', key, configured ? 'false' : 'true'] }),
     entry('打开订阅管理', { symbol: 'arrow.up.right', href: 'https://example.com/' + key })];

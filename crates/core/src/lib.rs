@@ -4,6 +4,7 @@
 pub mod accounts;
 pub mod actions;
 pub mod alerts;
+pub mod antigravity;
 pub mod api_rows;
 pub mod background;
 pub mod catalog;

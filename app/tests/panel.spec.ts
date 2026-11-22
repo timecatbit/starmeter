@@ -65,8 +65,8 @@ test('the homepage shows Summary, the trend, the heatmap, the cards and the rows
   await expect(page.getByRole('button', { name: /^其余 \d+ 个/ })).toHaveCount(0);
   await expect(page.locator('.card-note').filter({ hasText: '次已由 Magpie 计入' })).toBeVisible();
   await expect(page.locator('.row .title')).toContainText(['ChatGPT 订阅', 'Claude 订阅', 'Cursor 订阅']);
-  // Usage rows carry their 3pt bar, coloured by level.
-  await expect(page.locator('.gauge')).toHaveCount(4);
+  // Usage rows carry their 3pt bar, coloured by level (Gemini 订阅's from Antigravity among them).
+  await expect(page.locator('.gauge')).toHaveCount(5);
 });
 
 test('header buttons take clicks, and pinning turns the trend live', async ({ page }) => {
