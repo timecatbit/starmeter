@@ -36,6 +36,8 @@ export interface Entry {
   action?: string[];
   /** Sent once when the row's page opens (refresh-source <key>), at most every 5 seconds. */
   onOpenAction?: string[];
+  /** A homepage row's module: the panel can drag it to another place in its group (move-module). */
+  module?: string;
   /** In English, what the row said in Chinese (i18n.svelte.ts): the panel's logic reads rows by their Chinese wording. */
   source?: { label: string; value?: string; detail?: string };
 }
@@ -161,6 +163,8 @@ export interface PresentationPreferences {
   theme?: string;
   allowCollapse: boolean;
   expandedProviders: string[];
+  /** The homepage rows' order the user dragged them into; empty is the module list's. */
+  homeOrder?: string[];
 }
 
 export interface Snapshot {

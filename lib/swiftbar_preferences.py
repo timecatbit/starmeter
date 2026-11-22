@@ -80,7 +80,7 @@ def balance_key(key):
 def read(directory):
     defaults = {'schema': 1, 'visible': list(DEFAULT_VISIBLE), 'appearance': 'solid', 'theme': 'system', 'paths': {}, 'allowCollapse': False, 'expandedProviders': [], 'revision': 0, 'configuredSubscriptions': [], 'claudeLiveUsage': False, 'claudeOAuthUsage': False, 'cursorUsage': False,
                 'usageAlert': 90, 'resetReminder': False, 'balanceAlerts': {}, 'keepCleanedUsage': True, 'subscriptionPrices': {}, 'groupBy': 'tool', 'menuBar': 'none', 'sessionAlerts': False, 'serviceStatus': False, 'currency': 'USD', 'cnyRate': None, 'pinInterval': 2,
-                'syncFolder': '', 'deviceName': ''}
+                'syncFolder': '', 'deviceName': '', 'homeOrder': []}
     try:
         value = json.loads((Path(directory) / 'preferences.json').read_text(encoding='utf-8'))
         if not isinstance(value, dict) or value.get('schema') != 1:
@@ -131,6 +131,8 @@ def read(directory):
             defaults['expandedProviders']=[k for k in USAGE if k in expanded]
         elif value.get('expandedProvider') in USAGE:
             defaults['expandedProviders']=[value['expandedProvider']]  # Migrate 5.1.0 without losing the open section.
+        order=value.get('homeOrder')
+        if isinstance(order,list):defaults['homeOrder']=list(dict.fromkeys(k for k in order if isinstance(k,str) and k in KNOWN))
         revision=value.get('revision')
         if isinstance(revision,int) and 0<=revision<2**63:defaults['revision']=revision
         paths = value.get('paths')
@@ -155,6 +157,14 @@ def write(directory, value):
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
+
+
+def home_order(settings):
+    """The order the homepage's rows follow, every module in it: the user's (homeOrder, set by dragging a row on the
+    homepage), then the modules it doesn't list yet (one added in a later version) in the module list's order. Empty
+    homeOrder is the module list's order."""
+    chosen=[k for k in settings.get('homeOrder') or [] if k in KNOWN]
+    return chosen+[m[0] for m in MODULES if m[0] not in chosen]
 
 
 def update(directory, kind, key=None, value=None):
@@ -242,6 +252,16 @@ def update(directory, kind, key=None, value=None):
         expanded=set(current['expandedProviders'])
         expanded.add(key) if value=='true' else expanded.discard(key)
         current['expandedProviders']=[k for k in USAGE if k in expanded]
+    elif kind in ('move-before','move-after'):
+        # A homepage row dragged before or after another (or moved with ⌥↑ ⌥↓): the whole order is kept from then on.
+        if key not in KNOWN or value not in KNOWN:raise ValueError('invalid homepage order')
+        if key!=value:
+            order=[k for k in home_order(current) if k!=key]
+            at=order.index(value)
+            order.insert(at if kind=='move-before' else at+1,key)
+            current['homeOrder']=order
+    elif kind == 'order-reset':
+        current['homeOrder']=[]
     elif kind == 'reset':
         current['visible'] = list(DEFAULT_VISIBLE)
         current['appearance'] = 'solid';current['theme']='system'

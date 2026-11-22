@@ -87,7 +87,8 @@ export function opening(page: Entry): Set<string> {
 const quietSettings = new Set(['set-currency', 'set-service-status', 'set-pin-interval', 'set-menu-bar', 'set-usage-alert', 'set-reset-reminder', 'set-session-alerts']);
 /** A switch or a choice shows its new state the moment it is clicked; the saved state confirms it after. */
 export const choices = new Set([...quietSettings, 'set-cursor-usage', 'set-claude-oauth', 'set-claude-local', 'set-claude-live', 'set-keep-usage', 'set-subscription']);
-export const isPreference = (action: string[]) => ['set-module', 'set-appearance', 'set-theme', 'reset-modules', 'set-collapse', 'set-expanded'].includes(action[0]);
+export const isPreference = (action: string[]) =>
+  ['set-module', 'set-appearance', 'set-theme', 'reset-modules', 'set-collapse', 'set-expanded', 'move-module', 'reset-module-order'].includes(action[0]);
 export const automatic = (action: string[]) => ['refresh-view', 'refresh-source', 'refresh-live'].includes(action[0]);
 export const passive = (action: string[]) =>
   ['refresh-source', 'refresh-view', 'refresh', 'refresh-live', 'refresh-monitor', 'check-app-updates', 'set-range', 'set-group', 'retry-claude-usage'].includes(action[0]);

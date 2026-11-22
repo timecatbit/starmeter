@@ -81,6 +81,20 @@ pub fn is_known(key: &str) -> bool {
     MODULES.iter().any(|module| module.key == key)
 }
 
+/// The order the homepage's rows follow, every module in it: the user's (homeOrder, set by dragging a row on the
+/// homepage), then the modules it doesn't list yet (one added in a later version) in the module list's order. Empty
+/// homeOrder is the module list's order.
+pub fn home_order(settings: &Object) -> Vec<&'static str> {
+    let chosen: Vec<&str> =
+        settings.get("homeOrder").and_then(Json::as_array).into_iter().flatten().filter_map(Json::as_str).collect();
+    let mut order: Vec<&'static str> = chosen
+        .iter()
+        .filter_map(|key| MODULES.iter().find(|module| module.key == *key).map(|module| module.key))
+        .collect();
+    order.extend(MODULES.iter().map(|module| module.key).filter(|key| !chosen.contains(key)));
+    order
+}
+
 /// A preference change the panel asked for that is not one this version accepts.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
@@ -141,7 +155,7 @@ pub fn defaults() -> Object {
         "cursorUsage" => false, "usageAlert" => 90, "resetReminder" => false, "balanceAlerts" => Object::new(),
         "keepCleanedUsage" => true, "subscriptionPrices" => Object::new(), "groupBy" => "tool", "menuBar" => "none",
         "sessionAlerts" => false, "serviceStatus" => false, "currency" => "USD", "cnyRate" => Json::Null, "pinInterval" => 2,
-        "syncFolder" => "", "deviceName" => "",
+        "syncFolder" => "", "deviceName" => "", "homeOrder" => Json::Array(vec![]),
     }
 }
 
@@ -283,6 +297,15 @@ pub fn read(directory: &Path) -> Object {
     } else if let Some(open) = get("expandedProvider").and_then(Json::as_str).filter(|v| USAGE.contains(v)) {
         // Migrate 5.1.0 without losing the open section.
         settings.insert("expandedProviders", strings([open]));
+    }
+    if let Some(order) = get("homeOrder").and_then(Json::as_array) {
+        let mut kept: Vec<&str> = Vec::new();
+        for key in order.iter().filter_map(Json::as_str).filter(|key| is_known(key)) {
+            if !kept.contains(&key) {
+                kept.push(key);
+            }
+        }
+        settings.insert("homeOrder", strings(kept));
     }
     if let Some(revision) = get("revision")
         && revision.integer().is_some_and(|number| number >= 0)
@@ -469,6 +492,22 @@ pub fn update(directory: &Path, kind: &str, key: Option<&str>, value: Option<&st
                 "expandedProviders",
                 strings(USAGE.into_iter().filter(|name| expanded.iter().any(|open| open == name))),
             );
+        }
+        // A homepage row dragged before or after another (or moved with ⌥↑ ⌥↓): the whole order is kept from then on.
+        "move-before" | "move-after" => {
+            let (Some(moved), Some(target)) = (key.filter(|key| is_known(key)), value.filter(|value| is_known(value)))
+            else {
+                return Err(Error::Invalid("invalid homepage order"));
+            };
+            if moved != target {
+                let mut order: Vec<&str> = home_order(&current).into_iter().filter(|key| *key != moved).collect();
+                let at = order.iter().position(|key| *key == target).expect("a known module is in the order");
+                order.insert(if kind == "move-before" { at } else { at + 1 }, moved);
+                current.insert("homeOrder", strings(order));
+            }
+        }
+        "order-reset" => {
+            current.insert("homeOrder", Json::Array(vec![]));
         }
         "reset" => {
             current.insert("visible", strings(DEFAULT_VISIBLE));

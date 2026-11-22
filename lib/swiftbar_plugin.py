@@ -3517,6 +3517,7 @@ def module_options(data=None):
                            'children':[{'label':'每 %d 秒'%s,'checked':settings['pinInterval']==s,'radio':True,'action':['set-pin-interval',str(s)],'children':[]} for s in preferences.PIN_INTERVALS]},
                           {'label':'模块与配置','section':True,'children':[]},
                           {'label':'自动检测','symbol':'sparkle.magnifyingglass','children':detection_help_entries()},
+                          home_order_row(settings),
                           {'label':'高级配置文件…','symbol':'doc.text','action':['open-settings'],'children':[]},
                           {'label':'恢复默认模块','action':['reset-modules'],'children':[]}]
     alert_page=[{'label':'用量提醒','detail':'订阅窗口用到所选比例时通知一次','symbol':'bell','value':'%d%%'%settings['usageAlert'] if settings['usageAlert'] else '关闭','children':alert_rows},
@@ -4218,6 +4219,15 @@ def native_menu_line(line):
     return label+separator+' '.join(as_option(k,v) for k,v in options.items())
 
 
+def home_order_row(settings):
+    """主页顺序: how to change it (drag a row on the homepage, or ⌥↑ ⌥↓), and the way back once it is changed."""
+    custom=bool(settings.get('homeOrder'))
+    children=[{'label':'在主页按住一行，拖到想要的位置；键盘选中一行后按 ⌥↑ 或 ⌥↓。订阅、API 和其他各自排序，工具卡片按用量排','children':[]}]
+    if custom:children+=[{'label':'','separator':True,'children':[]},
+                         {'label':'恢复默认顺序','symbol':'arrow.counterclockwise','action':['reset-module-order'],'children':[]}]
+    return {'label':'主页顺序','symbol':'arrow.up.arrow.down','value':'自定义' if custom else '默认','children':children}
+
+
 def resource_panel_entries(data):
     entries=panel_entries(management_lines(data))
     services={service.label:service for service in catalog.SERVICES}
@@ -4232,7 +4242,13 @@ def resource_panel_entries(data):
             entry['onOpenAction']=['refresh-source',source]
         # Refresh sits beside Summary; SwiftBar's own submenu covers its housekeeping.
         if label=='刷新数据':continue
+        # The module a row is, so the panel can drag it to another place in its group.
+        if source:entry['module']=source
         groups[service.category if service else '其他'].append(entry)
+    # Each group in the order the user dragged its rows into (a row that is no module, Starmeter's, stays last).
+    order=preferences.home_order(view_settings())
+    for items in groups.values():
+        items.sort(key=lambda e:order.index(e['module']) if e.get('module') in order else len(order)+1)
     # Groups are separated by a line; their names are obvious from the rows themselves.
     result=[]
     for items in groups.values():
@@ -4242,7 +4258,7 @@ def resource_panel_entries(data):
 
 def presentation_settings():
     settings=view_settings()
-    return {key:settings[key] for key in ('revision','visible','appearance','theme','allowCollapse','expandedProviders')}
+    return {key:settings[key] for key in ('revision','visible','appearance','theme','allowCollapse','expandedProviders','homeOrder')}
 
 
 def panel_snapshot(data,dashboard=None,options=None):
@@ -4424,6 +4440,11 @@ def run_action(name, extra):
         if name=='set-module' and len(extra)==2 and extra[1]=='true' and extra[0] in RESOURCE_CACHES:
             invalidate_caches(resource_cache_names(extra[0],external_loaders()))
         schedule_background_refresh()
+    elif name == 'move-module':
+        if len(extra)!=3 or extra[1] not in ('before','after'):raise ValueError('invalid homepage order')
+        preferences.update(STATE_DIR,'move-'+extra[1],extra[0],extra[2])
+    elif name == 'reset-module-order':
+        preferences.update(STATE_DIR,'order-reset')
     elif name == 'set-subscription':
         if len(extra)!=2:raise ValueError('invalid subscription')
         preferences.update(STATE_DIR,'subscription',extra[0],extra[1])
@@ -4789,7 +4810,10 @@ def consume_panel_action():
                 if len(candidate)==3 and candidate[0]=='set-module' and candidate[1] in preferences.KNOWN:
                     allowed.extend([['set-module',candidate[1],value] for value in ('true','false')])
             nodes.extend(node.get("children") or [])
-        if action not in allowed:
+        # A homepage row dragged before or after another: any two of the rows the panel shows.
+        rows=[e['module'] for e in snapshot.get('entries') or [] if isinstance(e,dict) and e.get('module')]
+        moved=len(action)==4 and action[0]=='move-module' and action[2] in ('before','after') and action[1] in rows and action[3] in rows
+        if not moved and action not in allowed:
             return
         write_json_cache(cache_path("last-action"), {"action": action[0], "receivedAt": time.time()})
         run_action(action[0], action[1:])
@@ -4805,7 +4829,7 @@ def consume_panel_action():
         if isinstance(request_id, str):
             write_json_cache(cache_path("panel-action-receipt"), {
                 "schema": 1, "id": request_id, "status": status, "reason": reason, "finishedAt": time.time(),
-                "preferences": presentation_settings() if status=="done" and action and action[0] in ("set-module","set-appearance","set-theme","reset-modules","set-collapse","set-expanded","detect-modules") else None})
+                "preferences": presentation_settings() if status=="done" and action and action[0] in ("set-module","set-appearance","set-theme","reset-modules","set-collapse","set-expanded","detect-modules","move-module","reset-module-order") else None})
 
 
 def main():

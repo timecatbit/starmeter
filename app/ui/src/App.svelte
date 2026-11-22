@@ -713,7 +713,7 @@
           onback={finishModules} ondone={finishModules} onaction={perform} onopen={push} onheight={(h) => (wanted.grid = h)} />
       {:else if snapshot}
         <HomePage entries={shown ? without(snapshot.entries, sessions) : snapshot.entries} dashboard={shown ? dashboardView : null} bind:scrollTop={homeScroll} onactivate={activate}
-          onheight={(h) => (wanted.home = h)} />
+          onmove={perform} onheight={(h) => (wanted.home = h)} />
       {/if}
     </div>
   {/key}

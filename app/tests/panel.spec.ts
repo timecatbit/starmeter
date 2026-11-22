@@ -105,6 +105,72 @@ test('the homepage shows Summary, the trend, the heatmap, the cards and the rows
   });
 });
 
+test('a homepage row held for a moment drags to another place in its group, a click still opens it, ⌥↑ ⌥↓ move it too', async ({ page }) => {
+  await open(page);
+  const order = () => page.locator('[data-module]').evaluateAll((all) => all.map((one) => (one as HTMLElement).dataset.module));
+  const row = (key: string) => page.locator(`[data-module="${key}"]`);
+  const plans = ['chatgpt', 'claude-subscription', 'cursor-subscription', 'gemini-subscription', 'qoder-subscription'];
+  const apis = ['chatgpt-api', 'claude-api', 'deepseek', 'kimi-api'];
+  expect(await order()).toEqual([...plans, ...apis, 'komari', 'updates']);
+  /** Holds a row (or not long enough), then takes it to `y` in steps and lets go. */
+  const drag = async (key: string, y: number, hold = 450) => {
+    await row(key).scrollIntoViewIfNeeded();
+    const box = (await row(key).boundingBox())!;
+    await page.mouse.move(box.x + 80, box.y + 10);
+    await page.mouse.down();
+    await page.waitForTimeout(hold);
+    await page.mouse.move(box.x + 80, y, { steps: 12 });
+    await page.mouse.up();
+  };
+  // Held, it lifts; dragged above ChatGPT 订阅 it takes the first place, the others make way, and the release opens nothing.
+  const top = (await row('chatgpt').boundingBox())!;
+  await row('qoder-subscription').scrollIntoViewIfNeeded();
+  const qoder = (await row('qoder-subscription').boundingBox())!;
+  await page.mouse.move(qoder.x + 80, qoder.y + 10);
+  await page.mouse.down();
+  await page.waitForTimeout(450);
+  await expect(row('qoder-subscription')).toHaveClass(/lifted/);
+  await page.mouse.move(qoder.x + 80, top.y + 4, { steps: 12 });
+  await expect(row('chatgpt')).toHaveAttribute('style', /translateY\([1-9]/);
+  await page.mouse.up();
+  await expect.poll(order).toEqual(['qoder-subscription', 'chatgpt', 'claude-subscription', 'cursor-subscription', 'gemini-subscription', ...apis, 'komari', 'updates']);
+  await expect(page.locator('.dashboard')).toBeVisible();
+  // A row stays in its group: Kimi API dragged far up stops at the head of the APIs.
+  await drag('kimi-api', top.y - 40);
+  await expect.poll(order).toEqual(['qoder-subscription', 'chatgpt', 'claude-subscription', 'cursor-subscription', 'gemini-subscription',
+    'kimi-api', 'chatgpt-api', 'claude-api', 'deepseek', 'komari', 'updates']);
+  // Moved without the hold, it was a scroll or a click: nothing moves.
+  await drag('deepseek', top.y, 60);
+  await expect.poll(order).toEqual(['qoder-subscription', 'chatgpt', 'claude-subscription', 'cursor-subscription', 'gemini-subscription',
+    'kimi-api', 'chatgpt-api', 'claude-api', 'deepseek', 'komari', 'updates']);
+  // A plain click still opens the row's page.
+  await row('claude-subscription').locator('button').click();
+  await expect(page.getByRole('heading', { name: 'Claude 订阅' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.dashboard')).toBeVisible();
+  // ⌥↓ on the row in focus moves it one down, and it keeps the focus.
+  await row('chatgpt').locator('button').focus();
+  await page.keyboard.press('Alt+ArrowDown');
+  await expect.poll(order).toEqual(['qoder-subscription', 'claude-subscription', 'chatgpt', 'cursor-subscription', 'gemini-subscription',
+    'kimi-api', 'chatgpt-api', 'claude-api', 'deepseek', 'komari', 'updates']);
+  await expect(row('chatgpt').locator('button')).toBeFocused();
+  await page.keyboard.press('Alt+ArrowUp');
+  await expect.poll(order).toEqual(['qoder-subscription', 'chatgpt', 'claude-subscription', 'cursor-subscription', 'gemini-subscription',
+    'kimi-api', 'chatgpt-api', 'claude-api', 'deepseek', 'komari', 'updates']);
+  // 通用 → 主页顺序 says it is custom now, and puts the default back.
+  await button(page, '主页模块与设置').click();
+  await page.getByText('通用', { exact: true }).click();
+  await expect(page.locator('.detail-row', { hasText: '主页顺序' }).first()).toContainText('自定义');
+  await page.getByRole('button', { name: /^主页顺序/ }).click();
+  await expect(page.getByText('在主页按住一行，拖到想要的位置', { exact: false })).toBeVisible();
+  await page.getByRole('button', { name: '恢复默认顺序' }).click();
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.dashboard')).toBeVisible();
+  await expect.poll(order).toEqual([...plans, ...apis, 'komari', 'updates']);
+});
+
 test('header buttons take clicks, and pinning turns the trend live', async ({ page }) => {
   await open(page);
   // No refresh or auto-detect in the header: opening reads what is due, pinning reads every few seconds, and

@@ -334,8 +334,23 @@ impl Runtime {
             if label == "刷新数据" {
                 continue;
             }
+            // The module a row is, so the panel can drag it to another place in its group.
+            if let Some(source) = &source {
+                fields.insert("module", source.as_str());
+            }
             let group = service.map_or("其他", |service| service.category);
             groups.entry(group).or_default().push(fields.into());
+        }
+        // Each group in the order the user dragged its rows into (a row that is no module, Starmeter's, stays last).
+        let order = preferences::home_order(&self.settings());
+        for items in groups.values_mut() {
+            items.sort_by_key(|entry| {
+                entry
+                    .get("module")
+                    .and_then(Json::as_str)
+                    .and_then(|key| order.iter().position(|known| *known == key))
+                    .unwrap_or(usize::MAX)
+            });
         }
         // Groups are separated by a line; their names are obvious from the rows themselves.
         let mut result: Vec<Json> = Vec::new();
@@ -905,6 +920,7 @@ impl Runtime {
                     ]),
                 },
             ),
+            self.home_order_row(),
             with("高级配置文件…", object! { "symbol" => "doc.text", "action" => action(&["open-settings"]) }),
             with("恢复默认模块", object! { "action" => action(&["reset-modules"]) }),
         ];
@@ -1080,9 +1096,31 @@ impl Runtime {
         )
     }
 
+    /// 主页顺序: how to change it (drag a row on the homepage, or ⌥↑ ⌥↓), and the way back once it is changed.
+    fn home_order_row(&self) -> Json {
+        let custom = self.settings().get("homeOrder").and_then(Json::as_array).is_some_and(|order| !order.is_empty());
+        let mut children = vec![leaf(
+            "在主页按住一行，拖到想要的位置；键盘选中一行后按 ⌥↑ 或 ⌥↓。订阅、API 和其他各自排序，工具卡片按用量排",
+        )];
+        if custom {
+            children.push(separator());
+            children.push(with(
+                "恢复默认顺序",
+                object! { "symbol" => "arrow.counterclockwise", "action" => action(&["reset-module-order"]) },
+            ));
+        }
+        with(
+            "主页顺序",
+            object! {
+                "symbol" => "arrow.up.arrow.down", "value" => if custom { "自定义" } else { "默认" },
+                "children" => Json::Array(children),
+            },
+        )
+    }
+
     pub fn presentation_settings(&self) -> Json {
         let settings = self.settings();
-        ["revision", "visible", "appearance", "theme", "allowCollapse", "expandedProviders"]
+        ["revision", "visible", "appearance", "theme", "allowCollapse", "expandedProviders", "homeOrder"]
             .iter()
             .map(|key| (*key, settings.get(key).cloned().unwrap_or(Json::Null)))
             .collect::<Object>()

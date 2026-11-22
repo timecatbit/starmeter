@@ -237,8 +237,17 @@ impl Engine {
 }
 
 /// Actions whose receipt carries the display preferences (5.x's RECEIPT_ACTIONS).
-const PREFERENCE_ACTIONS: [&str; 7] =
-    ["set-module", "set-appearance", "set-theme", "reset-modules", "set-collapse", "set-expanded", "detect-modules"];
+const PREFERENCE_ACTIONS: [&str; 9] = [
+    "set-module",
+    "set-appearance",
+    "set-theme",
+    "reset-modules",
+    "set-collapse",
+    "set-expanded",
+    "detect-modules",
+    "move-module",
+    "reset-module-order",
+];
 
 /// Actions that change the connection settings the runtime read at its start.
 const CONNECTION_ACTIONS: [&str; 12] = [

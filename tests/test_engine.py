@@ -1978,7 +1978,8 @@ class EngineRunParityTests(PanelParityTests):
         actions = [['set-module', 'heatmap', 'true'], ['set-theme', 'dark'], ['set-collapse', 'true'], ['set-expanded', 'claude', 'true'],
                    ['set-range', '7d'], ['set-group', 'model'], ['set-pin-interval', '5'], ['set-menu-bar', 'cost'], ['set-usage-alert', '80'],
                    ['set-currency', 'CNY'], ['set-service-status', 'true'], ['set-subscription', 'gemini-subscription', 'true'], ['auto-source', 'claude'],
-                   ['set-module', 'nope', 'true']]
+                   ['set-module', 'nope', 'true'], ['move-module', 'codex', 'before', 'summary'], ['move-module', 'heatmap', 'after', 'codex'],
+                   ['move-module', 'codex', 'sideways', 'summary'], ['move-module', 'codex', 'before', 'nope'], ['reset-module-order']]
         for action in actions:
             with self.subTest(action=action):
                 python, swift = self.run_engine('python', ['--action', *action]), self.run_engine('swift', ['--action', *action])
@@ -2001,6 +2002,36 @@ class EngineRunParityTests(PanelParityTests):
                 self.assertEqual(receipts[0], receipts[1])
                 self.assertEqual(self.preferences('python'), self.preferences('swift'))
 
+
+    def test_homepage_order(self):
+        """The homepage's rows in the order dragged into, each group on its own, and a drag from the panel taken only
+        between two rows it shows, alike in both."""
+        app = self.entry.parent / '.opencodex-panel' / 'OpenCodexPanel.app'; app.mkdir(parents=True, exist_ok=True)
+        visible = ['summary', 'chatgpt', 'claude-subscription', 'gemini-subscription', 'deepseek', 'kimi-api', 'komari']
+        rows = lambda engine: [e.get('module') for e in json.loads((self.cache_dir(engine) / 'panel-view.json').read_text())['entries'] if not e.get('separator')]
+        def both(*requests):
+            for request in requests:
+                for engine in ('python', 'swift'):
+                    self.run_engine(engine, extra={'KOMARI_BASE_URL': 'https://example.invalid', 'MOONSHOT_API_KEY': 'k', 'DEEPSEEK_API_KEY': 'sk'})
+                    if request:(self.cache_dir(engine) / 'panel-action.json').write_text(json.dumps({'id': 'o1', 'action': request, 'createdAt': time.time()}))
+            for engine in ('python', 'swift'):self.run_engine(engine, extra={'KOMARI_BASE_URL': 'https://example.invalid', 'MOONSHOT_API_KEY': 'k', 'DEEPSEEK_API_KEY': 'sk'})
+            self.assertEqual(self.preferences('python'), self.preferences('swift'))
+            self.assertEqual(rows('python'), rows('swift'))
+            return rows('swift')
+        self.settings(visible=visible, homeOrder=['gemini-subscription', 'kimi-api', 'nope', 'kimi-api'])
+        # A saved order: unknown or repeated names dropped, each group sorted by it, the rest in the module list's order.
+        self.assertEqual(both(None)[:5], ['gemini-subscription', 'chatgpt', 'claude-subscription', 'kimi-api', 'deepseek'])
+        # Dragged on the panel: Claude 订阅 before Gemini 订阅.
+        self.assertEqual(both(['move-module', 'claude-subscription', 'before', 'gemini-subscription'])[:3], ['claude-subscription', 'gemini-subscription', 'chatgpt'])
+        self.assertEqual(self.preferences('swift')['homeOrder'][:3], ['claude-subscription', 'gemini-subscription', 'kimi-api'])
+        # Not between two rows the panel shows (Claude is a card): refused, the order as it was.
+        self.assertEqual(both(['move-module', 'claude', 'after', 'chatgpt'])[:3], ['claude-subscription', 'gemini-subscription', 'chatgpt'])
+        # 通用 → 主页顺序 says custom and offers the default back; taken, the module list's order returns.
+        general = next(e for e in json.loads((self.cache_dir('swift') / 'panel-view.json').read_text())['moduleOptions'] if e.get('label') == '通用')
+        order_row = next(e for e in general['children'] if e.get('label') == '主页顺序')
+        self.assertEqual(order_row['value'], '自定义')
+        self.assertEqual(both(['reset-module-order'])[:3], ['chatgpt', 'claude-subscription', 'gemini-subscription'])
+        self.assertEqual(self.preferences('swift')['homeOrder'], [])
 
 class UpdateParityTests(unittest.TestCase):
     def test_pieces(self):

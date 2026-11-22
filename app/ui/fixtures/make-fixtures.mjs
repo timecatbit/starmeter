@@ -720,6 +720,8 @@ function settingsPages(prefs) {
     entry('模块与配置', { section: true }),
     entry('自动检测', { symbol: 'sparkle.magnifyingglass' }, [entry('把新找到的加到主页，已勾选的不变；不读取对话正文，不显示 Key'), separator(),
       entry('开始检测…', { symbol: 'sparkle.magnifyingglass', action: ['detect-modules'] })]),
+    entry('主页顺序', { symbol: 'arrow.up.arrow.down', value: '默认' },
+      [entry('在主页按住一行，拖到想要的位置；键盘选中一行后按 ⌥↑ 或 ⌥↓。订阅、API 和其他各自排序，工具卡片按用量排')]),
     entry('高级配置文件…', { symbol: 'doc.text', action: ['open-settings'] }),
     entry('恢复默认模块', { action: ['reset-modules'] }),
   ];
@@ -768,7 +770,8 @@ const visible = ['summary', 'heatmap', 'magpie', 'claude', 'codex', 'opencode', 
 
 function homeEntries(state) {
   const rows = [], keys = [];
-  const add = (row, key) => { rows.push(row); keys.push(key); };
+  // Each row names its module, as the engine does, so the panel can drag it to another place in its group.
+  const add = (row, key) => { rows.push(key ? { ...row, module: key } : row); keys.push(key); };
   for (const row of inOrder(subscriptionRows(state))) add(row, row.onOpenAction[1]);
   add(separator(), null);
   for (const row of inOrder(apiRows(state))) add(row, row.onOpenAction[1]);
@@ -787,12 +790,12 @@ function emptyHomeEntries() {
     entry('立即检查更新', { symbol: 'arrow.clockwise', action: ['check-app-updates'] }),
     entry('选择工具…', { symbol: 'slider.horizontal.3', action: ['panel-modules'] }),
   ]);
-  return { rows: [updates], keys: ['updates'] };
+  return { rows: [{ ...updates, module: 'updates' }], keys: ['updates'] };
 }
 
 function scenario(state) {
   const empty = state === 'empty';
-  const prefs = { revision: 1, visible: empty ? ['summary', 'heatmap', 'updates'] : visible, appearance: 'solid', theme: 'system', allowCollapse: false, expandedProviders: [] };
+  const prefs = { revision: 1, visible: empty ? ['summary', 'heatmap', 'updates'] : visible, appearance: 'solid', theme: 'system', allowCollapse: false, expandedProviders: [], homeOrder: [] };
   const { rows, keys } = empty ? emptyHomeEntries() : homeEntries(state);
   const dashboards = {}, cards = {};
   for (const [key, label] of ranges) {

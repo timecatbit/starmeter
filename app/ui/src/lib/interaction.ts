@@ -77,8 +77,37 @@ function syncCollapse(enabled: boolean, value: Snapshot) {
   }
 }
 
+/** The homepage's rows in the order given: each group (between separators) sorted by it, a row it doesn't list after
+ *  the ones it does, a row that is no module last, each keeping its place among its like otherwise. */
+export function inHomeOrder(entries: Entry[], order: string[]): Entry[] {
+  if (!order.length) return entries;
+  const out: Entry[] = [];
+  let group: Entry[] = [];
+  const rank = (e: Entry) => (e.module === undefined ? order.length + 1 : order.includes(e.module) ? order.indexOf(e.module) : order.length);
+  const close = () => { out.push(...group.map((e, i) => ({ e, i })).sort((a, b) => rank(a.e) - rank(b.e) || a.i - b.i).map((x) => x.e)); group = []; };
+  for (const e of entries) {
+    if (e.separator) { close(); out.push(e); } else group.push(e);
+  }
+  close();
+  return out;
+}
+
+/** A row moved before or after another, at once, while the engine saves it. */
+function moveRow(entries: Entry[], action: string[]): Entry[] {
+  const [, moved, place, target] = action;
+  const from = entries.findIndex((e) => e.module === moved);
+  if (from < 0 || moved === target) return entries;
+  const list = entries.slice();
+  const [row] = list.splice(from, 1);
+  const at = list.findIndex((e) => e.module === target);
+  if (at < 0) return entries;
+  list.splice(place === 'before' ? at : at + 1, 0, row);
+  return list;
+}
+
 function applySettings(settings: PresentationPreferences, value: Snapshot) {
   value.preferences = settings;
+  value.entries = inHomeOrder(value.entries, settings.homeOrder ?? []);
   value.appearance = settings.appearance;
   if (value.dashboard) {
     value.dashboard.allowCollapse = settings.allowCollapse;
@@ -97,6 +126,7 @@ function applySettings(settings: PresentationPreferences, value: Snapshot) {
 
 function applyPreference(action: string[], value: Snapshot) {
   const [kind] = action;
+  if (kind === 'move-module' && action.length === 4) value.entries = moveRow(value.entries, action);
   if (kind === 'set-module' && action.length === 3) {
     for (const option of value.moduleOptions ?? []) {
       if (option.action?.[0] === 'set-module' && option.action[1] === action[1]) {

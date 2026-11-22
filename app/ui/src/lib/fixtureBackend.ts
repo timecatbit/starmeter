@@ -135,6 +135,20 @@ export async function dashboard(range: string): Promise<Dashboard> {
   return d;
 }
 
+/** As the engine does: each group (between separators) in the order the rows were dragged into; a row that is no
+ *  module stays last. */
+function ordered(entries: Entry[], order: string[]): Entry[] {
+  const out: Entry[] = [];
+  let group: Entry[] = [];
+  const rank = (e: Entry) => (e.module && order.includes(e.module) ? order.indexOf(e.module) : e.module ? order.length : order.length + 1);
+  const close = () => { out.push(...group.map((e, i) => ({ e, i })).sort((a, b) => rank(a.e) - rank(b.e) || a.i - b.i).map((x) => x.e)); group = []; };
+  for (const e of entries) {
+    if (e.separator) { close(); out.push(e); } else group.push(e);
+  }
+  close();
+  return out;
+}
+
 export async function snapshot(): Promise<Snapshot> {
   const f = await load(), prefs = state.prefs!;
   const s = structuredClone(f.snapshot);
@@ -146,7 +160,7 @@ export async function snapshot(): Promise<Snapshot> {
     entries.push(s.entries[i]);
   });
   while (entries.at(-1)?.separator) entries.pop();
-  s.entries = entries;
+  s.entries = ordered(entries, prefs.homeOrder ?? []);
   s.dashboard = await dashboard(state.range);
   s.rangeOptions = s.rangeOptions?.map((o) => ({ ...o, checked: o.action?.[1] === state.range }));
   s.preferences = structuredClone(prefs);
@@ -155,6 +169,12 @@ export async function snapshot(): Promise<Snapshot> {
   s.pinInterval = state.pinInterval;
   const today = state.menuBar === 'cost' ? (await dashboard('today')).providers.reduce((sum, p) => sum + ((p.counted ?? p).cost ?? 0), 0) : 0;
   s.menuBarText = state.menuBar === 'cost' ? (state.cny ? '¥' + (today * 7.1).toFixed(2) : '$' + today.toFixed(2)) : state.menuBar === 'quota' ? '91%' : '';
+  // 通用 → 主页顺序, as the engine writes it: custom once a row was dragged, with the way back.
+  const order = findEntry(s.moduleOptions ?? [], (e) => e.label === '主页顺序');
+  if (order && prefs.homeOrder?.length) {
+    order.value = '自定义';
+    order.children.push({ label: '', separator: true, children: [] }, { label: '恢复默认顺序', symbol: 'arrow.counterclockwise', action: ['reset-module-order'], children: [] });
+  }
   for (const option of s.moduleOptions ?? []) {
     if (option.action?.[0] === 'set-module') {
       const on = prefs.visible.includes(option.action[1]);
@@ -231,6 +251,18 @@ export async function action(action: string[]): Promise<ActionReceipt> {
     case 'set-theme': prefs.theme = a; return saved();
     case 'set-appearance': prefs.appearance = a; return saved();
     case 'reset-modules': prefs.visible = structuredClone(f.snapshot.preferences!.visible); prefs.theme = 'system'; prefs.appearance = 'solid'; return saved();
+    case 'move-module': {
+      // The whole order from then on, as the engine keeps it: the fixture's rows stand in for the module list.
+      const all = f.entryModules.filter((key): key is string => !!key);
+      const order = [...(prefs.homeOrder ?? []).filter((key) => all.includes(key)), ...all.filter((key) => !(prefs.homeOrder ?? []).includes(key))]
+        .filter((key) => key !== a);
+      const at = order.indexOf(action[3]);
+      if (at < 0 || a === action[3]) return { status: 'done' };
+      order.splice(b === 'before' ? at : at + 1, 0, a);
+      prefs.homeOrder = order;
+      return saved();
+    }
+    case 'reset-module-order': prefs.homeOrder = []; return saved();
     case 'refresh-live': state.live += 1; changed(); return { status: 'done' };
     case 'test-api-key': await wait(1200); return { status: 'done' };
     case 'set-subscription-price': {

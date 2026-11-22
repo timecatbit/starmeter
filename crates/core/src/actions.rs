@@ -80,8 +80,17 @@ const TOGGLES: [&str; 6] = [
     "set-session-alerts",
     "set-service-status",
 ];
-const RECEIPT_ACTIONS: [&str; 7] =
-    ["set-module", "set-appearance", "set-theme", "reset-modules", "set-collapse", "set-expanded", "detect-modules"];
+const RECEIPT_ACTIONS: [&str; 9] = [
+    "set-module",
+    "set-appearance",
+    "set-theme",
+    "reset-modules",
+    "set-collapse",
+    "set-expanded",
+    "detect-modules",
+    "move-module",
+    "reset-module-order",
+];
 
 fn always_allowed() -> Vec<Vec<String>> {
     let mut allowed: Vec<Vec<String>> = [["refresh-view"], ["refresh"], ["refresh-live"], ["detect-modules"]]
@@ -884,6 +893,18 @@ impl Runtime {
                 }
                 self.schedule_background_refresh();
             }
+            "move-module" => {
+                let place = match extra.get(1).map(String::as_str) {
+                    Some("before") => "move-before",
+                    Some("after") => "move-after",
+                    _ => return invalid("invalid homepage order"),
+                };
+                if extra.len() != 3 {
+                    return invalid("invalid homepage order");
+                }
+                self.update(place, arg(0), arg(2))?;
+            }
+            "reset-module-order" => self.update("order-reset", None, None)?,
             "set-subscription" => {
                 if extra.len() != 2 {
                     return invalid("invalid subscription");
@@ -1698,7 +1719,17 @@ impl Runtime {
                 }
                 nodes.extend(fields.get("children").and_then(Json::as_array).cloned().unwrap_or_default());
             }
-            if !allowed.contains(&strings) {
+            // A homepage row dragged before or after another: any two of the rows the panel shows.
+            let rows: Vec<String> = list("entries")
+                .iter()
+                .filter_map(|entry| entry.get("module").and_then(Json::as_str).map(String::from))
+                .collect();
+            let moved = strings.len() == 4
+                && strings[0] == "move-module"
+                && ["before", "after"].contains(&strings[2].as_str())
+                && rows.contains(&strings[1])
+                && rows.contains(&strings[3]);
+            if !moved && !allowed.contains(&strings) {
                 return;
             }
             self.write_json_cache(
