@@ -467,7 +467,7 @@ function subscriptionRows(state) {
     ]),
     // Antigravity's quota, read from its app on this computer.
     entry('Gemini 订阅', { ...moduleIcon('gemini-subscription'), ...(pending ? {} : { usageLevel: 'normal' }), value: pending ? '待同步' : '已用 24%',
-      ...gauges(['5 小时', 24, 'Gemini'], ['本周', 9],
+      ...gauges(['5 小时', 24, 'Gemini', [{ image: 'logo:logos/gemini.svg', template: false }]], ['本周', 9],
         ['5 小时', 6, 'Claude 和 GPT', [{ image: 'logo:logos/claude.svg', template: false }, { image: 'logo:logos/openai.svg', template: true }]], ['本周', 18]), onOpenAction: ['refresh-source', 'gemini-subscription'] }, [
       entry('来源 · Antigravity 本机额度'),
       window('5 小时', 24, '重置于 12/01 18:20 · 比匀速少用 12%'),

@@ -1780,7 +1780,7 @@ def headline_pair(limits):
 
 def gauges(bars,stale):
     """The panel's bars under a homepage row, each its name, share, level, place, group and marks (image:1 for a
-    template, :0 otherwise, split by commas: the group's logos, drawn in the icon's column beside a second line); none
+    template, :0 otherwise, split by commas: the group's logos, drawn at the right end of its line's names); none
     while the figures are stale or the last read failed, as a single bar isn't drawn then either."""
     if len(bars)<2 or stale:return None
     def field(bar):
@@ -1791,15 +1791,12 @@ def gauges(bars,stale):
 
 
 def gemini_bars_marked(windows):
-    """Gemini 订阅's bars, the line for Claude's with GPT's marked with their logos (the row's own icon is Gemini's)."""
-    bars=gemini_bars(windows)
+    """Gemini 订阅's bars, each group's line marked with its logos: Gemini's, and Claude's with OpenAI's."""
     def mark(key):
         icon=brand_icon(key)
         return (icon['image'],False) if icon.get('image') else (icon['templateimage'],True) if icon.get('templateimage') else None
-    for index,bar in enumerate(bars):
-        if bar[0]//2==1 and bar[1]=='Claude 和 GPT':
-            bars[index]=bar+([m for m in map(mark,('claude-api','chatgpt-api')) if m],);break
-    return bars
+    keys={'Gemini':('gemini-subscription',),'Claude 和 GPT':('claude-api','chatgpt-api')}
+    return [bar+([m for m in map(mark,keys.get(bar[1],())) if m],) for bar in gemini_bars(windows)]
 
 
 def claude_subscription_lines(data):

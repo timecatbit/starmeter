@@ -216,8 +216,8 @@ pub struct Bar {
     /// The window, as its page names it.
     pub name: String,
     pub used: f64,
-    /// The group's logos (each base64, and whether it takes the text colour), drawn in the icon's column beside a
-    /// second line, whose group the row's own icon doesn't name.
+    /// The group's logos (each base64, and whether it takes the text colour), drawn at the right end of its line's
+    /// names, so each of Gemini 订阅's lines says whose models it counts.
     pub marks: Vec<(String, bool)>,
 }
 

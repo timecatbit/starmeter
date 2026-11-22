@@ -233,9 +233,11 @@ class DesktopTests(unittest.TestCase):
   row=gemini(quota)
   self.assertEqual(row['value'],'已用 49.7%')
   self.assertEqual(bars(row),[(0,'Gemini','5 小时',5.6,'normal'),(1,'','本周',4.1,'normal'),(2,'Claude 和 GPT','5 小时',0.0,'normal'),(3,'','本周',49.7,'normal')])
-  # The second line carries Claude's and OpenAI's logos for the icon's column (OpenAI's takes the text colour).
+  # Each line carries its group's logos for the end of its names: Gemini's, then Claude's and OpenAI's (OpenAI's takes
+  # the text colour); a single group's line needs none.
+  self.assertEqual([(bool(mark['image']),mark['template']) for mark in row['gauges'][0]['marks']],[(True,False)])
   self.assertEqual([(bool(mark['image']),mark['template']) for mark in row['gauges'][2]['marks']],[(True,False),(True,True)])
-  self.assertNotIn('marks',row['gauges'][0])
+  self.assertNotIn('marks',gemini(quota[:2])['gauges'][0])
   self.assertEqual(bars(gemini(quota[:2])),[(0,'','5 小时',5.6,'normal'),(1,'','本周',4.1,'normal')])
   # A window past its reset is left out: its place stays empty, and the group is named on the line's bar that remains.
   self.assertEqual(bars(gemini([quota[0],quota[1],quota[3]]))[2:],[(3,'Claude 和 GPT','本周',49.7,'normal')])

@@ -88,7 +88,7 @@ test('English: the homepage, its pages and the card groupings', async ({ page })
   await expect(page.locator('.row', { hasText: 'Claude plan' }).locator('.value')).toHaveText('76% used');
   await expect(page.locator('.row', { hasText: 'Claude plan' }).locator('.gauge-name')).toHaveText(['5 hours 22%', 'This week 76%']);
   await expect(page.locator('.row', { hasText: 'Gemini plan' }).locator('.gauge-name')).toHaveText(['5 hours 24%', 'This week 9%', '5 hours 6%', 'This week 18%']);
-  await expect(page.locator('.row', { hasText: 'Gemini plan' }).locator('.marks')).toHaveAttribute('aria-label', 'Claude and GPT');
+  expect(await page.locator('.row', { hasText: 'Gemini plan' }).locator('.marks').evaluateAll((all) => all.map((one) => one.getAttribute('aria-label')))).toEqual(['Gemini', 'Claude and GPT']);
   for (const name of await page.locator('.row', { hasText: 'Gemini plan' }).locator('.gauge-label').all()) {
     expect(await name.evaluate((label) => label.scrollWidth <= label.clientWidth)).toBe(true);
   }

@@ -32,8 +32,8 @@
   const usage = $derived(usageShare(entry));
   const gauge = $derived(onPhone ? usage !== null : hasGauge(entry));
   /** A plan with more than one limit: a line of bars per model group, five hours on the left and the week on the
-   *  right, each named under it; a second line (Gemini 订阅's Claude and GPT) marked in the icon's column by its group's
-   *  logos. The row's figure is the tightest. */
+   *  right, each named under it; Gemini 订阅's lines end with their group's logos (Gemini's; Claude's and OpenAI's).
+   *  The row's figure is the tightest. */
   const lines = $derived.by(() => {
     const bars = entry.gauges ?? [];
     if (bars.length < 2) return null;
@@ -41,7 +41,9 @@
     return Array.from({ length: count }, (_, line) => {
       const meters = [0, 1].map((column) => bars.find((bar) => bar.place === line * 2 + column));
       const named = meters.find((bar) => bar?.group);
-      return { group: line > 0 ? named?.group : undefined, marks: line > 0 ? named?.marks : undefined, meters };
+      // The logos go at the end of the line's last name (the week's, or five hours' when it has no week).
+      const last = meters[1] ? 1 : 0;
+      return { group: named?.group, marks: named?.marks, last, meters };
     });
   });
   const configuredState = $derived(configured(value));
@@ -84,15 +86,16 @@
             {#each line.meters as bar, column (column)}
               <span class="half" style:grid-row={i + 1} style:grid-column={column + 1}>
                 {#if bar}
-                  {#if line.marks && column === 0}
-                    <span class="marks" role="img" title={line.group} aria-label={line.group}>
-                      {#each line.marks as mark, m (m)}<Glyph image={mark.image} template={mark.template} size={10} tint={panel.dark ? 'rgb(230,230,230)' : 'rgb(46,46,46)'} />{/each}
-                    </span>
-                  {/if}
                   <span class="gauge"><span class="gauge-fill" style:width="max(3px, {bar.used}%)" style:background={barColor(bar.level, panel.dark)}
                     style:--pen={barColor(bar.level, panel.dark)}></span></span>
                   <!-- A narrow panel shortens the window's name, never the share. -->
-                  <span class="gauge-name"><span class="gauge-label">{bar.label}</span> <span class="num" style:color={usageColor(bar.level)}>{bar.used}%</span></span>
+                  <span class="gauge-name"><span class="gauge-label">{bar.label}</span> <span class="num" style:color={usageColor(bar.level)}>{bar.used}%</span>
+                    {#if line.marks?.length && column === line.last}
+                      <span class="marks" role="img" title={line.group} aria-label={line.group}>
+                        {#each line.marks as mark, m (m)}<Glyph image={mark.image} template={mark.template} size={10} tint={panel.dark ? 'rgb(230,230,230)' : 'rgb(46,46,46)'} />{/each}
+                      </span>
+                    {/if}
+                  </span>
                 {/if}
               </span>
             {/each}
@@ -242,13 +245,13 @@
     text-overflow: ellipsis;
   }
   .gauge-name .num { flex: none; }
-  /* In the icon's column, beside the line's bar and name: the row's own icon is the first line's group. */
+  /* At the right end of the line's names, under the end of its week's bar: whose models the line counts. */
   .marks {
-    position: absolute;
-    left: 8px;
     display: flex;
-    gap: 2px;
-    margin-top: 4px;
+    align-items: center;
+    gap: 3px;
+    margin-left: auto;
+    flex: none;
   }
   .gauge-fill {
     position: absolute;

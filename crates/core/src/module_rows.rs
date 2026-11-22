@@ -372,7 +372,7 @@ impl Runtime {
     /// Gemini 订阅: the quota Antigravity's app shows, asked of it on this computer (antigravity.rs). Gemini's five-hour
     /// and weekly limits, then Claude's with GPT's; with the app closed the last figures stay, marked with when they
     /// were read, and a window past its reset is dropped, as it has filled again.
-    /// Gemini 订阅's bars, the line for Claude's with GPT's marked with their logos (the row's own icon is Gemini's).
+    /// Gemini 订阅's bars, each group's line marked with its logos: Gemini's, and Claude's with OpenAI's.
     fn gemini_bars_marked(&self, windows: &[Object]) -> Vec<rows::Bar> {
         let mut bars = gemini_bars(windows);
         let mark = |key: &str| {
@@ -380,8 +380,13 @@ impl Runtime {
             let image = |name: &str| icon.get(name).and_then(Json::as_str).map(String::from);
             image("image").map(|image| (image, false)).or_else(|| image("templateimage").map(|image| (image, true)))
         };
-        if let Some(bar) = bars.iter_mut().find(|bar| bar.place / 2 == 1 && bar.group == "Claude 和 GPT") {
-            bar.marks = ["claude-api", "chatgpt-api"].into_iter().filter_map(mark).collect();
+        for bar in &mut bars {
+            let keys: &[&str] = match bar.group.as_str() {
+                "Gemini" => &["gemini-subscription"],
+                "Claude 和 GPT" => &["claude-api", "chatgpt-api"],
+                _ => &[],
+            };
+            bar.marks = keys.iter().copied().filter_map(mark).collect();
         }
         bars
     }

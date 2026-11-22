@@ -67,7 +67,7 @@ test('the homepage shows Summary, the trend, the heatmap, the cards and the rows
   await expect(page.locator('.row .title')).toContainText(['ChatGPT 订阅', 'Claude 订阅', 'Cursor 订阅']);
   // Usage rows carry their 3pt bar, coloured by level (Gemini 订阅's from Antigravity among them); a plan with more
   // than one limit has a bar per window, side by side, named under it: five hours on the left and the week on the
-  // right, Gemini 订阅's Claude and GPT on a second line marked by their logos; the row's figure the tightest.
+  // right, Gemini 订阅's two groups a line each, ended by their logos; the row's figure the tightest.
   await expect(page.locator('.gauge')).toHaveCount(10);
   const plan = (name: string) => page.locator('button.row', { hasText: name });
   const names = (name: string) => plan(name).locator('.gauge-name');
@@ -75,8 +75,9 @@ test('the homepage shows Summary, the trend, the heatmap, the cards and the rows
   await expect(names('ChatGPT 订阅')).toHaveText(['5 小时 12%', '本周 38%']);
   await expect(names('Claude 订阅')).toHaveText(['5 小时 22%', '本周 76%']);
   await expect(names('Gemini 订阅')).toHaveText(['5 小时 24%', '本周 9%', '5 小时 6%', '本周 18%']);
-  await expect(plan('Gemini 订阅').locator('.marks')).toHaveAttribute('aria-label', 'Claude 和 GPT');
-  await expect(plan('Gemini 订阅').locator('.marks > *')).toHaveCount(2);
+  const marks = plan('Gemini 订阅').locator('.marks');
+  expect(await marks.evaluateAll((all) => all.map((one) => [one.getAttribute('aria-label'), one.children.length]))).toEqual([['Gemini', 1], ['Claude 和 GPT', 2]]);
+  await expect(plan('ChatGPT 订阅').locator('.marks')).toHaveCount(0);
   await expect(names('Cursor 订阅')).toHaveCount(0);
   // Each bar its own share and colour: the week's orange at 76%, five hours' the accent.
   const claude = await plan('Claude 订阅').locator('.gauge').evaluateAll((bars) => bars.map((bar) => {
@@ -86,7 +87,7 @@ test('the homepage shows Summary, the trend, the heatmap, the cards and the rows
   expect(claude.map((bar) => bar.share)).toEqual([22, 76]);
   expect(claude[0].colour).not.toBe(claude[1].colour);
   // Side by side and the same width; every plan's five hours in one column and its week in another, Gemini 订阅's
-  // second line too, its logos in the icon's column beside it.
+  // second line too; each line's logos at the right end of its names, under the end of its week's bar.
   const box = (name: string, selector: string) => plan(name).locator(selector).evaluateAll((all) => all.map((one) => one.getBoundingClientRect().toJSON()));
   const columns = async (name: string) => (await box(name, '.gauge')).map((bar) => [Math.round(bar.left), Math.round(bar.right)]);
   const chatgpt = await columns('ChatGPT 订阅');
@@ -96,11 +97,12 @@ test('the homepage shows Summary, the trend, the heatmap, the cards and the rows
   expect(await columns('Gemini 订阅')).toEqual([...chatgpt, ...chatgpt]);
   const gemini = await box('Gemini 订阅', '.gauge');
   expect(gemini[2].top).toBeGreaterThan(gemini[0].bottom + 10);
-  const [marks] = await box('Gemini 订阅', '.marks');
-  const [icon] = await box('Gemini 订阅', '.icon');
-  expect(marks.right).toBeLessThan(gemini[2].left);
-  expect(Math.abs((marks.left + marks.right) / 2 - (icon.left + icon.right) / 2)).toBeLessThan(2);
-  expect(marks.top).toBeGreaterThan(gemini[0].bottom);
+  const ends = await box('Gemini 订阅', '.marks');
+  ends.forEach((end, line) => {
+    expect(Math.abs(end.right - gemini[line * 2 + 1].right)).toBeLessThan(1);
+    expect(end.top).toBeGreaterThan(gemini[line * 2 + 1].bottom);
+    expect(end.bottom).toBeLessThan(line ? Infinity : gemini[2].top);
+  });
 });
 
 test('header buttons take clicks, and pinning turns the trend live', async ({ page }) => {
