@@ -326,21 +326,18 @@
           else ctx.bezierCurveTo(...step.c1, ...step.c2, ...step.to);
         }
       };
-      // A tool's line ends in a small dot of its colour, so one lying along the bottom is still seen and told apart: dots
-      // that would fall on one another (the idle tools, all at the bottom) step leftward, side by side.
+      // A tool's line ends in a small dot of its colour. Dots are drawn after the clip that opens the lines out, so one on
+      // the right edge is whole (it was cut in half); several ending at one point (the idle tools, all along the bottom)
+      // are one dot, in the colour of the line drawn over the others (stepped aside, they read as dots behind a line).
       const ends: Record<string, [number, number]> = {};
-      // The total's own end dot, larger, is kept clear too.
+      const marks: { id: string; at: number }[] = [];
       const totalEnd = rating ? clamped(rates.at(-1)?.[1] ?? 0) : clamped(level(null, [...samples].reverse().find((s) => s.at <= now) ?? base!));
       // A tool ending where the total does (the one adding nearly all of it) draws no dot of its own: the total's dot is
-      // that point, and one stepped aside read as a dot trailing behind it.
+      // that point.
       const under: string[] = [];
       const toolEnd = (id: string, at: number) => {
-        if (Math.abs(at - totalEnd) < 6) { under.push(id); return; }
-        let end = plot.x + plot.w;
-        const taken = (x: number) => Object.values(ends).some(([ex, ey]) => Math.abs(ex - x) < 4.5 && Math.abs(ey - at) < 4.5);
-        while (taken(end)) end -= 5;
-        ends[id] = [end, at];
-        ctx.fillStyle = toolColour(id, dark); ctx.beginPath(); ctx.arc(end, at, 2, 0, Math.PI * 2); ctx.fill();
+        if (Math.abs(at - totalEnd) < 6) under.push(id);
+        else marks.push({ id, at });
       };
       const path = (id: string | null) => {
         const line = steps((s) => level(id, s));
@@ -394,6 +391,16 @@
         path(null); ctx.lineWidth = 1.8; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.strokeStyle = total; ctx.stroke();
         // The tools adding over the total's line, so the one adding most shows in its colour where it runs along it.
         drawn.filter((id) => !idle(id)).forEach(toolLine);
+        ctx.restore();
+      }
+      if (reach > 0.001) {
+        ctx.save();
+        ctx.globalAlpha = trend ? ramp(0.3, 0.7, p) : 1;
+        const shown = marks.filter((mark, i) => !marks.slice(i + 1).some((later) => Math.abs(later.at - mark.at) < 4.5));
+        for (const { id, at } of shown) {
+          ends[id] = [plot.x + plot.w, at];
+          ctx.fillStyle = toolColour(id, dark); ctx.beginPath(); ctx.arc(plot.x + plot.w, at, 2, 0, Math.PI * 2); ctx.fill();
+        }
         ctx.restore();
       }
       canvas.dataset.under = under.join(',');
