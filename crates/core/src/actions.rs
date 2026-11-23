@@ -132,6 +132,48 @@ fn plain(text: &str) -> bool {
     !text.is_empty() && text.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
+/// Why a command gave no result.
+#[derive(Debug, PartialEq)]
+enum Ran {
+    NotStarted,
+    TimedOut,
+}
+
+/// Runs a command to its end within `timeout` seconds: its exit and everything it wrote, the standard output then
+/// the standard error. Each stream is drained on its own thread, so a command that writes much to one while the other
+/// is still open finishes instead of waiting on a full pipe until the timeout (OCX-1). Past the timeout it is killed.
+fn run_collecting(binary: &str, arguments: &[&str], timeout: f64) -> Result<(std::process::ExitStatus, Vec<u8>), Ran> {
+    fn drain<R: Read + Send + 'static>(stream: Option<R>) -> mpsc::Receiver<Vec<u8>> {
+        let (sender, receiver) = mpsc::channel();
+        std::thread::spawn(move || {
+            let mut data = Vec::new();
+            if let Some(mut stream) = stream {
+                let _ = stream.read_to_end(&mut data);
+            }
+            let _ = sender.send(data);
+        });
+        receiver
+    }
+    let mut child = Command::new(binary)
+        .args(arguments)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|_| Ran::NotStarted)?;
+    let (out, err) = (drain(child.stdout.take()), drain(child.stderr.take()));
+    let deadline = std::time::Instant::now() + Duration::from_secs_f64(timeout);
+    let left = || deadline.saturating_duration_since(std::time::Instant::now());
+    let (Ok(mut data), Ok(errors)) = (out.recv_timeout(left()), err.recv_timeout(left())) else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(Ran::TimedOut);
+    };
+    data.extend(errors);
+    let status = child.wait().map_err(|_| Ran::NotStarted)?;
+    Ok((status, data))
+}
+
 impl Runtime {
     // Background work
 
@@ -282,34 +324,11 @@ impl Runtime {
         if !Path::new(&binary).exists() {
             return Some("找不到 ocx 命令".into());
         }
-        let Ok(mut child) = Command::new(&binary)
-            .args(arguments)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-        else {
-            return Some("找不到 ocx 命令".into());
+        let (status, data) = match run_collecting(&binary, arguments, timeout) {
+            Ok(done) => done,
+            Err(Ran::NotStarted) => return Some("找不到 ocx 命令".into()),
+            Err(Ran::TimedOut) => return Some(format!("ocx {} 执行超时", arguments.join(" "))),
         };
-        let (sender, receiver) = mpsc::channel();
-        let mut out = child.stdout.take();
-        let mut err = child.stderr.take();
-        std::thread::spawn(move || {
-            let mut data = Vec::new();
-            if let Some(stream) = out.as_mut() {
-                let _ = stream.read_to_end(&mut data);
-            }
-            if let Some(stream) = err.as_mut() {
-                let _ = stream.read_to_end(&mut data);
-            }
-            let _ = sender.send(data);
-        });
-        let Ok(data) = receiver.recv_timeout(Duration::from_secs_f64(timeout)) else {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Some(format!("ocx {} 执行超时", arguments.join(" ")));
-        };
-        let status = child.wait().ok()?;
         if status.success() {
             return None;
         }
@@ -1759,5 +1778,31 @@ impl Runtime {
                 .into(),
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod run_tests {
+    use super::*;
+
+    #[test]
+    fn a_command_writing_much_to_its_error_stream_finishes_with_everything_it_wrote() {
+        // OCX-1: a megabyte of diagnostics on the standard error before the standard output closes used to wait on the
+        // full pipe until the timeout.
+        let script = "head -c 1048576 /dev/zero | tr '\\0' x >&2; echo >&2; echo done; echo 'last words' >&2; exit 3";
+        let started = std::time::Instant::now();
+        let (status, data) = run_collecting("/bin/sh", &["-c", script], 20.0).expect("finished");
+        assert!(started.elapsed().as_secs_f64() < 10.0, "took {:?}", started.elapsed());
+        assert_eq!(status.code(), Some(3));
+        let text = String::from_utf8_lossy(&data);
+        assert!(text.starts_with("done\n"));
+        assert_eq!(text.lines().rfind(|line| !line.trim().is_empty()), Some("last words"));
+        assert_eq!(data.len(), "done\n".len() + 1048576 + 1 + "last words\n".len());
+    }
+
+    #[test]
+    fn a_command_past_its_time_is_stopped_and_one_not_found_says_so() {
+        assert_eq!(run_collecting("/bin/sh", &["-c", "sleep 30"], 0.5).unwrap_err(), Ran::TimedOut);
+        assert_eq!(run_collecting("/nonexistent/ocx", &[], 1.0).unwrap_err(), Ran::NotStarted);
     }
 }
