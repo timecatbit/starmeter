@@ -209,6 +209,12 @@ class UpdateTests(unittest.TestCase):
   self.assertEqual(self.m.mirror_fetch(base+'x/releases/expanded_assets/v99.0.0'),(200,None,'<li>listing</li>'))
   self.assertIsNone(self.m.mirror_fetch('http://127.0.0.1:1/unreachable'))
 
+ def test_a_failed_check_waits_ten_minutes_once_not_again_at_each_call(self):
+  record={'payload':{'apps':[]}}
+  self.assertTrue(self.m.app_update_back_off(record,1000.0));self.assertEqual(record['retryAt'],1600.0)
+  self.assertFalse(self.m.app_update_back_off(record,1300.0));self.assertEqual(record['retryAt'],1600.0)
+  self.assertTrue(self.m.app_update_back_off(record,1700.0));self.assertEqual(record['retryAt'],2300.0)
+
  def test_each_copy_updates_from_a_file_the_release_publishes(self):
   import importlib.util,sys
   scripts=str(SOURCE.parent/'scripts')

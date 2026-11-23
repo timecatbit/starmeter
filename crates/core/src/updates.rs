@@ -396,7 +396,8 @@ fn cached_feed(root: &str, now: f64) -> Option<Object> {
     if !Path::new(&database_path).exists() {
         return None;
     }
-    let db = Database::open(Path::new(&format!("file:{database_path}?mode=ro")), 0.2, Mode::ReadOnlyUri).ok()?;
+    let uri = crate::database::file_uri(&database_path.to_string(), "mode=ro");
+    let db = Database::open(Path::new(&uri), 0.2, Mode::ReadOnlyUri).ok()?;
     let rows = db
         .rows(
             "SELECT r.request_key,r.time_stamp,d.isDataOnFS,d.receiver_data FROM cfurl_cache_response r JOIN cfurl_cache_receiver_data d USING(entry_ID)
@@ -546,6 +547,18 @@ pub fn uuid5_url(name: &str) -> String {
     digest[8] = digest[8] & 0x3F | 0x80;
     let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
     format!("{}-{}-{}-{}-{}", &hex[..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..])
+}
+
+/// A check that failed is tried again in ten minutes: the wait is set once, when the failure was just read, not again
+/// at each later call that finds the same failed reading kept (which pushed the retry back for as long as the panel kept
+/// asking). False when a wait was already running.
+fn back_off(record: &mut Object, now: f64) -> bool {
+    if record.get("retryAt").and_then(Json::python_float).is_some_and(|at| at > now) {
+        return false;
+    }
+    record.insert("force", true);
+    record.insert("retryAt", now + 600.0);
+    true
 }
 
 impl Runtime {
@@ -846,9 +859,9 @@ impl Runtime {
             });
         if failed {
             let mut record = self.read_cache("app_updates");
-            record.insert("force", true);
-            record.insert("retryAt", now() + 600.0);
-            self.write_json_cache(&self.cache_path("app_updates"), &Json::Object(record));
+            if back_off(&mut record, now()) {
+                self.write_json_cache(&self.cache_path("app_updates"), &Json::Object(record));
+            }
         }
         (result, error)
     }
@@ -1020,6 +1033,19 @@ impl Runtime {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_failed_check_waits_ten_minutes_once_not_again_at_each_call() {
+        let mut record = crate::object! { "payload" => crate::object! { "apps" => crate::json::Json::Array(vec![]) } };
+        assert!(super::back_off(&mut record, 1000.0));
+        assert_eq!(record.get("retryAt").and_then(crate::json::Json::python_float), Some(1600.0));
+        // Asked again within the wait: the retry stays where it was.
+        assert!(!super::back_off(&mut record, 1300.0));
+        assert_eq!(record.get("retryAt").and_then(crate::json::Json::python_float), Some(1600.0));
+        // The wait over and the check failed again: a new one.
+        assert!(super::back_off(&mut record, 1700.0));
+        assert_eq!(record.get("retryAt").and_then(crate::json::Json::python_float), Some(2300.0));
+    }
+
     /// WIN-3: npm on Windows puts codex.cmd in its prefix folder beside node_modules/@openai/codex, with no link into
     /// the package; that launcher is the npm channel, and a launcher with no package beside it says nothing.
     #[test]

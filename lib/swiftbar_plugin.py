@@ -1241,9 +1241,18 @@ def app_updates_cached():
         return {'apps':rows},None
     result,error=cached_fetch('app_updates',load,EXTERNAL_TTLS['app_updates'])
     if any('失败' in row.get('status','') for row in (result or {}).get('apps',[])):
-        record=read_cache('app_updates');record.update(force=True,retryAt=time.time()+600)
-        write_json_cache(cache_path('app_updates'),record)
+        record=read_cache('app_updates')
+        if app_update_back_off(record,time.time()):write_json_cache(cache_path('app_updates'),record)
     return result,error
+
+
+def app_update_back_off(record,now):
+    """A failed check is tried again in ten minutes, the wait set once (not again at each call finding the same
+    failed reading kept, which pushed the retry back for as long as the panel kept asking)."""
+    try:
+        if float(record.get('retryAt') or 0)>now:return False
+    except (TypeError,ValueError):pass
+    record.update(force=True,retryAt=now+600);return True
 
 
 def auto_update_path():
