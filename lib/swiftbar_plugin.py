@@ -324,20 +324,23 @@ def connection_fingerprint(name):
 def connection_digest(name):
     parts=[]
     if name=='app_updates':
-        selected=selected_update_ids();parts.extend(selected);parts.extend([module_enabled('updates'),'channels-v3'])
-        for key,name in (('claude','Claude'),('chatgpt','ChatGPT')):
-            if key not in selected:continue
-            info=app_info(name);parts.append(info)
-            if key=='chatgpt':
-                local=desktop_updates.chatgpt_release(HOME,info.get('CFBundleIdentifier'),sparkle_release) or {}
-                parts.append({k:local.get(k) for k in ('latest','build','releaseSource')})
-        for key,command in (('claude-code','claude'),('codex-cli','codex')):
-            if key not in selected:continue
-            binary=shutil.which(command);parts.append(binary)
+        selected=selected_update_ids();parts.extend(selected);parts.extend([module_enabled('updates'),'channels-v4'])
+        for key in selected:
+            product=update_channels.product(key)
+            if not product:continue
+            if product['apps']:
+                info=product_app_info(product);parts.append(info)
+                if key=='chatgpt':
+                    local=desktop_updates.chatgpt_release(HOME,info.get('CFBundleIdentifier'),sparkle_release) or {}
+                    parts.append({k:local.get(k) for k in ('latest','build','releaseSource')})
+                if key=='antigravity-ide':
+                    app=product_app(product);parts.append(update_channels.app_commit(app) if app else None)
+            if not product['commands']:continue
+            binary=product_binary(product);parts.append(binary)
             try:
                 stat=os.stat(binary);parts.extend([os.path.realpath(binary),stat.st_ino,stat.st_mtime_ns,stat.st_size])
             except (OSError,TypeError):parts.append('unavailable')
-            if key=='codex-cli' and binary:parts.append(update_channels.codex_channel(binary))
+            if product['kind']=='cli' and binary:parts.append(update_channels.cli_channel(key,binary))
     # A tool's month for 本月回本: what the month's own figures depend on, and where the tool keeps its records.
     if name.startswith(PAYBACK_MONTH):parts.extend([range_cache_name('month'),source_path(name[len(PAYBACK_MONTH):])])
     if name=='claude_subscription':
@@ -1044,53 +1047,59 @@ def claude_usage_records(root, db_path=None, now=None, range_key="today", files=
     return result,None
 
 
-# Official feeds verified against the installed apps and Claude's installer.
-# Only public version metadata is fetched; no account credentials or real device IDs.
-UPDATE_LINKS = {'opencodex': RELEASES_URL, 'claude': 'https://claude.ai/download',
-                'chatgpt': 'https://chatgpt.com/download', 'claude-code':'https://github.com/anthropics/claude-code/releases',
-                'codex-cli':'https://github.com/openai/codex/releases'}
-UPDATE_NAMES = {'opencodex':'OpenCodex', 'claude':'Claude', 'chatgpt':'ChatGPT', 'claude-code':'Claude Code', 'codex-cli':'Codex'}
-# Harness choices expand into related app/CLI checks. A configured OpenCodex
-# also includes ChatGPT and Codex without changing homepage selections.
-HARNESS_UPDATES = {'opencodex':'opencodex', 'magpie':'magpie', 'claude':'claude', 'codex':'chatgpt',
-                   'opencode':'opencode', 'deepseek-harness':'deepseek-harness', 'workbuddy':'workbuddy', 'qoder':'qoder', 'gemini':'gemini', 'cursor':'cursor'}
-MANUAL_UPDATES = {'magpie':('Magpie','https://github.com/yetone/magpie/releases/latest'),
-                  'opencode':('OpenCode','https://opencode.ai'),
-                  'deepseek-harness':('DeepSeek Harness','https://github.com/deepseek-ai/deepseek-harness/releases'),
-                  'workbuddy':('WorkBuddy','https://cloud.tencent.com/product/workbuddy'),
-                  'qoder':('Qoder','https://qoder.cn/download'),
-                  'gemini':('Gemini CLI','https://github.com/google-gemini/gemini-cli/releases'),
-                  'cursor':('Cursor','https://cursor.com/downloads')}
-UPDATE_NAMES.update({key:value[0] for key,value in MANUAL_UPDATES.items()})
-UPDATE_LINKS.update({key:value[1] for key,value in MANUAL_UPDATES.items()})
-# Desktop apps update themselves: when installed, their rows open the app instead of a download page.
-UPDATE_APPS = {'magpie':('magpie','Magpie'), 'claude':('Claude',), 'chatgpt':('ChatGPT',), 'workbuddy':('WorkBuddy',), 'qoder':('Qoder CN','QoderCN'), 'cursor':('Cursor',)}
+# Official feeds verified against the installed apps and their vendors' own updaters, product by product (an app and its
+# CLI apart: update_channels.PRODUCTS). Only public version metadata is fetched; no account credentials or device IDs.
+UPDATE_LINKS={'opencodex':RELEASES_URL,**{p['id']:p['link'] for p in update_channels.PRODUCTS}}
+UPDATE_NAMES={'opencodex':'OpenCodex',**{p['id']:p['name'] for p in update_channels.PRODUCTS}}
+# Desktop apps that update themselves: when installed, their rows open the app instead of a download page.
+UPDATE_APPS={p['id']:p['apps'] for p in update_channels.PRODUCTS if p['apps']}
+
+
+def manual_reason(key):
+    """Why a product has no version check: its vendor publishes none, or (an app off macOS) its version isn't read."""
+    product=update_channels.product(key)
+    if not product:return None
+    if product['manual']:return product['manual']
+    if product['kind']=='app' and sys.platform!='darwin' and not product['commands']:return update_channels.APP_ELSEWHERE
+    return None
+
+
+def product_app(product):
+    return next((path for path in map(installed_app_path,product['apps']) if path),None)
+
+
+def product_binary(product):
+    return next((path for path in map(shutil.which,product['commands']) if path),None)
+
+
+def product_installed(product):
+    return bool(product_app(product) or product_binary(product))
+
+
+def product_app_info(product):
+    return next((info for info in map(app_info,product['apps']) if info),{})
+
 
 def selected_update_ids():
+    """Product by product: a tool's main products always, its other apps and CLIs where installed; a configured
+    OpenCodex also includes ChatGPT and Codex without changing homepage selections."""
     visible=set(view_settings()['visible'])
     if ocx_configured() or 'opencodex' in visible:visible.add('codex')
     result=[]
     for key in preferences.USAGE:
-        if key in visible:
-            result.append(HARNESS_UPDATES[key])
-            if key=='claude':result.append('claude-code')
-            if key=='codex':result.append('codex-cli')
+        if key not in visible:continue
+        if key=='opencodex':result.append(key);continue
+        result+=[p['id'] for p in update_channels.products_of(key) if p['always'] or product_installed(p)]
     return result
 
 def live_app_update_ids():
-    if DESKTOP is not None:return [key for key in selected_update_ids() if key in ('claude-code','codex-cli')]
-    return [key for key in selected_update_ids() if key!='opencodex' and key not in MANUAL_UPDATES]
+    return [key for key in selected_update_ids() if key!='opencodex' and not manual_reason(key)]
 
 
-def release_version(value):
-    match = re.fullmatch(r'v?(\d+(?:\.\d+){0,4})(?:[-+]([a-zA-Z0-9.-]+))?', str(value or '').strip())
-    if not match:return None
-    parts=tuple(int(n) for n in match[1].split('.'))
-    return parts+(0,)*(5-len(parts))
+release_version=update_channels.release_version
 
 def newer_release(latest,current):
-    a,b=release_version(latest),release_version(current)
-    return bool(a is not None and b is not None and a>b)
+    return update_channels.release_order(latest,current)==1
 
 def app_info(name):
     return memoized(('app',name),lambda:installed_app_info(name))
@@ -1179,27 +1188,63 @@ def apply_chatgpt_release(row,info):
             row['status']='有新版本' if row['available'] else '公开渠道暂无更新'
     return row
 
+def installed_version(binary):
+    run=subprocess.run(swiftbar_runtime.cli_args(binary,'--version'),capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=4,check=True,**swiftbar_runtime.quiet_subprocess())
+    match=re.search(r'\b(\d+(?:\.\d+){1,4}(?:[-+][a-zA-Z0-9.-]+)?)\b',run.stdout)
+    return match[1] if match else ''
+
+
+def settle_update(key,row):
+    if release_version(row.get('current')) is None or release_version(row.get('latest')) is None:raise ValueError('invalid version')
+    row['available']=update_channels.available(key,row['latest'],row['current'])
+    row['status']='有新版本' if row['available'] else '已是最新'
+    return row
+
+
+def cli_update_probe(product,row):
+    """A CLI: its own --version, its channel, that channel's newest version and the command that updates it."""
+    binary=product_binary(product)
+    if not binary:row['status']='未安装';return row
+    row['current']=installed_version(binary)
+    channel=update_channels.cli_channel(product['id'],binary);row['channel']=channel['channel']
+    if not channel.get('releaseURL'):row.update(status='更新渠道待确认',available=False);return row
+    row['latest']=update_channels.latest_version(channel['channelId'],release_body(channel['releaseURL']))
+    plan=update_channels.update_plan(product['id'],binary,channel)
+    if plan:row['command']=update_channels.plan_text(plan)
+    return settle_update(product['id'],row)
+
+
+def app_feed_probe(product,row):
+    """An app other than Claude and ChatGPT against its vendor's feed; Antigravity IDE by the commit it was built from."""
+    info=product_app_info(product)
+    if info:row['current']=info['CFBundleShortVersionString']
+    else:
+        binary=product_binary(product)
+        if not binary:row['status']='未安装';return row
+        row['current']=installed_version(binary)
+    source=update_channels.app_source(product['id'])
+    if not source:row.update(status='更新渠道待确认',available=False);return row
+    kind,url=source
+    body=release_body(url)
+    if kind=='ide-feed':
+        found=update_channels.ide_release(body)
+        if not found:raise ValueError('no release')
+        row.update(latest=found[0],latestCommit=found[1])
+        app=product_app(product);installed=update_channels.app_commit(app) if app else None
+        if installed:
+            row['available']=installed!=found[1];row['status']='有新版本' if row['available'] else '已是最新'
+            return row
+    else:row['latest']=update_channels.latest_version(kind,body)
+    return settle_update(product['id'],row)
+
+
 def app_update_probe(key):
+    product=update_channels.product(key)
     row={'id':key,'name':UPDATE_NAMES[key],'href':UPDATE_LINKS[key],'checkedAt':time.time()}
     try:
-        if key in ('claude-code','codex-cli'):
-            binary=shutil.which('claude' if key=='claude-code' else 'codex')
-            if not binary:row['status']='未安装';return row
-            run=subprocess.run(swiftbar_runtime.cli_args(binary,'--version'),capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=4,check=True,**swiftbar_runtime.quiet_subprocess())
-            match=re.search(r'\b(\d+(?:\.\d+){1,4}(?:[-+][a-zA-Z0-9.-]+)?)\b',run.stdout)
-            row['current']=match[1] if match else ''
-            if key=='claude-code':
-                row['channel']='Claude 官方';row['latest']=release_body('https://downloads.claude.ai/claude-code-releases/latest').decode().strip()
-            else:
-                channel=update_channels.codex_channel(binary);row['channel']=channel['channel']
-                if not channel.get('releaseURL'):
-                    row.update(status='更新渠道待确认',available=False);return row
-                row['latest']=update_channels.latest_version(channel,release_body(channel['releaseURL']))
-            if release_version(row['current']) is None or release_version(row['latest']) is None:raise ValueError('invalid version')
-            row['available']=newer_release(row['latest'],row['current'])
-            row['status']='有新版本' if row['available'] else '已是最新'
-            return row
-        info=app_info('Claude' if key=='claude' else 'ChatGPT')
+        if product['kind']=='cli':return cli_update_probe(product,row)
+        if key not in ('claude','chatgpt'):return app_feed_probe(product,row)
+        info=product_app_info(product)
         if not info:row['status']='未安装';return row
         row['current']=info['CFBundleShortVersionString']
         # A constant anonymous checker ID meets the public feed schema without sending a device ID.
@@ -1359,24 +1404,36 @@ def update_rows(data):
     else:oc['status']='自动更新已开启 · '+oc['status']
     # Re-read lightweight local app versions so an update immediately clears stale alerts.
     for row in rows:
-        if row['id'] in ('claude','chatgpt'):
-            info=app_info('Claude' if row['id']=='claude' else 'ChatGPT')
-            if info:
-                row['current']=info['CFBundleShortVersionString']
-                if row.get('latest'):
-                    row['available']=newer_release(row['latest'],row['current'])
-                    if row.get('build'):row['available']=newer_release(row['build'],info['CFBundleVersion'])
-                    if '失败' not in row.get('status',''):row['status']='有新版本' if row['available'] else '已是最新'
-                if row['id']=='chatgpt':row=apply_chatgpt_release(row,info)
+        product=update_channels.product(row['id'])
+        if not product or product['kind']!='app' or manual_reason(row['id']):continue
+        info=product_app_info(product)
+        if not info:continue
+        row['current']=info['CFBundleShortVersionString']
+        installed=None
+        if row['id']=='antigravity-ide':
+            app=product_app(product);installed=update_channels.app_commit(app) if app else None
+        if row.get('latestCommit') and installed:
+            row['available']=row['latestCommit']!=installed
+            if '失败' not in row.get('status',''):row['status']='有新版本' if row['available'] else '已是最新'
+        elif row.get('latest'):
+            row['available']=update_channels.available(row['id'],row['latest'],row['current'])
+            if row.get('build'):row['available']=newer_release(row['build'],info['CFBundleVersion'])
+            if '失败' not in row.get('status',''):row['status']='有新版本' if row['available'] else '已是最新'
+        if row['id']=='chatgpt':apply_chatgpt_release(row,info)
     existing={row['id'] for row in rows}
     rows += [{'id':key,'name':UPDATE_NAMES[key],'href':UPDATE_LINKS[key],'status':'等待检查','available':False}
              for key in selected if key!='opencodex' and key not in existing]
     for row in rows:
-        if DESKTOP is not None and row['id'] in ('claude','chatgpt'):
-            row.update(status='在 App 内检查更新',available=False,manual=True)
+        product=update_channels.product(row['id'])
         app=update_app_path(row['id'])
-        if app:row.update(href='file://'+urllib.parse.quote(app),app=True)
-        if row['id'] in MANUAL_UPDATES:row.update(status='在 App 内检查更新' if app else '在官网查看更新',available=False,manual=True)
+        # An app that updates itself is opened by its row; Magpie's has no updater, so its row opens the release.
+        if app and product and product['updatesItself']:row.update(href='file://'+urllib.parse.quote(app),app=True)
+        note=manual_reason(row['id'])
+        if note:
+            # No version is published for it: the row says why, beside the version installed.
+            info=product_app_info(product) if product else {}
+            if info.get('CFBundleShortVersionString'):row['current']=info['CFBundleShortVersionString']
+            row.update(status='在 App 内检查更新' if app else '在官网查看更新',available=False,manual=True,note=note)
     by_id={row['id']:row for row in [oc]+rows}
     return [by_id[key] for key in selected]
 
@@ -1717,15 +1774,21 @@ def app_update_lines(data):
     if not rows:lines.append(item('尚未勾选工具',level=1,color=MUTED,size=11))
     for row in rows:
         label=row['name']+' · '+row['status'].replace('自动更新已开启 · ','')
-        detail='尚未接入自动版本检查' if row.get('manual') else (row.get('current') or '版本待确认')
+        if row.get('manual'):
+            note=row.get('note') or '没有公开的版本接口'
+            detail=str(row['current'])+' · '+note if row.get('current') else note
+        elif row.get('status')=='未安装':detail='点击打开官网'
+        else:detail=row.get('current') or '版本待确认'
         if row.get('available'):detail+=' → '+str(row.get('latest'))
         if row.get('channel'):detail+=' · '+row['channel']
         if row.get('reason'):detail+='\n'+row['reason']
-        if row.get('available') and row['id'] in ('claude-code','codex-cli'):
-            detail+='\n点击运行 '+('claude update' if row['id']=='claude-code' else 'codex update')
+        if row.get('available') and row.get('command'):
+            # The CLI's update by its channel: brew upgrade, npm install -g or its own update.
+            detail+='\n点击运行 '+row['command']
             lines.append(item(label,level=1,paneldetail=detail,panelstatus=update_indicator(row),**act('update-cli',row['id'])))
         else:
             if row.get('available') and row.get('app'):detail+='\n点击打开 App 更新'
+            elif row.get('available'):detail+='\n点击打开下载页'
             lines.append(item(label,level=1,href=row['href'],paneldetail=detail,panelstatus=update_indicator(row)))
     lines.append('-----')
     if any(not r.get('manual') for r in rows):lines.append(item('立即检查更新',level=1,sfimage='arrow.clockwise',**act('check-app-updates')))
@@ -4799,17 +4862,22 @@ def run_action(name, extra):
         invalidate_caches(['claude_subscription']);schedule_background_refresh()
     elif name == 'update-cli':
         key=extra[0] if len(extra)==1 else ''
-        command={'claude-code':'claude','codex-cli':'codex'}.get(key)
-        if not command or key not in selected_update_ids() or not module_enabled('updates'):raise ValueError('invalid update target')
-        binary=shutil.which(command)
+        product=update_channels.product(key)
+        if not product or product['kind']!='cli' or key not in selected_update_ids() or not module_enabled('updates'):raise ValueError('invalid update target')
+        binary=product_binary(product)
         if not binary:raise ValueError('CLI not installed')
+        # The command its channel calls for: brew upgrade, npm install -g, or the CLI's own update.
+        run=update_channels.update_plan(key,binary,update_channels.cli_channel(key,binary))
+        if not run:
+            dialog_error('这个安装方式没有更新命令','请到官网下载新版本，或用安装它的工具更新。');return
         if DESKTOP is not None:
-            DESKTOP.update_cli(binary,key);return 0
-        helptext=subprocess.run([binary,'--help'],capture_output=True,text=True,check=True,timeout=5).stdout
-        if not re.search(r'^\s+update(?:\s|\|)',helptext,re.M):
-            dialog_error('当前版本不支持 update 命令','请通过官方安装方式更新。');return
+            DESKTOP.update_cli(binary,key,run);return 0
+        if run==[binary,'update']:
+            helptext=subprocess.run([binary,'--help'],capture_output=True,text=True,check=True,timeout=5).stdout
+            if not re.search(r'^\s+update(?:\s|\|)',helptext,re.M):
+                dialog_error('当前版本不支持 update 命令','请通过官方安装方式更新。');return
         refresh_url=None if MAC_APP else 'swiftbar://refreshplugin?name='+urllib.parse.quote(SWIFTBAR_NAME)
-        terminal(terminal_jobs.update_command(binary,key,STATE_DIR,refresh_url))
+        terminal(terminal_jobs.update_command(binary,key,STATE_DIR,refresh_url,run))
     elif name == 'open-cli-update-log':
         if extra or not module_enabled('updates'):raise ValueError('invalid update log action')
         path=terminal_jobs.latest_log(STATE_DIR,selected_update_ids())

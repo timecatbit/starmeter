@@ -11,6 +11,8 @@ class UpdateTests(unittest.TestCase):
   configured=patch.object(self.m,'ocx_configured',return_value=False);configured.start();self.addCleanup(configured.stop)
   installed=patch.object(self.m,'app_info',return_value={});installed.start();self.addCleanup(installed.stop)
   bundles=patch.object(self.m,'installed_app_path',return_value=None);bundles.start();self.addCleanup(bundles.stop)
+  # A tool's other apps and CLIs (Antigravity beside Gemini CLI, Cursor CLI) are listed only where a test installs them.
+  extras=patch.object(self.m,'product_installed',return_value=False);extras.start();self.addCleanup(extras.stop)
   # No mirror is reached and every download source answers, unless a test says otherwise: tests stay off the network.
   self.offline={}
   for name,value in (('mirror_fetch',None),('reachable',True)):
@@ -300,11 +302,13 @@ class UpdateTests(unittest.TestCase):
    ('opencodex','OpenCodex','自动更新已开启 · 已是最新',False),
    ('claude','Claude','有新版本',True),('claude-code','Claude Code','有新版本',True),
    ('codex-cli','Codex','检查失败，稍后重试',False),('chatgpt','ChatGPT','等待检查',False)]]
+  rows[2]['command']='brew upgrade --cask claude-code'
   with patch.object(self.m,'update_rows',return_value=rows),patch.object(self.m.terminal_jobs,'latest_log',return_value=None):
    entries=self.m.panel_entries(self.m.app_update_lines({}))[0]['children'][:5]
   self.assertEqual([e['label'].split(' · ')[0] for e in entries],['Claude','Claude Code','OpenCodex','Codex','ChatGPT'])
   self.assertEqual([e['statusLight'] for e in entries],['new','new','ok','issue','unknown'])
   self.assertEqual(entries[1]['action'],['update-cli','claude-code'])
+  self.assertIn('点击运行 brew upgrade --cask claude-code',entries[1]['detail'])
   self.assertEqual(entries[0]['href'],'https://example.test/claude')
  def test_claude_checks_the_desktop_app_and_official_desktop_feed(self):
   with patch.object(self.m,'app_info',return_value={'CFBundleShortVersionString':'4.4212.0'}) as info,patch.object(self.m,'release_body',return_value=b'{"currentRelease":"4.16336.0"}') as release,patch.object(self.m.subprocess,'run') as command:
@@ -446,13 +450,69 @@ class UpdateTests(unittest.TestCase):
    self.m.app_updates_cached();self.m.notify_app_updates([self.row(),dict(self.row(),id='chatgpt')])
    self.assertNotIn('app_updates',self.m.external_loaders())
   probe.assert_not_called();send.assert_not_called()
- def test_selected_sources_without_auto_check_have_honest_official_entries(self):
-  self.select('opencode','gemini')
-  with patch.object(self.m,'app_update_probe') as probe:
-   rows=self.m.update_rows({});self.m.app_updates_cached()
-  self.assertEqual([r['id'] for r in rows],['gemini','opencode']);probe.assert_not_called()
-  self.assertTrue(all(r['manual'] and not r['available'] for r in rows))
-  self.assertNotIn('已是最新','\n'.join(self.m.app_update_lines({})))
+ def test_every_selected_tool_is_checked_and_only_those_without_a_published_version_stay_manual(self):
+  # The user asked for each tool to be checked, product by product, not a column of 尚未接入自动版本检查.
+  self.select('opencode','gemini','magpie','cursor','deepseek-harness','qoder','workbuddy')
+  with patch.object(self.m,'app_update_probe',side_effect=lambda key:dict(self.row(),id=key,status='已是最新',available=False)) as probe:
+   self.m.app_updates_cached()
+  self.assertCountEqual([c.args[0] for c in probe.call_args_list],['magpie','cursor','deepseek-harness','gemini','opencode'])
+  versions={'WorkBuddy':{'CFBundleShortVersionString':'5.9.3'}}
+  with patch.object(self.m,'app_info',side_effect=lambda name:versions.get(name,{})):
+   rows={r['id']:r for r in self.m.update_rows({})}
+   text='\n'.join(self.m.app_update_lines({}))
+  self.assertEqual([k for k,r in rows.items() if r.get('manual')],['qoder','workbuddy'])
+  self.assertNotIn('尚未接入',text)
+  self.assertIn('5.9.3 · 腾讯没有公开 WorkBuddy 的版本接口',text)
+  self.assertIn('Qoder CN 没有公开 App 的版本接口',text)
+  self.assertNotIn('已是最新','\n'.join(l for l in text.split('\n') if 'WorkBuddy' in l or 'Qoder' in l))
+ def test_a_tools_apps_and_clis_are_rows_of_their_own_where_installed(self):
+  # Gemini: Gemini CLI always, Antigravity's app, IDE and agy CLI and the Gemini app only where this Mac has them.
+  self.select('gemini','cursor','opencode','qoder')
+  found={'antigravity','antigravity-cli','cursor-cli','opencode-desktop','qoder-cli'}
+  with patch.object(self.m,'product_installed',side_effect=lambda product:product['id'] in found):
+   self.assertEqual(self.m.selected_update_ids(),['cursor','cursor-cli','gemini','antigravity','antigravity-cli','opencode-desktop','opencode','qoder','qoder-cli'])
+   names=[r['name'] for r in self.m.update_rows({})]
+  self.assertEqual(names,['Cursor','Cursor CLI','Gemini CLI','Antigravity','Antigravity CLI','OpenCode Desktop','OpenCode','Qoder','Qoder CLI'])
+ def test_each_cli_is_updated_by_the_channel_it_came_from(self):
+  root=Path(self.tmp.name)
+  def write(path,text=''):
+   path.parent.mkdir(parents=True,exist_ok=True);path.write_text(text)
+  claude=root/'Caskroom/claude-code/2.1.311/claude';write(claude)
+  write(root/'Caskroom/claude-code/.metadata/INSTALL_RECEIPT.json',json.dumps({'source':{'tap':'homebrew/cask'}}));write(root/'bin/brew')
+  gemini=root/'lib/node_modules/@google/gemini-cli/dist/index.js';write(gemini)
+  write(root/'lib/node_modules/@google/gemini-cli/package.json',json.dumps({'name':'@google/gemini-cli'}));write(root/'bin/npm')
+  binaries={'claude':str(claude),'gemini':str(gemini)}
+  self.select('claude','gemini')
+  bodies={'https://formulae.brew.sh/api/cask/claude-code.json':b'{"version":"2.1.323"}','https://registry.npmjs.org/@google/gemini-cli/latest':b'{"version":"0.70.0"}'}
+  outputs={str(claude):'2.1.311 (Claude Code)',str(gemini):'0.69.1'}
+  with patch.object(self.m.shutil,'which',side_effect=binaries.get),patch.object(self.m,'release_body',side_effect=bodies.get),\
+       patch.object(self.m.subprocess,'run',side_effect=lambda args,**kw:types.SimpleNamespace(stdout=outputs[args[0]])):
+   rows={key:self.m.app_update_probe(key) for key in ('claude-code','gemini')}
+  self.assertEqual((rows['claude-code']['channel'],rows['claude-code']['command']),('Homebrew Cask','brew upgrade --cask claude-code'))
+  self.assertEqual((rows['gemini']['channel'],rows['gemini']['command']),('npm','npm install -g @google/gemini-cli@latest'))
+  self.assertTrue(all(r['available'] for r in rows.values()))
+  brew=str((root/'bin/brew').resolve());npm=str((root/'bin/npm').resolve())
+  with patch.object(self.m.shutil,'which',side_effect=binaries.get),patch.object(self.m,'terminal') as terminal:
+   self.m.run_action('update-cli',['claude-code']);self.m.run_action('update-cli',['gemini'])
+  scripts=[c.args[0] for c in terminal.call_args_list]
+  self.assertIn(brew+' upgrade --cask claude-code 2>&1',scripts[0]);self.assertIn(npm+' install -g @google/gemini-cli@latest 2>&1',scripts[1])
+  self.assertIn(str(gemini)+' --version',scripts[1])
+  # The new rows are told about like the others.
+  with patch.object(self.m,'send_update_notification',return_value=True) as send:
+   self.m.notify_app_updates([dict(rows['gemini'],checkedAt=time.time())])
+  send.assert_called_once()
+ def test_apps_are_read_against_their_vendors_feeds(self):
+  info={'Cursor':{'CFBundleShortVersionString':'3.30.14'},'Antigravity IDE':{'CFBundleShortVersionString':'2.7.0'}}
+  feed=json.dumps({'version':'8dc5315a','productVersion':'1.107.0','url':'https://edgedl.me.gvt1.com/x/antigravity/stable/2.8.0-6733/Antigravity.zip'}).encode()
+  with patch.object(self.m,'app_info',side_effect=lambda name:info.get(name,{})),patch.object(self.m,'release_body',side_effect=lambda url:b'{"version":"3.31.15"}' if 'cursor.com' in url else feed),\
+       patch.object(self.m,'installed_app_path',side_effect=lambda name:'/Applications/%s.app'%name if name in info else None),\
+       patch.object(self.m.update_channels,'app_commit',return_value='8dc5315a') as commit:
+   cursor=self.m.app_update_probe('cursor');ide=self.m.app_update_probe('antigravity-ide')
+   self.assertEqual((cursor['latest'],cursor['available']),('3.31.15',True))
+   # The IDE's feed tells releases apart by commit: built from the newest one, it is up to date whatever the numbers.
+   self.assertEqual((ide['latest'],ide['available'],ide['status']),('2.8.0',False,'已是最新'))
+   commit.return_value='older'
+   self.assertTrue(self.m.app_update_probe('antigravity-ide')['available'])
  def test_installed_desktop_apps_open_the_app_instead_of_a_download_page(self):
   self.select('claude','workbuddy','qoder','gemini')
   apps={'Claude':'/Applications/Claude.app','WorkBuddy':'/Users/me/Applications/Work Buddy.app','QoderCN':'/Applications/QoderCN.app'}
@@ -463,7 +523,9 @@ class UpdateTests(unittest.TestCase):
    self.assertEqual(rows['workbuddy']['status'],'在 App 内检查更新')
    self.assertEqual((rows['qoder']['name'],rows['qoder']['href']),('Qoder','file:///Applications/QoderCN.app'))
    self.assertTrue(rows['claude-code']['href'].startswith('https://'))
-   self.assertEqual(rows['gemini']['status'],'在官网查看更新')
+   # Gemini CLI has a version check of its own now; WorkBuddy and Qoder say why they have none.
+   self.assertEqual(rows['gemini']['status'],'等待检查')
+   self.assertEqual(rows['qoder']['note'],'Qoder CN 没有公开 App 的版本接口')
    entries=self.m.panel_entries(self.m.app_update_lines({'app_updates':{'apps':[dict(self.row(),status='有新版本')]}}))[0]['children']
   claude=next(e for e in entries if e['label'].startswith('Claude ·'))
   self.assertEqual(claude['href'],'file:///Applications/Claude.app');self.assertIn('点击打开 App 更新',claude['detail'])
@@ -483,14 +545,14 @@ class UpdateTests(unittest.TestCase):
   cases=[('claude-code','2.1.308 (Claude Code)','2.1.310','claude.ai/claude-code-releases/latest'),('codex-cli','codex-cli 0.164.0','0.166.0','registry.npmjs.org/@openai/codex/latest')]
   for key,current,latest,url in cases:
    body=latest.encode() if key=='claude-code' else json.dumps({'version':latest}).encode()
-   with patch.object(self.m.shutil,'which',return_value='/test/bin/tool'),patch.object(self.m.subprocess,'run',return_value=types.SimpleNamespace(stdout=current)),patch.object(self.m,'release_body',return_value=body) as release,patch.object(self.m.update_channels,'codex_channel',return_value={'channel':'npm','channelId':'npm','releaseURL':'https://registry.npmjs.org/@openai/codex/latest'}):
+   with patch.object(self.m.shutil,'which',return_value='/test/bin/tool'),patch.object(self.m.subprocess,'run',return_value=types.SimpleNamespace(stdout=current)),patch.object(self.m,'release_body',return_value=body) as release,patch.object(self.m.update_channels,'cli_channel',side_effect=lambda key,binary:{'channel':'Claude 官方','channelId':'text','releaseURL':'https://downloads.claude.ai/claude-code-releases/latest'} if key=='claude-code' else {'channel':'npm','channelId':'npm','releaseURL':'https://registry.npmjs.org/@openai/codex/latest'}):
     row=self.m.app_update_probe(key)
    self.assertTrue(row['available']);self.assertEqual(row['latest'],latest);self.assertIn(url,release.call_args.args[0])
   with patch.object(self.m.shutil,'which',return_value=None),patch.object(self.m,'release_body') as release:
    self.assertEqual(self.m.app_update_probe('codex-cli')['status'],'未安装');release.assert_not_called()
  def test_brew_current_version_never_uses_npm_ahead_of_its_channel(self):
   channel={'channel':'Homebrew Cask','channelId':'brew-cask','releaseURL':'https://formulae.brew.sh/api/cask/codex.json'}
-  with patch.object(self.m.shutil,'which',return_value='/test/bin/codex'),patch.object(self.m.subprocess,'run',return_value=types.SimpleNamespace(stdout='codex-cli 0.166.0')),patch.object(self.m.update_channels,'codex_channel',return_value=channel),patch.object(self.m,'release_body',return_value=b'{"version":"0.166.0"}') as release:
+  with patch.object(self.m.shutil,'which',return_value='/test/bin/codex'),patch.object(self.m.subprocess,'run',return_value=types.SimpleNamespace(stdout='codex-cli 0.166.0')),patch.object(self.m.update_channels,'cli_channel',return_value=channel),patch.object(self.m,'release_body',return_value=b'{"version":"0.166.0"}') as release:
    row=self.m.app_update_probe('codex-cli')
   release.assert_called_once_with(channel['releaseURL'])
   self.assertEqual(row['channel'],'Homebrew Cask');self.assertFalse(row['available']);self.assertEqual(row['latest'],'0.166.0')

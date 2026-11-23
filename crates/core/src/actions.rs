@@ -20,6 +20,7 @@ use crate::opencodex::{ENDPOINTS, monitor_url};
 use crate::rows::{g, shorten};
 use crate::runtime::{self, RANGES, Runtime, VERSION, now};
 use crate::tally::archive;
+use crate::update_products::{self, Kind};
 use crate::{accounts, catalog, claude_app, claude_bridge, dashboard, keys, object, platform, preferences};
 use crate::{py, shell};
 
@@ -1255,34 +1256,41 @@ impl Runtime {
             }
             "update-cli" => {
                 let key = one();
-                let command = match key.as_str() {
-                    "claude-code" => "claude",
-                    "codex-cli" => "codex",
-                    _ => return invalid("invalid update target"),
+                let Some(product) = update_products::product(&key).filter(|product| product.kind == Kind::Cli) else {
+                    return invalid("invalid update target");
                 };
                 if !self.selected_update_ids().contains(&key) || !self.module_enabled("updates") {
                     return invalid("invalid update target");
                 }
-                let Some(binary) = shell::which(command, &self.environment) else {
+                let Some(binary) = self.product_binary(product) else {
                     return invalid("CLI not installed");
                 };
+                // The command its channel calls for: brew upgrade, npm install -g, or the CLI's own update.
+                let channel = update_products::cli_channel(&key, &binary);
+                let Some(run) = update_products::update_plan(&key, &binary, &channel, &self.environment) else {
+                    self.dialog_error("这个安装方式没有更新命令", "请到官网下载新版本，或用安装它的工具更新。");
+                    return Ok(0);
+                };
                 if let Some(desktop) = self.desktop() {
-                    desktop.update_cli(&binary, &key);
+                    desktop.update_cli(&binary, &key, &run);
                     return Ok(0);
                 }
-                let Some(help) = shell::run(&[&binary, "--help"], 5.0, None, None) else {
-                    return invalid("help failed");
-                };
-                let pattern = Regex::new(r"(?m)^\s+update(?:\s|\|)").expect("pattern");
-                if !pattern.is_match(&help) {
-                    self.dialog_error("当前版本不支持 update 命令", "请通过官方安装方式更新。");
-                    return Ok(0);
+                if run.len() == 2 && run[0] == binary && run[1] == "update" {
+                    let Some(help) = shell::run(&[&binary, "--help"], 5.0, None, None) else {
+                        return invalid("help failed");
+                    };
+                    let pattern = Regex::new(r"(?m)^\s+update(?:\s|\|)").expect("pattern");
+                    if !pattern.is_match(&help) {
+                        self.dialog_error("当前版本不支持 update 命令", "请通过官方安装方式更新。");
+                        return Ok(0);
+                    }
                 }
                 let refresh = (!self.mac_app)
                     .then(|| format!("swiftbar://refreshplugin?name={}", accounts::quote(&self.swiftbar_name())));
                 let command = terminal_jobs::update_command(
                     &binary,
                     &key,
+                    &run,
                     &self.state_dir,
                     refresh.as_deref(),
                     &self.local_zone(),

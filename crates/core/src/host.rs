@@ -50,7 +50,9 @@ pub trait DesktopHost: Host {
     fn save_overrides(&self, values: &[(String, String)]) -> Result<(), HostFailure>;
     fn config_file(&self) -> String;
     fn open_claude(&self);
-    fn update_cli(&self, binary: &str, key: &str);
+    /// A CLI's update in a terminal: `run` is the command its channel calls for (brew upgrade, npm install -g or the
+    /// CLI's own update), `binary` the CLI whose version the log notes before and after.
+    fn update_cli(&self, binary: &str, key: &str, run: &[String]);
     fn submit_test(&self, provider: &str, id: &str);
     fn request_refresh(&self, mode: Option<&str>);
     fn save_range(&self, key: &str);
@@ -401,8 +403,9 @@ impl DesktopHost for StreamHost {
     fn open_claude(&self) {
         self.ask(object! { "host" => "openClaude" });
     }
-    fn update_cli(&self, binary: &str, key: &str) {
-        self.ask(object! { "host" => "updateCLI", "binary" => binary, "key" => key });
+    fn update_cli(&self, binary: &str, key: &str, run: &[String]) {
+        let run: Vec<Json> = run.iter().map(|word| Json::from(word.as_str())).collect();
+        self.ask(object! { "host" => "updateCLI", "binary" => binary, "key" => key, "run" => Json::Array(run) });
     }
     fn submit_test(&self, provider: &str, id: &str) {
         self.ask(object! { "host" => "submitTest", "provider" => provider, "id" => id });
@@ -705,12 +708,11 @@ pub mod usage_export {
 pub mod terminal_jobs {
     use super::*;
 
+    /// The CLIs 工具更新 can update in a terminal, by their rows' names.
     pub fn cli_name(key: &str) -> Option<&'static str> {
-        match key {
-            "claude-code" => Some("Claude Code"),
-            "codex-cli" => Some("Codex"),
-            _ => None,
-        }
+        crate::update_products::product(key)
+            .filter(|product| product.kind == crate::update_products::Kind::Cli)
+            .map(|product| product.name)
     }
 
     fn literal(value: &str) -> String {
@@ -877,8 +879,8 @@ pub mod terminal_jobs {
     /// variable PowerShell runs with its call operator: written into a batch file it was read in the system's code page
     /// (a Chinese user folder under code page 936 wasn't found) and parsed as batch source again (WIN-CLI-1). An npm
     /// launcher (codex.cmd) runs as well as a program; the window stays until a key is pressed.
-    pub fn launch_windows(binary: &str, key: &str, _state: &str) -> Result<&'static str, HostFailure> {
-        let mut command = windows_update(binary, key)?;
+    pub fn launch_windows(run: &[String], key: &str, _state: &str) -> Result<&'static str, HostFailure> {
+        let mut command = windows_update(run, key)?;
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -892,14 +894,23 @@ pub mod terminal_jobs {
             .map_err(|error| HostFailure(format!("无法打开命令提示符：{error}")))
     }
 
-    /// The PowerShell that runs the update: a fixed command, the CLI's path only in STARMETER_CLI.
-    pub fn windows_update(binary: &str, key: &str) -> Result<std::process::Command, HostFailure> {
+    /// The PowerShell that runs the update: a fixed command, the program's path (the CLI, or npm for an npm install)
+    /// only in STARMETER_CLI. The words after it come from the product table (update, install -g @scope/name@latest),
+    /// plain ASCII, each in single quotes so PowerShell takes @scope as a word rather than splatting.
+    pub fn windows_update(run: &[String], key: &str) -> Result<std::process::Command, HostFailure> {
         let label = cli_name(key).ok_or_else(|| HostFailure("invalid CLI".into()))?;
+        let (program, words) = run.split_first().ok_or_else(|| HostFailure("no update command".into()))?;
+        if words.iter().any(|word| !word.is_ascii() || word.contains('\'') || word.contains('\n')) {
+            return Err(HostFailure("invalid update command".into()));
+        }
+        let quoted: Vec<String> = words.iter().map(|word| format!("'{word}'")).collect();
+        let shown = words.join(" ");
         let script = format!(
-            "$Host.UI.RawUI.WindowTitle = 'Starmeter: {label} update'; Write-Host ('$ ' + $env:STARMETER_CLI + ' update'); & $env:STARMETER_CLI update; Write-Host ''; cmd /c pause"
+            "$Host.UI.RawUI.WindowTitle = 'Starmeter: {label} update'; Write-Host ('$ ' + $env:STARMETER_CLI + ' {shown}'); & $env:STARMETER_CLI {}; Write-Host ''; cmd /c pause",
+            quoted.join(" ")
         );
         let mut command = std::process::Command::new("powershell.exe");
-        command.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &script]).env("STARMETER_CLI", binary);
+        command.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &script]).env("STARMETER_CLI", program);
         Ok(command)
     }
 
@@ -919,6 +930,7 @@ pub mod terminal_jobs {
     pub fn update_command(
         binary: &str,
         key: &str,
+        run: &[String],
         state: &str,
         refresh_url: Option<&str>,
         zone: &TimeZone,
@@ -940,7 +952,8 @@ pub mod terminal_jobs {
             .ok_or_else(|| HostFailure("无法创建更新日志".into()))?;
         let quote = connections::shell_quote;
         let version = join(&[binary, "--version"]);
-        let update = join(&[binary, "update"]);
+        let words: Vec<&str> = run.iter().map(String::as_str).collect();
+        let update = join(&words);
         let lines = [
             format!("token_update_log={}", quote(&path)),
             format!("token_before=$({version} 2>/dev/null) || token_before=\"版本读取失败\""),
@@ -977,18 +990,32 @@ mod tests {
     fn the_windows_update_takes_the_path_as_data() {
         // WIN-CLI-1: a Chinese user folder, spaces, a percent sign and batch metacharacters stay out of the command.
         let binary = r"C:\Users\张三\AppData\Roaming\npm 100% & co\codex.cmd";
-        let command = terminal_jobs::windows_update(binary, "codex-cli").expect("Codex");
+        let run = vec![binary.to_string(), "update".to_string()];
+        let command = terminal_jobs::windows_update(&run, "codex-cli").expect("Codex");
         assert_eq!(command.get_program(), "powershell.exe");
         let arguments: Vec<String> = command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
         assert!(
             arguments.iter().all(|arg| !arg.contains("张三") && !arg.contains("codex.cmd") && arg.is_ascii()),
             "{arguments:?}"
         );
-        assert!(arguments.last().unwrap().contains("& $env:STARMETER_CLI update"));
+        assert!(arguments.last().unwrap().contains("& $env:STARMETER_CLI 'update'"));
         assert!(arguments.last().unwrap().contains("Starmeter: Codex update"));
         let given: Vec<_> = command.get_envs().collect();
         assert_eq!(given, vec![(std::ffi::OsStr::new("STARMETER_CLI"), Some(std::ffi::OsStr::new(binary)))]);
-        assert!(terminal_jobs::windows_update(binary, "something-else").is_err());
+        assert!(terminal_jobs::windows_update(&run, "something-else").is_err());
+        // npm's install for an npm copy: npm's path as data, the scoped package quoted against splatting.
+        let npm = vec![
+            r"C:\Users\张三\AppData\Roaming\npm\npm.cmd".to_string(),
+            "install".into(),
+            "-g".into(),
+            "@google/gemini-cli@latest".into(),
+        ];
+        let command = terminal_jobs::windows_update(&npm, "gemini").expect("Gemini CLI");
+        let script = command.get_args().last().unwrap().to_string_lossy().into_owned();
+        assert!(script.contains("& $env:STARMETER_CLI 'install' '-g' '@google/gemini-cli@latest'"), "{script}");
+        assert!(script.is_ascii() && script.contains("Starmeter: Gemini CLI update"));
+        let bad = vec![binary.to_string(), "x'; rm".to_string()];
+        assert!(terminal_jobs::windows_update(&bad, "gemini").is_err());
     }
 
     fn folder(name: &str) -> String {

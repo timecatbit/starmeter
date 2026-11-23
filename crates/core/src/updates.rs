@@ -16,6 +16,7 @@ use crate::preferences::USAGE;
 use crate::py::{self, FileError};
 use crate::runtime::{Loaded, Runtime, now};
 use crate::time::IsoTime;
+use crate::update_products::{self, Kind, Product};
 use crate::{object, platform, shell};
 
 /// v?1.2.3 (with an optional -suffix) as five numbers, or None.
@@ -44,11 +45,9 @@ pub fn release_version(value: Option<&Json>) -> Option<[i64; 5]> {
     Some(numbers)
 }
 
+/// Whether latest is a newer release than current, in semantic-version order (a release above its prereleases).
 pub fn newer(latest: Option<&Json>, current: Option<&Json>) -> bool {
-    match (release_version(latest), release_version(current)) {
-        (Some(a), Some(b)) => a > b,
-        _ => false,
-    }
+    update_products::release_order(latest, current) == Some(std::cmp::Ordering::Greater)
 }
 
 fn plain_version(text: Option<&str>) -> Option<[i64; 5]> {
@@ -268,67 +267,7 @@ pub fn sparkle_release(body: &[u8]) -> (Option<String>, Option<String>) {
 
 /// The package channel Codex came from, from its executable alone.
 pub fn codex_channel(binary: &str) -> Object {
-    let path =
-        paths::resolve(Path::new(binary)).map_or_else(|| binary.to_string(), |p| p.to_string_lossy().into_owned());
-    let parent_of = |path: &str| path.rsplit_once('/').map_or(String::new(), |(parent, _)| parent.to_string());
-    let last = |path: &str| path.rsplit('/').next().unwrap_or("").to_string();
-    let mut parent = parent_of(&path);
-    while parent != "/" && !parent.is_empty() {
-        let name = last(&parent);
-        let above = last(&parent_of(&parent));
-        if name == "codex" && above == "Caskroom" {
-            let receipt = claude_app::read_object(&format!("{parent}/.metadata/INSTALL_RECEIPT.json"));
-            if py::dict(receipt.get("source")).get("tap") != Some(&Json::from("homebrew/cask")) {
-                return object! { "channel" => "Homebrew 自定义 Cask" };
-            }
-            return object! { "channel" => "Homebrew Cask", "channelId" => "brew-cask", "releaseURL" => "https://formulae.brew.sh/api/cask/codex.json" };
-        }
-        if name == "codex" && above == "Cellar" {
-            let receipt = claude_app::read_object(&format!("{}/INSTALL_RECEIPT.json", parent_of(&parent_of(&path))));
-            if py::dict(receipt.get("source")).get("tap") != Some(&Json::from("homebrew/core")) {
-                return object! { "channel" => "Homebrew 自定义 Formula" };
-            }
-            return object! {
-                "channel" => "Homebrew Formula", "channelId" => "brew-formula", "releaseURL" => "https://formulae.brew.sh/api/formula/codex.json",
-            };
-        }
-        if name == "codex"
-            && above == "@openai"
-            && claude_app::read_object(&format!("{parent}/package.json")).get("name")
-                == Some(&Json::from("@openai/codex"))
-        {
-            return object! { "channel" => "npm", "channelId" => "npm", "releaseURL" => "https://registry.npmjs.org/@openai/codex/latest" };
-        }
-        parent = parent_of(&parent);
-    }
-    // A Windows npm launcher (codex.cmd) sits beside node_modules, not linked into the package.
-    let launcher = Path::new(&path);
-    let batch = launcher
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("cmd") || extension.eq_ignore_ascii_case("bat"));
-    if batch && let Some(folder) = launcher.parent() {
-        let package = folder.join("node_modules").join("@openai").join("codex").join("package.json");
-        if claude_app::read_object(&package.to_string_lossy()).get("name") == Some(&Json::from("@openai/codex")) {
-            return object! { "channel" => "npm", "channelId" => "npm", "releaseURL" => "https://registry.npmjs.org/@openai/codex/latest" };
-        }
-    }
-    object! { "channel" => "安装渠道待确认" }
-}
-
-fn latest_version(channel: &Object, body: &[u8]) -> Result<String, FileError> {
-    let data = Json::parse(body)
-        .ok()
-        .and_then(|value| value.as_object().cloned())
-        .ok_or_else(|| FileError::new("bad metadata"))?;
-    if channel.get("channelId") == Some(&Json::from("brew-formula")) {
-        let stable = data
-            .get("versions")
-            .and_then(|versions| versions.get("stable"))
-            .ok_or_else(|| FileError::new("KeyError"))?;
-        return Ok(py::str(Some(stable)));
-    }
-    data.get("version").map(|version| py::str(Some(version))).ok_or_else(|| FileError::new("KeyError"))
+    update_products::cli_channel("codex-cli", binary)
 }
 
 /// ChatGPT's own Sparkle metadata: a download it already staged, or the official appcast it cached.
@@ -461,70 +400,30 @@ fn cached_feed(root: &str, now: f64) -> Option<Object> {
 }
 
 pub fn update_link(key: &str) -> &'static str {
-    match key {
-        "opencodex" => "https://github.com/lidge-jun/opencodex/releases/latest",
-        "claude" => "https://claude.ai/download",
-        "chatgpt" => "https://chatgpt.com/download",
-        "claude-code" => "https://github.com/anthropics/claude-code/releases",
-        "codex-cli" => "https://github.com/openai/codex/releases",
-        "magpie" => "https://github.com/yetone/magpie/releases/latest",
-        "opencode" => "https://opencode.ai",
-        "deepseek-harness" => "https://github.com/deepseek-ai/deepseek-harness/releases",
-        "workbuddy" => "https://cloud.tencent.com/product/workbuddy",
-        "qoder" => "https://qoder.cn/download",
-        "gemini" => "https://github.com/google-gemini/gemini-cli/releases",
-        "cursor" => "https://cursor.com/downloads",
-        _ => "",
+    if key == "opencodex" {
+        return "https://github.com/lidge-jun/opencodex/releases/latest";
     }
+    update_products::product(key).map_or("", |product| product.link)
 }
 
 pub fn update_name(key: &str) -> &'static str {
-    match key {
-        "opencodex" => "OpenCodex",
-        "claude" => "Claude",
-        "chatgpt" => "ChatGPT",
-        "claude-code" => "Claude Code",
-        "codex-cli" => "Codex",
-        "magpie" => "Magpie",
-        "opencode" => "OpenCode",
-        "deepseek-harness" => "DeepSeek Harness",
-        "workbuddy" => "WorkBuddy",
-        "qoder" => "Qoder",
-        "gemini" => "Gemini CLI",
-        "cursor" => "Cursor",
-        _ => "",
+    if key == "opencodex" {
+        return "OpenCodex";
     }
+    update_products::product(key).map_or("", |product| product.name)
 }
 
-pub const MANUAL_UPDATES: [&str; 7] =
-    ["magpie", "opencode", "deepseek-harness", "workbuddy", "qoder", "gemini", "cursor"];
+/// Why a product has no version check: its vendor publishes none, or (an app off macOS) its version isn't read here.
+pub fn manual_reason(key: &str) -> Option<&'static str> {
+    let product = update_products::product(key)?;
+    product.manual.or_else(|| {
+        (product.kind == Kind::App && !cfg!(target_os = "macos") && product.commands.is_empty())
+            .then_some(update_products::APP_ELSEWHERE)
+    })
+}
 
 pub fn update_apps(key: &str) -> &'static [&'static str] {
-    match key {
-        "magpie" => &["magpie", "Magpie"],
-        "claude" => &["Claude"],
-        "chatgpt" => &["ChatGPT"],
-        "workbuddy" => &["WorkBuddy"],
-        "qoder" => &["Qoder CN", "QoderCN"],
-        "cursor" => &["Cursor"],
-        _ => &[],
-    }
-}
-
-fn harness_update(key: &str) -> &'static str {
-    match key {
-        "opencodex" => "opencodex",
-        "magpie" => "magpie",
-        "claude" => "claude",
-        "codex" => "chatgpt",
-        "opencode" => "opencode",
-        "deepseek-harness" => "deepseek-harness",
-        "workbuddy" => "workbuddy",
-        "qoder" => "qoder",
-        "gemini" => "gemini",
-        "cursor" => "cursor",
-        _ => "",
-    }
+    update_products::product(key).map_or(&[], |product| product.apps)
 }
 
 /// The first version number in a CLI's --version output, by the plugin's own pattern.
@@ -566,7 +465,9 @@ impl Runtime {
         self.memoized(&format!("app:{name}"), || app_info(name, &self.home))
     }
 
-    /// The update checks the selected Harness call for; a configured OpenCodex adds ChatGPT and Codex.
+    /// The update checks the selected Harness call for, product by product: a tool's main products always (Claude and
+    /// Claude Code, ChatGPT and Codex …), its other apps and CLIs where this computer has them (Antigravity's app, IDE and
+    /// agy beside Gemini CLI, Cursor CLI beside Cursor); a configured OpenCodex adds ChatGPT and Codex.
     pub fn selected_update_ids(&self) -> Vec<String> {
         let settings = self.settings();
         let mut visible: Vec<String> = settings
@@ -579,31 +480,46 @@ impl Runtime {
         }
         let mut result = Vec::new();
         for key in USAGE {
-            if visible.iter().any(|shown| shown == key) {
-                result.push(harness_update(key).to_string());
-                if key == "claude" {
-                    result.push("claude-code".into());
-                }
-                if key == "codex" {
-                    result.push("codex-cli".into());
+            if !visible.iter().any(|shown| shown == key) {
+                continue;
+            }
+            if key == "opencodex" {
+                result.push(key.to_string());
+                continue;
+            }
+            for product in update_products::products_of(key) {
+                if product.always || self.product_installed(product) {
+                    result.push(product.id.to_string());
                 }
             }
         }
         result
     }
 
+    /// Whether a product is on this computer: its app in /Applications or ~/Applications, or its command on the PATH.
+    pub fn product_installed(&self, product: &Product) -> bool {
+        self.product_app(product).is_some() || self.product_binary(product).is_some()
+    }
+
+    pub fn product_app(&self, product: &Product) -> Option<String> {
+        product.apps.iter().find_map(|name| installed_app_path(name, &self.home))
+    }
+
+    pub fn product_binary(&self, product: &Product) -> Option<String> {
+        product.commands.iter().find_map(|name| shell::which(name, &self.environment))
+    }
+
+    /// The installed app's version, build and bundle ID; empty when it isn't installed.
+    pub fn product_app_info(&self, product: &Product) -> Object {
+        product.apps.iter().map(|name| self.app_info(name)).find(|info| !info.is_empty()).unwrap_or_default()
+    }
+
+    /// The checks that reach the network: every selected product but OpenCodex (its own installer) and those whose
+    /// vendor publishes no version.
     pub fn live_app_update_ids(&self) -> Vec<String> {
-        // A desktop host checks only the CLIs; its desktop apps update themselves.
-        if self.is_desktop() {
-            return self
-                .selected_update_ids()
-                .into_iter()
-                .filter(|key| key == "claude-code" || key == "codex-cli")
-                .collect();
-        }
         self.selected_update_ids()
             .into_iter()
-            .filter(|key| key != "opencodex" && !MANUAL_UPDATES.contains(&key.as_str()))
+            .filter(|key| key != "opencodex" && manual_reason(key).is_none())
             .collect()
     }
 
@@ -612,27 +528,29 @@ impl Runtime {
         let selected = self.selected_update_ids();
         let mut parts: Vec<Json> = selected.iter().map(|key| Json::from(key.as_str())).collect();
         parts.push(Json::Bool(self.module_enabled("updates")));
-        parts.push("channels-v3".into());
-        for (key, name) in [("claude", "Claude"), ("chatgpt", "ChatGPT")] {
-            if !selected.iter().any(|selected| selected == key) {
+        parts.push("channels-v4".into());
+        for key in &selected {
+            let Some(product) = update_products::product(key) else { continue };
+            if !product.apps.is_empty() {
+                let info = self.product_app_info(product);
+                parts.push(Json::Object(info.clone()));
+                if key == "chatgpt" {
+                    let local = chatgpt_release(&self.home, info.get("CFBundleIdentifier"), now()).unwrap_or_default();
+                    let kept: Object = ["latest", "build", "releaseSource"]
+                        .iter()
+                        .map(|k| (*k, local.get(k).cloned().unwrap_or(Json::Null)))
+                        .collect();
+                    parts.push(Json::Object(kept));
+                }
+                if key == "antigravity-ide" {
+                    let commit = self.product_app(product).and_then(|app| update_products::app_commit(&app));
+                    parts.push(commit.map(Json::from).unwrap_or(Json::Null));
+                }
+            }
+            if product.commands.is_empty() {
                 continue;
             }
-            let info = self.app_info(name);
-            parts.push(Json::Object(info.clone()));
-            if key == "chatgpt" {
-                let local = chatgpt_release(&self.home, info.get("CFBundleIdentifier"), now()).unwrap_or_default();
-                let kept: Object = ["latest", "build", "releaseSource"]
-                    .iter()
-                    .map(|k| (*k, local.get(k).cloned().unwrap_or(Json::Null)))
-                    .collect();
-                parts.push(Json::Object(kept));
-            }
-        }
-        for (key, command) in [("claude-code", "claude"), ("codex-cli", "codex")] {
-            if !selected.iter().any(|selected| selected == key) {
-                continue;
-            }
-            let binary = shell::which(command, &self.environment);
+            let binary = self.product_binary(product);
             parts.push(binary.clone().map(Json::from).unwrap_or(Json::Null));
             match binary
                 .as_ref()
@@ -650,10 +568,10 @@ impl Runtime {
                 }
                 None => parts.push("unavailable".into()),
             }
-            if key == "codex-cli"
+            if product.kind == Kind::Cli
                 && let Some(binary) = &binary
             {
-                parts.push(Json::Object(codex_channel(binary)));
+                parts.push(Json::Object(update_products::cli_channel(key, binary)));
             }
         }
         parts
@@ -705,111 +623,95 @@ impl Runtime {
         row
     }
 
-    fn app_update_probe(&self, key: &str) -> Object {
-        let mut row =
-            object! { "id" => key, "name" => update_name(key), "href" => update_link(key), "checkedAt" => now() };
-        let checked = (|| -> Result<(), CheckFailure> {
-            if key == "claude-code" || key == "codex-cli" {
-                let Some(binary) =
-                    shell::which(if key == "claude-code" { "claude" } else { "codex" }, &self.environment)
-                else {
-                    row.insert("status", "未安装");
-                    return Ok(());
-                };
-                let environment: Vec<(String, String)> =
-                    self.environment.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-                let output = shell::run(&[&binary, "--version"], 4.0, Some(&environment), None)
-                    .ok_or_else(|| FileError::of_kind("SubprocessError", "SubprocessError"))?;
-                row.insert("current", first_version(&output).unwrap_or_default());
-                if key == "claude-code" {
-                    row.insert("channel", "Claude 官方");
-                    let body = release_body("https://downloads.claude.ai/claude-code-releases/latest")?;
-                    row.insert("latest", String::from_utf8_lossy(&body).trim().to_string());
-                } else {
-                    let channel = codex_channel(&binary);
-                    row.insert("channel", channel.get("channel").cloned().unwrap_or(Json::Null));
-                    let Some(url) = channel.get("releaseURL").and_then(Json::as_str) else {
-                        row.insert("status", "更新渠道待确认");
-                        row.insert("available", false);
-                        return Ok(());
-                    };
-                    row.insert("latest", latest_version(&channel, &release_body(url)?)?);
-                }
-                if release_version(row.get("current")).is_none() || release_version(row.get("latest")).is_none() {
-                    return Err(FileError::new("invalid version").into());
-                }
-                let available = newer(row.get("latest"), row.get("current"));
+    /// The version a CLI reports for itself.
+    fn installed_version(&self, binary: &str) -> Result<String, CheckFailure> {
+        let environment: Vec<(String, String)> = self.environment.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        let output = shell::run(&[binary, "--version"], 4.0, Some(&environment), None)
+            .ok_or_else(|| FileError::of_kind("SubprocessError", "SubprocessError"))?;
+        Ok(first_version(&output).unwrap_or_default())
+    }
+
+    /// Both versions read: whether the latest is newer, and the status that says so.
+    fn settle(id: &str, row: &mut Object) -> Result<(), CheckFailure> {
+        if release_version(row.get("current")).is_none() || release_version(row.get("latest")).is_none() {
+            return Err(FileError::new("invalid version").into());
+        }
+        let available = update_products::available(id, row.get("latest"), row.get("current"));
+        row.insert("available", available);
+        row.insert("status", if available { "有新版本" } else { "已是最新" });
+        Ok(())
+    }
+
+    /// A CLI: its own --version, the channel it came from, that channel's newest version, and the command that updates
+    /// it by that channel (brew, npm or its own update).
+    fn cli_probe(&self, product: &Product, row: &mut Object) -> Result<(), CheckFailure> {
+        let Some(binary) = self.product_binary(product) else {
+            row.insert("status", "未安装");
+            return Ok(());
+        };
+        row.insert("current", self.installed_version(&binary)?);
+        let channel = update_products::cli_channel(product.id, &binary);
+        row.insert("channel", channel.get("channel").cloned().unwrap_or(Json::Null));
+        let (Some(url), Some(kind)) =
+            (channel.get("releaseURL").and_then(Json::as_str), channel.get("channelId").and_then(Json::as_str))
+        else {
+            row.insert("status", "更新渠道待确认");
+            row.insert("available", false);
+            return Ok(());
+        };
+        row.insert("latest", update_products::latest_version(kind, &release_body(url)?)?);
+        if let Some(plan) = update_products::update_plan(product.id, &binary, &channel, &self.environment) {
+            row.insert("command", update_products::plan_text(&plan));
+        }
+        Self::settle(product.id, row)
+    }
+
+    /// An app other than Claude and ChatGPT: its Info.plist (Magpie's own command when only that is installed) against
+    /// its vendor's feed; Antigravity IDE by the commit it was built from, as its feed tells releases apart.
+    fn app_probe(&self, product: &Product, row: &mut Object) -> Result<(), CheckFailure> {
+        let info = self.product_app_info(product);
+        let current = if let Some(version) = info.get("CFBundleShortVersionString").filter(|_| !info.is_empty()) {
+            py::str(Some(version))
+        } else if let Some(binary) = self.product_binary(product) {
+            self.installed_version(&binary)?
+        } else {
+            row.insert("status", "未安装");
+            return Ok(());
+        };
+        row.insert("current", current);
+        let Some((kind, url)) = update_products::app_source(product.id) else {
+            row.insert("status", "更新渠道待确认");
+            row.insert("available", false);
+            return Ok(());
+        };
+        let body = release_body(&url)?;
+        if kind == "ide-feed" {
+            let (latest, commit) = update_products::ide_release(&body).ok_or_else(|| FileError::new("KeyError"))?;
+            row.insert("latest", latest);
+            row.insert("latestCommit", commit.clone());
+            if let Some(installed) = self.product_app(product).and_then(|app| update_products::app_commit(&app)) {
+                let available = installed != commit;
                 row.insert("available", available);
                 row.insert("status", if available { "有新版本" } else { "已是最新" });
                 return Ok(());
             }
-            let info = self.app_info(if key == "claude" { "Claude" } else { "ChatGPT" });
-            if info.is_empty() {
-                row.insert("status", "未安装");
-                return Ok(());
-            }
-            row.insert("current", info.get("CFBundleShortVersionString").cloned().unwrap_or(Json::Null));
-            // A constant anonymous checker ID meets the public feed schema without sending a device ID.
-            let ident = uuid5_url("opencodex-swiftbar-update-check");
-            let current = py::str(row.get("current"));
-            if key == "claude" {
-                let query = format!(
-                    "device_id={}&version={}&os_version={}",
-                    form_quote(&ident),
-                    form_quote(&current),
-                    form_quote(&mac_version())
-                );
-                let raw = release_body(&format!(
-                    "https://api.anthropic.com/api/desktop/darwin/universal/squirrel/update?{query}"
-                ))?;
-                if raw.is_empty() {
-                    row.insert("latest", row.get("current").cloned().unwrap_or(Json::Null));
-                } else {
-                    let release = Json::parse(&raw)
-                        .ok()
-                        .and_then(|value| value.get("currentRelease").cloned())
-                        .ok_or_else(|| FileError::new("KeyError"))?;
-                    row.insert("latest", release);
-                }
-            } else {
-                if info.get("CFBundleIdentifier") != Some(&Json::from("com.openai.codex")) {
-                    row.insert("status", "更新渠道待确认");
-                    return Ok(());
-                }
-                let query: Vec<String> = [
-                    ("installation_id", ident.clone()),
-                    ("arch", machine().to_string()),
-                    ("app_version", current.clone()),
-                    ("beta", "false".to_string()),
-                    ("os-version", mac_version()),
-                    ("plan_type", "unknown".to_string()),
-                ]
-                .iter()
-                .map(|(key, value)| format!("{key}={}", form_quote(value)))
-                .collect();
-                let (latest, build) = sparkle_release(&release_body(&format!(
-                    "https://updates.oaistatic.com/codex/app/appcast?{}",
-                    query.join("&")
-                ))?);
-                let (Some(latest), Some(build)) = (latest, build) else {
-                    return Err(FileError::new("no compatible release").into());
-                };
-                row.insert("latest", latest);
-                row.insert("build", build);
-                row.insert("currentBuild", info.get("CFBundleVersion").cloned().unwrap_or(Json::Null));
-                row.insert("releaseSource", "public");
-            }
-            if release_version(row.get("latest")).is_none() || release_version(row.get("current")).is_none() {
-                return Err(FileError::new("invalid version").into());
-            }
-            let mut available = newer(row.get("latest"), row.get("current"));
-            if row.get("build").is_some_and(Json::is_truthy) {
-                available = newer(row.get("build"), row.get("currentBuild"));
-            }
-            row.insert("available", available);
-            row.insert("status", if available { "有新版本" } else { "已是最新" });
-            Ok(())
-        })();
+        } else {
+            row.insert("latest", update_products::latest_version(kind, &body)?);
+        }
+        Self::settle(product.id, row)
+    }
+
+    fn app_update_probe(&self, key: &str) -> Object {
+        let mut row =
+            object! { "id" => key, "name" => update_name(key), "href" => update_link(key), "checkedAt" => now() };
+        let Some(product) = update_products::product(key) else { return row };
+        let checked = if product.kind == Kind::Cli {
+            self.cli_probe(product, &mut row)
+        } else if key == "claude" || key == "chatgpt" {
+            self.desktop_feed_probe(product, &mut row)
+        } else {
+            self.app_probe(product, &mut row)
+        };
         if let Err(failure) = checked {
             // The reason is shown under the row: it tells a missing certificate from a blocked network.
             let reason = match failure {
@@ -825,6 +727,77 @@ impl Runtime {
             row = self.apply_chatgpt_release(row, &self.app_info("ChatGPT"));
         }
         row
+    }
+
+    /// Claude's and ChatGPT's own update feeds: Claude's Squirrel service, ChatGPT's Sparkle appcast.
+    fn desktop_feed_probe(&self, product: &Product, row: &mut Object) -> Result<(), CheckFailure> {
+        let key = product.id;
+        let info = self.product_app_info(product);
+        if info.is_empty() {
+            row.insert("status", "未安装");
+            return Ok(());
+        }
+        row.insert("current", info.get("CFBundleShortVersionString").cloned().unwrap_or(Json::Null));
+        // A constant anonymous checker ID meets the public feed schema without sending a device ID.
+        let ident = uuid5_url("opencodex-swiftbar-update-check");
+        let current = py::str(row.get("current"));
+        if key == "claude" {
+            let query = format!(
+                "device_id={}&version={}&os_version={}",
+                form_quote(&ident),
+                form_quote(&current),
+                form_quote(&mac_version())
+            );
+            let raw = release_body(&format!(
+                "https://api.anthropic.com/api/desktop/darwin/universal/squirrel/update?{query}"
+            ))?;
+            if raw.is_empty() {
+                row.insert("latest", row.get("current").cloned().unwrap_or(Json::Null));
+            } else {
+                let release = Json::parse(&raw)
+                    .ok()
+                    .and_then(|value| value.get("currentRelease").cloned())
+                    .ok_or_else(|| FileError::new("KeyError"))?;
+                row.insert("latest", release);
+            }
+        } else {
+            if info.get("CFBundleIdentifier") != Some(&Json::from("com.openai.codex")) {
+                row.insert("status", "更新渠道待确认");
+                return Ok(());
+            }
+            let query: Vec<String> = [
+                ("installation_id", ident.clone()),
+                ("arch", machine().to_string()),
+                ("app_version", current.clone()),
+                ("beta", "false".to_string()),
+                ("os-version", mac_version()),
+                ("plan_type", "unknown".to_string()),
+            ]
+            .iter()
+            .map(|(key, value)| format!("{key}={}", form_quote(value)))
+            .collect();
+            let (latest, build) = sparkle_release(&release_body(&format!(
+                "https://updates.oaistatic.com/codex/app/appcast?{}",
+                query.join("&")
+            ))?);
+            let (Some(latest), Some(build)) = (latest, build) else {
+                return Err(FileError::new("no compatible release").into());
+            };
+            row.insert("latest", latest);
+            row.insert("build", build);
+            row.insert("currentBuild", info.get("CFBundleVersion").cloned().unwrap_or(Json::Null));
+            row.insert("releaseSource", "public");
+        }
+        if release_version(row.get("latest")).is_none() || release_version(row.get("current")).is_none() {
+            return Err(FileError::new("invalid version").into());
+        }
+        let mut available = newer(row.get("latest"), row.get("current"));
+        if row.get("build").is_some_and(Json::is_truthy) {
+            available = newer(row.get("build"), row.get("currentBuild"));
+        }
+        row.insert("available", available);
+        row.insert("status", if available { "有新版本" } else { "已是最新" });
+        Ok(())
     }
 
     pub fn app_updates_cached(&self) -> Loaded {

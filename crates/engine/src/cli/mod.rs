@@ -224,7 +224,7 @@ impl DesktopHost for Terminal {
         String::new()
     }
     fn open_claude(&self) {}
-    fn update_cli(&self, _: &str, _: &str) {}
+    fn update_cli(&self, _: &str, _: &str, _: &[String]) {}
     fn submit_test(&self, _: &str, _: &str) {}
     fn request_refresh(&self, _: Option<&str>) {}
     fn save_range(&self, _: &str) {}

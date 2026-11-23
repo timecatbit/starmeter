@@ -598,24 +598,31 @@ function komariRows(state) {
   ]);
 }
 
-// As the engine writes them (more_rows.rs, app_update_lines): each tool's name and status, then its versions, channel
-// and what a click does; a check that failed gives its reason. The manual ones say where to look.
+// As the engine writes them (more_rows.rs, app_update_lines): each product's name and status (an app and its CLI apart),
+// then its versions, channel and what a click does (the CLI's update by its channel); a check that failed gives its
+// reason, and a product whose vendor publishes no version says so beside the version installed.
 function updateRows(state) {
   const failed = state === 'failed', count = failed ? 2 : 3;
   return entry('工具更新', { symbol: 'arrow.down.circle', attention: true, value: `${count} 项待更新`, fallbacks: [`${count} 项`], onOpenAction: ['refresh-source', 'updates'] }, [
+    failed
+      ? null
+      : entry('Codex · 有新版本', { statusLight: 'new', detail: '0.170.0 → 0.171.2 · Homebrew Cask · 点击运行 brew upgrade --cask codex', action: ['update-cli', 'codex-cli'] }),
     entry('Claude · 有新版本', { statusLight: 'new', detail: '6.6395.1 → 6.7012.0 · 点击打开 App 更新', href: 'file:///Applications/Claude.app' }),
     entry('Claude Code · 有新版本', { statusLight: 'new', detail: '2.1.327 → 2.1.330 · Claude 官方 · 点击运行 claude update', action: ['update-cli', 'claude-code'] }),
+    entry('ChatGPT · 已是最新', { statusLight: 'ok', detail: '26.1118.10442', href: 'file:///Applications/ChatGPT.app' }),
     failed
       ? entry('Codex · 检查失败，稍后重试', { statusLight: 'issue', detail: '0.170.0 · Homebrew Cask · formulae.brew.sh 返回 HTTP 503' })
-      : entry('Codex · 有新版本', { statusLight: 'new', detail: '0.170.0 → 0.171.2 · Homebrew Cask · 点击运行 codex update', action: ['update-cli', 'codex-cli'] }),
-    entry('ChatGPT · 已是最新', { statusLight: 'ok', detail: '26.1118.10442', href: 'file:///Applications/ChatGPT.app' }),
-    entry('Cursor · 在 App 内检查更新', { statusLight: 'unknown', detail: '尚未接入自动版本检查', href: 'file:///Applications/Cursor.app' }),
-    entry('Gemini CLI · 在官网查看更新', { statusLight: 'unknown', detail: '尚未接入自动版本检查', href: 'https://github.com/google-gemini/gemini-cli/releases' }),
+      : null,
+    entry('Cursor · 已是最新', { statusLight: 'ok', detail: '3.31.15', href: 'file:///Applications/Cursor.app' }),
+    entry('Cursor CLI · 已是最新', { statusLight: 'ok', detail: '2026.11.22-e9042b2 · 官方安装', href: 'https://cursor.com/cli' }),
+    entry('Gemini CLI · 已是最新', { statusLight: 'ok', detail: '0.70.0 · npm', href: 'https://github.com/google-gemini/gemini-cli/releases' }),
+    entry('Antigravity · 已是最新', { statusLight: 'ok', detail: '2.34.0', href: 'file:///Applications/Antigravity.app' }),
+    entry('WorkBuddy · 在 App 内检查更新', { statusLight: 'unknown', detail: '5.9.3 · 腾讯没有公开 WorkBuddy 的版本接口', href: 'file:///Applications/WorkBuddy.app' }),
     separator(),
     entry('立即检查更新', { symbol: 'arrow.clockwise', action: ['check-app-updates'] }),
     entry('查看最近 CLI 更新日志', { symbol: 'doc.text', action: ['open-cli-update-log'] }),
     entry('选择工具…', { symbol: 'slider.horizontal.3', action: ['panel-modules'] }),
-  ]);
+  ].filter(Boolean));
 }
 
 // The SwiftBar plugin's own update, as the engine writes it (more_rows.rs, self_update_lines): a new version, the

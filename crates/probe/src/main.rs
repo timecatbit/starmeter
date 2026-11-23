@@ -12,7 +12,7 @@ use starmeter_core::runtime::{self, Runtime};
 use starmeter_core::time::IsoTime;
 use starmeter_core::{
     accounts, alerts, background, catalog, claude_subscription, claude_usage, client_accounts, cursor, files, harness,
-    http, object, opencodex, preferences, pricing, py, range_usage, sessions, tally, updates, zstd,
+    http, object, opencodex, preferences, pricing, py, range_usage, sessions, tally, update_products, updates, zstd,
 };
 
 fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
@@ -249,10 +249,56 @@ fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
                 .collect();
             let channels: Vec<Json> =
                 list(3).iter().map(|binary| updates::codex_channel(binary.as_str().unwrap_or("")).into()).collect();
+            // Every CLI's channel and the command that updates it, each source's newest version, the version order,
+            // and the product table itself.
+            let environment: HashMap<String, String> = std::env::vars().collect();
+            let words = |words: Vec<String>| Json::Array(words.into_iter().map(Json::from).collect());
+            let at = |value: &Json, index: usize| value.as_array().and_then(|items| items.get(index)).cloned();
+            let cli: Vec<Json> = list(4)
+                .iter()
+                .map(|pair| {
+                    let id = at(pair, 0).as_ref().and_then(Json::as_str).map(String::from).unwrap_or_default();
+                    let binary = at(pair, 1).as_ref().and_then(Json::as_str).map(String::from).unwrap_or_default();
+                    let channel = update_products::cli_channel(&id, &binary);
+                    let plan = update_products::update_plan(&id, &binary, &channel, &environment);
+                    let text = plan.as_deref().map(update_products::plan_text);
+                    object! { "channel" => channel, "plan" => plan.map_or(Json::Null, words), "text" => text }.into()
+                })
+                .collect();
+            let latest: Vec<Json> = list(5)
+                .iter()
+                .map(|pair| {
+                    let kind = at(pair, 0).as_ref().and_then(Json::as_str).map(String::from).unwrap_or_default();
+                    let body = at(pair, 1).as_ref().and_then(Json::as_str).map(String::from).unwrap_or_default();
+                    update_products::latest_version(&kind, body.as_bytes()).ok().into()
+                })
+                .collect();
+            let available: Vec<Json> = list(6)
+                .iter()
+                .map(|row| {
+                    let id = at(row, 0).as_ref().and_then(Json::as_str).map(String::from).unwrap_or_default();
+                    update_products::available(&id, at(row, 1).as_ref(), at(row, 2).as_ref()).into()
+                })
+                .collect();
+            let names = |names: &[&str]| Json::Array(names.iter().map(|name| Json::from(*name)).collect());
+            let products: Vec<Json> = update_products::PRODUCTS
+                .iter()
+                .map(|product| {
+                    object! {
+                        "id" => product.id, "tool" => product.tool, "name" => product.name, "link" => product.link,
+                        "kind" => if product.kind == update_products::Kind::App { "app" } else { "cli" },
+                        "apps" => names(product.apps), "commands" => names(product.commands), "always" => product.always,
+                        "manual" => product.manual, "updatesItself" => product.updates_itself,
+                    }
+                    .into()
+                })
+                .collect();
             Ok(object! {
                 "versions" => Json::Array(versions), "first" => Json::Array(first),
                 "uuid" => updates::uuid5_url("opencodex-swiftbar-update-check"),
                 "sparkle" => Json::Array(sparkle), "channels" => Json::Array(channels),
+                "cli" => Json::Array(cli), "latest" => Json::Array(latest), "available" => Json::Array(available),
+                "products" => Json::Array(products),
             }
             .into())
         }

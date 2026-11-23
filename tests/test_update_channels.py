@@ -14,16 +14,16 @@ class ChannelTests(unittest.TestCase):
   metadata=self.root/'Caskroom/codex/.metadata';metadata.mkdir()
   (metadata/'INSTALL_RECEIPT.json').write_text(json.dumps({'source':{'tap':'homebrew/cask'}}))
   link=self.root/'bin/codex';link.parent.mkdir();link.symlink_to(p)
-  result=channels.codex_channel(link)
+  result=channels.cli_channel('codex-cli',link)
   self.assertEqual(result['channel'],'Homebrew Cask')
   self.assertEqual(result['releaseURL'],'https://formulae.brew.sh/api/cask/codex.json')
   self.assertEqual(channels.latest_version(result,b'{"version":"0.166.0"}'),'0.166.0')
  def test_npm_install_uses_npm_release(self):
   p=self.binary('node_modules/@openai/codex/bin/codex.js')
   (p.parent.parent/'package.json').write_text('{"name":"@openai/codex"}')
-  self.assertEqual(channels.codex_channel(p)['channelId'],'npm')
+  self.assertEqual(channels.cli_channel('codex-cli',p)['channelId'],'npm')
  def test_custom_or_unknown_install_does_not_make_a_false_update_claim(self):
-  self.assertNotIn('releaseURL',channels.codex_channel(self.binary('bin/codex')))
-  self.assertNotIn('releaseURL',channels.codex_channel(self.binary('Caskroom/codex/9.0/bin/codex')))
+  self.assertNotIn('releaseURL',channels.cli_channel('codex-cli',self.binary('bin/codex')))
+  self.assertNotIn('releaseURL',channels.cli_channel('codex-cli',self.binary('Caskroom/codex/9.0/bin/codex')))
 
 if __name__=='__main__':unittest.main()

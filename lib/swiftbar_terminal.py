@@ -6,7 +6,10 @@ import shlex
 import subprocess
 import tempfile
 
-CLI_NAMES={'claude-code':'Claude Code','codex-cli':'Codex'}
+import swiftbar_update_channels as update_channels
+
+# The CLIs 工具更新 can update in a terminal, by their rows' names.
+CLI_NAMES={p['id']:p['name'] for p in update_channels.PRODUCTS if p['kind']=='cli'}
 
 
 def literal(value):
@@ -62,7 +65,8 @@ def latest_log(state_dir,keys):
     return max(files,key=lambda p:p.stat().st_mtime) if files else None
 
 
-def update_command(binary,key,state_dir,refresh_url):
+def update_command(binary,key,state_dir,refresh_url,run=None):
+    """The update and its log; run is the command its channel calls for (brew, npm or the CLI's own update)."""
     if key not in CLI_NAMES:raise ValueError('invalid CLI')
     root=Path(state_dir)/'logs/updates';root.mkdir(parents=True,exist_ok=True,mode=0o700)
     files=sorted(root.glob(key+'-*.log'),key=lambda p:p.stat().st_mtime,reverse=True)
@@ -70,7 +74,7 @@ def update_command(binary,key,state_dir,refresh_url):
         if not old.is_symlink():old.unlink(missing_ok=True)
     fd,path=tempfile.mkstemp(prefix=key+'-'+datetime.now().strftime('%Y%m%d-%H%M%S')+'-',suffix='.log',dir=root)
     os.close(fd)  # mkstemp creates mode 0600; neither credentials nor chats are logged.
-    version=shlex.join([binary,'--version']);update=shlex.join([binary,'update'])
+    version=shlex.join([binary,'--version']);update=shlex.join(run or [binary,'update'])
     # PIPESTATUS must be captured immediately: tee succeeding never makes an update successful.
     return '\n'.join([
         'token_update_log='+shlex.quote(path),

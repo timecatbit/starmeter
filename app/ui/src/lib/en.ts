@@ -81,7 +81,15 @@ export const phrases: Record<string, string> = {
   // A tool's update status, the line under it and why a check failed (updates.rs, more_rows.rs)
   有新版本: 'Update available', 已是最新: 'Up to date', 等待检查: 'Waiting to check', 公开渠道暂无更新: 'Nothing new on the public channel',
   未安装: 'Not installed', 更新渠道待确认: 'Update channel not known yet', 安装渠道待确认: 'Install channel not known yet',
-  '在 App 内检查更新': 'Check in the app', 在官网查看更新: 'Check on the website', 尚未接入自动版本检查: 'No automatic version check yet',
+  '在 App 内检查更新': 'Check in the app', 在官网查看更新: 'Check on the website', 没有公开的版本接口: 'No public version source',
+  // Why a product has no version check, how a CLI was installed and what its row does (update_products.rs)
+  '腾讯没有公开 WorkBuddy 的版本接口': 'Tencent publishes no version for WorkBuddy',
+  'Qoder CN 没有公开 App 的版本接口': 'Qoder CN publishes no version for its app',
+  'Google 软件更新没有公开 Gemini App 的版本接口': 'Google Software Update publishes no version for the Gemini app',
+  '只在 macOS 上读取 App 的版本': 'App versions are read on macOS only', 官方安装: 'Official installer',
+  点击打开下载页: 'Click to open the download page', 点击打开官网: 'Click to open the website',
+  这个安装方式没有更新命令: 'This install has no update command',
+  '请到官网下载新版本，或用安装它的工具更新。': 'Download the new version from the website, or update it with the tool that installed it.',
   版本待确认: 'Version not known yet', 已下载: 'Downloaded', 客户端更新源: 'The client\'s update feed',
   'Homebrew 自定义 Cask': 'Custom Homebrew cask', 'Homebrew 自定义 Formula': 'Custom Homebrew formula',
   '检查失败，稍后重试': 'Check failed; trying again later', 读取本机版本失败: 'Couldn\'t read the installed version',

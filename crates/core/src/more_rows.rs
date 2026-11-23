@@ -12,6 +12,7 @@ use crate::rows::{
     shorten,
 };
 use crate::runtime::{PRODUCT, RANGES, Runtime, VERSION, now, quote};
+use crate::update_products::{self, Kind};
 use crate::{claude_subscription, dashboard, object, py, updates};
 
 /// An MCP tool by its own name: mcp__ccd_turn__update_plan is update_plan.
@@ -506,16 +507,28 @@ impl Runtime {
         // Re-read the local app versions so an update clears its alert at once.
         for row in rows.iter_mut() {
             let Some(id) = row.get("id").and_then(Json::as_str).map(String::from) else { continue };
-            if id != "claude" && id != "chatgpt" {
+            let Some(product) = update_products::product(&id)
+                .filter(|product| product.kind == Kind::App && updates::manual_reason(&id).is_none())
+            else {
                 continue;
-            }
-            let info = self.app_info(if id == "claude" { "Claude" } else { "ChatGPT" });
+            };
+            let info = self.product_app_info(product);
             if info.is_empty() {
                 continue;
             }
             row.insert("current", info.get("CFBundleShortVersionString").cloned().unwrap_or(Json::Null));
-            if row.get("latest").is_some_and(Json::is_truthy) {
-                row.insert("available", updates::newer(row.get("latest"), row.get("current")));
+            let installed = (id == "antigravity-ide")
+                .then(|| self.product_app(product).and_then(|app| update_products::app_commit(&app)))
+                .flatten();
+            if let (Some(latest), Some(installed)) = (row.get("latestCommit").and_then(Json::as_str), installed) {
+                let available = latest != installed;
+                row.insert("available", available);
+                let status = py::str(Some(&row.get("status").cloned().unwrap_or_else(|| Json::from(""))));
+                if !status.contains("失败") {
+                    row.insert("status", if available { "有新版本" } else { "已是最新" });
+                }
+            } else if row.get("latest").is_some_and(Json::is_truthy) {
+                row.insert("available", update_products::available(&id, row.get("latest"), row.get("current")));
                 if row.get("build").is_some_and(Json::is_truthy) {
                     row.insert("available", updates::newer(row.get("build"), info.get("CFBundleVersion")));
                 }
@@ -542,20 +555,25 @@ impl Runtime {
         }
         for row in rows.iter_mut() {
             let id = row.get("id").and_then(Json::as_str).unwrap_or("").to_string();
-            if self.is_desktop() && (id == "claude" || id == "chatgpt") {
-                row.insert("status", "在 App 内检查更新");
-                row.insert("available", false);
-                row.insert("manual", true);
-            }
+            let product = update_products::product(&id);
             let app = self.update_app_path(&id);
-            if let Some(app) = &app {
+            // An app that updates itself is opened by its row; Magpie's has no updater, so its row opens the release.
+            if let Some(app) = &app
+                && product.is_some_and(|product| product.updates_itself)
+            {
                 row.insert("href", self.file_href(app));
                 row.insert("app", true);
             }
-            if updates::MANUAL_UPDATES.contains(&id.as_str()) {
+            if let Some(note) = updates::manual_reason(&id) {
+                // No version is published for it: the row says why, beside the version installed.
+                let info = product.map(|product| self.product_app_info(product)).unwrap_or_default();
+                if let Some(version) = info.get("CFBundleShortVersionString").filter(|version| version.is_truthy()) {
+                    row.insert("current", version.clone());
+                }
                 row.insert("status", if app.is_some() { "在 App 内检查更新" } else { "在官网查看更新" });
                 row.insert("available", false);
                 row.insert("manual", true);
+                row.insert("note", note);
             }
         }
         let mut by_id: std::collections::HashMap<String, Object> = std::collections::HashMap::new();
@@ -620,7 +638,13 @@ impl Runtime {
             let status = py::str(Some(&row.get("status").cloned().unwrap_or_else(|| Json::from(""))));
             let label = format!("{} · {}", py::str(row.get("name")), status.replace("自动更新已开启 · ", ""));
             let mut detail = if row.get("manual").is_some_and(Json::is_truthy) {
-                "尚未接入自动版本检查".to_string()
+                let note = py::str(Some(&py::or(row.get("note"), Json::from("没有公开的版本接口"))));
+                match row.get("current").filter(|current| current.is_truthy()) {
+                    Some(current) => format!("{} · {note}", py::str(Some(current))),
+                    None => note,
+                }
+            } else if status == "未安装" {
+                "点击打开官网".to_string()
             } else {
                 py::str(Some(&py::or(row.get("current"), Json::from("版本待确认"))))
             };
@@ -634,8 +658,10 @@ impl Runtime {
             if let Some(reason) = row.get("reason").filter(|reason| reason.is_truthy()) {
                 detail += &format!("\n{}", py::str(Some(reason)));
             }
-            if available && (id == "claude-code" || id == "codex-cli") {
-                detail += &format!("\n点击运行 {}", if id == "claude-code" { "claude update" } else { "codex update" });
+            let command = row.get("command").and_then(Json::as_str).filter(|command| !command.is_empty());
+            if available && let Some(command) = command {
+                // The CLI's update by its channel: brew upgrade, npm install -g or its own update.
+                detail += &format!("\n点击运行 {command}");
                 lines.push(item(
                     &label,
                     1,
@@ -647,6 +673,8 @@ impl Runtime {
             } else {
                 if available && row.get("app").is_some_and(Json::is_truthy) {
                     detail += "\n点击打开 App 更新";
+                } else if available {
+                    detail += "\n点击打开下载页";
                 }
                 lines.push(item(
                     &label,

@@ -420,6 +420,38 @@ mod tests {
     }
 
     #[test]
+    fn every_update_row_reads_in_english() {
+        // 工具更新: why a product has no version check, the channel a CLI came from, and what its row does.
+        let literal = Regex::new(r#""([^"\n]*[\x{4e00}-\x{9fff}][^"\n]*)""#).expect("pattern");
+        let path = format!("{}/../core/src/update_products.rs", env!("CARGO_MANIFEST_DIR"));
+        let whole = std::fs::read_to_string(&path).expect("the core's source");
+        let source = whole.split("#[cfg(test)]").next().unwrap_or("");
+        let mut seen = 0;
+        for found in literal.captures_iter(source) {
+            let text = &found[1];
+            assert_ne!(translate(text), text, "update_products.rs: \"{text}\" has no English in app/ui/src/lib/en.ts");
+            seen += 1;
+        }
+        assert!(seen >= 8, "only {seen} texts found");
+        assert_eq!(
+            translate("5.9.3 · 腾讯没有公开 WorkBuddy 的版本接口"),
+            "5.9.3 · Tencent publishes no version for WorkBuddy"
+        );
+        assert_eq!(
+            translate("2026.11.13-eacade1 → 2026.11.22-e9042b2 · 官方安装"),
+            "2026.11.13-eacade1 → 2026.11.22-e9042b2 · Official installer"
+        );
+        assert_eq!(
+            translate("点击运行 npm install -g @google/gemini-cli@latest"),
+            "Click to run npm install -g @google/gemini-cli@latest"
+        );
+        for text in ["点击打开下载页", "点击打开官网", "没有公开的版本接口", "这个安装方式没有更新命令"]
+        {
+            assert_ne!(translate(text), text);
+        }
+    }
+
+    #[test]
     fn the_engines_text_reads_as_the_panel_writes_it() {
         assert_eq!(translate("已用 本周 38% · 5 小时 12%"), "Used: this week 38% · 5 hours 12%");
         assert_eq!(translate("已用 本周 76% · Fable 41%"), "Used: this week 76% · Fable 41%");

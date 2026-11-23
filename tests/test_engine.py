@@ -2276,7 +2276,60 @@ class UpdateParityTests(unittest.TestCase):
         launcher = root / 'npm-prefix' / 'codex.cmd'
         package = root / 'npm-prefix' / 'node_modules' / '@openai' / 'codex' / 'package.json'
         package.parent.mkdir(parents=True); package.write_text(json.dumps({'name': '@openai/codex'})); launcher.write_text('')
-        got = swift('updates.pieces', versions, outputs, casts, [str(cask), str(npm), str(loose), str(launcher)])
+        # Every CLI by each channel it can come from, with brew and npm in their prefixes (no PATH lookup).
+        def write(path, text=''):
+            path.parent.mkdir(parents=True, exist_ok=True); path.write_text(text)
+        write(root / 'bin' / 'brew'); write(root / 'bin' / 'npm')
+        claude = root / 'Caskroom' / 'claude-code' / '2.1.311' / 'claude'; write(claude)
+        write(root / 'Caskroom' / 'claude-code' / '.metadata' / 'INSTALL_RECEIPT.json', json.dumps({'source': {'tap': 'homebrew/cask'}}))
+        agy = root / 'Caskroom' / 'antigravity-cli' / '1.5.14' / 'antigravity'; write(agy)
+        write(root / 'Caskroom' / 'antigravity-cli' / '.metadata' / 'INSTALL_RECEIPT.json', json.dumps({'source': {'tap': 'homebrew/cask'}}))
+        gemini_formula = root / 'Cellar' / 'gemini-cli' / '0.70.0' / 'libexec' / 'bin' / 'gemini'; write(gemini_formula)
+        write(root / 'Cellar' / 'gemini-cli' / '0.70.0' / 'INSTALL_RECEIPT.json', json.dumps({'source': {'tap': 'homebrew/core'}}))
+        tapped = root / 'Cellar' / 'opencode' / '2.3.2' / 'bin' / 'opencode'; write(tapped)
+        write(root / 'Cellar' / 'opencode' / '2.3.2' / 'INSTALL_RECEIPT.json', json.dumps({'source': {'tap': 'sst/tap'}}))
+        gemini_npm = root / 'lib' / 'node_modules' / '@google' / 'gemini-cli' / 'dist' / 'index.js'; write(gemini_npm)
+        write(root / 'lib' / 'node_modules' / '@google' / 'gemini-cli' / 'package.json', json.dumps({'name': '@google/gemini-cli'}))
+        opencode_npm = root / 'lib' / 'node_modules' / 'opencode-ai' / 'bin' / 'opencode'; write(opencode_npm)
+        write(root / 'lib' / 'node_modules' / 'opencode-ai' / 'package.json', json.dumps({'name': 'opencode-ai'}))
+        dsh = root / 'lib' / 'node_modules' / '@deepseek-ai' / 'dsh' / 'lib' / 'bin.js'; write(dsh)
+        write(root / 'lib' / 'node_modules' / '@deepseek-ai' / 'dsh' / 'package.json', json.dumps({'name': '@deepseek-ai/dsh'}))
+        windows = root / 'win-prefix' / 'gemini.cmd'; write(windows); write(root / 'win-prefix' / 'npm.cmd')
+        write(root / 'win-prefix' / 'node_modules' / '@google' / 'gemini-cli' / 'package.json', json.dumps({'name': '@google/gemini-cli'}))
+        installer = root / 'home' / '.local' / 'bin' / 'tool'; write(installer)
+        cli = [['claude-code', str(claude)], ['claude-code', str(installer)], ['antigravity-cli', str(agy)], ['antigravity-cli', str(installer)],
+               ['gemini', str(gemini_formula)], ['gemini', str(gemini_npm)], ['gemini', str(windows)], ['gemini', str(installer)],
+               ['opencode', str(opencode_npm)], ['opencode', str(tapped)], ['opencode', str(installer)], ['deepseek-harness', str(dsh)],
+               ['deepseek-harness', str(installer)], ['cursor-cli', str(installer)], ['qoder-cli', str(installer)], ['codex-cli', str(installer)],
+               ['codex-cli', str(cask)], ['codex-cli', str(npm)]]
+        bodies = [['npm', '{"version": "0.70.0"}'], ['brew-formula', '{"versions": {"stable": "0.70.0"}}'], ['brew-cask', '{"version": "1.5.14,5302690847260672"}'],
+                  ['brew-cask', '{"version": "0.171.0"}'], ['github', '{"tag_name": "v1.19.6"}'], ['github', '{"message": "Not Found"}'], ['text', '2.1.330\n'],
+                  ['qoder-manifest', '{"latest": "1.1.95"}'], ['agy-manifest', '{"version": "1.5.14"}'], ['cursor-api', '{"version": "3.31.15"}'],
+                  ['cursor-script', 'URL="https://downloads.cursor.com/lab/2026.11.22-e9042b2/${OS}/${ARCH}/agent-cli-package.tar.gz"'], ['cursor-script', 'echo none'],
+                  ['antigravity-releases', '[{"version": "2.33.1"}, {"version": "2.34.0"}, {"version": "x"}, {"version": "v2.34.0"}]'], ['antigravity-releases', '{}'],
+                  ['ide-feed', '{"version": "8dc5", "url": "https://x/antigravity/stable/2.8.0-6733/A.zip", "productVersion": "1.107.0"}'],
+                  ['ide-feed', '{"version": "8dc5", "productVersion": "1.107.0"}'], ['ide-feed', '{"productVersion": "1.107.0"}'], ['npm', 'not json'], ['npm', '{"version": 7}']]
+        orders = [['deepseek-harness', '0.2.2-rc.5', '0.2.2-rc.4'], ['deepseek-harness', '0.2.2', '0.2.2-rc.5'], ['deepseek-harness', '0.2.2-rc.5', '0.2.2'],
+                  ['gemini', '0.2.2-rc.10', '0.2.2-rc.9'], ['gemini', '1.0.0-beta', '1.0.0-alpha.1'], ['gemini', '1.0.0-alpha.beta', '1.0.0-alpha.1'],
+                  ['gemini', '1.2.3+build', '1.2.3'], ['gemini', '2.1.330', '2.1.311'], ['gemini', 'garbage', '1.0'], ['gemini', None, '1.0'], ['gemini', 7, '6.9'],
+                  ['cursor-cli', '2026.11.22-e9042b2', '2026.11.13-eacade1'], ['cursor-cli', '2026.11.13-e9042b2', '2026.11.13-eacade1'],
+                  ['cursor-cli', '2026.11.13-eacade1', '2026.11.13-eacade1'], ['cursor-cli', '2026.11.12-e9042b2', '2026.11.13-eacade1']]
+        got = swift('updates.pieces', versions, outputs, casts, [str(cask), str(npm), str(loose), str(launcher)], cli, bodies, orders)
+        def plan(id, binary):
+            channel = update_channels.cli_channel(id, binary)
+            steps = update_channels.update_plan(id, binary, channel)
+            return {'channel': channel, 'plan': steps, 'text': update_channels.plan_text(steps) if steps else None}
+        self.assertEqual(got['cli'], [plan(id, binary) for id, binary in cli])
+        self.assertEqual([c['text'] for c in got['cli']][:9], ['brew upgrade --cask claude-code', 'tool update', 'brew upgrade --cask antigravity-cli',
+                         'tool update', 'brew upgrade gemini-cli', 'npm install -g @google/gemini-cli@latest', 'npm install -g @google/gemini-cli@latest',
+                         None, 'npm install -g opencode-ai@latest'])
+        def newest(kind, body):
+            try:return update_channels.latest_version(kind, body.encode())
+            except (KeyError, ValueError, TypeError):return None
+        self.assertEqual(got['latest'], [newest(kind, body) for kind, body in bodies])
+        self.assertEqual(got['latest'][12], '2.34.0')
+        self.assertEqual(got['available'], [update_channels.available(*row) for row in orders])
+        self.assertEqual(got['products'], [dict(p, apps=list(p['apps']), commands=list(p['commands'])) for p in update_channels.PRODUCTS])
         self.assertEqual(got['versions'], [list(plugin.release_version(v)) if plugin.release_version(v) else None for v in versions])
         import re
         self.assertEqual(got['first'], [(lambda m: m[1] if m else None)(re.search(r'\b(\d+(?:\.\d+){1,4}(?:[-+][a-zA-Z0-9.-]+)?)\b', o)) for o in outputs])
@@ -2286,7 +2339,7 @@ class UpdateParityTests(unittest.TestCase):
             try:expected_casts.append(list(plugin.sparkle_release(cast.encode())))
             except Exception:expected_casts.append([None, None])
         self.assertEqual(got['sparkle'], expected_casts)
-        self.assertEqual(got['channels'], [update_channels.codex_channel(p) for p in (cask, npm, loose, launcher)])
+        self.assertEqual(got['channels'], [update_channels.cli_channel('codex-cli', p) for p in (cask, npm, loose, launcher)])
         self.assertEqual(got['channels'][3].get('channelId'), 'npm')
 
 

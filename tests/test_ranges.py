@@ -168,8 +168,9 @@ class RangeTests(unittest.TestCase):
    c=next(r for r in d['providers'] if r['id']=='codex')
    self.assertEqual((c['counted']['tokens'],sum(c['counted']['history']),c['counted']['cost']),(expected,expected,expected/100))
    self.assertEqual(c['subtitle'],note)
+  # Magpie's version is checked too now, against its GitHub releases.
   self.assertIn('magpie',self.m.selected_update_ids())
-  self.assertNotIn('magpie',self.m.live_app_update_ids())
+  self.assertIn('magpie',self.m.live_app_update_ids())
   # Magpie's clients read as the homepage names them, merged and largest first.
   mp['clients']=[{'agent':'claude','totalTokens':20},{'agent':'codex','totalTokens':60},{'agent':'claude-code','totalTokens':10},{'agent':'omp','totalTokens':10},{'agent':'pi','totalTokens':0}]
   with patch.object(self.m,'usage_now',return_value=self.now):
