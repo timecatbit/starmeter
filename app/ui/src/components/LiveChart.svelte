@@ -331,10 +331,13 @@
       const ends: Record<string, [number, number]> = {};
       // The total's own end dot, larger, is kept clear too.
       const totalEnd = rating ? clamped(rates.at(-1)?.[1] ?? 0) : clamped(level(null, [...samples].reverse().find((s) => s.at <= now) ?? base!));
+      // A tool ending where the total does (the one adding nearly all of it) draws no dot of its own: the total's dot is
+      // that point, and one stepped aside read as a dot trailing behind it.
+      const under: string[] = [];
       const toolEnd = (id: string, at: number) => {
+        if (Math.abs(at - totalEnd) < 6) { under.push(id); return; }
         let end = plot.x + plot.w;
-        const taken = (x: number) => (Math.abs(x - (plot.x + plot.w)) < 6 && Math.abs(at - totalEnd) < 6)
-          || Object.values(ends).some(([ex, ey]) => Math.abs(ex - x) < 4.5 && Math.abs(ey - at) < 4.5);
+        const taken = (x: number) => Object.values(ends).some(([ex, ey]) => Math.abs(ex - x) < 4.5 && Math.abs(ey - at) < 4.5);
         while (taken(end)) end -= 5;
         ends[id] = [end, at];
         ctx.fillStyle = toolColour(id, dark); ctx.beginPath(); ctx.arc(end, at, 2, 0, Math.PI * 2); ctx.fill();
@@ -393,6 +396,7 @@
         drawn.filter((id) => !idle(id)).forEach(toolLine);
         ctx.restore();
       }
+      canvas.dataset.under = under.join(',');
       canvas.dataset.ends = JSON.stringify(Object.fromEntries(Object.entries(ends).map(([id, [ex, ey]]) => [id, [Math.round(ex * 10) / 10, Math.round(ey * 10) / 10]])));
       // The end dot carries the eye between the charts: from the trend's newest point to the live line's end.
       const liveTip: [number, number] = rating

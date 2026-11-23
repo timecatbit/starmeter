@@ -374,8 +374,10 @@ test('pinned, every tool on the homepage has its line, one not used in the last 
   expect(lines).toContain('claude');
   expect(lines.length).toBeGreaterThan(2);
   // Each line's end dot stands on its own: the idle ones, all at the bottom, side by side rather than on one another.
+  // Claude, adding all of it, ends at the total's own dot and draws none beside it (it read as a dot trailing behind).
+  expect((seen.under ?? '').split(',')).toEqual(['claude']);
   const ends = Object.values(JSON.parse(seen.ends ?? '{}') as Record<string, [number, number]>);
-  expect(ends.length).toBe(lines.length);
+  expect(ends.length).toBe(lines.length - 1);
   for (const [i, [x1, y1]] of ends.entries()) {
     for (const [x2, y2] of ends.slice(i + 1)) expect(Math.hypot(x1 - x2, y1 - y2)).toBeGreaterThanOrEqual(4.5);
   }
