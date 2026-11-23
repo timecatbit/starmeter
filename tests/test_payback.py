@@ -32,7 +32,7 @@ class PaybackTests(unittest.TestCase):
     def test_without_a_price_only_the_price_row_shows(self):
         rows = self.rows()
         self.assertEqual(list(rows), ['订阅月费…']); self.assertIn('badge=未填写', rows['订阅月费…'])
-        self.assertEqual(self.m.payback_lines('minimax'), [], 'Subscriptions without a Harness have nothing to weigh')
+        self.assertEqual(self.m.payback_lines('minimax'), [], 'Subscriptions without a tool of their own have nothing to weigh')
 
     def test_the_month_is_weighed_against_the_price(self):
         preferences.update(self.m.STATE_DIR, 'subscription-price', 'claude-subscription', '200')
@@ -42,8 +42,33 @@ class PaybackTests(unittest.TestCase):
         self.assertIn('badge="8.2 倍"', row); self.assertIn('$1640.50', row); self.assertIn('2 次未定价', row)
         self.assertIn('badge=$200.00/月', self.rows()['订阅月费…'])
         self.month(60); self.assertIn('badge="0.3 倍"', self.rows()['本月回本'])
+
+    def alone(self, usage):
+        os.makedirs(self.m.CACHE_DIR, exist_ok=True)
+        record = {'schema': 1, 'fetchedAt': time.time(), 'payload': {'range': 'month', 'claude': usage}}
+        self.m.write_json_cache(self.m.cache_path(self.m.PAYBACK_MONTH + 'claude'), record)
+
+    def test_a_tool_off_the_homepage_is_weighed_from_its_own_month(self):
+        # 本月回本 doesn't ask for the tool on the homepage: its month is read on its own, in the background.
+        preferences.update(self.m.STATE_DIR, 'subscription-price', 'claude-subscription', '200')
         preferences.update(self.m.STATE_DIR, 'module', 'claude', 'false')
-        self.assertIn('需勾选 Claude Harness', self.rows()['本月回本'])
+        self.assertIn('payback-month-claude', self.m.external_loaders())
+        self.assertNotIn('month', self.m.usage_ranges_due())
+        self.assertIn('badge=待同步', self.rows()['本月回本'])
+        self.assertNotIn('Harness', ' '.join(self.rows().values()))
+        self.alone({'summary': {'estimatedCostUsd': 500, 'unpricedRequests': 0, 'requests': 9}})
+        self.assertIn('badge="2.5 倍"', self.rows()['本月回本'])
+        # No records of the tool this month: why, not 待同步 for ever.
+        self.alone({'error': '未找到 Claude 用量记录'})
+        self.assertIn('未找到 Claude 用量记录', self.rows()['本月回本'])
+        # Back on the homepage, the month's own figures again, and no read of its own.
+        preferences.update(self.m.STATE_DIR, 'module', 'claude', 'true')
+        self.assertNotIn('payback-month-claude', self.m.external_loaders())
+        self.month(100); self.assertIn('badge="0.5 倍"', self.rows()['本月回本'])
+        # Without the subscription on the homepage, or without a price, nothing is read for it.
+        preferences.update(self.m.STATE_DIR, 'module', 'claude', 'false')
+        preferences.update(self.m.STATE_DIR, 'module', 'claude-subscription', 'false')
+        self.assertNotIn('payback-month-claude', self.m.external_loaders())
 
     def test_a_price_keeps_this_month_fresh_in_the_background(self):
         self.assertNotIn('month', self.m.usage_ranges_due())

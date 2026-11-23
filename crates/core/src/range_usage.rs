@@ -75,6 +75,9 @@ impl Wall {
     }
 }
 
+/// The cache of a tool's month read for 本月回本 alone (payback_month), by the tool's key.
+pub const PAYBACK_MONTH: &str = "payback-month-";
+
 impl Runtime {
     /// OCX_TIMEZONE or TZ when set and known, else the system's zone.
     pub fn local_zone(&self) -> TimeZone {
@@ -342,6 +345,19 @@ impl Runtime {
             _ => harness::jsonl_usage(source, &root, cache, start, end, zone, exclude, carried, None, kept),
         };
         read.unwrap_or_else(|_| object! { "error" => "记录暂不可用" })
+    }
+
+    /// This month of a tool that isn't on the homepage, for a subscription's 本月回本: read on its own every ten
+    /// minutes, never a card or part of Summary. A tool on the homepage is weighed from the month's own figures.
+    pub fn payback_month(&self, source: &str) -> Loaded {
+        let name = format!("{PAYBACK_MONTH}{source}");
+        self.cached_fetch(&name, 600.0, 60.0, || {
+            let zone = self.local_zone();
+            let now = now();
+            let (start, end) = range_bounds("month", now, &zone);
+            let result = self.collect(source, "month", now, &zone, &HashMap::new(), &[source]);
+            Ok((Some(object! { "range" => "month", "start" => start, "end" => end, source => result }), None))
+        })
     }
 
     /// Every selected Harness for one range, cached a minute (longer while the panel is closed). Each source keeps

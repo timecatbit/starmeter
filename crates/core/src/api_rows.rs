@@ -618,20 +618,18 @@ impl Runtime {
         let Some(price) = price else { return rows };
         let name =
             preferences::MODULES.iter().find(|module| module.key == source).map_or(String::new(), |m| m.label.clone());
-        let usage = if self.module_enabled(source) {
+        // The month's own figures when the tool is on the homepage; otherwise its month read on its own.
+        let record = if self.module_enabled(source) {
             self.with_devices("month", self.read_cache(&self.range_cache_name(Some("month"))))
-                .get("payload")
-                .and_then(|payload| payload.get(source))
-                .and_then(Json::as_object)
-                .cloned()
         } else {
-            None
+            self.read_cache(&format!("{}{source}", crate::range_usage::PAYBACK_MONTH))
         };
+        let usage = record.get("payload").and_then(|payload| payload.get(source)).and_then(Json::as_object).cloned();
         let quiet = |badge: String| object! { "badge" => badge, "color" => MUTED_COLOR, "size" => 11 };
-        if !self.module_enabled(source) {
-            rows.push(item("本月回本", 1, quiet(format!("需勾选 {name} Harness"))));
-        } else if !usage.as_ref().and_then(|usage| usage.get("summary")).is_some_and(Json::is_truthy) {
-            rows.push(item("本月回本", 1, quiet("待同步".into())));
+        if !usage.as_ref().and_then(|usage| usage.get("summary")).is_some_and(Json::is_truthy) {
+            // No records of the tool this month says why (none found, a folder to choose); else it's on its way.
+            let why = usage.as_ref().and_then(|usage| usage.get("error")).filter(|error| error.is_truthy());
+            rows.push(item("本月回本", 1, quiet(why.map_or_else(|| "待同步".into(), |error| py::str(Some(error))))));
         } else {
             let summary =
                 usage.and_then(|usage| usage.get("summary").and_then(Json::as_object).cloned()).unwrap_or_default();

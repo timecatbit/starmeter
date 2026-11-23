@@ -252,7 +252,7 @@ fn deepseek_event(row: &Object, state: &mut Object) -> Result<Option<Event>, Rea
     if kind_is(row, "session") {
         let version = py::int(Some(row.get("version").unwrap_or(&ZERO)))?;
         if ![2, 3, 4].contains(&version) {
-            return Err(FileError::new("不支持的 Harness 日志版本").into());
+            return Err(FileError::new("不支持的日志版本").into());
         }
         let seeded = row.get("isSeeded").is_some_and(Json::is_truthy);
         let session = py::or(row.get("id"), state.get("session").cloned().unwrap_or(Json::Null));

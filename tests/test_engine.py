@@ -1786,11 +1786,31 @@ class BackgroundParityTests(OpenCodexParityTests):
         for values, extra in ((dict(visible=everything), {'OCX_SELF_UPDATES': '0'}),
                               (dict(visible=everything, currency='CNY', serviceStatus=True, cursorUsage=True), {'OCX_SELF_UPDATES': '0', 'MOONSHOT_API_KEY': 'k', 'XAI_TEAM_ID': 't', 'XAI_MANAGEMENT_API_KEY': 'k'}),
                               (dict(visible=['claude', 'sessions', 'kimi-api'], currency='CNY', cnyRate=7), {'OCX_SELF_UPDATES': '0', 'KOMARI_BASE_URL': ''}),
-                              (dict(visible=['chatgpt', 'opencodex', 'deepseek']), {'OCX_SELF_UPDATES': '0', 'DEEPSEEK_API_KEY': 'sk'})):
+                              (dict(visible=['chatgpt', 'opencodex', 'deepseek']), {'OCX_SELF_UPDATES': '0', 'DEEPSEEK_API_KEY': 'sk'}),
+                              # 本月回本 for tools off the homepage: each read on its own (Claude's; ChatGPT's tool is on it).
+                              (dict(visible=['chatgpt', 'claude-subscription', 'gemini-subscription', 'codex'],
+                                    subscriptionPrices={'chatgpt': 20, 'claude-subscription': 200}), {'OCX_SELF_UPDATES': '0'})):
             with self.subTest(settings=values, environment=extra):
                 self.settings(**values)
                 self.assertEqual(self.python('loaders', extra=extra), self.swift('loaders', extra=extra))
                 self.assertEqual(self.python('ready', extra=extra), self.swift('ready', extra=extra))
+
+    def test_payback_of_a_tool_off_the_homepage(self):
+        # Claude 订阅 with a price, the Claude tool not on the homepage: weighed from the tool's own month read.
+        self.settings(visible=['claude-subscription'], subscriptionPrices={'claude-subscription': 200})
+        now = time.time()
+        self.caches(now)
+        for usage, expected in (({'summary': {'estimatedCostUsd': 500, 'unpricedRequests': 1, 'requests': 9}}, '2.5 倍'),
+                                ({'error': '未找到 Claude 用量记录'}, '未找到 Claude 用量记录')):
+            with self.subTest(expected=expected):
+                for engine in self.states:
+                    record = {'schema': 1, 'fetchedAt': now - 30, 'payload': {'range': 'month', 'claude': usage}}
+                    (self.cache_dir(engine) / 'payback-month-claude.json').write_text(json.dumps(record, ensure_ascii=False))
+                python, swift = self.run_engine('python'), self.run_engine('swift')
+                self.assertEqual(python[0], swift[0])
+                self.same_text(python[1], swift[1])
+                self.assertIn(expected, python[1])
+                self.assertNotIn('需勾选', python[1])
 
     def test_a_phone_looking_keeps_the_open_panels_pace(self):
         import types

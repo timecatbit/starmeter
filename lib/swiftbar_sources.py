@@ -231,7 +231,7 @@ def deepseek_event(row, state):
     if kind == 'session':
         version = int(row.get('version', 0))
         if version not in (2, 3, 4):
-            raise ValueError('不支持的 Harness 日志版本')
+            raise ValueError('不支持的日志版本')
         state.update(session=str(row.get('id') or state['session']), isSeeded=bool(row.get('isSeeded')), seeded=bool(row.get('isSeeded')),
                      seedLength=int(row.get('seedLength', 0)))
     elif kind == 'session/end-seed' and data.get('inherited'):

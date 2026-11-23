@@ -29,7 +29,7 @@ export const phrases: Record<string, string> = {
   '未找到 Claude 用量记录': 'No Claude usage records found', 未找到记录目录: 'Records folder not found', 请选择记录目录: 'Choose the records folder',
   暂无用量记录: 'No usage records yet', '未找到 Gemini 用量记录': 'No Gemini usage records found', '暂无 Gemini 用量记录': 'No Gemini usage records yet',
   '未找到 OpenCode 数据库': 'OpenCode\'s database not found', 记录暂不可用: 'Records unavailable for now', '未配置 OpenCodex': 'OpenCodex isn\'t set up',
-  用量记录暂不可用: 'Usage records unavailable for now', 未开启用量读取: 'Usage reading is off', 用量记录格式异常: 'The usage records are in an unexpected format',
+  用量记录暂不可用: 'Usage records unavailable for now', 不支持的日志版本: 'Unsupported log version', 未开启用量读取: 'Usage reading is off', 用量记录格式异常: 'The usage records are in an unexpected format',
   用量记录过大: 'The usage records are too large', '无法连接 cursor.com': 'Can\'t reach cursor.com',
   'cursor.com 拒绝读取用量记录': 'cursor.com refused to share the usage records', 'cursor.com 请求过于频繁，稍后重试': 'Too many requests to cursor.com; trying again later',
   '未找到 Cursor 登录，请先登录 Cursor 桌面版或 Cursor CLI': 'No Cursor sign-in found: sign in to the Cursor app or Cursor CLI first',

@@ -338,6 +338,8 @@ def connection_digest(name):
                 stat=os.stat(binary);parts.extend([os.path.realpath(binary),stat.st_ino,stat.st_mtime_ns,stat.st_size])
             except (OSError,TypeError):parts.append('unavailable')
             if key=='codex-cli' and binary:parts.append(update_channels.codex_channel(binary))
+    # A tool's month for 本月回本: what the month's own figures depend on, and where the tool keeps its records.
+    if name.startswith(PAYBACK_MONTH):parts.extend([range_cache_name('month'),source_path(name[len(PAYBACK_MONTH):])])
     if name=='claude_subscription':
         parts.extend([source_path('claude'),view_settings()['claudeLiveUsage'],view_settings()['claudeOAuthUsage'],os.environ.get('CLAUDE_CONFIG_DIR',''),'oauth-v1'])
         for filename in ('plan-usage-history.json','config.json',os.path.join(STATE_DIR,claude_local.SNAPSHOT)):
@@ -1644,11 +1646,13 @@ def payback_lines(key):
     rows=[item('订阅月费…',level=1,sfimage='dollarsign.circle',badge=money_text(price,'USD')+'/月' if price else '未填写',**act('set-subscription-price',key))]
     if not price:return rows
     name=dict((k,label) for k,label,_ in preferences.MODULES)[source]
-    usage=(read_cache(range_cache_name('month')).get('payload') or {}).get(source) if module_enabled(source) else None
-    if not module_enabled(source):
-        rows.append(item('本月回本',level=1,badge='需勾选 '+name+' Harness',color=MUTED,size=11))
-    elif not isinstance(usage,dict) or not usage.get('summary'):
-        rows.append(item('本月回本',level=1,badge='待同步',color=MUTED,size=11))
+    # The month's own figures when the tool is on the homepage; otherwise its month read on its own.
+    record=read_cache(range_cache_name('month')) if module_enabled(source) else read_cache(PAYBACK_MONTH+source)
+    usage=(record.get('payload') or {}).get(source)
+    if not isinstance(usage,dict) or not usage.get('summary'):
+        # No records of the tool this month says why (none found, a folder to choose); else it's on its way.
+        why=usage.get('error') if isinstance(usage,dict) else None
+        rows.append(item('本月回本',level=1,badge=str(why) if why else '待同步',color=MUTED,size=11))
     else:
         summary=usage['summary'];cost=max(0.0,float(summary.get('estimatedCostUsd') or 0));unpriced=int(summary.get('unpricedRequests') or 0)
         detail='本月 %s 的 API 等值 %s，订阅 %s/月'%(name,money_text(cost,'USD'),money_text(price,'USD'))+('；其中 %d 次未定价，未计入'%unpriced if unpriced else '')
@@ -2128,29 +2132,55 @@ def gateway_carriers(source, logs):
     return carriers
 
 
+def collect_range(source,key,now,start,end,logs,enabled):
+    """One tool's figures for one range."""
+    try:
+        if source=='opencodex':
+            return ocx_range_usage(key,now) if ocx_configured() else {'error':'未配置 OpenCodex'}
+        carriers=gateway_carriers(source,logs)
+        # Cursor's calls never pass a gateway; only the ones it reported to Magpie are in a gateway's log.
+        if source=='cursor':return cursor_range_usage(start,end,now,[c for c in carriers if c[0]=='Magpie'])
+        if source=='claude':
+            value,error=claude_usage_live(range_key=key,now=now,carriers=carriers)
+            return value or {'error':'未找到 Claude 用量记录'}
+        root=source_path(source)
+        if not root:return {'error':'请选择记录目录'}
+        kept=usage_archive(source,root)
+        if source=='magpie':return sources.jsonl_usage(source,root,CACHE_DIR,start,end,now.tzinfo,carriers=carriers,price=magpie_price,archive=kept)
+        if source=='gemini':return sources.gemini_usage(root,CACHE_DIR,start,end,now.tzinfo,'opencodex' in enabled,carriers,kept,price=magpie_price)
+        if source=='opencode':return sources.opencode_usage(root,start,end,now.tzinfo,'opencodex' in enabled,carriers)
+        return sources.jsonl_usage(source,root,CACHE_DIR,start,end,now.tzinfo,'opencodex' in enabled,carriers,archive=kept)
+    except Exception:return {'error':'记录暂不可用'}
+
+
+# The cache of a tool's month read for 本月回本 alone (payback_month), by the tool's key.
+PAYBACK_MONTH='payback-month-'
+
+
+def payback_month(source):
+    """This month of a tool that isn't on the homepage, for a subscription's 本月回本: read on its own every ten
+    minutes, never a card or part of Summary. A tool on the homepage is weighed from the month's own figures."""
+    def load():
+        now=usage_now();start,end=range_bounds('month',now)
+        return {'range':'month','start':start,'end':end,source:collect_range(source,'month',now,start,end,{},[source])},None
+    return cached_fetch(PAYBACK_MONTH+source,load,600)
+
+
+def payback_sources():
+    """The tools a subscription with a price written down is weighed against (本月回本) that aren't on the homepage,
+    so the month's own figures don't have them: each is read on its own."""
+    prices=view_settings()['subscriptionPrices'];found=[]
+    for subscription,source in catalog.SUBSCRIPTION_USAGE.items():
+        if subscription in prices and module_enabled(subscription) and not module_enabled(source) and source not in found:found.append(source)
+    return found
+
+
 def range_usage_cached(key=None,ttl=None):
     key=key or selected_range();name=range_cache_name(key)
     def load():
         now=usage_now();start,end=range_bounds(key,now)
         enabled=[k for k in preferences.USAGE if module_enabled(k)]
-        def collect(source):
-            try:
-                if source=='opencodex':
-                    return ocx_range_usage(key,now) if ocx_configured() else {'error':'未配置 OpenCodex'}
-                carriers=gateway_carriers(source,logs)
-                # Cursor's calls never pass a gateway; only the ones it reported to Magpie are in a gateway's log.
-                if source=='cursor':return cursor_range_usage(start,end,now,[c for c in carriers if c[0]=='Magpie'])
-                if source=='claude':
-                    value,error=claude_usage_live(range_key=key,now=now,carriers=carriers)
-                    return value or {'error':'未找到 Claude 用量记录'}
-                root=source_path(source)
-                if not root:return {'error':'请选择记录目录'}
-                kept=usage_archive(source,root)
-                if source=='magpie':return sources.jsonl_usage(source,root,CACHE_DIR,start,end,now.tzinfo,carriers=carriers,price=magpie_price,archive=kept)
-                if source=='gemini':return sources.gemini_usage(root,CACHE_DIR,start,end,now.tzinfo,'opencodex' in enabled,carriers,kept,price=magpie_price)
-                if source=='opencode':return sources.opencode_usage(root,start,end,now.tzinfo,'opencodex' in enabled,carriers)
-                return sources.jsonl_usage(source,root,CACHE_DIR,start,end,now.tzinfo,'opencodex' in enabled,carriers,archive=kept)
-            except Exception:return {'error':'记录暂不可用'}
+        def collect(source):return collect_range(source,key,now,start,end,logs,enabled)
         bundle={'range':key,'start':start,'end':end}
         logs=gateway_logs(enabled,start,end)
         record=read_cache(name);previous=record.get('payload') or {}
@@ -2206,6 +2236,7 @@ def opencodex_refresh():
 
 
 def ttl_for(name):
+    if name.startswith(PAYBACK_MONTH):return 600
     return EXTERNAL_TTLS.get(name) or KEY_TTLS[name.split('@')[0]]
 
 
@@ -2229,6 +2260,7 @@ def external_loaders():
     if module_enabled('updates') and live_app_update_ids():loaders['app_updates']=app_updates_cached
     if os.environ.get('OCX_SELF_UPDATES')!='0':loaders['self_update']=lambda:cached_fetch('self_update',self_update_load,EXTERNAL_TTLS['self_update'])
     if module_enabled('claude-subscription'):loaders['claude_subscription']=claude_subscription_cached
+    for source in payback_sources():loaders[PAYBACK_MONTH+source]=lambda source=source:payback_month(source)
     if module_enabled('sessions'):loaders['sessions']=sessions_cached
     # The yuan rate is read only once 人民币 is chosen without a rate of the user's own.
     if view_settings()['currency']=='CNY' and not view_settings()['cnyRate']:

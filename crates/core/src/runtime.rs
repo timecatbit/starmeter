@@ -364,6 +364,11 @@ impl Runtime {
         let mut parts: Vec<Json> = match name {
             "claude_subscription" => self.claude_subscription_parts(),
             "app_updates" => self.app_update_parts(),
+            // A tool's month for 本月回本: what the month's own figures depend on, and where the tool keeps its records.
+            _ if name.starts_with(crate::range_usage::PAYBACK_MONTH) => {
+                let source = &name[crate::range_usage::PAYBACK_MONTH.len()..];
+                vec![Json::from(self.range_cache_name(Some("month"))), Json::from(self.source_path(source))]
+            }
             _ => Vec::new(),
         };
         let keys = connection_keys(name);

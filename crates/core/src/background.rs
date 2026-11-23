@@ -417,6 +417,11 @@ impl Runtime {
                 self.claude_subscription_cached();
             });
         }
+        for source in self.payback_sources() {
+            add(&mut loaders, &format!("{}{source}", crate::range_usage::PAYBACK_MONTH), move || {
+                self.payback_month(source);
+            });
+        }
         if self.module_enabled("sessions") {
             add(&mut loaders, "sessions", || {
                 self.sessions_cached(None);
@@ -506,7 +511,27 @@ impl Runtime {
     }
 
     fn ttl_for(&self, name: &str) -> f64 {
+        if name.starts_with(crate::range_usage::PAYBACK_MONTH) {
+            return 600.0;
+        }
         external_ttl(name).or_else(|| key_ttl(name.split('@').next().unwrap_or(""))).unwrap_or(300.0)
+    }
+
+    /// The tools a subscription with a price written down is weighed against (本月回本) that aren't on the
+    /// homepage, so the month's own figures don't have them: each is read on its own.
+    pub fn payback_sources(&self) -> Vec<&'static str> {
+        let prices = self.settings().get("subscriptionPrices").and_then(Json::as_object).cloned().unwrap_or_default();
+        let mut sources = Vec::new();
+        for (subscription, source) in catalog::SUBSCRIPTION_USAGE {
+            if prices.contains_key(subscription)
+                && self.module_enabled(subscription)
+                && !self.module_enabled(source)
+                && !sources.contains(&source)
+            {
+                sources.push(source);
+            }
+        }
+        sources
     }
 
     pub fn loader_due(&self, name: &str) -> bool {
