@@ -863,20 +863,34 @@ pub mod terminal_jobs {
 
     /// Windows: the CLI's own update in a new console window, left open after it so its output can be read. The
     /// script is ASCII: a console reads a .cmd in its own code page. `call` comes back after an npm .cmd shim.
-    pub fn launch_windows(binary: &str, key: &str, state: &str) -> Result<&'static str, HostFailure> {
-        let label = cli_name(key).ok_or_else(|| HostFailure("invalid CLI".into()))?;
-        let text = format!(
-            "@echo off\r\ntitle Starmeter: {label} update\r\necho $ \"{binary}\" update\r\ncall \"{binary}\" update\r\necho.\r\npause\r\n"
-        );
-        let script = job_file(state, "cmd", &text)?;
-        std::process::Command::new("cmd")
-            .args(["/c", "start", "", &script])
+    /// The CLI's update in a console window of its own on Windows. The CLI's path goes over as data, in an environment
+    /// variable PowerShell runs with its call operator: written into a batch file it was read in the system's code page
+    /// (a Chinese user folder under code page 936 wasn't found) and parsed as batch source again (WIN-CLI-1). An npm
+    /// launcher (codex.cmd) runs as well as a program; the window stays until a key is pressed.
+    pub fn launch_windows(binary: &str, key: &str, _state: &str) -> Result<&'static str, HostFailure> {
+        let mut command = windows_update(binary, key)?;
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            // CREATE_NEW_CONSOLE: the updater's own window.
+            command.creation_flags(0x0000_0010);
+        }
+        command
             .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
             .spawn()
-            .map(|_| "file")
+            .map(|_| "console")
             .map_err(|error| HostFailure(format!("无法打开命令提示符：{error}")))
+    }
+
+    /// The PowerShell that runs the update: a fixed command, the CLI's path only in STARMETER_CLI.
+    pub fn windows_update(binary: &str, key: &str) -> Result<std::process::Command, HostFailure> {
+        let label = cli_name(key).ok_or_else(|| HostFailure("invalid CLI".into()))?;
+        let script = format!(
+            "$Host.UI.RawUI.WindowTitle = 'Starmeter: {label} update'; Write-Host ('$ ' + $env:STARMETER_CLI + ' update'); & $env:STARMETER_CLI update; Write-Host ''; cmd /c pause"
+        );
+        let mut command = std::process::Command::new("powershell.exe");
+        command.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &script]).env("STARMETER_CLI", binary);
+        Ok(command)
     }
 
     pub fn latest_log(state: &str, keys: &[String]) -> Option<String> {
@@ -948,6 +962,24 @@ pub mod terminal_jobs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_windows_update_takes_the_path_as_data() {
+        // WIN-CLI-1: a Chinese user folder, spaces, a percent sign and batch metacharacters stay out of the command.
+        let binary = r"C:\Users\张三\AppData\Roaming\npm 100% & co\codex.cmd";
+        let command = terminal_jobs::windows_update(binary, "codex-cli").expect("Codex");
+        assert_eq!(command.get_program(), "powershell.exe");
+        let arguments: Vec<String> = command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
+        assert!(
+            arguments.iter().all(|arg| !arg.contains("张三") && !arg.contains("codex.cmd") && arg.is_ascii()),
+            "{arguments:?}"
+        );
+        assert!(arguments.last().unwrap().contains("& $env:STARMETER_CLI update"));
+        assert!(arguments.last().unwrap().contains("Starmeter: Codex update"));
+        let given: Vec<_> = command.get_envs().collect();
+        assert_eq!(given, vec![(std::ffi::OsStr::new("STARMETER_CLI"), Some(std::ffi::OsStr::new(binary)))]);
+        assert!(terminal_jobs::windows_update(binary, "something-else").is_err());
+    }
 
     fn folder(name: &str) -> String {
         let folder = std::env::temp_dir().join(format!("starmeter-ask-{name}-{}", std::process::id()));
