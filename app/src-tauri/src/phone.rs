@@ -9,7 +9,7 @@
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{IpAddr, TcpListener, TcpStream, UdpSocket};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -24,6 +24,35 @@ use crate::data::Data;
 const PUBLIC_LIFETIME: Duration = Duration::from_secs(3600);
 const RANGES: [&str; 8] = ["today", "yesterday", "24h", "7d", "30d", "week", "month", "all"];
 const GROUPS: [&str; 3] = ["tool", "model", "project"];
+/// At most this many connections answered at once (a phone loads the page's few files side by side); one more is
+/// closed straight away, so a burst, from a scan of the public link say, can't use up the threads (PHONE-7).
+const CONNECTIONS: usize = 24;
+/// A connection's whole request read within this; a client trickling a byte now and then is let go.
+const REQUEST_TIME: Duration = Duration::from_secs(15);
+
+/// The connections being answered: a slot taken for each, given back when its answer ends, however it ends.
+struct Slots(Arc<AtomicUsize>);
+
+struct Slot(Arc<AtomicUsize>);
+
+impl Slots {
+    fn take(&self) -> Option<Slot> {
+        let mut taken = self.0.load(Ordering::SeqCst);
+        while taken < CONNECTIONS {
+            match self.0.compare_exchange_weak(taken, taken + 1, Ordering::SeqCst, Ordering::SeqCst) {
+                Ok(_) => return Some(Slot(self.0.clone())),
+                Err(now) => taken = now,
+            }
+        }
+        None
+    }
+}
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
 
 #[derive(Default)]
 pub struct Phone {
@@ -195,6 +224,7 @@ pub fn phone_private(app: AppHandle) -> Option<PhoneView> {
 
 fn serve(app: AppHandle, listener: TcpListener, key: String, stop: Arc<AtomicBool>) {
     let mut checked = Instant::now();
+    let slots = Slots(Arc::new(AtomicUsize::new(0)));
     while !stop.load(Ordering::SeqCst) {
         // The public link's hour, looked at every few seconds whether or not the panel asks.
         if checked.elapsed() >= Duration::from_secs(5) {
@@ -206,9 +236,12 @@ fn serve(app: AppHandle, listener: TcpListener, key: String, stop: Arc<AtomicBoo
             }
         }
         match listener.accept() {
+            // Past the limit, or with no thread to be had, the connection is closed and the server goes on.
             Ok((stream, _)) => {
+                let Some(slot) = slots.take() else { continue };
                 let (app, key) = (app.clone(), key.clone());
-                std::thread::spawn(move || {
+                let _ = std::thread::Builder::new().name("starmeter-phone".into()).spawn(move || {
+                    let _slot = slot;
                     let _ = answer(&app, stream, &key);
                 });
             }
@@ -232,6 +265,7 @@ fn answer(app: &AppHandle, mut stream: TcpStream, key: &str) -> std::io::Result<
     stream.set_nonblocking(false)?;
     stream.set_read_timeout(Some(Duration::from_secs(10)))?;
     stream.set_write_timeout(Some(Duration::from_secs(20)))?;
+    let started = Instant::now();
     let mut reader = BufReader::new(stream.try_clone()?.take(16 * 1024));
     let mut line = String::new();
     reader.read_line(&mut line)?;
@@ -239,6 +273,9 @@ fn answer(app: &AppHandle, mut stream: TcpStream, key: &str) -> std::io::Result<
     let (method, target) = (parts.next().unwrap_or(""), parts.next().unwrap_or("/"));
     let mut given = String::new();
     loop {
+        if started.elapsed() > REQUEST_TIME {
+            return Err(std::io::ErrorKind::TimedOut.into());
+        }
         let mut header = String::new();
         if reader.read_line(&mut header)? == 0 || header.trim().is_empty() {
             break;
@@ -422,7 +459,26 @@ fn strip(entry: &mut Value) {
 
 #[cfg(test)]
 mod tests {
-    use super::same;
+    use super::{AtomicUsize, CONNECTIONS, Ordering, Slot, Slots, same};
+    use std::sync::Arc;
+
+    #[test]
+    fn connections_past_the_limit_wait_for_a_slot_given_back_however_an_answer_ends() {
+        // PHONE-7: a connection each, at most CONNECTIONS at once; a slot comes back when its answer ends, a panic too.
+        let slots = Slots(Arc::new(AtomicUsize::new(0)));
+        let mut taken: Vec<Slot> = (0..CONNECTIONS).map(|_| slots.take().expect("a slot")).collect();
+        assert!(slots.take().is_none());
+        taken.pop();
+        let again = slots.take().expect("the slot given back");
+        drop(again);
+        let slot = slots.take().expect("a slot");
+        let _ = std::thread::spawn(move || {
+            let _slot = slot;
+            panic!("an answer gone wrong");
+        })
+        .join();
+        assert_eq!(slots.0.load(Ordering::SeqCst), CONNECTIONS - 1);
+    }
 
     #[test]
     fn the_key_in_full_and_nothing_less() {
