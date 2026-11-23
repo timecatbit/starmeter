@@ -1971,6 +1971,35 @@ class PanelParityTests(BackgroundParityTests):
                                  (clock.date().isoformat(), clock.strftime('%H:%M' if dashboard['rangeKey'] == 'today' else '%m/%d')))
                 self.assertEqual(self.python('alert_inputs', extra=extra), self.swift('alert_inputs', extra=extra))
 
+    def test_windows_with_an_unknown_share_left_raise_no_alert(self):
+        # QUOTA-ALERT-1: a window whose remaining is missing or null is no reading (not a full one); a real 0 still is.
+        codex = Path(self.common['HOME']) / '.codex'; codex.mkdir(exist_ok=True)
+        (codex / 'auth.json').write_text(json.dumps({'auth_mode': 'chatgpt', 'tokens': {'access_token': 'x'}}))
+        daemon = Path(self.common['HOME']) / '.gemini' / 'antigravity' / 'daemon'; daemon.mkdir(parents=True, exist_ok=True)
+        (daemon / 'hub_9.json').write_text(json.dumps({'pid': os.getpid(), 'httpPort': 9, 'httpsPort': 8, 'csrfToken': 'test'}))
+        self.settings(visible=['chatgpt', 'minimax', 'gemini-subscription'], usageAlert=90)
+        now = time.time()
+        self.caches(now)
+        records = {
+            'chatgpt': {'state': '已同步', 'windows': [{'name': 'codex', 'slot': 'primary', 'remaining': None, 'minutes': 300, 'resetsAt': now + 900},
+                                                     {'name': 'codex', 'slot': 'secondary', 'minutes': 10080, 'resetsAt': now + 86400},
+                                                     {'name': 'spark', 'slot': 'primary', 'remaining': 0, 'minutes': 10080, 'resetsAt': now + 86400}]},
+            'minimax': {'windows': [{'name': '本周额度', 'remaining': None, 'resetsAt': int(now) + 3600}, {'name': '5 小时额度', 'remaining': 0, 'resetsAt': int(now) + 600}]},
+            'gemini_subscription': {'windows': [{'group': 'gemini', 'groupName': 'Gemini Models', 'window': '5h', 'resetsAt': now + 3600},
+                                                {'group': 'gemini', 'groupName': 'Gemini Models', 'window': 'weekly', 'remaining': None, 'resetsAt': now + 86400},
+                                                {'group': '3p', 'groupName': 'Claude and GPT models', 'window': '5h', 'remaining': 0.0, 'resetsAt': now + 3600}]},
+        }
+        for engine in self.states.values():
+            scope = hashlib.sha256(os.path.abspath(engine['OCX_STATE_DIR']).encode()).hexdigest()[:16]
+            root = Path(engine['OCX_CACHE_DIR']) / ('opencodex-swiftbar-v5-%s-%s' % (os.getuid(), scope))
+            for name, payload in records.items():
+                (root / (name + '.json')).write_text(json.dumps({'schema': 1, 'fetchedAt': now - 30, 'payload': payload}, ensure_ascii=False))
+        keys = {'MINIMAX_API_KEY': 'm'}
+        expected, got = self.python('alert_inputs', extra=keys), self.swift('alert_inputs', extra=keys)
+        self.assertEqual(expected['windows'], got['windows'])
+        used = sorted((window['name'], window['used']) for window in got['windows'])
+        self.assertEqual(used, [('ChatGPT 订阅', 100.0), ('Gemini 订阅', 100.0), ('MiniMax 订阅', 100.0)])
+
     def test_due_alerts_and_notices(self):
         now = 1795000000.0
         windows = [{'id': 'a|5h', 'used': 95.0, 'resetsAt': now + 3600, 'span': 18000, 'current': True, 'name': 'Claude 订阅', 'window': '5 小时'},

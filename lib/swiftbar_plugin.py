@@ -2383,8 +2383,10 @@ def proxy_quota_error(data):
 
 
 def alert_windows(data):
-    """Every subscription window the homepage shows, as the usage alerts read it."""
+    """Every subscription window the homepage shows, as the usage alerts read it. A window whose share left is unknown
+    (missing, null) is no reading, not a full one (QUOTA-ALERT-1)."""
     out=[]
+    known=lambda w:isinstance(w,dict) and isinstance(w.get('remaining'),(int,float)) and not isinstance(w['remaining'],bool)
     def add(source,name,window,used,resets_at,span,current):
         out.append({'id':source+'|'+window,'name':name,'window':window,'used':float(used),'resetsAt':resets_at,'span':span,'current':current})
     if module_enabled('claude-subscription'):
@@ -2400,17 +2402,17 @@ def alert_windows(data):
             if used is not None:add('chatgpt-account','ChatGPT 订阅',name,used,None,None,current)
     elif module_enabled('chatgpt'):
         payload=data.get('chatgpt') or {};current=reading_current(payload,data.get('chatgpt_error'))
-        for w in payload.get('windows') or []:
+        for w in filter(known,payload.get('windows') or []):
             label=chatgpt_window_label(w)
             add('chatgpt','ChatGPT 订阅',label[len('ChatGPT · '):] if label.startswith('ChatGPT · ') else label,
                 100-w['remaining'],w.get('resetsAt'),(w.get('minutes') or 0)*60 or None,current)
     if module_enabled('minimax'):
         payload=data.get('minimax') or {};current=reading_current(payload,data.get('minimax_error'))
-        for w in payload.get('windows') or []:add('minimax','MiniMax 订阅',w['name'],100-w['remaining'],w.get('resetsAt'),minimax_span(w),current)
+        for w in filter(known,payload.get('windows') or []):add('minimax','MiniMax 订阅',w['name'],100-w['remaining'],w.get('resetsAt'),minimax_span(w),current)
     if module_enabled('gemini-subscription'):
         payload=data.get('gemini_subscription') or {};current=reading_current(payload,data.get('gemini_subscription_error'))
-        for w in gemini_windows(payload,time.time()):
-            add('gemini-subscription','Gemini 订阅',gemini_window_name(w),100-w.get('remaining',0),w.get('resetsAt'),gemini_span(w),current)
+        for w in filter(known,gemini_windows(payload,time.time())):
+            add('gemini-subscription','Gemini 订阅',gemini_window_name(w),100-w['remaining'],w.get('resetsAt'),gemini_span(w),current)
     if module_enabled('qoder-subscription'):
         # The App writes its summary only when the user opens Credits usage; past 10 minutes it isn't current.
         payload=data.get('qoder_subscription') or {};current=time.time()-(payload.get('observedAt') or 0)<=600

@@ -224,7 +224,13 @@ impl Runtime {
                     _ => Json::Null,
                 };
                 let name = label.strip_prefix("ChatGPT · ").map(String::from).unwrap_or(label);
-                let used = 100.0 - window.get("remaining").and_then(Json::number).unwrap_or(0.0);
+                // A window whose share left is unknown (missing, null) is no reading: not a full one (QUOTA-ALERT-1).
+                let Some(left) =
+                    window.get("remaining").filter(|value| value.as_bool().is_none()).and_then(Json::number)
+                else {
+                    continue;
+                };
+                let used = 100.0 - left;
                 let resets = window.get("resetsAt").cloned().unwrap_or(Json::Null);
                 add("chatgpt", "ChatGPT 订阅", &name, used, resets, span, current);
             }
@@ -245,7 +251,13 @@ impl Runtime {
                     }
                     _ => Json::Null,
                 };
-                let used = 100.0 - window.get("remaining").and_then(Json::number).unwrap_or(0.0);
+                // A window whose share left is unknown (missing, null) is no reading: not a full one (QUOTA-ALERT-1).
+                let Some(left) =
+                    window.get("remaining").filter(|value| value.as_bool().is_none()).and_then(Json::number)
+                else {
+                    continue;
+                };
+                let used = 100.0 - left;
                 let resets = window.get("resetsAt").cloned().unwrap_or(Json::Null);
                 add("minimax", "MiniMax 订阅", &py::str(window.get("name")), used, resets, span, current);
             }
@@ -254,7 +266,13 @@ impl Runtime {
             let payload = object(data, "gemini_subscription");
             let current = self.reading_current(Some(&payload), failure(data, "gemini_subscription").as_deref(), now);
             for window in crate::module_rows::gemini_windows(&payload, now) {
-                let used = 100.0 - window.get("remaining").and_then(Json::number).unwrap_or(0.0);
+                // A window whose share left is unknown (missing, null) is no reading: not a full one (QUOTA-ALERT-1).
+                let Some(left) =
+                    window.get("remaining").filter(|value| value.as_bool().is_none()).and_then(Json::number)
+                else {
+                    continue;
+                };
+                let used = 100.0 - left;
                 let resets = window.get("resetsAt").cloned().unwrap_or(Json::Null);
                 let span = crate::module_rows::gemini_span(&window).map_or(Json::Null, Json::Double);
                 add(
