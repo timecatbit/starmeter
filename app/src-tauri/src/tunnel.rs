@@ -292,17 +292,19 @@ fn start(program: &Path, port: u16, extra: &[&str]) -> Result<Tunnel, (String, b
         let (why, unfound) = reason(&said);
         let _ = tell.send(Heard::Ended(why, unfound));
     });
+    // Ready once both are heard, in whichever order they come (TUNNEL-2: a connection reported before the address
+    // was dropped, and the link given up as not made after 45 seconds).
     let deadline = Instant::now() + Duration::from_secs(45);
-    let mut url: Option<String> = None;
+    let (mut url, mut connected): (Option<String>, bool) = (None, false);
     let failed = loop {
         match heard.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
             Ok(Heard::Address(given)) => url = Some(given),
-            Ok(Heard::Connected) if url.is_some() => {
-                return Ok(Tunnel { url: url.unwrap_or_default(), child: Some(child), guard, alive });
-            }
-            Ok(Heard::Connected) => {}
+            Ok(Heard::Connected) => connected = true,
             Ok(Heard::Ended(why, unfound)) => break (why, unfound),
             Err(_) => break ("Cloudflare 这次没有给出链接，稍后再试".into(), false),
+        }
+        if connected && let Some(url) = url.take() {
+            return Ok(Tunnel { url, child: Some(child), guard, alive });
         }
     };
     end(child, guard);
@@ -312,6 +314,35 @@ fn start(program: &Path, port: u16, extra: &[&str]) -> Result<Tunnel, (String, b
 #[cfg(test)]
 mod tests {
     use super::{address, reason};
+
+    /// A stand-in cloudflared that says its two lines in the order given, then stays up.
+    #[cfg(unix)]
+    fn stand_in(lines: &[&str]) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let path =
+            std::env::temp_dir().join(format!("starmeter-cloudflared-{}", starmeter_core::runtime::random_hex(8)));
+        let said: String = lines.iter().map(|line| format!("echo '{line}' >&2\n")).collect();
+        std::fs::write(&path, format!("#!/bin/sh\n{said}sleep 30\n")).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_link_is_ready_once_both_lines_are_heard_in_either_order() {
+        // TUNNEL-2: the connection reported before the address used to be dropped, and the link waited 45 seconds.
+        let address_line = "2026-11-23T01:00:00Z INF |  https://quiet-river-1234.trycloudflare.com  |";
+        let connected = "2026-11-23T01:00:01Z INF Registered tunnel connection connIndex=0";
+        for order in [[address_line, connected], [connected, address_line]] {
+            let program = stand_in(&order);
+            let started = std::time::Instant::now();
+            let mut tunnel = super::start(&program, 9, &[]).unwrap_or_else(|(why, _)| panic!("{why}"));
+            assert!(started.elapsed() < std::time::Duration::from_secs(10), "{:?}", started.elapsed());
+            assert_eq!(tunnel.url, "https://quiet-river-1234.trycloudflare.com");
+            tunnel.stop();
+            let _ = std::fs::remove_file(&program);
+        }
+    }
 
     #[test]
     fn why_cloudflared_ended() {
