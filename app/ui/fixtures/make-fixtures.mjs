@@ -617,7 +617,7 @@ function updateRows(state) {
     entry('Cursor CLI · 已是最新', { statusLight: 'ok', detail: '2026.11.22-e9042b2 · 官方安装', href: 'https://cursor.com/cli' }),
     entry('Gemini CLI · 已是最新', { statusLight: 'ok', detail: '0.70.0 · npm', href: 'https://github.com/google-gemini/gemini-cli/releases' }),
     entry('Antigravity · 已是最新', { statusLight: 'ok', detail: '2.34.0', href: 'file:///Applications/Antigravity.app' }),
-    entry('WorkBuddy · 在 App 内检查更新', { statusLight: 'unknown', detail: '5.9.3 · 腾讯没有公开 WorkBuddy 的版本接口', href: 'file:///Applications/WorkBuddy.app' }),
+    entry('WorkBuddy · 已是最新', { statusLight: 'ok', detail: '5.11.3', href: 'file:///Applications/WorkBuddy.app' }),
     separator(),
     entry('立即检查更新', { symbol: 'arrow.clockwise', action: ['check-app-updates'] }),
     entry('查看最近 CLI 更新日志', { symbol: 'doc.text', action: ['open-cli-update-log'] }),

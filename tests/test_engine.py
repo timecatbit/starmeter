@@ -2308,7 +2308,9 @@ class UpdateParityTests(unittest.TestCase):
                   ['cursor-script', 'URL="https://downloads.cursor.com/lab/2026.11.22-e9042b2/${OS}/${ARCH}/agent-cli-package.tar.gz"'], ['cursor-script', 'echo none'],
                   ['antigravity-releases', '[{"version": "2.33.1"}, {"version": "2.34.0"}, {"version": "x"}, {"version": "v2.34.0"}]'], ['antigravity-releases', '{}'],
                   ['ide-feed', '{"version": "8dc5", "url": "https://x/antigravity/stable/2.8.0-6733/A.zip", "productVersion": "1.107.0"}'],
-                  ['ide-feed', '{"version": "8dc5", "productVersion": "1.107.0"}'], ['ide-feed', '{"productVersion": "1.107.0"}'], ['npm', 'not json'], ['npm', '{"version": 7}']]
+                  ['ide-feed', '{"version": "8dc5", "productVersion": "1.107.0"}'], ['ide-feed', '{"productVersion": "1.107.0"}'], ['npm', 'not json'], ['npm', '{"version": 7}'],
+                  ['workbuddy-feed', '{"version": "5.11.3.43806934", "productVersion": "5.11.3.43806934"}'], ['workbuddy-feed', '{"productVersion": "5.11.4.44121853"}'],
+                  ['workbuddy-feed', '{"version": "5.11"}'], ['workbuddy-feed', '{}']]
         orders = [['deepseek-harness', '0.2.2-rc.5', '0.2.2-rc.4'], ['deepseek-harness', '0.2.2', '0.2.2-rc.5'], ['deepseek-harness', '0.2.2-rc.5', '0.2.2'],
                   ['gemini', '0.2.2-rc.10', '0.2.2-rc.9'], ['gemini', '1.0.0-beta', '1.0.0-alpha.1'], ['gemini', '1.0.0-alpha.beta', '1.0.0-alpha.1'],
                   ['gemini', '1.2.3+build', '1.2.3'], ['gemini', '2.1.330', '2.1.311'], ['gemini', 'garbage', '1.0'], ['gemini', None, '1.0'], ['gemini', 7, '6.9'],

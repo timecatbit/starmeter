@@ -35,7 +35,7 @@ PRODUCTS=[
     _product('opencode','opencode','OpenCode','https://opencode.ai','cli',commands=('opencode',)),
     _product('qoder','qoder','Qoder','https://qoder.cn/download','app',('Qoder CN','QoderCN'),manual='Qoder CN 没有公开 App 的版本接口'),
     _product('qoder-cli','qoder','Qoder CLI','https://qoder.com.cn/cli','cli',commands=('qoderclicn','qodercn'),always=False),
-    _product('workbuddy','workbuddy','WorkBuddy','https://cloud.tencent.com/product/workbuddy','app',('WorkBuddy',),manual='腾讯没有公开 WorkBuddy 的版本接口'),
+    _product('workbuddy','workbuddy','WorkBuddy','https://www.workbuddy.cn/','app',('WorkBuddy',)),
 ]
 BY_ID={product['id']:product for product in PRODUCTS}
 
@@ -165,13 +165,26 @@ def cli_channel(id,binary):
 
 # Where each app's newest version is published
 
-def app_source(id,arm=None):
+# The Tencent sites WorkBuddy's update service answers on: China's first, the one used when the app names none.
+WORKBUDDY_SITES=('https://www.workbuddy.cn','https://www.codebuddy.cn','https://copilot.tencent.com','https://www.codebuddy.ai')
+
+
+def workbuddy_site(app):
+    """The site an installed WorkBuddy updates from, as its own product.json names it, only if it is Tencent's."""
+    named=object_file(os.path.join(app,'Contents','Resources','app.asar.unpacked','cli','product.json')).get('endpoint') if app else None
+    named=named.rstrip('/') if isinstance(named,str) else None
+    return named if named in WORKBUDDY_SITES else WORKBUDDY_SITES[0]
+
+
+def app_source(id,arm=None,app=None):
     arm=platform.machine().lower() in ('arm64','aarch64') if arm is None else arm
     sources={'magpie':('github','https://api.github.com/repos/yetone/magpie/releases/latest'),
              'cursor':('cursor-api','https://cursor.com/api/download?platform=darwin-%s&releaseTrack=stable'%('arm64' if arm else 'x64')),
              'antigravity':('antigravity-releases','https://antigravity-hub-auto-updater-974169037036.us-central1.run.app/releases'),
              'antigravity-ide':('ide-feed','https://antigravity-ide-auto-updater-974169037036.us-central1.run.app/api/update/%s/stable/latest'%('darwin-arm64' if arm else 'darwin')),
-             'opencode-desktop':('github','https://api.github.com/repos/anomalyco/opencode/releases/latest')}
+             'opencode-desktop':('github','https://api.github.com/repos/anomalyco/opencode/releases/latest'),
+             # The update service WorkBuddy's download page asks for its download.
+             'workbuddy':('workbuddy-feed','%s/v2/update?platform=workbuddy-darwin-%s'%(workbuddy_site(app),'arm64' if arm else 'x64'))}
     return sources.get(id)
 
 
@@ -218,6 +231,11 @@ def latest_version(kind,body):
         for version in versions[1:]:
             if release_order(version,best)==1:best=version
         return _text(best)
+    if kind=='workbuddy-feed':
+        # 5.11.3.43806934: the app's own version is the first three, the fourth its build.
+        value=data.get('version') or data.get('productVersion') if isinstance(data,dict) else None
+        if not value:raise KeyError('version')
+        return '.'.join(_text(value).split('.')[:3])
     if kind=='ide-feed':
         found=ide_release(body)
         if not found:raise KeyError('version')

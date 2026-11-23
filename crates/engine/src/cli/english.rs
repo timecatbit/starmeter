@@ -435,8 +435,8 @@ mod tests {
         }
         assert!(seen >= 8, "only {seen} texts found");
         assert_eq!(
-            translate("5.9.3 · 腾讯没有公开 WorkBuddy 的版本接口"),
-            "5.9.3 · Tencent publishes no version for WorkBuddy"
+            translate("0.5.17 · Qoder CN 没有公开 App 的版本接口"),
+            "0.5.17 · Qoder CN publishes no version for its app"
         );
         assert_eq!(
             translate("2026.11.13-eacade1 → 2026.11.22-e9042b2 · 官方安装"),

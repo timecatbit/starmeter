@@ -1222,7 +1222,7 @@ def app_feed_probe(product,row):
         binary=product_binary(product)
         if not binary:row['status']='未安装';return row
         row['current']=installed_version(binary)
-    source=update_channels.app_source(product['id'])
+    source=update_channels.app_source(product['id'],app=product_app(product))
     if not source:row.update(status='更新渠道待确认',available=False);return row
     kind,url=source
     body=release_body(url)

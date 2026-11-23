@@ -465,16 +465,29 @@ class UpdateTests(unittest.TestCase):
   self.select('opencode','gemini','magpie','cursor','deepseek-harness','qoder','workbuddy')
   with patch.object(self.m,'app_update_probe',side_effect=lambda key:dict(self.row(),id=key,status='已是最新',available=False)) as probe:
    self.m.app_updates_cached()
-  self.assertCountEqual([c.args[0] for c in probe.call_args_list],['magpie','cursor','deepseek-harness','gemini','opencode'])
-  versions={'WorkBuddy':{'CFBundleShortVersionString':'5.9.3'}}
+  # WorkBuddy too: its download page asks an update service of its own, which says the newest version.
+  self.assertCountEqual([c.args[0] for c in probe.call_args_list],['magpie','cursor','deepseek-harness','gemini','opencode','workbuddy'])
+  versions={'QoderCN':{'CFBundleShortVersionString':'0.5.17'}}
   with patch.object(self.m,'app_info',side_effect=lambda name:versions.get(name,{})):
    rows={r['id']:r for r in self.m.update_rows({})}
    text='\n'.join(self.m.app_update_lines({}))
-  self.assertEqual([k for k,r in rows.items() if r.get('manual')],['qoder','workbuddy'])
+  self.assertEqual([k for k,r in rows.items() if r.get('manual')],['qoder'])
   self.assertNotIn('尚未接入',text)
-  self.assertIn('5.9.3 · 腾讯没有公开 WorkBuddy 的版本接口',text)
-  self.assertIn('Qoder CN 没有公开 App 的版本接口',text)
-  self.assertNotIn('已是最新','\n'.join(l for l in text.split('\n') if 'WorkBuddy' in l or 'Qoder' in l))
+  self.assertIn('0.5.17 · Qoder CN 没有公开 App 的版本接口',text)
+  self.assertNotIn('已是最新','\n'.join(l for l in text.split('\n') if 'Qoder' in l))
+ def test_workbuddy_is_read_against_the_update_service_its_download_page_asks(self):
+  # The user: WorkBuddy's website has its download, so its version can be compared. The site is the one the installed
+  # copy names (China's www.workbuddy.cn here); 5.11.3.43806934 is version 5.11.3, build 43806934.
+  app=Path(self.tmp.name,'WorkBuddy.app');cli=app/'Contents/Resources/app.asar.unpacked/cli';cli.mkdir(parents=True)
+  (cli/'product.json').write_text(json.dumps({'endpoint':'https://www.workbuddy.cn','productName':'WorkBuddy'}))
+  feed=json.dumps({'version':'5.11.3.43806934','productVersion':'5.11.3.43806934','url':'https://download.codebuddy.cn/x.zip'}).encode()
+  for installed,available in (('5.11.3',False),('5.9.3',True)):
+   with patch.object(self.m,'installed_app_path',side_effect=lambda name:str(app) if name=='WorkBuddy' else None),\
+        patch.object(self.m,'app_info',side_effect=lambda name:{'CFBundleShortVersionString':installed} if name=='WorkBuddy' else {}),\
+        patch.object(self.m,'release_body',return_value=feed) as release:
+    row=self.m.app_update_probe('workbuddy')
+   self.assertIn('https://www.workbuddy.cn/v2/update?platform=workbuddy-darwin-',release.call_args.args[0])
+   self.assertEqual((row['current'],row['latest'],row['available']),(installed,'5.11.3',available))
  def test_a_tools_apps_and_clis_are_rows_of_their_own_where_installed(self):
   # Gemini: Gemini CLI always, Antigravity's app, IDE and agy CLI and the Gemini app only where this Mac has them.
   self.select('gemini','cursor','opencode','qoder')
@@ -539,10 +552,10 @@ class UpdateTests(unittest.TestCase):
    rows={r['id']:r for r in self.m.update_rows({'app_updates':{'apps':[self.row()]}})}
    self.assertEqual(rows['claude']['href'],'file:///Applications/Claude.app')
    self.assertEqual(rows['workbuddy']['href'],'file:///Users/me/Applications/Work%20Buddy.app')
-   self.assertEqual(rows['workbuddy']['status'],'在 App 内检查更新')
+   self.assertEqual(rows['workbuddy']['status'],'等待检查')
    self.assertEqual((rows['qoder']['name'],rows['qoder']['href']),('Qoder','file:///Applications/QoderCN.app'))
    self.assertTrue(rows['claude-code']['href'].startswith('https://'))
-   # Gemini CLI has a version check of its own now; WorkBuddy and Qoder say why they have none.
+   # Gemini CLI and WorkBuddy have version checks of their own now; Qoder says why it has none.
    self.assertEqual(rows['gemini']['status'],'等待检查')
    self.assertEqual(rows['qoder']['note'],'Qoder CN 没有公开 App 的版本接口')
    entries=self.m.panel_entries(self.m.app_update_lines({'app_updates':{'apps':[dict(self.row(),status='有新版本')]}}))[0]['children']
@@ -550,7 +563,7 @@ class UpdateTests(unittest.TestCase):
   self.assertEqual(claude['href'],'file:///Applications/Claude.app');self.assertIn('点击打开 App 更新',claude['detail'])
   with patch.object(self.m,'installed_app_path',return_value=None):
    rows={r['id']:r for r in self.m.update_rows({})}
-  self.assertEqual(rows['claude']['href'],'https://claude.ai/download');self.assertEqual(rows['workbuddy']['status'],'在官网查看更新')
+  self.assertEqual(rows['claude']['href'],'https://claude.ai/download');self.assertEqual(rows['workbuddy']['href'],'https://www.workbuddy.cn/')
   self.assertEqual(rows['qoder']['href'],'https://qoder.cn/download')
  def test_selection_changed_in_flight_cannot_publish_a_fresh_wrong_scope(self):
   self.select('claude')

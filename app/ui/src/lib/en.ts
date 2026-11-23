@@ -83,7 +83,6 @@ export const phrases: Record<string, string> = {
   未安装: 'Not installed', 更新渠道待确认: 'Update channel not known yet', 安装渠道待确认: 'Install channel not known yet',
   '在 App 内检查更新': 'Check in the app', 在官网查看更新: 'Check on the website', 没有公开的版本接口: 'No public version source',
   // Why a product has no version check, how a CLI was installed and what its row does (update_products.rs)
-  '腾讯没有公开 WorkBuddy 的版本接口': 'Tencent publishes no version for WorkBuddy',
   'Qoder CN 没有公开 App 的版本接口': 'Qoder CN publishes no version for its app',
   '由 Google 更新程序自动更新': 'Updated automatically by Google\'s updater',
   '只在 macOS 上读取 App 的版本': 'App versions are read on macOS only', 官方安装: 'Official installer',

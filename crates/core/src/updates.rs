@@ -679,7 +679,7 @@ impl Runtime {
             return Ok(());
         };
         row.insert("current", current);
-        let Some((kind, url)) = update_products::app_source(product.id) else {
+        let Some((kind, url)) = update_products::app_source(product.id, self.product_app(product).as_deref()) else {
             row.insert("status", "更新渠道待确认");
             row.insert("available", false);
             return Ok(());

@@ -142,11 +142,7 @@ pub const PRODUCTS: [Product; 18] = [
         always: false,
         ..cli("qoder-cli", "qoder", "Qoder CLI", "https://qoder.com.cn/cli")
     },
-    Product {
-        apps: &["WorkBuddy"],
-        manual: Some("腾讯没有公开 WorkBuddy 的版本接口"),
-        ..app("workbuddy", "workbuddy", "WorkBuddy", "https://cloud.tencent.com/product/workbuddy")
-    },
+    Product { apps: &["WorkBuddy"], ..app("workbuddy", "workbuddy", "WorkBuddy", "https://www.workbuddy.cn/") },
 ];
 
 pub fn product(id: &str) -> Option<&'static Product> {
@@ -345,7 +341,23 @@ pub fn cli_channel(id: &str, binary: &str) -> Object {
 
 // Where each app's newest version is published
 
-pub fn app_source(id: &str) -> Option<(&'static str, String)> {
+/// The Tencent sites WorkBuddy's update service answers on: China's first, the one used when the app names none.
+const WORKBUDDY_SITES: [&str; 4] =
+    ["https://www.workbuddy.cn", "https://www.codebuddy.cn", "https://copilot.tencent.com", "https://www.codebuddy.ai"];
+
+/// The site an installed WorkBuddy updates from, as its own product.json names it (www.workbuddy.cn in China; abroad
+/// another), only if it is one of Tencent's; else China's.
+pub fn workbuddy_site(app: Option<&str>) -> &'static str {
+    let named = app
+        .map(|app| claude_app::read_object(&format!("{app}/Contents/Resources/app.asar.unpacked/cli/product.json")))
+        .and_then(|product| {
+            product.get("endpoint").and_then(Json::as_str).map(|site| site.trim_end_matches('/').to_string())
+        });
+    named.and_then(|named| WORKBUDDY_SITES.iter().find(|site| **site == named).copied()).unwrap_or(WORKBUDDY_SITES[0])
+}
+
+/// Where an app's newest version is published; `app` is the installed copy, for WorkBuddy's site.
+pub fn app_source(id: &str, app: Option<&str>) -> Option<(&'static str, String)> {
     let arm = std::env::consts::ARCH == "aarch64";
     Some(match id {
         "magpie" => ("github", "https://api.github.com/repos/yetone/magpie/releases/latest".into()),
@@ -368,6 +380,15 @@ pub fn app_source(id: &str) -> Option<(&'static str, String)> {
             ),
         ),
         "opencode-desktop" => ("github", "https://api.github.com/repos/anomalyco/opencode/releases/latest".into()),
+        // The update service WorkBuddy's download page asks for its download.
+        "workbuddy" => (
+            "workbuddy-feed",
+            format!(
+                "{}/v2/update?platform=workbuddy-darwin-{}",
+                workbuddy_site(app),
+                if arm { "arm64" } else { "x64" }
+            ),
+        ),
         _ => return None,
     })
 }
@@ -418,6 +439,11 @@ pub fn latest_version(kind: &str, body: &[u8]) -> Result<String, FileError> {
             .map(|version| py::str(Some(version)))
             .ok_or_else(missing),
         "ide-feed" => ide_release(body).map(|(version, _)| version).ok_or_else(missing),
+        // 5.11.3.43806934: the app's own version is the first three, the fourth its build.
+        "workbuddy-feed" => field("version")
+            .or_else(|| field("productVersion"))
+            .map(|version| version.split('.').take(3).collect::<Vec<_>>().join("."))
+            .ok_or_else(missing),
         _ => field("version").ok_or_else(missing),
     }
 }
@@ -565,8 +591,29 @@ mod tests {
             latest_version("ide-feed", br#"{"version": "8dc5", "productVersion": "1.107.0"}"#).unwrap(),
             "1.107.0"
         );
+        let workbuddy = br#"{"version": "5.11.3.43806934", "url": "https://download.codebuddy.cn/x.zip", "productVersion": "5.11.3.43806934"}"#;
+        assert_eq!(latest_version("workbuddy-feed", workbuddy).unwrap(), "5.11.3");
         assert!(latest_version("npm", b"<html>").is_err());
         assert!(latest_version("github", br#"{"message": "Not Found"}"#).is_err());
+    }
+
+    #[test]
+    fn workbuddy_asks_the_site_its_own_copy_names() {
+        let app = std::env::temp_dir().join(format!("starmeter-workbuddy-{}", std::process::id()));
+        let cli = app.join("Contents/Resources/app.asar.unpacked/cli");
+        std::fs::create_dir_all(&cli).unwrap();
+        let app_path = app.to_string_lossy().into_owned();
+        assert_eq!(workbuddy_site(None), "https://www.workbuddy.cn");
+        assert_eq!(workbuddy_site(Some(&app_path)), "https://www.workbuddy.cn", "no product.json");
+        std::fs::write(cli.join("product.json"), r#"{"endpoint": "https://www.codebuddy.ai/"}"#).unwrap();
+        assert_eq!(workbuddy_site(Some(&app_path)), "https://www.codebuddy.ai");
+        let (kind, url) = app_source("workbuddy", Some(&app_path)).unwrap();
+        assert_eq!(kind, "workbuddy-feed");
+        assert!(url.starts_with("https://www.codebuddy.ai/v2/update?platform=workbuddy-darwin-"), "{url}");
+        // A site that isn't Tencent's is never asked.
+        std::fs::write(cli.join("product.json"), r#"{"endpoint": "https://example.com"}"#).unwrap();
+        assert_eq!(workbuddy_site(Some(&app_path)), "https://www.workbuddy.cn");
+        let _ = std::fs::remove_dir_all(&app);
     }
 
     #[test]
