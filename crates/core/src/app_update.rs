@@ -354,6 +354,33 @@ mod tests {
         folder
     }
 
+    /// The installed copy and the new one as the helper finds them, each holding its version: an app bundle (a folder)
+    /// on macOS, an AppImage (one file) on Linux.
+    #[cfg(unix)]
+    fn two_copies(root: &Path) -> (PathBuf, PathBuf, Prepared) {
+        let name = if cfg!(target_os = "macos") { "Starmeter.app" } else { "Starmeter.AppImage" };
+        let (target, staged) = (root.join(name), root.join(format!(".new-{name}")));
+        for (copy, version) in [(&target, "old"), (&staged, "new")] {
+            if cfg!(target_os = "macos") {
+                std::fs::create_dir_all(copy).unwrap();
+                std::fs::write(copy.join("version"), version).unwrap();
+            } else {
+                std::fs::write(copy, version).unwrap();
+            }
+        }
+        let prepared = if cfg!(target_os = "macos") {
+            Prepared::Mac { staged: staged.clone(), target: target.clone() }
+        } else {
+            Prepared::Linux { staged: staged.clone(), target: target.clone() }
+        };
+        (target, staged, prepared)
+    }
+
+    #[cfg(unix)]
+    fn version(copy: &Path) -> String {
+        std::fs::read_to_string(if copy.is_dir() { copy.join("version") } else { copy.to_path_buf() }).unwrap()
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn the_bundle_is_what_an_app_inside_it_replaces() {
@@ -371,11 +398,7 @@ mod tests {
     #[test]
     fn the_helper_puts_the_new_copy_in_place_once_the_app_has_quit_and_opens_it() {
         let root = folder("helper");
-        let (target, staged) = (root.join("Starmeter.app"), root.join(".Starmeter-new.app"));
-        std::fs::create_dir_all(&target).unwrap();
-        std::fs::write(target.join("version"), "old").unwrap();
-        std::fs::create_dir_all(&staged).unwrap();
-        std::fs::write(staged.join("version"), "new").unwrap();
+        let (target, staged, prepared) = two_copies(&root);
         // The app: a process that quits a moment later. The opener: a script that notes what it was asked to open.
         let mut app = Command::new("/bin/sleep").arg("1").spawn().unwrap();
         let opened = root.join("opened");
@@ -383,21 +406,16 @@ mod tests {
         std::fs::write(&opener, format!("#!/bin/sh\necho \"$1\" > '{}'\n", opened.display())).unwrap();
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&opener, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let prepared = if cfg!(target_os = "macos") {
-            Prepared::Mac { staged: staged.clone(), target: target.clone() }
-        } else {
-            Prepared::Linux { staged: staged.clone(), target: target.clone() }
-        };
         finish(&prepared, app.id(), Some(&opener.to_string_lossy()), WAIT).expect("the helper starts");
         // Not before the app has quit.
         std::thread::sleep(std::time::Duration::from_millis(300));
-        assert_eq!(std::fs::read_to_string(target.join("version")).unwrap(), "old");
+        assert_eq!(version(&target), "old");
         let _ = app.wait();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
         while !opened.exists() && std::time::Instant::now() < deadline {
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
-        assert_eq!(std::fs::read_to_string(target.join("version")).unwrap(), "new");
+        assert_eq!(version(&target), "new");
         assert!(!staged.exists());
         assert_eq!(std::fs::read_to_string(&opened).unwrap().trim(), target.to_string_lossy());
         let leftovers: Vec<_> = std::fs::read_dir(&root)
@@ -409,8 +427,27 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// Signed with a Developer ID, as a release of Starmeter would be. Apple's own apps (Xcode on a CI runner) carry a
+    /// team too, but their certificate is Apple's, not the team's, so no copy of them meets the team's requirement.
+    #[cfg(target_os = "macos")]
+    fn developer_id(app: &Path) -> bool {
+        Command::new("/usr/bin/codesign")
+            .args(["-dv", "--verbose=2"])
+            .arg(app)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .output()
+            .is_ok_and(|output| {
+                String::from_utf8_lossy(&output.stderr)
+                    .lines()
+                    .any(|line| line.starts_with("Authority=Developer ID Application:"))
+            })
+    }
+
     /// A copy signed by another team, or ad hoc, doesn't replace one a team signed; one with no team holds the new
-    /// copy to nothing more than its checksum. Teams from apps on this Mac, when it has two from different teams.
+    /// copy to nothing more than its checksum. Teams from Developer ID apps on this Mac, when it has two from
+    /// different teams.
     #[cfg(target_os = "macos")]
     #[test]
     fn a_new_copy_must_come_from_the_installed_copys_team() {
@@ -433,6 +470,7 @@ mod tests {
             if path.extension().is_some_and(|ext| ext == "app")
                 && let Some(found) = team(&path)
                 && !teams.iter().any(|(known, _)| *known == found)
+                && developer_id(&path)
             {
                 teams.push((found, path));
             }
@@ -448,7 +486,7 @@ mod tests {
         if let [(_, first), (_, second)] = teams.as_slice() {
             assert_eq!(same_signer(first, second), Err("新版本的签名者与已安装的不一致".to_string()));
         } else {
-            eprintln!("only {} team-signed apps in /Applications: the other-team case not run", teams.len());
+            eprintln!("only {} Developer ID teams in /Applications: the other-team case not run", teams.len());
         }
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -457,11 +495,7 @@ mod tests {
     #[test]
     fn an_app_still_running_when_the_wait_is_over_is_left_as_it_is() {
         let root = folder("stuck");
-        let (target, staged) = (root.join("Starmeter.app"), root.join(".Starmeter-new.app"));
-        for (folder, version) in [(&target, "old"), (&staged, "new")] {
-            std::fs::create_dir_all(folder).unwrap();
-            std::fs::write(folder.join("version"), version).unwrap();
-        }
+        let (target, staged, prepared) = two_copies(&root);
         // The app hangs on quitting; the helper waits a second for it.
         let mut app = Command::new("/bin/sleep").arg("30").spawn().unwrap();
         let opened = root.join("opened");
@@ -469,11 +503,6 @@ mod tests {
         std::fs::write(&opener, format!("#!/bin/sh\necho \"$1\" > '{}'\n", opened.display())).unwrap();
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&opener, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let prepared = if cfg!(target_os = "macos") {
-            Prepared::Mac { staged: staged.clone(), target: target.clone() }
-        } else {
-            Prepared::Linux { staged: staged.clone(), target: target.clone() }
-        };
         finish(&prepared, app.id(), Some(&opener.to_string_lossy()), 1).expect("the helper starts");
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
         while staged.exists() && std::time::Instant::now() < deadline {
@@ -482,7 +511,7 @@ mod tests {
         // The new copy thrown away, the running app untouched and not opened again.
         assert!(!staged.exists());
         std::thread::sleep(std::time::Duration::from_millis(300));
-        assert_eq!(std::fs::read_to_string(target.join("version")).unwrap(), "old");
+        assert_eq!(version(&target), "old");
         assert!(!opened.exists());
         let _ = app.kill();
         let _ = app.wait();

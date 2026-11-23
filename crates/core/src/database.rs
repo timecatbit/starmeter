@@ -163,7 +163,9 @@ mod uri_tests {
 
     #[test]
     fn a_path_with_the_characters_a_uri_reads_specially_still_opens() {
-        let folder = std::env::temp_dir().join(format!("starmeter-uri a?b#c%41 {}", std::process::id()));
+        // A Windows file name can't hold ?; # and % it can.
+        let name = if cfg!(windows) { "a#b%41" } else { "a?b#c%41" };
+        let folder = std::env::temp_dir().join(format!("starmeter-uri {name} {}", std::process::id()));
         std::fs::create_dir_all(&folder).unwrap();
         let path = folder.join("state.vscdb");
         let db = Database::open(&path, 1.0, Mode::ReadWrite).unwrap();

@@ -1815,6 +1815,8 @@ impl Runtime {
 mod run_tests {
     use super::*;
 
+    // The commands are shell scripts: Windows has no /bin/sh.
+    #[cfg(unix)]
     #[test]
     fn a_command_writing_much_to_its_error_stream_finishes_with_everything_it_wrote() {
         // OCX-1: a megabyte of diagnostics on the standard error before the standard output closes used to wait on the
@@ -1832,6 +1834,7 @@ mod run_tests {
 
     #[test]
     fn a_command_past_its_time_is_stopped_and_one_not_found_says_so() {
+        #[cfg(unix)]
         assert_eq!(run_collecting("/bin/sh", &["-c", "sleep 30"], 0.5).unwrap_err(), Ran::TimedOut);
         assert_eq!(run_collecting("/nonexistent/ocx", &[], 1.0).unwrap_err(), Ran::NotStarted);
     }
