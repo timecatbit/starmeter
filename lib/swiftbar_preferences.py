@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 import swiftbar_catalog as catalog
 import swiftbar_files as files
+import swiftbar_lock as fcntl
 
 MODULES = (
     ('summary', 'Summary', '概览'),
@@ -168,6 +169,16 @@ def home_order(settings):
 
 
 def update(directory, kind, key=None, value=None):
+    """One change, read, made and written holding the preferences' lock: the app, the command line and the SwiftBar
+    entry can each be changing them at once, and one's write must not drop what another just saved."""
+    root = Path(directory)
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with open(root / 'preferences.lock', 'a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        return update_holding(directory, kind, key, value)
+
+
+def update_holding(directory, kind, key=None, value=None):
     current = read(directory)
     if kind == 'module':
         if key == 'codex-quota': key = 'chatgpt'  # Existing queued callbacks remain valid.

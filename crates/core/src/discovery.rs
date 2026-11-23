@@ -251,9 +251,11 @@ pub fn initialize(directory: &str, detected: &[String]) -> bool {
 
 /// Only after the user confirms the detected selection.
 pub fn replace_selection(directory: &str, detected: &[String]) -> Result<(), Error> {
-    let mut current = preferences::read(Path::new(directory));
-    current.insert("visible", selection(detected));
-    preferences::write(Path::new(directory), current)
+    preferences::locked(Path::new(directory), || {
+        let mut current = preferences::read(Path::new(directory));
+        current.insert("visible", selection(detected));
+        preferences::write(Path::new(directory), current)
+    })
 }
 
 impl Runtime {

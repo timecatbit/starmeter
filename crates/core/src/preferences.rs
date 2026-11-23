@@ -340,8 +340,20 @@ pub fn write(directory: &Path, mut value: Object) -> Result<(), Error> {
     .map_err(Error::Write)
 }
 
+/// Runs a read-modify-write of the preferences holding their lock: the app, the command line and the SwiftBar entry
+/// can each be changing them at once, and one's write must not drop what another just saved.
+pub fn locked<T>(directory: &Path, change: impl FnOnce() -> T) -> T {
+    let _ = files::make_directory(directory, 0o700);
+    let _lock = crate::platform::lock(&directory.join("preferences.lock"), true);
+    change()
+}
+
 /// Applies one change the panel asked for (`kind` with its key and value) and returns the preferences as saved.
 pub fn update(directory: &Path, kind: &str, key: Option<&str>, value: Option<&str>) -> Result<Object, Error> {
+    locked(directory, || update_holding(directory, kind, key, value))
+}
+
+fn update_holding(directory: &Path, kind: &str, key: Option<&str>, value: Option<&str>) -> Result<Object, Error> {
     let mut current = read(directory);
     let listed = |current: &Object, name: &str| -> Vec<String> {
         current
@@ -541,4 +553,36 @@ pub fn update(directory: &Path, kind: &str, key: Option<&str>, value: Option<&st
     }
     write(directory, current)?;
     Ok(read(directory))
+}
+
+#[cfg(test)]
+mod lock_tests {
+    use super::*;
+
+    #[test]
+    fn changes_made_at_once_all_stay() {
+        // The app, the command line and the SwiftBar entry can each change the preferences at once: each change is a
+        // read, a change and a write under the lock, so none is written over by another's older read.
+        let directory = std::env::temp_dir().join(format!("starmeter-prefs-{}", crate::runtime::random_hex(8)));
+        let keys = ["chatgpt", "claude-subscription", "cursor-subscription", "gemini-subscription"];
+        let workers: Vec<_> = keys
+            .iter()
+            .map(|key| {
+                let (directory, key) = (directory.clone(), key.to_string());
+                std::thread::spawn(move || {
+                    for n in 1..=25 {
+                        update(&directory, "subscription-price", Some(&key), Some(&n.to_string())).expect("saved");
+                    }
+                })
+            })
+            .collect();
+        for worker in workers {
+            worker.join().expect("a worker");
+        }
+        let prices = read(&directory).get("subscriptionPrices").and_then(Json::as_object).cloned().unwrap_or_default();
+        for key in keys {
+            assert_eq!(prices.get(key).and_then(Json::number), Some(25.0), "{key}");
+        }
+        let _ = std::fs::remove_dir_all(&directory);
+    }
 }
