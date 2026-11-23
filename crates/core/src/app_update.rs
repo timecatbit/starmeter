@@ -194,7 +194,7 @@ impl Runtime {
         };
         let target = this_app().ok_or_else(|| "这份 Starmeter 不能在原处更新，请从发布页下载".to_string())?;
         self.write_self_update_state(object! { "status" => "running", "version" => version });
-        let outcome = self.prepare_app_update(version, &target).and_then(|prepared| finish(&prepared, pid, None));
+        let outcome = self.prepare_app_update(version, &target).and_then(|prepared| finish(&prepared, pid, None, WAIT));
         let log = format!("{}/logs/self-update.log", self.state_dir);
         if let Some(parent) = Path::new(&log).parent() {
             let _ = files::make_directory(parent, 0o700);
@@ -221,10 +221,16 @@ impl Runtime {
     }
 }
 
-/// The helper's script: wait for the app to quit (at most a minute), put the new copy in place (the old one back if
-/// that fails), open it. Every path comes from the environment.
+/// How long the helper waits for the app to quit, in seconds.
+const WAIT: u32 = 60;
+
+/// The helper's script: wait for the app to quit (at most STARMETER_WAIT seconds), put the new copy in place (the old
+/// one back if that fails), open it. An app still running when the wait is over is left as it is and the new copy
+/// thrown away, rather than moved from under itself (or, on Windows, installed over while its files are in use). Every
+/// path comes from the environment.
 const MAC_HELPER: &str = r#"i=0
-while kill -0 "$STARMETER_PID" 2>/dev/null && [ "$i" -lt 600 ]; do sleep 0.1; i=$((i+1)); done
+while kill -0 "$STARMETER_PID" 2>/dev/null && [ "$i" -lt $((STARMETER_WAIT * 10)) ]; do sleep 0.1; i=$((i+1)); done
+if kill -0 "$STARMETER_PID" 2>/dev/null; then rm -rf "$STARMETER_STAGED"; exit 1; fi
 old="$STARMETER_TARGET.old-$$"
 if mv "$STARMETER_TARGET" "$old"; then
   if mv "$STARMETER_STAGED" "$STARMETER_TARGET"; then rm -rf "$old"; else mv "$old" "$STARMETER_TARGET"; fi
@@ -233,18 +239,20 @@ rm -rf "$STARMETER_STAGED"
 "$STARMETER_OPEN" "$STARMETER_TARGET""#;
 
 const LINUX_HELPER: &str = r#"i=0
-while kill -0 "$STARMETER_PID" 2>/dev/null && [ "$i" -lt 600 ]; do sleep 0.1; i=$((i+1)); done
+while kill -0 "$STARMETER_PID" 2>/dev/null && [ "$i" -lt $((STARMETER_WAIT * 10)) ]; do sleep 0.1; i=$((i+1)); done
+if kill -0 "$STARMETER_PID" 2>/dev/null; then rm -f "$STARMETER_STAGED"; exit 1; fi
 mv -f "$STARMETER_STAGED" "$STARMETER_TARGET" || rm -f "$STARMETER_STAGED"
 setsid "$STARMETER_OPEN" "$STARMETER_TARGET" >/dev/null 2>&1 < /dev/null &"#;
 
-const WINDOWS_HELPER: &str = "try { Wait-Process -Id ([int]$env:STARMETER_PID) -Timeout 60 -ErrorAction SilentlyContinue } catch {}; \
+const WINDOWS_HELPER: &str = "try { Wait-Process -Id ([int]$env:STARMETER_PID) -Timeout ([int]$env:STARMETER_WAIT) -ErrorAction SilentlyContinue } catch {}; \
+     if (Get-Process -Id ([int]$env:STARMETER_PID) -ErrorAction SilentlyContinue) { Remove-Item -LiteralPath $env:STARMETER_SETUP -ErrorAction SilentlyContinue; exit 1 }; \
      Start-Process -Wait -FilePath $env:STARMETER_SETUP -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART'; \
      Remove-Item -LiteralPath $env:STARMETER_SETUP -ErrorAction SilentlyContinue; \
      Start-Process -FilePath $env:STARMETER_TARGET";
 
-/// Starts the helper, detached, to finish `prepared` once process `pid` has quit. `open` is what opens the app again
-/// (macOS's open, the AppImage itself on Linux): a test gives its own.
-pub fn finish(prepared: &Prepared, pid: u32, open: Option<&str>) -> Result<(), String> {
+/// Starts the helper, detached, to finish `prepared` once process `pid` has quit, waiting at most `wait` seconds.
+/// `open` is what opens the app again (macOS's open, the AppImage itself on Linux): a test gives its own.
+pub fn finish(prepared: &Prepared, pid: u32, open: Option<&str>, wait: u32) -> Result<(), String> {
     let pid = pid.to_string();
     let mut command = match prepared {
         Prepared::Mac { staged, target } => {
@@ -279,7 +287,12 @@ pub fn finish(prepared: &Prepared, pid: u32, open: Option<&str>) -> Result<(), S
             command
         }
     };
-    command.env("STARMETER_PID", &pid).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    command
+        .env("STARMETER_PID", &pid)
+        .env("STARMETER_WAIT", wait.to_string())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -338,7 +351,7 @@ mod tests {
         } else {
             Prepared::Linux { staged: staged.clone(), target: target.clone() }
         };
-        finish(&prepared, app.id(), Some(&opener.to_string_lossy())).expect("the helper starts");
+        finish(&prepared, app.id(), Some(&opener.to_string_lossy()), WAIT).expect("the helper starts");
         // Not before the app has quit.
         std::thread::sleep(std::time::Duration::from_millis(300));
         assert_eq!(std::fs::read_to_string(target.join("version")).unwrap(), "old");
@@ -356,6 +369,42 @@ mod tests {
             .filter(|e| e.file_name().to_string_lossy().contains(".old-"))
             .collect();
         assert!(leftovers.is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_app_still_running_when_the_wait_is_over_is_left_as_it_is() {
+        let root = folder("stuck");
+        let (target, staged) = (root.join("Starmeter.app"), root.join(".Starmeter-new.app"));
+        for (folder, version) in [(&target, "old"), (&staged, "new")] {
+            std::fs::create_dir_all(folder).unwrap();
+            std::fs::write(folder.join("version"), version).unwrap();
+        }
+        // The app hangs on quitting; the helper waits a second for it.
+        let mut app = Command::new("/bin/sleep").arg("30").spawn().unwrap();
+        let opened = root.join("opened");
+        let opener = root.join("open");
+        std::fs::write(&opener, format!("#!/bin/sh\necho \"$1\" > '{}'\n", opened.display())).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&opener, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let prepared = if cfg!(target_os = "macos") {
+            Prepared::Mac { staged: staged.clone(), target: target.clone() }
+        } else {
+            Prepared::Linux { staged: staged.clone(), target: target.clone() }
+        };
+        finish(&prepared, app.id(), Some(&opener.to_string_lossy()), 1).expect("the helper starts");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while staged.exists() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        // The new copy thrown away, the running app untouched and not opened again.
+        assert!(!staged.exists());
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        assert_eq!(std::fs::read_to_string(target.join("version")).unwrap(), "old");
+        assert!(!opened.exists());
+        let _ = app.kill();
+        let _ = app.wait();
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -422,7 +471,7 @@ mod tests {
         std::fs::write(&opener, format!("#!/bin/sh\necho \"$1\" > '{}'\n", opened.display())).unwrap();
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&opener, std::fs::Permissions::from_mode(0o755)).unwrap();
-        finish(&Prepared::Mac { staged, target: target.clone() }, app.id(), Some(&opener.to_string_lossy()))
+        finish(&Prepared::Mac { staged, target: target.clone() }, app.id(), Some(&opener.to_string_lossy()), WAIT)
             .expect("helper");
         let _ = app.wait();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
@@ -457,12 +506,23 @@ mod tests {
         assert_eq!(runtime.update_app_in_place("9.0.0", std::process::id()), Ok(false));
         assert!(!state.join("state/self-update.json").exists(), "no state written");
         drop(held);
-        // Free again: this test binary isn't an app that can be replaced, which it says, and the lock is let go.
+        // Other tests start processes meanwhile, and a child between its fork and exec still has the lock's file
+        // open for a moment: wait until it is really free.
+        let lock = state.join("state/self-update.lock");
+        let free = || {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while platform::lock(&lock, false).is_none() && std::time::Instant::now() < deadline {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            platform::lock(&lock, false).is_some()
+        };
+        assert!(free());
+        // Free: this test binary isn't an app that can be replaced, which it says, and the lock is let go.
         assert_eq!(
             runtime.update_app_in_place("9.0.0", std::process::id()),
             Err("这份 Starmeter 不能在原处更新，请从发布页下载".to_string())
         );
-        assert!(platform::lock(&state.join("state/self-update.lock"), false).is_some());
+        assert!(free());
         let _ = std::fs::remove_dir_all(&state);
     }
 
