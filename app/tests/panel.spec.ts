@@ -327,6 +327,25 @@ test('a new range while pinned carries the live line on instead of starting it o
   expect(result.ranges).toBe(true);
 });
 
+test('pinned, the live chart draws a line for each tool, in Token and in Token/s', async ({ page }) => {
+  test.setTimeout(60_000);
+  await open(page);
+  await button(page, '钉住面板').click();
+  const canvas = page.locator('canvas.live');
+  const read = () => canvas.evaluate((c) => ({ ...(c as HTMLElement).dataset }));
+  // The fixtures add to several tools at each pinned reading: each gets its own line beside the total's.
+  await expect.poll(async () => ((await read()).lines ?? '').split(',').filter(Boolean).length, { timeout: 20_000 }).toBeGreaterThan(1);
+  await page.getByRole('radio', { name: 'Token/s' }).click();
+  // Each tool's rate line (the Token lines above say nothing of them).
+  await expect.poll(async () => Object.keys(JSON.parse((await read()).toolRates ?? '{}')).length, { timeout: 20_000 }).toBeGreaterThan(1);
+  // The tools' rates make up the total's.
+  const seen = await read();
+  const rates = Object.values(JSON.parse(seen.toolRates ?? '{}') as Record<string, number>);
+  const sum = rates.reduce((a, b) => a + b, 0);
+  expect(Math.abs(sum - Number(seen.rate))).toBeLessThanOrEqual(1 + rates.length * 0.1);
+  await page.getByRole('radio', { name: 'Token', exact: true }).click();
+});
+
 test('pinned, picking ranges back and forth adds nothing to the live line', async ({ page }) => {
   test.setTimeout(60_000);
   await open(page);

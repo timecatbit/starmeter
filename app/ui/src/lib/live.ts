@@ -4,8 +4,8 @@ import { summaryPart } from './format';
 import type { Dashboard } from './types';
 
 /** A reading: Summary's tokens (cache reads included, as the line and the cards count them), the output tokens the
- *  models generated, the cost and each source's tokens. */
-export interface Sample { at: number; total: number; output: number; cost: number; parts: Record<string, number> }
+ *  models generated, the cost, and each source's tokens and output tokens (a line of its own for each tool). */
+export interface Sample { at: number; total: number; output: number; cost: number; parts: Record<string, number>; outputs: Record<string, number> }
 type Part = { tokens: number; output: number; cost: number };
 
 export class LiveFeed {
@@ -75,7 +75,8 @@ export class LiveFeed {
     this.shifted = shifted;
     const sum = (key: keyof Part) => [...shifted.values()].reduce((s, part) => s + part[key], 0);
     const sample: Sample = { at, total: sum('tokens'), output: sum('output'), cost: sum('cost'),
-      parts: Object.fromEntries([...shifted].map(([id, part]) => [id, part.tokens])) };
+      parts: Object.fromEntries([...shifted].map(([id, part]) => [id, part.tokens])),
+      outputs: Object.fromEntries([...shifted].map(([id, part]) => [id, part.output])) };
     if (!comparable || !this.samples.length) this.offset = LiveFeed.latest(dashboard) - sample.total;
     this.keep(sample, at);
   }
@@ -95,13 +96,15 @@ export class LiveFeed {
    *  from the cache, so those run to tens of thousands a second and say nothing about speed. */
   rate(now: number): number | null { return this.rateAt(now); }
 
-  /** The same rate as it stood at an earlier moment, from the readings up to then: the Token/s line is drawn from it. */
-  rateAt(at: number): number | null {
+  /** The same rate as it stood at an earlier moment, from the readings up to then: the Token/s line is drawn from it;
+   *  with a source, that source's own (its line beside the total's). */
+  rateAt(at: number, id?: string): number | null {
     const upto = this.samples.filter((s) => s.at <= at), last = upto.at(-1);
     if (!last) return null;
     const start = at - LiveFeed.window;
     const from = [...upto].reverse().find((s) => s.at <= start) ?? upto[0];
-    return Math.max(0, last.output - from.output) / (LiveFeed.window / 1000);
+    const output = (sample: Sample) => (id === undefined ? sample.output : sample.outputs?.[id] ?? 0);
+    return Math.max(0, output(last) - output(from)) / (LiveFeed.window / 1000);
   }
 }
 
