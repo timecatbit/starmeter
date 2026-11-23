@@ -16,7 +16,7 @@ use std::process::{Command, Stdio};
 
 use crate::json::Json;
 use crate::runtime::{self, Runtime, VERSION};
-use crate::{files, object, shell, updates};
+use crate::{files, object, platform, shell, updates};
 
 /// At most this large a package (an AppImage is the largest), downloaded within this long.
 const PACKAGE_LIMIT: usize = 300 * 1024 * 1024;
@@ -184,8 +184,14 @@ impl Runtime {
     }
 
     /// The whole update in place: readied, then handed to the helper that finishes it once this process (`pid`) has
-    /// quit. The caller quits the app after Ok. The state and log are the plugin's own update's.
-    pub fn update_app_in_place(&self, version: &str, pid: u32) -> Result<(), String> {
+    /// quit. Ok(true): handed over, and the caller quits the app; Ok(false): an update is already under way (the
+    /// plugin's own uses the same lock), and nothing is done. The state and log are the plugin's own update's.
+    pub fn update_app_in_place(&self, version: &str, pid: u32) -> Result<bool, String> {
+        let _ = files::make_directory(Path::new(&self.state_dir), 0o700);
+        // Held until this process quits: two updates at once would start two helpers moving the same app about.
+        let Some(lock) = platform::lock(&Path::new(&self.state_dir).join("self-update.lock"), false) else {
+            return Ok(false);
+        };
         let target = this_app().ok_or_else(|| "这份 Starmeter 不能在原处更新，请从发布页下载".to_string())?;
         self.write_self_update_state(object! { "status" => "running", "version" => version });
         let outcome = self.prepare_app_update(version, &target).and_then(|prepared| finish(&prepared, pid, None));
@@ -207,7 +213,11 @@ impl Runtime {
                 object! { "status" => "failed", "version" => version, "reason" => reason.as_str() },
             ),
         }
-        outcome
+        outcome.map(|()| {
+            // The lock goes with this process, after the helper has the update in hand.
+            std::mem::forget(lock);
+            true
+        })
     }
 }
 
@@ -430,6 +440,30 @@ mod tests {
             .is_some()
         );
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_second_update_while_one_is_under_way_does_nothing() {
+        let state = folder("lock");
+        let environment: std::collections::HashMap<String, String> =
+            [("HOME", state.clone()), ("OCX_STATE_DIR", state.join("state")), ("OCX_CACHE_DIR", state.join("cache"))]
+                .into_iter()
+                .map(|(key, value)| (key.to_string(), value.to_string_lossy().into_owned()))
+                .collect();
+        let runtime = Runtime::new(environment, "starmeter");
+        std::fs::create_dir_all(state.join("state")).unwrap();
+        // One under way (the plugin's own update, or a first click): the second leaves everything as it is.
+        let held = platform::lock(&state.join("state/self-update.lock"), false).expect("free");
+        assert_eq!(runtime.update_app_in_place("9.0.0", std::process::id()), Ok(false));
+        assert!(!state.join("state/self-update.json").exists(), "no state written");
+        drop(held);
+        // Free again: this test binary isn't an app that can be replaced, which it says, and the lock is let go.
+        assert_eq!(
+            runtime.update_app_in_place("9.0.0", std::process::id()),
+            Err("这份 Starmeter 不能在原处更新，请从发布页下载".to_string())
+        );
+        assert!(platform::lock(&state.join("state/self-update.lock"), false).is_some());
+        let _ = std::fs::remove_dir_all(&state);
     }
 
     #[test]

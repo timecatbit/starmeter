@@ -515,7 +515,9 @@ impl DesktopHost for AppHost {
                 crate::data::changed(&app);
                 let runtime = engine.runtime();
                 match runtime.update_app_in_place(&version, std::process::id()) {
-                    Ok(()) => app.exit(0),
+                    Ok(true) => app.exit(0),
+                    // Another update already under way says how it goes itself.
+                    Ok(false) => crate::data::changed(&app),
                     Err(reason) => {
                         runtime.host.notify(&format!("更新失败：{reason}"), "Starmeter 更新");
                         crate::data::changed(&app);
