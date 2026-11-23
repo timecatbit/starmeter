@@ -1922,6 +1922,13 @@ class PanelParityTests(BackgroundParityTests):
         if 'error' in answer:raise SwiftError(answer['error'])
         return answer['result']
 
+    def codex_on_path(self):
+        # ChatGPT 订阅 is set up only with the codex command on PATH beside the login: a stand-in, so a test that reads
+        # the plan's row doesn't lean on a codex installed where it runs (a CI runner has none).
+        folder = Path(self.temp.name) / 'bin'; folder.mkdir(exist_ok=True)
+        codex = folder / 'codex'; codex.write_text('#!/bin/sh\nexit 1\n'); codex.chmod(0o755)
+        self.common['PATH'] = str(folder) + os.pathsep + os.environ.get('PATH', '')
+
     def caches(self, now):
         def iso(at):return datetime.fromtimestamp(at, timezone.utc).isoformat()
         records = {
@@ -1987,6 +1994,7 @@ class PanelParityTests(BackgroundParityTests):
 
     def test_windows_with_an_unknown_share_left_raise_no_alert(self):
         # QUOTA-ALERT-1: a window whose remaining is missing or null is no reading (not a full one); a real 0 still is.
+        self.codex_on_path()
         codex = Path(self.common['HOME']) / '.codex'; codex.mkdir(exist_ok=True)
         (codex / 'auth.json').write_text(json.dumps({'auth_mode': 'chatgpt', 'tokens': {'access_token': 'x'}}))
         daemon = Path(self.common['HOME']) / '.gemini' / 'antigravity' / 'daemon'; daemon.mkdir(parents=True, exist_ok=True)
@@ -2016,6 +2024,7 @@ class PanelParityTests(BackgroundParityTests):
 
     def test_a_window_with_an_unknown_share_left_is_left_off_the_row(self):
         # A window whose remaining is missing or null isn't drawn as 已用 100%: the row is the windows that say.
+        self.codex_on_path()
         codex = Path(self.common['HOME']) / '.codex'; codex.mkdir(exist_ok=True)
         (codex / 'auth.json').write_text(json.dumps({'auth_mode': 'chatgpt', 'tokens': {'access_token': 'x'}}))
         daemon = Path(self.common['HOME']) / '.gemini' / 'antigravity' / 'daemon'; daemon.mkdir(parents=True, exist_ok=True)
@@ -2188,6 +2197,7 @@ class EngineRunParityTests(PanelParityTests):
     def test_plans_on_their_reserves(self):
         # 订阅额度框架: a window used up with something left to spend shows what is left, in orange; ChatGPT's free
         # resets come under its bar.
+        self.codex_on_path()
         codex = Path(self.common['HOME']) / '.codex'; codex.mkdir()
         (codex / 'auth.json').write_text(json.dumps({'auth_mode': 'chatgpt'}))
         self.settings(visible=['chatgpt', 'claude-subscription', 'cursor-subscription'], cursorUsage=True)
