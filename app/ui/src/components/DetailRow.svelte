@@ -3,7 +3,7 @@
   // the right, a 4pt usage bar with the even-pace mark, its detail, and a chevron that turns when it opens.
   import { barColor, usageColor } from '../lib/colors';
   import { t } from '../lib/i18n.svelte';
-  import { actionable, command, configured, destructive, info, leads, pace, toggle, usageShare } from '../lib/detail';
+  import { actionable, command, configured, destructive, info, keepCommand, leads, pace, toggle, usageShare } from '../lib/detail';
   import { font, width as measure } from '../lib/measure';
   import { panel } from '../lib/ui.svelte';
   import type { Entry } from '../lib/types';
@@ -94,7 +94,7 @@
         {/if}
       </span>
     {/if}
-    {#if entry.detail}<span class="detail">{entry.detail}</span>{/if}
+    {#if entry.detail}<span class="detail">{keepCommand(entry.detail)}</span>{/if}
   </span>
   {#if entry.children.length || opensPage}
     <svg class="chevron" class:open style:top="{(plain ? 5 : 8) + lineHeight / 2 - 6}px" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">

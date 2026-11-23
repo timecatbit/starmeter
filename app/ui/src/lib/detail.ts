@@ -47,6 +47,10 @@ export function iconed(e: Entry): Entry {
 }
 
 /** Something to do rather than to read: tinted like a link, red when it takes something away. */
+/** The command a row offers to run (点击运行 brew upgrade --cask codex) wraps as a whole rather than at a hyphen inside
+ *  it: a word joiner, invisible, follows each hyphen of the command. */
+export const keepCommand = (detail: string) =>
+  detail.replace(/((?:点击运行|點擊運行|Click to run) )(.+?)(?= · |\n|$)/gm, (_, lead: string, words: string) => lead + words.replaceAll('-', '-\u2060'));
 export const command = (e: Entry) => !e.children.length && (e.action !== undefined || e.href !== undefined) && e.value === undefined && e.checked === undefined && e.statusLight === undefined;
 export const destructive = (e: Entry) => ['remove-api-key', 'clear-connection', 'stop', 'reset-modules', 'clear-sync-folder'].includes(e.action?.[0] ?? '') || source(e).label.startsWith('删除') || source(e).label.startsWith('清除');
 
