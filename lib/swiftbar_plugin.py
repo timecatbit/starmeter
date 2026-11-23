@@ -4408,7 +4408,7 @@ def dashboard_payload(data):
     return {'date':now.date().isoformat(),'dates':labels,'providers':providers,'rangeKey':key,'rangeLabel':RANGES[key],
             'grouping':grouping,'groupings':[{'key':k,'label':v} for k,v in GROUPINGS.items()],'cards':cards,'currency':currency_unit(data),
             'groupNote':'按客户端自己的记录' if grouping=='project' and cards is not None else None,
-            'chartUnit':unit,'chartSpan':span,'period':period,'chartStatus':chart_status,'updated':updated,'chartPositions':chart_positions,
+            'chartUnit':unit,'chartSpan':span,'period':period,'chartStatus':chart_status,'updated':updated,'fetchedAt':bundle.get('_fetchedAt'),'chartPositions':chart_positions,
             'heatmap':heatmap_payload(bundle,key,now,selected,data.get('range_usage_error')) if module_enabled('heatmap') and selected else None,
             'showSummary':module_enabled('summary'),'allowCollapse':view_settings()['allowCollapse'],'expandedProviders':view_settings()['expandedProviders']}
 
@@ -4852,6 +4852,9 @@ def run_action(name, extra):
     elif name == "refresh-live":
         if extra:raise ValueError('invalid live refresh')
         refresh_live()
+    elif name == "prefetch-ranges":
+        # The range menu opened: the engine reads its ranges ahead; this reference has no background reader for it.
+        if extra:raise ValueError('invalid prefetch')
     elif name == "set-pin-interval":
         if len(extra)!=1:raise ValueError('invalid pin interval')
         preferences.update(STATE_DIR,'pin-interval',extra[0])
@@ -5003,7 +5006,7 @@ def consume_panel_action():
         snapshot=read_cache("panel-view")
         nodes = list(snapshot.get("entries") or [])+list(snapshot.get("rangeOptions") or [])+list(snapshot.get("moduleOptions") or [])
         # Header buttons beside Summary are always present, so their actions are always allowed.
-        allowed = [["refresh-view"], ["refresh"], ["refresh-live"], ["detect-modules"]] + [["set-group", key] for key in GROUPINGS]
+        allowed = [["refresh-view"], ["refresh"], ["refresh-live"], ["detect-modules"], ["prefetch-ranges"]] + [["set-group", key] for key in GROUPINGS]
         dashboard=snapshot.get('dashboard') or {}
         if dashboard.get('allowCollapse'):
             allowed.extend([['set-expanded',p['id'],value] for p in dashboard.get('providers',[]) if p.get('id') in preferences.USAGE for value in ('true','false')])

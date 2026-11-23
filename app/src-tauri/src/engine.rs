@@ -37,6 +37,8 @@ fn watched() -> bool {
 #[derive(Default)]
 struct Jobs {
     range: bool,
+    /// The range menu is open: its ranges read ahead (prefetch_ranges), after any range picked.
+    prefetch: bool,
     tests: Vec<(String, String)>,
     refresh: bool,
     /// Back from sleep: before the refresh, what failed meanwhile is read again now (see retry_after_wake).
@@ -190,6 +192,7 @@ impl Engine {
         // the core and the queue merges a repeat.
         match name.as_str() {
             "set-range" => self.queue(|jobs| jobs.range = true),
+            "prefetch-ranges" => self.queue(|jobs| jobs.prefetch = true),
             "refresh-live" => {}
             _ => self.queue(|jobs| jobs.refresh = true),
         }
@@ -217,16 +220,22 @@ impl Engine {
     /// One lane of the background: the refresh (slow) or the range reads and key checks (quick).
     fn work(self: Arc<Self>, slow: bool) {
         loop {
-            let (range, tests, refresh, after_wake) = {
+            let (range, tests, refresh, after_wake, prefetch) = {
                 let mut jobs = self.jobs.lock().expect("the job lock");
-                while if slow { !jobs.refresh } else { !jobs.range && jobs.tests.is_empty() } {
+                while if slow { !jobs.refresh } else { !jobs.range && jobs.tests.is_empty() && !jobs.prefetch } {
                     jobs = self.wake.wait(jobs).expect("the job lock");
                 }
                 if slow {
                     jobs.refresh = false;
-                    (false, Vec::new(), true, std::mem::take(&mut jobs.after_wake))
+                    (false, Vec::new(), true, std::mem::take(&mut jobs.after_wake), false)
                 } else {
-                    (std::mem::take(&mut jobs.range), std::mem::take(&mut jobs.tests), false, false)
+                    (
+                        std::mem::take(&mut jobs.range),
+                        std::mem::take(&mut jobs.tests),
+                        false,
+                        false,
+                        std::mem::take(&mut jobs.prefetch),
+                    )
                 }
             };
             let runtime = self.runtime();
@@ -237,6 +246,10 @@ impl Engine {
             if range {
                 runtime.refresh_usage_range(true);
                 crate::data::changed(&self.app);
+            }
+            if prefetch {
+                // A range picked meanwhile is read first: the reading ahead stops for it.
+                runtime.prefetch_ranges(&|| self.jobs.lock().map(|jobs| jobs.range).unwrap_or(false));
             }
             if after_wake {
                 runtime.retry_after_wake();
@@ -537,6 +550,7 @@ impl DesktopHost for AppHost {
         if let Some(engine) = self.engine.upgrade() {
             match mode {
                 Some("--refresh-range") => engine.queue(|jobs| jobs.range = true),
+                Some("--prefetch-ranges") => engine.queue(|jobs| jobs.prefetch = true),
                 _ => engine.queue(|jobs| jobs.refresh = true),
             }
         }

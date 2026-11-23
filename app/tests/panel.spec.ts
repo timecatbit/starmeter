@@ -743,6 +743,43 @@ test('grouping by model or project swaps the cards, five of them and the rest be
   await expect(page.locator('.card')).toHaveCount(15);
 });
 
+test('a range picked shows once read through, never the old range or a source at a time; the menu reads ahead', async ({ page }) => {
+  const asked: string[] = [];
+  page.on('console', (message) => { if (message.text().startsWith('[fixtures] action')) asked.push(message.text()); });
+  await open(page);
+  const tokens = page.locator('.summary .figure').nth(1);
+  const today = (await tokens.textContent())!.trim();
+  // Opening the range menu has its ranges read ahead.
+  await page.getByRole('button', { name: /统计范围/ }).click();
+  await expect.poll(() => asked.some((line) => line.includes('prefetch-ranges'))).toBe(true);
+  // Watch every frame of the switch: what shows is today's figure, dimmed, until the week's is in whole.
+  await page.evaluate(() => {
+    const seen: { text: string; reading: boolean; magpie: string }[] = [];
+    (window as unknown as { seen: typeof seen }).seen = seen;
+    const look = () => {
+      const figure = document.querySelectorAll('.summary .figure')[1]?.textContent?.trim() ?? '';
+      const reading = document.querySelector('.dashboard')?.classList.contains('reading') ?? false;
+      const magpie = [...document.querySelectorAll('.card')].find((card) => card.textContent?.includes('Magpie'))?.textContent ?? '';
+      seen.push({ text: figure, reading, magpie });
+      requestAnimationFrame(look);
+    };
+    look();
+  });
+  await page.getByRole('option', { name: '近 7 天' }).click();
+  await expect(page.locator('.dashboard')).toHaveClass(/reading/);
+  await expect(page.locator('.note', { hasText: '正在读取…' })).toBeVisible();
+  await expect(page.locator('.dashboard')).not.toHaveClass(/reading/, { timeout: 5000 });
+  await page.waitForTimeout(900);
+  const week = (await tokens.textContent())!.trim();
+  expect(week).not.toBe(today);
+  const seen = await page.evaluate(() => (window as unknown as { seen: { text: string; reading: boolean; magpie: string }[] }).seen);
+  // Before the week's figures: today's (dimmed while reading); after: the week's, rolled in, never one missing Magpie.
+  for (const frame of seen) expect(frame.magpie).not.toContain('待同步');
+  const first = seen.findIndex((frame) => frame.text !== today);
+  expect(seen.slice(0, first).every((frame) => frame.text === today)).toBe(true);
+  expect(seen.slice(first).every((frame) => !frame.reading)).toBe(true);
+});
+
 test('what was opened stays open: 查看更多 and an opened session, across tabs, a page and a reload', async ({ page }) => {
   await open(page);
   await page.getByRole('radio', { name: '会话' }).click();

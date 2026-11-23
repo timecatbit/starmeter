@@ -6,10 +6,12 @@
   import { pageCurve } from '../lib/motion';
   import { panel } from '../lib/ui.svelte';
 
-  let { options, value, label, size = 11, align = 'right', field = false, onpick }: {
+  let { options, value, label, size = 11, align = 'right', field = false, onpick, onopen }: {
     options: { value: string; label: string }[]; value: string; label: string; size?: number; align?: 'left' | 'right';
     /** Drawn as a full-width field (a soft fill, the chevron at its right end) where it sits among other controls. */
     field?: boolean; onpick: (value: string) => void;
+    /** The menu opening: the range menu has its ranges read ahead while the user looks it over. */
+    onopen?: () => void;
   } = $props();
 
   let open = $state(false);
@@ -33,6 +35,7 @@
     menu?.style.removeProperty('display');
     open = true;
     panel.menuOpen = true;
+    onopen?.();
     lit = Math.max(0, options.findIndex((o) => o.value === value));
     // The bottom of what scrolls around it (else the panel's): past it, the menu would make the page scroll to it.
     const bottom = (root?.closest('.viewport') ?? root?.closest('.window'))?.getBoundingClientRect().bottom ?? window.innerHeight;

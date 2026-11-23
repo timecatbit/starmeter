@@ -135,6 +135,8 @@ export interface Dashboard {
   period?: string[];
   chartStatus: string;
   updated?: string;
+  /** When the range's figures were read (seconds): a range picked shows once its reading is this fresh. */
+  fetchedAt?: number | null;
   chartPositions?: number[] | null;
   heatmap?: UsageHeatmap | null;
   showSummary?: boolean;

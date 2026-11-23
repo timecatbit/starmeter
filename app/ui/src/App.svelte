@@ -11,7 +11,7 @@
   import { font, width as measure } from './lib/measure';
   import { pageIn, pageOut } from './lib/motion';
   import { answer as answerQuestion, ask, show as showQuestion } from './lib/ask.svelte';
-  import { chooseLanguage, localize, restoreLanguage, source, t } from './lib/i18n.svelte';
+  import { chooseLanguage, localize, reads, restoreLanguage, source, t } from './lib/i18n.svelte';
   import { chooseStyle } from './lib/style.svelte';
   import { phoneStatus } from './lib/phone.svelte';
   import { chooseShortcut, restoreShortcut, shortcut } from './lib/shortcut.svelte';
@@ -68,7 +68,24 @@
     const options = snapshot?.rangeOptions ?? [];
     return pickedRange ? options.map((o) => ({ ...o, checked: o.action?.[1] === pickedRange })) : options;
   });
-  $effect(() => { if (pickedRange && snapshot?.dashboard?.rangeKey === pickedRange) pickedRange = null; });
+  // A new range shows once it is read through (用户：切换时间段时有机会看到旧的信息，等刷新完成后再展示): the range itself, no
+  // source still on its way (a range's figures come in source by source), and read since the pick, or in the minute
+  // before it (the range menu has the ranges read ahead while it is open). Until then the old figures stay, dimmed. A
+  // reading that never completes (a source failing) is shown after ten seconds as it is.
+  const FRESH = 60_000;
+  const LONGEST = 10_000;
+  let pickedAt = 0;
+  let waitedOut = $state(0);
+  const unsynced = (d: DashboardData) => d.providers.some((p) => !p.available && reads(p.status, '待同步'));
+  const readThrough = (d: DashboardData) => d.rangeKey === pickedRange && !unsynced(d)
+    && (d.fetchedAt == null || d.fetchedAt * 1000 >= pickedAt - FRESH);
+  const waiting = $derived(!!pickedRange && !!snapshot?.dashboard && !readThrough(snapshot.dashboard) && waitedOut < pickedAt);
+  $effect(() => { if (pickedRange && snapshot?.dashboard && (readThrough(snapshot.dashboard) || waitedOut >= pickedAt)) pickedRange = null; });
+  /** The range menu open: the ranges in it are read ahead, so the one picked is most likely read already. */
+  function prefetchRanges() {
+    if (onPhone) return;
+    void backend.action(['prefetch-ranges']).catch(() => {});
+  }
   /** On a phone: why the figures on screen are not fresh, until a reading comes through. */
   let phoneProblem = $state<string | null>(null);
   /** A tool's page, opened from its card: its usage and its settings. */
@@ -198,6 +215,8 @@
   $effect(() => {
     const next = snapshot?.dashboard;
     currency.unit = next?.currency ?? null;
+    // Waiting for a picked range, the figures on screen stay as they are; the new reading comes in whole.
+    if (waiting && shown) return;
     untrack(() => present(next ?? null));
   });
 
@@ -427,7 +446,12 @@
       });
       return;
     }
-    if (action[0] === 'set-range') pickedRange = action[1] === snapshot?.dashboard?.rangeKey ? null : action[1];
+    if (action[0] === 'set-range') {
+      pickedRange = action[1] === snapshot?.dashboard?.rangeKey && !waiting ? null : action[1];
+      pickedAt = Date.now();
+      const at = pickedAt;
+      setTimeout(() => { waitedOut = Math.max(waitedOut, at); }, LONGEST);
+    }
     switch (interaction.submit(action)) {
       case 'start': void dispatch(action); break;
       case 'queued': version++; break;
@@ -749,7 +773,7 @@
 
 {#snippet dashboardView()}
   {#if shown && snapshot}
-    <Dashboard data={shown} {rangeOptions} reading={pickedRange !== null} {reveal} {glows} {summaryGlow} live={pinned || leaving !== null ? feed : null} {leaving} onleft={() => { leaving = null; feed = null; }} {liveStamp} {pinned}
+    <Dashboard data={shown} {rangeOptions} reading={waiting} onprefetch={prefetchRanges} {reveal} {glows} {summaryGlow} live={pinned || leaving !== null ? feed : null} {leaving} onleft={() => { leaving = null; feed = null; }} {liveStamp} {pinned}
       {pinInterval} onrange={perform} onshare={openShare}
       onpin={() => { panel.hint = null; setPinned(!pinned); if (pinned) perform(['refresh-live']); }} onsettings={openSettings}
       onopentool={openTool} ongroup={(key) => perform(['set-group', key])} {sessions} {view} onview={chooseView} busy={interaction.active}

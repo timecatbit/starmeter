@@ -650,6 +650,26 @@ impl Runtime {
         .unwrap_or(false)
     }
 
+    /// The ranges the range menu offers, read ahead while it is open (in the menu's order, the one on screen and any
+    /// read in the last minute left alone), so the range picked is most likely read already and shows at once. `stop`
+    /// says a range was picked meanwhile: its own read goes first.
+    pub fn prefetch_ranges(&self, stop: &dyn Fn() -> bool) {
+        let shown = self.selected_range();
+        for (key, _) in crate::runtime::RANGES {
+            if stop() {
+                return;
+            }
+            if key == shown
+                || !self.cache_due(&self.read_cache(&self.range_cache_name(Some(key))), self.refresh_ttl(60.0))
+            {
+                continue;
+            }
+            self.with_lock("range-refresh.lock", true, || {
+                self.range_usage(Some(key), None);
+            });
+        }
+    }
+
     /// A pinned panel's tick: the range on screen re-read from the local logs, and the active sessions.
     pub fn refresh_live(&self) -> bool {
         if self
@@ -811,4 +831,62 @@ pub fn run_concurrently<'a>(jobs: Vec<Box<dyn FnOnce() + Send + 'a>>, workers: u
             });
         }
     });
+}
+
+#[cfg(test)]
+mod prefetch_tests {
+    use crate::json::Json;
+    use crate::object;
+    use crate::runtime::{RANGES, Runtime};
+
+    fn runtime(home: &std::path::Path) -> Runtime {
+        let state = home.join("state");
+        std::fs::create_dir_all(&state).unwrap();
+        let prefs =
+            object! { "schema" => 1, "visible" => Json::from(vec!["summary".to_string(), "workbuddy".to_string()]) };
+        std::fs::write(state.join("preferences.json"), Json::Object(prefs).serialized()).unwrap();
+        let environment: std::collections::HashMap<String, String> = [
+            ("HOME", home.to_string_lossy().into_owned()),
+            ("OCX_STATE_DIR", state.to_string_lossy().into_owned()),
+            ("OCX_CACHE_DIR", home.join("cache").to_string_lossy().into_owned()),
+            ("WORKBUDDY_USAGE_DIR", home.to_string_lossy().into_owned()),
+            ("CLAUDE_CONFIG_DIR", home.join("claude").to_string_lossy().into_owned()),
+            ("CODEX_HOME", home.join("codex").to_string_lossy().into_owned()),
+            ("OCX_CHATGPT_HOME", home.join("codex").to_string_lossy().into_owned()),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value))
+        .collect();
+        Runtime::new(environment, "starmeter")
+    }
+
+    /// The range menu open: every range but the one on screen read ahead; opened again within the minute, none read
+    /// again; a range picked meanwhile stops it.
+    #[test]
+    fn the_range_menu_has_its_ranges_read_ahead() {
+        let home = std::env::temp_dir().join(format!("starmeter-prefetch-{}", crate::runtime::random_hex(6)));
+        std::fs::create_dir_all(home.join(".workbuddy/projects/p")).unwrap();
+        std::fs::write(
+            home.join(".workbuddy/projects/p/w.jsonl"),
+            r#"{"type":"message","timestamp":"2026-11-01T10:00:00Z","message":{"role":"assistant","id":"w1","model":"glm-5","usage":{"input_tokens":9,"output_tokens":1}}}"#.to_string() + "\n",
+        )
+        .unwrap();
+        let runtime = runtime(&home);
+        let shown = runtime.selected_range();
+        let read_at = |key: &str| {
+            runtime.read_cache(&runtime.range_cache_name(Some(key))).get("fetchedAt").and_then(Json::python_float)
+        };
+        // Stopped before it starts: nothing read.
+        runtime.prefetch_ranges(&|| true);
+        assert!(RANGES.iter().all(|(key, _)| read_at(key).is_none()));
+        runtime.prefetch_ranges(&|| false);
+        for (key, _) in RANGES {
+            assert_eq!(read_at(key).is_some(), key != shown, "{key}");
+        }
+        let first: Vec<Option<f64>> = RANGES.iter().map(|(key, _)| read_at(key)).collect();
+        runtime.prefetch_ranges(&|| false);
+        let again: Vec<Option<f64>> = RANGES.iter().map(|(key, _)| read_at(key)).collect();
+        assert_eq!(first, again, "read again within the minute");
+        let _ = std::fs::remove_dir_all(&home);
+    }
 }

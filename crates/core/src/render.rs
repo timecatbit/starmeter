@@ -281,6 +281,10 @@ impl Runtime {
                 self.refresh_swiftbar();
                 0
             }
+            "--prefetch-ranges" => {
+                self.prefetch_ranges(&|| false);
+                0
+            }
             "--self-update" => self.self_update_worker(rest.first().map(String::as_str).unwrap_or("")),
             "--claude-statusline" => {
                 let Some(index) = arguments.iter().position(|argument| argument == "--state-dir") else { return 2 };

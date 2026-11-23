@@ -28,7 +28,7 @@
 
   let { data, rangeOptions, reveal, glows, summaryGlow, live, leaving = null, onleft, liveStamp, pinned, pinInterval, onrange,
     onshare, onpin, onsettings, ongroup, ontoggle, onopentool, onsize, onfloor, sessions = null, view = 'cards', onview, busy = null, onopen, onchoose,
-    readonly = false, reading = false }: {
+    readonly = false, reading = false, onprefetch }: {
     data: Dashboard; rangeOptions: Entry[]; reveal: number; glows: Record<string, number>; summaryGlow: number; live: LiveFeed | null;
     leaving?: number | null; onleft?: () => void;
     liveStamp: string | null; pinned: boolean; pinInterval: number;
@@ -37,7 +37,9 @@
     /** On a phone (在手机上看): no pin, settings or share, the range alone in the header. */
     readonly?: boolean;
     /** A range picked and still being read: the menu shows it, the figures are still the last range's. */
+    /** A range picked and not read through yet: what is on screen is the old reading, dimmed, until the new one is in. */
     reading?: boolean;
+    onprefetch?: () => void;
     /** How tall a pinned panel that fits the homepage is: down to the end of the third card or session. */
     onsize?: (height: number) => void;
     /** The least a pinned panel shows of the homepage: down to the end of the heatmap. */
@@ -117,7 +119,7 @@
   const legendColours = $derived([summaryColour(panel.dark), ...counted.map((p) => toolColour(p.id, panel.dark))]);
   const legendCells = $derived(legendLayout(legend, right - left).flatMap((row, r) => row.map((cell) => ({ ...cell, row: r }))));
   // 多台电脑合并: the other computers counted in, beside the update time (this one included).
-  const note = $derived([data.chartStatus, liveStamp ?? data.updated ?? '', data.devices ? t('含 {n} 台电脑', { n: data.devices + 1 }) : '']
+  const note = $derived(reading ? t('正在读取…') : [data.chartStatus, liveStamp ?? data.updated ?? '', data.devices ? t('含 {n} 台电脑', { n: data.devices + 1 }) : '']
     .filter(Boolean).join(' · '));
 
   // Header: the star and Starmeter, then share, the pin and the gear leftward from the range picker, 2pt apart. (No
@@ -148,7 +150,7 @@
   }
 </script>
 
-<div class="dashboard" style:width="{inner}px" style:height="{total}px">
+<div class="dashboard" class:reading style:width="{inner}px" style:height="{total}px">
   <div class="summary" style:height="{summaryHeight}px">
     <!-- Pinned, the header's free space moves the window, as a title bar would. -->
     <div class="grip" class:movable={panel.pinned} onmousedown={grabWindow} aria-hidden="true"></div>
@@ -167,7 +169,7 @@
         <HintButton icon="square.and.arrow.up" system hint={t('分享用量图')} label={t('分享用量图')} onclick={onshare} />
       </span>
       <span class="picker" class:reading style:left="{pickerX}px" style:width="{pickerWidth}px">
-        <Dropdown label={t('统计范围')} value={chosen} options={rangeOptions.map((o) => ({ value: o.action?.[1] ?? '', label: o.label }))} onpick={pickRange} />
+        <Dropdown label={t('统计范围')} value={chosen} options={rangeOptions.map((o) => ({ value: o.action?.[1] ?? '', label: o.label }))} onpick={pickRange} onopen={onprefetch} />
       </span>
     </div>
     {#if showSummary}
@@ -316,4 +318,10 @@
   }
   /* A range picked and still being read: its name a little faint until its figures arrive. */
   .picker.reading :global(.current) { opacity: 0.55; transition: opacity 0.2s; }
+  /* A range picked and not read through yet: the old figures stay where they are (nothing jumps), dimmed, and 正在读取…
+     says why; the new reading takes their place whole, never a source at a time (用户：切换时间段时有机会看到旧的信息). */
+  .figure, .trend, .cards, .dashboard > :global(.heatmap) { transition: opacity 0.18s ease-out; }
+  .dashboard.reading .figure, .dashboard.reading .trend, .dashboard.reading .cards, .dashboard.reading > :global(.heatmap) {
+    opacity: 0.32;
+  }
 </style>

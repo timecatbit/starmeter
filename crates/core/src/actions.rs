@@ -93,10 +93,11 @@ const RECEIPT_ACTIONS: [&str; 9] = [
 ];
 
 fn always_allowed() -> Vec<Vec<String>> {
-    let mut allowed: Vec<Vec<String>> = [["refresh-view"], ["refresh"], ["refresh-live"], ["detect-modules"]]
-        .iter()
-        .map(|a| vec![a[0].to_string()])
-        .collect();
+    let mut allowed: Vec<Vec<String>> =
+        [["refresh-view"], ["refresh"], ["refresh-live"], ["detect-modules"], ["prefetch-ranges"]]
+            .iter()
+            .map(|a| vec![a[0].to_string()])
+            .collect();
     allowed.extend(preferences::GROUPINGS.iter().map(|key| vec!["set-group".to_string(), key.to_string()]));
     allowed
 }
@@ -1384,6 +1385,13 @@ impl Runtime {
                     return invalid("invalid live refresh");
                 }
                 self.refresh_live();
+            }
+            // The range menu opened: its ranges read ahead in the background (prefetch_ranges).
+            "prefetch-ranges" => {
+                if !extra.is_empty() {
+                    return invalid("invalid prefetch");
+                }
+                self.launch_background("--prefetch-ranges");
             }
             "set-pin-interval" => {
                 if extra.len() != 1 {
