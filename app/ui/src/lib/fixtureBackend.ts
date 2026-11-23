@@ -222,7 +222,13 @@ let wanted = 'today';
 export async function action(action: string[]): Promise<ActionReceipt> {
   const f = await load(), prefs = state.prefs!;
   const [name, a, b] = action;
-  const saved = () => { prefs.revision += 1; changed(); return { status: 'done' as const, preferences: structuredClone(prefs) }; };
+  // As the engine sends them: the homepage order in effect, every module in it (the default order after a reset).
+  const effective = () => {
+    const all = f.entryModules.filter((key): key is string => !!key);
+    const chosen = (prefs.homeOrder ?? []).filter((key) => all.includes(key));
+    return [...chosen, ...all.filter((key) => !chosen.includes(key))];
+  };
+  const saved = () => { prefs.revision += 1; changed(); return { status: 'done' as const, preferences: { ...structuredClone(prefs), homeOrder: effective() } }; };
   switch (name) {
     case 'set-range': {
       // As the core does: the range on screen, ticked in the menu, stays until the new one has been read (here a

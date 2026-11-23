@@ -4331,8 +4331,13 @@ def resource_panel_entries(data):
 
 
 def presentation_settings():
+    """The display preferences the panel applies at once. The homepage order is the one in effect, every module in it:
+    after 恢复默认顺序 that is the default order itself, so the panel puts it back without waiting for the next snapshot
+    (ORDER-3)."""
     settings=view_settings()
-    return {key:settings[key] for key in ('revision','visible','appearance','theme','allowCollapse','expandedProviders','homeOrder')}
+    out={key:settings[key] for key in ('revision','visible','appearance','theme','allowCollapse','expandedProviders')}
+    out['homeOrder']=preferences.home_order(settings)
+    return out
 
 
 def panel_snapshot(data,dashboard=None,options=None):

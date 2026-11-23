@@ -1120,13 +1120,17 @@ impl Runtime {
         )
     }
 
+    /// The display preferences the panel applies at once. The homepage order is the one in effect, every module in
+    /// it: after 恢复默认顺序 that is the default order itself, so the panel puts it back without waiting for the next
+    /// snapshot (ORDER-3).
     pub fn presentation_settings(&self) -> Json {
         let settings = self.settings();
-        ["revision", "visible", "appearance", "theme", "allowCollapse", "expandedProviders", "homeOrder"]
+        let mut out: Object = ["revision", "visible", "appearance", "theme", "allowCollapse", "expandedProviders"]
             .iter()
             .map(|key| (*key, settings.get(key).cloned().unwrap_or(Json::Null)))
-            .collect::<Object>()
-            .into()
+            .collect();
+        out.insert("homeOrder", Json::from(preferences::home_order(&settings)));
+        out.into()
     }
 
     /// What Summary counts of today, source by source, and when today was read: the summaries of the sources it adds

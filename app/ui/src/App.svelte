@@ -444,6 +444,8 @@
       const receipt = await backend.action(action);
       failed = receipt.status === 'failed';
       interaction.finish(receipt.preferences);
+      // The saved preferences show at once (恢复默认顺序's order among them), not when the next snapshot comes (ORDER-3).
+      if (receipt.preferences) version++;
       if (failed && !automatic(action)) console.warn('action failed', action, receipt.message);
     } catch (error) {
       interaction.finish();

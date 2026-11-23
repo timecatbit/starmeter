@@ -171,6 +171,28 @@ test('a homepage row held for a moment drags to another place in its group, a cl
   await expect.poll(order).toEqual([...plans, ...apis, 'komari', 'updates']);
 });
 
+test('恢复默认顺序 puts the default order back at once, before the next snapshot comes (ORDER-3)', async ({ page }) => {
+  await open(page);
+  const order = () => page.locator('[data-module]').evaluateAll((all) => all.map((one) => (one as HTMLElement).dataset.module));
+  const defaults = await order();
+  await page.locator('[data-module="chatgpt"] button').focus();
+  await page.keyboard.press('Alt+ArrowDown');
+  await expect.poll(order).not.toEqual(defaults);
+  // From here no new snapshot arrives: only what the reset itself answers.
+  await page.evaluate(async () => {
+    const loaded = performance.getEntriesByType('resource').map((entry) => entry.name).filter((name) => name.includes('/src/lib/backend.ts'));
+    const { backend } = await import(/* @vite-ignore */ loaded.at(-1) ?? '/src/lib/backend.ts');
+    backend.snapshot = () => new Promise(() => {});
+  });
+  await button(page, '主页模块与设置').click();
+  await page.getByText('通用', { exact: true }).click();
+  await page.getByRole('button', { name: /^主页顺序/ }).click();
+  await page.getByRole('button', { name: '恢复默认顺序' }).click();
+  for (let back = 0; back < 3; back++) await page.keyboard.press('Escape');
+  await expect(page.locator('.dashboard')).toBeVisible();
+  await expect.poll(order).toEqual(defaults);
+});
+
 test('a press let go off its row before the hold ends never lifts it, and the next click opens the row (ORDER-1)', async ({ page }) => {
   await open(page);
   const row = page.locator('[data-module="chatgpt"]');
