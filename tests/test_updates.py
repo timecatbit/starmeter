@@ -154,6 +154,11 @@ class UpdateTests(unittest.TestCase):
   self.assertEqual(self.m.mirrored_release(own,'6.0.14',mine)['via'],'https://mirror.example/')
   self.assertEqual(self.m.mirrored_release(self.m.mirror_list(),'6.0.14',self.mirrors([(fast,self.redirect(fast,'6.0.14'),None)])),
                    {'latest':'6.0.14','page':self.m.REPOSITORY+'/releases/tag/v6.0.14','assets':[]})
+  # A mirror whose cache is behind doesn't hide a release two others agree on; beside one alone it gives no newer.
+  behind=(fast,self.redirect(fast,'6.0.14'),None)
+  ahead=[(m,self.redirect(m,'99.0.0'),self.listing('99.0.0',{name:good})) for m in (net,proxy)]
+  self.assertEqual(self.m.mirrored_release(self.m.mirror_list(),'6.0.14',self.mirrors([behind]+ahead))['latest'],'99.0.0')
+  self.assertEqual(self.m.mirrored_release(self.m.mirror_list(),'6.0.14',self.mirrors([behind]+ahead[:1]))['latest'],'6.0.14')
   # self_update_load turns to them when GitHub can't be reached or fails, not when it says there's no release.
   import urllib.error
   for failure in (urllib.error.URLError('unreachable'),urllib.error.HTTPError(self.m.RELEASES_API,502,'x',{},None)):

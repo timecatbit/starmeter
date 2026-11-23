@@ -1465,14 +1465,16 @@ def named_version(answer):
 
 def mirrored_release(mirrors,current,fetch):
     """The latest release read through mirrors: one of the user's own is taken at its word, the built-in ones only
-    when two give the same version and files with the same checksums. No newer version needs no agreeing."""
-    current=version_tuple(current);seen=[]
+    when two give the same version and files with the same checksums. No newer version needs no agreeing, but the
+    other mirrors are still asked: one whose cache is behind would otherwise hide a release the rest have."""
+    current=version_tuple(current);seen=[];no_newer=None
     if not current:return None
     for mirror,own in mirrors:
         answer=fetch(mirror+REPOSITORY+'/releases/latest');version=named_version(answer) if answer else None
         if not version:continue
         page=REPOSITORY+'/releases/tag/v'+version
-        if version_tuple(version)<=current:return {'latest':version,'page':page,'assets':[]}
+        if version_tuple(version)<=current:
+            no_newer=no_newer or {'latest':version,'page':page,'assets':[]};continue
         answer=fetch(mirror+REPOSITORY+'/releases/expanded_assets/v'+version)
         if not answer or answer[0]!=200:continue
         assets=listed_assets(answer[2],version)
@@ -1480,7 +1482,7 @@ def mirrored_release(mirrors,current,fetch):
         if own or any(other==version and files==assets for other,files in seen):
             return {'latest':version,'page':page,'assets':assets,'via':mirror}
         seen.append((version,assets))
-    return None
+    return no_newer
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):

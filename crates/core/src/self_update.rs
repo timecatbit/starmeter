@@ -91,7 +91,8 @@ fn named_version(answer: &Fetched) -> Option<String> {
 /// The latest release read through mirrors, when GitHub can't be reached: its version from the latest page's redirect,
 /// its files and their SHA-256 from the release's asset list. One of the user's own mirrors is taken at its word; the
 /// built-in ones only when two give the same version and files with the same checksums, so one mirror alone can't
-/// hand over a file of its own making with a checksum to match. A version no newer than this one needs no agreeing.
+/// hand over a file of its own making with a checksum to match. A version no newer than this one needs no agreeing, but
+/// the other mirrors are still asked: one whose cache is behind would otherwise hide a release the rest already have.
 pub(crate) fn mirrored_release(
     mirrors: &[(String, bool)],
     current: &str,
@@ -99,6 +100,7 @@ pub(crate) fn mirrored_release(
 ) -> Option<Object> {
     let current = version_tuple(Some(&Json::from(current)))?;
     let mut seen: Vec<(String, Json, String)> = Vec::new();
+    let mut no_newer: Option<Object> = None;
     for (mirror, own) in mirrors {
         let Some(version) = fetch(&format!("{mirror}{REPOSITORY}/releases/latest")).as_ref().and_then(named_version)
         else {
@@ -106,7 +108,8 @@ pub(crate) fn mirrored_release(
         };
         let page = format!("{REPOSITORY}/releases/tag/v{version}");
         if version_tuple(Some(&Json::from(version.as_str())))? <= current {
-            return Some(object! { "latest" => version, "page" => page, "assets" => Json::Array(vec![]) });
+            no_newer.get_or_insert(object! { "latest" => version, "page" => page, "assets" => Json::Array(vec![]) });
+            continue;
         }
         let Some((200, _, listing)) = fetch(&format!("{mirror}{REPOSITORY}/releases/expanded_assets/v{version}"))
         else {
@@ -122,7 +125,7 @@ pub(crate) fn mirrored_release(
         }
         seen.push((version, assets, mirror.clone()));
     }
-    None
+    no_newer
 }
 
 /// The first of `sources` (one URL each) that gives a file with the SHA-256 `digest`: each but the last is tried with a
@@ -714,6 +717,27 @@ mod mirror_tests {
             Some(Json::from("9.0.0"))
         );
         let fetch = fetcher(vec![("https://ghfast.top/", redirect("https://ghfast.top/", "6.0.14"), None)]);
+        assert_eq!(
+            mirrored_release(&mirror_list(None), "6.0.14", &fetch).and_then(|r| r.get("latest").cloned()),
+            Some(Json::from("6.0.14"))
+        );
+    }
+
+    #[test]
+    fn a_mirror_whose_cache_is_behind_does_not_hide_a_release_the_others_have() {
+        let good = "a".repeat(64);
+        let fetch = fetcher(vec![
+            ("https://ghfast.top/", redirect("https://ghfast.top/", "6.0.14"), None),
+            ("https://ghproxy.net/", redirect("https://ghproxy.net/", "9.0.0"), Some(listing("9.0.0", &good))),
+            ("https://gh-proxy.com/", redirect("https://gh-proxy.com/", "9.0.0"), Some(listing("9.0.0", &good))),
+        ]);
+        let release = mirrored_release(&mirror_list(None), "6.0.14", &fetch).expect("two agree");
+        assert_eq!(release.get("latest"), Some(&Json::from("9.0.0")));
+        // One mirror alone with something newer, beside one behind: nothing newer is taken.
+        let fetch = fetcher(vec![
+            ("https://ghfast.top/", redirect("https://ghfast.top/", "6.0.14"), None),
+            ("https://ghproxy.net/", redirect("https://ghproxy.net/", "9.0.0"), Some(listing("9.0.0", &good))),
+        ]);
         assert_eq!(
             mirrored_release(&mirror_list(None), "6.0.14", &fetch).and_then(|r| r.get("latest").cloned()),
             Some(Json::from("6.0.14"))
