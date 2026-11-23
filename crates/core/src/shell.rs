@@ -95,10 +95,22 @@ pub fn which(name: &str, environment: &std::collections::HashMap<String, String>
 /// program's extension runs: npm puts a POSIX script `codex` beside `codex.cmd`, and the script, found first, could
 /// not run, so the version read failed; nor was a CLI on Path found at all.
 fn which_on(name: &str, environment: &std::collections::HashMap<String, String>, windows: bool) -> Option<String> {
-    let (separator, suffixes): (char, &[&str]) = if windows { (';', &[".exe", ".cmd", ".bat"]) } else { (':', &[""]) };
+    let programs: &[&str] = &[".exe", ".cmd", ".bat"];
+    // A name that already has a program's extension (codex.cmd) is looked for as it is (PATH-1).
+    let given =
+        windows && programs.iter().any(|ext| name.len() > ext.len() && name.to_ascii_lowercase().ends_with(ext));
+    let (separator, suffixes): (char, &[&str]) = if windows && !given {
+        (';', programs)
+    } else if windows {
+        (';', &[""])
+    } else {
+        (':', &[""])
+    };
     let named = |key: &&String| if windows { key.eq_ignore_ascii_case("PATH") } else { *key == "PATH" };
     let path = environment.iter().find(|(key, _)| named(key)).map_or("", |(_, value)| value.as_str());
-    for folder in path.split(separator).filter(|folder| !folder.is_empty()) {
+    // Windows keeps a folder with spaces in quotes as often as not ("C:\Program Files\nodejs").
+    let folders = path.split(separator).map(|folder| if windows { folder.trim().trim_matches('"') } else { folder });
+    for folder in folders.filter(|folder| !folder.is_empty()) {
         for suffix in suffixes {
             let candidate = format!("{folder}/{name}{suffix}");
             if executable(&candidate) {
@@ -160,6 +172,30 @@ mod tests {
             assert_eq!(super::which_on("codex", &environment, true), Some(found.clone()), "{key}");
         }
         assert_eq!(super::which_on("codex", &HashMap::new(), true), None);
+        let _ = std::fs::remove_dir_all(&folder);
+    }
+
+    #[test]
+    fn on_windows_a_quoted_folder_and_a_name_with_its_extension_are_found_too() {
+        // PATH-1: a folder with spaces written in quotes, and codex.cmd asked for by its full name; the npm script
+        // beside it still isn't taken for the program.
+        let folder = std::env::temp_dir().join(format!("starmeter-which-quoted {}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&folder);
+        std::fs::create_dir_all(&folder).unwrap();
+        for name in ["codex", "codex.cmd"] {
+            std::fs::write(folder.join(name), "").unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(folder.join(name), std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
+        }
+        let at = folder.to_string_lossy().into_owned();
+        let found = Some(format!("{at}/codex.cmd"));
+        let environment = HashMap::from([("Path".to_string(), format!("C:\\nothing; \"{at}\" "))]);
+        assert_eq!(super::which_on("codex", &environment, true), found);
+        assert_eq!(super::which_on("codex.cmd", &environment, true), found);
+        assert_eq!(super::which_on("codex.exe", &environment, true), None);
         let _ = std::fs::remove_dir_all(&folder);
     }
 
