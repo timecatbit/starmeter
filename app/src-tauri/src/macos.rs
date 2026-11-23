@@ -693,18 +693,18 @@ pub fn prompt(title: &str, message: &str, value: &str, hidden: bool) -> Option<S
         let _: *mut AnyObject = msg_send![&*alert, addButtonWithTitle: &*ns_string("保存")];
         let _: *mut AnyObject = msg_send![&*alert, addButtonWithTitle: &*ns_string("取消")];
         let class = if hidden { class!(NSSecureTextField) } else { class!(NSTextField) };
-        let field: *mut AnyObject = msg_send![class, alloc];
-        let field: *mut AnyObject =
-            msg_send![field, initWithFrame: NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(300.0, 24.0))];
-        let _: () = msg_send![field, setStringValue: &*ns_string(value)];
-        let _: () = msg_send![&*alert, setAccessoryView: field];
+        // Owned, so it is released with the alert on either answer (DIALOG-1: alloc/init's reference was never let go).
+        let field: Retained<AnyObject> = msg_send![class, new];
+        let _: () = msg_send![&*field, setFrame: NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(300.0, 24.0))];
+        let _: () = msg_send![&*field, setStringValue: &*ns_string(value)];
+        let _: () = msg_send![&*alert, setAccessoryView: &*field];
         let window: *mut AnyObject = msg_send![&*alert, window];
-        let _: () = msg_send![window, setInitialFirstResponder: field];
+        let _: () = msg_send![window, setInitialFirstResponder: &*field];
         let answer: isize = msg_send![&*alert, runModal];
         if answer != 1000 {
             return None;
         }
-        let text: Retained<AnyObject> = msg_send![field, stringValue];
+        let text: Retained<AnyObject> = msg_send![&*field, stringValue];
         let utf8: *const std::ffi::c_char = msg_send![&*text, UTF8String];
         (!utf8.is_null()).then(|| std::ffi::CStr::from_ptr(utf8).to_string_lossy().into_owned())
     }
