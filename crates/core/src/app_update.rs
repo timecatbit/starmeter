@@ -124,6 +124,7 @@ fn stage_mac(dmg: &[u8], target: &Path, version: &str, work: &Path) -> Result<Pa
             None,
         )
         .ok_or_else(|| "新版本的签名校验不通过".to_string())?;
+        same_signer(target, &staged)?;
         if info(&staged, "CFBundleIdentifier").is_none()
             || info(&staged, "CFBundleIdentifier") != info(target, "CFBundleIdentifier")
         {
@@ -139,6 +140,42 @@ fn stage_mac(dmg: &[u8], target: &Path, version: &str, work: &Path) -> Result<Pa
         return Err(reason);
     }
     Ok(staged)
+}
+
+/// The team an app is signed by (a Developer ID), None for one signed ad hoc or not at all.
+fn team(app: &Path) -> Option<String> {
+    let output = Command::new("/usr/bin/codesign")
+        .args(["-dv", "--verbose=2"])
+        .arg(app)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&output.stderr);
+    let team = text.lines().find_map(|line| line.strip_prefix("TeamIdentifier="))?.trim();
+    (!team.is_empty() && team != "not set").then(|| team.to_string())
+}
+
+/// The new copy must be signed by the installed copy's team, through a certificate Apple issued: the TeamIdentifier
+/// codesign shows is only text in the certificate, which one made at home could hold too. An installed copy with no
+/// team (built on this Mac, or a release signed ad hoc) has no signer to hold the new one to, and the SHA-256 GitHub
+/// published stays the check.
+fn same_signer(installed: &Path, staged: &Path) -> Result<(), String> {
+    let Some(team) = team(installed) else { return Ok(()) };
+    let mismatch = || "新版本的签名者与已安装的不一致".to_string();
+    if !team.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Err(mismatch());
+    }
+    let requirement = format!("=anchor apple generic and certificate leaf[subject.OU] = \"{team}\"");
+    shell::run(
+        &["/usr/bin/codesign", "--verify", "--strict", "-R", &requirement, &staged.to_string_lossy()],
+        120.0,
+        None,
+        None,
+    )
+    .map(|_| ())
+    .ok_or_else(mismatch)
 }
 
 impl Runtime {
@@ -369,6 +406,50 @@ mod tests {
             .filter(|e| e.file_name().to_string_lossy().contains(".old-"))
             .collect();
         assert!(leftovers.is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A copy signed by another team, or ad hoc, doesn't replace one a team signed; one with no team holds the new
+    /// copy to nothing more than its checksum. Teams from apps on this Mac, when it has two from different teams.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_new_copy_must_come_from_the_installed_copys_team() {
+        let root = folder("signer");
+        let ad_hoc = root.join("Plain.app");
+        std::fs::create_dir_all(ad_hoc.join("Contents/MacOS")).unwrap();
+        std::fs::copy("/usr/bin/true", ad_hoc.join("Contents/MacOS/Plain")).unwrap();
+        std::fs::write(
+            ad_hoc.join("Contents/Info.plist"),
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?><plist version=\"1.0\"><dict><key>CFBundleExecutable</key><string>Plain</string><key>CFBundleIdentifier</key><string>com.example.plain</string></dict></plist>",
+        )
+        .unwrap();
+        shell::run(&["/usr/bin/codesign", "--force", "-s", "-", &ad_hoc.to_string_lossy()], 60.0, None, None)
+            .expect("signed ad hoc");
+        assert_eq!(team(&ad_hoc), None);
+        assert_eq!(same_signer(&ad_hoc, &ad_hoc), Ok(()));
+        let mut teams: Vec<(String, PathBuf)> = Vec::new();
+        for entry in std::fs::read_dir("/Applications").into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.extension().is_some_and(|ext| ext == "app")
+                && let Some(found) = team(&path)
+                && !teams.iter().any(|(known, _)| *known == found)
+            {
+                teams.push((found, path));
+            }
+            if teams.len() == 2 {
+                break;
+            }
+        }
+        if let Some((_, first)) = teams.first() {
+            assert_eq!(same_signer(first, first), Ok(()), "{}", first.display());
+            assert_eq!(same_signer(first, &ad_hoc), Err("新版本的签名者与已安装的不一致".to_string()));
+            assert_eq!(same_signer(&ad_hoc, first), Ok(()));
+        }
+        if let [(_, first), (_, second)] = teams.as_slice() {
+            assert_eq!(same_signer(first, second), Err("新版本的签名者与已安装的不一致".to_string()));
+        } else {
+            eprintln!("only {} team-signed apps in /Applications: the other-team case not run", teams.len());
+        }
         let _ = std::fs::remove_dir_all(&root);
     }
 
