@@ -45,6 +45,9 @@ WORDS = {
     '录制': '錄製', '每周': '每週', '上周': '上週', '下周': '下週', '周报': '週報', '一周': '一週', '两周': '兩週',
     '周末': '週末',
 }
+# Words ICU finds across a boundary in a run, which Starmeter never means (整理发布 is not 理髮, 处理发送 not 處理髮送):
+# each character there stays as it is on its own, so no phrase is made of them.
+NOT_WORDS = ('理发',)
 
 
 def icu(lines):
@@ -89,6 +92,12 @@ def main():
 
     runs = [run for run in corpus() if len(run) > 1]
     whole = {run: fix(text, run) for run, text in zip(runs, icu(runs))}
+    for run, traditional in whole.items():
+        if len(traditional) == len(run):
+            for word in NOT_WORDS:
+                for start in (found.start() for found in re.finditer(word, run)):
+                    traditional = traditional[:start] + by_char(word) + traditional[start + len(word):]
+            whole[run] = traditional
     # Where the context changes a character, the smallest window around it that ICU converts the same way.
     windows = {}
     for run, traditional in whole.items():
