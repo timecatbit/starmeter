@@ -60,7 +60,46 @@ class OAuthTests(unittest.TestCase):
   with patch.object(oauth,'credentials',return_value=self.credential),patch.object(oauth,'query_usage',return_value=self.payload):oauth.fetch(self.root,True)
   with patch.object(oauth,'credentials',return_value=dict(self.credential,owner='different')),patch.object(oauth,'query_usage',side_effect=oauth.OAuthError('network','offline')):
    payload,error=oauth.fetch(self.root,True)
+   self.assertEqual(payload['windows'],[]);self.assertIsNone(error)
+   payload,error=oauth.fetch(self.root,True,force=True)
   self.assertEqual(payload['windows'],[]);self.assertIsNotNone(error)
+ def at(self,offset,**changes):
+  """The fetch as it runs `offset` seconds from now."""
+  with patch.object(oauth.time,'time',return_value=self.now+offset):return oauth.fetch(self.root,True,**changes)
+ def test_a_passing_failure_keeps_the_last_figures_unmarked_and_tries_again_soon(self):
+  # Just woken: the Wi-Fi isn't back yet. The figures stay as they were, no 刷新失败, and the next try is 15 seconds on.
+  with patch.object(oauth,'credentials',return_value=self.credential),patch.object(oauth,'query_usage',return_value=self.payload):oauth.fetch(self.root,True)
+  path=self.root/'claude-oauth-usage.json'
+  with patch.object(oauth,'credentials',return_value=self.credential),patch.object(oauth,'query_usage',side_effect=oauth.OAuthError('network','offline')) as query:
+   payload,error=self.at(400)
+   self.assertIsNone(error);self.assertEqual(payload,self.payload)
+   self.assertEqual(oauth.read(path)['failures'],1);self.assertAlmostEqual(oauth.read(path)['retryAt'],self.now+415,delta=1)
+   payload,error=self.at(410);self.assertIsNone(error);self.assertEqual(payload,self.payload);self.assertEqual(query.call_count,1)
+   # Each try further off: 15, 30, 60 seconds; still quiet within three minutes of the first failure.
+   self.at(416);self.assertAlmostEqual(oauth.read(path)['retryAt'],self.now+446,delta=1)
+   _,error=self.at(450);self.assertIsNone(error);self.assertAlmostEqual(oauth.read(path)['retryAt'],self.now+510,delta=1)
+   _,error=self.at(520);self.assertIsNone(error)
+   # Past three minutes of failing, it says so, keeping the last figures marked.
+   payload,error=self.at(640)
+  self.assertEqual(error[1],'offline');self.assertTrue(payload['stale']);self.assertEqual(payload['state'],'刷新失败')
+  self.assertEqual(payload['windows'],self.payload['windows']);self.assertEqual(oauth.read(path)['failures'],5)
+  with patch.object(oauth,'credentials',return_value=self.credential),patch.object(oauth,'query_usage',return_value=self.payload):
+   payload,error=self.at(1000)
+  self.assertIsNone(error);self.assertEqual(payload,self.payload);self.assertNotIn('failures',oauth.read(path))
+ def test_an_explicit_retry_shows_a_passing_failure_at_once(self):
+  with patch.object(oauth,'credentials',return_value=self.credential),patch.object(oauth,'query_usage',side_effect=oauth.OAuthError('service','down')):
+   _,error=self.at(0,force=True)
+  self.assertEqual(error[1],'down')
+ def test_failures_far_apart_start_a_new_quiet_run(self):
+  # A failure in a maintenance wake while the lid was shut, then the lid opens before the Wi-Fi joins, over ten minutes on.
+  with patch.object(oauth,'credentials',return_value=self.credential),patch.object(oauth,'query_usage',return_value=self.payload):oauth.fetch(self.root,True)
+  with patch.object(oauth,'credentials',return_value=self.credential),patch.object(oauth,'query_usage',side_effect=oauth.OAuthError('network','offline')):
+   self.at(400);_,error=self.at(1100)
+  self.assertIsNone(error);self.assertEqual(oauth.read(self.root/'claude-oauth-usage.json')['failures'],1)
+ def test_other_failures_are_shown_at_once(self):
+  with patch.object(oauth,'credentials',return_value=self.credential),patch.object(oauth,'query_usage',side_effect=oauth.OAuthError('forbidden','denied')):
+   _,error=oauth.fetch(self.root,True)
+  self.assertEqual(error[1],'denied');self.assertNotIn('failures',oauth.read(self.root/'claude-oauth-usage.json'))
  def test_no_cookie_redirect_or_balance_query(self):
   response=Mock();response.headers={'Content-Type':'application/json'};response.read.return_value=b'{"seven_day":{"utilization":73},"extra_usage":{"used_credits":999}}'
   response.__enter__=Mock(return_value=response);response.__exit__=Mock(return_value=False)

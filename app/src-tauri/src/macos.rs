@@ -296,6 +296,49 @@ fn left_mouse_up(location: NSPoint, window_number: isize, clicks: isize) -> Opti
     }
 }
 
+// MARK: The network
+
+/// Whether the machine has a way out (a default route), asked without sending anything: just woken, Wi-Fi takes a few
+/// seconds to join. A failed question counts as online, so a refresh is never held back by it.
+pub fn online() -> bool {
+    #[repr(C)]
+    struct SockaddrIn {
+        len: u8,
+        family: u8,
+        port: u16,
+        address: u32,
+        zero: [u8; 8],
+    }
+    #[link(name = "SystemConfiguration", kind = "framework")]
+    unsafe extern "C" {
+        fn SCNetworkReachabilityCreateWithAddress(
+            allocator: *const c_void,
+            address: *const SockaddrIn,
+        ) -> *const c_void;
+        fn SCNetworkReachabilityGetFlags(target: *const c_void, flags: *mut u32) -> u8;
+    }
+    #[link(name = "CoreFoundation", kind = "framework")]
+    unsafe extern "C" {
+        fn CFRelease(object: *const c_void);
+    }
+    use std::ffi::c_void;
+    const REACHABLE: u32 = 1 << 1;
+    const CONNECTION_REQUIRED: u32 = 1 << 2;
+    // 0.0.0.0: anywhere at all.
+    let anywhere = SockaddrIn { len: 16, family: 2, port: 0, address: 0, zero: [0; 8] };
+    // SAFETY: the address outlives the call; the target is released once read.
+    unsafe {
+        let target = SCNetworkReachabilityCreateWithAddress(ptr::null(), &anywhere);
+        if target.is_null() {
+            return true;
+        }
+        let mut flags = 0u32;
+        let read = SCNetworkReachabilityGetFlags(target, &mut flags) != 0;
+        CFRelease(target);
+        !read || (flags & REACHABLE != 0 && flags & CONNECTION_REQUIRED == 0)
+    }
+}
+
 // MARK: Where the panel goes
 
 /// The pointer, in AppKit's screen coordinates (origin at the bottom left of the main screen).

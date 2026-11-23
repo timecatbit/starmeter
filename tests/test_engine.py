@@ -1257,7 +1257,7 @@ class ClaudeSubscriptionParityTests(unittest.TestCase):
                     results.append(probed(done.stdout)['result'])
             files = [json.loads((self.root / ('state-' + e) / 'claude-oauth-usage.json').read_text()) for e in ('python', 'swift')]
             def steady(value):
-                if isinstance(value, dict):return {k: steady(v) for k, v in value.items() if k not in ('checkedAt', 'lastRenewAt', 'updatedAt', 'retryAt')}
+                if isinstance(value, dict):return {k: steady(v) for k, v in value.items() if k not in ('checkedAt', 'lastRenewAt', 'updatedAt', 'retryAt', 'failingSince')}
                 return value
             with self.subTest(step=note):
                 same(self, steady(results[0]), steady(results[1]))
@@ -1269,6 +1269,22 @@ class ClaudeSubscriptionParityTests(unittest.TestCase):
         answers['usage'] = (500, b'', {})
         run('cached within five minutes')
         run('a forced retry after thirty seconds is still cached', force=True)
+        def shift(**seconds):
+            # Move both engines' saved times back, as if that much time had passed.
+            for state in ('python', 'swift'):
+                path = self.root / ('state-' + state) / 'claude-oauth-usage.json'
+                saved = json.loads(path.read_text())
+                for key, back in seconds.items():
+                    if key == 'updatedAt':saved['payload']['updatedAt'] -= back
+                    else:saved[key] = saved.get(key, time.time()) - back
+                path.write_text(json.dumps(saved))
+        shift(updatedAt=400)
+        run('a passing failure keeps the last figures, unmarked')
+        run('and waits its fifteen seconds quietly')
+        shift(retryAt=60, failingSince=200)
+        run('failing past three minutes says so')
+        shift(retryAt=600)
+        run('and a forced retry shows it at once', force=True)
         answers['usage'] = (429, b'', {'Retry-After': '120'})
         for state in ('python', 'swift'):(self.root / ('state-' + state) / 'claude-oauth-usage.json').unlink()
         run('rate limited')

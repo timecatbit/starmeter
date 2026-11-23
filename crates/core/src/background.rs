@@ -637,6 +637,27 @@ impl Runtime {
         }
     }
 
+    /// Back from sleep, with the network up again: what failed while it was away (just before the lid closed, or in a
+    /// maintenance wake) is read again now instead of when its backoff ends, and the Claude subscription is read
+    /// afresh. A server's rate limit still holds. The app calls this, then refreshes.
+    pub fn retry_after_wake(&self) {
+        claude_subscription::forget_passing_failures(&self.state_dir);
+        let moment = now();
+        let mut names: Vec<String> = self.external_loaders().into_iter().map(|(name, _)| name).collect();
+        names.push("healthz".into());
+        let failed: Vec<&str> = names
+            .iter()
+            .map(String::as_str)
+            .filter(|name| {
+                let record = self.read_cache(name);
+                *name == "claude_subscription"
+                    || (record.get("error").is_some_and(Json::is_truthy)
+                        && moment < record.get("retryAt").and_then(Json::python_float).unwrap_or(0.0))
+            })
+            .collect();
+        self.invalidate_caches(&failed);
+    }
+
     /// The command line's read beyond the local logs, as an opened panel would make it: the plans' and APIs'
     /// figures, OpenCodex, service status and the yuan rate that are due, and the price tables. The follow-up work of
     /// the app's own refresh (alerts, update checks and notices, the other computers' file) stays with the app.

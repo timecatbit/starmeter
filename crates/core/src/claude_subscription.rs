@@ -365,6 +365,37 @@ fn oauth_error(code: &'static str, description: &str) -> OAuthError {
 const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 const INTERVAL: f64 = 300.0;
 const MAX_RESPONSE: usize = 1024 * 1024;
+/// A run of failures the network clears by itself (just woken, no Wi-Fi yet, a timeout, the service briefly down)
+/// keeps the last figures as they are for this long, unmarked; past it the row says the refresh failed.
+const QUIET: f64 = 180.0;
+/// Attempts further apart than this (the machine slept in between) start a new run.
+const RUN_GAP: f64 = 600.0;
+
+/// Offline, a timeout or the service briefly down: nothing the user has to do.
+fn passing(code: &str) -> bool {
+    code == "network" || code == "service"
+}
+
+/// After a passing failure the next try comes soon: 15 seconds, doubling up to five minutes.
+fn passing_retry(failures: i64) -> f64 {
+    (15.0 * 2f64.powi(failures.clamp(1, 6) as i32 - 1)).min(INTERVAL)
+}
+
+/// Waking from sleep: a run of passing failures (from before the sleep, or a maintenance wake while the lid was shut)
+/// is forgotten and its backoff dropped, so the next read goes ahead now and starts a run of its own. A server's rate
+/// limit, a paused login and a failed renewal stay as they were.
+pub fn forget_passing_failures(state: &str) {
+    let path = format!("{state}/claude-oauth-usage.json");
+    let _lock = platform::lock(Path::new(&format!("{state}/claude-oauth.lock")), true);
+    let mut cached = read_state(&path);
+    if cached.get("failures").and_then(Json::number).unwrap_or(0.0) <= 0.0 {
+        return;
+    }
+    cached.remove("failures");
+    cached.remove("failingSince");
+    cached.insert("retryAt", 0);
+    write_state(&path, &cached);
+}
 
 /// Claude Code files its login under the login name, or claude-code-user when the name has other characters.
 fn keychain_account() -> String {
@@ -677,6 +708,9 @@ pub fn oauth_fetch(state: &str, consent: bool, force: bool, requested_at: f64) -
     let moment = now();
     let number = |cached: &Object, key: &str| cached.get(key).and_then(Json::python_float).unwrap_or(0.0);
     let forced = force || requested_at > cached.get("checkedAt").and_then(Json::number).unwrap_or(0.0);
+    // The run of passing failures so far: how many, since when, and when the last attempt was.
+    let (failures, failing_since, last_attempt) =
+        (number(&cached, "failures") as i64, number(&cached, "failingSince"), number(&cached, "checkedAt"));
     // Revoked keychain permission must not produce repeated background prompts.
     if cached.get("paused").is_some_and(Json::is_truthy) && !force {
         let error = py::str(Some(cached.get("error").unwrap_or(&Json::Null)));
@@ -684,8 +718,11 @@ pub fn oauth_fetch(state: &str, consent: bool, force: bool, requested_at: f64) -
     }
     // An explicit retry skips our own backoff, but a server rate limit always holds.
     if moment < number(&cached, "retryAt") && (!force || cached.get("limited").is_some_and(Json::is_truthy)) {
-        let error = cached.get("error").map_or_else(|| "稍后重试".to_string(), |error| py::str(Some(error)));
         let payload = cached.get("payload").and_then(Json::as_object).filter(|payload| !payload.is_empty()).cloned();
+        if failures > 0 && last_attempt - failing_since < QUIET {
+            return (payload.unwrap_or_else(|| unavailable("待同步")), None);
+        }
+        let error = cached.get("error").map_or_else(|| "稍后重试".to_string(), |error| py::str(Some(error)));
         return (payload.unwrap_or_else(|| unavailable(&error)), Some(error));
     }
     let mut owner: Option<String> = None;
@@ -752,25 +789,44 @@ pub fn oauth_fetch(state: &str, consent: bool, force: bool, requested_at: f64) -
         Err(error) => {
             let same_owner =
                 owner.as_ref().is_some_and(|owner| cached.get("owner") == Some(&Json::from(owner.as_str())));
+            // A passing failure continues the run when it came about when the last one said to try again, and the
+            // run stays quiet for its first three minutes, unless the user asked for this read.
+            let passing = passing(error.code);
+            let run_on = passing && same_owner && failures > 0 && moment - last_attempt <= RUN_GAP;
+            let failures = match (passing, run_on) {
+                (false, _) => 0,
+                (true, true) => failures + 1,
+                (true, false) => 1,
+            };
+            let since = if run_on { failing_since } else { moment };
+            let quiet = passing && !force && moment - since < QUIET;
             let payload = if same_owner { cached.get("payload").and_then(Json::as_object).cloned() } else { None }
                 .filter(|kept| !kept.is_empty())
                 .map(|mut kept| {
-                    kept.insert("stale", true);
-                    kept.insert("state", "刷新失败");
+                    if !quiet {
+                        kept.insert("stale", true);
+                        kept.insert("state", "刷新失败");
+                    }
                     kept
                 });
             let paused = ["keychain", "missing", "scope", "credential", "profile"].contains(&error.code);
             let renew_failed =
                 if error.code == "expired" { owner.clone().map(Json::from).unwrap_or(Json::Null) } else { Json::Null };
-            write_state(
-                &path,
-                &object! {
-                    "schema" => 1, "owner" => owner.clone(), "payload" => payload.clone(), "checkedAt" => moment,
-                    "lastRenewAt" => cached.get("lastRenewAt").cloned().unwrap_or(Json::Int(0)), "error" => error.description.as_str(),
-                    "paused" => paused, "renewFailedOwner" => renew_failed, "limited" => error.code == "limited",
-                    "retryAt" => if paused { Json::Int(0) } else { Json::Double(now() + error.retry) },
-                },
-            );
+            let retry = if passing { passing_retry(failures) } else { error.retry };
+            let mut record = object! {
+                "schema" => 1, "owner" => owner.clone(), "payload" => payload.clone(), "checkedAt" => moment,
+                "lastRenewAt" => cached.get("lastRenewAt").cloned().unwrap_or(Json::Int(0)), "error" => error.description.as_str(),
+                "paused" => paused, "renewFailedOwner" => renew_failed, "limited" => error.code == "limited",
+                "retryAt" => if paused { Json::Int(0) } else { Json::Double(now() + retry) },
+            };
+            if passing {
+                record.insert("failures", failures);
+                record.insert("failingSince", since);
+            }
+            write_state(&path, &record);
+            if quiet {
+                return (payload.unwrap_or_else(|| unavailable("待同步")), None);
+            }
             (payload.unwrap_or_else(|| unavailable(&error.description)), Some(error.description))
         }
     }
@@ -923,4 +979,53 @@ pub fn claude_usage_stale(payload: &Object) -> bool {
         }
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn state_with(record: Object) -> String {
+        let state = std::env::temp_dir().join(format!("starmeter-oauth-{}", crate::runtime::random_hex(16)));
+        std::fs::create_dir_all(&state).unwrap();
+        let state = state.to_string_lossy().into_owned();
+        write_state(&format!("{state}/claude-oauth-usage.json"), &record);
+        state
+    }
+
+    #[test]
+    fn passing_failures_try_again_soon_then_less_often() {
+        let delays: Vec<f64> = (1..=8).map(passing_retry).collect();
+        assert_eq!(delays, vec![15.0, 30.0, 60.0, 120.0, 240.0, 300.0, 300.0, 300.0]);
+        assert!(passing("network") && passing("service") && !passing("limited") && !passing("expired"));
+    }
+
+    #[test]
+    fn waking_forgets_a_run_of_passing_failures_and_its_backoff() {
+        let later = now() + 200.0;
+        let state = state_with(object! {
+            "schema" => 1, "owner" => "a", "error" => "Claude 用量连接失败，稍后重试", "checkedAt" => now(),
+            "failures" => 4, "failingSince" => now() - 500.0, "retryAt" => later, "limited" => false,
+        });
+        forget_passing_failures(&state);
+        let kept = read_state(&format!("{state}/claude-oauth-usage.json"));
+        assert_eq!(kept.get("retryAt"), Some(&Json::Int(0)));
+        assert!(kept.get("failures").is_none() && kept.get("failingSince").is_none());
+        assert_eq!(kept.get("owner"), Some(&Json::from("a")));
+        let _ = std::fs::remove_dir_all(&state);
+    }
+
+    #[test]
+    fn waking_leaves_a_rate_limit_and_other_failures_alone() {
+        let later = now() + 900.0;
+        for record in [
+            object! { "schema" => 1, "error" => "请求频繁，稍后自动重试", "limited" => true, "retryAt" => later },
+            object! { "schema" => 1, "error" => "登录仍未续期", "renewFailedOwner" => "a", "retryAt" => later },
+        ] {
+            let state = state_with(record.clone());
+            forget_passing_failures(&state);
+            assert_eq!(read_state(&format!("{state}/claude-oauth-usage.json")), record);
+            let _ = std::fs::remove_dir_all(&state);
+        }
+    }
 }

@@ -26,6 +26,21 @@ from swiftbar_claude_local import read, write
 URL='https://api.anthropic.com/api/oauth/usage'
 INTERVAL=300
 MAX_RESPONSE=1024*1024
+# A run of failures the network clears by itself (just woken, no Wi-Fi yet, a timeout, the service briefly down) keeps
+# the last figures as they are for this long, unmarked; past it the row says the refresh failed.
+QUIET=180
+# Attempts further apart than this (the machine slept in between) start a new run.
+RUN_GAP=600
+
+
+def passing(code):
+    """Offline, a timeout or the service briefly down: nothing the user has to do."""
+    return code in ('network','service')
+
+
+def passing_retry(failures):
+    """After a passing failure the next try comes soon: 15 seconds, doubling up to five minutes."""
+    return min(15*2**(min(max(failures,1),6)-1),INTERVAL)
 
 
 class OAuthError(Exception):
@@ -207,11 +222,14 @@ def fetch(state,consent=False,force=False,requested_at=0):
         fcntl.flock(lock,fcntl.LOCK_EX)
         cached=read(path);now=time.time()
         forced=force or requested_at>cached.get('checkedAt',0)
+        # The run of passing failures so far: how many, since when, and when the last attempt was.
+        failures,failing_since,last_attempt=int(cached.get('failures',0)),cached.get('failingSince',0),cached.get('checkedAt',0)
         # Revoked keychain permission must not produce repeated background prompts.
         if cached.get('paused') and not force:
             return unavailable(cached['error']),(0,cached['error'],None)
         # An explicit retry skips our own backoff, but a server rate limit always holds.
         if now<cached.get('retryAt',0) and (not force or cached.get('limited')):
+            if failures>0 and last_attempt-failing_since<QUIET:return cached.get('payload') or unavailable('待同步'),None
             return cached.get('payload') or unavailable(cached.get('error','稍后重试')),(0,cached.get('error','稍后重试'),None)
         owner=None
         try:
@@ -241,13 +259,24 @@ def fetch(state,consent=False,force=False,requested_at=0):
                         'lastRenewAt':cached.get('lastRenewAt',0)})
             return payload,None
         except OAuthError as error:
-            payload=cached.get('payload') if owner and owner==cached.get('owner') else None
-            if payload:payload=dict(payload,stale=True,state='刷新失败')
+            same_owner=bool(owner) and owner==cached.get('owner')
+            # A passing failure continues the run when it came about when the last one said to try again, and the
+            # run stays quiet for its first three minutes, unless the user asked for this read.
+            transient=passing(error.code)
+            run_on=transient and same_owner and failures>0 and now-last_attempt<=RUN_GAP
+            failures=0 if not transient else failures+1 if run_on else 1
+            since=failing_since if run_on else now
+            quiet=transient and not force and now-since<QUIET
+            payload=cached.get('payload') if same_owner else None
+            if payload and not quiet:payload=dict(payload,stale=True,state='刷新失败')
             paused=error.code in ('keychain','missing','scope','credential','profile')
-            write(path,{'schema':1,'owner':owner,'payload':payload,'checkedAt':now,
+            record={'schema':1,'owner':owner,'payload':payload,'checkedAt':now,
                 'lastRenewAt':cached.get('lastRenewAt',0),'error':str(error),'paused':paused,
                 'renewFailedOwner':owner if error.code=='expired' else None,'limited':error.code=='limited',
-                'retryAt':0 if paused else time.time()+error.retry})
+                'retryAt':0 if paused else time.time()+(passing_retry(failures) if transient else error.retry)}
+            if transient:record.update(failures=failures,failingSince=since)
+            write(path,record)
+            if quiet:return payload or unavailable('待同步'),None
             return payload or unavailable(str(error)),(0,str(error),None)
         except (OSError,subprocess.SubprocessError):
             message='Claude 登录查询未完成，稍后重试'

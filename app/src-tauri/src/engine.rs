@@ -39,6 +39,8 @@ struct Jobs {
     range: bool,
     tests: Vec<(String, String)>,
     refresh: bool,
+    /// Back from sleep: before the refresh, what failed meanwhile is read again now (see retry_after_wake).
+    after_wake: bool,
 }
 
 pub struct Engine {
@@ -199,6 +201,14 @@ impl Engine {
         self.queue(|jobs| jobs.refresh = true);
     }
 
+    /// The refresh after a sleep, once the network is back.
+    pub fn refresh_after_wake(&self) {
+        self.queue(|jobs| {
+            jobs.after_wake = true;
+            jobs.refresh = true;
+        });
+    }
+
     fn queue(&self, change: impl FnOnce(&mut Jobs)) {
         change(&mut self.jobs.lock().expect("the job lock"));
         self.wake.notify_all();
@@ -207,16 +217,16 @@ impl Engine {
     /// One lane of the background: the refresh (slow) or the range reads and key checks (quick).
     fn work(self: Arc<Self>, slow: bool) {
         loop {
-            let (range, tests, refresh) = {
+            let (range, tests, refresh, after_wake) = {
                 let mut jobs = self.jobs.lock().expect("the job lock");
                 while if slow { !jobs.refresh } else { !jobs.range && jobs.tests.is_empty() } {
                     jobs = self.wake.wait(jobs).expect("the job lock");
                 }
                 if slow {
                     jobs.refresh = false;
-                    (false, Vec::new(), true)
+                    (false, Vec::new(), true, std::mem::take(&mut jobs.after_wake))
                 } else {
-                    (std::mem::take(&mut jobs.range), std::mem::take(&mut jobs.tests), false)
+                    (std::mem::take(&mut jobs.range), std::mem::take(&mut jobs.tests), false, false)
                 }
             };
             let runtime = self.runtime();
@@ -227,6 +237,9 @@ impl Engine {
             if range {
                 runtime.refresh_usage_range(true);
                 crate::data::changed(&self.app);
+            }
+            if after_wake {
+                runtime.retry_after_wake();
             }
             if refresh {
                 runtime.background_refresh(true);
@@ -532,10 +545,163 @@ pub fn start_clock(engine: Arc<Engine>) {
     std::thread::Builder::new()
         .name("starmeter-clock".into())
         .spawn(move || {
+            let mut clock = Clock::new(now());
             loop {
-                std::thread::sleep(Duration::from_secs(60));
-                engine.refresh();
+                std::thread::sleep(Duration::from_secs_f64(TICK));
+                match clock.tick(now(), online) {
+                    Tick::Refresh => engine.refresh(),
+                    Tick::AfterWake => engine.refresh_after_wake(),
+                    Tick::Wait => {}
+                }
             }
         })
         .expect("the clock thread");
+}
+
+/// The clock looks at the time this often (a look costs nothing; a refresh comes once a minute).
+const TICK: f64 = 2.0;
+/// The wall clock moving this much further than a tick: the machine slept. The clock's own sleep doesn't count the
+/// time asleep, the wall clock does.
+const SLEPT: f64 = 30.0;
+/// Back from sleep, the longest wait for the network before reading anyway.
+const NETWORK_WAIT: f64 = 30.0;
+/// After the read on waking, a second one this much later for anything the first found still joining the network.
+const FOLLOW_UP: f64 = 20.0;
+
+#[derive(Debug, PartialEq)]
+enum Tick {
+    Wait,
+    Refresh,
+    AfterWake,
+}
+
+/// When the clock reads: every minute; and on waking from sleep (the lid opened, or a maintenance wake), as soon as
+/// the network is back, so the panel shows current figures, not the failures of the minute the Wi-Fi was away.
+struct Clock {
+    last: f64,
+    next: f64,
+    woke: Option<f64>,
+    follow_up: Option<f64>,
+}
+
+impl Clock {
+    fn new(moment: f64) -> Self {
+        Clock { last: moment, next: moment + 60.0, woke: None, follow_up: None }
+    }
+
+    fn tick(&mut self, moment: f64, online: impl FnOnce() -> bool) -> Tick {
+        if moment - self.last > TICK + SLEPT {
+            self.woke = Some(moment);
+            self.follow_up = None;
+        } else if moment < self.last {
+            // The clock was set back: everything waited for moves back with it and keeps what was left of its wait
+            // (WAKE-1: the wait for the network after waking kept the old time, and an hour back meant an hour's wait).
+            let back = self.last - moment;
+            self.next -= back;
+            self.woke = self.woke.map(|at| at - back);
+            self.follow_up = self.follow_up.map(|at| at - back);
+        }
+        self.last = moment;
+        if let Some(woke) = self.woke {
+            if moment - woke < NETWORK_WAIT && !online() {
+                return Tick::Wait;
+            }
+            self.woke = None;
+            self.follow_up = Some(moment + FOLLOW_UP);
+            self.next = moment + 60.0;
+            return Tick::AfterWake;
+        }
+        if self.follow_up.is_some_and(|at| moment >= at) {
+            self.follow_up = None;
+            self.next = moment + 60.0;
+            return Tick::AfterWake;
+        }
+        if moment >= self.next {
+            self.next = moment + 60.0;
+            return Tick::Refresh;
+        }
+        Tick::Wait
+    }
+}
+
+fn online() -> bool {
+    #[cfg(target_os = "macos")]
+    return macos::online();
+    #[cfg(not(target_os = "macos"))]
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Two-second looks from `from` to `to`, each answered by `online`; the moments the clock read, and how.
+    fn run(clock: &mut Clock, from: f64, to: f64, online: impl Fn(f64) -> bool) -> Vec<(f64, Tick)> {
+        let mut out = Vec::new();
+        let mut moment = from;
+        while moment <= to {
+            let tick = clock.tick(moment, || online(moment));
+            if tick != Tick::Wait {
+                out.push((moment, tick));
+            }
+            moment += TICK;
+        }
+        out
+    }
+
+    #[test]
+    fn awake_it_refreshes_every_minute() {
+        let mut clock = Clock::new(0.0);
+        let ticks = run(&mut clock, 2.0, 180.0, |_| true);
+        assert_eq!(ticks, vec![(60.0, Tick::Refresh), (120.0, Tick::Refresh), (180.0, Tick::Refresh)]);
+    }
+
+    #[test]
+    fn waking_it_reads_once_the_network_is_back_and_again_twenty_seconds_later() {
+        let mut clock = Clock::new(0.0);
+        assert_eq!(run(&mut clock, 2.0, 50.0, |_| true), vec![]);
+        // Asleep for an hour; the Wi-Fi joins six seconds after the lid opens.
+        let woke = 3650.0;
+        let ticks = run(&mut clock, woke, woke + 90.0, |moment| moment >= woke + 6.0);
+        assert_eq!(
+            ticks,
+            vec![(woke + 6.0, Tick::AfterWake), (woke + 26.0, Tick::AfterWake), (woke + 86.0, Tick::Refresh)]
+        );
+    }
+
+    #[test]
+    fn with_no_network_it_reads_anyway_after_half_a_minute() {
+        let mut clock = Clock::new(0.0);
+        let woke = 7200.0;
+        let ticks = run(&mut clock, woke, woke + 52.0, |_| false);
+        assert_eq!(ticks, vec![(woke + 30.0, Tick::AfterWake), (woke + 50.0, Tick::AfterWake)]);
+    }
+
+    #[test]
+    fn the_network_question_links_and_answers() {
+        // On a machine with a network this says so; the answer is printed for a look by hand.
+        println!("online: {}", online());
+    }
+
+    #[test]
+    fn a_clock_set_back_while_waiting_for_the_network_still_waits_half_a_minute_at_most() {
+        for back in [180.0, 600.0, 3600.0] {
+            let mut clock = Clock::new(0.0);
+            let woke = 7200.0;
+            assert_eq!(clock.tick(woke, || false), Tick::Wait);
+            assert_eq!(clock.tick(woke + 10.0, || false), Tick::Wait);
+            // Ten seconds into the wait, the clock goes back; offline, the read comes about twenty seconds later all
+            // the same (the look that saw the jump counts for nothing: one look, two seconds, at most).
+            let now = woke + 12.0 - back;
+            let ticks = run(&mut clock, now, now + 42.0, |_| false);
+            assert_eq!(ticks, vec![(now + 20.0, Tick::AfterWake), (now + 40.0, Tick::AfterWake)], "{back}s back");
+        }
+    }
+
+    #[test]
+    fn a_clock_set_back_keeps_the_minute() {
+        let mut clock = Clock::new(1000.0);
+        assert_eq!(clock.tick(500.0, || true), Tick::Wait);
+        assert_eq!(run(&mut clock, 502.0, 562.0, |_| true), vec![(560.0, Tick::Refresh)]);
+    }
 }
