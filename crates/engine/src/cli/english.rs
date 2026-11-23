@@ -169,7 +169,7 @@ pub static WHOLE: [Rule; 2] = [
 ];
 
 /// One part of the engine's text.
-pub static RULES: [Rule; 85] = [
+pub static RULES: [Rule; 88] = [
     rule!(r"^已用 (\d+(?:\.\d+)?%)$", |m| format!("{} used", group(m, 1))),
     rule!(r"^已用 (\d+(?:\.\d+)?%) 截至 (.+)$", |m| format!("{} used as of {}", group(m, 1), group(m, 2))),
     rule!(r"^已用 (.+)$", |m| format!("Used: {}", translate(group(m, 1)))),
@@ -299,6 +299,18 @@ pub static RULES: [Rule; 85] = [
     rule!(r"^(.+) 返回 HTTP (\d+)$", |m| format!("{}: HTTP {}", group(m, 1), group(m, 2))),
     rule!(r"^找不到版本 (.+) 的发布$", |m| format!("No release for version {}", group(m, 1))),
     rule!(r"^安装程序退出码 (-?\d+)$", |m| format!("The installer exited with code {}", group(m, 1))),
+    rule!(r"^安装包里的版本不是 (.+)$", |m| format!("The package isn't version {}", group(m, 1))),
+    rule!(r"^不能写入 (.+)，请从发布页下载安装$", |m| format!(
+        "Can't write to {}; download it from the release page",
+        group(m, 1)
+    )),
+    rule!(
+        r"^当前版本 (.+)。将从 GitHub 下载这一版的安装包，校验 SHA-256 后替换本机的 Starmeter，并自动重新打开；设置、Key 和统计记录都会保留。$",
+        |m| format!(
+            "Now {}. The new version's package comes from GitHub and, once its SHA-256 checks out, takes the place of this Starmeter, which opens again; settings, keys and usage records stay.",
+            group(m, 1)
+        )
+    ),
     rule!(r"^打开 (.+)$", |m| format!("Open {}", translate(group(m, 1)))),
     rule!(r"^(.+) (\d+(?:\.\d+)?%)$", |m| format!("{} {}", translate(group(m, 1)), group(m, 2))),
 ];

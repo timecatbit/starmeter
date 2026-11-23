@@ -99,7 +99,11 @@ export const phrases: Record<string, string> = {
   正在更新: 'Updating', 更新失败: 'Update failed', '打开 GitHub 发布页': 'Open the release on GitHub', 查看更新内容: 'What\'s new',
   '正在下载并安装，完成后自动刷新': 'Downloading and installing; refreshes when done', 日志: 'Log', 安装失败: 'Install failed',
   '安装失败：下载失败': 'Install failed: the download failed', 安装包大小异常: 'The package\'s size is wrong',
-  安装包结构异常: 'The package\'s layout is wrong', 安装包校验失败: 'The package failed its checksum',
+  安装包结构异常: 'The package\'s layout is wrong', '正在下载新版本，校验后自动替换并重新打开': 'Downloading the new version; once checked it takes this one\'s place and opens again',
+  这个版本不能在应用内更新: 'This copy can\'t update itself', 新版本的签名校验不通过: 'The new version\'s signature didn\'t check out',
+  '安装包里的 App 不是 Starmeter': 'The package doesn\'t hold Starmeter', '安装包打不开（DMG 挂载失败）': 'The package wouldn\'t open (the DMG didn\'t mount)',
+  更新程序没能启动: 'The updater didn\'t start', '这份 Starmeter 不能在原处更新，请从发布页下载': 'This copy of Starmeter can\'t be updated in place; download it from the release page',
+  安装失败：写入临时文件失败: 'Install failed: couldn\'t write a temporary file', 安装包校验失败: 'The package failed its checksum',
   发布中没有安装包: 'The release has no package', 发布中没有校验值: 'The release has no checksum', 校验值格式错误: 'The checksum is malformed',
   // The settings: 外观, 通用, 提醒 and 数据
   允许折叠: 'Allow folding', '卡片折成两行，点卡片就地展开': 'Cards fold to two lines and open where they are', 外观: 'Appearance', 通用: 'General', 提醒: 'Alerts', 跟随系统: 'System', 浅色: 'Light', 深色: 'Dark', 实色: 'Solid',
@@ -364,6 +368,9 @@ export const rules: Rule[] = [
   [/^(.+) 返回 HTTP (\d+)$/, (m) => `${m[1]}: HTTP ${m[2]}`],
   [/^找不到版本 (.+) 的发布$/, (m) => `No release for version ${m[1]}`],
   [/^安装程序退出码 (-?\d+)$/, (m) => `The installer exited with code ${m[1]}`],
+  [/^安装包里的版本不是 (.+)$/, (m) => `The package isn't version ${m[1]}`],
+  [/^不能写入 (.+)，请从发布页下载安装$/, (m) => `Can't write to ${m[1]}; download it from the release page`],
+  [/^当前版本 (.+)。将从 GitHub 下载这一版的安装包，校验 SHA-256 后替换本机的 Starmeter，并自动重新打开；设置、Key 和统计记录都会保留。$/, (m) => `Now ${m[1]}. The new version's package comes from GitHub and, once its SHA-256 checks out, takes the place of this Starmeter, which opens again; settings, keys and usage records stay.`],
   // Rows that open something
   [/^打开 (.+)$/, (m, tr) => `Open ${tr(m[1])}`],
   // A name and its share (a window of a plan, a client): last, after the rules that know their own names.

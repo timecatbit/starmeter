@@ -862,7 +862,7 @@ impl Runtime {
         Ok(())
     }
 
-    fn write_self_update_state(&self, values: Object) {
+    pub(crate) fn write_self_update_state(&self, values: Object) {
         let mut state = values;
         state.insert("at", now());
         self.write_json_cache(&format!("{}/self-update.json", self.state_dir), &Json::Object(state));
@@ -1451,6 +1451,28 @@ impl Runtime {
                     return Ok(0);
                 }
                 let latest = py::str(release.get("latest"));
+                // The standalone app (and the Windows and Linux ones): its own package, put in place of itself.
+                if self.mac_app || self.is_desktop() {
+                    let assets = release.get("assets").and_then(Json::as_array).cloned().unwrap_or_default();
+                    if self.app_package(&latest, &assets).is_none() {
+                        return invalid("this copy can't be updated in place");
+                    }
+                    if self.confirm(
+                        &format!("更新 Starmeter 到 {latest}？"),
+                        &format!(
+                            "当前版本 {VERSION}。将从 GitHub 下载这一版的安装包，校验 SHA-256 后替换本机的 Starmeter，并自动重新打开；设置、Key 和统计记录都会保留。"
+                        ),
+                        "更新",
+                    ) {
+                        self.write_self_update_state(object! { "status" => "running", "version" => latest.as_str() });
+                        if !self.desktop().is_some_and(|desktop| desktop.update_app(&latest)) {
+                            self.write_self_update_state(
+                                object! { "status" => "failed", "version" => latest.as_str(), "reason" => "这个版本不能在应用内更新" },
+                            );
+                        }
+                    }
+                    return Ok(0);
+                }
                 if self.confirm(
                     &format!("更新 Starmeter 到 {latest}？"),
                     &format!("当前版本 {VERSION}。将从 GitHub 下载该版本的安装包，校验 SHA-256 后安装；原文件先备份，设置、Key 和统计记录都会保留。"),

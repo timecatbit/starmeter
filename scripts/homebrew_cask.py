@@ -40,6 +40,8 @@ def cask(version, arm, intel):
     strategy :github_latest
   end
 
+  # The app updates itself in place from its GitHub releases (应用内升级): brew upgrade leaves it to that.
+  auto_updates true
   depends_on macos: :ventura
 
   app "Starmeter.app"

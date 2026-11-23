@@ -720,14 +720,13 @@ impl Runtime {
         let Some(release) = self.plugin_update(data) else { return vec![] };
         let latest = py::str(release.get("latest"));
         let state = self.self_update_state();
-        if self.mac_app || self.is_desktop() {
+        let assets = release.get("assets").and_then(Json::as_array).cloned().unwrap_or_default();
+        // The standalone app updates itself in place where it can (its bundle, an installed Windows program, an
+        // AppImage); otherwise (a .deb, a portable folder) the row links to the release.
+        let in_place = (self.mac_app || self.is_desktop()) && self.app_package(&latest, &assets).is_some();
+        if (self.mac_app || self.is_desktop()) && !in_place {
             let asset = self.update_asset_name(&latest);
-            let listed = release
-                .get("assets")
-                .and_then(Json::as_array)
-                .into_iter()
-                .flatten()
-                .any(|entry| entry.get("name") == Some(&Json::from(asset.as_str())));
+            let listed = assets.iter().any(|entry| entry.get("name") == Some(&Json::from(asset.as_str())));
             if !listed {
                 return vec![];
             }
@@ -769,7 +768,12 @@ impl Runtime {
             item(&format!("当前 {VERSION} → 最新 {latest}"), 1, object! { "color" => MUTED_COLOR, "size" => 11 }),
         ];
         if running {
-            rows.push(item("正在下载并安装，完成后自动刷新", 1, object! { "color" => MUTED_COLOR, "size" => 11 }));
+            let note = if in_place {
+                "正在下载新版本，校验后自动替换并重新打开"
+            } else {
+                "正在下载并安装，完成后自动刷新"
+            };
+            rows.push(item(note, 1, object! { "color" => MUTED_COLOR, "size" => 11 }));
         } else {
             if failed {
                 rows.push(item(

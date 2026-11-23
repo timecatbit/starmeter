@@ -504,6 +504,27 @@ impl DesktopHost for AppHost {
         }
     }
 
+    /// 应用内升级: downloaded and checked in the background (the row says 正在更新 meanwhile), then the helper takes
+    /// over and the app quits, to be opened again new; a failure stays on the row, with a notice, and the app goes on.
+    fn update_app(&self, version: &str) -> bool {
+        let Some(engine) = self.engine.upgrade() else { return false };
+        let (app, version) = (self.app.clone(), version.to_string());
+        std::thread::Builder::new()
+            .name("starmeter-app-update".into())
+            .spawn(move || {
+                crate::data::changed(&app);
+                let runtime = engine.runtime();
+                match runtime.update_app_in_place(&version, std::process::id()) {
+                    Ok(()) => app.exit(0),
+                    Err(reason) => {
+                        runtime.host.notify(&format!("更新失败：{reason}"), "Starmeter 更新");
+                        crate::data::changed(&app);
+                    }
+                }
+            })
+            .is_ok()
+    }
+
     fn submit_test(&self, provider: &str, id: &str) {
         if let Some(engine) = self.engine.upgrade() {
             engine.queue(|jobs| jobs.tests.push((provider.to_owned(), id.to_owned())));

@@ -55,6 +55,11 @@ pub trait DesktopHost: Host {
     fn request_refresh(&self, mode: Option<&str>);
     fn save_range(&self, key: &str);
     fn local_proxy(&self, base: &str) -> bool;
+    /// The standalone app updates itself in place to `version` (app_update), quitting once the helper has it; false
+    /// where the host can't (the SwiftBar entry updates its plugin instead).
+    fn update_app(&self, _version: &str) -> bool {
+        false
+    }
 }
 
 /// Whether an address points at this machine.

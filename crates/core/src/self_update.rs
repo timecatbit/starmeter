@@ -25,11 +25,10 @@ fn user_agent() -> Vec<(&'static str, String)> {
     vec![("User-Agent", format!("Starmeter/{VERSION}"))]
 }
 
-/// A body up to `limit` bytes from a 2xx answer; Err(None) when the request itself failed.
-fn download(url: &str, limit: usize) -> Result<Vec<u8>, Option<Failed>> {
-    let response =
-        http::send(url, Request { headers: user_agent(), timeout: 30.0, limit: limit + 1, ..Request::default() })
-            .map_err(|_| None)?;
+/// A body up to `limit` bytes from a 2xx answer within `timeout` seconds; Err(None) when the request itself failed.
+fn download(url: &str, limit: usize, timeout: f64) -> Result<Vec<u8>, Option<Failed>> {
+    let response = http::send(url, Request { headers: user_agent(), timeout, limit: limit + 1, ..Request::default() })
+        .map_err(|_| None)?;
     if !(200..300).contains(&response.status) {
         return Err(None);
     }
@@ -114,7 +113,7 @@ impl Runtime {
         if current >= latest {
             return Some(object! { "latest" => version, "page" => page, "assets" => Json::Array(vec![]) });
         }
-        let listing = download(&format!("{REPOSITORY}/releases/expanded_assets/v{version}"), 1024 * 1024).ok()?;
+        let listing = download(&format!("{REPOSITORY}/releases/expanded_assets/v{version}"), 1024 * 1024, 30.0).ok()?;
         let listing = String::from_utf8_lossy(&listing).into_owned();
         let path = reqwest::Url::parse(REPOSITORY).map(|url| url.path().to_string()).unwrap_or_default();
         let folder = format!("{path}/releases/download/v{version}/");
@@ -206,7 +205,15 @@ impl Runtime {
 
     /// One release from this repository only: its published SHA-256 checked, unpacked privately, and the installer
     /// it ships run. Backups and the user's settings are the installer's job.
-    fn install_release(&self, version: &str, log: &str) -> Result<(), Failed> {
+    /// A file of the release `version`, as GitHub serves it, checked against the SHA-256 GitHub computed for it (releases
+    /// publish no checksum files of their own): the plugin's zip, or the app's own package for an update in place.
+    pub(crate) fn release_asset(
+        &self,
+        version: &str,
+        name: &str,
+        limit: usize,
+        timeout: f64,
+    ) -> Result<Vec<u8>, String> {
         let cached =
             self.read_cache("self_update").get("payload").and_then(Json::as_object).cloned().unwrap_or_default();
         let mut release = self.plugin_update(&object! { "self_update" => cached });
@@ -216,32 +223,50 @@ impl Runtime {
         }
         let release = release
             .filter(|release| release.get("latest") == Some(&Json::from(version)))
-            .ok_or_else(|| Failed(format!("找不到版本 {version} 的发布")))?;
+            .ok_or_else(|| format!("找不到版本 {version} 的发布"))?;
+        checked_asset(&release, version, name, limit, timeout)
+    }
+}
+
+/// The file `name` of the release `version` described by `release` ({"assets": [{"name", "url", "digest"}]}, as
+/// self_update_load keeps it), downloaded from where GitHub serves it and checked against GitHub's SHA-256.
+pub(crate) fn checked_asset(
+    release: &Object,
+    version: &str,
+    name: &str,
+    limit: usize,
+    timeout: f64,
+) -> Result<Vec<u8>, String> {
+    let expected = format!("{REPOSITORY}/releases/download/v{version}/{name}");
+    let asset = release
+        .get("assets")
+        .and_then(Json::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Json::as_object)
+        .rfind(|asset| asset.get("name") == Some(&Json::from(name)))
+        .filter(|asset| asset.get("url") == Some(&Json::from(expected.as_str())))
+        .ok_or_else(|| "发布中没有安装包".to_string())?;
+    let published = py::str(Some(&py::or(asset.get("digest"), Json::from(""))));
+    let digest = published.strip_prefix("sha256:").ok_or_else(|| "发布中没有校验值".to_string())?;
+    if digest.len() != 64 || !digest.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)) {
+        return Err("校验值格式错误".into());
+    }
+    let archive = match download(&expected, limit, timeout) {
+        Ok(archive) => archive,
+        Err(Some(Failed(reason))) => return Err(reason),
+        Err(None) => return Err("安装失败：下载失败".into()),
+    };
+    if py::sha256_hex(&archive) != digest {
+        return Err("安装包校验失败".into());
+    }
+    Ok(archive)
+}
+
+impl Runtime {
+    fn install_release(&self, version: &str, log: &str) -> Result<(), Failed> {
         let name = format!("starmeter-{version}.zip");
-        let expected = format!("{REPOSITORY}/releases/download/v{version}/{name}");
-        let asset = release
-            .get("assets")
-            .and_then(Json::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(Json::as_object)
-            .rfind(|asset| asset.get("name") == Some(&Json::from(name.as_str())))
-            .filter(|asset| asset.get("url") == Some(&Json::from(expected.as_str())))
-            .ok_or_else(|| Failed("发布中没有安装包".into()))?;
-        // GitHub computes each asset's SHA-256 itself; releases publish no separate checksum files.
-        let published = py::str(Some(&py::or(asset.get("digest"), Json::from(""))));
-        let digest = published.strip_prefix("sha256:").ok_or_else(|| Failed("发布中没有校验值".into()))?;
-        if digest.len() != 64 || !digest.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)) {
-            return Err(Failed("校验值格式错误".into()));
-        }
-        let archive = match download(&expected, 50 * 1024 * 1024) {
-            Ok(archive) => archive,
-            Err(Some(failed)) => return Err(failed),
-            Err(None) => return Err(Failed("安装失败：下载失败".into())),
-        };
-        if py::sha256_hex(&archive) != digest {
-            return Err(Failed("安装包校验失败".into()));
-        }
+        let archive = self.release_asset(version, &name, 50 * 1024 * 1024, 30.0).map_err(Failed)?;
         let folder = std::env::temp_dir().join(format!("starmeter-update-{}", runtime::random_hex(12)));
         let result = (|| {
             let os_error = |_| Failed("安装失败：OSError".into());

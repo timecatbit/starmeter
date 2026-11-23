@@ -20,6 +20,8 @@ class CaskTests(unittest.TestCase):
     def test_the_cask_points_at_the_published_disk_images(self):
         text = homebrew_cask.cask('6.0.0', self.ARM, self.INTEL)
         self.assertIn('version "6.0.0"', text); self.assertIn('app "Starmeter.app"', text)
+        # It updates itself, so brew upgrade leaves it to that.
+        self.assertIn('auto_updates true', text)
         url = text.split('url "')[1].split('"')[0]
         for arch, digest in (('apple-silicon', self.ARM), ('intel', self.INTEL)):
             resolved = url.replace('#{version}', '6.0.0').replace('#{arch}', arch)
