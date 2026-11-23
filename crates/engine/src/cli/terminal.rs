@@ -216,7 +216,9 @@ pub fn wrap(text: &str, room: usize) -> Vec<String> {
         while width(line.trim_end()) > room {
             let mut head = String::new();
             for c in line.chars() {
-                if width(&head) + char_width(c) > room {
+                // At least one character a line: a wide one in a room of one column takes the line on its own (it
+                // stood still before, and the loop never ended).
+                if !head.is_empty() && width(&head) + char_width(c) > room {
                     break;
                 }
                 head.push(c);
@@ -239,6 +241,12 @@ pub fn pad(text: &str, room: usize, right_align: bool) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_room_of_one_column_still_wraps_wide_characters() {
+        assert_eq!(super::wrap("中文 ok", 1), vec!["中", "文", "o", "k"]);
+        assert_eq!(super::wrap("全角，字", 0), vec!["全", "角", "，", "字"]);
+    }
+
     use super::*;
 
     #[test]
