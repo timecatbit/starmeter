@@ -21,6 +21,129 @@ pub const AUTHOR: &str = "timecatbit";
 
 struct Failed(String);
 
+/// Hosts that serve github.com through themselves (`{mirror}https://github.com/…`), for when GitHub can't be reached
+/// (from mainland China, often): the release check and the download go through them in turn. Checked 2026-11-23: the
+/// first two give the latest release's redirect and its asset list, all three serve the files.
+pub const MIRRORS: [&str; 3] = ["https://ghfast.top/", "https://ghproxy.net/", "https://gh-proxy.com/"];
+
+/// The mirrors to try: the user's own first (STARMETER_GITHUB_MIRRORS in config.local.sh, comma separated, https
+/// only), each marked trusted alone; then the built-in ones, trusted only when two agree (the checksums come through
+/// them too, when GitHub can't be reached at all).
+pub fn mirror_list(own: Option<&str>) -> Vec<(String, bool)> {
+    let mut list: Vec<(String, bool)> = Vec::new();
+    for mirror in own.unwrap_or("").split(',').map(str::trim).filter(|mirror| mirror.starts_with("https://")) {
+        let mirror = if mirror.ends_with('/') { mirror.to_string() } else { format!("{mirror}/") };
+        if !list.iter().any(|(known, _)| *known == mirror) {
+            list.push((mirror, true));
+        }
+    }
+    for mirror in MIRRORS {
+        if !list.iter().any(|(known, _)| known == mirror) {
+            list.push((mirror.to_string(), false));
+        }
+    }
+    list
+}
+
+/// A page as fetched: its status, where it redirects, its body.
+pub(crate) type Fetched = (u16, Option<String>, String);
+
+/// Fetches one source: the file, or with `probe` an empty body once a byte of it came; Err(None) when it couldn't be
+/// reached, Err(Some(reason)) when it answered with something wrong.
+pub(crate) type Getter<'a> = dyn Fn(&str, bool) -> Result<Vec<u8>, Option<String>> + 'a;
+
+/// The asset list a release page loads: each file with the SHA-256 GitHub computed, as the API gives it.
+fn listed_assets(listing: &str, version: &str) -> Vec<Json> {
+    let path = reqwest::Url::parse(REPOSITORY).map(|url| url.path().to_string()).unwrap_or_default();
+    let folder = format!("{path}/releases/download/v{version}/");
+    let mut assets: Vec<Json> = Vec::new();
+    for row in listing.split("<li").skip(1) {
+        let (Some(link), Some(digest)) = (
+            search(&format!("href=\"{}([\\w.+-]+)\"", regex::escape(&folder)), row),
+            search(r"sha256:([0-9a-f]{64})\b", row),
+        ) else {
+            continue;
+        };
+        assets.push(
+            object! {
+                "name" => link[1].as_str(), "url" => format!("{REPOSITORY}/releases/download/v{version}/{}", link[1]),
+                "digest" => format!("sha256:{}", digest[1]),
+            }
+            .into(),
+        );
+    }
+    assets
+}
+
+/// The version a latest-release answer names: where it redirects (with a mirror's own prefix in front or not), or the
+/// first release tag on the page it gives.
+fn named_version(answer: &Fetched) -> Option<String> {
+    let escaped = regex::escape(REPOSITORY);
+    if let Some(found) =
+        answer.1.as_deref().and_then(|to| search(&format!(r"{escaped}/releases/tag/v(\d+\.\d+\.\d+)$"), to))
+    {
+        return Some(found[1].clone());
+    }
+    let path = reqwest::Url::parse(REPOSITORY).map(|url| url.path().to_string()).unwrap_or_default();
+    search(&format!(r"{}/releases/tag/v(\d+\.\d+\.\d+)", regex::escape(&path)), &answer.2).map(|found| found[1].clone())
+}
+
+/// The latest release read through mirrors, when GitHub can't be reached: its version from the latest page's redirect,
+/// its files and their SHA-256 from the release's asset list. One of the user's own mirrors is taken at its word; the
+/// built-in ones only when two give the same version and files with the same checksums, so one mirror alone can't
+/// hand over a file of its own making with a checksum to match. A version no newer than this one needs no agreeing.
+pub(crate) fn mirrored_release(
+    mirrors: &[(String, bool)],
+    current: &str,
+    fetch: &dyn Fn(&str) -> Option<Fetched>,
+) -> Option<Object> {
+    let current = version_tuple(Some(&Json::from(current)))?;
+    let mut seen: Vec<(String, Json, String)> = Vec::new();
+    for (mirror, own) in mirrors {
+        let Some(version) = fetch(&format!("{mirror}{REPOSITORY}/releases/latest")).as_ref().and_then(named_version)
+        else {
+            continue;
+        };
+        let page = format!("{REPOSITORY}/releases/tag/v{version}");
+        if version_tuple(Some(&Json::from(version.as_str())))? <= current {
+            return Some(object! { "latest" => version, "page" => page, "assets" => Json::Array(vec![]) });
+        }
+        let Some((200, _, listing)) = fetch(&format!("{mirror}{REPOSITORY}/releases/expanded_assets/v{version}"))
+        else {
+            continue;
+        };
+        let assets = Json::Array(listed_assets(&listing, &version));
+        if assets.as_array().is_none_or(Vec::is_empty) {
+            continue;
+        }
+        let agreed = *own || seen.iter().any(|(other, files, _)| *other == version && *files == assets);
+        if agreed {
+            return Some(object! { "latest" => version, "page" => page, "assets" => assets, "via" => mirror.as_str() });
+        }
+        seen.push((version, assets, mirror.clone()));
+    }
+    None
+}
+
+/// The first of `sources` (one URL each) that gives a file with the SHA-256 `digest`: each but the last is tried with a
+/// small request first, so one that can't be reached is passed over in seconds, not waited on. A file that doesn't
+/// match is a bad copy, and the next source is tried.
+pub(crate) fn checked_from(sources: &[String], digest: &str, get: &Getter) -> Result<Vec<u8>, String> {
+    let mut failure: Option<String> = None;
+    for (index, source) in sources.iter().enumerate() {
+        if index + 1 < sources.len() && get(source, true).is_err() {
+            continue;
+        }
+        match get(source, false) {
+            Ok(data) if py::sha256_hex(&data) == digest => return Ok(data),
+            Ok(_) => failure = Some("安装包校验失败".into()),
+            Err(Some(reason)) => failure = Some(reason),
+            Err(None) => {}
+        }
+    }
+    Err(failure.unwrap_or_else(|| "下载失败：GitHub 和镜像都连不上".into()))
+}
+
 fn user_agent() -> Vec<(&'static str, String)> {
     vec![("User-Agent", format!("Starmeter/{VERSION}"))]
 }
@@ -115,24 +238,7 @@ impl Runtime {
         }
         let listing = download(&format!("{REPOSITORY}/releases/expanded_assets/v{version}"), 1024 * 1024, 30.0).ok()?;
         let listing = String::from_utf8_lossy(&listing).into_owned();
-        let path = reqwest::Url::parse(REPOSITORY).map(|url| url.path().to_string()).unwrap_or_default();
-        let folder = format!("{path}/releases/download/v{version}/");
-        let mut assets: Vec<Json> = Vec::new();
-        for row in listing.split("<li").skip(1) {
-            let (Some(link), Some(digest)) = (
-                search(&format!("href=\"{}([\\w.+-]+)\"", regex::escape(&folder)), row),
-                search(r"sha256:([0-9a-f]{64})\b", row),
-            ) else {
-                continue;
-            };
-            assets.push(
-                object! {
-                    "name" => link[1].as_str(), "url" => format!("{REPOSITORY}/releases/download/v{version}/{}", link[1]),
-                    "digest" => format!("sha256:{}", digest[1]),
-                }
-                .into(),
-            );
-        }
+        let assets = listed_assets(&listing, &version);
         let asset = self.update_asset_name(&version);
         if !assets.iter().any(|entry| entry.get("name") == Some(&Json::from(asset.as_str()))) {
             return None;
@@ -140,15 +246,43 @@ impl Runtime {
         Some(object! { "latest" => version, "page" => page, "assets" => Json::Array(assets) })
     }
 
+    /// The mirrors this computer tries when GitHub can't be reached.
+    pub fn github_mirrors(&self) -> Vec<(String, bool)> {
+        mirror_list(self.environment.get("STARMETER_GITHUB_MIRRORS").map(String::as_str))
+    }
+
+    /// The latest release through the mirrors, for when GitHub doesn't answer.
+    fn self_update_mirrored(&self) -> Loaded {
+        let fetch = |url: &str| -> Option<Fetched> {
+            let answer = http::send(
+                url,
+                Request {
+                    headers: user_agent(),
+                    timeout: 10.0,
+                    follow_redirects: false,
+                    limit: 2 * 1024 * 1024,
+                    ..Request::default()
+                },
+            )
+            .ok()?;
+            let location = answer.header("Location").map(String::from);
+            Some((answer.status, location, String::from_utf8_lossy(&answer.body).into_owned()))
+        };
+        match mirrored_release(&self.github_mirrors(), VERSION, &fetch) {
+            Some(release) => (Some(release), None),
+            None => (None, Some("检查失败".into())),
+        }
+    }
+
     /// The latest GitHub release of this plugin: a plain GET with no identifiers. A draft or pre-release offers
-    /// nothing.
+    /// nothing. GitHub out of reach (or failing), the mirrors.
     pub fn self_update_load(&self) -> Loaded {
         let mut headers = user_agent();
         headers.push(("Accept", "application/vnd.github+json".into()));
         let Ok(response) =
             http::send(RELEASES_API, Request { headers, timeout: 8.0, limit: 1024 * 1024 + 1, ..Request::default() })
         else {
-            return (None, Some("检查失败".into()));
+            return self.self_update_mirrored();
         };
         if !(200..300).contains(&response.status) {
             if [403, 429].contains(&response.status)
@@ -159,7 +293,7 @@ impl Runtime {
             return if response.status == 404 {
                 (Some(object! { "latest" => Json::Null }), None)
             } else {
-                (None, Some("检查失败".into()))
+                self.self_update_mirrored()
             };
         }
         let release = (response.body.len() <= 1024 * 1024)
@@ -224,7 +358,7 @@ impl Runtime {
         let release = release
             .filter(|release| release.get("latest") == Some(&Json::from(version)))
             .ok_or_else(|| format!("找不到版本 {version} 的发布"))?;
-        checked_asset(&release, version, name, limit, timeout)
+        checked_asset(&release, version, name, limit, timeout, &self.github_mirrors())
     }
 }
 
@@ -236,6 +370,7 @@ pub(crate) fn checked_asset(
     name: &str,
     limit: usize,
     timeout: f64,
+    mirrors: &[(String, bool)],
 ) -> Result<Vec<u8>, String> {
     let expected = format!("{REPOSITORY}/releases/download/v{version}/{name}");
     let asset = release
@@ -252,21 +387,38 @@ pub(crate) fn checked_asset(
     if digest.len() != 64 || !digest.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)) {
         return Err("校验值格式错误".into());
     }
-    let archive = match download(&expected, limit, timeout) {
-        Ok(archive) => archive,
-        Err(Some(Failed(reason))) => return Err(reason),
-        Err(None) => return Err("安装失败：下载失败".into()),
-    };
-    if py::sha256_hex(&archive) != digest {
-        return Err("安装包校验失败".into());
+    // GitHub first, then the mirrors; the mirror the release was read through first when GitHub couldn't be reached.
+    let through = |mirror: &str| format!("{mirror}{expected}");
+    let via = release.get("via").and_then(Json::as_str);
+    let mut sources: Vec<String> = Vec::new();
+    if let Some(via) = via {
+        sources.push(through(via));
+        sources.extend(mirrors.iter().filter(|(mirror, _)| mirror != via).map(|(mirror, _)| through(mirror)));
+        sources.push(expected.clone());
+    } else {
+        sources.push(expected.clone());
+        sources.extend(mirrors.iter().map(|(mirror, _)| through(mirror)));
     }
-    Ok(archive)
+    let get = |url: &str, probe: bool| -> Result<Vec<u8>, Option<String>> {
+        if probe {
+            let mut headers = user_agent();
+            headers.push(("Range", "bytes=0-0".into()));
+            return http::send(url, Request { headers, timeout: 10.0, limit: 64 * 1024, ..Request::default() })
+                .ok()
+                .filter(|answer| (200..300).contains(&answer.status))
+                .map(|_| Vec::new())
+                .ok_or(None);
+        }
+        download(url, limit, timeout).map_err(|failed| failed.map(|Failed(reason)| reason))
+    };
+    checked_from(&sources, digest, &get)
 }
 
 impl Runtime {
     fn install_release(&self, version: &str, log: &str) -> Result<(), Failed> {
         let name = format!("starmeter-{version}.zip");
-        let archive = self.release_asset(version, &name, 50 * 1024 * 1024, 30.0).map_err(Failed)?;
+        // Ten minutes: through a slow mirror the 30 MB zip can take a few.
+        let archive = self.release_asset(version, &name, 50 * 1024 * 1024, 600.0).map_err(Failed)?;
         let folder = std::env::temp_dir().join(format!("starmeter-update-{}", runtime::random_hex(12)));
         let result = (|| {
             let os_error = |_| Failed("安装失败：OSError".into());
@@ -463,5 +615,186 @@ impl Runtime {
         self.check_usage_alerts();
         // 多台电脑合并: this computer's figures, at most every ten minutes.
         self.publish_device(false);
+    }
+}
+
+#[cfg(test)]
+mod mirror_tests {
+    use super::*;
+
+    fn listing(version: &str, digest: &str) -> String {
+        format!(
+            "<ul><li><a href=\"/timecatbit/starmeter/releases/download/v{version}/starmeter-{version}.zip\">zip</a> sha256:{digest}</li></ul>"
+        )
+    }
+
+    /// A fake set of mirrors: each answers the latest page (by redirect or page) and the asset list as given.
+    fn fetcher(answers: Vec<(&'static str, Option<Fetched>, Option<String>)>) -> impl Fn(&str) -> Option<Fetched> {
+        move |url: &str| {
+            for (mirror, latest, assets) in &answers {
+                if url.starts_with(mirror) {
+                    return if url.ends_with("/releases/latest") {
+                        latest.clone()
+                    } else {
+                        assets.clone().map(|body| (200, None, body))
+                    };
+                }
+            }
+            None
+        }
+    }
+
+    fn redirect(mirror: &str, version: &str) -> Option<Fetched> {
+        Some((302, Some(format!("{mirror}{REPOSITORY}/releases/tag/v{version}")), String::new()))
+    }
+
+    #[test]
+    fn two_mirrors_agreeing_give_the_release() {
+        let good = "a".repeat(64);
+        let mirrors = mirror_list(None);
+        let fetch = fetcher(vec![
+            ("https://ghfast.top/", redirect("https://ghfast.top/", "9.0.0"), Some(listing("9.0.0", &good))),
+            ("https://ghproxy.net/", redirect("https://ghproxy.net/", "9.0.0"), Some(listing("9.0.0", &good))),
+        ]);
+        let release = mirrored_release(&mirrors, "6.0.14", &fetch).expect("agreed");
+        assert_eq!(release.get("latest"), Some(&Json::from("9.0.0")));
+        assert_eq!(release.get("via"), Some(&Json::from("https://ghproxy.net/")));
+        let asset = release.get("assets").and_then(Json::as_array).and_then(|assets| assets.first()).cloned().unwrap();
+        assert_eq!(asset.get("digest"), Some(&Json::from(format!("sha256:{good}").as_str())));
+        assert_eq!(
+            asset.get("url"),
+            Some(&Json::from(format!("{REPOSITORY}/releases/download/v9.0.0/starmeter-9.0.0.zip").as_str()))
+        );
+    }
+
+    #[test]
+    fn one_mirror_alone_or_two_that_differ_give_nothing_newer() {
+        let (good, forged) = ("a".repeat(64), "b".repeat(64));
+        let mirrors = mirror_list(None);
+        // One answers; the others don't.
+        let fetch = fetcher(vec![(
+            "https://ghfast.top/",
+            redirect("https://ghfast.top/", "9.0.0"),
+            Some(listing("9.0.0", &good)),
+        )]);
+        assert!(mirrored_release(&mirrors, "6.0.14", &fetch).is_none());
+        // Two answer with different checksums: neither is taken.
+        let fetch = fetcher(vec![
+            ("https://ghfast.top/", redirect("https://ghfast.top/", "9.0.0"), Some(listing("9.0.0", &forged))),
+            ("https://ghproxy.net/", redirect("https://ghproxy.net/", "9.0.0"), Some(listing("9.0.0", &good))),
+        ]);
+        assert!(mirrored_release(&mirrors, "6.0.14", &fetch).is_none());
+        // A third agreeing with one of them settles it.
+        let fetch = fetcher(vec![
+            ("https://ghfast.top/", redirect("https://ghfast.top/", "9.0.0"), Some(listing("9.0.0", &forged))),
+            ("https://ghproxy.net/", redirect("https://ghproxy.net/", "9.0.0"), Some(listing("9.0.0", &good))),
+            (
+                "https://gh-proxy.com/",
+                Some((200, None, "<a href=\"/timecatbit/starmeter/releases/tag/v9.0.0\">".to_string())),
+                Some(listing("9.0.0", &good)),
+            ),
+        ]);
+        let release = mirrored_release(&mirrors, "6.0.14", &fetch).expect("two agree");
+        assert!(py::str(release.get("assets")).contains(&good));
+    }
+
+    #[test]
+    fn the_users_own_mirror_is_taken_alone_and_no_newer_version_needs_no_second() {
+        let good = "a".repeat(64);
+        let mirrors = mirror_list(Some("https://mirror.example/ , http://plain.example/"));
+        assert_eq!(mirrors[0], ("https://mirror.example/".to_string(), true));
+        assert!(mirrors.iter().all(|(mirror, _)| mirror.starts_with("https://")), "{mirrors:?}");
+        let fetch = fetcher(vec![(
+            "https://mirror.example/",
+            redirect("https://mirror.example/", "9.0.0"),
+            Some(listing("9.0.0", &good)),
+        )]);
+        assert_eq!(
+            mirrored_release(&mirrors, "6.0.14", &fetch).and_then(|r| r.get("latest").cloned()),
+            Some(Json::from("9.0.0"))
+        );
+        let fetch = fetcher(vec![("https://ghfast.top/", redirect("https://ghfast.top/", "6.0.14"), None)]);
+        assert_eq!(
+            mirrored_release(&mirror_list(None), "6.0.14", &fetch).and_then(|r| r.get("latest").cloned()),
+            Some(Json::from("6.0.14"))
+        );
+    }
+
+    #[test]
+    fn the_file_comes_from_the_first_source_that_has_it_right() {
+        let data = b"the package".to_vec();
+        let digest = py::sha256_hex(&data);
+        let sources: Vec<String> =
+            ["https://github.com/x", "https://bad.example/x", "https://good.example/x"].map(String::from).to_vec();
+        // GitHub out of reach, a mirror with a bad copy, then one with the right file.
+        let get = |url: &str, _probe: bool| -> Result<Vec<u8>, Option<String>> {
+            match url {
+                "https://github.com/x" => Err(None),
+                "https://bad.example/x" => Ok(b"something else".to_vec()),
+                _ => Ok(data.clone()),
+            }
+        };
+        assert_eq!(checked_from(&sources, &digest, &get), Ok(data.clone()));
+        let none = |_: &str, _: bool| -> Result<Vec<u8>, Option<String>> { Err(None) };
+        assert_eq!(checked_from(&sources, &digest, &none), Err("下载失败：GitHub 和镜像都连不上".into()));
+        let bad = |_: &str, _: bool| -> Result<Vec<u8>, Option<String>> { Ok(b"forged".to_vec()) };
+        assert_eq!(checked_from(&sources, &digest, &bad), Err("安装包校验失败".into()));
+    }
+
+    /// Over the network (run with --ignored): v6.0.14's zip through the built-in mirrors, checked against the SHA-256
+    /// GitHub's API gives, and the latest release read through them as when GitHub can't be reached.
+    #[test]
+    #[ignore]
+    fn the_mirrors_serve_a_release_and_its_files() {
+        let version = "6.0.14";
+        let name = format!("starmeter-{version}.zip");
+        let answer = http::send(
+            &format!("https://api.github.com/repos/timecatbit/starmeter/releases/tags/v{version}"),
+            Request {
+                headers: vec![("User-Agent", "Starmeter-test".into())],
+                timeout: 30.0,
+                limit: 4 << 20,
+                ..Request::default()
+            },
+        )
+        .expect("GitHub answers");
+        let release = Json::parse(&answer.body).expect("a release");
+        let digest = release
+            .get("assets")
+            .and_then(Json::as_array)
+            .into_iter()
+            .flatten()
+            .find(|asset| asset.get("name") == Some(&Json::from(name.as_str())))
+            .and_then(|asset| asset.get("digest"))
+            .and_then(Json::as_str)
+            .and_then(|digest| digest.strip_prefix("sha256:"))
+            .expect("a digest")
+            .to_string();
+        let url = format!("{REPOSITORY}/releases/download/v{version}/{name}");
+        for mirror in MIRRORS {
+            let data = download(&format!("{mirror}{url}"), 50 << 20, 120.0).ok().expect(mirror);
+            assert_eq!(py::sha256_hex(&data), digest, "{mirror}");
+        }
+        let fetch = |url: &str| -> Option<Fetched> {
+            let answer = http::send(
+                url,
+                Request {
+                    headers: user_agent(),
+                    timeout: 15.0,
+                    follow_redirects: false,
+                    limit: 2 << 20,
+                    ..Request::default()
+                },
+            )
+            .ok()?;
+            Some((
+                answer.status,
+                answer.header("Location").map(String::from),
+                String::from_utf8_lossy(&answer.body).into_owned(),
+            ))
+        };
+        let read = mirrored_release(&mirror_list(None), "6.0.13", &fetch).expect("two mirrors agree");
+        assert!(version_tuple(read.get("latest")) >= version_tuple(Some(&Json::from(version))));
+        assert!(read.get("via").is_some());
     }
 }

@@ -171,7 +171,7 @@ starmeter usage 30d --json     # 给脚本用的 JSON
 - Claude 订阅用量只在你启用后，用本机 Claude Code 的登录向 Anthropic 的用量接口查询；令牌只在内存里，不刷新、不写回。
 - Cursor 的用量读取默认关闭。开启后只读取本机已保存的 Cursor 登录，令牌只在内存里、只发往 cursor.com 查询本账户的用量记录，不保存、不刷新、不改写。
 - Gemini 订阅的额度只向这台电脑上正在运行的 Antigravity App 询问（127.0.0.1），用它在本机记下的临时令牌，令牌只用于这次请求，不保存。
-- 只向你启用的服务的官方接口查询。另外每天从 GitHub 检查一次价格表和插件新版本，请求不带 Cookie 或任何标识；不需要的话，在 `config.local.sh` 加 `export OCX_PRICING_UPDATES=0` 或 `export OCX_SELF_UPDATES=0` 即可关闭。服务状态页和人民币汇率只在你开启后才读取。
+- 只向你启用的服务的官方接口查询。另外每天从 GitHub 检查一次价格表和插件新版本，请求不带 Cookie 或任何标识；不需要的话，在 `config.local.sh` 加 `export OCX_PRICING_UPDATES=0` 或 `export OCX_SELF_UPDATES=0` 即可关闭。GitHub 连不上时，检查和下载改经公共镜像（ghfast.top 等，也可用 `STARMETER_GITHUB_MIRRORS` 指定自己的），安装包仍按 GitHub 公布的 SHA-256 校验。服务状态页和人民币汇率只在你开启后才读取。
 - 多台电脑合并只写到你自己选的同步文件夹，由你的网盘同步，Starmeter 不经过任何服务器；文件里只有电脑名称、工具、模型和用量数字，没有路径、项目、对话或 Key。
 - 在手机上看时，数据只在局域网里从这台电脑直接发到手机，链接带一次性口令，没有口令打不开；只有选了“任何网络”才经过 Cloudflare 的临时链接（第一次从 GitHub 下载 cloudflared），一小时后关闭；点“停止”或退出 App 时全部关闭。
 - 费用是按官方 API 价格算出的等值估算，不是你的订阅账单；没有价格的模型只统计 Token，不会凭空填个零。

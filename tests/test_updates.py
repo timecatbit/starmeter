@@ -11,6 +11,10 @@ class UpdateTests(unittest.TestCase):
   configured=patch.object(self.m,'ocx_configured',return_value=False);configured.start();self.addCleanup(configured.stop)
   installed=patch.object(self.m,'app_info',return_value={});installed.start();self.addCleanup(installed.stop)
   bundles=patch.object(self.m,'installed_app_path',return_value=None);bundles.start();self.addCleanup(bundles.stop)
+  # No mirror is reached and every download source answers, unless a test says otherwise: tests stay off the network.
+  self.offline={}
+  for name,value in (('mirror_fetch',None),('reachable',True)):
+   stub=self.offline[name]=patch.object(self.m,name,return_value=value);stub.start();self.addCleanup(stub.stop)
  def row(self,version='4.16336.0'):
   return {'id':'claude','name':'Claude','latest':version,'current':'4.4212.0','available':True,'checkedAt':time.time()}
  def test_numeric_versions_and_unknown_values(self):
@@ -115,6 +119,90 @@ class UpdateTests(unittest.TestCase):
    release,error=self.m.self_update_load()
    self.assertIsNone(error)
    self.assertTrue(any('可更新 99.0.0' in row for row in self.m.self_update_lines({'self_update':release})))
+
+ def redirect(self,mirror,version):
+  return 302,mirror+self.m.REPOSITORY+'/releases/tag/v'+version,''
+ def mirrors(self,answers):
+  """Mirrors answering the latest page and the asset list as given; the rest out of reach."""
+  def fetch(url):
+   for mirror,latest,listing in answers:
+    if url.startswith(mirror):
+     if url.endswith('/releases/latest'):return latest
+     return (200,None,listing.decode()) if listing else None
+   return None
+  return fetch
+ def test_two_mirrors_agreeing_give_the_release_when_github_cannot_be_reached(self):
+  good,forged='a'*64,'b'*64;name='starmeter-99.0.0.zip'
+  fast,net,proxy=self.m.GITHUB_MIRRORS
+  agreeing=self.mirrors([(fast,self.redirect(fast,'99.0.0'),self.listing('99.0.0',{name:good})),
+                         (net,self.redirect(net,'99.0.0'),self.listing('99.0.0',{name:good}))])
+  release=self.m.mirrored_release(self.m.mirror_list(),'6.0.14',agreeing)
+  self.assertEqual((release['latest'],release['via']),('99.0.0',net))
+  self.assertEqual(release['assets'],[{'name':name,'url':self.m.REPOSITORY+'/releases/download/v99.0.0/'+name,'digest':'sha256:'+good}])
+  # One mirror alone, or two that differ, give nothing newer; a third agreeing with one settles it.
+  alone=self.mirrors([(fast,self.redirect(fast,'99.0.0'),self.listing('99.0.0',{name:good}))])
+  self.assertIsNone(self.m.mirrored_release(self.m.mirror_list(),'6.0.14',alone))
+  differ=[(fast,self.redirect(fast,'99.0.0'),self.listing('99.0.0',{name:forged})),(net,self.redirect(net,'99.0.0'),self.listing('99.0.0',{name:good}))]
+  self.assertIsNone(self.m.mirrored_release(self.m.mirror_list(),'6.0.14',self.mirrors(differ)))
+  page=(200,None,'<a href="/timecatbit/starmeter/releases/tag/v99.0.0">')
+  settled=self.m.mirrored_release(self.m.mirror_list(),'6.0.14',self.mirrors(differ+[(proxy,page,self.listing('99.0.0',{name:good}))]))
+  self.assertIn(good,settled['assets'][0]['digest'])
+  # The user's own mirror is taken alone (https only); a version no newer needs no second.
+  own=self.m.mirror_list('https://mirror.example , http://plain.example/')
+  self.assertEqual(own[0],('https://mirror.example/',True));self.assertTrue(all(m.startswith('https://') for m,_ in own))
+  mine=self.mirrors([('https://mirror.example/',self.redirect('https://mirror.example/','99.0.0'),self.listing('99.0.0',{name:good}))])
+  self.assertEqual(self.m.mirrored_release(own,'6.0.14',mine)['via'],'https://mirror.example/')
+  self.assertEqual(self.m.mirrored_release(self.m.mirror_list(),'6.0.14',self.mirrors([(fast,self.redirect(fast,'6.0.14'),None)])),
+                   {'latest':'6.0.14','page':self.m.REPOSITORY+'/releases/tag/v6.0.14','assets':[]})
+  # self_update_load turns to them when GitHub can't be reached or fails, not when it says there's no release.
+  import urllib.error
+  for failure in (urllib.error.URLError('unreachable'),urllib.error.HTTPError(self.m.RELEASES_API,502,'x',{},None)):
+   with patch.object(self.m.urllib.request,'urlopen',side_effect=failure),patch.object(self.m,'mirror_fetch',side_effect=agreeing):
+    release,error=self.m.self_update_load()
+   self.assertIsNone(error);self.assertEqual(release['via'],net)
+  with patch.object(self.m.urllib.request,'urlopen',side_effect=urllib.error.URLError('x')):
+   self.assertEqual(self.m.self_update_load(),(None,(0,'检查失败',None)))
+  with patch.object(self.m.urllib.request,'urlopen',side_effect=urllib.error.HTTPError(self.m.RELEASES_API,404,'x',{},None)),\
+       patch.object(self.m,'mirror_fetch',side_effect=AssertionError('asked a mirror')):
+   self.assertEqual(self.m.self_update_load(),({'latest':None},None))
+ def test_the_file_comes_from_the_first_source_that_has_it_right(self):
+  import hashlib
+  data=b'the package';digest=hashlib.sha256(data).hexdigest()
+  sources=['https://github.com/x','https://bad.example/x','https://good.example/x']
+  copies={'https://bad.example/x':b'something else','https://good.example/x':data}
+  asked=[]
+  def get(url,limit):
+   asked.append(url)
+   if url not in copies:raise OSError('unreachable')
+   return copies[url]
+  self.assertEqual(self.m.checked_from(sources,digest,get,probe=lambda url:url!='https://github.com/x'),data)
+  self.assertEqual(asked,['https://bad.example/x','https://good.example/x'])
+  with self.assertRaisesRegex(self.m.SelfUpdateError,'GitHub 和镜像都连不上'):
+   self.m.checked_from(sources,digest,lambda url,limit:(_ for _ in ()).throw(OSError()),probe=lambda url:False)
+  with self.assertRaisesRegex(self.m.SelfUpdateError,'安装包校验失败'):self.m.checked_from(sources,digest,lambda url,limit:b'forged')
+  # A release read through a mirror is fetched from it first, GitHub last.
+  expected=self.m.REPOSITORY+'/releases/download/v99.0.0/starmeter-99.0.0.zip'
+  fast,net,proxy=self.m.GITHUB_MIRRORS
+  self.assertEqual(self.m.release_sources({'via':net},expected),[net+expected,fast+expected,proxy+expected,expected])
+  self.assertEqual(self.m.release_sources({},expected),[expected,fast+expected,net+expected,proxy+expected])
+ def test_a_mirror_page_is_read_without_following_its_redirect(self):
+  import http.server,threading
+  class Answer(http.server.BaseHTTPRequestHandler):
+   def do_GET(self):
+    if self.path.endswith('/latest'):
+     self.send_response(302);self.send_header('Location','https://mirror.test/https://github.com/timecatbit/starmeter/releases/tag/v99.0.0');self.end_headers()
+    else:
+     body=b'<li>listing</li>';self.send_response(200);self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
+   def log_message(self,*arguments):pass
+  server=http.server.HTTPServer(('127.0.0.1',0),Answer);threading.Thread(target=server.serve_forever,daemon=True).start()
+  self.addCleanup(server.server_close);self.addCleanup(server.shutdown)
+  base='http://127.0.0.1:%d/'%server.server_port
+  self.offline['mirror_fetch'].stop()
+  answer=self.m.mirror_fetch(base+'x/releases/latest')
+  self.assertEqual(answer[:2],(302,'https://mirror.test/https://github.com/timecatbit/starmeter/releases/tag/v99.0.0'))
+  self.assertEqual(self.m.named_version(answer),'99.0.0')
+  self.assertEqual(self.m.mirror_fetch(base+'x/releases/expanded_assets/v99.0.0'),(200,None,'<li>listing</li>'))
+  self.assertIsNone(self.m.mirror_fetch('http://127.0.0.1:1/unreachable'))
 
  def test_each_copy_updates_from_a_file_the_release_publishes(self):
   import importlib.util,sys

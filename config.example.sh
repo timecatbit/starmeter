@@ -37,3 +37,4 @@
 # Price tables update once a day from this project's GitHub repository (a plain GET with no
 # cookies or identifiers). Set to 0 to keep only the tables installed with the plugin.
 # export OCX_PRICING_UPDATES=0
+# export STARMETER_GITHUB_MIRRORS="https://your-mirror.example/"  # Tried first when GitHub can't be reached; built-in public mirrors follow.

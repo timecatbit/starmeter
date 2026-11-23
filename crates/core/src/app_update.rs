@@ -387,8 +387,9 @@ mod tests {
             })
             .collect();
         let release = object! { "latest" => version, "assets" => Json::Array(assets) };
-        let data = crate::self_update::checked_asset(&release, version, &package(version), PACKAGE_LIMIT, PACKAGE_TIME)
-            .expect("downloaded and checked");
+        let data =
+            crate::self_update::checked_asset(&release, version, &package(version), PACKAGE_LIMIT, PACKAGE_TIME, &[])
+                .expect("downloaded and checked");
         let root = folder("real");
         let target = root.join("Starmeter.app");
         shell::run(&["/usr/bin/ditto", &installed.to_string_lossy(), &target.to_string_lossy()], 120.0, None, None)

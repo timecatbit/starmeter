@@ -1426,6 +1426,85 @@ def update_asset_name(version):
     return 'starmeter-%s%s.zip'%(version,'-windows-x64' if DESKTOP is not None else '')
 
 
+# Hosts that serve github.com through themselves ({mirror}https://github.com/…), for when GitHub can't be reached:
+# the release check and the download go through them in turn (same list as the engine's MIRRORS).
+GITHUB_MIRRORS=('https://ghfast.top/','https://ghproxy.net/','https://gh-proxy.com/')
+
+
+def mirror_list(own=None):
+    """The user's own mirrors first (STARMETER_GITHUB_MIRRORS, comma separated, https only), each trusted alone; then
+    the built-in ones, trusted only when two agree."""
+    found=[]
+    for mirror in (own or '').split(','):
+        mirror=mirror.strip()
+        if not mirror.startswith('https://'):continue
+        mirror=mirror if mirror.endswith('/') else mirror+'/'
+        if all(known!=mirror for known,_ in found):found.append((mirror,True))
+    return found+[(mirror,False) for mirror in GITHUB_MIRRORS if all(known!=mirror for known,_ in found)]
+
+
+def listed_assets(listing,version):
+    """The asset list a release page loads: each file with the SHA-256 GitHub computed, as the API gives it."""
+    folder=urllib.parse.urlparse(REPOSITORY).path+'/releases/download/v'+version+'/'
+    assets=[]
+    for row in listing.split('<li')[1:]:
+        link=re.search(r'href="'+re.escape(folder)+r'([\w.+-]+)"',row);digest=re.search(r'sha256:([0-9a-f]{64})\b',row)
+        if link and digest:
+            assets.append({'name':link[1],'url':REPOSITORY+'/releases/download/v%s/%s'%(version,link[1]),'digest':'sha256:'+digest[1]})
+    return assets
+
+
+def named_version(answer):
+    """The version a latest-release answer (status, Location, body) names: where it redirects, with a mirror's prefix
+    in front or not, or the first release tag on the page it gives."""
+    match=re.search(re.escape(REPOSITORY)+r'/releases/tag/v(\d+\.\d+\.\d+)$',answer[1] or '')
+    if match:return match[1]
+    match=re.search(re.escape(urllib.parse.urlparse(REPOSITORY).path)+r'/releases/tag/v(\d+\.\d+\.\d+)',answer[2] or '')
+    return match[1] if match else None
+
+
+def mirrored_release(mirrors,current,fetch):
+    """The latest release read through mirrors: one of the user's own is taken at its word, the built-in ones only
+    when two give the same version and files with the same checksums. No newer version needs no agreeing."""
+    current=version_tuple(current);seen=[]
+    if not current:return None
+    for mirror,own in mirrors:
+        answer=fetch(mirror+REPOSITORY+'/releases/latest');version=named_version(answer) if answer else None
+        if not version:continue
+        page=REPOSITORY+'/releases/tag/v'+version
+        if version_tuple(version)<=current:return {'latest':version,'page':page,'assets':[]}
+        answer=fetch(mirror+REPOSITORY+'/releases/expanded_assets/v'+version)
+        if not answer or answer[0]!=200:continue
+        assets=listed_assets(answer[2],version)
+        if not assets:continue
+        if own or any(other==version and files==assets for other,files in seen):
+            return {'latest':version,'page':page,'assets':assets,'via':mirror}
+        seen.append((version,assets))
+    return None
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self,*arguments):return None
+
+
+def mirror_fetch(url):
+    """A page through a mirror without following its redirect: (status, Location, body), or None unreached."""
+    req=urllib.request.Request(url,headers={'User-Agent':'Starmeter/'+VERSION})
+    try:
+        with urllib.request.build_opener(_NoRedirect).open(req,timeout=10) as response:
+            return response.status,response.headers.get('Location'),response.read(2*1024*1024).decode('utf-8','replace')
+    except urllib.error.HTTPError as error:
+        location=error.headers.get('Location') if error.headers else None
+        if error.fp is not None:error.close()
+        return error.code,location,''
+    except (OSError,ValueError):return None
+
+
+def self_update_mirrored(code=0):
+    release=mirrored_release(mirror_list(os.environ.get('STARMETER_GITHUB_MIRRORS')),VERSION,mirror_fetch)
+    return (release,None) if release else (None,(code,'检查失败',None))
+
+
 def self_update_web():
     """Discover a release via its public pages when the anonymous API is rate-limited. The asset list
     the release page loads names each file with the SHA-256 GitHub computed, as the API would."""
@@ -1437,12 +1516,7 @@ def self_update_web():
         version=match[1]
         if version_tuple(version)<=version_tuple(VERSION):return {'latest':version,'page':page,'assets':[]}
         listing=download(REPOSITORY+'/releases/expanded_assets/v'+version,1024*1024).decode('utf-8','replace')
-        folder=urllib.parse.urlparse(REPOSITORY).path+'/releases/download/v'+version+'/'
-        assets=[]
-        for row in listing.split('<li')[1:]:
-            link=re.search(r'href="'+re.escape(folder)+r'([\w.+-]+)"',row);digest=re.search(r'sha256:([0-9a-f]{64})\b',row)
-            if link and digest:
-                assets.append({'name':link[1],'url':REPOSITORY+'/releases/download/v%s/%s'%(version,link[1]),'digest':'sha256:'+digest[1]})
+        assets=listed_assets(listing,version)
         if not any(a['name']==update_asset_name(version) for a in assets):return None
         return {'latest':version,'page':page,'assets':assets}
     except (OSError,ValueError,SelfUpdateError):
@@ -1462,8 +1536,9 @@ def self_update_load():
         if code in (403,429):
             release=self_update_web()
             if release:return release,None
-        return ({'latest':None},None) if code==404 else (None,(code,'检查失败',None))
-    except (OSError,ValueError):return None,(0,'检查失败',None)
+        # GitHub failing or out of reach: the mirrors.
+        return ({'latest':None},None) if code==404 else self_update_mirrored(code)
+    except (OSError,ValueError):return self_update_mirrored()
     try:release=json.loads(body.decode('utf-8')) if len(body)<=1024*1024 else None
     except ValueError:release=None
     if not isinstance(release,dict):return None,(0,'发布信息无法读取',None)
@@ -1528,6 +1603,35 @@ def download(url,limit):
     return body
 
 
+def reachable(url):
+    """A byte of the file within ten seconds: a source that can't be reached is passed over in seconds."""
+    req=urllib.request.Request(url,headers={'User-Agent':'Starmeter/'+VERSION,'Range':'bytes=0-0'})
+    try:
+        with urllib.request.urlopen(req,timeout=10) as response:response.read(64*1024);return True
+    except (OSError,ValueError):return False
+
+
+def checked_from(sources,digest,get=None,probe=None):
+    """The first source that gives a file with the SHA-256 digest; each but the last is probed first, and a file that
+    doesn't match is a bad copy, so the next source is tried."""
+    get=get or download;probe=probe or reachable;failure=None
+    for index,source in enumerate(sources):
+        if index+1<len(sources) and not probe(source):continue
+        try:data=get(source,50*1024*1024)
+        except SelfUpdateError as error:failure=str(error);continue
+        except (OSError,ValueError):continue
+        if hashlib.sha256(data).hexdigest()==digest:return data
+        failure='安装包校验失败'
+    raise SelfUpdateError(failure or '下载失败：GitHub 和镜像都连不上')
+
+
+def release_sources(release,expected):
+    """GitHub first, then the mirrors; the mirror the release was read through first when GitHub couldn't be reached."""
+    mirrors=[mirror for mirror,_ in mirror_list(os.environ.get('STARMETER_GITHUB_MIRRORS'))];via=release.get('via')
+    if via:return [via+expected]+[mirror+expected for mirror in mirrors if mirror!=via]+[expected]
+    return [expected]+[mirror+expected for mirror in mirrors]
+
+
 def install_release(version,log):
     """Download one release from this repository only, check its published SHA-256, unpack it
     privately and run the installer it ships with. Backups and user settings are the installer's job."""
@@ -1543,8 +1647,7 @@ def install_release(version,log):
     if not digest.startswith('sha256:'):raise SelfUpdateError('发布中没有校验值')
     digest=digest[7:]
     if not re.fullmatch(r'[0-9a-f]{64}',digest):raise SelfUpdateError('校验值格式错误')
-    archive=download(expected,50*1024*1024)
-    if hashlib.sha256(archive).hexdigest()!=digest:raise SelfUpdateError('安装包校验失败')
+    archive=checked_from(release_sources(release,expected),digest)
     folder=tempfile.mkdtemp(prefix='starmeter-update-')
     try:
         path=os.path.join(folder,name)
