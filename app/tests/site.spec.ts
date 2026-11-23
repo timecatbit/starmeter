@@ -86,3 +86,46 @@ test('website: a language chosen while 繁體中文 still loads is the one shown
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
   expect(await page.evaluate(() => localStorage.getItem('starmeter-lang'))).toBe('en');
 });
+
+for (const [name, first] of [['hant.js before site.js', 'hant'], ['site.js before hant.js', 'site']] as const) {
+  test(`website: opened in 繁體中文 (${name}), the privacy promise follows each switch, converted as one sentence (SITE-4)`, async ({ page }) => {
+    // Whichever of the two scripts the page gets first, the other waits for it.
+    let served: () => void = () => {};
+    const ready = new Promise<void>((resolve) => { served = resolve; });
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    await page.route((url) => !url.href.startsWith(SITE), (route) => route.fulfill({ status: 204, body: '' }));
+    await page.route(`${SITE}**`, async (route) => {
+      const file = new URL(route.request().url()).pathname;
+      const waiting = first === 'hant' ? '/site.js' : '/hant.js';
+      if (file === waiting) await ready;
+      await serve(route);
+      if (file === (first === 'hant' ? '/hant.js' : '/site.js')) served();
+    });
+    await page.goto(SITE + '?lang=zh-Hant');
+    await expect(page.locator('html')).toHaveClass(/motion/);
+    const promise = page.locator('[data-scrub] .zh');
+    const button = (label: string) => page.getByRole('button', { name: label, exact: true });
+    await expect(page.locator('html')).toHaveAttribute('lang', 'zh-Hant');
+    // Split into words for the motion, and 註冊 as the whole sentence converts it (注 alone would stay 注).
+    await expect(promise.locator('.w').first()).toBeAttached();
+    await expect(promise).toHaveText(/^不用註冊賬號，也沒有中轉服務器/);
+    await button('简体中文').click();
+    await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN');
+    await expect(promise).toHaveText(/^不用注册账号，也没有中转服务器/);
+    await button('繁體中文').click();
+    await expect(promise).toHaveText(/^不用註冊賬號，也沒有中轉服務器/);
+    expect(errors).toEqual([]);
+  });
+}
+
+test('website: opened in 简体中文 and switched to 繁體中文, the privacy promise converts as one sentence (SITE-4)', async ({ page }) => {
+  const errors = await site(page, '?lang=zh');
+  const promise = page.locator('[data-scrub] .zh');
+  await expect(promise.locator('.w').first()).toBeAttached();
+  await page.getByRole('button', { name: '繁體中文', exact: true }).click();
+  await expect(promise).toHaveText(/^不用註冊賬號/);
+  await page.getByRole('button', { name: '简体中文', exact: true }).click();
+  await expect(promise).toHaveText(/^不用注册账号/);
+  expect(errors).toEqual([]);
+});

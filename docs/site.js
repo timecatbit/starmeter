@@ -18,6 +18,10 @@
   // place (hant.js, the panel's own tables), with the original kept to go back to. The pictures come from
   // images/zh-Hant/ and the README links go to README.zh-Hant.md.
   var parts = null;
+  // The sentences the motion splits into words (the privacy promise): converted as a whole and split again, since a
+  // character alone converts differently (注册 reads 註冊, 注 alone 注), and kept apart from the parts above, whose text
+  // nodes the split replaces (SITE-4).
+  var sentences = [];
   // Collected the first time the page turns Traditional, when hant.js is there.
   function chineseParts() {
     if (parts) return parts;
@@ -26,7 +30,7 @@
     document.querySelectorAll('.zh').forEach(function (element) {
       var walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
       for (var node = walker.nextNode(); node; node = walker.nextNode()) {
-        if (texts.has(node) || !HAN.test(node.nodeValue)) continue;
+        if (texts.has(node) || !HAN.test(node.nodeValue) || node.parentElement.closest('[data-split]')) continue;
         texts.add(node);
         parts.push({ node: node, text: node.nodeValue, hant: window.toHant(node.nodeValue) });
       }
@@ -56,6 +60,13 @@
         if (part.node.nodeValue !== value) part.node.nodeValue = value;
       } else if (part.element.getAttribute(part.name) !== value) {
         part.element.setAttribute(part.name, value);
+      }
+    });
+    sentences.forEach(function (sentence) {
+      var value = on ? (sentence.hant = sentence.hant || window.toHant(sentence.text)) : sentence.text;
+      if (sentence.shown !== value) {
+        fill(sentence.element, value);
+        sentence.shown = value;
       }
     });
   }
@@ -489,19 +500,31 @@
   // Each language's text in its own words (a Chinese character, with any punctuation after it, counts as one).
   function split(statement) {
     Array.prototype.forEach.call(statement.children, function (part) {
-      var words = part.classList.contains('en')
-        ? part.textContent.match(/\S+\s*/g)
-        : part.textContent.match(/[A-Za-z0-9]+\s*|[^A-Za-z0-9\s][，。：；、！？）”]*\s*/g);
-      if (!words) return;
-      part.textContent = '';
-      words.forEach(function (word, i) {
-        var piece = document.createElement('span');
-        piece.className = 'w';
-        piece.style.setProperty('--i', i);
-        piece.textContent = word;
-        part.appendChild(piece);
-      });
-      part.style.setProperty('--n', words.length);
+      if (part.classList.contains('zh')) {
+        // The Simplified text, even when the page already shows Traditional (opened in 繁體中文 with hant.js there
+        // first): the parts collected then hold it, and give up their text nodes to the words.
+        var shown = part.textContent;
+        var held = (parts || []).filter(function (one) { return one.node && part.contains(one.node); });
+        if (parts) parts = parts.filter(function (one) { return held.indexOf(one) < 0; });
+        part.setAttribute('data-split', '');
+        sentences.push({ element: part, text: held.length ? held.map(function (one) { return one.text; }).join('') : shown, shown: shown });
+      }
+      fill(part, part.textContent);
     });
+  }
+  function fill(part, text) {
+    var words = part.classList.contains('en')
+      ? text.match(/\S+\s*/g)
+      : text.match(/[A-Za-z0-9]+\s*|[^A-Za-z0-9\s][，。：；、！？）”]*\s*/g);
+    if (!words) return;
+    part.textContent = '';
+    words.forEach(function (word, i) {
+      var piece = document.createElement('span');
+      piece.className = 'w';
+      piece.style.setProperty('--i', i);
+      piece.textContent = word;
+      part.appendChild(piece);
+    });
+    part.style.setProperty('--n', words.length);
   }
 })();
