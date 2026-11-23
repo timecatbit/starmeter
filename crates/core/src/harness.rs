@@ -928,10 +928,28 @@ fn forget_missing(db: &Database, active: &HashSet<String>, archive: Option<&Path
 
 /// One copy per event ID, whichever file was indexed first.
 fn unique_events(db: &Database, start: f64, end: f64) -> Fallible<Vec<Event>> {
-    let rows = db.rows(
+    events_in(
+        db,
         "SELECT data FROM events WHERE rowid IN (SELECT MIN(rowid) FROM events GROUP BY id) AND ts>=? AND ts<=?",
-        &[Value::Real(start), Value::Real(end)],
-    )?;
+        start,
+        end,
+    )
+}
+
+/// One copy per event ID, the one whose time is the most exact (its `timing`), else whichever was indexed first: a
+/// generation kept by both Antigravity's app and its IDE can be dated by its own step in one and only by when its
+/// conversation began in the other (AGY-1). The copy is chosen first, then the range: the day is the exact one's.
+fn best_timed_events(db: &Database, start: f64, end: f64) -> Fallible<Vec<Event>> {
+    events_in(
+        db,
+        "SELECT data FROM events WHERE rowid IN (SELECT r FROM (SELECT rowid AS r, ROW_NUMBER() OVER (PARTITION BY id ORDER BY COALESCE(json_extract(data,'$.timing'),0) DESC, rowid) AS n FROM events) WHERE n=1) AND ts>=? AND ts<=?",
+        start,
+        end,
+    )
+}
+
+fn events_in(db: &Database, query: &str, start: f64, end: f64) -> Fallible<Vec<Event>> {
+    let rows = db.rows(query, &[Value::Real(start), Value::Real(end)])?;
     Ok(rows
         .iter()
         .filter_map(|row| database::text(&row[0]).and_then(|text| Json::parse_str(text).ok()))
@@ -991,8 +1009,9 @@ pub fn gemini_usage(
     if paths.is_empty() && stores.is_empty() && !archive.is_some_and(Path::exists) {
         return Ok(object! { "error" => "暂无 Gemini 用量记录" });
     }
-    // v3: Antigravity's models are kept by the API model they name (antigravity_model), so older readings are read again.
-    let target = cache.join(format!("harness-gemini-v3-{}.sqlite3", root_identity(&root)));
+    // v3: Antigravity's models are kept by the API model they name (antigravity_model); v4: each of its generations
+    // says how exactly its time is known (AGY-1). Older readings are read again.
+    let target = cache.join(format!("harness-gemini-v4-{}.sqlite3", root_identity(&root)));
     files::make_directory(cache, 0o700)?;
     let db = Database::open(&target, 10.0, Mode::ReadWrite)?;
     files::owner_only(&target);
@@ -1073,7 +1092,7 @@ pub fn gemini_usage(
             Err(_) => errors += 1,
         }
     }
-    let events = archive::merged(unique_events(&db, start, end)?, archive, start, end);
+    let events = archive::merged(best_timed_events(&db, start, end)?, archive, start, end);
     // Antigravity serves Claude and GPT models too: each request is priced by the model it names, as Magpie's are.
     let mut result = tally::aggregate(&events, start, end, zone, exclude_proxy, Some(&magpie_price), carriers);
     if errors > 0 {
@@ -1326,13 +1345,17 @@ fn antigravity_file(path: &str, changed: f64) -> Result<Vec<Event>, FileError> {
             }
         };
         let response = proto_text(&usage, 11);
-        let at = response
-            .as_ref()
-            .and_then(|response| by_response.get(response))
-            .or_else(|| proto_text(&top, 4).and_then(|generation| by_generation.get(&generation)))
-            .copied()
-            .or(began)
-            .unwrap_or(changed);
+        // How exactly the time is known: 3 its response's step, 2 its generation's, 1 when the conversation began, 0
+        // the store's last change.
+        let (at, timing) = if let Some(at) = response.as_ref().and_then(|response| by_response.get(response)) {
+            (*at, 3)
+        } else if let Some(at) = proto_text(&top, 4).and_then(|generation| by_generation.get(&generation).copied()) {
+            (at, 2)
+        } else if let Some(at) = began {
+            (at, 1)
+        } else {
+            (changed, 0)
+        };
         let model = proto_text(&generation, 19)
             .map(|id| antigravity_model(&id))
             .or_else(|| proto_text(&generation, 21).map(|name| display_model(&name)));
@@ -1350,6 +1373,7 @@ fn antigravity_file(path: &str, changed: f64) -> Result<Vec<Event>, FileError> {
         event.insert("session", py::identity(vec![conversation.as_str().into()]));
         event.insert("timestamp", at);
         event.insert("provider", "google");
+        event.insert("timing", timing);
         events.push(event);
     }
     Ok(events)

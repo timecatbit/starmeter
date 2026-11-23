@@ -587,6 +587,15 @@ def unique_events(conn, start, end):
     return (json.loads(row[0]) for row in rows)
 
 
+def best_timed_events(conn, start, end):
+    """One copy per event ID, the one whose time is the most exact (its 'timing'), else whichever was indexed first: a
+    generation kept by both Antigravity's app and its IDE can be dated by its own step in one and only by when its
+    conversation began in the other (AGY-1). The copy is chosen first, then the range: the day is the exact one's."""
+    rows = conn.execute("SELECT data FROM events WHERE rowid IN (SELECT r FROM (SELECT rowid AS r, ROW_NUMBER() OVER (PARTITION BY id ORDER BY "
+                        "COALESCE(json_extract(data,'$.timing'),0) DESC, rowid) AS n FROM events) WHERE n=1) AND ts>=? AND ts<=?", (start, end))
+    return (json.loads(row[0]) for row in rows)
+
+
 def aggregate(events, start, end, zone, exclude_proxy=False, price=None, carriers=None):
     """A source's own card covers all its records. When a gateway (OpenCodex, Magpie) logged some of
     the same requests, 'counted' holds only the rest, which is what Summary adds for this source."""
@@ -939,17 +948,19 @@ def antigravity_file(path, changed):
                 output = (thinking or 0) + (answer or 0)
                 if total is not None and total != output:continue
             response = proto_text(usage, 11)
-            at = by_response.get(response) if response else None
+            # How exactly the time is known: 3 its response's step, 2 its generation's, 1 when the conversation began,
+            # 0 the store's last change.
+            at, timing = by_response.get(response) if response else None, 3
             if at is None:
                 generation_id = proto_text(top, 4)
-                at = by_generation.get(generation_id) if generation_id else None
-            if at is None:at = began if began is not None else changed
+                at, timing = by_generation.get(generation_id) if generation_id else None, 2
+            if at is None:at, timing = (began, 1) if began is not None else (changed, 0)
             name = proto_text(generation, 21)
             ident = proto_text(generation, 19)
             model = antigravity_model(ident) if ident else (display_model(name) if name else None)
             event = metrics(model, proto_number(usage, 2) or 0, output, proto_number(usage, 5) or 0, proto_number(usage, 4) or 0)
             event.update(id=identity('antigravity', response or '%s:%d' % (conversation, idx or 0)), session=identity(conversation),
-                         timestamp=at, provider='google')
+                         timestamp=at, provider='google', timing=timing)
             events.append(event)
         return events
     finally:db.close()
@@ -980,8 +991,9 @@ def gemini_usage(root, cache, start, end, zone, exclude_proxy=False, carriers=No
     paths = sorted({p for folder in folders for p in gemini_files(folder, root)})
     stores = antigravity_stores(root)
     if not paths and not stores and not (archive and Path(archive).is_file()): return {'error':'暂无 Gemini 用量记录'}
-    # v3: Antigravity's models are kept by the API model they name (antigravity_model), so older readings are read again.
-    target = Path(cache)/('harness-gemini-v3-'+identity(str(root.resolve()))[:12]+'.sqlite3')
+    # v3: Antigravity's models are kept by the API model they name (antigravity_model); v4: each of its generations says
+    # how exactly its time is known (AGY-1). Older readings are read again.
+    target = Path(cache)/('harness-gemini-v4-'+identity(str(root.resolve()))[:12]+'.sqlite3')
     target.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
     db = sqlite3.connect(target,timeout=10);os.chmod(target,0o600)
     try:
@@ -1035,7 +1047,7 @@ def gemini_usage(root, cache, start, end, zone, exclude_proxy=False, carriers=No
                 db.execute('INSERT OR REPLACE INTO files VALUES (?,?,?)',(file_id,size,mtime))
         # Antigravity serves Claude and GPT models too: each request is priced by the model it names (the plugin
         # passes magpie_price, as the engine does).
-        result=aggregate(kept.merged(unique_events(db,start,end),archive,start,end),start,end,zone,exclude_proxy,price,carriers)
+        result=aggregate(kept.merged(best_timed_events(db,start,end),archive,start,end),start,end,zone,exclude_proxy,price,carriers)
         if errors:
             result['partial']=True
             if not result['summary']['requests']:result['error']='Gemini 记录格式待检查'

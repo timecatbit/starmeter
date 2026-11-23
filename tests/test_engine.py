@@ -663,6 +663,19 @@ class HarnessReaderParityTests(unittest.TestCase):
         (chats / 'session-1.json').write_text(json.dumps({'sessionId': 'gs1', 'messages': [{'type': 'gemini', 'id': 'g1', 'model': 'gemini-3-pro',
             'timestamp': '2026-11-18T10:00:00Z', 'tokens': {'input': 100, 'output': 10, 'cached': 20, 'thoughts': 5, 'tool': 2, 'total': 117}}]}))
         self.assertEqual(self.compare('gemini', gemini, 'with Gemini CLI')['summary']['requests'], 7)
+        # AGY-1: the app's copy knows only when its conversation began (yesterday in Shanghai), the IDE's when its step
+        # ran (today): it counts once, on the IDE's day, whichever store was read first.
+        for name, ide_first in (('app read first', False), ('IDE read first', True)):
+            both = self.root / ('gemini-' + name.split()[0])
+            late = generation([(2, 13726), (3, 254), (9, 190), (10, 64), (11, 'rx')], (19, 'gemini-4-carbon'), uuid='gx')
+            app_store = lambda: store(both / 'antigravity' / 'conversations' / 'cx.db', [late], began='2026-11-17T12:00:00Z')
+            ide_store = lambda: store(both / 'antigravity-ide' / 'conversations' / 'cx.db', [late],
+                                      steps=[pb((1, moment('2026-11-18T02:00:00Z')), (9, pb((11, 'rx'))))])
+            for make in ((ide_store, app_store) if ide_first else (app_store, ide_store)):make()
+            today = self.compare('gemini', both, name + ': today')
+            yesterday = self.compare('gemini', both, name + ': yesterday', start=self.start - 86400, end=self.start - 0.001)
+            whole = self.compare('gemini', both, name + ': all', start=0, end=self.end)
+            self.assertEqual((today['summary']['requests'], yesterday['summary']['requests'], whole['summary']['requests']), (1, 0, 1), name)
 
     def test_gemini_and_opencode(self):
         gemini = self.root / 'gemini'
