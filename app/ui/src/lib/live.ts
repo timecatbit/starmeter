@@ -129,7 +129,7 @@ export function compact(value: number): string {
 
 export type Scale = { lo: number; height: number };
 
-/** The scale for a window: from where the line stood at its left edge, a round height over what it added since, never
+/** The scale for a window: from `base` (0, the window's left edge), a round height over what was added since, never
  *  below a small floor so an idle line lies flat along the bottom. */
 export const scaleFor = (base: number, top: number): Scale => ({ lo: base, height: nice(Math.max(2000, (top - base) * 1.04)) });
 
@@ -141,16 +141,3 @@ export function zoom(a: Scale, b: Scale, anchor: number, e: number): Scale {
 }
 
 export const easeInOut = (t: number) => { t = Math.min(1, Math.max(0, t)); return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; };
-
-/** The bottom mark says where the window starts, as closely as the label column allows (124.2M → 124M). */
-export function baseLabel(value: number, fits: (label: string) => boolean): string {
-  const [unit, suffix] = value >= 1e9 ? [1e9, 'B'] : value >= 1e6 ? [1e6, 'M'] : value >= 1e3 ? [1e3, 'K'] : [1, ''];
-  let label = '';
-  for (const digits of unit === 1 ? [0] : [2, 1, 0]) {
-    label = (value / unit).toFixed(digits);
-    if (label.includes('.')) label = label.replace(/0+$/, '').replace(/\.$/, '');
-    label += suffix;
-    if (fits(label)) break;
-  }
-  return label;
-}

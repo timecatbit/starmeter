@@ -1,7 +1,7 @@
 <script lang="ts">
-  // The pinned chart: what Summary's tools added in the last minute, read every couple of seconds. The line carries on
-  // from the trend's newest point and steps up at each reading, flowing left at 30 frames a second over a fixed one-minute
-  // axis whose bottom is where the window starts. Pinning zooms into now: the trend stretches away from its end and
+  // The pinned chart: what Summary's tools added in the last minute, read every couple of seconds. The line steps up at
+  // each reading from 0 at the window's left edge (what was added since, not the running total: the user asked for the
+  // change itself), flowing left at 30 frames a second over a fixed one-minute axis. Pinning zooms into now: the trend stretches away from its end and
   // fades, its end dot settles where the live line ends, and the live line opens out leftward from that dot while the
   // live marks come in. Unpinning plays the same in reverse and hands back to the trend. A new reading lands with a
   // ripple, 实时 breathes, and the last minute's rate reads at the top right in Token/s. Beside 实时, Token / Token/s
@@ -10,7 +10,7 @@
   import { t } from '../lib/i18n.svelte';
   import { chartAxis, chartPositions, seriesOf, smoothCurves, summaryProviders, tracePath } from '../lib/chart';
   import { tokens } from '../lib/format';
-  import { baseLabel, compact, nice, rateText, scaleFor, type LiveFeed, type Sample, type Scale } from '../lib/live';
+  import { compact, nice, rateText, scaleFor, type LiveFeed, type Sample, type Scale } from '../lib/live';
   import { font, MONO, SANS, width } from '../lib/measure';
   import { untrack } from 'svelte';
   import { panel } from '../lib/ui.svelte';
@@ -146,7 +146,7 @@
       else if (logNow && spread < 10) { logNow = false; shown = null; }
       canvas.dataset.scale = logNow ? 'log' : 'linear';
       const target = rating ? { lo: 0, height: nice(Math.max(5, ...rates.map(([, r]) => r * 1.15))) }
-        : scaleFor(from, Math.max(from, ...points.map((s) => feed.value(s))));
+        : scaleFor(0, Math.max(0, ...points.map((s) => feed.value(s) - from)));
       // While zooming the live scale stands still; afterwards it eases to each new window.
       const range: Scale = zoom || !shown ? target
         : { lo: shown.lo + (target.lo - shown.lo) * 0.12, height: shown.height + (target.height - shown.height) * 0.12 };
@@ -237,7 +237,7 @@
         const apart = Math.min(1, Math.max(0, (Math.abs(y(range.lo) - y(range.lo + range.height / 2)) - 8) / 6));
         if (logNow) {
           // A mark at each power of ten, labelled as the straight scale's are; 对数 says the steps aren't even.
-          mark(rating ? '0' : baseLabel(range.lo, (label) => width(label, font(8)) <= column - 4), range.lo, true);
+          mark('0', range.lo, true);
           for (let power = Math.ceil(Math.log10(floor * 10)); 10 ** power <= range.height * 1.0001; power++) {
             mark((rating ? '' : '+') + compact(10 ** power), range.lo + 10 ** power, false);
           }
@@ -247,7 +247,7 @@
           mark(compact(target.height / 2), range.height / 2, false, apart);
           mark(compact(target.height), range.height, false, apart);
         } else {
-          mark(baseLabel(range.lo, (label) => width(label, font(8)) <= column - 4), range.lo, true);
+          mark('0', range.lo, true);
           mark('+' + compact(target.height / 2), range.lo + range.height / 2, false, apart);
           mark('+' + compact(target.height), range.lo + range.height, false, apart);
         }
@@ -294,7 +294,8 @@
       const drawn = base ? [...order] : [];
       const newestPoint = points.at(-1);
       if (newestPoint) drawn.sort((a, b) => added(b, newestPoint) - added(a, newestPoint));
-      const level = (id: string | null, sample: Sample) => (id === null ? feed.value(sample) : feed.value(base!) + added(id, sample));
+      // What the total and each tool added since the window's left edge: the axis runs from 0.
+      const level = (id: string | null, sample: Sample) => (id === null ? feed.value(sample) - from : added(id, sample));
       // Which lines are drawn, and each tool's rate now, for whatever reads the page rather than the pixels (tests).
       canvas.dataset.lines = (rating ? toolRates.map((tool) => tool.id) : drawn).join(',');
       canvas.dataset.toolRates = JSON.stringify(Object.fromEntries(toolRates.map((tool) => [tool.id, Math.round(tool.points.at(-1)![1] * 10) / 10])));
