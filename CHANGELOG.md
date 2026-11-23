@@ -1,5 +1,13 @@
 # 更新记录
 
+## 6.0.16
+
+- 「工具更新」逐个产品检查：同一工具的 App 和命令行各占一行（Claude 与 Claude Code、ChatGPT 与 Codex、Cursor 与 Cursor CLI、Antigravity 与 Gemini CLI、OpenCode Desktop 与 OpenCode 等），每行写本机版本、官方最新版和安装渠道。命令行有新版本时点一下，按它的渠道在终端运行 brew upgrade、npm install -g 或它自带的更新命令；App 点一下就打开，由它自己更新。WorkBuddy 也能检查新版本了。
+- 「工具更新」的条目按状态灯排序（可更新、已是最新、检查失败、待确认），「更新」按钮靠右排成一列。
+- 有新版本时，标题 Starmeter 旁出现一个小图标（圈里一个向下箭头），点它打开更新页，看过后收成小圆点；不想要可以在「提醒」里关掉，系统通知照常。
+- 会话：Google 的 Gemini 桌面版里的对话也列出来，写开始时间、最近活动、轮数和是否正在回复；它的缓存里没有 Token 和金额，对话标题和内容是加密的，不读。
+- 本机装了 Gemini 桌面版时，Gemini 卡片注明不含 Gemini 桌面版的用量。
+
 ## 6.0.15
 
 - 独立版可以在应用内升级：「工具更新」里 Starmeter 有新版时点「更新到 X…」，下载本机对应的安装包并按 GitHub 的 SHA-256 校验，退出后替换并重新打开；.deb 和 Windows 免安装版仍链接到发布页。连不上 GitHub 时，检查和下载新版改走镜像，下载的包照样按 GitHub 的 SHA-256 校验。
