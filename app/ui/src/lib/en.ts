@@ -356,6 +356,7 @@ export const rules: Rule[] = [
   [/^(\d+) 空闲$/, (m) => `${m[1]} idle`],
   [/^(\d+) 等待输入$/, (m) => `${m[1]} waiting`],
   [/^最近 (\d+) 轮$/, (m) => (m[1] === '1' ? 'Last turn' : `Last ${m[1]} turns`)],
+  [/^(\d+) 轮$/, (m) => (m[1] === '1' ? '1 turn' : `${m[1]} turns`)],
   // A session's whole cost over its turns, and the range its card's figure counts.
   [/^累计 (.+)$/, (m, tr) => `Total ${tr(m[1]).replace(/^Known /, 'known ')}`],
   [/^金额只算(.+)$/, (m, tr) => `amounts cover ${tr(m[1]).toLowerCase()}`],

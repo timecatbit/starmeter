@@ -366,10 +366,18 @@ impl Runtime {
             } else {
                 format!("空闲 {}", lasted(ago))
             };
-            let detail: Vec<&str> = [state.as_str(), model.as_str(), effort.as_str(), context.as_str()]
-                .into_iter()
-                .filter(|p| !p.is_empty())
-                .collect();
+            // A session whose record keeps no requests (the Gemini app's) counts the user's messages instead.
+            let rounds = session
+                .get("rounds")
+                .and_then(Json::integer)
+                .filter(|rounds| *rounds > 0)
+                .map(|rounds| format!("{rounds} 轮"))
+                .unwrap_or_default();
+            let detail: Vec<&str> =
+                [state.as_str(), model.as_str(), effort.as_str(), context.as_str(), rounds.as_str()]
+                    .into_iter()
+                    .filter(|p| !p.is_empty())
+                    .collect();
             // The live figure: what the session cost in the range the panel shows, as the other tabs count, rising as
             // it works; 全部 (or a reading from before ranges were kept) the whole session. This turn's tokens until
             // the cost is read. The whole session's cost heads its turns.

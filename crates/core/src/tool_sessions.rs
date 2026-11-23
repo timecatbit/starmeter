@@ -1,5 +1,5 @@
-//! Sessions of the other tools on the homepage, beside Claude Code's and Codex's: Gemini (its CLI and Antigravity),
-//! OpenCode, Qoder, WorkBuddy and DeepSeek. Each is read from what that tool's usage reader keeps of it, so a session's
+//! Sessions of the other tools on the homepage, beside Claude Code's and Codex's: Gemini (its CLI, Antigravity and
+//! Google's Gemini app), OpenCode, Qoder, WorkBuddy and DeepSeek. Each is read from what that tool's usage reader keeps of it, so a session's
 //! requests are those its card counts: DeepSeek, WorkBuddy, Qoder and Gemini keep an index of every session file's
 //! requests (written as the usage is read), OpenCode keeps its own database. Only a tool shown on the homepage is
 //! looked at. A session is running while its record changed in the last minute (Antigravity says so itself); its turns
@@ -355,7 +355,188 @@ fn text_of(value: Option<&Json>) -> Option<String> {
     value.and_then(Json::as_str).map(str::trim).filter(|text| !text.is_empty() && *text != "未知模型").map(String::from)
 }
 
+// Gemini App
+
+/// Core Data's clock starts at 2001-01-01: its seconds plus this are Unix seconds.
+const CORE_DATA_EPOCH: f64 = 978_307_200.0;
+/// How much of the newest diagnostic log is read for whether a reply is being written.
+const LOG_TAIL: u64 = 256 * 1024;
+
+/// A conversation of Google's Gemini app, as its cache keeps it: when it began (its first message), when it was last
+/// active, how many times the user spoke. Its title, its messages and the model are encrypted and never read.
+struct AppChat {
+    chat: String,
+    conversation: String,
+    started: Option<f64>,
+    last_message: Option<f64>,
+    at: f64,
+    rounds: i64,
+}
+
+/// The Gemini app's conversations active since `since`, from every account's ChatInfo2.store (Core Data's SQLite)
+/// under <cache>/Gemini/user*/: only the ids, the times and the count of the user's messages.
+fn gemini_app_chats(cache: &str, since: f64) -> Vec<AppChat> {
+    let mut accounts: Vec<std::path::PathBuf> = std::fs::read_dir(Path::new(cache).join("Gemini"))
+        .map(|entries| {
+            entries
+                .flatten()
+                .filter(|entry| entry.file_name().to_string_lossy().starts_with("user"))
+                .map(|entry| entry.path().join("ChatInfo2.store"))
+                .collect()
+        })
+        .unwrap_or_default();
+    accounts.sort();
+    let mut chats = Vec::new();
+    for store in accounts {
+        let Some(db) = open_index(&store) else { continue };
+        let rows = db
+            .rows(
+                "SELECT c.ZCHATUUID, c.ZROBINCONVERSATIONID, c.ZLASTUPDATEDTIME, MIN(m.ZCREATEDTIME), MAX(m.ZCREATEDTIME), \
+                 COALESCE(SUM(m.ZISUSERTURN), 0) FROM ZCHATINFOSTOREDMODEL c LEFT JOIN ZCHATMESSAGESTOREDMODEL m \
+                 ON m.ZCHATUUID = c.ZCHATUUID GROUP BY c.Z_PK",
+                &[],
+            )
+            .unwrap_or_default();
+        for row in rows {
+            let text = |index: usize| row.get(index).and_then(database::text).unwrap_or("").to_string();
+            let moment = |index: usize| row.get(index).and_then(database::double).map(|at| at + CORE_DATA_EPOCH);
+            let (updated, last_message) = (moment(2), moment(4));
+            let Some(at) = [updated, last_message].into_iter().flatten().reduce(f64::max) else { continue };
+            if at < since || text(0).is_empty() {
+                continue;
+            }
+            chats.push(AppChat {
+                chat: text(0),
+                conversation: text(1),
+                started: moment(3),
+                last_message,
+                at,
+                rounds: row.get(5).and_then(database::int).unwrap_or(0),
+            });
+        }
+    }
+    chats
+}
+
+/// A line's time in the Gemini app's diagnostic log (20261123-155101.847 …), on this computer's clock.
+fn log_time(line: &str) -> Option<f64> {
+    let stamp = line.get(..19)?;
+    let number = |range: std::ops::Range<usize>| stamp.get(range)?.parse::<i32>().ok();
+    let (year, month, day) = (number(0..4)?, number(4..6)?, number(6..8)?);
+    let (hour, minute, second) = (number(9..11)?, number(11..13)?, number(13..15)?);
+    let millis = number(16..19)?;
+    if stamp.as_bytes().get(8) != Some(&b'-') || stamp.as_bytes().get(15) != Some(&b'.') {
+        return None;
+    }
+    let civil = jiff::civil::date(year as i16, month as i8, day as i8).at(
+        hour as i8,
+        minute as i8,
+        second as i8,
+        millis * 1_000_000,
+    );
+    let zoned = civil.to_zoned(TimeZone::system()).ok()?;
+    Some(zoned.timestamp().as_millisecond() as f64 / 1000.0)
+}
+
+/// What the Gemini app's newest diagnostic log says at its end: each reply is opened with addStreamingConversation (a
+/// few times) and closed with one removeStreamingConversation, and the conversation it syncs is named in
+/// /bard-client-sync/<id>.
+struct AppLog {
+    /// A reply is being written (opened, not closed, and less than ten minutes ago: older, it stopped unsaid).
+    streaming: bool,
+    /// The conversation synced last, and when the last reply was opened or closed.
+    conversation: Option<String>,
+    at: Option<f64>,
+}
+
+/// The log's word, None when it says nothing either way (no log, no such event).
+fn gemini_app_streaming(cache: &str, now: f64) -> Option<AppLog> {
+    static SYNCED: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"/bard-client-sync/(c_[0-9A-Za-z]+)").expect("sync pattern"));
+    let log = std::fs::read_dir(Path::new(cache).join("Logs"))
+        .ok()?
+        .flatten()
+        .filter(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            name.starts_with("diagnostic") && name.ends_with(".log")
+        })
+        .filter_map(|entry| Some((entry.metadata().ok()?.modified().ok()?, entry.path())))
+        .max_by_key(|(modified, _)| *modified)
+        .map(|(_, path)| path)?;
+    let text = {
+        use std::io::{Read, Seek, SeekFrom};
+        let mut file = std::fs::File::open(&log).ok()?;
+        let size = file.metadata().ok()?.len();
+        let start = size.saturating_sub(LOG_TAIL);
+        file.seek(SeekFrom::Start(start)).ok()?;
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes).ok()?;
+        let mut text = String::from_utf8_lossy(&bytes).into_owned();
+        // A tail read from the middle of a line starts at the next whole one.
+        if start > 0 {
+            text = text.split_once('\n').map(|(_, rest)| rest.to_string()).unwrap_or_default();
+        }
+        text
+    };
+    let (mut last, mut synced): (Option<(bool, Option<f64>)>, Option<String>) = (None, None);
+    for line in text.lines() {
+        if line.contains("addStreamingConversation") {
+            last = Some((true, log_time(line)));
+        } else if line.contains("removeStreamingConversation") {
+            last = Some((false, log_time(line)));
+        }
+        if let Some(found) = SYNCED.captures(line).and_then(|found| found.get(1)) {
+            synced = Some(found.as_str().to_string());
+        }
+    }
+    let (opened, at) = last?;
+    Some(AppLog { streaming: opened && at.is_some_and(|at| now - at <= STALLED), conversation: synced, at })
+}
+
+/// The Gemini app's conversations as sessions. Its cache keeps no tokens and no cost (ZBYTESIZE is the encrypted
+/// message's size, not tokens): each shows whether it is running, when it was last active and its rounds (the user's
+/// messages). Running is the log's word; without one, a message in the last minute. The conversation the log last
+/// names was active when its reply last opened or closed, so a reply's end is told even before its message is kept.
+fn gemini_app_sessions(cache: &str, since: f64, now: f64) -> Vec<(f64, Object)> {
+    let chats = gemini_app_chats(cache, since);
+    if chats.is_empty() {
+        return vec![];
+    }
+    let streaming = gemini_app_streaming(cache, now);
+    chats
+        .into_iter()
+        .map(|mut chat| {
+            let named =
+                streaming.as_ref().filter(|log| log.conversation.as_deref() == Some(chat.conversation.as_str()));
+            let running = match &streaming {
+                Some(log) => log.streaming && named.is_some(),
+                None => chat.last_message.is_some_and(|at| now - at <= RUNNING),
+            };
+            if let Some(at) = named.and_then(|log| log.at).filter(|at| *at <= now) {
+                chat.at = chat.at.max(at);
+            }
+            let session = object! {
+                "tool" => "Gemini", "module" => "gemini", "id" => hash(&format!("gemini-app:{}", chat.chat)),
+                "title" => "Gemini App", "project" => Json::Null, "model" => Json::Null, "effort" => Json::Null,
+                "context" => Json::Null, "state" => if running { "running" } else { "waiting" },
+                "started" => chat.started.map_or(Json::Null, Json::Double), "at" => chat.at, "rounds" => chat.rounds,
+                "turns" => Json::Array(vec![]),
+                "spent" => object! { "requests" => 0, "cost" => 0.0, "unpriced" => 0, "ranges" => Object::new() },
+            };
+            (chat.at, session)
+        })
+        .collect()
+}
+
 impl Runtime {
+    /// Where Google's Gemini app (com.google.GeminiMacOS) keeps its cache: GEMINI_APP_CACHE_DIR, else its folder in
+    /// ~/Library/Caches. A cache: only conversations opened in the app lately, which it may clear at any time.
+    pub fn gemini_app_cache(&self) -> String {
+        self.env("GEMINI_APP_CACHE_DIR")
+            .map(String::from)
+            .unwrap_or_else(|| format!("{}/Library/Caches/com.google.GeminiMacOS", self.home))
+    }
+
     /// The other tools' sessions changed since `since`, each with the time it last changed.
     pub fn tool_sessions(
         &self,
@@ -383,6 +564,10 @@ impl Runtime {
                 }
             }
         }
+        // Google's Gemini app, with Gemini or Gemini 订阅 on the homepage (both are its).
+        if self.module_enabled("gemini") || self.module_enabled("gemini-subscription") {
+            found.extend(gemini_app_sessions(&self.gemini_app_cache(), since, now));
+        }
         found
     }
 }
@@ -400,6 +585,173 @@ mod tests {
 
     fn record(changed: f64, events: Vec<Object>) -> Record {
         Record { key: "t:1".into(), changed, events, title: None, project: None, running: None }
+    }
+
+    /// A Gemini app conversation: its chat, its conversation, how long ago it was updated, its messages (how long ago,
+    /// whether the user's).
+    type AppChatRow<'a> = (&'a str, &'a str, f64, &'a [(f64, bool)]);
+
+    /// A Gemini app cache as the app keeps it: Core Data's two tables (with the encrypted column left empty) and its
+    /// diagnostic log.
+    fn gemini_app_cache(folder: &Path, now: f64, chats: &[AppChatRow]) {
+        let account = folder.join("Gemini/user1");
+        std::fs::create_dir_all(&account).unwrap();
+        let _ = std::fs::remove_file(account.join("ChatInfo2.store"));
+        let db = Database::open(&account.join("ChatInfo2.store"), 2.0, Mode::ReadWrite).unwrap();
+        db.execute(
+            "CREATE TABLE ZCHATINFOSTOREDMODEL (Z_PK INTEGER PRIMARY KEY, Z_ENT INTEGER, Z_OPT INTEGER, \
+             ZLASTUPDATEDTIME TIMESTAMP, ZCHATUUID VARCHAR, ZROBINCONVERSATIONID VARCHAR, ZENCRYPTEDPROTOBYTES BLOB);
+             CREATE TABLE ZCHATMESSAGESTOREDMODEL (Z_PK INTEGER PRIMARY KEY, Z_ENT INTEGER, Z_OPT INTEGER, \
+             ZBYTESIZE INTEGER, ZHASTASKARTIFACTS INTEGER, ZISUSERTURN INTEGER, ZMESSAGEINDEX INTEGER, \
+             ZCREATEDTIME TIMESTAMP, ZCHATUUID VARCHAR, ZMESSAGEUUID VARCHAR, ZENCRYPTEDPROTOBYTES BLOB);",
+        )
+        .unwrap();
+        for (chat, conversation, updated, messages) in chats {
+            db.run(
+                "INSERT INTO ZCHATINFOSTOREDMODEL (ZLASTUPDATEDTIME, ZCHATUUID, ZROBINCONVERSATIONID) VALUES (?,?,?)",
+                &[
+                    Value::Real(now - updated - CORE_DATA_EPOCH),
+                    Value::Text(chat.to_string()),
+                    Value::Text(conversation.to_string()),
+                ],
+            )
+            .unwrap();
+            for (index, (ago, user)) in messages.iter().enumerate() {
+                db.run(
+                    "INSERT INTO ZCHATMESSAGESTOREDMODEL (ZBYTESIZE, ZISUSERTURN, ZMESSAGEINDEX, ZCREATEDTIME, ZCHATUUID) \
+                     VALUES (4096, ?, ?, ?, ?)",
+                    &[
+                        Value::Integer(i64::from(*user)),
+                        Value::Integer(index as i64),
+                        Value::Real(now - ago - CORE_DATA_EPOCH),
+                        Value::Text(chat.to_string()),
+                    ],
+                )
+                .unwrap();
+            }
+        }
+    }
+
+    /// The diagnostic log's lines as the app writes them, on this computer's clock.
+    fn log_line(now: f64, ago: f64, text: &str) -> String {
+        let moment = jiff::Timestamp::from_millisecond(((now - ago) * 1000.0) as i64).unwrap();
+        format!("{} [com.apple.main-thread] {text}", moment.to_zoned(TimeZone::system()).strftime("%Y%m%d-%H%M%S%.3f"))
+    }
+
+    #[test]
+    fn the_gemini_apps_conversations_are_sessions_running_as_its_log_says() {
+        let folder = std::env::temp_dir().join(format!("starmeter-gemini-app-{}", crate::runtime::random_hex(6)));
+        let now = crate::runtime::now();
+        // A: two rounds, the last five minutes ago. B: a message half a minute ago. C: untouched for a month.
+        let chats: [AppChatRow; 3] = [
+            ("A", "c_aaaaaaaaaaaaaaaa", 600.0, &[(900.0, true), (890.0, false), (300.0, true), (290.0, false)]),
+            ("B", "c_bbbbbbbbbbbbbbbb", 30.0, &[(40.0, true)]),
+            ("C", "c_cccccccccccccccc", 30.0 * 86400.0, &[]),
+        ];
+        gemini_app_cache(&folder, now, &chats);
+        let cache = folder.to_string_lossy().into_owned();
+        let state = |sessions: &[(f64, Object)], title: &str| -> Vec<String> {
+            sessions
+                .iter()
+                .filter(|(_, session)| session.get("title") == Some(&Json::from(title)))
+                .map(|(_, session)| py::str(session.get("state")))
+                .collect()
+        };
+        let found = gemini_app_sessions(&cache, now - 86400.0, now);
+        assert_eq!(found.len(), 2, "the month-old conversation is outside the day");
+        let a = found.iter().find(|(_, session)| session.get("rounds") == Some(&Json::Int(2))).expect("A").1.clone();
+        assert_eq!(a.get("title").and_then(Json::as_str), Some("Gemini App"));
+        assert_eq!(a.get("tool").and_then(Json::as_str), Some("Gemini"));
+        assert!((a.get("started").and_then(Json::number).unwrap() - (now - 900.0)).abs() < 0.01, "its first message");
+        assert!((a.get("at").and_then(Json::number).unwrap() - (now - 290.0)).abs() < 0.01, "its last activity");
+        assert_eq!(a.get("spent").and_then(|spent| spent.get("requests")), Some(&Json::Int(0)), "no tokens, no cost");
+        // No log: a message in the last minute is running.
+        let states: Vec<String> = found.iter().map(|(_, session)| py::str(session.get("state"))).collect();
+        assert_eq!(states.iter().filter(|state| *state == "running").count(), 1);
+        assert_eq!(
+            py::str(found.iter().find(|(_, s)| s.get("rounds") == Some(&Json::Int(1))).unwrap().1.get("state")),
+            "running"
+        );
+        // The log says a reply is being written for A: A runs, B (a message half a minute ago) doesn't.
+        let logs = folder.join("Logs");
+        std::fs::create_dir_all(&logs).unwrap();
+        let write_log = |lines: &[String]| {
+            std::fs::write(logs.join("diagnostic20261123-093905-820F.log"), lines.join("\n") + "\n").unwrap()
+        };
+        let mut lines = vec![
+            log_line(now, 200.0, "ConversationUpdateMonitor: addStreamingConversation() called."),
+            log_line(
+                now,
+                190.0,
+                "ChatStore: Punctual objectId=/bard-client-sync/c_bbbbbbbbbbbbbbbb/r_01, payloadSize=72",
+            ),
+            log_line(now, 150.0, "ConversationUpdateMonitor: removeStreamingConversation() called."),
+            log_line(now, 20.0, "ConversationUpdateMonitor: addStreamingConversation() called."),
+            log_line(
+                now,
+                19.0,
+                "ChatStore: Punctual objectId=/bard-client-sync/c_aaaaaaaaaaaaaaaa/r_02, payloadSize=72",
+            ),
+            log_line(now, 18.0, "ConversationUpdateMonitor: addStreamingConversation() called."),
+        ];
+        write_log(&lines);
+        let found = gemini_app_sessions(&cache, now - 86400.0, now);
+        let by_rounds = |rounds: i64| {
+            py::str(found.iter().find(|(_, s)| s.get("rounds") == Some(&Json::Int(rounds))).unwrap().1.get("state"))
+        };
+        assert_eq!((by_rounds(2), by_rounds(1)), ("running".to_string(), "waiting".to_string()));
+        assert_eq!(state(&found, "Gemini App").len(), 2);
+        // The reply done: nothing runs, and A's turn finishing is told.
+        lines.push(log_line(now, 2.0, "ConversationUpdateMonitor: removeStreamingConversation() called."));
+        write_log(&lines);
+        let done = gemini_app_sessions(&cache, now - 86400.0, now);
+        assert!(done.iter().all(|(_, session)| session.get("state") == Some(&Json::from("waiting"))));
+        let json =
+            |sessions: &[(f64, Object)]| sessions.iter().map(|(_, s)| Json::Object(s.clone())).collect::<Vec<_>>();
+        let told = crate::sessions::newly_waiting(&json(&found), &json(&done), now, 180.0);
+        assert_eq!(told.len(), 1);
+        assert_eq!(told[0].get("rounds"), Some(&Json::Int(2)));
+        // A reply opened eleven minutes ago and never closed has stopped without saying so.
+        write_log(&[
+            log_line(now, 660.0, "addStreamingConversation() called."),
+            log_line(now, 659.0, "objectId=/bard-client-sync/c_aaaaaaaaaaaaaaaa/r_03"),
+        ]);
+        assert!(
+            gemini_app_sessions(&cache, now - 86400.0, now)
+                .iter()
+                .all(|(_, s)| s.get("state") == Some(&Json::from("waiting")))
+        );
+
+        // Read with Gemini 订阅 alone on the homepage too, and listed in 会话 by when each was last active.
+        let state_dir = folder.join("state");
+        std::fs::create_dir_all(&state_dir).unwrap();
+        std::fs::write(
+            state_dir.join("preferences.json"),
+            r#"{"schema": 1, "visible": ["summary", "gemini-subscription", "sessions"]}"#,
+        )
+        .unwrap();
+        let environment: HashMap<String, String> = [
+            ("HOME", folder.to_string_lossy().into_owned()),
+            ("OCX_STATE_DIR", state_dir.to_string_lossy().into_owned()),
+            ("OCX_CACHE_DIR", folder.join("cache").to_string_lossy().into_owned()),
+            ("GEMINI_APP_CACHE_DIR", cache.clone()),
+            ("OCX_TIMEZONE", "UTC".to_string()),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value))
+        .collect();
+        let runtime = Runtime::new(environment, "starmeter");
+        let found = runtime.tool_sessions(now - 86400.0, now, &[], &TimeZone::UTC);
+        assert_eq!(found.len(), 2);
+        let sessions: Vec<Json> = found.into_iter().map(|(_, session)| Json::Object(session)).collect();
+        let data = object! { "sessions" => object! { "sessions" => Json::Array(sessions) } };
+        let lines = runtime.sessions_lines_in(&data, &Json::Null, "today").join("\n");
+        // Two sessions of one name are told apart by when each began; each says its rounds, never $0.00.
+        assert_eq!(lines.matches("Gemini App · ").count(), 2, "{lines}");
+        assert!(lines.contains("空闲 4 分钟 · 2 轮") || lines.contains("空闲 5 分钟 · 2 轮"), "{lines}");
+        assert!(lines.contains("· 1 轮"), "{lines}");
+        assert!(!lines.contains("$0.00"), "{lines}");
+        let _ = std::fs::remove_dir_all(&folder);
     }
 
     #[test]
