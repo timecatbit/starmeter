@@ -640,7 +640,8 @@ mod tests {
         );
         let plan = update_plan("claude-code", &claude.to_string_lossy(), &channel, &environment).unwrap();
         assert_eq!(plan_text(&plan), "brew upgrade --cask claude-code");
-        assert_eq!(Path::new(&plan[0]), std::fs::canonicalize(root.join("bin/brew")).unwrap());
+        // The brew found, as paths are resolved here (on Windows without canonicalize's \\?\ prefix).
+        assert_eq!(Path::new(&plan[0]), paths::resolve(&root.join("bin/brew")).unwrap());
         // npm, scoped and not, with npm in the prefix's bin.
         let gemini = root.join("lib/node_modules/@google/gemini-cli/dist/index.js");
         write(&gemini, "");
