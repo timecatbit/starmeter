@@ -164,7 +164,8 @@ fn prerelease(text: &str) -> Option<String> {
     let text = text.trim();
     let text = text.strip_prefix('v').unwrap_or(text);
     let core = text.split(['-', '+']).next().unwrap_or("");
-    text[core.len()..].strip_prefix('-').map(String::from)
+    // Build metadata (+…) after it is no part of it: 1.2.3-rc.1+build is 1.2.3-rc.1.
+    text[core.len()..].strip_prefix('-').map(|rest| rest.split('+').next().unwrap_or("").to_string())
 }
 
 /// Two versions in semantic-version order: numbers first, then a release above its prereleases, prereleases by their
@@ -561,6 +562,10 @@ mod tests {
         assert!(newer("0.2.2-rc.10", "0.2.2-rc.9"), "parts by value");
         assert!(newer("1.0.0-beta", "1.0.0-alpha.1"));
         assert!(!newer("1.2.3+build", "1.2.3"), "build metadata isn't a newer release");
+        assert!(!newer("1.2.3-rc.1+build", "1.2.3-rc.1"), "nor after a prerelease");
+        assert!(newer("1.2.3-rc.2+build", "1.2.3-rc.1"), "a prerelease with build metadata is read, not passed over");
+        assert!(newer("1.2.3-rc.2+build", "1.2.3-rc.1+other"));
+        assert!(newer("1.2.3", "1.2.3-rc.1+build"));
         assert!(newer("2.1.330", "2.1.311"));
         assert!(!newer("garbage", "2.1.311"));
         // Cursor CLI: the same day's other build is newer, an older day isn't.

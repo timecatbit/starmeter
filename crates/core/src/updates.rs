@@ -25,12 +25,16 @@ pub fn release_version(value: Option<&Json>) -> Option<[i64; 5]> {
     let text = text.trim();
     let text = text.strip_prefix('v').unwrap_or(text);
     let core = text.split(['-', '+']).next().unwrap_or("");
+    // After the numbers, as semantic versions put it: a prerelease (-rc.1), build metadata (+build), or both, in that
+    // order (1.2.3-rc.1+build).
     let rest = &text[core.len()..];
-    if !rest.is_empty() {
-        let tail = &rest[1..];
-        if tail.is_empty() || !tail.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-') {
-            return None;
-        }
+    let fine = |part: &str| !part.is_empty() && part.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-');
+    let (pre, build) = match rest.strip_prefix('-') {
+        Some(tail) => tail.split_once('+').map_or((Some(tail), None), |(pre, build)| (Some(pre), Some(build))),
+        None => (None, rest.strip_prefix('+')),
+    };
+    if pre.is_some_and(|part| !fine(part)) || build.is_some_and(|part| !fine(part)) {
+        return None;
     }
     let parts: Vec<&str> = core.split('.').collect();
     if !(1..=5).contains(&parts.len())

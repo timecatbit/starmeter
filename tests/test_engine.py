@@ -2256,7 +2256,7 @@ class UpdateParityTests(unittest.TestCase):
         plugin = types.ModuleType('plugin_updates')
         with unittest.mock.patch.dict(os.environ, {'OCX_PLUGIN_PATH': str(ROOT / 'starmeter.30s.sh')}):
             exec(compile((ROOT / 'lib/swiftbar_plugin.py').read_text(), 'plugin', 'exec'), plugin.__dict__)
-        versions = ['1.2.3', 'v2.0', '1.2.3.4.5', '1.2.3.4.5.6', '1.2.3-beta.1', '1.2.3+build', '1.2.3-', ' 3 ', '', None, 'x1', '1..2', 7, '1.2.3-bé']
+        versions = ['1.2.3', 'v2.0', '1.2.3.4.5', '1.2.3.4.5.6', '1.2.3-beta.1', '1.2.3+build', '1.2.3-rc.1+build', '1.2.3-rc.1+', '1.2.3+a+b', '1.2.3-', ' 3 ', '', None, 'x1', '1..2', 7, '1.2.3-bé']
         outputs = ['2.1.47 (Claude Code)', 'codex-cli 0.130.0-alpha.3\n', 'version: 10', 'v1.2.3', 'a1.2.3', '1.2.3x', 'no version', '1.2.3.4.5.6']
         temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
         root = Path(temp.name)
@@ -2317,7 +2317,7 @@ class UpdateParityTests(unittest.TestCase):
                   ['workbuddy-feed', '{"version": "5.11"}'], ['workbuddy-feed', '{}']]
         orders = [['deepseek-harness', '0.2.2-rc.5', '0.2.2-rc.4'], ['deepseek-harness', '0.2.2', '0.2.2-rc.5'], ['deepseek-harness', '0.2.2-rc.5', '0.2.2'],
                   ['gemini', '0.2.2-rc.10', '0.2.2-rc.9'], ['gemini', '1.0.0-beta', '1.0.0-alpha.1'], ['gemini', '1.0.0-alpha.beta', '1.0.0-alpha.1'],
-                  ['gemini', '1.2.3+build', '1.2.3'], ['gemini', '2.1.330', '2.1.311'], ['gemini', 'garbage', '1.0'], ['gemini', None, '1.0'], ['gemini', 7, '6.9'],
+                  ['gemini', '1.2.3+build', '1.2.3'], ['gemini', '1.2.3-rc.1+build', '1.2.3-rc.1'], ['gemini', '1.2.3-rc.2+build', '1.2.3-rc.1+other'], ['gemini', '2.1.330', '2.1.311'], ['gemini', 'garbage', '1.0'], ['gemini', None, '1.0'], ['gemini', 7, '6.9'],
                   ['cursor-cli', '2026.11.22-e9042b2', '2026.11.13-eacade1'], ['cursor-cli', '2026.11.13-e9042b2', '2026.11.13-eacade1'],
                   ['cursor-cli', '2026.11.13-eacade1', '2026.11.13-eacade1'], ['cursor-cli', '2026.11.12-e9042b2', '2026.11.13-eacade1']]
         got = swift('updates.pieces', versions, outputs, casts, [str(cask), str(npm), str(loose), str(launcher)], cli, bodies, orders)
@@ -2335,8 +2335,10 @@ class UpdateParityTests(unittest.TestCase):
         self.assertEqual(got['latest'], [newest(kind, body) for kind, body in bodies])
         self.assertEqual(got['latest'][12], '2.34.0')
         self.assertEqual(got['available'], [update_channels.available(*row) for row in orders])
+        self.assertEqual(got['available'][6:9], [False, False, True], 'build metadata (+…) is no part of a version, after a prerelease too')
         self.assertEqual(got['products'], [dict(p, apps=list(p['apps']), commands=list(p['commands'])) for p in update_channels.PRODUCTS])
         self.assertEqual(got['versions'], [list(plugin.release_version(v)) if plugin.release_version(v) else None for v in versions])
+        self.assertEqual(got['versions'][6:9], [[1, 2, 3, 0, 0], None, None], 'a prerelease with build metadata is read; an empty or second + is not')
         import re
         self.assertEqual(got['first'], [(lambda m: m[1] if m else None)(re.search(r'\b(\d+(?:\.\d+){1,4}(?:[-+][a-zA-Z0-9.-]+)?)\b', o)) for o in outputs])
         self.assertEqual(got['uuid'], str(uuid.uuid5(uuid.NAMESPACE_URL, 'opencodex-swiftbar-update-check')))

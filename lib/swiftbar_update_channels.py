@@ -51,7 +51,8 @@ def products_of(tool):
 # Versions
 
 def release_version(value):
-    match=re.fullmatch(r'v?(\d+(?:\.\d+){0,4})(?:[-+]([a-zA-Z0-9.-]+))?',str(value or '').strip())
+    # After the numbers: a prerelease (-rc.1), build metadata (+build), or both in that order (1.2.3-rc.1+build).
+    match=re.fullmatch(r'v?(\d+(?:\.\d+){0,4})(?:-[a-zA-Z0-9.-]+)?(?:\+[a-zA-Z0-9.-]+)?',str(value or '').strip())
     if not match:return None
     parts=tuple(int(n) for n in match[1].split('.'))
     return parts+(0,)*(5-len(parts))
@@ -62,7 +63,7 @@ def _prerelease(value):
     text=text[1:] if text.startswith('v') else text
     core=re.split(r'[-+]',text,maxsplit=1)[0]
     rest=text[len(core):]
-    return rest[1:] if rest.startswith('-') else None
+    return rest[1:].split('+',1)[0] if rest.startswith('-') else None  # build metadata (+…) is no part of it
 
 
 def _compare(a,b):
