@@ -80,6 +80,8 @@
     const scale = window.devicePixelRatio || 1;
     canvas.height = H * scale;
     let shown: Scale | null = null, seen: number | null = null, ripple: number | null = null, frame = 0, last = 0, left = false;
+    // A log scale while the tools' lines are far apart in size, so a small one doesn't lie along the bottom.
+    let logNow = false;
     let drawnMode = modeNow, drawnOffset = feed.offset;
     // progress runs from 0 (the trend) to 1 (live): up when pinning, back down when unpinning.
     let zoom: { from: number; to: number; start: number; trend: Trend } | null = null;
@@ -133,13 +135,30 @@
         ? order.map((id) => ({ id, points: times.map((t): [number, number] => [t, feed.rateAt(t, id) ?? 0]) }))
             .filter((tool) => tool.points.some(([, r]) => r > 0))
         : [];
+      // The tools far apart (the most twenty times the least of those moving): a log scale, every line clear of the
+      // bottom; back to a straight one under ten times, the gap between the two keeping it from flickering.
+      const newestSample = points.at(-1);
+      const amounts = rating
+        ? toolRates.map((tool) => Math.max(...tool.points.map(([, r]) => r))).filter((r) => r > 0)
+        : base && newestSample ? order.map((id) => (newestSample.parts[id] ?? 0) - (base.parts[id] ?? 0)).filter((a) => a > 0) : [];
+      const spread = amounts.length > 1 ? Math.max(...amounts) / Math.min(...amounts) : 1;
+      if (!logNow && spread >= 20) { logNow = true; shown = null; }
+      else if (logNow && spread < 10) { logNow = false; shown = null; }
+      canvas.dataset.scale = logNow ? 'log' : 'linear';
       const target = rating ? { lo: 0, height: nice(Math.max(5, ...rates.map(([, r]) => r * 1.15))) }
         : scaleFor(from, Math.max(from, ...points.map((s) => feed.value(s))));
       // While zooming the live scale stands still; afterwards it eases to each new window.
       const range: Scale = zoom || !shown ? target
         : { lo: shown.lo + (target.lo - shown.lo) * 0.12, height: shown.height + (target.height - shown.height) * 0.12 };
       shown = range;
-      const y = (value: number) => bottom - ((value - range.lo) / range.height) * plot.h;
+      // Where a value stands on the axis, 0 at the bottom and 1 at the top: straight, or by its logarithm from a floor
+      // a thousandth (Token/s) or a ten-thousandth (Token) of the top, so four decades or three fill the height.
+      const floor = rating ? Math.max(0.1, range.height / 1000) : Math.max(1, range.height / 10_000);
+      const share = (value: number) => {
+        const above = Math.max(0, value - range.lo);
+        return logNow ? Math.log1p(above / floor) / Math.log1p(range.height / floor) : above / range.height;
+      };
+      const y = (value: number) => bottom - share(value) * plot.h;
       const secondary = labelColour(dark, dark ? 0.55 : 0.5), tertiary = labelColour(dark, dark ? 0.25 : 0.26);
       const accentColour = starAccent(dark), total = summaryColour(dark);
       ctx.setTransform(scale, 0, 0, scale, 0, 0);
@@ -216,7 +235,14 @@
           grid(level, isBottom, 1);
         };
         const apart = Math.min(1, Math.max(0, (Math.abs(y(range.lo) - y(range.lo + range.height / 2)) - 8) / 6));
-        if (rating) {
+        if (logNow) {
+          // A mark at each power of ten, labelled as the straight scale's are; 对数 says the steps aren't even.
+          mark(rating ? '0' : baseLabel(range.lo, (label) => width(label, font(8)) <= column - 4), range.lo, true);
+          for (let power = Math.ceil(Math.log10(floor * 10)); 10 ** power <= range.height * 1.0001; power++) {
+            mark((rating ? '' : '+') + compact(10 ** power), range.lo + 10 ** power, false);
+          }
+          text(t('对数'), plot.x + 3, plot.y - 1, 7.5, tertiary);
+        } else if (rating) {
           mark('0', 0, true);
           mark(compact(target.height / 2), range.height / 2, false, apart);
           mark(compact(target.height), range.height, false, apart);
@@ -259,7 +285,7 @@
       if (!base && !rating) return;
 
       const x = (t: number) => plot.x + ((t - start) / span) * plot.w;
-      const clamped = (value: number) => bottom - Math.min(1.08, Math.max(0, (value - range.lo) / range.height)) * plot.h;
+      const clamped = (value: number) => bottom - Math.min(1.08, share(value)) * plot.h;
       // (Only drawn with a first reading: Token/s alone goes on without one, along zero.)
       const added = (id: string, sample: Sample) => (sample.parts[id] ?? 0) - (base!.parts[id] ?? 0);
       // Each tool a line of its own, as on the trend: from where the window starts, up by what that tool added since, the

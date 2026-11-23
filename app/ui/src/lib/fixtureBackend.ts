@@ -92,7 +92,11 @@ function syncValues(list: Entry[]) {
  *  something to draw whatever the range; yesterday stays as it was. */
 function bump(d: Dashboard) {
   if (!state.live || d.rangeKey === 'yesterday') return;
-  const grow: Record<string, number> = { claude: 41_000, codex: 23_000, magpie: 9_000 };
+  // ?live-grow=claude:400000,magpie:1000 sets what each tool adds a tick (tools far apart in size, for the log scale).
+  const asked = new URLSearchParams(location.search).get('live-grow');
+  const grow: Record<string, number> = asked
+    ? Object.fromEntries(asked.split(',').map((pair) => pair.split(':')).map(([id, n]) => [id, Number(n)]))
+    : { claude: 41_000, codex: 23_000, magpie: 9_000 };
   let ticks = 0;
   for (let k = 1; k <= state.live; k++) ticks += 0.6 + ((k * 7919) % 13) / 13;
   for (const p of d.providers) {

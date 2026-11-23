@@ -346,6 +346,30 @@ test('pinned, the live chart draws a line for each tool, in Token and in Token/s
   await page.getByRole('radio', { name: 'Token', exact: true }).click();
 });
 
+test('pinned, tools far apart in size put the live chart on a log scale, every line clear of the bottom', async ({ page }) => {
+  test.setTimeout(60_000);
+  // Claude adds 400 times what Magpie does at each reading.
+  await open(page, '?live-grow=claude:400000,codex:30000,magpie:1000');
+  await button(page, '钉住面板').click();
+  const canvas = page.locator('canvas.live');
+  const read = () => canvas.evaluate((c) => ({ ...(c as HTMLElement).dataset }));
+  await expect.poll(async () => (await read()).scale, { timeout: 20_000 }).toBe('log');
+  await expect.poll(async () => ((await read()).lines ?? '').split(',').sort().join(','), { timeout: 20_000 }).toBe('claude,codex,magpie');
+  await page.getByRole('radio', { name: 'Token/s' }).click();
+  await expect.poll(async () => Object.keys(JSON.parse((await read()).toolRates ?? '{}')).length, { timeout: 20_000 }).toBe(3);
+  expect((await read()).scale).toBe('log');
+  await page.getByRole('radio', { name: 'Token', exact: true }).click();
+});
+
+test('pinned, tools of a like size keep the live chart on a straight scale', async ({ page }) => {
+  test.setTimeout(60_000);
+  await open(page);
+  await button(page, '钉住面板').click();
+  const canvas = page.locator('canvas.live');
+  await expect.poll(async () => (await canvas.evaluate((c) => (c as HTMLElement).dataset.lines ?? '')).split(',').filter(Boolean).length, { timeout: 20_000 }).toBeGreaterThan(1);
+  expect(await canvas.evaluate((c) => (c as HTMLElement).dataset.scale)).toBe('linear');
+});
+
 test('pinned, picking ranges back and forth adds nothing to the live line', async ({ page }) => {
   test.setTimeout(60_000);
   await open(page);
