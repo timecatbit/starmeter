@@ -427,11 +427,13 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// Signed with a Developer ID, as a release of Starmeter would be. Apple's own apps (Xcode on a CI runner) carry a
-    /// team too, but their certificate is Apple's, not the team's, so no copy of them meets the team's requirement.
+    /// An app on this Mac that can stand for a release: signed with a Developer ID, and its signature still holding
+    /// with no requirement asked. Apple's own apps (Xcode on a CI runner) carry a team too, but their certificate is
+    /// Apple's, not the team's; and an app whose bundle has picked up extended attributes since (Chrome, often) fails
+    /// codesign's strict check whatever the signer.
     #[cfg(target_os = "macos")]
-    fn developer_id(app: &Path) -> bool {
-        Command::new("/usr/bin/codesign")
+    fn sound_developer_id(app: &Path) -> bool {
+        let signed_by_a_team = Command::new("/usr/bin/codesign")
             .args(["-dv", "--verbose=2"])
             .arg(app)
             .stdin(Stdio::null())
@@ -442,11 +444,14 @@ mod tests {
                 String::from_utf8_lossy(&output.stderr)
                     .lines()
                     .any(|line| line.starts_with("Authority=Developer ID Application:"))
-            })
+            });
+        signed_by_a_team
+            && shell::run(&["/usr/bin/codesign", "--verify", "--strict", &app.to_string_lossy()], 120.0, None, None)
+                .is_some()
     }
 
     /// A copy signed by another team, or ad hoc, doesn't replace one a team signed; one with no team holds the new
-    /// copy to nothing more than its checksum. Teams from Developer ID apps on this Mac, when it has two from
+    /// copy to nothing more than its checksum. Teams from sound Developer ID apps on this Mac, when it has two from
     /// different teams.
     #[cfg(target_os = "macos")]
     #[test]
@@ -470,7 +475,7 @@ mod tests {
             if path.extension().is_some_and(|ext| ext == "app")
                 && let Some(found) = team(&path)
                 && !teams.iter().any(|(known, _)| *known == found)
-                && developer_id(&path)
+                && sound_developer_id(&path)
             {
                 teams.push((found, path));
             }
