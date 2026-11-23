@@ -821,7 +821,9 @@ class RangeParityTests(unittest.TestCase):
         frozen = time.time()
         variants = [dict(groupBy='tool'), dict(groupBy='model'), dict(groupBy='project'),
                     dict(currency='CNY', cnyRate=7.1234, serviceStatus=True, allowCollapse=True, expandedProviders=['claude']),
-                    dict(currency='CNY', visible=['claude', 'magpie', 'heatmap']), dict(visible=['summary', 'codex', 'heatmap', 'workbuddy'])]
+                    dict(currency='CNY', visible=['claude', 'magpie', 'heatmap']), dict(visible=['summary', 'codex', 'heatmap', 'workbuddy']),
+                    # Gemini's card notes the Gemini desktop app's use is left out, when that app is installed here.
+                    dict(visible=['summary', 'claude', 'gemini'])]
         datas = [('today', {'range_usage': payload, 'displayed_range': 'today', 'healthz': {'ok': True},
                             'exchange_rate': {'rate': 7.2, 'date': '2026-11-17'},
                             'service_status': {'claude': {'indicator': 'minor', 'description': 'x'}, 'openai': {'error': 'URLError'}}}),

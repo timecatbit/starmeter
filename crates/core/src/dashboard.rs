@@ -59,6 +59,9 @@ fn magpie_client_name(agent: &str) -> Option<&'static str> {
     })
 }
 
+/// Beside Gemini's name on its card while Google's Gemini app is installed: the app's own use isn't in the figures.
+pub const GEMINI_APP_NOTE: &str = "不含 Gemini App 用量";
+
 pub fn brand_logo(brand: &str) -> Option<(&'static str, bool)> {
     Some(match brand {
         "ChatGPT" => ("openai.svg", true),
@@ -1170,6 +1173,17 @@ impl Runtime {
                     providers[index].insert("subtitle", format!("{total} 次已由 {names} 计入"));
                 }
             }
+        }
+        // Google's Gemini desktop app keeps no token counts on this computer (its conversations are in 会话, with their
+        // turns): with it installed, Gemini's card says its figures leave the app out (用户：Gemini 主页那里给个提示，
+        // Gemini App 的用量不展示).
+        if self.app_info("Gemini").get("CFBundleIdentifier") == Some(&Json::from("com.google.GeminiMacOS"))
+            && let Some(card) = providers.iter_mut().find(|card| card.get("id") == Some(&Json::from("gemini")))
+        {
+            let before = py::str(Some(card.get("subtitle").unwrap_or(&Json::from(""))));
+            let note =
+                if before.is_empty() { GEMINI_APP_NOTE.to_string() } else { format!("{before} · {GEMINI_APP_NOTE}") };
+            card.insert("subtitle", note);
         }
         let history = |card: &Object| -> Vec<Json> {
             let source = card.get("counted").and_then(Json::as_object).unwrap_or(card);

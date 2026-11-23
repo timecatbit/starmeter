@@ -113,7 +113,7 @@ export const phrases: Record<string, string> = {
   '安装失败：写入临时文件失败': 'Install failed: couldn\'t write a temporary file', 安装包校验失败: 'The package failed its checksum',
   '下载失败：GitHub 和镜像都连不上': 'Download failed: neither GitHub nor its mirrors could be reached',
   '正在读取…': 'Reading…',
-  'Starmeter 有新版本 {v}': 'Starmeter {v} is out', '{n} 个工具可更新': '{n} tools have updates', 更新: 'Update',
+  '不含 Gemini App 用量': 'Gemini app not counted', 'Starmeter 有新版本 {v}': 'Starmeter {v} is out', '{n} 个工具可更新': '{n} tools have updates', 更新: 'Update',
   主页提示工具更新: 'Show updates on the homepage', '有新版本时在 Starmeter 旁和工具更新那一行提示；关掉后只发系统通知': 'Marks new versions beside Starmeter and on the Tool updates row; off, only the system notification tells',
   新版本的签名者与已安装的不一致: 'The new version isn\'t signed by the same developer as the installed one',
   发布中没有安装包: 'The release has no package', 发布中没有校验值: 'The release has no checksum', 校验值格式错误: 'The checksum is malformed',

@@ -4418,6 +4418,10 @@ def dashboard_payload(data):
                 part=provider(source,label,part['counted'],'','已同步')
                 p['counted']={key:part[key] for key in ('cost','tokens','output','requests','unpriced','cache','cacheInputs','history')}
                 p['subtitle']='%d 次已由 %s 计入'%(sum(carried.values()),'、'.join(carried))
+    # Google's Gemini desktop app keeps no token counts here: with it installed, Gemini's card says its figures leave it out.
+    if app_info('Gemini').get('CFBundleIdentifier')=='com.google.GeminiMacOS':
+        for p in providers:
+            if p['id']=='gemini':p['subtitle']=(p['subtitle']+' · ' if p['subtitle'] else '')+'不含 Gemini App 用量'
     def summary_history(p):return (p.get('counted') or p)['history']
     def first_activity(p):
         usage=bundle.get(p['id'],{})
