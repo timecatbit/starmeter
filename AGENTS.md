@@ -131,3 +131,68 @@ Claude 和 Codex 共用 [开发交接](DEVELOPMENT.md)。开始或继续开发�
 
 - macOS 独立版是 Tauri 的 Starmeter.app（id `com.timecatbit.token-monitor`，Info 键 `TokenMonitorStandalone`，LSUIElement），在进程内调用核心；环境由 `desktop::environment` 准备：用 bash 读 config.local.sh、补 PATH、`OCX_MAC_APP=1`、缓存目录 `~/Library/Caches/Token Monitor`。宿主自己提供星星、登录项和通知，不能触发 SwiftBar URL；首次启动请求一次通知权限（用户答复后系统不再询问），右键菜单在未授权时写“开启系统通知…”、已授权时写“通知设置…”，答复过的情况打开系统的通知设置。两版可复用用户配置和 Key，但快照、锁和动作回执必须在不同缓存目录。独立版已有的 Claude 本机回传可读或关闭；不要新写指向可移走 App bundle 的状态栏命令。
 - macOS 独立版由 `scripts/build_dmg.py` 按芯片分别构建 Apple 芯片 arm64 和 Intel x64 DMG，每包内置对应架构的引擎（`Contents/Resources/bin/starmeter-engine`，状态栏回传和打包冒烟用）、价格表和图标，不带 Python。按系统与芯片排列的下载表放在 README 的“下载与安装”，DMG 内写明机型、拖拽安装和公证状态。附件的文件名和页面标签（GitHub 显示标签而不是文件名，按文件名排序）都来自 `scripts/package.py` 的 `downloads`：文件名统一为 `starmeter-<版本>-macos-apple-silicon.dmg`、`-macos-intel.dmg`、`-windows-x64-setup.exe`、`-windows-x64.zip`，标签只用英文、写“系统 · 芯片/形式”（如 `Mac · Apple Silicon`、`Windows · Installer`），仓库与 DMG 里的文件名也不用中文；SwiftBar 插件是 `starmeter-<版本>.zip`（已安装的插件按这个名字自更新）。改名必须同步 `update_asset_name` 和插件自更新的下载名，已安装的版本按它们自己的名字找更新。构建只在确认签名身份和公证资料时做 Developer ID 公证，未公证包不得宣称已公证。打包冒烟只在同芯片上运行引擎：在 Apple 芯片的 Mac 上打 Intel 包只核对架构和签名，不经 Rosetta 运行（macOS 27 会因此提示 Starmeter 有组件在 macOS 28 打不开），Intel 包的冒烟由发布流程的 Intel 机器完成。
+
+## 添加工具
+
+用户说“接入 X”时按这一节一次接全，不等用户逐项提醒。先判断 X 属于哪几类：同一品牌常常几类都有（Gemini 有工具用量、订阅和 API），每类各做一遍；某条不适用时在提交说明或交接行里写明原因。参照：JSON-lines 记录看 WorkBuddy、Qoder、DeepSeek Harness，自有格式看 Gemini（`gemini_usage`，含 Antigravity 的 SQLite），数据库看 OpenCode，网关看 Magpie，本机额度的订阅看 Gemini 订阅（`antigravity.rs`），余额 API 看 DeepSeek、Kimi。
+
+### 动手之前
+
+- 本机找得到真实记录时只读结构：文件布局、行类型和字段名（`jq 'keys'`、`sqlite3 .schema` 之类），不读、不抄内容；测试数据全部手写合成。找不到就按官方文档或源码确认格式，并在交接行写明“未见真实记录”。
+- 定 ID 与名字：模块 ID 小写、连字符分隔，同一品牌已有订阅或 API 时工具加后缀（`deepseek-harness`）；显示名照品牌官方写法，卡片、会话、工具更新、设置页都用这一个名字（会话曾用品牌名 DeepSeek，与 DeepSeek API 混淆，4a19396）。
+- 弄清记录里有什么：Token 四项与输入是否含缓存、费用、模型名、会话、项目（cwd）、时间、去重用的回复或消息 ID、Credits 这类非 Token 计量；没有的不猜、不补零。
+
+### 工具用量（Harness）
+
+- `preferences.rs`：`MODULES` 与 `USAGE` 按名字首字母插入（网关排最前）。不进 `DEFAULT_VISIBLE`、`INTRODUCED`：新工具靠自动检测和“重新查找”加到主页。
+- `runtime.rs` 的 `source_path`：默认目录（macOS、Windows、Linux 各自的位置），工具自己的环境变量优先（`QODERCN_CONFIG_DIR`），没有就新起 `<名字>_USAGE_DIR`；Windows 用户常在 WSL 里跑的命令行工具，在 `wsl.rs` 加发行版家目录下的位置（参照 Claude Code、Codex）；网关会转发它时在 `magpie_agents` 加 agent 名。
+- `harness.rs`：JSON-lines 记录在 `jsonl_files` 加文件布局（主副本先于副本），写 `<名字>_event`（只取计数、模型、时间和 ID，事件 `id` 用 `py::identity(["<名字>", …])`），在 `jsonl_usage` 的 `match source` 接上；格式不同的写独立读取函数（参照 `gemini_usage`、`opencode_usage`）。`index_version` 默认 4，事件内容以后变了就升版；升版或用独立索引文件名（`harness-gemini-v4-`）时，把前缀写进 `background.rs` 的 `CURRENT_INDEXES`（旧前缀进 `RETIRED_INDEXES`），否则每小时的缓存清理会把索引删掉。Claude 格式的转录用 `projects::transcript_project` 取项目，其余取 cwd 的文件夹名。
+- `range_usage.rs` 的 `collect`：独立读取函数在这里分发，JSON-lines 走默认分支。“保留已清理记录”（`usage_archive`）默认适用；工具自己保留历史的（OpenCode、Cursor）不接存档。
+- `discovery.rs` 的 `detect`：装了 App（`app(&["X.app"])`）、PATH 上有命令（`which`）或记录目录里有非空文件（`has_records`）即算找到；不解析对话、不联网。
+- `panel_snapshot.rs`：`source_locations` 列出“读取目录”；`module_connections` 里需要说明来源的改写 `children[0]`（参照 Gemini、Magpie），装了桌面 App 时加“打开 X”。
+- `dashboard.rs`：`module_logo`（文件名、是否单色模板）；也是模型厂商的在 `MODEL_MAKERS` 加前缀；是网关客户端的在 `magpie_client_name` 加名字。
+- `updates.rs`：`update_link`、`update_name`、`MANUAL_UPDATES`、`harness_update`，有 Mac App 的加 `update_apps`（点更新条目打开 App）。
+- 服务状态：厂商有 Statuspage 的 `/api/v2/status.json` 时，在 `background.rs` 的 `service_status::PAGES`、`MODULE_PAGES` 登记。
+- 价格：模型不在 `lib/model-pricing.json`、`lib/codex-pricing.json` 里时，在 `scripts/update_pricing.py` 的 `VENDORS` 加厂商前缀后重新生成（不手改表）；记录自带费用优先；带前缀或档位的模型名在读取时换成官方名（Qoder 的 `qoder-custom-<id>/`、Antigravity 的思考档位）；表里没有的保持未定价。
+- 标志：`assets/logos/<名字>.svg` 取自 LobeHub Icons（下载前先问用户），规范成 24×24、黑色填充、路径数字之间留空格，在 `assets/logos/LICENSE` 补来源；没有品牌图标就用系统符号。
+- 会话：工具在本机留有按会话的记录（每个会话一个文件，或数据库里的会话表），就必须出现在“会话”标签。`tool_sessions.rs` 的 `TOOLS` 加 `(模块 ID, 卡片名)`；JSON-lines 工具复用 `jsonl_records`（读用量建的索引，与卡片同一口径），其他写 `<名字>_records`，标题、项目、运行状态按工具自己的记录取（参照 Antigravity 的 conversation_summaries.db）；`rows.rs` 的 `session_icon` 默认走 `module_logo`，特殊标志在这里补。Python 对照没有其他工具的会话，不补。没有按会话记录的（网关、用量只在线上的 Cursor）不列，并在会话条目写明。
+- 命令行与面板的卡片、分组、分享图、导出都按 `USAGE` 自动出现，不另写；只需验证。
+
+### 订阅
+
+- `catalog.rs` 的 `SERVICES`：`(<品牌>-subscription, 品牌, "订阅", 用量页, 凭据变量, capability)` 按品牌名插入。capability 决定读法：`portal` 是手动标记，`quota` 用套餐 Key，`client`、`app-log`、`antigravity` 等是本机来源。有对应工具的加进 `SUBSCRIPTION_USAGE`（本月回本），配置前要说明能看到什么的加 `SETUP_NOTES`。
+- 读取器写成新文件（`antigravity.rs` 这样）并在 `lib.rs` 声明。按“订阅额度框架”整理成窗口、储备、重置三类；剩余量缺失或不是数字的窗口跳过（`rows::known_share`），不推算额度。
+- `background.rs`：`EXTERNAL_TTLS`、`RESOURCE_CACHES`、`default_ready`（是否已配置），loaders 里用 `cached_fetch` 读取；缓存名登记进 `runtime.rs` 的 `connection_keys` 和 `actions.rs` 的 `CONNECTION_ORDER`。
+- 行：`module_rows.rs` 写 `<名字>_subscription_lines`（主页“已用 X%”与 `gauges` 细条、侧栏逐窗口“重置于 · 比匀速”、储备与重置行、刷新失败与过期），在 `api_rows.rs` 的 `resource_lines` 分发。
+- 提醒：`alerts.rs` 的 `alert_windows` 加入它的窗口；菜单栏的“最紧张的订阅额度”也读这里。
+- 设置页：`panel_snapshot.rs` 的 `service_connection_entry` 写来源、何时更新、打开 App 与订阅管理。
+- 检测：`discovery.rs`。有非机密选项（站点、地区）的登记进 `host.rs` 的 `connections::KEYS` 和 `desktop.rs` 的 `OVERRIDE_NAMES`。
+
+### API
+
+- `catalog.rs`：`SERVICES`（凭据变量；capability 为 `balance` 有余额接口、`portal` 只校验 Key、`cost` 读花费），`BALANCE_CURRENCIES`、`SETUP_NOTES`、`KEY_ALIASES`；除 Key 外还要站点、Team、组织 ID 的，从 `key_only_apis` 排除。
+- 读取：余额写进 `accounts.rs` 的 `account`（只读 GET，带 Key 的请求不跟随重定向，401/403/429 用统一状态），只能校验的写进 `check_key`，并加到 `api_rows.rs` 的 `KEY_CHECK_PROVIDERS`。
+- `background.rs`：`ACCOUNT_SOURCES`、`KEY_TTLS`、`RESOURCE_CACHES`、`default_ready`。`actions.rs`：`connection_names`、`CONNECTION_ORDER`、`ask_option` 与 `add_api_key` 的附加选项、`refuse_repeated` 判断“同一账户”的规则。`runtime.rs` 的 `connection_keys`。非机密选项登记进 `host.rs` 的 `connections::KEYS` 和 `desktop.rs` 的 `OVERRIDE_NAMES`。
+- 多把 Key（`keys.rs`）、主页合计与 Key 数量（`api_rows.rs`）、余额提醒（按 `BALANCE_CURRENCIES`）都是通用的，核对显示即可。
+- 检测：`discovery.rs` 只看凭据是否存在；`config.example.sh` 写 `<名字>_API_KEY_FILE` 示例。
+
+### 网关
+
+在“工具用量”各条之外：`dashboard.rs` 的 `GATEWAYS`，`range_usage.rs` 的 `gateway_logs`、`gateway_carriers`，`tally.rs` 的 `gateway_row`（日志格式），agent 到工具的对照（`runtime.rs` 的 `magpie_agents` 一类）和客户端名。比对口径照网关条目：四项 Token 完全相同、结束时间相差 10 分钟内，一条网关记录只抵一条。`MODULES` 里排进网关一组。测试放 `tests/test_sources.py` 和 `HarnessReaderParityTests.test_gateways_carry_requests`。
+
+### 每类都要做
+
+- Python 对照（`lib/`，口径与 Rust 逐项一致）：`swiftbar_preferences.py`（`MODULES`、`USAGE`）、`swiftbar_sources.py`（`_jsonl_files`、`<名字>_event`、`jsonl_usage` 的 parser 表）、`swiftbar_discovery.py`、`swiftbar_catalog.py`、`swiftbar_accounts.py`、`swiftbar_status.py`、`swiftbar_config.py`（`KEYS`），以及 `swiftbar_plugin.py`：`source_path`、`MODULE_LOGOS`、`collect_range`、`MAGPIE_AGENTS`、`MAGPIE_CLIENT_NAMES`、`MODEL_MAKERS`、`HARNESS_UPDATES`、`MANUAL_UPDATES`、`UPDATE_APPS`、`source_locations`、`EXTERNAL_TTLS`、`RESOURCE_CACHES`、`ACCOUNT_SOURCES`、`KEY_TTLS`、`CURRENT_INDEXES`，订阅与 API 的行和提醒。
+- 配置：`config.example.sh` 加注释示例；新的环境变量前缀加进 `scripts/check.py` 的 `PRIVATE_PREFIXES`。
+- 面板（`app/ui`）：三张颜色表都要有它，各带深浅两色：`lib/colors.ts` 的 `accent`、`lib/shareMetro.ts` 的 `lines`、`lib/sketchPalette.ts` 的 `PENS`。夹具 `fixtures/make-fixtures.mjs`：`brandLogos`、`moduleLogos`、`services`、`harnessOrder`、模块表、`modelMakers`、配置说明、读取目录，改完运行 `node app/ui/fixtures/make-fixtures.mjs` 重新生成 JSON；`app/src-tauri/src/fixtures.rs` 的 `LOGOS` 加新标志。
+- 文字：新的中文在 `app/ui/src/lib/en.ts` 补英文；带数字或日期的句子写成规则，同时在 `crates/engine/src/cli/english.rs` 的 `RULES` 同一位置补成对的规则；新读取器文件里的状态文字要有英文，把文件名加进 `english.rs` 的 `every_status_a_card_or_plan_can_show_has_english`。有繁体表里没有的字或词时运行 `python3 scripts/make_hant.py`。
+- 测试一律用合成数据，经工具自己的环境变量（`WORKBUDDY_USAGE_DIR`、`CLAUDE_CONFIG_DIR`、`CODEX_HOME`、`OCX_CHATGPT_HOME` 等）指向临时目录：`Runtime` 读进程的 HOME，测试里改 HOME 不管用。
+  - Rust 单测：解析（重复行、半行、流式重写、格式变化）、检测、会话（参照 `a_workbuddy_conversation_is_listed_with_the_requests_its_card_counts`：读用量建好索引后，会话列出同样的请求、标题、项目和标志，从主页去掉后不再列出）。
+  - 对照（`tests/test_engine.py`）：`HarnessReaderParityTests` 比结果和每张索引表（新读取函数要在 `crates/probe` 的 `harness.read` 里分发），`RangeParityTests` 把它放进主页范围，订阅与 API 进 `AccountParityTests`、`ClientAccountParityTests`、`PanelParityTests`（行与提醒），`UpdateParityTests`。
+  - Python：`test_extended_sources.py` 或 `test_sources.py`（读取口径）、`test_discovery.py`、`test_service_catalog.py`、`test_updates.py`、`test_modules.py`；断言模块顺序的用例跟着新顺序改。
+  - WebKit（`app/tests`）：`panel.spec.ts` 里按卡片、订阅顺序断言的用例；`npx playwright test -g English` 没有剩下的中文；`sweep.spec.ts` 走遍模块网格。
+  - 命令行：`starmeter usage`、`-g model`、`-g project`、`--json`、`starmeter detect` 都能看到它，英文和窄终端不截坏。
+- 跑 `PATH=~/.cargo/bin:$PATH python3 scripts/check.py`；别的会话未提交的改动造成的失败要写明归属。
+- 文档：AGENTS.md 里列举工具、订阅、API 的条目一起改（三组的固定列表与顺序、Harness 覆盖范围、Magpie 的 agent 对照、会话、服务状态、余额 API、工具更新的 Mac App、价格表厂商），再为这个工具写一条口径（读哪里、怎么去重、怎么计量、不读什么）。CHANGELOG 由发版提交补一句。README 三种语言和官网归 README 会话：可见改动提交后用 SendMessage 告诉 `local_782e1150-c464-4f05-a15e-d2e270793917` 提交号和改了什么。
+- 交接：在 `DEVELOPMENT.md` 按协作规则登记一行“待复审”，写复现条件、提交号、自测结果和没覆盖的部分（没见到真实记录、没在 Windows 或 Linux 上实测等）。
+- 提交与安装：每个改动单独提交到 main，只暂存自己的改动。可见改动提交后，用干净的导出重装本机：`git archive HEAD` 解到临时目录，链接 `app/node_modules` 和 `target`，在那里运行 `scripts/install.py`，再 `scripts/build_dmg.py`，把 App 装进 /Applications；然后点开面板，看主页卡片、设置页、会话标签和英文界面。
