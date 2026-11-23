@@ -428,12 +428,17 @@ fn log_time(line: &str) -> Option<f64> {
     if stamp.as_bytes().get(8) != Some(&b'-') || stamp.as_bytes().get(15) != Some(&b'.') {
         return None;
     }
-    let civil = jiff::civil::date(year as i16, month as i8, day as i8).at(
-        hour as i8,
-        minute as i8,
-        second as i8,
-        millis * 1_000_000,
-    );
+    // A stamp out of range (a damaged or cut-off line, or another format) is no time, never a panic.
+    let civil = jiff::civil::DateTime::new(
+        i16::try_from(year).ok()?,
+        i8::try_from(month).ok()?,
+        i8::try_from(day).ok()?,
+        i8::try_from(hour).ok()?,
+        i8::try_from(minute).ok()?,
+        i8::try_from(second).ok()?,
+        millis.checked_mul(1_000_000)?,
+    )
+    .ok()?;
     let zoned = civil.to_zoned(TimeZone::system()).ok()?;
     Some(zoned.timestamp().as_millisecond() as f64 / 1000.0)
 }
@@ -636,6 +641,27 @@ mod tests {
     fn log_line(now: f64, ago: f64, text: &str) -> String {
         let moment = jiff::Timestamp::from_millisecond(((now - ago) * 1000.0) as i64).unwrap();
         format!("{} [com.apple.main-thread] {text}", moment.to_zoned(TimeZone::system()).strftime("%Y%m%d-%H%M%S%.3f"))
+    }
+
+    #[test]
+    fn a_log_stamp_out_of_range_is_no_time_and_no_panic() {
+        let line = |stamp: &str| {
+            format!("{stamp} [com.apple.main-thread] ConversationUpdateMonitor: addStreamingConversation() called.")
+        };
+        assert!(log_time(&line("20261123-093905.820")).is_some());
+        for stamp in [
+            "20261323-093905.820", // month 13
+            "20260231-093905.820", // 31 February
+            "20261100-093905.820", // day 0
+            "20261123-253905.820", // hour 25
+            "20261123-096005.820", // minute 60
+            "20261123-093975.820", // second 75
+            "2026-1-3-093905.820", // a negative month
+            "20261123-093905.-20", // negative milliseconds
+            "20261123-09390",      // cut off
+        ] {
+            assert_eq!(log_time(&line(stamp)), None, "{stamp}");
+        }
     }
 
     #[test]
