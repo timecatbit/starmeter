@@ -85,7 +85,7 @@ export const phrases: Record<string, string> = {
   // Why a product has no version check, how a CLI was installed and what its row does (update_products.rs)
   '腾讯没有公开 WorkBuddy 的版本接口': 'Tencent publishes no version for WorkBuddy',
   'Qoder CN 没有公开 App 的版本接口': 'Qoder CN publishes no version for its app',
-  'Google 软件更新没有公开 Gemini App 的版本接口': 'Google Software Update publishes no version for the Gemini app',
+  '由 Google 更新程序自动更新': 'Updated automatically by Google\'s updater',
   '只在 macOS 上读取 App 的版本': 'App versions are read on macOS only', 官方安装: 'Official installer',
   点击打开下载页: 'Click to open the download page', 点击打开官网: 'Click to open the website',
   这个安装方式没有更新命令: 'This install has no update command',

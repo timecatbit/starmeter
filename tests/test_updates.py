@@ -473,6 +473,15 @@ class UpdateTests(unittest.TestCase):
    self.assertEqual(self.m.selected_update_ids(),['cursor','cursor-cli','gemini','antigravity','antigravity-cli','opencode-desktop','opencode','qoder','qoder-cli'])
    names=[r['name'] for r in self.m.update_rows({})]
   self.assertEqual(names,['Cursor','Cursor CLI','Gemini CLI','Antigravity','Antigravity CLI','OpenCode Desktop','OpenCode','Qoder','Qoder CLI'])
+ def test_the_gemini_app_is_a_row_of_its_own_that_googles_updater_keeps_current(self):
+  # The user's "gemini" beside Gemini CLI and Antigravity: Google's desktop app, kept current by Google's own updater.
+  self.select('gemini')
+  with patch.object(self.m,'product_installed',side_effect=lambda product:product['id']=='gemini-app'),\
+       patch.object(self.m,'app_info',side_effect=lambda name:{'CFBundleShortVersionString':'1.147.6.1557'} if name=='Gemini' else {}):
+   self.assertEqual(self.m.selected_update_ids(),['gemini-app','gemini'])
+   self.assertNotIn('gemini-app',self.m.live_app_update_ids())
+   text='\n'.join(self.m.app_update_lines({}))
+  self.assertIn('Gemini App · ',text);self.assertIn('1.147.6.1557 · 由 Google 更新程序自动更新',text)
  def test_each_cli_is_updated_by_the_channel_it_came_from(self):
   root=Path(self.tmp.name)
   def write(path,text=''):

@@ -104,7 +104,7 @@ pub const PRODUCTS: [Product; 18] = [
     Product {
         apps: &["Gemini"],
         always: false,
-        manual: Some("Google 软件更新没有公开 Gemini App 的版本接口"),
+        manual: Some("由 Google 更新程序自动更新"),
         ..app("gemini-app", "gemini", "Gemini App", "https://gemini.google/mac/")
     },
     Product {

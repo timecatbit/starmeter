@@ -26,7 +26,7 @@ PRODUCTS=[
     _product('cursor','cursor','Cursor','https://cursor.com/downloads','app',('Cursor',)),
     _product('cursor-cli','cursor','Cursor CLI','https://cursor.com/cli','cli',commands=('cursor-agent',),always=False),
     _product('deepseek-harness','deepseek-harness','DeepSeek Harness','https://www.npmjs.com/package/@deepseek-ai/dsh','cli',commands=('dsh',)),
-    _product('gemini-app','gemini','Gemini App','https://gemini.google/mac/','app',('Gemini',),always=False,manual='Google 软件更新没有公开 Gemini App 的版本接口'),
+    _product('gemini-app','gemini','Gemini App','https://gemini.google/mac/','app',('Gemini',),always=False,manual='由 Google 更新程序自动更新'),
     _product('gemini','gemini','Gemini CLI','https://github.com/google-gemini/gemini-cli/releases','cli',commands=('gemini',)),
     _product('antigravity','gemini','Antigravity','https://antigravity.google/download','app',('Antigravity',),always=False),
     _product('antigravity-ide','gemini','Antigravity IDE','https://antigravity.google/download','app',('Antigravity IDE',),always=False),
