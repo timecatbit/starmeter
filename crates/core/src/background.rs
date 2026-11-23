@@ -91,6 +91,38 @@ pub mod service_status {
         }
         result
     }
+
+    /// A new reading over the last one: a page that failed this time (offline, just woken) keeps the last good answer
+    /// it had, marked `kept`; one never read well shows its failure (WAKE-2).
+    pub fn merged(previous: &Object, fresh: Object) -> Object {
+        let mut out = Object::new();
+        for (key, value) in fresh.iter() {
+            let failed = value.get("error").is_some_and(Json::is_truthy);
+            match previous.get(key).and_then(Json::as_object).filter(|last| failed && last.get("indicator").is_some()) {
+                Some(last) => {
+                    let mut kept = last.clone();
+                    kept.insert("kept", true);
+                    out.insert(key.as_str(), Json::Object(kept));
+                }
+                None => {
+                    out.insert(key.as_str(), value.clone());
+                }
+            }
+        }
+        out
+    }
+
+    /// Whether a page's answer is a failure or a kept one: read again in a minute, not five, and at once on waking.
+    pub fn unsettled(payload: &Object) -> bool {
+        payload.iter().any(|(_, value)| {
+            value.get("error").is_some_and(Json::is_truthy) || value.get("kept").is_some_and(Json::is_truthy)
+        })
+    }
+
+    /// How long a reading of the pages holds.
+    pub fn lifetime(payload: &Object) -> f64 {
+        if unsettled(payload) { 60.0 } else { 300.0 }
+    }
 }
 
 pub const EXTERNAL_TTLS: [(&str, f64); 23] = [
@@ -437,8 +469,14 @@ impl Runtime {
         let pages = self.status_pages();
         if !pages.is_empty() {
             add(&mut loaders, "service_status", move || {
-                self.cached_fetch("service_status", 300.0, 60.0, || {
-                    Ok((Some(service_status::read_all(&pages, VERSION)), None))
+                let previous = self
+                    .read_cache("service_status")
+                    .get("payload")
+                    .and_then(Json::as_object)
+                    .cloned()
+                    .unwrap_or_default();
+                self.cached_fetch("service_status", service_status::lifetime(&previous), 60.0, || {
+                    Ok((Some(service_status::merged(&previous, service_status::read_all(&pages, VERSION))), None))
                 });
             });
         }
@@ -537,6 +575,11 @@ impl Runtime {
     pub fn loader_due(&self, name: &str) -> bool {
         if name == "claude_subscription" && self.claude_retry_pending() != 0.0 {
             return now() >= self.read_cache(name).get("retryAt").and_then(Json::python_float).unwrap_or(0.0);
+        }
+        if name == "service_status" {
+            let record = self.read_cache(name);
+            let payload = record.get("payload").and_then(Json::as_object).cloned().unwrap_or_default();
+            return self.cache_due(&record, self.refresh_ttl(service_status::lifetime(&payload)));
         }
         if name != "opencodex" {
             return self.cache_due(&self.read_cache(name), self.refresh_ttl(self.ttl_for(name)));
@@ -675,7 +718,9 @@ impl Runtime {
             .map(String::as_str)
             .filter(|name| {
                 let record = self.read_cache(name);
+                let pages = record.get("payload").and_then(Json::as_object);
                 *name == "claude_subscription"
+                    || (*name == "service_status" && pages.is_some_and(service_status::unsettled))
                     || (record.get("error").is_some_and(Json::is_truthy)
                         && moment < record.get("retryAt").and_then(Json::python_float).unwrap_or(0.0))
             })

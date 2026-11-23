@@ -1785,7 +1785,7 @@ class BackgroundParityTests(OpenCodexParityTests):
     """Which reads the background worker runs, and the small ones it adds: status pages and the yuan rate."""
 
     def python(self, call, *args, extra=None):
-        if call not in ('loaders', 'ready', 'status', 'fx', 'ttl'):return super().python(call, *args, extra=extra)
+        if call not in ('loaders', 'ready', 'status', 'fx', 'ttl', 'due', 'wake'):return super().python(call, *args, extra=extra)
         import types
         environment = dict(self.common, **self.states['python'], **(extra or {}))
         with unittest.mock.patch.dict(os.environ, environment):
@@ -1795,11 +1795,12 @@ class BackgroundParityTests(OpenCodexParityTests):
             if call == 'ready':return {m[0]: bool(plugin.default_ready(m[0])) for m in preferences.MODULES}
             if call == 'status':return service_status.read_all(args[0], 'test')
             if call == 'ttl':return float(plugin.refresh_ttl(args[0]))
+            if call == 'due':return bool(plugin.loader_due(args[0]))
             payload, error = plugin.exchange_rate_load()
             return {'payload': payload, 'error': error[1] if error else None}
 
     def swift(self, call, *args, extra=None):
-        if call not in ('loaders', 'ready', 'status', 'fx', 'ttl'):return super().swift(call, *args, extra=extra)
+        if call not in ('loaders', 'ready', 'status', 'fx', 'ttl', 'due', 'wake'):return super().swift(call, *args, extra=extra)
         environment = {k: v for k, v in os.environ.items() if k not in ('DEEPSEEK_API_KEY', 'DEEPSEEK_API_KEY_FILE', 'TZ', 'OCX_BASE_URL')}
         environment.update(self.common, **self.states['swift'], **(extra or {}))
         done = subprocess.run([PROBE], input=json.dumps({'call': 'runtime', 'args': [call, self.services.routes, *args]}).encode(),
@@ -1824,6 +1825,25 @@ class BackgroundParityTests(OpenCodexParityTests):
                 self.settings(**values)
                 self.assertEqual(self.python('loaders', extra=extra), self.swift('loaders', extra=extra))
                 self.assertEqual(self.python('ready', extra=extra), self.swift('ready', extra=extra))
+
+    def test_a_failing_status_page_is_read_again_soon_and_on_waking(self):
+        # WAKE-2: a reading with a failed or kept page is due again after a minute (stretched like every reading while
+        # the panel is closed), a settled one after five; waking reads an unsettled one at once.
+        self.settings(visible=['claude-subscription', 'chatgpt'], serviceStatus=True)
+        good = {'claude': {'indicator': 'none', 'description': 'All Systems Operational'}}
+        for payload, due in ((dict(good, openai={'indicator': 'minor', 'description': 'Degraded', 'kept': True}), True),
+                             (dict(good, openai={'error': 'URLError'}), True), (dict(good, openai={'indicator': 'none', 'description': 'OK'}), False)):
+            with self.subTest(payload=payload):
+                age = self.python('ttl', 60) + 5
+                records = {}
+                for name, engine in self.states.items():
+                    scope = hashlib.sha256(os.path.abspath(engine['OCX_STATE_DIR']).encode()).hexdigest()[:16]
+                    root = Path(engine['OCX_CACHE_DIR']) / ('opencodex-swiftbar-v5-%s-%s' % (os.getuid(), scope)); root.mkdir(parents=True, exist_ok=True)
+                    records[name] = root / 'service_status.json'
+                    records[name].write_text(json.dumps({'schema': 1, 'fetchedAt': time.time() - age, 'payload': payload}))
+                self.assertEqual((self.python('due', 'service_status'), self.swift('due', 'service_status')), (due, due))
+                self.swift('wake')
+                self.assertEqual(bool(json.loads(records['swift'].read_text()).get('force')), due)
 
     def test_a_phone_looking_keeps_the_open_panels_pace(self):
         import types

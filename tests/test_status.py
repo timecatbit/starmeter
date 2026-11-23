@@ -74,6 +74,37 @@ class StatusPanelTests(unittest.TestCase):
         self.assertIn('Claude 服务状态', row); self.assertIn('badge=服务部分降级', row); self.assertIn('panelstatus=issue', row); self.assertIn('href=https://status.claude.com', row)
         self.assertIn('badge=待同步', self.m.status_lines('claude-subscription', {})[0])
 
+    def test_a_page_that_fails_keeps_its_last_good_answer_and_is_read_again_in_a_minute(self):
+        # WAKE-2: offline (just woken), OpenAI's page fails: it keeps the last good answer, marked kept, Claude's new
+        # one stands, and the reading is due again after a minute instead of five; all good again, five minutes.
+        with patch.object(self.m, 'schedule_background_refresh'):self.m.run_action('set-service-status', ['true'])
+        preferences.write(self.m.STATE_DIR, dict(preferences.read(self.m.STATE_DIR), visible=['claude-subscription', 'chatgpt']))
+        good = {'claude': {'indicator': 'none', 'description': 'All Systems Operational'}, 'openai': {'indicator': 'minor', 'description': 'Degraded'}}
+        answers = [good, {'claude': {'indicator': 'major', 'description': 'Outage'}, 'openai': {'error': 'URLError'}}, {'claude': {'error': 'URLError'}, 'openai': {'error': 'URLError'}}]
+        def read_all(pages, version):return answers.pop(0)
+        with patch.object(self.m.service_status, 'read_all', side_effect=read_all):
+            self.m.external_loaders()['service_status']()
+            record = self.m.read_cache('service_status')
+            self.assertEqual(record['payload'], good); self.assertFalse(status.unsettled(record['payload']))
+            # Mixed: the failed page keeps its last answer, the other takes its new one.
+            record['fetchedAt'] -= self.m.refresh_ttl(300) + 1; self.m.write_json_cache(self.m.cache_path('service_status'), record)
+            self.assertTrue(self.m.loader_due('service_status'))
+            self.m.external_loaders()['service_status']()
+            record = self.m.read_cache('service_status')
+            self.assertEqual(record['payload'], {'claude': {'indicator': 'major', 'description': 'Outage'}, 'openai': dict(good['openai'], kept=True)})
+            # A minute, stretched as every reading is while the panel is closed; still well short of the five.
+            self.assertFalse(self.m.loader_due('service_status'))
+            record['fetchedAt'] -= self.m.refresh_ttl(60) + 1; self.m.write_json_cache(self.m.cache_path('service_status'), record)
+            self.assertTrue(self.m.loader_due('service_status'), 'a kept page is read again after a minute')
+            self.assertLess(self.m.refresh_ttl(60), self.m.refresh_ttl(300))
+            # All failing: each keeps its last good answer.
+            self.m.external_loaders()['service_status']()
+            payload = self.m.read_cache('service_status')['payload']
+            self.assertEqual(payload, {'claude': {'indicator': 'major', 'description': 'Outage', 'kept': True}, 'openai': dict(good['openai'], kept=True)})
+        # Never read well: the failure shows.
+        self.assertEqual(status.merged({}, {'claude': {'error': 'URLError'}}), {'claude': {'error': 'URLError'}})
+        self.assertEqual((status.lifetime({}), status.lifetime(good), status.lifetime({'claude': {'error': 'x'}})), (300, 300, 60))
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

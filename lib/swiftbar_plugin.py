@@ -2259,6 +2259,9 @@ def ttl_for(name):
 def loader_due(name):
     if name=='claude_subscription' and claude_retry_pending():
         return time.time()>=read_cache(name).get('retryAt',0)
+    if name=='service_status':
+        record=read_cache(name)
+        return cache_due(record,refresh_ttl(service_status.lifetime(record.get('payload'))))
     if name!='opencodex':return cache_due(read_cache(name),refresh_ttl(ttl_for(name)))
     health=read_cache('healthz')
     if cache_due(health,refresh_ttl(EXTERNAL_TTLS['healthz'])):return True
@@ -2282,7 +2285,11 @@ def external_loaders():
     if view_settings()['currency']=='CNY' and not view_settings()['cnyRate']:
         loaders['exchange_rate']=lambda:cached_fetch('exchange_rate',exchange_rate_load,EXTERNAL_TTLS['exchange_rate'],retry=3600)
     pages=status_pages()
-    if pages:loaders['service_status']=lambda:cached_fetch('service_status',lambda:(service_status.read_all(pages,VERSION),None),EXTERNAL_TTLS['service_status'])
+    if pages:
+        def load_status():
+            previous=read_cache('service_status').get('payload') or {}
+            return cached_fetch('service_status',lambda:(service_status.merged(previous,service_status.read_all(pages,VERSION)),None),service_status.lifetime(previous))
+        loaders['service_status']=load_status
     if module_enabled('cursor-subscription') and view_settings()['cursorUsage']:
         def load_cursor_plan():
             try:return cursor.plan(HOME),None

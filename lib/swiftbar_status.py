@@ -39,6 +39,29 @@ def read_all(pages, version, opener=urllib.request.urlopen):
     return {page: read(page, version, opener) for page in pages if page in PAGES}
 
 
+def merged(previous, fresh):
+    """A new reading over the last one: a page that failed this time (offline, just woken) keeps the last good answer
+    it had, marked 'kept'; one never read well shows its failure (WAKE-2)."""
+    out = {}
+    for key, value in fresh.items():
+        last = (previous or {}).get(key)
+        if isinstance(value, dict) and value.get('error') and isinstance(last, dict) and 'indicator' in last:
+            out[key] = dict(last, kept=True)
+        else:
+            out[key] = value
+    return out
+
+
+def unsettled(payload):
+    """Whether a page's answer is a failure or a kept one: read again in a minute, not five."""
+    return any(isinstance(value, dict) and (value.get('error') or value.get('kept')) for value in (payload or {}).values())
+
+
+def lifetime(payload):
+    """How long a reading of the pages holds."""
+    return 60 if unsettled(payload) else 300
+
+
 def note(statuses, module):
     """The card's note for a module whose service has trouble right now, or None."""
     state = (statuses or {}).get(MODULE_PAGES.get(module, ''))

@@ -125,6 +125,12 @@ fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
                     Ok(background::service_status::read_all(&wanted, "test").into())
                 }
                 "fx" => Ok(loaded(runtime.exchange_rate_load())),
+                // Whether the background would read this source now; and the reads the app makes on waking.
+                "due" => Ok(Json::Bool(runtime.loader_due(text(2).unwrap_or("")))),
+                "wake" => {
+                    runtime.retry_after_wake();
+                    Ok(Json::Null)
+                }
                 // The sessions read now, through the cache a background refresh keeps (session-spent among it).
                 "sessions" => Ok(loaded(runtime.sessions_cached(Some(0.0)))),
                 "ttl" => Ok(runtime.refresh_ttl(args.get(2).and_then(Json::number).unwrap_or(0.0)).into()),
