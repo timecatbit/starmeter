@@ -161,8 +161,9 @@
         class="update-mark pressable" class:fresh={updateMark.fresh} onclick={onupdates}
         aria-label={updateMark.own ? t('Starmeter 有新版本 {v}', { v: updateMark.own }) : t('{n} 个工具可更新', { n: updateMark.count })}
         title={updateMark.own ? t('Starmeter 有新版本 {v}', { v: updateMark.own }) : t('{n} 个工具可更新', { n: updateMark.count })}>{#if updateMark.fresh}<svg
-          viewBox="0 0 10 10" width="9" height="9" aria-hidden="true"><path d="M5 1.5v6M2.2 5 5 7.8 7.8 5" fill="none" stroke="currentColor" stroke-width="1.5"
-          stroke-linecap="round" stroke-linejoin="round" /></svg><span>{updateMark.own ? t('新版本') : updateMark.count}</span>{:else}<span class="dot"></span>{/if}</button>{/if}</h1>
+          class="ring" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.4" /><path
+          d="M8 4.6v6.2M5.3 8.3 8 11 10.7 8.3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>{:else}<span
+          class="dot"></span>{/if}</button>{/if}</h1>
     <div class="buttons">
       <!-- The pin first, then settings and share; on a Mac the symbols are the system's own. A phone shares, and
            neither pins nor changes settings. -->
@@ -270,7 +271,8 @@
     align-items: center;
     gap: 5px;
   }
-  /* The update mark: a pill (↓ and how many, or 新版本) until looked at, then a dot; nothing moves or blinks. */
+  /* The update mark: a ring with a down arrow in it, no words (用户：画个圈弄个下箭头在里面就好了，不用字), until looked
+     at, then a dot; what is new is said on hover and to assistive technology. Nothing moves or blinks. */
   .update-mark {
     --press-scale: 0.92;
     flex: none;
@@ -293,7 +295,7 @@
     font-variant-numeric: tabular-nums;
     cursor: pointer;
   }
-  .update-mark.fresh { padding: 0 6px 0 5px; background: color-mix(in srgb, var(--accent) 15%, transparent); }
+  .update-mark .ring { display: block; }
   .update-mark:hover { background: color-mix(in srgb, var(--accent) 22%, transparent); }
   .update-mark .dot { width: 6px; height: 6px; border-radius: 3px; background: var(--accent); }
   .brand {

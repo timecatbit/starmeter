@@ -783,9 +783,12 @@ test('a range picked shows once read through, never the old range or a source at
 test('a newer version shows beside Starmeter, a pill until looked at and then a dot; 提醒 can keep the homepage quiet', async ({ page }) => {
   await open(page);
   const mark = page.locator('.heading .update-mark');
-  // Starmeter's own update first: 新版本, and the pill opens its page.
-  await expect(mark).toHaveText('新版本');
+  // Starmeter's own update first: a ring with a down arrow in it, no words (said on hover and to assistive technology),
+  // opening its page.
   await expect(mark).toHaveClass(/fresh/);
+  await expect(mark.locator('svg.ring circle')).toHaveCount(1);
+  await expect(mark).toHaveText('');
+  await expect(mark).toHaveAttribute('aria-label', 'Starmeter 有新版本 6.0.9');
   await mark.click();
   await expect(page.locator('.dashboard')).toHaveCount(0);
   await expect(page.getByText('更新到 6.0.9…')).toBeVisible();
