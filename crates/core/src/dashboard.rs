@@ -1291,18 +1291,27 @@ impl Runtime {
         }) {
             chart_status = "仅含现有记录".into();
         }
+        // The figures reach back further than the chart: a source that kept fewer days than it counted, or records
+        // older than the 366 days drawn (a local source keeps every day, so its sums always matched and the note never
+        // showed for it).
+        let clipped =
+            match (period.first().and_then(|day| day_from_iso(day)), period.last().and_then(|day| day_from_iso(day))) {
+                (Some(first), Some(last)) => last - first > 365,
+                _ => false,
+            };
         if key == "all"
-            && usage_sources.iter().any(|source| {
-                let requests = figure(source.get("summary").and_then(|summary| summary.get("requests")));
-                let counted: f64 = source
-                    .get("days")
-                    .and_then(Json::as_array)
-                    .into_iter()
-                    .flatten()
-                    .map(|day| figure(day.get("requests")))
-                    .sum();
-                requests > counted
-            })
+            && (clipped
+                || usage_sources.iter().any(|source| {
+                    let requests = figure(source.get("summary").and_then(|summary| summary.get("requests")));
+                    let counted: f64 = source
+                        .get("days")
+                        .and_then(Json::as_array)
+                        .into_iter()
+                        .flatten()
+                        .map(|day| figure(day.get("requests")))
+                        .sum();
+                    requests > counted
+                }))
         {
             chart_status = "图表展示最近 366 天".into();
         }

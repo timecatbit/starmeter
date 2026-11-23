@@ -4390,7 +4390,11 @@ def dashboard_payload(data):
         labels=[labels[i] for i in range(0,len(slots),size)];unit='每 %d 天'%size
     chart_status=('数据暂不可用' if refresh_failed(data.get('range_usage_error')) else '待同步') if not bundle else ('部分图表数据不可用' if any(p.get('error') or p.get('chartUnavailable') for p in usage_sources) else '')
     if any(p.get('historyTruncated') or p.get('entriesTruncated') for p in usage_sources):chart_status='仅含现有记录'
-    if key=='all' and any(number(p.get('summary',{}).get('requests'))>sum(number(day.get('requests')) for day in p.get('days',[])) for p in usage_sources):chart_status='图表展示最近 366 天'
+    # The figures reach back further than the chart: a source that kept fewer days than it counted, or records older
+    # than the 366 days drawn (a local source keeps every day, so its sums always matched and the note never showed).
+    try:clipped=(datetime.strptime(period[-1][:10],'%Y-%m-%d')-datetime.strptime(period[0][:10],'%Y-%m-%d')).days>365
+    except (IndexError,ValueError):clipped=False
+    if key=='all' and (clipped or any(number(p.get('summary',{}).get('requests'))>sum(number(day.get('requests')) for day in p.get('days',[])) for p in usage_sources)):chart_status='图表展示最近 366 天'
     # The Summary adds every shown source, so its time is the oldest of their last good reads.
     reads=[r for r in (u.get('readAt') or bundle.get('_fetchedAt') for u in usage_sources if u.get('summary')) if r]
     updated=''

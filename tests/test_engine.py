@@ -11,7 +11,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import time
 import unittest.mock
 
@@ -827,6 +827,13 @@ class RangeParityTests(unittest.TestCase):
                             'service_status': {'claude': {'indicator': 'minor', 'description': 'x'}, 'openai': {'error': 'URLError'}}}),
                  ('7d', {'range_usage': week, 'displayed_range': '7d'}), ('all', {'range_usage': everything, 'displayed_range': 'all'}),
                  ('today', {'displayed_range': 'today'}), ('30d', {'range_usage': week, 'displayed_range': '30d'})]
+        # Local records older than the 366 days the chart draws: the note says so (it only did for a source that kept
+        # fewer days than it counted).
+        ancient = json.loads(json.dumps(everything))
+        old_day = (datetime.fromtimestamp(frozen) - timedelta(days=400)).date().isoformat()
+        ancient['claude'].setdefault('days', []).insert(0, {'date': old_day, 'requests': 2, 'totalTokens': 50})
+        ancient['claude']['summary']['requests'] = ancient['claude']['summary'].get('requests', 0) + 2
+        datas.append(('all', {'range_usage': ancient, 'displayed_range': 'all'}))
         for variant in variants:
             for engine in ('python', 'swift'):
                 state = Path(self.states[engine]['OCX_STATE_DIR'])
@@ -846,6 +853,8 @@ class RangeParityTests(unittest.TestCase):
                     answer = probed(done.stdout)
                     self.assertNotIn('error', answer)
                     same(self, expected, answer['result'])
+                    if data.get('range_usage') is ancient and 'claude' in variant.get('visible', ['claude']):
+                        self.assertEqual(expected['chartStatus'], '图表展示最近 366 天')
 
     def test_range_bounds_follow_the_wall_clock(self):
         import types
