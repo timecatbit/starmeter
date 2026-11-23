@@ -580,10 +580,53 @@ fn add_to_day(days: &mut Object, date: &str, priced: Option<f64>) {
     }
 }
 
+/// One request less on a day; a day left with none goes, as a reading afresh wouldn't have it.
+fn take_from_day(days: &mut Object, date: &str, priced: Option<f64>) {
+    let Some(Json::Array(figure)) = days.get_mut(date) else { return };
+    let left = figure[0].integer().unwrap_or(0) - 1;
+    figure[0] = Json::Int(left);
+    match priced {
+        Some(spent) => figure[1] = Json::Double(figure[1].python_float().unwrap_or(0.0) - spent),
+        None => figure[2] = Json::Int(figure[2].integer().unwrap_or(0) - 1),
+    }
+    if left <= 0 {
+        days.remove(date);
+    }
+}
+
 /// The requests waiting in a tally's `later` whose time has come by `until`, counted now as a reading would have:
 /// in the session's total, its day and, from `since`, one by one. A transcript timed by a clock running ahead is
-/// counted as that time arrives, unchanged or not, as the usage itself is (SESSION-8).
+/// counted as that time arrives, unchanged or not, as the usage itself is (SESSION-8). The other way too: a request
+/// counted already whose time is ahead of `until` again (the clock was set back) leaves the total and its day and
+/// waits in `later` until its time comes once more, as a reading afresh would have it (SESSION-9). Each request of
+/// the last day and more is in `spends` with its time, which is all a clock set back can reach.
 fn settle(tally: &mut Object, until: f64, since: f64, zone: &TimeZone) {
+    let spends = tally.get("spends").and_then(Json::as_array).cloned().unwrap_or_default();
+    let (ahead, behind): (Vec<Json>, Vec<Json>) =
+        spends.into_iter().partition(|spend| spend_parts(spend).0.is_some_and(|at| at > until));
+    if !ahead.is_empty() {
+        let mut requests = tally.get("requests").and_then(Json::integer).unwrap_or(0);
+        let mut cost = tally.get("cost").and_then(Json::python_float).unwrap_or(0.0);
+        let mut unpriced = tally.get("unpriced").and_then(Json::integer).unwrap_or(0);
+        let mut days = tally.get("days").and_then(Json::as_object).cloned().unwrap_or_default();
+        let mut later = tally.get("later").and_then(Json::as_array).cloned().unwrap_or_default();
+        for spend in &ahead {
+            let (Some(at), priced) = spend_parts(spend) else { continue };
+            requests -= 1;
+            match priced {
+                Some(spent) => cost -= spent,
+                None => unpriced -= 1,
+            }
+            take_from_day(&mut days, &day_of(at, zone), priced);
+        }
+        later.extend(ahead);
+        tally.insert("requests", requests);
+        tally.insert("cost", cost);
+        tally.insert("unpriced", unpriced);
+        tally.insert("days", Json::Object(days));
+        tally.insert("spends", Json::Array(behind));
+        tally.insert("later", Json::Array(later));
+    }
     let Some(later) = tally.get("later").and_then(Json::as_array).cloned() else { return };
     let (arrived, waiting): (Vec<Json>, Vec<Json>) =
         later.into_iter().partition(|spend| spend_parts(spend).0.is_some_and(|at| at <= until));
@@ -1491,6 +1534,13 @@ mod tests {
         assert_eq!(figures(&read(later, Some(&mut tallies))), [(Some(2), Some(9.0)); 4]);
         assert_eq!(figures(&read(later, None)), [(Some(2), Some(9.0)); 4]);
         // Counted once: read again with the settled tally, still $9.
+        assert_eq!(figures(&read(later, Some(&mut tallies))), [(Some(2), Some(9.0)); 4]);
+        // SESSION-9: the clock set back to 20:04 puts the $6 of 20:05 ahead again: $3 everywhere, with the tally kept
+        // as afresh, and $9 again once 20:05 has passed.
+        let back = at("2026-11-20T20:04:00Z");
+        assert_eq!(figures(&read(back, Some(&mut tallies))), [(Some(1), Some(3.0)); 4]);
+        assert_eq!(figures(&read(back, None)), [(Some(1), Some(3.0)); 4]);
+        assert_eq!(figures(&read(back, Some(&mut tallies))), [(Some(1), Some(3.0)); 4]);
         assert_eq!(figures(&read(later, Some(&mut tallies))), [(Some(2), Some(9.0)); 4]);
         let _ = std::fs::remove_dir_all(&folder);
     }
