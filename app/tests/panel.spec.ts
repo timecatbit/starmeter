@@ -815,6 +815,38 @@ test('在手机上看: a public link still being made when 停止 is pressed lea
   await expect(phone.locator('.address')).toHaveText('http://192.168.1.20:51234/');
 });
 
+test('在手机上看: 任何网络 chosen again while its link is made waits for that link, asking once (TUNNEL-1)', async ({ page }) => {
+  await open(page);
+  await button(page, '主页模块与设置').click();
+  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  const phone = page.locator('.phone-page');
+  await expect(phone.locator('svg.qr')).toBeVisible();
+  await page.evaluate(async (source) => {
+    const shell = await eval(source);
+    const real = shell.phonePublic;
+    const w = window as unknown as { asked: number; letGo: () => void };
+    w.asked = 0;
+    shell.phonePublic = () => {
+      w.asked++;
+      return new Promise((resolve) => (w.letGo = () => resolve(real())));
+    };
+  }, panelShell);
+  const asked = () => page.evaluate(() => (window as unknown as { asked: number }).asked);
+  await page.getByRole('radio', { name: '任何网络' }).click();
+  await button(page, '生成链接').click();
+  await expect(phone.locator('.wait')).toHaveText('正在向 Cloudflare 要链接…');
+  // Back and forth while it is made: no second question, no second request; the wait stays.
+  await page.getByRole('radio', { name: '同一个网络' }).click();
+  await page.getByRole('radio', { name: '任何网络' }).click();
+  await page.waitForTimeout(200);
+  await expect(button(page, '生成链接')).toHaveCount(0);
+  await expect(phone.locator('.wait')).toHaveText('正在向 Cloudflare 要链接…');
+  expect(await asked()).toBe(1);
+  await page.evaluate(() => (window as unknown as { letGo: () => void }).letGo());
+  await expect(phone.locator('.address')).toContainText('trycloudflare.com');
+  expect(await asked()).toBe(1);
+});
+
 test('在手机上看: a start that fails once says why and offers 重试, which starts it (PHONE-4)', async ({ page }) => {
   await open(page);
   await button(page, '主页模块与设置').click();

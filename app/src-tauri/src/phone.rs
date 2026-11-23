@@ -179,10 +179,15 @@ fn close_public_if_over(running: &mut Running) {
     }
 }
 
-/// Opens the public link (Cloudflare's quick tunnel) to the server already running, and says where it is.
+/// One public link opened at a time: an ask while another is on its way waits for it and takes its link, so two quick
+/// clicks start one cloudflared, and a first download isn't written twice at once (TUNNEL-1).
+static OPENING: Mutex<()> = Mutex::new(());
+
+/// Opens the public link (Cloudflare's quick tunnel) to the server already running, and says where it is. The link
+/// belongs to the round it was asked in: stopped and started again meanwhile, it is closed, not handed to the new one.
 #[tauri::command]
 pub async fn phone_public(app: AppHandle) -> Result<PhoneView, String> {
-    let port = {
+    let (port, round) = {
         let state = app.state::<Phone>();
         let running = state.running.lock().expect("the phone lock");
         let Some(current) = running.as_ref().filter(|current| !current.stop.load(Ordering::SeqCst)) else {
@@ -191,20 +196,34 @@ pub async fn phone_public(app: AppHandle) -> Result<PhoneView, String> {
         if current.public.as_ref().is_some_and(|(tunnel, _)| tunnel.alive()) {
             return Ok(view(current));
         }
-        current.port
+        (current.port, current.stop.clone())
     };
-    let handle = app.clone();
-    let tunnel = tauri::async_runtime::spawn_blocking(move || crate::tunnel::open(&handle, port))
-        .await
-        .map_err(|error| error.to_string())??;
+    let (handle, asked) = (app.clone(), round.clone());
+    let opened = tauri::async_runtime::spawn_blocking(move || -> Result<Option<crate::tunnel::Tunnel>, String> {
+        let _turn = OPENING.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        // The link an earlier ask of this round opened while this one waited serves it too.
+        let state = handle.state::<Phone>();
+        let served = state.running.lock().expect("the phone lock").as_ref().is_some_and(|current| {
+            Arc::ptr_eq(&current.stop, &asked) && current.public.as_ref().is_some_and(|(tunnel, _)| tunnel.alive())
+        });
+        if served {
+            return Ok(None);
+        }
+        crate::tunnel::open(&handle, port).map(Some)
+    })
+    .await
+    .map_err(|error| error.to_string())??;
     let state = app.state::<Phone>();
     let mut running = state.running.lock().expect("the phone lock");
-    let Some(current) = running.as_mut().filter(|current| current.port == port) else {
-        let mut tunnel = tunnel;
-        tunnel.stop();
+    let Some(current) = running.as_mut().filter(|current| Arc::ptr_eq(&current.stop, &round)) else {
+        if let Some(mut tunnel) = opened {
+            tunnel.stop();
+        }
         return Err("手机查看已经关闭".into());
     };
-    if let Some((mut old, _)) = current.public.replace((tunnel, Instant::now() + PUBLIC_LIFETIME)) {
+    if let Some(tunnel) = opened
+        && let Some((mut old, _)) = current.public.replace((tunnel, Instant::now() + PUBLIC_LIFETIME))
+    {
         old.stop();
     }
     Ok(view(current))

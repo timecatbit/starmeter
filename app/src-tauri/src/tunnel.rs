@@ -155,30 +155,39 @@ fn download(app: &AppHandle) -> Result<PathBuf, String> {
     }
     let folder = target.parent().ok_or("找不到 App 的数据文件夹")?;
     std::fs::create_dir_all(folder).map_err(|error| error.to_string())?;
-    if name.ends_with(".tgz") {
-        let archive = folder.join(".cloudflared.tgz");
-        std::fs::write(&archive, &file.body).map_err(|error| error.to_string())?;
-        let unpacked = Command::new("/usr/bin/tar")
-            .args(["-xzf"])
-            .arg(&archive)
-            .arg("-C")
-            .arg(folder)
-            .arg("cloudflared")
-            .status()
-            .is_ok_and(|status| status.success());
-        let _ = std::fs::remove_file(&archive);
-        if !unpacked {
-            return Err("cloudflared 解压失败".into());
+    // Written and unpacked under names of its own, then put in place in one step: the program is never seen half
+    // written (TUNNEL-1).
+    let work = folder.join(format!(".cloudflared-{}", starmeter_core::runtime::random_hex(8)));
+    std::fs::create_dir_all(&work).map_err(|error| error.to_string())?;
+    let placed = (|| -> Result<(), String> {
+        let program = work.join(target.file_name().ok_or("找不到 App 的数据文件夹")?);
+        if name.ends_with(".tgz") {
+            let archive = work.join("cloudflared.tgz");
+            std::fs::write(&archive, &file.body).map_err(|error| error.to_string())?;
+            let unpacked = Command::new("/usr/bin/tar")
+                .args(["-xzf"])
+                .arg(&archive)
+                .arg("-C")
+                .arg(&work)
+                .arg("cloudflared")
+                .status()
+                .is_ok_and(|status| status.success());
+            if !unpacked || !program.is_file() {
+                return Err("cloudflared 解压失败".into());
+            }
+        } else {
+            std::fs::write(&program, &file.body).map_err(|error| error.to_string())?;
         }
-    } else {
-        std::fs::write(&target, &file.body).map_err(|error| error.to_string())?;
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).map_err(|error| error.to_string())?;
-    }
-    Ok(target)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755))
+                .map_err(|error| error.to_string())?;
+        }
+        std::fs::rename(&program, &target).map_err(|error| error.to_string())
+    })();
+    let _ = std::fs::remove_dir_all(&work);
+    placed.map(|()| target)
 }
 
 /// What cloudflared said on its way up: the address it was given, that Cloudflare took the connection, or that it

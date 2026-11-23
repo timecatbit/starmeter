@@ -86,7 +86,8 @@
     // A new choice starts afresh: the last one's failure is not left under it.
     failed = null;
     reach = next;
-    if (next !== 'public' || view?.public) { asking = null; return; }
+    // A link already on its way (任何网络 chosen again while it is made) is waited for, not asked for again (TUNNEL-1).
+    if (next !== 'public' || view?.public || busy) { asking = null; return; }
     const ready = await shell.tunnelReady().catch(() => false);
     if (mine !== choosing) return;
     asking = { download: !ready };
