@@ -416,7 +416,13 @@ impl Runtime {
         let failed = refresh_failed(error.as_deref()) && !closed;
         let windows = gemini_windows(&payload, now());
         let read_at = payload.get("_fetchedAt").and_then(Json::number);
-        let most = windows
+        // The row's own figure is Gemini's (用户：Gemini 的已用应该是 Gemini 的，而不是最高的那个数字): the tightest of
+        // Gemini's own windows; Claude's with GPT's are a separate allowance, on their own line below. Only with no
+        // Gemini window read, the tightest of what there is.
+        let own: Vec<&Object> =
+            windows.iter().filter(|window| window.get("group").and_then(Json::as_str) == Some("gemini")).collect();
+        let counted: Vec<&Object> = if own.is_empty() { windows.iter().collect() } else { own };
+        let most = counted
             .iter()
             .map(|window| 100.0 - py::num(window.get("remaining")))
             .fold(None, |best: Option<f64>, used| {

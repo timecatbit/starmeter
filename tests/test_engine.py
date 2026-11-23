@@ -2038,8 +2038,10 @@ class PanelParityTests(BackgroundParityTests):
             'chatgpt': {'state': '已同步', 'windows': [{'name': 'codex', 'slot': 'primary', 'remaining': None, 'minutes': 300, 'resetsAt': now + 900},
                                                      {'name': 'codex', 'slot': 'secondary', 'remaining': 70, 'minutes': 10080, 'resetsAt': now + 86400}]},
             'minimax': {'windows': [{'name': '本周额度', 'remaining': None, 'resetsAt': int(now) + 3600}, {'name': '5 小时额度', 'remaining': 60, 'resetsAt': int(now) + 600}]},
+            # Claude's with GPT's used far more than Gemini's own: the row still says Gemini's.
             'gemini_subscription': {'windows': [{'group': 'gemini', 'groupName': 'Gemini Models', 'window': '5h', 'resetsAt': now + 3600},
-                                                {'group': 'gemini', 'groupName': 'Gemini Models', 'window': 'weekly', 'remaining': 80, 'resetsAt': now + 86400}]},
+                                                {'group': 'gemini', 'groupName': 'Gemini Models', 'window': 'weekly', 'remaining': 80, 'resetsAt': now + 86400},
+                                                {'group': '3p', 'groupName': 'Claude and GPT models', 'window': '5h', 'remaining': 10, 'resetsAt': now + 3600}]},
         }
         for engine in self.states.values():
             scope = hashlib.sha256(os.path.abspath(engine['OCX_STATE_DIR']).encode()).hexdigest()[:16]

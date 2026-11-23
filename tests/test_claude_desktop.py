@@ -231,7 +231,9 @@ class DesktopTests(unittest.TestCase):
    with patch.object(m,'connection_ready',return_value=True),patch.object(m,'antigravity_app',return_value=None):
     return home(m.gemini_subscription_lines({'gemini_subscription':{'_fetchedAt':now,'windows':windows},'gemini_subscription_error':error}))
   row=gemini(quota)
-  self.assertEqual(row['value'],'已用 49.7%')
+  # The row's figure is Gemini's own tightest; Claude's with GPT's (49.7%) is its own allowance, on its own line.
+  self.assertEqual(row['value'],'已用 5.6%')
+  self.assertEqual(gemini(quota[2:])['value'],'已用 49.7%','With no Gemini window read, the tightest there is')
   self.assertEqual(bars(row),[(0,'Gemini','5 小时',5.6,'normal'),(1,'','本周',4.1,'normal'),(2,'Claude 和 GPT','5 小时',0.0,'normal'),(3,'','本周',49.7,'normal')])
   # Each line carries its group's logos for the end of its names: Gemini's, then Claude's and OpenAI's (OpenAI's takes
   # the text colour); a single group's line needs none.

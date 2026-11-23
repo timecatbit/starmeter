@@ -2199,7 +2199,9 @@ def gemini_subscription_lines(data):
     payload=data.get('gemini_subscription') or {};error=data.get('gemini_subscription_error')
     closed=error==antigravity.NOT_RUNNING;failed=refresh_failed(error) and not closed
     windows=gemini_windows(payload,time.time());read_at=payload.get('_fetchedAt')
-    most=max((100-w.get('remaining',0) for w in windows),default=None)
+    # The row's own figure is Gemini's: its own windows' tightest; Claude's with GPT's are a separate allowance.
+    own=[w for w in windows if w.get('group')=='gemini'] or windows
+    most=max((100-w.get('remaining',0) for w in own),default=None)
     present=connection_ready('gemini-subscription')
     if most is not None and closed:badge='%s · 截至 %s'%(used_text(most),snapshot_time(read_at or 0))
     elif most is not None:badge=used_text(most)
