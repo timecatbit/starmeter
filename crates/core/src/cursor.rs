@@ -77,7 +77,7 @@ fn app_token(root: &str) -> Option<String> {
     }
     let resolved = paths::resolve(Path::new(&path)).map_or_else(|| path.clone(), |p| p.to_string_lossy().into_owned());
     let read = |immutable: bool| -> Option<Option<Value>> {
-        let uri = format!("file:{resolved}{}", if immutable { "?immutable=1" } else { "?mode=ro" });
+        let uri = crate::database::file_uri(&resolved, if immutable { "immutable=1" } else { "mode=ro" });
         let db = Database::open(Path::new(&uri), 2.0, Mode::ReadOnlyUri).ok()?;
         let row = db.first("SELECT value FROM ItemTable WHERE key='cursorAuth/accessToken' LIMIT 1", &[]).ok()?;
         Some(row.and_then(|row| row.into_iter().next()))
