@@ -228,7 +228,8 @@ class EngineParityTests(unittest.TestCase):
                 self.assertEqual((there / 'preferences.json').stat().st_mode & 0o777, 0o600)
         if not there.is_dir():
             self.skipTest('not ported to the Rust engine yet')
-        self.assertEqual(sorted(p.name for p in there.iterdir()), ['preferences.json'])
+        # The lock each change holds (PREFS-1) stays beside the file; nothing else does.
+        self.assertEqual(sorted(p.name for p in there.iterdir() if p.name != 'preferences.lock'), ['preferences.json'])
 
     def test_an_unreadable_file_is_kept_aside_before_it_is_replaced(self):
         for directory in (self.root / 'python', self.root / 'swift'):
@@ -236,7 +237,7 @@ class EngineParityTests(unittest.TestCase):
         preferences.update(self.root / 'python', 'theme', 'light')
         swift('preferences.update', str(self.root / 'swift'), 'theme', 'light')
         for directory in (self.root / 'python', self.root / 'swift'):
-            names = sorted(p.name for p in directory.iterdir())
+            names = sorted(p.name for p in directory.iterdir() if p.name != 'preferences.lock')
             self.assertEqual(len(names), 2, names)
             self.assertRegex(names[1], r'^preferences\.unreadable-\d{8}-\d{6}\.json$')
             self.assertEqual((directory / names[1]).read_bytes(), b'{"schema": 1, "theme": "dark"')
