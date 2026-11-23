@@ -632,11 +632,18 @@ mod tests {
             platform::lock(&lock, false).is_some()
         };
         assert!(free());
-        // Free: this test binary isn't an app that can be replaced, which it says, and the lock is let go.
-        assert_eq!(
-            runtime.update_app_in_place("9.0.0", std::process::id()),
-            Err("这份 Starmeter 不能在原处更新，请从发布页下载".to_string())
-        );
+        // Free: this test binary isn't an app that can be replaced, which it says, and the lock is let go. The probe
+        // just above opened the lock too, and a child forked meanwhile can keep that open a moment longer (seen only
+        // with the whole workspace's tests at once): asked again until the lock is really its own.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let outcome = loop {
+            let outcome = runtime.update_app_in_place("9.0.0", std::process::id());
+            if outcome != Ok(false) || std::time::Instant::now() >= deadline {
+                break outcome;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        };
+        assert_eq!(outcome, Err("这份 Starmeter 不能在原处更新，请从发布页下载".to_string()));
         assert!(free());
         let _ = std::fs::remove_dir_all(&state);
     }
