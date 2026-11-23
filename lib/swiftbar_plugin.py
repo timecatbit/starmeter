@@ -1767,7 +1767,9 @@ def self_update_worker(version):
 
 
 def app_update_lines(data):
-    rows=sorted(update_rows(data),key=lambda row:not row.get('available'));count=update_attention_count(rows)
+    # By their light: a newer version first, then up to date, then a failed check, the unchecked last.
+    rank={'new':0,'ok':1,'issue':2}
+    rows=sorted(update_rows(data),key=lambda row:rank.get(update_indicator(row),3));count=update_attention_count(rows)
     running=any(r['id']=='opencodex' for r in rows) and auto_update_state().get('status')=='running'
     status=('%d 项待更新'%count) if count else ('自动更新中' if running else None)
     lines=[item('工具更新',badge=status,panelattention=bool(count),sfimage='arrow.down.circle')]

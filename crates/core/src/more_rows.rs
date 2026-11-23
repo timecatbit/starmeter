@@ -611,9 +611,15 @@ impl Runtime {
 
     pub fn app_update_lines(&self, data: &Object) -> Vec<String> {
         let mut rows: Vec<(usize, Object)> = self.update_rows(data).into_iter().enumerate().collect();
-        rows.sort_by_key(|(index, row)| {
-            (if row.get("available").is_some_and(Json::is_truthy) { 0 } else { 1 }, *index)
-        });
+        // By their light: a newer version first, then up to date, then a check that went wrong, the unchecked last
+        // (用户：蓝色的最上面，绿色的在蓝色的下面，空的洞洞在后面); in the order selected within each.
+        let rank = |row: &Object| match update_indicator(row) {
+            "new" => 0,
+            "ok" => 1,
+            "issue" => 2,
+            _ => 3,
+        };
+        rows.sort_by_key(|(index, row)| (rank(row), *index));
         let rows: Vec<Object> = rows.into_iter().map(|(_, row)| row).collect();
         let count = update_attention_count(&rows);
         let running = rows.iter().any(|row| row.get("id") == Some(&Json::from("opencodex")))

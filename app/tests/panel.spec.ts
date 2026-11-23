@@ -798,9 +798,17 @@ test('a newer version shows beside Starmeter, a pill until looked at and then a 
   await expect(mark.locator('.dot')).toHaveCount(1);
   await page.reload();
   await expect(page.locator('.heading .update-mark')).not.toHaveClass(/fresh/);
-  // In 工具更新, each row with a newer version has its 更新 pill to click.
+  // In 工具更新, each row with a newer version has its 更新 pill to click, the pills in one column at the right edge
+  // whether the row opens an app (no ↗ beside the pill) or runs a command; a command is never broken between words.
   await page.locator('.row', { hasText: '工具更新' }).click();
-  await expect(page.locator('.value.pill', { hasText: '更新' })).toHaveCount(3);
+  const pills = page.locator('.value.pill', { hasText: '更新' });
+  await expect(pills).toHaveCount(3);
+  const edges = await pills.evaluateAll((all) => all.map((pill) => Math.round(pill.getBoundingClientRect().right)));
+  expect(new Set(edges).size).toBe(1);
+  const claude = page.locator('.detail-row', { hasText: 'Claude · 有新版本' });
+  await expect(claude.locator('svg.out')).toHaveCount(0);
+  const run = await page.locator('.detail-row', { hasText: 'Codex · 有新版本' }).locator('.detail').textContent();
+  expect(run).toContain('brew\u00a0upgrade\u00a0-\u2060-\u2060cask\u00a0codex');
   await page.keyboard.press('Escape');
   // 提醒 → 主页提示工具更新 off: no mark, the 工具更新 row not highlighted (the notifications are the engine's, untouched).
   await button(page, '主页模块与设置').click();

@@ -217,6 +217,16 @@ class UpdateTests(unittest.TestCase):
   self.assertFalse(self.m.app_update_back_off(record,1300.0));self.assertEqual(record['retryAt'],1600.0)
   self.assertTrue(self.m.app_update_back_off(record,1700.0));self.assertEqual(record['retryAt'],2300.0)
 
+ def test_update_rows_go_by_their_light_newer_first_then_up_to_date_then_failed_then_unchecked(self):
+  rows=[{'id':'a','name':'A','status':'在 App 内检查更新','manual':True},{'id':'b','name':'B','status':'已是最新','current':'1'},
+        {'id':'c','name':'C','status':'有新版本','available':True,'current':'1','latest':'2'},{'id':'d','name':'D','status':'检查失败，稍后重试'},
+        {'id':'e','name':'E','status':'已是最新','current':'3'}]
+  for row in rows:row['href']='https://example.test/'+row['id']
+  with patch.object(self.m,'update_rows',return_value=rows),patch.object(self.m.terminal_jobs,'latest_log',return_value=None):
+   lines=self.m.app_update_lines({})
+  names=[line.split(' · ')[0] for line in lines[1:] if line.startswith('--') and ' · ' in line]
+  self.assertEqual([name.lstrip('-') for name in names][:5],['C','B','E','D','A'])
+
  def test_each_copy_updates_from_a_file_the_release_publishes(self):
   import importlib.util,sys
   scripts=str(SOURCE.parent/'scripts')
