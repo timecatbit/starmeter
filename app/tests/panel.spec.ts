@@ -473,6 +473,12 @@ test('会话 sits beside the groupings: running first, what each cost in the ran
   await expect(cards.first().locator('.title')).toHaveText('重做设置页的分段控件');
   // On the right, what the session cost in the range shown (today); this turn's tokens and cost under its state.
   await expect(cards.first().locator('.value')).toHaveText('$6.90');
+  // Written as the tool cards write their figures: the theme's rounded digits, the $ smaller.
+  const figure = cards.first().locator('.value .figure');
+  expect(await figure.evaluate((e) => getComputedStyle(e).fontFamily)).toContain('ui-rounded');
+  expect(await figure.locator('.sign').evaluate((e) => parseFloat(getComputedStyle(e).fontSize))).toBeLessThan(
+    await figure.evaluate((e) => parseFloat(getComputedStyle(e).fontSize)),
+  );
   await expect(cards.first()).toContainText('运行中 4 分钟');
   await expect(cards.first()).toContainText('本轮 2.41M Token · $0.92 · 9 次请求');
   await expect(page.locator('.session-list')).not.toContainText('等待输入');
@@ -485,7 +491,7 @@ test('会话 sits beside the groupings: running first, what each cost in the ran
   await expect(cards.last()).toContainText('空闲 3 小时');
   // Changed today, nothing spent: the figure is there, drawn quieter than one that has spent.
   await expect(cards.last().locator('.value')).toHaveText('$0.00');
-  const weight = (card: typeof cards) => card.locator('.value').evaluate((e) => Number(getComputedStyle(e).fontWeight));
+  const weight = (card: typeof cards) => card.locator('.value .figure').evaluate((e) => Number(getComputedStyle(e).fontWeight));
   expect(await weight(cards.last())).toBeLessThan(await weight(cards.first()));
   // Two sessions of one name are told apart by when each began, and are still two: opening one opens only it.
   await expect(cards.nth(5).locator('.title')).toHaveText('修好 CI 的缓存 · 13:02');
@@ -730,9 +736,46 @@ test('grouping by model or project swaps the cards, five of them and the rest be
   await expect(page.locator('.card .name').first()).toHaveText('starmeter');
   await page.getByRole('button', { name: '查看更多 1 个项目' }).click();
   await expect(page.locator('.card .name').last()).toHaveText('未标注项目');
-  // Another grouping starts from five again.
+  // Each grouping keeps what was opened in it: 模型 shown whole stays whole when it comes back.
   await page.getByRole('radio', { name: '模型' }).click();
-  await expect(page.locator('.card')).toHaveCount(5);
+  await expect(page.locator('.card')).toHaveCount(15);
+});
+
+test('what was opened stays open: 查看更多 and an opened session, across tabs, a page and a reload', async ({ page }) => {
+  await open(page);
+  await page.getByRole('radio', { name: '会话' }).click();
+  await page.getByRole('button', { name: /查看更多 \d+ 个会话/ }).click();
+  const sessions = await page.locator('.session').count();
+  const head = page.locator('.session .head').first();
+  await head.click();
+  await expect(head).toHaveAttribute('aria-expanded', 'true');
+  await page.getByRole('radio', { name: '项目' }).click();
+  await page.getByRole('button', { name: /查看更多 \d+ 个项目/ }).click();
+  const projects = await page.locator('.card').count();
+  // Another tab and back, a page and back: nothing folded up.
+  await page.getByRole('radio', { name: '会话' }).click();
+  await expect(page.locator('.session')).toHaveCount(sessions);
+  await expect(page.locator('.session .head').first()).toHaveAttribute('aria-expanded', 'true');
+  await page.locator('.row', { hasText: 'Claude 订阅' }).click();
+  await expect(page.locator('.dashboard')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.dashboard')).toBeVisible();
+  await expect(page.locator('.session')).toHaveCount(sessions);
+  await expect(page.getByRole('button', { name: /查看更多/ })).toHaveCount(0);
+  // A reopened panel (the page loaded afresh) has them as they were.
+  await page.reload();
+  await expect(page.locator('.dashboard')).toBeVisible();
+  await page.getByRole('radio', { name: '项目' }).click();
+  await expect(page.locator('.card')).toHaveCount(projects);
+  await page.getByRole('radio', { name: '会话' }).click();
+  await expect(page.locator('.session')).toHaveCount(sessions);
+  await expect(page.locator('.session .head').first()).toHaveAttribute('aria-expanded', 'true');
+  // Closed again, it stays closed.
+  await page.locator('.session .head').first().click();
+  await page.reload();
+  await expect(page.locator('.dashboard')).toBeVisible();
+  await page.getByRole('radio', { name: '会话' }).click();
+  await expect(page.locator('.session .head').first()).toHaveAttribute('aria-expanded', 'false');
 });
 
 test('a row opens its page, with usage bars and pace marks, and Esc comes back', async ({ page }) => {

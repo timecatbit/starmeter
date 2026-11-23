@@ -12,6 +12,7 @@
   import DetailList from './DetailList.svelte';
   import Glyph from './Glyph.svelte';
   import MoreButton from './MoreButton.svelte';
+  import { listOpen, openList, sessionOpen, toggleSession } from '../lib/expanded.svelte';
   import StatusLight from './StatusLight.svelte';
 
   let { entry, busy, onopen, onchoose, onfit }: {
@@ -23,7 +24,8 @@
   const FIT = 3;
   /** Five at first, the running ones leading; the rest one click away, then the page scrolls to them. */
   const SHOWN = 5;
-  let everything = $state(false);
+  // 查看更多 and each opened session stay so (expanded.svelte.ts), whatever the list comes back through.
+  const everything = $derived(listOpen('sessions'));
   const sessions = $derived(entry.children.filter((c) => c.statusLight !== undefined));
   /** A session's identity: its key (two sessions can share a name), else its name and how many before it had it. */
   const keys = $derived.by(() => {
@@ -37,6 +39,13 @@
   const keyOf = (s: Entry) => keys.get(s) ?? s.label;
   /** Nothing spent in the range shown: the amount is all zeros (¥0.00, $0.00), drawn quieter. */
   const spentNothing = (s: Entry) => /^\D*0[.,]00$/.test(s.value ?? '');
+  /** A card's figure as the tool cards write theirs: rounded digits, the $ and the K/M/B unit smaller, any words around
+   *  it (已知, Token) in the text font; a value with no number (费用待定价) as it is. */
+  function amount(value: string): { before: string; sign: string; digits: string; unit: string; after: string } | null {
+    const found = /^(.*?)([$¥€£])?(\d[\d,]*(?:\.\d+)?)([KMB])?(.*)$/.exec(value);
+    if (!found) return null;
+    return { before: found[1], sign: found[2] ?? '', digits: found[3], unit: found[4] ?? '', after: found[5] };
+  }
   const listed = $derived(everything ? sessions : sessions.slice(0, SHOWN));
   const notes = $derived(entry.children.filter((c) => c.statusLight === undefined && !c.separator && c.checked === undefined && !c.action));
   const settings = $derived(entry.children.filter((c) => c.checked !== undefined));
@@ -56,7 +65,6 @@
     measure();
     return () => { observer.disconnect(); cancelAnimationFrame(frame); };
   });
-  let opened = $state(new Set<string>());
   let settingsOpen = $state(new Set<string>());
 
   /** A session's turns: the heading (project · 最近 N 轮), then the turns, newest first. */
@@ -87,23 +95,23 @@
     previous = next;
   });
 
-  function toggle(key: string) {
-    const next = new Set(opened);
-    if (next.has(key)) next.delete(key);
-    else next.add(key);
-    opened = next;
-  }
+  const toggle = (key: string) => toggleSession(key);
 </script>
 
 <div class="session-list" bind:this={list}>
   {#each listed as s (keyOf(s))}
     {@const more = latest(s)}
-    {@const open = opened.has(keyOf(s))}
+    {@const open = sessionOpen(keyOf(s))}
+    {@const figure = amount(s.value ?? '')}
     <div class="session" class:open>
       <button class="head pressable" aria-expanded={open} onclick={() => toggle(keyOf(s))}>
         <span class="logo"><Glyph image={s.image} template={s.template} symbol={s.symbol ?? 'terminal'} size={14} /></span>
         <span class="title">{s.label}</span>
-        <span class="value" class:glow={glowing.has(keyOf(s))} class:none={spentNothing(s)}>{s.value ?? ''}</span>
+        <span class="value" class:glow={glowing.has(keyOf(s))} class:none={spentNothing(s)}>
+          {#if figure}{#if figure.before}<span class="words">{figure.before}</span>{/if}<span class="figure num">{#if figure.sign}<span
+                class="sign">{figure.sign}</span>{/if}{figure.digits}{#if figure.unit}<span class="unit">{figure.unit}</span>{/if}</span>{#if figure.after}<span
+              class="words">{figure.after}</span>{/if}{:else}<span class="words">{s.value ?? ''}</span>{/if}
+        </span>
       </button>
       <div class="line"><StatusLight state={s.statusLight ?? 'unknown'} /><span class="text">{s.detail ?? ''}</span></div>
       {#if more}<div class="line muted"><span class="text">{more}</span></div>{/if}
@@ -121,7 +129,7 @@
     </div>
   {/each}
   {#if listed.length < sessions.length}
-    <MoreButton label={t('查看更多 {n} 个会话', { n: sessions.length - listed.length })} onclick={() => (everything = true)} />
+    <MoreButton label={t('查看更多 {n} 个会话', { n: sessions.length - listed.length })} onclick={() => openList('sessions')} />
   {/if}
   {#each notes as note, i (i)}
     <div class="empty">{note.label}</div>
@@ -164,13 +172,27 @@
   }
   .value {
     flex: none;
-    font-size: 12.5px;
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-    font-family: ui-rounded, -apple-system, sans-serif;
+    white-space: nowrap;
     transition: color 1.2s ease-out;
   }
-  .value.none { color: var(--secondary); font-weight: 500; }
+  /* As the tool cards' figures (Figure.svelte), the panel's theme font for numbers (手绘 its hand). */
+  .figure {
+    font-family: var(--rounded);
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .sign {
+    font-size: 0.62em;
+    font-weight: 500;
+    color: var(--secondary);
+    vertical-align: 0.48em;
+    margin-right: 0.04em;
+  }
+  .unit { font-size: 0.74em; }
+  .words { font-size: 11px; font-weight: 500; color: var(--secondary); }
+  .words + .figure { margin-left: 3px; }
+  .figure + .words { margin-left: 2px; }
+  .value.none .figure { color: var(--secondary); font-weight: 500; }
   .value.glow { color: var(--accent); transition: none; }
   .line {
     display: flex;

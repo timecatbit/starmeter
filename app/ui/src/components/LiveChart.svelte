@@ -11,7 +11,7 @@
   import { chartAxis, chartPositions, seriesOf, smoothCurves, summaryProviders, tracePath } from '../lib/chart';
   import { tokens } from '../lib/format';
   import { compact, nice, rateText, scaleFor, type LiveFeed, type Sample, type Scale } from '../lib/live';
-  import { font, MONO, SANS, width } from '../lib/measure';
+  import { font, ROUNDED, SANS, width } from '../lib/measure';
   import { untrack } from 'svelte';
   import { panel } from '../lib/ui.svelte';
   import type { Dashboard, ProviderUsage } from '../lib/types';
@@ -163,7 +163,11 @@
       const accentColour = starAccent(dark), total = summaryColour(dark);
       ctx.setTransform(scale, 0, 0, scale, 0, 0);
       ctx.clearRect(0, 0, W + PAD, H);
-      const text = (value: string, x: number, top: number, size: number, colour: string, align: CanvasTextAlign = 'left', weight = 400, family = SANS) => {
+      // The page's own fonts (手绘 writes in its hand, the default in the system's): the labels in its text font, the
+      // rate in the rounded figures every other number on the panel uses.
+      const sans = getComputedStyle(canvas).fontFamily || SANS;
+      const rounded = getComputedStyle(canvas).getPropertyValue('--rounded').trim() || ROUNDED;
+      const text = (value: string, x: number, top: number, size: number, colour: string, align: CanvasTextAlign = 'left', weight = 400, family = sans) => {
         ctx.font = font(size, weight, family); ctx.fillStyle = colour; ctx.textAlign = align; ctx.textBaseline = 'top';
         ctx.fillText(value, x, top + 1);
       };
@@ -252,7 +256,7 @@
           mark('+' + compact(target.height), range.lo + range.height, false, apart);
         }
         // 实时, breathing, at the top left; the last minute's additions and its rate at the top right.
-        const badgeWidth = width(t('实时'), font(8, 500, MONO)) + 10;
+        const badgeWidth = width(t('实时'), font(8, 500, sans)) + 10;
         const pulse = 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(((now - born) / 1600) * 2 * Math.PI));
         ctx.fillStyle = alpha(accentColour, dark ? 0.22 : 0.14);
         ctx.beginPath(); ctx.roundRect(0, 1, badgeWidth + 8, 13, 6.5); ctx.fill();
@@ -269,13 +273,13 @@
         const lead = t('近 1 分钟 +{n} Token · 输出 ', { n: tokens(added) });
         const baseline = 11;
         ctx.textBaseline = 'alphabetic';
-        ctx.font = font(8); ctx.fillStyle = secondary; ctx.textAlign = 'right';
+        ctx.font = font(8, 400, sans); ctx.fillStyle = secondary; ctx.textAlign = 'right';
         ctx.fillText(unit, W, baseline);
-        const unitWidth = width(unit, font(8));
-        ctx.font = font(11, 600, MONO); ctx.fillStyle = total;
+        const unitWidth = width(unit, font(8, 400, sans));
+        ctx.font = font(11.5, 600, rounded); ctx.fillStyle = total;
         ctx.fillText(figure, W - unitWidth, baseline);
-        const figureWidth = width(figure, font(11, 600, MONO));
-        ctx.font = font(8); ctx.fillStyle = secondary;
+        const figureWidth = width(figure, font(11.5, 600, rounded));
+        ctx.font = font(8, 400, sans); ctx.fillStyle = secondary;
         ctx.fillText(lead, W - unitWidth - figureWidth - 1, baseline);
         text(t('1 分钟前'), plot.x, bottom + 7, 8.5, secondary);
         text(t('现在'), plot.x + plot.w, bottom + 7, 8.5, secondary, 'right');

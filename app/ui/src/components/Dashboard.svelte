@@ -23,6 +23,7 @@
   import ProviderCard from './ProviderCard.svelte';
   import SessionList from './SessionList.svelte';
   import MoreButton from './MoreButton.svelte';
+  import { listOpen, openList } from '../lib/expanded.svelte';
   import SummaryChart from './SummaryChart.svelte';
 
   let { data, rangeOptions, reveal, glows, summaryGlow, live, leaving = null, onleft, liveStamp, pinned, pinInterval, onrange,
@@ -82,11 +83,11 @@
   // By tool, the tools that used the most first, as the models and projects are.
   const cardList = $derived(data.cards ?? byUsage(data.providers));
   // Models and projects: the first five, the rest one click away (then the page scrolls to them); by tool every tool,
-  // the ones the user picked. Choosing another grouping starts from five again.
+  // the ones the user picked. Once shown whole, a grouping stays whole (expanded.svelte.ts): coming back to it, from a
+  // page or another tab or a reopened panel, doesn't fold it up again.
   const SHOWN = 5;
   const MORE = 34;
-  let allOf = $state<string | null>(null);
-  const listed = $derived(!data.cards || allOf === data.grouping ? cardList : cardList.slice(0, SHOWN));
+  const listed = $derived(!data.cards || listOpen(data.grouping ?? '') ? cardList : cardList.slice(0, SHOWN));
   const unlisted = $derived(cardList.length - listed.length);
   const collapsible = $derived(data.allowCollapse === true && !data.cards);
   const expanded = $derived(new Set(data.expandedProviders ?? []));
@@ -214,7 +215,7 @@
       {/each}
       {#if unlisted}
         <MoreButton label={t(data.grouping === 'project' ? '查看更多 {n} 个项目' : '查看更多 {n} 个模型', { n: unlisted })}
-          onclick={() => (allOf = data.grouping ?? null)} />
+          onclick={() => openList(data.grouping ?? '')} />
       {/if}
     {/if}
   </div>
