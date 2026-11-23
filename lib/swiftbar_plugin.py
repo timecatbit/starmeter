@@ -1644,6 +1644,20 @@ def set_self_update_state(**values):
     write_json_cache(os.path.join(STATE_DIR,'self-update.json'),dict(values,at=time.time()))
 
 
+def self_update_in_tools(data):
+    """Starmeter's own new version as a row of 工具更新, at its top; opened, its own page one level down."""
+    page=self_update_lines(data);release=plugin_update(data)
+    if not page or not release:return []
+    latest=release['latest'];state=self_update_state()
+    running=state.get('status')=='running' and state.get('version')==latest
+    failed=state.get('status')=='failed' and state.get('version')==latest
+    status='正在更新' if running else '更新失败' if failed else '有新版本'
+    pill={} if running or failed else {'badge':'更新','panelattention':True}
+    row=item(PRODUCT+' · '+status,level=1,paneldetail=VERSION+' → '+latest,panelstatus='issue' if failed else 'new',**pill)
+    # Its page but the 当前 → 最新 line, which the row itself says.
+    return [row]+['--'+line for line in page[1:] if not line.lstrip('-').startswith('当前 ')]
+
+
 def self_update_lines(data):
     """A homepage row under 工具更新, present only while a newer Starmeter release exists."""
     release=plugin_update(data);state=self_update_state()
@@ -1769,10 +1783,13 @@ def self_update_worker(version):
 def app_update_lines(data):
     # By their light: a newer version first, then up to date, then a failed check, the unchecked last.
     rank={'new':0,'ok':1,'issue':2}
-    rows=sorted(update_rows(data),key=lambda row:rank.get(update_indicator(row),3));count=update_attention_count(rows)
+    rows=sorted(update_rows(data),key=lambda row:rank.get(update_indicator(row),3))
+    # Starmeter's own new version, first among the tools.
+    own=self_update_in_tools(data)
+    count=update_attention_count(rows)+(1 if own and 'panelattention=true' in own[0] else 0)
     running=any(r['id']=='opencodex' for r in rows) and auto_update_state().get('status')=='running'
     status=('%d 项待更新'%count) if count else ('自动更新中' if running else None)
-    lines=[item('工具更新',badge=status,panelattention=bool(count),sfimage='arrow.down.circle')]
+    lines=[item('工具更新',badge=status,panelattention=bool(count),sfimage='arrow.down.circle')]+own
     if not rows:lines.append(item('尚未勾选工具',level=1,color=MUTED,size=11))
     for row in rows:
         label=row['name']+' · '+row['status'].replace('自动更新已开启 · ','')

@@ -28,7 +28,7 @@
 
   let { data, rangeOptions, reveal, glows, summaryGlow, live, leaving = null, onleft, liveStamp, pinned, pinInterval, onrange,
     onshare, onpin, onsettings, ongroup, ontoggle, onopentool, onsize, onfloor, sessions = null, view = 'cards', onview, busy = null, onopen, onchoose,
-    readonly = false, reading = false, onprefetch, updateMark = null, onupdates }: {
+    readonly = false, reading = false, onprefetch, updateMark = null, updateSaid = '', onupdates }: {
     data: Dashboard; rangeOptions: Entry[]; reveal: number; glows: Record<string, number>; summaryGlow: number; live: LiveFeed | null;
     leaving?: number | null; onleft?: () => void;
     liveStamp: string | null; pinned: boolean; pinInterval: number;
@@ -42,6 +42,8 @@
     onprefetch?: () => void;
     /** A newer version waiting: a pill beside Starmeter until looked at, then a dot (updateHints.svelte.ts). */
     updateMark?: { count: number; own: string | null; fresh: boolean } | null;
+    /** What the mark says on hover and to assistive technology. */
+    updateSaid?: string;
     onupdates?: () => void;
     /** How tall a pinned panel that fits the homepage is: down to the end of the third card or session. */
     onsize?: (height: number) => void;
@@ -159,8 +161,7 @@
     <div class="grip" class:movable={panel.pinned} onmousedown={grabWindow} aria-hidden="true"></div>
     <h1 class="heading" style:width="{(readonly ? firstButton : leftmost) - 6 - 12}px"><span class="brand" aria-hidden="true">{@html mark}</span>Starmeter{#if updateMark}<button
         class="update-mark pressable" class:fresh={updateMark.fresh} onclick={onupdates}
-        aria-label={updateMark.own ? t('Starmeter 有新版本 {v}', { v: updateMark.own }) : t('{n} 个工具可更新', { n: updateMark.count })}
-        title={updateMark.own ? t('Starmeter 有新版本 {v}', { v: updateMark.own }) : t('{n} 个工具可更新', { n: updateMark.count })}>{#if updateMark.fresh}<svg
+        aria-label={updateSaid} title={updateSaid}>{#if updateMark.fresh}<svg
           class="ring" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.4" /><path
           d="M8 4.6v6.2M5.3 8.3 8 11 10.7 8.3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>{:else}<span
           class="dot"></span>{/if}</button>{/if}</h1>

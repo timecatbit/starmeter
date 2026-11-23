@@ -783,15 +783,20 @@ test('a range picked shows once read through, never the old range or a source at
 test('a newer version shows beside Starmeter, a pill until looked at and then a dot; 提醒 can keep the homepage quiet', async ({ page }) => {
   await open(page);
   const mark = page.locator('.heading .update-mark');
-  // Starmeter's own update first: a ring with a down arrow in it, no words (said on hover and to assistive technology),
-  // opening its page.
+  // A ring with a down arrow in it, no words; on hover and to assistive technology, Starmeter's new version and the
+  // tools' together. It opens 工具更新, Starmeter's own row first in it (用户选的方案 A), its page one level down.
   await expect(mark).toHaveClass(/fresh/);
   await expect(mark.locator('svg.ring circle')).toHaveCount(1);
   await expect(mark).toHaveText('');
-  await expect(mark).toHaveAttribute('aria-label', 'Starmeter 有新版本 6.0.9');
+  await expect(mark).toHaveAttribute('aria-label', 'Starmeter 有新版本 6.0.9 · 3 个工具可更新');
   await mark.click();
   await expect(page.locator('.dashboard')).toHaveCount(0);
+  const first = page.locator('.detail-row').first();
+  await expect(first).toContainText('Starmeter · 有新版本');
+  await expect(first).toContainText('6.0.8 → 6.0.9');
+  await first.click();
   await expect(page.getByText('更新到 6.0.9…')).toBeVisible();
+  await page.keyboard.press('Escape');
   await page.keyboard.press('Escape');
   // Looked at: a dot, also after the panel is opened again; nothing moves or blinks.
   await expect(mark).not.toHaveClass(/fresh/);
@@ -802,7 +807,7 @@ test('a newer version shows beside Starmeter, a pill until looked at and then a 
   // whether the row opens an app (no ↗ beside the pill) or runs a command; a command is never broken between words.
   await page.locator('.row', { hasText: '工具更新' }).click();
   const pills = page.locator('.value.pill', { hasText: '更新' });
-  await expect(pills).toHaveCount(3);
+  await expect(pills).toHaveCount(4);
   const edges = await pills.evaluateAll((all) => all.map((pill) => Math.round(pill.getBoundingClientRect().right)));
   expect(new Set(edges).size).toBe(1);
   const claude = page.locator('.detail-row', { hasText: 'Claude · 有新版本' });

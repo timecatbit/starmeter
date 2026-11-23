@@ -97,13 +97,20 @@
   /** A newer version waiting (updateHints.svelte.ts), judged on the engine's own words, before any translation. */
   const pending = $derived.by(() => { void version; const raw = interaction.displayed(); return raw ? pendingUpdates(raw.entries) : null; });
   const updateMark = $derived(pending && updateHints.on && !onPhone ? { count: pending.count, own: pending.own, fresh: pending.key !== updateHints.seen } : null);
-  /** The mark beside Starmeter: Starmeter's own update when it has one, else 工具更新; looked at, the pill is a dot. */
+  /** What the mark says on hover: Starmeter's new version, the tools with one, or both. */
+  const updateSaid = $derived.by(() => {
+    if (!updateMark) return '';
+    const tools = updateMark.count - (updateMark.own ? 1 : 0);
+    const parts = [updateMark.own ? t('Starmeter 有新版本 {v}', { v: updateMark.own }) : '', tools ? t('{n} 个工具可更新', { n: tools }) : ''];
+    return parts.filter(Boolean).join(' · ');
+  });
+  /** The mark beside Starmeter: always 工具更新, Starmeter's own new version first in it with the tools' (用户选的方案 A:
+   *  Starmeter's page no longer stands in for the tools'); its homepage row only when 工具更新 isn't on the homepage. */
   function openUpdates() {
     if (!pending || !snapshot) return;
     markUpdatesSeen(pending.key);
-    const target = pending.own
-      ? snapshot.entries.find((e) => e.label === 'Starmeter' && e.children.length)
-      : snapshot.entries.find((e) => e.module === 'updates');
+    const target = snapshot.entries.find((e) => e.module === 'updates')
+      ?? snapshot.entries.find((e) => e.label === 'Starmeter' && e.children.length);
     if (target) push(target);
   }
   const toolSettings = $derived(toolId ? (snapshot?.moduleOptions ?? []).find((e) => e.action?.[0] === 'set-module' && e.action[1] === toolId) ?? null : null);
@@ -790,7 +797,7 @@
 
 {#snippet dashboardView()}
   {#if shown && snapshot}
-    <Dashboard data={shown} {rangeOptions} reading={waiting} onprefetch={prefetchRanges} {updateMark} onupdates={openUpdates} {reveal} {glows} {summaryGlow} live={pinned || leaving !== null ? feed : null} {leaving} onleft={() => { leaving = null; feed = null; }} {liveStamp} {pinned}
+    <Dashboard data={shown} {rangeOptions} reading={waiting} onprefetch={prefetchRanges} {updateMark} {updateSaid} onupdates={openUpdates} {reveal} {glows} {summaryGlow} live={pinned || leaving !== null ? feed : null} {leaving} onleft={() => { leaving = null; feed = null; }} {liveStamp} {pinned}
       {pinInterval} onrange={perform} onshare={openShare}
       onpin={() => { panel.hint = null; setPinned(!pinned); if (pinned) perform(['refresh-live']); }} onsettings={openSettings}
       onopentool={openTool} ongroup={(key) => perform(['set-group', key])} {sessions} {view} onview={chooseView} busy={interaction.active}

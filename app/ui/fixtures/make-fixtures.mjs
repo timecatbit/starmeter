@@ -602,8 +602,14 @@ function komariRows(state) {
 // then its versions, channel and what a click does (the CLI's update by its channel); a check that failed gives its
 // reason, and a product whose vendor publishes no version says so beside the version installed.
 function updateRows(state) {
-  const failed = state === 'failed', count = failed ? 2 : 3;
+  // Starmeter's own new version first (more_rows.rs, self_update_in_tools), its page one level down; counted while it
+  // can be had (not under way, not failed).
+  const running = state === 'pending', failed = state === 'failed', count = (failed ? 2 : 3) + (running || failed ? 0 : 1);
+  const own = entry(`Starmeter · ${running ? '正在更新' : failed ? '更新失败' : '有新版本'}`, {
+    statusLight: failed ? 'issue' : 'new', detail: '6.0.8 → 6.0.9', ...(running || failed ? {} : { value: '更新', attention: true }),
+  }, selfUpdateRow(state).children.filter((child) => !child.label.startsWith('当前 ')));
   return entry('工具更新', { symbol: 'arrow.down.circle', attention: true, value: `${count} 项待更新`, fallbacks: [`${count} 项`], onOpenAction: ['refresh-source', 'updates'] }, [
+    own,
     failed
       ? null
       : entry('Codex · 有新版本', { statusLight: 'new', value: '更新', attention: true, detail: '0.170.0 → 0.171.2 · Homebrew Cask · 点击运行 brew upgrade --cask codex', action: ['update-cli', 'codex-cli'] }),

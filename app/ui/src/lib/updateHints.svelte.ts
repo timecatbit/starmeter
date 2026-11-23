@@ -36,7 +36,8 @@ export function chooseUpdateHints(on: boolean) {
  *  that changes with every new version (so a newer one shows the pill again). Null when nothing is. */
 export function pendingUpdates(entries: Entry[]): { count: number; own: string | null; key: string; row: Entry | null; ownRow: Entry | null } | null {
   const row = entries.find((e) => e.module === 'updates' || e.onOpenAction?.join(' ') === 'refresh-source updates') ?? null;
-  const newer = (row?.children ?? []).filter((child) => child.statusLight === 'new');
+  // The tools' rows with a newer version; Starmeter's own row among them is counted once, by its homepage row.
+  const newer = (row?.children ?? []).filter((child) => child.statusLight === 'new' && !child.label.startsWith('Starmeter'));
   const ownRow = entries.find((e) => e.label === 'Starmeter' && /^可更新\s/.test(e.value ?? '')) ?? null;
   const own = ownRow?.value?.replace(/^可更新\s*/, '') ?? null;
   if (!newer.length && !own) return null;

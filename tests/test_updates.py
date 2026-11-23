@@ -227,6 +227,25 @@ class UpdateTests(unittest.TestCase):
   names=[line.split(' · ')[0] for line in lines[1:] if line.startswith('--') and ' · ' in line]
   self.assertEqual([name.lstrip('-') for name in names][:5],['C','B','E','D','A'])
 
+ def test_starmeters_own_new_version_heads_the_tools_and_is_counted(self):
+  rows=[{'id':'claude-code','name':'Claude Code','status':'有新版本','available':True,'current':'1','latest':'2','command':'claude update','href':'https://example.test/c'}]
+  data={'self_update':{'latest':'99.0.0','page':self.m.REPOSITORY+'/releases/tag/v99.0.0','assets':[]}}
+  with patch.object(self.m,'update_rows',return_value=rows),patch.object(self.m.terminal_jobs,'latest_log',return_value=None):
+   entries=self.m.panel_entries(self.m.app_update_lines(data))
+  tools=entries[0]
+  self.assertEqual(tools['value'],'2 项待更新')
+  own=tools['children'][0]
+  self.assertEqual(own['label'],'Starmeter · 有新版本');self.assertEqual(own['statusLight'],'new')
+  self.assertEqual((own['value'],own['attention']),('更新',True))
+  self.assertEqual(own['detail'],self.m.VERSION+' → 99.0.0')
+  # Opened, its own page: 更新到 99.0.0… among it.
+  self.assertTrue(any(child['label']=='更新到 99.0.0…' for child in own['children']))
+  self.assertEqual(tools['children'][1]['label'],'Claude Code · 有新版本')
+  # Nothing newer: no row of its own.
+  with patch.object(self.m,'update_rows',return_value=rows),patch.object(self.m.terminal_jobs,'latest_log',return_value=None):
+   entries=self.m.panel_entries(self.m.app_update_lines({}))
+  self.assertEqual(entries[0]['value'],'1 项待更新');self.assertEqual(entries[0]['children'][0]['label'],'Claude Code · 有新版本')
+
  def test_each_copy_updates_from_a_file_the_release_publishes(self):
   import importlib.util,sys
   scripts=str(SOURCE.parent/'scripts')

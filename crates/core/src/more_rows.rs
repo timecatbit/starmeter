@@ -629,7 +629,11 @@ impl Runtime {
         };
         rows.sort_by_key(|(index, row)| (rank(row), *index));
         let rows: Vec<Object> = rows.into_iter().map(|(_, row)| row).collect();
-        let count = update_attention_count(&rows);
+        // Starmeter's own new version, first among the tools (用户选的方案 A: the mark beside Starmeter always opens 工具更新,
+        // which shows it and the tools together).
+        let own = self.self_update_in_tools(data);
+        let count = update_attention_count(&rows)
+            + usize::from(own.first().is_some_and(|line| line.contains("panelattention=true")));
         let running = rows.iter().any(|row| row.get("id") == Some(&Json::from("opencodex")))
             && self.auto_update_state().get("status") == Some(&Json::from("running"));
         let status = if count > 0 {
@@ -644,6 +648,7 @@ impl Runtime {
             0,
             object! { "badge" => status, "panelattention" => count > 0, "sfimage" => "arrow.down.circle" },
         )];
+        lines.extend(own);
         if rows.is_empty() {
             lines.push(item("尚未勾选工具", 1, object! { "color" => MUTED_COLOR, "size" => 11 }));
         }
@@ -764,6 +769,42 @@ impl Runtime {
         } else {
             format!("starmeter-{version}{}.zip", if self.is_desktop() { "-windows-x64" } else { "" })
         }
+    }
+
+    /// Starmeter's own new version as a row of 工具更新, at its top: lit as the tools' are, from this version to the
+    /// new one, a 更新 pill while it can be had; opened, its own page (the homepage row's: 更新到 X…, 查看更新内容) one
+    /// level down. Nothing without a newer release.
+    pub fn self_update_in_tools(&self, data: &Object) -> Vec<String> {
+        let page = self.self_update_lines(data);
+        let Some(release) = self.plugin_update(data).filter(|_| !page.is_empty()) else { return vec![] };
+        let latest = py::str(release.get("latest"));
+        let state = self.self_update_state();
+        let mine = state.get("version") == Some(&Json::from(latest.as_str()));
+        let running = state.get("status") == Some(&Json::from("running")) && mine;
+        let failed = state.get("status") == Some(&Json::from("failed")) && mine;
+        let status = if running {
+            "正在更新"
+        } else if failed {
+            "更新失败"
+        } else {
+            "有新版本"
+        };
+        let mut options = object! {
+            "paneldetail" => format!("{VERSION} → {latest}"), "panelstatus" => if failed { "issue" } else { "new" },
+        };
+        if !running && !failed {
+            options.insert("badge", "更新");
+            options.insert("panelattention", true);
+        }
+        let mut lines = vec![item(&format!("{PRODUCT} · {status}"), 1, options)];
+        // Its page but the 当前 → 最新 line, which the row itself says.
+        lines.extend(
+            page.into_iter()
+                .skip(1)
+                .filter(|line| !line.trim_start_matches('-').starts_with("当前 "))
+                .map(|line| format!("--{line}")),
+        );
+        lines
     }
 
     pub fn self_update_lines(&self, data: &Object) -> Vec<String> {
