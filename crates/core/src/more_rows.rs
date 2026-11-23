@@ -1,10 +1,7 @@
 //! The rows of the other modules: active sessions, Komari, Harness updates and the rest of the homepage.
 
-use std::path::Path;
-
 use jiff::tz::TimeZone;
 
-use crate::claude_usage::state_of;
 use crate::json::{Json, Object};
 use crate::module_rows::{failure, object};
 use crate::rows::{
@@ -594,29 +591,6 @@ impl Runtime {
         selected.iter().filter_map(|key| by_id.get(key).cloned()).collect()
     }
 
-    pub fn latest_cli_log(&self, keys: &[String]) -> Option<String> {
-        let root = format!("{}/logs/updates", self.state_dir);
-        let mut best: Option<(f64, String)> = None;
-        let names: Vec<String> = std::fs::read_dir(&root)
-            .map(|entries| entries.flatten().map(|entry| entry.file_name().to_string_lossy().into_owned()).collect())
-            .unwrap_or_default();
-        for key in keys.iter().filter(|key| *key == "claude-code" || *key == "codex-cli") {
-            for name in names.iter().filter(|name| name.starts_with(&format!("{key}-")) && name.ends_with(".log")) {
-                let path = format!("{root}/{name}");
-                let is_link = std::fs::symlink_metadata(&path).is_ok_and(|meta| meta.file_type().is_symlink());
-                if is_link || Path::new(&path).is_dir() {
-                    continue;
-                }
-                let Some(state) = state_of(Path::new(&path)) else { continue };
-                let mtime = state.mtime as f64 / 1e9;
-                if best.as_ref().is_none_or(|(best, _)| mtime > *best) {
-                    best = Some((mtime, path));
-                }
-            }
-        }
-        best.map(|(_, path)| path)
-    }
-
     pub fn app_update_lines(&self, data: &Object) -> Vec<String> {
         let mut rows: Vec<(usize, Object)> = self.update_rows(data).into_iter().enumerate().collect();
         // By their light: a newer version first, then up to date, then a check that went wrong, the unchecked last
@@ -725,7 +699,8 @@ impl Runtime {
         }
         let ids: Vec<String> =
             rows.iter().filter_map(|row| row.get("id").and_then(Json::as_str).map(String::from)).collect();
-        if self.latest_cli_log(&ids).is_some() {
+        // Every CLI 工具更新 can update keeps its log there, as the action that opens it reads them.
+        if crate::host::terminal_jobs::latest_log(&self.state_dir, &ids).is_some() {
             lines.push(item(
                 "查看最近 CLI 更新日志",
                 1,
@@ -887,5 +862,42 @@ impl Runtime {
             object! { "href" => release.get("page").cloned().unwrap_or(Json::Null), "sfimage" => "arrow.up.right" },
         ));
         rows
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 查看最近 CLI 更新日志 appears for every CLI 工具更新 can update, as the action that opens it finds their logs:
+    /// a Gemini CLI update's log alone is enough.
+    #[test]
+    fn the_latest_cli_log_entry_is_there_for_any_cli_updated() {
+        let home = std::env::temp_dir().join(format!("starmeter-cli-log-{}", crate::runtime::random_hex(6)));
+        let state = home.join("state");
+        std::fs::create_dir_all(&state).unwrap();
+        std::fs::write(state.join("preferences.json"), r#"{"schema":1,"visible":["gemini"]}"#).unwrap();
+        let environment: std::collections::HashMap<String, String> = [
+            ("HOME", home.to_string_lossy().into_owned()),
+            ("OCX_STATE_DIR", state.to_string_lossy().into_owned()),
+            ("OCX_CACHE_DIR", home.join("cache").to_string_lossy().into_owned()),
+            ("PATH", home.join("bin").to_string_lossy().into_owned()),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value))
+        .collect();
+        let runtime = Runtime::new(environment, "starmeter");
+        let data = object! {
+            "app_updates" => object! { "apps" => Json::Array(vec![
+                object! { "id" => "gemini", "name" => "Gemini CLI", "current" => "0.40.0", "latest" => "0.40.0" }.into(),
+            ]) },
+        };
+        let entry = |lines: &[String]| lines.iter().any(|line| line.contains("查看最近 CLI 更新日志"));
+        assert!(!entry(&runtime.app_update_lines(&data)), "no log yet");
+        let logs = state.join("logs/updates");
+        std::fs::create_dir_all(&logs).unwrap();
+        std::fs::write(logs.join("gemini-20261123-101500-abc.log"), "updated\n").unwrap();
+        assert!(entry(&runtime.app_update_lines(&data)), "Gemini CLI's log");
+        let _ = std::fs::remove_dir_all(&home);
     }
 }
