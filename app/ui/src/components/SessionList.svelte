@@ -1,5 +1,6 @@
 <script lang="ts">
-  // 会话: the Claude Code and Codex sessions of the last day as cards, the fourth choice beside 工具 / 模型 / 项目.
+  // 会话: the sessions of every tool on the homepage that keeps them (Claude Code, Codex, Gemini, OpenCode, Qoder, WorkBuddy,
+  // DeepSeek) as cards, the fourth choice beside 工具 / 模型 / 项目.
   // A session is running or it is not. Its card leads with its tool's logo, its title and what it cost in the range
   // shown, as the other tabs count (the whole session's under 全部), read again with every pinned tick so the number
   // moves as the session works; nothing spent in the range reads quieter. A click opens its last turns, headed by what

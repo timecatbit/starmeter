@@ -277,10 +277,7 @@ pub static RULES: [Rule; 88] = [
     }),
     rule!(r"^金额只算(.+)$", |m| format!("amounts cover {}", translate(group(m, 1)).to_lowercase())),
     rule!(r"^(.+)活动过的会话$", |m| format!("Sessions active {}", during(&translate(group(m, 1))))),
-    rule!(r"^(.+)没有 Claude Code 或 Codex 会话$", |m| format!(
-        "No Claude Code or Codex sessions {}",
-        during(&translate(group(m, 1)))
-    )),
+    rule!(r"^(.+)没有会话$", |m| format!("No sessions {}", during(&translate(group(m, 1))))),
     rule!(r"^运行中 (.+)$", |m| format!("Running {}", translate(group(m, 1)))),
     rule!(r"^空闲 (.+)$", |m| format!("Idle {}", translate(group(m, 1)))),
     rule!(r"^(\d+) 分钟$", |m| format!("{} min", group(m, 1))),

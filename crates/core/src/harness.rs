@@ -573,7 +573,7 @@ fn name(path: &str) -> &str {
     path.rsplit('/').next().unwrap_or(path)
 }
 
-fn jsonl_files(root: &str, source: &str) -> Vec<String> {
+pub(crate) fn jsonl_files(root: &str, source: &str) -> Vec<String> {
     match source {
         "magpie" => {
             let log = format!("{root}/usage.jsonl");
@@ -684,7 +684,7 @@ fn bind(value: Option<&Json>) -> Value {
     }
 }
 
-fn root_identity(root: &str) -> String {
+pub(crate) fn root_identity(root: &str) -> String {
     let resolved =
         paths::resolve(Path::new(root)).map_or_else(|| root.to_string(), |path| path.to_string_lossy().into_owned());
     py::identity(vec![resolved.into()])[..12].to_string()
@@ -959,24 +959,9 @@ fn events_in(db: &Database, query: &str, start: f64, end: f64) -> Fallible<Vec<E
 
 // Gemini CLI and OpenCode
 
-/// Gemini's usage on this computer: Gemini CLI's JSON and JSONL sessions (spent rewinds included) and Antigravity's
-/// conversations (the app's, the agy CLI's and the IDE's), all under the Gemini root.
-#[allow(clippy::too_many_arguments)]
-pub fn gemini_usage(
-    root_path: &str,
-    cache: &Path,
-    start: f64,
-    end: f64,
-    zone: &TimeZone,
-    exclude_proxy: bool,
-    carriers: Option<&mut [Carrier]>,
-    archive: Option<&Path>,
-) -> Fallible<Object> {
-    let root = normalize(&paths::expand_user(root_path).to_string_lossy());
-    if !is_directory(&root) {
-        return Ok(object! { "error" => "未找到 Gemini 用量记录" });
-    }
-    let archive = archive.filter(|path| !path.as_os_str().is_empty());
+/// The Gemini CLI's session files under a Gemini root (its tmp folder, else the whole root but Antigravity's own folders).
+pub(crate) fn gemini_files(root: &str) -> Vec<String> {
+    let root = root.to_string();
     let tmp = format!("{root}/tmp");
     let folders = if is_directory(&tmp) { vec![tmp] } else { vec![root.clone()] };
     // Without tmp the whole root is looked through, but for Antigravity's own folders (its stores are read below; its
@@ -1004,7 +989,28 @@ pub fn gemini_usage(
             }
         }
     }
-    let paths = sorted_paths(found.into_iter().collect());
+    sorted_paths(found.into_iter().collect())
+}
+
+/// Gemini's usage on this computer: Gemini CLI's JSON and JSONL sessions (spent rewinds included) and Antigravity's
+/// conversations (the app's, the agy CLI's and the IDE's), all under the Gemini root.
+#[allow(clippy::too_many_arguments)]
+pub fn gemini_usage(
+    root_path: &str,
+    cache: &Path,
+    start: f64,
+    end: f64,
+    zone: &TimeZone,
+    exclude_proxy: bool,
+    carriers: Option<&mut [Carrier]>,
+    archive: Option<&Path>,
+) -> Fallible<Object> {
+    let root = normalize(&paths::expand_user(root_path).to_string_lossy());
+    if !is_directory(&root) {
+        return Ok(object! { "error" => "未找到 Gemini 用量记录" });
+    }
+    let archive = archive.filter(|path| !path.as_os_str().is_empty());
+    let paths = gemini_files(&root);
     let stores = antigravity_stores(&root);
     if paths.is_empty() && stores.is_empty() && !archive.is_some_and(Path::exists) {
         return Ok(object! { "error" => "暂无 Gemini 用量记录" });
@@ -1189,7 +1195,7 @@ pub fn antigravity_stores(root: &str) -> Vec<String> {
 
 /// A store's size and last change, its write-ahead log's included: a conversation being written keeps its newest
 /// pages there.
-fn store_state(path: &str) -> Option<(i64, i64)> {
+pub(crate) fn store_state(path: &str) -> Option<(i64, i64)> {
     let store = state_of(Path::new(path))?;
     let log = state_of(Path::new(&format!("{path}-wal")));
     Some((store.size + log.as_ref().map_or(0, |log| log.size), store.mtime.max(log.map_or(0, |log| log.mtime))))
@@ -1404,34 +1410,43 @@ pub fn opencode_usage(
         "SELECT id,session_id,time_created,data FROM message WHERE time_created>=? AND time_created<=? AND json_extract(data,'$.role')='assistant'",
         &[low, high],
         |row| {
-            let Some(fields) = database::text(&row[3]).and_then(|raw| Json::parse_str(raw).ok()).and_then(|v| v.as_object().cloned())
-            else {
-                return Ok(());
-            };
-            let usage = py::dict(fields.get("tokens"));
-            let Some(usage_fields) = usage.as_object() else { return Ok(()) };
-            let cached = py::dict(usage_fields.get("cache"));
-            let Some(cached_fields) = cached.as_object() else { return Ok(()) };
-            let mut event = metrics(
-                fields.get("modelID"),
-                usage_fields.get("input"),
-                usage_fields.get("output"),
-                cached_fields.get("read"),
-                cached_fields.get("write"),
-                fields.get("cost"),
-            );
-            let folder = fields.get("path").and_then(Json::as_object).cloned().unwrap_or_default();
-            event.insert("id", py::identity(vec![sql_json(&row[0])]));
-            event.insert("session", py::identity(vec![sql_json(&row[1])]));
-            let Some(created) = database::double(&row[2]) else { return Ok(()) };
-            event.insert("timestamp", created / 1000.0);
-            event.insert("provider", fields.get("providerID").cloned().unwrap_or(Json::from("")));
-            event.insert("project", py::project_name(Some(&py::or(folder.get("cwd"), folder.get("root").cloned().unwrap_or(Json::Null)))));
-            events.push(event);
+            if let Some(event) = opencode_event(&row) {
+                events.push(event);
+            }
             Ok(())
         },
     )?;
     Ok(tally::aggregate(&events, start, end, zone, exclude_proxy, Some(&pricing::model_cost), carriers))
+}
+
+/// One row of OpenCode's message table (id, session_id, time_created, data) as a request, when it is an assistant's
+/// reply with its tokens.
+pub(crate) fn opencode_event(row: &[Value]) -> Option<Event> {
+    let fields =
+        database::text(&row[3]).and_then(|raw| Json::parse_str(raw).ok()).and_then(|v| v.as_object().cloned())?;
+    let usage = py::dict(fields.get("tokens"));
+    let usage_fields = usage.as_object()?;
+    let cached = py::dict(usage_fields.get("cache"));
+    let cached_fields = cached.as_object()?;
+    let mut event = metrics(
+        fields.get("modelID"),
+        usage_fields.get("input"),
+        usage_fields.get("output"),
+        cached_fields.get("read"),
+        cached_fields.get("write"),
+        fields.get("cost"),
+    );
+    let folder = fields.get("path").and_then(Json::as_object).cloned().unwrap_or_default();
+    event.insert("id", py::identity(vec![sql_json(&row[0])]));
+    event.insert("session", py::identity(vec![sql_json(&row[1])]));
+    let created = database::double(&row[2])?;
+    event.insert("timestamp", created / 1000.0);
+    event.insert("provider", fields.get("providerID").cloned().unwrap_or(Json::from("")));
+    event.insert(
+        "project",
+        py::project_name(Some(&py::or(folder.get("cwd"), folder.get("root").cloned().unwrap_or(Json::Null)))),
+    );
+    Some(event)
 }
 
 fn sql_json(value: &Value) -> Json {

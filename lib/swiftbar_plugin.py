@@ -3096,7 +3096,7 @@ def sessions_lines(data):
         lines.append(item(name,level=1,badge=live,paneldetail=detail,panelstatus='new' if running else 'unknown',panelkey=s.get('id'),
                           **brand_icon('claude-subscription' if s['tool']=='Claude' else 'chatgpt')))
         lines.extend(turn_lines(turns,unit,s.get('project') if s.get('title') else None,total))
-    if found is not None and not found:lines.append(item(label+'没有 Claude Code 或 Codex 会话',level=1,color=MUTED,size=11))
+    if found is not None and not found:lines.append(item(label+'没有会话',level=1,color=MUTED,size=11))
     # Which sessions are listed and what their figures count.
     elif found:
         counted='金额只算'+label if selected!='all' else '金额为会话累计'

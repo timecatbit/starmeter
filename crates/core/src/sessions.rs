@@ -22,12 +22,12 @@ use crate::{claude_app, object, pricing};
 /// A session stays listed a day after its last change.
 pub const ACTIVE: f64 = 86400.0;
 /// A running session silent this long has most likely stopped without saying so: it is idle.
-const STALLED: f64 = 600.0;
+pub(crate) const STALLED: f64 = 600.0;
 const TAIL: usize = 512 * 1024;
 /// How far back a session's state is looked for when the usual tail holds none (a long tool output can fill it).
 const FAR: usize = 16 * 1024 * 1024;
 const DETAIL: usize = 2 * 1024 * 1024;
-const TURNS: usize = 8;
+pub(crate) const TURNS: usize = 8;
 const CLAUDE_WINDOWS: [f64; 2] = [200_000.0, 1_000_000.0];
 
 /// A request's estimated cost for session detail: the model and the usage fields; None when unpriced.
@@ -47,7 +47,7 @@ fn number(value: Option<&Json>) -> Json {
 }
 
 /// The JSON objects among the lines in the last `size` bytes of a file; the first is dropped when it was cut.
-fn rows_at_end(path: &str, size: usize) -> Result<Vec<Object>, FileError> {
+pub(crate) fn rows_at_end(path: &str, size: usize) -> Result<Vec<Object>, FileError> {
     let unreadable = || FileError::of_kind("unreadable", "OSError");
     let mut file = File::open(path).map_err(|_| unreadable())?;
     let end = file.seek(SeekFrom::End(0)).map_err(|_| unreadable())?;
@@ -80,7 +80,7 @@ fn rows_back(path: &str, first: usize, enough: impl Fn(&[Object]) -> bool) -> Re
 }
 
 /// The complete JSON lines in the first `size` bytes of a file, in order.
-fn rows_at_start(path: &str, size: usize) -> Result<Vec<Object>, FileError> {
+pub(crate) fn rows_at_start(path: &str, size: usize) -> Result<Vec<Object>, FileError> {
     let file = File::open(path).map_err(|_| FileError::of_kind("unreadable", "OSError"))?;
     let mut data = Vec::new();
     file.take(size as u64).read_to_end(&mut data).map_err(|_| FileError::of_kind("unreadable", "OSError"))?;
@@ -330,11 +330,11 @@ fn stamp(value: Option<&Json>) -> Json {
         .map_or(Json::Null, |time| Json::Double(time.timestamp(&TimeZone::system())))
 }
 
-fn turn(at: Json) -> Object {
+pub(crate) fn turn(at: Json) -> Object {
     object! { "at" => at, "requests" => 0, "tokens" => 0, "cost" => 0.0, "unpriced" => 0, "tools" => Object::new() }
 }
 
-fn bump(turn: &mut Object, key: &str, amount: Json) {
+pub(crate) fn bump(turn: &mut Object, key: &str, amount: Json) {
     let current = turn.get(key).cloned().unwrap_or(Json::Int(0));
     turn.insert(key, add(&current, &amount));
 }
@@ -346,7 +346,7 @@ fn count_tool(turn: &mut Object, name: &str) {
     turn.insert("tools", tools);
 }
 
-fn last_turns(turns: Vec<Object>) -> Vec<Json> {
+pub(crate) fn last_turns(turns: Vec<Object>) -> Vec<Json> {
     let kept: Vec<Object> = turns
         .into_iter()
         .filter(|turn| !turn.get("at").is_none_or(Json::is_null) || turn.get("requests").is_some_and(Json::is_truthy))
@@ -520,7 +520,7 @@ const SEEN_KEPT: usize = 256;
 
 /// How far back each request's own time and cost are kept beside a session's total: past the last 24 hours, the one
 /// range that doesn't begin at a midnight. The others are summed from the session's days.
-const SPENDS_KEPT: f64 = 26.0 * 3600.0;
+pub(crate) const SPENDS_KEPT: f64 = 26.0 * 3600.0;
 /// How many days of a session's cost by day are kept: past the longest range but 全部 (a month, 30 days), which is
 /// the whole session's.
 const DAYS_KEPT: i64 = 40;
@@ -561,13 +561,13 @@ fn read_digest(path: &str, offset: u64) -> Option<String> {
 }
 
 /// A moment's day in a zone, as 2026-11-21.
-fn day_of(at: f64, zone: &TimeZone) -> String {
+pub(crate) fn day_of(at: f64, zone: &TimeZone) -> String {
     let wall = Wall::at(at, zone);
     format!("{:04}-{:02}-{:02}", wall.year, wall.month, wall.day)
 }
 
 /// One request more in a day's figure ([requests, cost, unpriced]).
-fn add_to_day(days: &mut Object, date: &str, priced: Option<f64>) {
+pub(crate) fn add_to_day(days: &mut Object, date: &str, priced: Option<f64>) {
     if !days.contains_key(date) {
         days.insert(date, Json::Array(vec![0.into(), 0.0.into(), 0.into()]));
     }
@@ -851,7 +851,7 @@ fn spend_parts(spend: &Json) -> (Option<f64>, Option<f64>) {
 /// What the session cost in each range ([key, start, end], both ends counted), from its files' tallies in order: the
 /// last 24 hours request by request, the others (each from a midnight in `zone`) day by day. Python sums in the same
 /// order, so both give the same figure.
-fn range_costs(parts: &[(Object, Vec<Json>)], ranges: &[(String, f64, f64)], zone: &TimeZone) -> Json {
+pub(crate) fn range_costs(parts: &[(Object, Vec<Json>)], ranges: &[(String, f64, f64)], zone: &TimeZone) -> Json {
     let mut out = Object::new();
     for (key, start, end) in ranges {
         let (mut requests, mut cost, mut unpriced) = (0i64, 0.0, 0i64);
@@ -1147,8 +1147,8 @@ impl Runtime {
         HashMap::from([("Claude", claude), ("ChatGPT", chatgpt)])
     }
 
-    /// Claude Code and Codex sessions running or waiting now; with the alert on, one that has just finished its turn
-    /// is told of.
+    /// Claude Code's, Codex's and the other tools' sessions running or waiting now; with the alert on, one that has
+    /// just finished its turn is told of.
     pub fn sessions_cached(&self, ttl: Option<f64>) -> Loaded {
         let previous = self
             .read_cache("sessions")
@@ -1198,6 +1198,20 @@ impl Runtime {
                 Some(&mut tallies),
                 Counting { ranges: &ranges, zone: &zone },
             );
+            // The other tools' sessions beside them, the running ones first, then the most recent.
+            let others = self.tool_sessions(listed_since(&ranges, now), now, &ranges, &zone);
+            let found = if others.is_empty() {
+                found
+            } else {
+                let mut all: Vec<(f64, Json)> = found
+                    .into_iter()
+                    .map(|session| (session.get("at").and_then(Json::number).unwrap_or(0.0), session))
+                    .chain(others.into_iter().map(|(at, session)| (at, Json::Object(session))))
+                    .collect();
+                let running = |session: &Json| session.get("state") == Some(&Json::from("running"));
+                all.sort_by(|(a, a_session), (b, b_session)| running(b_session).cmp(&running(a_session)).then(b.total_cmp(a)));
+                all.into_iter().map(|(_, session)| session).collect()
+            };
             // Written only when something changed: unchanged transcripts leave it as it was.
             if tallies != before {
                 self.write_json_cache(

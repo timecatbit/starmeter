@@ -396,7 +396,7 @@ impl Runtime {
                     // Two sessions can share a name: the panel tells them apart by this.
                     "panelkey" => session.get("id").cloned().unwrap_or(Json::Null),
                 },
-                &self.brand_icon(if tool == "Claude" { "claude-subscription" } else { "chatgpt" }),
+                &self.session_icon(tool, session.get("module").and_then(Json::as_str)),
             ]);
             lines.push(item(&name, 1, options));
             let project = if session.get("title").is_some_and(Json::is_truthy) {
@@ -407,11 +407,9 @@ impl Runtime {
             lines.extend(self.turn_lines(&turns, unit, project.as_deref(), total.as_deref()));
         }
         match found.as_ref() {
-            Some(found) if found.is_empty() => lines.push(item(
-                &format!("{label}没有 Claude Code 或 Codex 会话"),
-                1,
-                object! { "color" => MUTED_COLOR, "size" => 11 },
-            )),
+            Some(found) if found.is_empty() => {
+                lines.push(item(&format!("{label}没有会话"), 1, object! { "color" => MUTED_COLOR, "size" => 11 }))
+            }
             // Which sessions are listed and what their figures count.
             Some(_) => {
                 let counted = if selected == "all" {

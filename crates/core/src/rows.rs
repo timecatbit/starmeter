@@ -471,6 +471,29 @@ impl Runtime {
         }
     }
 
+    /// A session's tool by its own mark: Claude and ChatGPT as their plans show them, the others as their cards do.
+    pub fn session_icon(&self, tool: &str, module: Option<&str>) -> Options {
+        match (tool, module) {
+            ("Claude", _) => self.brand_icon("claude-subscription"),
+            ("ChatGPT", _) => self.brand_icon("chatgpt"),
+            (_, Some("deepseek-harness")) => self.brand_icon("deepseek"),
+            (_, Some(module)) => match dashboard::module_logo(module) {
+                Some((file, mono)) => match self.logo(&format!("logos/{file}")) {
+                    Some(raw) => {
+                        let mut options = Options::new();
+                        options.insert(if mono { "templateimage" } else { "image" }, raw);
+                        options.insert("width", MENU_ICON_SIZE);
+                        options.insert("height", MENU_ICON_SIZE);
+                        options
+                    }
+                    None => object! { "sfimage" => "terminal" },
+                },
+                None => object! { "sfimage" => "terminal" },
+            },
+            _ => object! { "sfimage" => "terminal" },
+        }
+    }
+
     pub fn file_href(&self, path: &str) -> String {
         let encoded: String = path
             .bytes()

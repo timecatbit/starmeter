@@ -350,7 +350,7 @@ export const rules: Rule[] = [
   [/^金额只算(.+)$/, (m, tr) => `amounts cover ${tr(m[1]).toLowerCase()}`],
   // Which sessions 会话 lists: those active in the range shown (近 30 天 under 全部).
   [/^(.+)活动过的会话$/, (m, tr) => `Sessions active ${during(tr(m[1]))}`],
-  [/^(.+)没有 Claude Code 或 Codex 会话$/, (m, tr) => `No Claude Code or Codex sessions ${during(tr(m[1]))}`],
+  [/^(.+)没有会话$/, (m, tr) => `No sessions ${during(tr(m[1]))}`],
   [/^运行中 (.+)$/, (m, tr) => `Running ${tr(m[1])}`],
   [/^空闲 (.+)$/, (m, tr) => `Idle ${tr(m[1])}`],
   [/^(\d+) 分钟$/, (m) => `${m[1]} min`],

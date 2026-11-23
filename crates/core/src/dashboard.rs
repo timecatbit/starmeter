@@ -73,7 +73,7 @@ pub fn brand_logo(brand: &str) -> Option<(&'static str, bool)> {
     })
 }
 
-fn module_logo(key: &str) -> Option<(&'static str, bool)> {
+pub(crate) fn module_logo(key: &str) -> Option<(&'static str, bool)> {
     Some(match key {
         "magpie" => ("magpie.svg", true),
         "claude" => ("claude.svg", false),

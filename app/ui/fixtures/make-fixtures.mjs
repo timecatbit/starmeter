@@ -535,7 +535,7 @@ function apiRows(state) {
 function sessionRows(state) {
   const alert = (on) => entry('这一轮完成时提醒', { symbol: 'bell', detail: '运行中的会话这一轮完成时发通知', checked: on, action: ['set-session-alerts', on ? 'false' : 'true'] });
   if (state === 'pending') return entry('会话', { symbol: 'terminal', value: '没有会话', onOpenAction: ['refresh-source', 'sessions'] }, [
-    entry('今天没有 Claude Code 或 Codex 会话'), separator(), alert(false)]);
+    entry('今天没有会话'), separator(), alert(false)]);
   const round = (label, detail) => entry(label, { detail });
   const claude = moduleIcon('claude-subscription'), chatgpt = moduleIcon('chatgpt');
   // Seven sessions active today (the range shown), the running ones first: five show, the rest behind 查看更多. Each
