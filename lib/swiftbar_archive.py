@@ -2,8 +2,8 @@
 
 Tools clean up their own records (Claude Code deletes transcripts after 30 days by default), which would
 quietly shrink 全部 and every earlier day. When a log file disappears, the counters the index held for it
-move to a durable archive in the state folder, and the readers add them back, the index winning for any
-request it still has. Only what the indexes already keep is archived: counters, model names, times and
+move to a durable archive in the state folder, and the readers add them back: one copy per request across both,
+the one whose time is the most exact, the index's on a tie. Only what the indexes already keep is archived: counters, model names, times and
 hashed IDs, never content. A file that is rewritten in place is not archived; its new content counts.
 """
 import json
@@ -34,12 +34,13 @@ def connect(path):
 
 
 def keep(path, rows):
-    """Archive (id, timestamp, event JSON) rows; the first copy of an event stays."""
+    """Archive (id, timestamp, event JSON) rows; the first copy of an event stays, unless a later one knows its time
+    more exactly (its 'timing': Antigravity's app and IDE can both keep a generation, AGY-2)."""
     rows = list(rows)
     if not path or not rows:return
     conn = connect(path)
     try:
-        with conn:conn.executemany('INSERT OR IGNORE INTO events VALUES (?,?,?)', rows)
+        with conn:conn.executemany("INSERT INTO events VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET ts=excluded.ts, data=excluded.data WHERE COALESCE(json_extract(excluded.data,'$.timing'),0) > COALESCE(json_extract(events.data,'$.timing'),0)", rows)
     finally:conn.close()
 
 
@@ -54,8 +55,21 @@ def events(path, start, end):
     finally:conn.close()
 
 
-def merged(live, path, start, end):
-    """The index's events plus the archived ones it no longer has."""
+def merged(index, live, path, start, end):
+    """The index's events (live, in the range, from index) plus the archived ones it no longer has: one copy per event
+    across both and every day, the one whose time is the most exact ('timing'), the index's on a tie, and only then the
+    range. A generation whose exact copy the index keeps for today isn't counted again on the day its archived copy
+    guessed, and the other way round (AGY-2)."""
     live = list(live)
-    seen = {event['id'] for event in live}
-    return live + [event for event in events(path, start, end) if event.get('id') not in seen]
+    if not path or not Path(path).is_file():return live
+    kept = connect(path)
+    try:archived = {id_: float(exact) for id_, exact in kept.execute("SELECT id, COALESCE(json_extract(data,'$.timing'),0) FROM events")}
+    finally:kept.close()
+    timing = lambda event: float(event.get('timing') or 0)
+    out = [event for event in live if archived.get(event.get('id')) is None or archived[event['id']] <= timing(event)]
+    for event in events(path, start, end):
+        best = None
+        if isinstance(event.get('id'), str):
+            best = index.execute("SELECT MAX(COALESCE(json_extract(data,'$.timing'),0)) FROM events WHERE id=?", (event['id'],)).fetchone()[0]
+        if best is None or best < timing(event):out.append(event)
+    return out

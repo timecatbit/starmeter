@@ -449,7 +449,8 @@ pub mod archive {
         Ok(db)
     }
 
-    /// Archives (id, timestamp, event JSON) rows; the first copy of an event stays.
+    /// Archives (id, timestamp, event JSON) rows; the first copy of an event stays, unless a later one knows its time
+    /// more exactly (its `timing`: Antigravity's app and IDE can both keep a generation, AGY-2).
     pub fn keep(path: &Path, rows: Vec<Vec<Value>>) -> Fallible<()> {
         if rows.is_empty() {
             return Ok(());
@@ -457,7 +458,10 @@ pub mod archive {
         let db = connect(path)?;
         transaction(&db, || {
             for row in &rows {
-                db.run("INSERT OR IGNORE INTO events VALUES (?,?,?)", row)?;
+                db.run(
+                    "INSERT INTO events VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET ts=excluded.ts, data=excluded.data WHERE COALESCE(json_extract(excluded.data,'$.timing'),0) > COALESCE(json_extract(events.data,'$.timing'),0)",
+                    row,
+                )?;
             }
             Ok(())
         })
@@ -477,16 +481,43 @@ pub mod archive {
             .collect()
     }
 
-    /// The index's events plus the archived ones it no longer has.
-    pub fn merged(live: Vec<Event>, path: Option<&Path>, start: f64, end: f64) -> Vec<Event> {
-        let seen: HashSet<String> =
-            live.iter().map(|event| py::dumps(event.get("id").unwrap_or(&Json::Null))).collect();
-        let mut all = live;
-        all.extend(
-            events(path, start, end)
-                .into_iter()
-                .filter(|event| !seen.contains(&py::dumps(event.get("id").unwrap_or(&Json::Null)))),
-        );
+    /// The index's events (`live`, in the range, from `index`) plus the archived ones it no longer has: one copy per
+    /// event across both and every day, the one whose time is the most exact (`timing`), the index's on a tie, and
+    /// only then the range. A generation whose exact copy the index keeps for today isn't counted again on the day
+    /// its archived copy guessed, and the other way round (AGY-2).
+    pub fn merged(index: &Database, live: Vec<Event>, path: Option<&Path>, start: f64, end: f64) -> Vec<Event> {
+        let Some(path) = path.filter(|path| path.exists()) else { return live };
+        let Ok(kept) = connect(path) else { return live };
+        let timing = |event: &Event| event.get("timing").and_then(Json::number).unwrap_or(0.0);
+        let archived: std::collections::HashMap<String, f64> = kept
+            .rows("SELECT id, COALESCE(json_extract(data,'$.timing'),0) FROM events", &[])
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|row| Some((database::text(&row[0])?.to_string(), database::double(&row[1]).unwrap_or(0.0))))
+            .collect();
+        let mut all: Vec<Event> = live
+            .into_iter()
+            .filter(|event| {
+                let id = event.get("id").and_then(Json::as_str).unwrap_or("");
+                archived.get(id).is_none_or(|&exact| exact <= timing(event))
+            })
+            .collect();
+        for event in events(Some(path), start, end) {
+            let id = event.get("id").and_then(Json::as_str).map(String::from);
+            let best = id.and_then(|id| {
+                index
+                    .first(
+                        "SELECT MAX(COALESCE(json_extract(data,'$.timing'),0)) FROM events WHERE id=?",
+                        &[Value::Text(id)],
+                    )
+                    .ok()
+                    .flatten()
+                    .and_then(|row| database::double(&row[0]))
+            });
+            if best.is_none_or(|exact| exact < timing(&event)) {
+                all.push(event);
+            }
+        }
         all
     }
 }

@@ -676,6 +676,21 @@ class HarnessReaderParityTests(unittest.TestCase):
             yesterday = self.compare('gemini', both, name + ': yesterday', start=self.start - 86400, end=self.start - 0.001)
             whole = self.compare('gemini', both, name + ': all', start=0, end=self.end)
             self.assertEqual((today['summary']['requests'], yesterday['summary']['requests'], whole['summary']['requests']), (1, 0, 1), name)
+        # AGY-2: with the archive on, one of the two stores cleaned away. Whichever goes, the request is still counted
+        # once, on the exact copy's day (the IDE's, today), the archived copy and the index's weighed as one.
+        for gone, response in (('antigravity', 'ry'), ('antigravity-ide', 'rz')):
+            # Each folder has its own archive, as the app keeps one per source and folder.
+            for engine in ('python', 'swift'):(self.root / ('kept-%s.sqlite3' % engine)).unlink(missing_ok=True)
+            both = self.root / ('gemini-cleaned-' + gone)
+            late = generation([(2, 13726), (3, 254), (9, 190), (10, 64), (11, response)], (19, 'gemini-4-carbon'), uuid='g' + response)
+            store(both / 'antigravity' / 'conversations' / 'cy.db', [late], began='2026-11-17T12:00:00Z')
+            store(both / 'antigravity-ide' / 'conversations' / 'cy.db', [late], steps=[pb((1, moment('2026-11-18T02:00:00Z')), (9, pb((11, response))))])
+            self.compare('gemini', both, gone + ': both stores', archive=True, start=0, end=self.end)
+            (both / gone / 'conversations' / 'cy.db').unlink()
+            today = self.compare('gemini', both, gone + ' cleaned: today', archive=True)
+            yesterday = self.compare('gemini', both, gone + ' cleaned: yesterday', archive=True, start=self.start - 86400, end=self.start - 0.001)
+            whole = self.compare('gemini', both, gone + ' cleaned: all', archive=True, start=0, end=self.end)
+            self.assertEqual((today['summary']['requests'], yesterday['summary']['requests'], whole['summary']['requests']), (1, 0, 1), gone)
 
     def test_gemini_and_opencode(self):
         gemini = self.root / 'gemini'

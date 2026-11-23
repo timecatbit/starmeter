@@ -451,7 +451,7 @@ def jsonl_usage(source, root, cache, start, end, zone, exclude_proxy=False, carr
             except read_errors:
                 errors += 1
         conn.commit()
-        events = kept.merged(unique_events(conn, start, end), archive, start, end)
+        events = kept.merged(conn, unique_events(conn, start, end), archive, start, end)
         if source == 'codex':events = chat_projects(events, codex_names(root))
         result = aggregate(events, start, end, zone, exclude_proxy, price or (codex_cost if source == 'codex' else model_cost), carriers)
         if errors:
@@ -1047,7 +1047,7 @@ def gemini_usage(root, cache, start, end, zone, exclude_proxy=False, carriers=No
                 db.execute('INSERT OR REPLACE INTO files VALUES (?,?,?)',(file_id,size,mtime))
         # Antigravity serves Claude and GPT models too: each request is priced by the model it names (the plugin
         # passes magpie_price, as the engine does).
-        result=aggregate(kept.merged(best_timed_events(db,start,end),archive,start,end),start,end,zone,exclude_proxy,price,carriers)
+        result=aggregate(kept.merged(db,best_timed_events(db,start,end),archive,start,end),start,end,zone,exclude_proxy,price,carriers)
         if errors:
             result['partial']=True
             if not result['summary']['requests']:result['error']='Gemini 记录格式待检查'

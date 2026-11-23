@@ -873,7 +873,7 @@ pub fn jsonl_usage(
         }
         Ok(())
     })?;
-    let mut events = archive::merged(unique_events(&db, start, end)?, archive, start, end);
+    let mut events = archive::merged(&db, unique_events(&db, start, end)?, archive, start, end);
     if source == "codex" {
         events = chat_projects(events, &codex_names(Path::new(&root)));
     }
@@ -1092,7 +1092,7 @@ pub fn gemini_usage(
             Err(_) => errors += 1,
         }
     }
-    let events = archive::merged(best_timed_events(&db, start, end)?, archive, start, end);
+    let events = archive::merged(&db, best_timed_events(&db, start, end)?, archive, start, end);
     // Antigravity serves Claude and GPT models too: each request is priced by the model it names, as Magpie's are.
     let mut result = tally::aggregate(&events, start, end, zone, exclude_proxy, Some(&magpie_price), carriers);
     if errors > 0 {
