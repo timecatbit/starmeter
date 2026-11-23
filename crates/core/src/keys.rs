@@ -115,15 +115,22 @@ pub fn add(state: &Path, provider: &str, name: &str, value: &str, options: Objec
     if !valid_key(value) {
         return Err(Error::Invalid("invalid API key"));
     }
+    // The name checked before anything is written, and the key's file taken back when the index can't be saved: a
+    // file the index doesn't list can't be seen or removed from the panel (SECRET-1).
+    let label = label(Some(name))?;
     let mut data = load(state);
     let id = crate::runtime::random_hex(8);
-    write_private(&secret_path(state, provider, &id)?, &format!("{value}\n"))?;
+    let path = secret_path(state, provider, &id)?;
+    write_private(&path, &format!("{value}\n"))?;
     let mut providers = data.get("providers").and_then(Json::as_object).cloned().unwrap_or_default();
     let mut rows = providers.get(provider).and_then(Json::as_array).cloned().unwrap_or_default();
-    rows.push(object! { "id" => id.as_str(), "label" => label(Some(name))?, "options" => options }.into());
+    rows.push(object! { "id" => id.as_str(), "label" => label, "options" => options }.into());
     providers.insert(provider, Json::Array(rows));
     data.insert("providers", providers);
-    save(state, data)?;
+    if let Err(error) = save(state, data) {
+        let _ = std::fs::remove_file(&path);
+        return Err(error);
+    }
     Ok(id)
 }
 
@@ -173,4 +180,34 @@ pub fn default_label(state: &Path, provider: &str) -> String {
         .and_then(Json::as_str)
         .unwrap_or("默认")
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn keys_in(state: &Path, provider: &str) -> usize {
+        std::fs::read_dir(root(state).join(provider))
+            .map(|entries| {
+                entries.flatten().filter(|entry| entry.path().extension().is_some_and(|ext| ext == "key")).count()
+            })
+            .unwrap_or(0)
+    }
+
+    #[test]
+    fn a_key_whose_index_cant_be_saved_leaves_no_file_behind() {
+        // SECRET-1: the index unwritable (a folder where it goes), the key's file is taken back; added again once it
+        // can be, one file and one entry. A bad name writes nothing at all.
+        let state = std::env::temp_dir().join(format!("starmeter-keys-{}", crate::runtime::random_hex(8)));
+        std::fs::create_dir_all(root(&state).join("index.json")).unwrap();
+        let value = format!("sk-{}", "a".repeat(24));
+        assert!(add(&state, "kimi-api", "工作", &value, Object::new()).is_err());
+        assert_eq!((keys_in(&state, "kimi-api"), entries(&state, "kimi-api").len()), (0, 0));
+        std::fs::remove_dir(root(&state).join("index.json")).unwrap();
+        assert!(add(&state, "kimi-api", "", &value, Object::new()).is_err());
+        assert_eq!(keys_in(&state, "kimi-api"), 0);
+        add(&state, "kimi-api", "工作", &value, Object::new()).expect("added");
+        assert_eq!((keys_in(&state, "kimi-api"), entries(&state, "kimi-api").len()), (1, 1));
+        let _ = std::fs::remove_dir_all(&state);
+    }
 }

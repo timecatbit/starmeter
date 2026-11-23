@@ -72,10 +72,17 @@ def secret(state, provider, key_id):
 
 def add(state, provider, name, value, options=None):
     if not isinstance(value, str) or not KEY_FORMAT.fullmatch(value): raise ValueError('invalid API key')
-    data = load(state); key_id = secrets.token_hex(4)
-    write_private(secret_path(state, provider, key_id), value + '\n')
-    data['providers'].setdefault(provider, []).append({'id': key_id, 'label': label(name), 'options': dict(options or {})})
-    save(state, data)
+    # The name checked before anything is written, and the key's file taken back when the index can't be saved: a file
+    # the index doesn't list can't be seen or removed from the panel (SECRET-1).
+    name = label(name)
+    data = load(state); key_id = secrets.token_hex(4); path = secret_path(state, provider, key_id)
+    write_private(path, value + '\n')
+    data['providers'].setdefault(provider, []).append({'id': key_id, 'label': name, 'options': dict(options or {})})
+    try:save(state, data)
+    except BaseException:
+        try:path.unlink()
+        except OSError:pass
+        raise
     return key_id
 
 
