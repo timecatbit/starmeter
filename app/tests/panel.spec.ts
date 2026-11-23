@@ -55,7 +55,7 @@ test('the range last picked is the one kept, however quickly the picks follow ea
 
 test('the homepage shows Summary, the trend, the heatmap, the cards and the rows', async ({ page }) => {
   await open(page);
-  await expect(page.locator('.heading')).toHaveText('Starmeter');
+  await expect(page.locator('.heading')).toContainText('Starmeter');
   await expect(page.locator('.figure-label').first()).toHaveText('已知 API 估算');
   await expect(page.locator('.legend')).toHaveCount(8);
   await expect(page.locator('.chart path')).not.toHaveCount(0);
@@ -778,6 +778,42 @@ test('a range picked shows once read through, never the old range or a source at
   const first = seen.findIndex((frame) => frame.text !== today);
   expect(seen.slice(0, first).every((frame) => frame.text === today)).toBe(true);
   expect(seen.slice(first).every((frame) => !frame.reading)).toBe(true);
+});
+
+test('a newer version shows beside Starmeter, a pill until looked at and then a dot; 提醒 can keep the homepage quiet', async ({ page }) => {
+  await open(page);
+  const mark = page.locator('.heading .update-mark');
+  // Starmeter's own update first: 新版本, and the pill opens its page.
+  await expect(mark).toHaveText('新版本');
+  await expect(mark).toHaveClass(/fresh/);
+  await mark.click();
+  await expect(page.locator('.dashboard')).toHaveCount(0);
+  await expect(page.getByText('更新到 6.0.9…')).toBeVisible();
+  await page.keyboard.press('Escape');
+  // Looked at: a dot, also after the panel is opened again; nothing moves or blinks.
+  await expect(mark).not.toHaveClass(/fresh/);
+  await expect(mark.locator('.dot')).toHaveCount(1);
+  await page.reload();
+  await expect(page.locator('.heading .update-mark')).not.toHaveClass(/fresh/);
+  // In 工具更新, each row with a newer version has its 更新 pill to click.
+  await page.locator('.row', { hasText: '工具更新' }).click();
+  await expect(page.locator('.value.pill', { hasText: '更新' })).toHaveCount(3);
+  await page.keyboard.press('Escape');
+  // 提醒 → 主页提示工具更新 off: no mark, the 工具更新 row not highlighted (the notifications are the engine's, untouched).
+  await button(page, '主页模块与设置').click();
+  await page.getByText('提醒', { exact: true }).click();
+  const hints = page.getByRole('switch', { name: /主页提示工具更新/ });
+  await expect(hints).toHaveAttribute('aria-checked', 'true');
+  await hints.click();
+  await expect(hints).toHaveAttribute('aria-checked', 'false');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.dashboard')).toBeVisible();
+  await expect(page.locator('.heading .update-mark')).toHaveCount(0);
+  await expect(page.locator('.row', { hasText: '工具更新' }).locator('.value.pill')).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator('.dashboard')).toBeVisible();
+  await expect(page.locator('.heading .update-mark')).toHaveCount(0);
 });
 
 test('what was opened stays open: 查看更多 and an opened session, across tabs, a page and a reload', async ({ page }) => {
@@ -2003,7 +2039,10 @@ test('pinned, a press on the grabber or just around it moves the window on every
   };
   // On the grabber (4 to 8pt down), above and below it, at its ends and out at the sides; below, the header's strip.
   for (const y of [1, 4, 6, 8, 10]) for (const x of [12, 165, 180, 195, 348]) await moves(x, y);
-  await moves(150, 24);
+  // The header's strip beside Starmeter, past the update mark (a button of its own, opening the updates).
+  const mark = await page.locator('.update-mark').boundingBox();
+  const strip = mark ? Math.round(mark.x - frame.x + mark.width + 8) : 150;
+  await moves(strip, 24);
   // The header's buttons start below it and keep their whole place.
   for (const control of [button(page, '取消钉住面板'), button(page, '主页模块与设置'), button(page, '分享用量图'), page.getByRole('button', { name: /统计范围/ }).first()]) {
     const box = (await control.boundingBox())!;
@@ -2015,7 +2054,7 @@ test('pinned, a press on the grabber or just around it moves the window on every
   await page.mouse.down();
   await page.mouse.up();
   expect(await drags()).toBe(count += 2);
-  await page.mouse.move(frame.x + 150, frame.y + 24);
+  await page.mouse.move(frame.x + strip, frame.y + 24);
   await page.mouse.down();
   await page.mouse.down();
   await page.mouse.up();

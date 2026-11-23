@@ -1782,14 +1782,16 @@ def app_update_lines(data):
         if row.get('available'):detail+=' → '+str(row.get('latest'))
         if row.get('channel'):detail+=' · '+row['channel']
         if row.get('reason'):detail+='\n'+row['reason']
+        # A row with an update says so at its right, a pill to click (更新).
+        pill={'badge':'更新','panelattention':True} if row.get('available') else {}
         if row.get('available') and row.get('command'):
             # The CLI's update by its channel: brew upgrade, npm install -g or its own update.
             detail+='\n点击运行 '+row['command']
-            lines.append(item(label,level=1,paneldetail=detail,panelstatus=update_indicator(row),**act('update-cli',row['id'])))
+            lines.append(item(label,level=1,paneldetail=detail,panelstatus=update_indicator(row),**pill,**act('update-cli',row['id'])))
         else:
             if row.get('available') and row.get('app'):detail+='\n点击打开 App 更新'
             elif row.get('available'):detail+='\n点击打开下载页'
-            lines.append(item(label,level=1,href=row['href'],paneldetail=detail,panelstatus=update_indicator(row)))
+            lines.append(item(label,level=1,href=row['href'],paneldetail=detail,panelstatus=update_indicator(row),**pill))
     lines.append('-----')
     if any(not r.get('manual') for r in rows):lines.append(item('立即检查更新',level=1,sfimage='arrow.clockwise',**act('check-app-updates')))
     if terminal_jobs.latest_log(STATE_DIR,[r['id'] for r in rows]):

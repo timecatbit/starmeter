@@ -12,6 +12,7 @@
   import { pageIn, pageOut } from './lib/motion';
   import { answer as answerQuestion, ask, show as showQuestion } from './lib/ask.svelte';
   import { chooseLanguage, localize, reads, restoreLanguage, source, t } from './lib/i18n.svelte';
+  import { chooseUpdateHints, markUpdatesSeen, pendingUpdates, updateHints } from './lib/updateHints.svelte';
   import { chooseStyle } from './lib/style.svelte';
   import { phoneStatus } from './lib/phone.svelte';
   import { chooseShortcut, restoreShortcut, shortcut } from './lib/shortcut.svelte';
@@ -57,6 +58,8 @@
   });
   // A page whose row has gone (a module turned off, a key removed) gives way to its list.
   $effect(() => { if (pagePath.length && snapshot && !pageEntry) { pagePath = []; pageOpen = new Set(); } });
+  // The updates looked at, from the mark or the 工具更新 row itself: the pill gives way to a dot.
+  $effect(() => { if (pending && pageEntry && (pageEntry.module === 'updates' || pageEntry.label === 'Starmeter')) untrack(() => markUpdatesSeen(pending.key)); });
   /** The share page: the picture previewed before it is copied or saved. */
   let sharing = $state(false);
   /** 在手机上看: its page, over whatever opened it. */
@@ -91,6 +94,18 @@
   /** A tool's page, opened from its card: its usage and its settings. */
   let toolId = $state<string | null>(null);
   const tool = $derived(toolId ? snapshot?.dashboard?.providers.find((p) => p.id === toolId) ?? null : null);
+  /** A newer version waiting (updateHints.svelte.ts), judged on the engine's own words, before any translation. */
+  const pending = $derived.by(() => { void version; const raw = interaction.displayed(); return raw ? pendingUpdates(raw.entries) : null; });
+  const updateMark = $derived(pending && updateHints.on && !onPhone ? { count: pending.count, own: pending.own, fresh: pending.key !== updateHints.seen } : null);
+  /** The mark beside Starmeter: Starmeter's own update when it has one, else 工具更新; looked at, the pill is a dot. */
+  function openUpdates() {
+    if (!pending || !snapshot) return;
+    markUpdatesSeen(pending.key);
+    const target = pending.own
+      ? snapshot.entries.find((e) => e.label === 'Starmeter' && e.children.length)
+      : snapshot.entries.find((e) => e.module === 'updates');
+    if (target) push(target);
+  }
   const toolSettings = $derived(toolId ? (snapshot?.moduleOptions ?? []).find((e) => e.action?.[0] === 'set-module' && e.action[1] === toolId) ?? null : null);
   const viewKey = $derived(phoneOpen ? 'phone' : sharing ? 'share' : toolId ? 'tool:' + toolId : pageEntry ? (managerOnly ? 'grid:' : 'home:') + pagePath.join('/') : managerOnly ? 'grid' : 'home');
 
@@ -437,6 +452,8 @@
     if (action[0] === 'set-language') { chooseLanguage(action[1]); return; }
     // So is the look (外观 → 风格: 标准 or 手绘).
     if (action[0] === 'set-style') { chooseStyle(action[1]); return; }
+    // And whether the homepage tells of updates (提醒 → 主页提示工具更新); the notifications are the engine's, as before.
+    if (action[0] === 'set-update-hints') { chooseUpdateHints(action[1] === 'true'); version++; return; }
     // So is the global shortcut: registered by the shell, kept only when the system let us have it.
     if (action[0] === 'set-shortcut') {
       void chooseShortcut(action[1]).then((ok) => {
@@ -773,7 +790,7 @@
 
 {#snippet dashboardView()}
   {#if shown && snapshot}
-    <Dashboard data={shown} {rangeOptions} reading={waiting} onprefetch={prefetchRanges} {reveal} {glows} {summaryGlow} live={pinned || leaving !== null ? feed : null} {leaving} onleft={() => { leaving = null; feed = null; }} {liveStamp} {pinned}
+    <Dashboard data={shown} {rangeOptions} reading={waiting} onprefetch={prefetchRanges} {updateMark} onupdates={openUpdates} {reveal} {glows} {summaryGlow} live={pinned || leaving !== null ? feed : null} {leaving} onleft={() => { leaving = null; feed = null; }} {liveStamp} {pinned}
       {pinInterval} onrange={perform} onshare={openShare}
       onpin={() => { panel.hint = null; setPinned(!pinned); if (pinned) perform(['refresh-live']); }} onsettings={openSettings}
       onopentool={openTool} ongroup={(key) => perform(['set-group', key])} {sessions} {view} onview={chooseView} busy={interaction.active}

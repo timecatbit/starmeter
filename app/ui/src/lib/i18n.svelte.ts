@@ -4,6 +4,7 @@
 // into the language as it arrives, so every page lays out and measures what it shows; t() does the panel's own words.
 // Text the English dictionary doesn't know (a session's title, a project's folder, a new message) stays as it is; the
 // English test lists any of the panel's own text left untranslated. The converter takes any Chinese.
+import { withUpdateHints } from './updateHints.svelte';
 import { shell } from './backend';
 import { phrases, rules, whole } from './en';
 import { toHant } from './hant';
@@ -182,10 +183,11 @@ function withLanguage(list: Entry[]): Entry[] {
 /** The snapshot as the panel shows it: the language row added, and every text in the language chosen (in English,
  *  what the dictionary knows). */
 export function localize(s: Snapshot): Snapshot {
-  const options = s.moduleOptions ? withStyle(withLanguage(s.moduleOptions)) : s.moduleOptions;
-  if (language.current === 'zh') return { ...s, moduleOptions: options };
+  const hinted = withUpdateHints(s.moduleOptions, s.entries);
+  const options = hinted.options ? withStyle(withLanguage(hinted.options)) : hinted.options;
+  if (language.current === 'zh') return { ...s, entries: hinted.entries, moduleOptions: options };
   return {
-    ...s, entries: s.entries.map(entry), moduleOptions: options?.map(entry), rangeOptions: s.rangeOptions?.map(entry),
+    ...s, entries: hinted.entries.map(entry), moduleOptions: options?.map(entry), rangeOptions: s.rangeOptions?.map(entry),
     dashboard: s.dashboard ? dashboard(s.dashboard) : s.dashboard,
   };
 }

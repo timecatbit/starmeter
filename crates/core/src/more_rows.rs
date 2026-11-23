@@ -659,6 +659,12 @@ impl Runtime {
                 detail += &format!("\n{}", py::str(Some(reason)));
             }
             let command = row.get("command").and_then(Json::as_str).filter(|command| !command.is_empty());
+            // A row with an update says so at its right, a pill to click (更新), as the homepage's attention rows do.
+            let pill = if available {
+                object! { "badge" => "更新", "panelattention" => true }
+            } else {
+                Object::new()
+            };
             if available && let Some(command) = command {
                 // The CLI's update by its channel: brew upgrade, npm install -g or its own update.
                 detail += &format!("\n点击运行 {command}");
@@ -667,6 +673,7 @@ impl Runtime {
                     1,
                     merged(&[
                         &object! { "paneldetail" => detail, "panelstatus" => update_indicator(row) },
+                        &pill,
                         &self.act("update-cli", &[&id]),
                     ]),
                 ));
@@ -679,10 +686,13 @@ impl Runtime {
                 lines.push(item(
                     &label,
                     1,
-                    object! {
-                        "href" => row.get("href").cloned().unwrap_or(Json::Null), "paneldetail" => detail,
-                        "panelstatus" => update_indicator(row),
-                    },
+                    merged(&[
+                        &object! {
+                            "href" => row.get("href").cloned().unwrap_or(Json::Null), "paneldetail" => detail,
+                            "panelstatus" => update_indicator(row),
+                        },
+                        &pill,
+                    ]),
                 ));
             }
         }

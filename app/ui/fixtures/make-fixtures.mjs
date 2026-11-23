@@ -606,9 +606,9 @@ function updateRows(state) {
   return entry('工具更新', { symbol: 'arrow.down.circle', attention: true, value: `${count} 项待更新`, fallbacks: [`${count} 项`], onOpenAction: ['refresh-source', 'updates'] }, [
     failed
       ? null
-      : entry('Codex · 有新版本', { statusLight: 'new', detail: '0.170.0 → 0.171.2 · Homebrew Cask · 点击运行 brew upgrade --cask codex', action: ['update-cli', 'codex-cli'] }),
-    entry('Claude · 有新版本', { statusLight: 'new', detail: '6.6395.1 → 6.7012.0 · 点击打开 App 更新', href: 'file:///Applications/Claude.app' }),
-    entry('Claude Code · 有新版本', { statusLight: 'new', detail: '2.1.327 → 2.1.330 · Claude 官方 · 点击运行 claude update', action: ['update-cli', 'claude-code'] }),
+      : entry('Codex · 有新版本', { statusLight: 'new', value: '更新', attention: true, detail: '0.170.0 → 0.171.2 · Homebrew Cask · 点击运行 brew upgrade --cask codex', action: ['update-cli', 'codex-cli'] }),
+    entry('Claude · 有新版本', { statusLight: 'new', value: '更新', attention: true, detail: '6.6395.1 → 6.7012.0 · 点击打开 App 更新', href: 'file:///Applications/Claude.app' }),
+    entry('Claude Code · 有新版本', { statusLight: 'new', value: '更新', attention: true, detail: '2.1.327 → 2.1.330 · Claude 官方 · 点击运行 claude update', action: ['update-cli', 'claude-code'] }),
     entry('ChatGPT · 已是最新', { statusLight: 'ok', detail: '26.1118.10442', href: 'file:///Applications/ChatGPT.app' }),
     failed
       ? entry('Codex · 检查失败，稍后重试', { statusLight: 'issue', detail: '0.170.0 · Homebrew Cask · formulae.brew.sh 返回 HTTP 503' })

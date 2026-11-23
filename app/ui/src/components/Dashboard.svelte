@@ -28,7 +28,7 @@
 
   let { data, rangeOptions, reveal, glows, summaryGlow, live, leaving = null, onleft, liveStamp, pinned, pinInterval, onrange,
     onshare, onpin, onsettings, ongroup, ontoggle, onopentool, onsize, onfloor, sessions = null, view = 'cards', onview, busy = null, onopen, onchoose,
-    readonly = false, reading = false, onprefetch }: {
+    readonly = false, reading = false, onprefetch, updateMark = null, onupdates }: {
     data: Dashboard; rangeOptions: Entry[]; reveal: number; glows: Record<string, number>; summaryGlow: number; live: LiveFeed | null;
     leaving?: number | null; onleft?: () => void;
     liveStamp: string | null; pinned: boolean; pinInterval: number;
@@ -40,6 +40,9 @@
     /** A range picked and not read through yet: what is on screen is the old reading, dimmed, until the new one is in. */
     reading?: boolean;
     onprefetch?: () => void;
+    /** A newer version waiting: a pill beside Starmeter until looked at, then a dot (updateHints.svelte.ts). */
+    updateMark?: { count: number; own: string | null; fresh: boolean } | null;
+    onupdates?: () => void;
     /** How tall a pinned panel that fits the homepage is: down to the end of the third card or session. */
     onsize?: (height: number) => void;
     /** The least a pinned panel shows of the homepage: down to the end of the heatmap. */
@@ -154,7 +157,12 @@
   <div class="summary" style:height="{summaryHeight}px">
     <!-- Pinned, the header's free space moves the window, as a title bar would. -->
     <div class="grip" class:movable={panel.pinned} onmousedown={grabWindow} aria-hidden="true"></div>
-    <h1 class="heading" style:width="{(readonly ? firstButton : leftmost) - 6 - 12}px"><span class="brand" aria-hidden="true">{@html mark}</span>Starmeter</h1>
+    <h1 class="heading" style:width="{(readonly ? firstButton : leftmost) - 6 - 12}px"><span class="brand" aria-hidden="true">{@html mark}</span>Starmeter{#if updateMark}<button
+        class="update-mark pressable" class:fresh={updateMark.fresh} onclick={onupdates}
+        aria-label={updateMark.own ? t('Starmeter 有新版本 {v}', { v: updateMark.own }) : t('{n} 个工具可更新', { n: updateMark.count })}
+        title={updateMark.own ? t('Starmeter 有新版本 {v}', { v: updateMark.own }) : t('{n} 个工具可更新', { n: updateMark.count })}>{#if updateMark.fresh}<svg
+          viewBox="0 0 10 10" width="9" height="9" aria-hidden="true"><path d="M5 1.5v6M2.2 5 5 7.8 7.8 5" fill="none" stroke="currentColor" stroke-width="1.5"
+          stroke-linecap="round" stroke-linejoin="round" /></svg><span>{updateMark.own ? t('新版本') : updateMark.count}</span>{:else}<span class="dot"></span>{/if}</button>{/if}</h1>
     <div class="buttons">
       <!-- The pin first, then settings and share; on a Mac the symbols are the system's own. A phone shares, and
            neither pins nor changes settings. -->
@@ -262,6 +270,32 @@
     align-items: center;
     gap: 5px;
   }
+  /* The update mark: a pill (↓ and how many, or 新版本) until looked at, then a dot; nothing moves or blinks. */
+  .update-mark {
+    --press-scale: 0.92;
+    flex: none;
+    pointer-events: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    height: 16px;
+    min-width: 16px;
+    padding: 0;
+    margin-left: 1px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--accent);
+    font: inherit;
+    font-size: 10px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+  }
+  .update-mark.fresh { padding: 0 6px 0 5px; background: color-mix(in srgb, var(--accent) 15%, transparent); }
+  .update-mark:hover { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+  .update-mark .dot { width: 6px; height: 6px; border-radius: 3px; background: var(--accent); }
   .brand {
     flex: none;
     display: flex;
