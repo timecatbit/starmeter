@@ -94,6 +94,8 @@ async function open(context, { height = PANEL_HEIGHT, query = '', style = 'stand
   // What was opened stays open (expanded.svelte.ts): each picture starts with nothing opened, or the session the
   // sessions picture opens would still be open in the live one.
   await page.addInitScript(() => localStorage.removeItem('starmeter.expanded'));
+  // The update mark beside Starmeter (updateHints.svelte.ts): on, and not looked at yet, so each picture has the pill.
+  await page.addInitScript(() => { localStorage.removeItem('starmeter.update-hints'); localStorage.removeItem('starmeter.updates-seen'); });
   await page.setViewportSize({ width: 588 + 2 * MARGIN + 40, height: height + 2 * MARGIN + 40 });
   const errors = [];
   // A resize observer that sees a size change it caused in the same frame says so; it is a notice, not a failure.
