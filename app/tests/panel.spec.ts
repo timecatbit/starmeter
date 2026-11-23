@@ -354,10 +354,36 @@ test('pinned, tools far apart in size put the live chart on a log scale, every l
   const canvas = page.locator('canvas.live');
   const read = () => canvas.evaluate((c) => ({ ...(c as HTMLElement).dataset }));
   await expect.poll(async () => (await read()).scale, { timeout: 20_000 }).toBe('log');
-  await expect.poll(async () => ((await read()).lines ?? '').split(',').sort().join(','), { timeout: 20_000 }).toBe('claude,codex,magpie');
+  await expect.poll(async () => { const lines = ((await read()).lines ?? '').split(','); return ['claude', 'codex', 'magpie'].every((id) => lines.includes(id)); }, { timeout: 20_000 }).toBe(true);
   await page.getByRole('radio', { name: 'Token/s' }).click();
-  await expect.poll(async () => Object.keys(JSON.parse((await read()).toolRates ?? '{}')).length, { timeout: 20_000 }).toBe(3);
+  await expect.poll(async () => Object.values(JSON.parse((await read()).toolRates ?? '{}') as Record<string, number>).filter((r) => r > 0).length, { timeout: 20_000 }).toBe(3);
   expect((await read()).scale).toBe('log');
+  await page.getByRole('radio', { name: 'Token', exact: true }).click();
+});
+
+test('pinned, every tool on the homepage has its line, one not used in the last minute lying along the bottom with its own dot', async ({ page }) => {
+  test.setTimeout(60_000);
+  // Only Claude adds anything; the homepage's other tools sit idle.
+  await open(page, '?live-grow=claude:20000');
+  await button(page, '钉住面板').click();
+  const canvas = page.locator('canvas.live');
+  const read = () => canvas.evaluate((c) => ({ ...(c as HTMLElement).dataset }));
+  await expect.poll(async () => Number((await read()).added ?? 0), { timeout: 20_000 }).toBeGreaterThan(0);
+  const seen = await read();
+  const lines = (seen.lines ?? '').split(',').filter(Boolean);
+  expect(lines).toContain('claude');
+  expect(lines.length).toBeGreaterThan(2);
+  // Each line's end dot stands on its own: the idle ones, all at the bottom, side by side rather than on one another.
+  const ends = Object.values(JSON.parse(seen.ends ?? '{}') as Record<string, [number, number]>);
+  expect(ends.length).toBe(lines.length);
+  for (const [i, [x1, y1]] of ends.entries()) {
+    for (const [x2, y2] of ends.slice(i + 1)) expect(Math.hypot(x1 - x2, y1 - y2)).toBeGreaterThanOrEqual(4.5);
+  }
+  // In Token/s too: a line for each, the idle ones at zero.
+  await page.getByRole('radio', { name: 'Token/s' }).click();
+  await expect.poll(async () => Object.keys(JSON.parse((await read()).toolRates ?? '{}')).length, { timeout: 20_000 }).toBe(lines.length);
+  const rates = JSON.parse((await read()).toolRates ?? '{}') as Record<string, number>;
+  expect(Object.entries(rates).filter(([, r]) => r > 0).map(([id]) => id)).toEqual(['claude']);
   await page.getByRole('radio', { name: 'Token', exact: true }).click();
 });
 

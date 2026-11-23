@@ -130,10 +130,10 @@
         times.push(now);
         for (const t of times) rates.push([t, feed.rateAt(t) ?? 0]);
       }
-      // Each tool's own rate, a line of its own under the total's: the ones that wrote anything in the window.
+      // Each tool's own rate, a line of its own under the total's: every tool on the homepage, one not writing anything
+      // lying along zero (a tool used now and then is still there to see, and to see idle).
       const toolRates = rating
         ? order.map((id) => ({ id, points: times.map((t): [number, number] => [t, feed.rateAt(t, id) ?? 0]) }))
-            .filter((tool) => tool.points.some(([, r]) => r > 0))
         : [];
       // The tools far apart (the most twenty times the least of those moving): a log scale, every line clear of the
       // bottom; back to a straight one under ten times, the gap between the two keeping it from flickering.
@@ -289,9 +289,9 @@
       // (Only drawn with a first reading: Token/s alone goes on without one, along zero.)
       const added = (id: string, sample: Sample) => (sample.parts[id] ?? 0) - (base!.parts[id] ?? 0);
       // Each tool a line of its own, as on the trend: from where the window starts, up by what that tool added since, the
-      // total's line over them all. Only the tools that added anything in the window; the biggest drawn first, so a
-      // small one isn't hidden under it.
-      const drawn = base ? order.filter((id) => points.some((s) => added(id, s) > 0)) : [];
+      // total's line over them all. Every tool on the homepage, one that added nothing lying along the bottom; the
+      // biggest drawn first, so a small one isn't hidden under it.
+      const drawn = base ? [...order] : [];
       const newestPoint = points.at(-1);
       if (newestPoint) drawn.sort((a, b) => added(b, newestPoint) - added(a, newestPoint));
       const level = (id: string | null, sample: Sample) => (id === null ? feed.value(sample) : feed.value(base!) + added(id, sample));
@@ -321,9 +321,18 @@
           else ctx.bezierCurveTo(...step.c1, ...step.c2, ...step.to);
         }
       };
-      // A tool's line ends in a small dot of its colour, so one lying along the bottom is still seen and told apart.
+      // A tool's line ends in a small dot of its colour, so one lying along the bottom is still seen and told apart: dots
+      // that would fall on one another (the idle tools, all at the bottom) step leftward, side by side.
+      const ends: Record<string, [number, number]> = {};
+      // The total's own end dot, larger, is kept clear too.
+      const totalEnd = rating ? clamped(rates.at(-1)?.[1] ?? 0) : clamped(level(null, [...samples].reverse().find((s) => s.at <= now) ?? base!));
       const toolEnd = (id: string, at: number) => {
-        ctx.fillStyle = toolColour(id, dark); ctx.beginPath(); ctx.arc(plot.x + plot.w, at, 2, 0, Math.PI * 2); ctx.fill();
+        let end = plot.x + plot.w;
+        const taken = (x: number) => (Math.abs(x - (plot.x + plot.w)) < 6 && Math.abs(at - totalEnd) < 6)
+          || Object.values(ends).some(([ex, ey]) => Math.abs(ex - x) < 4.5 && Math.abs(ey - at) < 4.5);
+        while (taken(end)) end -= 5;
+        ends[id] = [end, at];
+        ctx.fillStyle = toolColour(id, dark); ctx.beginPath(); ctx.arc(end, at, 2, 0, Math.PI * 2); ctx.fill();
       };
       const path = (id: string | null) => {
         const line = steps((s) => level(id, s));
@@ -337,17 +346,21 @@
         ctx.beginPath(); ctx.rect(plot.x + plot.w - opened, plot.y - 6, opened, plot.h + 12); ctx.clip();
         if (rates.length > 1) {
           const trace = () => { ctx.beginPath(); rates.forEach(([t, r], i) => (i ? ctx.lineTo(x(t), clamped(r)) : ctx.moveTo(x(t), clamped(r)))); };
+          const idle = (tool: (typeof toolRates)[number]) => tool.points.every(([, r]) => r <= 0);
+          const toolLine = (tool: (typeof toolRates)[number]) => {
+            ctx.beginPath(); tool.points.forEach(([t, r], i) => (i ? ctx.lineTo(x(t), clamped(r)) : ctx.moveTo(x(t), clamped(r))));
+            ctx.lineWidth = 1.4; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.strokeStyle = toolColour(tool.id, dark); ctx.stroke();
+            toolEnd(tool.id, clamped(tool.points.at(-1)![1]));
+          };
+          // The idle tools under the total's line, which stays on top along zero; the ones writing over it.
+          toolRates.filter(idle).forEach(toolLine);
           trace();
           ctx.lineTo(x(rates.at(-1)![0]), bottom); ctx.lineTo(x(rates[0][0]), bottom); ctx.closePath();
           const fill = ctx.createLinearGradient(0, plot.y, 0, bottom);
           fill.addColorStop(0, alpha(total, dark ? 0.28 : 0.18)); fill.addColorStop(1, alpha(total, 0));
           ctx.fillStyle = fill; ctx.fill();
           trace(); ctx.lineWidth = 1.8; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.strokeStyle = total; ctx.stroke();
-          for (const tool of toolRates) {
-            ctx.beginPath(); tool.points.forEach(([t, r], i) => (i ? ctx.lineTo(x(t), clamped(r)) : ctx.moveTo(x(t), clamped(r))));
-            ctx.lineWidth = 1.4; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.strokeStyle = toolColour(tool.id, dark); ctx.stroke();
-            toolEnd(tool.id, clamped(tool.points.at(-1)![1]));
-          }
+          toolRates.filter((tool) => !idle(tool)).forEach(toolLine);
         }
         ctx.restore();
       } else if (reach > 0.001) {
@@ -356,21 +369,26 @@
         ctx.globalAlpha = trend ? ramp(0.3, 0.7, p) : 1;
         const opened = plot.w * reach;
         ctx.beginPath(); ctx.rect(plot.x + plot.w - opened, plot.y - 6, opened, plot.h + 12); ctx.clip();
+        const latest = [...samples].reverse().find((s) => s.at <= now) ?? base!;
+        const toolLine = (id: string) => {
+          path(id);
+          ctx.lineWidth = 1.4; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.strokeStyle = toolColour(id, dark); ctx.stroke();
+          toolEnd(id, clamped(level(id, latest)));
+        };
+        // The tools that added nothing lie under the total's line, which stays on top along the bottom.
+        const idle = (id: string) => points.every((s) => added(id, s) <= 0);
+        drawn.filter(idle).forEach(toolLine);
         path(null);
         ctx.lineTo(plot.x + plot.w, bottom); ctx.lineTo(plot.x, bottom); ctx.closePath();
         const fill = ctx.createLinearGradient(0, plot.y, 0, bottom);
         fill.addColorStop(0, alpha(total, dark ? 0.28 : 0.18)); fill.addColorStop(1, alpha(total, 0));
         ctx.fillStyle = fill; ctx.fill();
         path(null); ctx.lineWidth = 1.8; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.strokeStyle = total; ctx.stroke();
-        // Each tool's line over the total's, so the one adding most shows in its colour where it runs along the total.
-        const latest = [...samples].reverse().find((s) => s.at <= now) ?? base!;
-        for (const id of drawn) {
-          path(id);
-          ctx.lineWidth = 1.4; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.strokeStyle = toolColour(id, dark); ctx.stroke();
-          toolEnd(id, clamped(level(id, latest)));
-        }
+        // The tools adding over the total's line, so the one adding most shows in its colour where it runs along it.
+        drawn.filter((id) => !idle(id)).forEach(toolLine);
         ctx.restore();
       }
+      canvas.dataset.ends = JSON.stringify(Object.fromEntries(Object.entries(ends).map(([id, [ex, ey]]) => [id, [Math.round(ex * 10) / 10, Math.round(ey * 10) / 10]])));
       // The end dot carries the eye between the charts: from the trend's newest point to the live line's end.
       const liveTip: [number, number] = rating
         ? [plot.x + plot.w, clamped(rateTip ? rateTip[1] : 0)]
