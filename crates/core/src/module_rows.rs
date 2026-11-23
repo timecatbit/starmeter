@@ -999,3 +999,47 @@ pub fn gemini_span(window: &Object) -> Option<f64> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::json::{Json, Object};
+    use crate::object;
+    use crate::runtime::{Runtime, now};
+
+    /// CLAUDE-QUOTA-1: a refresh that failed keeps the same login's last good figures on the homepage, beside 刷新失败,
+    /// while the reading is recent and its windows haven't reset; past ten minutes it goes stale as any reading does.
+    #[test]
+    fn a_failed_refresh_keeps_the_last_good_figures_on_the_homepage() {
+        let home = std::env::temp_dir().join(format!("starmeter-claude-row-{}", crate::runtime::random_hex(6)));
+        std::fs::create_dir_all(home.join("state")).unwrap();
+        let environment: std::collections::HashMap<String, String> = [
+            ("HOME", home.to_string_lossy().into_owned()),
+            ("OCX_STATE_DIR", home.join("state").to_string_lossy().into_owned()),
+            ("OCX_CACHE_DIR", home.join("cache").to_string_lossy().into_owned()),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value))
+        .collect();
+        let runtime = Runtime::new(environment, "starmeter");
+        let tomorrow = jiff::Timestamp::from_second((now() + 86400.0) as i64).unwrap().to_string();
+        let kept = |read_ago: f64| -> Object {
+            object! {
+                "source" => "claude-oauth", "state" => "刷新失败", "stale" => false, "updatedAt" => now() - read_ago,
+                "windows" => Json::Array(vec![object! { "label" => "本周", "used" => 39, "resetsAt" => tomorrow.as_str(), "span" => 604800 }.into()]),
+                "fetchError" => "网络暂时不可用",
+            }
+        };
+        let first = |payload: Object| -> String {
+            runtime
+                .claude_subscription_lines(&object! { "claude_subscription" => payload })
+                .into_iter()
+                .next()
+                .unwrap_or_default()
+        };
+        let line = first(kept(90.0));
+        assert!(line.contains("已用 39% · 刷新失败"), "{line}");
+        let line = first(kept(900.0));
+        assert!(!line.contains("39%") && line.contains("刷新失败"), "{line}");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+}

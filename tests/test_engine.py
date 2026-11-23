@@ -1323,6 +1323,10 @@ class ClaudeSubscriptionParityTests(unittest.TestCase):
         run('failing past three minutes says so')
         shift(retryAt=600)
         run('and a forced retry shows it at once', force=True)
+        # The service back once the wait is over: asked again, not the figures kept from before the failure.
+        shift(retryAt=600)
+        answers['usage'] = good
+        run('the retry due after a failure asks the service again')
         answers['usage'] = (429, b'', {'Retry-After': '120'})
         for state in ('python', 'swift'):(self.root / ('state-' + state) / 'claude-oauth-usage.json').unlink()
         run('rate limited')

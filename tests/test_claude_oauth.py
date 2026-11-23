@@ -81,11 +81,22 @@ class OAuthTests(unittest.TestCase):
    _,error=self.at(520);self.assertIsNone(error)
    # Past three minutes of failing, it says so, keeping the last figures marked.
    payload,error=self.at(640)
-  self.assertEqual(error[1],'offline');self.assertTrue(payload['stale']);self.assertEqual(payload['state'],'刷新失败')
+  self.assertEqual(error[1],'offline');self.assertFalse(payload['stale']);self.assertEqual(payload['state'],'刷新失败')
   self.assertEqual(payload['windows'],self.payload['windows']);self.assertEqual(oauth.read(path)['failures'],5)
   with patch.object(oauth,'credentials',return_value=self.credential),patch.object(oauth,'query_usage',return_value=self.payload):
    payload,error=self.at(1000)
   self.assertIsNone(error);self.assertEqual(payload,self.payload);self.assertNotIn('failures',oauth.read(path))
+ def test_a_failed_manual_refresh_keeps_the_last_good_figures_and_the_retry_asks_again(self):
+  # CLAUDE-QUOTA-1/2: read 90 seconds ago, a manual refresh fails; the figures stay, unmarked, beside the error.
+  with patch.object(oauth,'credentials',return_value=self.credential),patch.object(oauth,'query_usage',return_value=self.payload):oauth.fetch(self.root,True)
+  with patch.object(oauth,'credentials',return_value=self.credential),patch.object(oauth,'query_usage',side_effect=oauth.OAuthError('network','offline')):
+   payload,error=self.at(90,force=True)
+  self.assertEqual(error[1],'offline');self.assertEqual(payload['windows'],self.payload['windows']);self.assertFalse(payload['stale'])
+  # Twenty seconds on, past the 15-second wait and the network back: the service is asked, not the kept figures given.
+  fresh=dict(self.payload,updatedAt=self.now+110,windows=[{'label':'本周','used':78,'resetsAt':None}])
+  with patch.object(oauth,'credentials',return_value=self.credential),patch.object(oauth,'query_usage',return_value=fresh) as query:
+   payload,error=self.at(110)
+  self.assertEqual(query.call_count,1);self.assertIsNone(error);self.assertEqual(payload['windows'][0]['used'],78)
  def test_an_explicit_retry_shows_a_passing_failure_at_once(self):
   with patch.object(oauth,'credentials',return_value=self.credential),patch.object(oauth,'query_usage',side_effect=oauth.OAuthError('service','down')):
    _,error=self.at(0,force=True)

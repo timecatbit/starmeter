@@ -757,9 +757,12 @@ pub fn oauth_fetch(state: &str, consent: bool, force: bool, requested_at: f64) -
         }
         let payload = cached.get("payload").and_then(Json::as_object).cloned();
         let age = moment - payload.as_ref().and_then(|p| p.get("updatedAt")).and_then(Json::number).unwrap_or(0.0);
+        // A recent good reading serves, unless the last attempt failed (CLAUDE-QUOTA-2): the retry that comes due
+        // after a failure asks the service again rather than handing back the figures kept from before it.
         if let Some(payload) = payload.filter(|p| !p.is_empty())
             && 0.0 <= age
             && age < if forced { 30.0 } else { INTERVAL }
+            && !cached.get("error").is_some_and(Json::is_truthy)
         {
             return Ok(payload);
         }
@@ -802,9 +805,11 @@ pub fn oauth_fetch(state: &str, consent: bool, force: bool, requested_at: f64) -
             let quiet = passing && !force && moment - since < QUIET;
             let payload = if same_owner { cached.get("payload").and_then(Json::as_object).cloned() } else { None }
                 .filter(|kept| !kept.is_empty())
+                // Kept as they were, not marked stale (CLAUDE-QUOTA-1): the same login's last good figures, in windows
+                // that haven't reset, stay on the homepage beside 刷新失败; they go stale as any reading does, ten
+                // minutes on or once a window resets.
                 .map(|mut kept| {
                     if !quiet {
-                        kept.insert("stale", true);
                         kept.insert("state", "刷新失败");
                     }
                     kept

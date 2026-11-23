@@ -246,7 +246,8 @@ def fetch(state,consent=False,force=False,requested_at=0):
                 cached.pop('payload',None)
             payload=cached.get('payload')
             age=now-(payload or {}).get('updatedAt',0)
-            if payload and 0<=age<(30 if forced else INTERVAL):return payload,None
+            # A recent good reading serves, unless the last attempt failed: the retry due after a failure asks again.
+            if payload and 0<=age<(30 if forced else INTERVAL) and not cached.get('error'):return payload,None
             try:payload=query_usage(credential['token'])
             except OAuthError as error:
                 if error.code!='expired' or now-cached.get('lastRenewAt',0)<300:raise
@@ -268,7 +269,8 @@ def fetch(state,consent=False,force=False,requested_at=0):
             since=failing_since if run_on else now
             quiet=transient and not force and now-since<QUIET
             payload=cached.get('payload') if same_owner else None
-            if payload and not quiet:payload=dict(payload,stale=True,state='刷新失败')
+            # Kept as they were, not marked stale: the same login's last good figures stay beside 刷新失败.
+            if payload and not quiet:payload=dict(payload,state='刷新失败')
             paused=error.code in ('keychain','missing','scope','credential','profile')
             record={'schema':1,'owner':owner,'payload':payload,'checkedAt':now,
                 'lastRenewAt':cached.get('lastRenewAt',0),'error':str(error),'paused':paused,
