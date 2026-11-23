@@ -519,6 +519,7 @@ impl Runtime {
             .into_iter()
             .flatten()
             .filter_map(Json::as_object)
+            .filter(|window| crate::rows::known_share(window))
             .filter(|window| {
                 !window.get("resetsAt").is_some_and(Json::is_truthy)
                     || window.get("resetsAt").and_then(Json::number).unwrap_or(0.0) > moment

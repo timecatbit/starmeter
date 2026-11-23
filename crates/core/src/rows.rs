@@ -183,6 +183,12 @@ pub fn round(value: f64, digits: usize) -> f64 {
     format!("{value:.digits$}").parse().unwrap_or(value)
 }
 
+/// A window whose share left is a number: one missing or null is no reading, not a full window (shown as 已用 100%
+/// in red it said the plan was spent).
+pub fn known_share(window: &Object) -> bool {
+    window.get("remaining").filter(|value| value.as_bool().is_none()).and_then(Json::number).is_some()
+}
+
 /// 订阅额度框架 (AGENTS.md): once the windows are used up, what is left to spend (Credits, extra usage, on-demand)
 /// is the homepage's value, in orange: still usable, on the reserve. Red is for used up with nothing left.
 pub fn reserve_level(stale: bool) -> Json {

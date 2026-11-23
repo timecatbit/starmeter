@@ -1723,6 +1723,12 @@ def claude_subscription_load():
     return code or app,None
 
 
+def known_share(window):
+    """A window whose share left is a number: one missing or null is no reading, not a full window (shown as 已用 100%
+    in red it said the plan was spent)."""
+    return isinstance(window,dict) and isinstance(window.get('remaining'),(int,float)) and not isinstance(window['remaining'],bool)
+
+
 def reserve_level(stale=False):
     """订阅额度框架 (AGENTS.md): once the windows are used up, what is left to spend (Credits, extra usage, on-demand)
     is the homepage's value, in orange: still usable, on the reserve. Red is for used up with nothing left."""
@@ -1940,7 +1946,7 @@ def antigravity_app():
 def gemini_windows(payload,now):
     """Gemini 订阅's windows as last read: Gemini's first, then Claude's with GPT's, each five hours before the week; a
     window past its reset has filled again and is left out."""
-    windows=[w for w in payload.get('windows') or [] if isinstance(w,dict) and not (isinstance(w.get('resetsAt'),(int,float)) and w['resetsAt']<=now)]
+    windows=[w for w in payload.get('windows') or [] if known_share(w) and not (isinstance(w.get('resetsAt'),(int,float)) and w['resetsAt']<=now)]
     return sorted(windows,key=lambda w:({'gemini':0,'3p':1}.get(w.get('group'),2),w.get('window')!='5h'))
 
 
@@ -2386,7 +2392,7 @@ def alert_windows(data):
     """Every subscription window the homepage shows, as the usage alerts read it. A window whose share left is unknown
     (missing, null) is no reading, not a full one (QUOTA-ALERT-1)."""
     out=[]
-    known=lambda w:isinstance(w,dict) and isinstance(w.get('remaining'),(int,float)) and not isinstance(w['remaining'],bool)
+    known=known_share
     def add(source,name,window,used,resets_at,span,current):
         out.append({'id':source+'|'+window,'name':name,'window':window,'used':float(used),'resetsAt':resets_at,'span':span,'current':current})
     if module_enabled('claude-subscription'):
@@ -3116,7 +3122,7 @@ def chatgpt_lines(data):
         if ocx_configured():lines.append(refresh_row(data.get('quota') or {},error))
         lines.append(item('打开账户管理',level=1,href=BASE+'/',sfimage='arrow.up.right'))
         return lines
-    payload=data.get('chatgpt') or {};windows=payload.get('windows') or [];error=data.get('chatgpt_error');failed=refresh_failed(error)
+    payload=data.get('chatgpt') or {};windows=[w for w in payload.get('windows') or [] if known_share(w)];error=data.get('chatgpt_error');failed=refresh_failed(error)
     visible=[w for w in windows if not w.get('resetsAt') or w['resetsAt']>time.time()]
     most=max((100-w['remaining'] for w in visible),default=None)
     badge=used_text(most) if visible else ('未配置' if not chatgpt_configured() else payload.get('state','待同步'))
@@ -3795,7 +3801,7 @@ def portal_service_lines(key):
 def provider_account_lines(key,data):
     """MiniMax plan quota: share already used per window, like every other subscription."""
     service=catalog.BY_KEY[key];payload=data.get(key) or {};error=data.get(key+'_error');failed=refresh_failed(error)
-    windows=[w for w in payload.get('windows',[]) if not w.get('resetsAt') or w['resetsAt']>time.time()]
+    windows=[w for w in payload.get('windows',[]) if known_share(w) and (not w.get('resetsAt') or w['resetsAt']>time.time())]
     most=max((100-w['remaining'] for w in windows),default=None)
     badge=used_text(most) if windows else '待刷新' if payload.get('windows') else payload.get('state','待同步') if connection_ready(key) else '未配置'
     rows=[item(service.label,badge=with_failure(badge,bool(windows),failed),**brand_icon(key),panelusagelevel=usage_level(most,failed) if windows else None)]

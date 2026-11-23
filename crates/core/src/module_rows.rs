@@ -778,6 +778,7 @@ impl Runtime {
             .into_iter()
             .flatten()
             .filter_map(Json::as_object)
+            .filter(|window| rows::known_share(window))
             .cloned()
             .collect();
         let error = failure(data, "chatgpt");
@@ -913,6 +914,7 @@ pub fn gemini_windows(payload: &Object, now: f64) -> Vec<Object> {
         .flatten()
         .filter_map(Json::as_object)
         .filter(|window| window.get("resetsAt").and_then(Json::number).is_none_or(|at| at > now))
+        .filter(|window| rows::known_share(window))
         .cloned()
         .collect();
     let rank = |window: &Object| {

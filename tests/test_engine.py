@@ -2000,6 +2000,33 @@ class PanelParityTests(BackgroundParityTests):
         used = sorted((window['name'], window['used']) for window in got['windows'])
         self.assertEqual(used, [('ChatGPT 订阅', 100.0), ('Gemini 订阅', 100.0), ('MiniMax 订阅', 100.0)])
 
+    def test_a_window_with_an_unknown_share_left_is_left_off_the_row(self):
+        # A window whose remaining is missing or null isn't drawn as 已用 100%: the row is the windows that say.
+        codex = Path(self.common['HOME']) / '.codex'; codex.mkdir(exist_ok=True)
+        (codex / 'auth.json').write_text(json.dumps({'auth_mode': 'chatgpt', 'tokens': {'access_token': 'x'}}))
+        daemon = Path(self.common['HOME']) / '.gemini' / 'antigravity' / 'daemon'; daemon.mkdir(parents=True, exist_ok=True)
+        (daemon / 'hub_9.json').write_text(json.dumps({'pid': os.getpid(), 'httpPort': 9, 'httpsPort': 8, 'csrfToken': 'test'}))
+        self.settings(visible=['chatgpt', 'minimax', 'gemini-subscription'])
+        now = time.time()
+        self.caches(now)
+        records = {
+            'chatgpt': {'state': '已同步', 'windows': [{'name': 'codex', 'slot': 'primary', 'remaining': None, 'minutes': 300, 'resetsAt': now + 900},
+                                                     {'name': 'codex', 'slot': 'secondary', 'remaining': 70, 'minutes': 10080, 'resetsAt': now + 86400}]},
+            'minimax': {'windows': [{'name': '本周额度', 'remaining': None, 'resetsAt': int(now) + 3600}, {'name': '5 小时额度', 'remaining': 60, 'resetsAt': int(now) + 600}]},
+            'gemini_subscription': {'windows': [{'group': 'gemini', 'groupName': 'Gemini Models', 'window': '5h', 'resetsAt': now + 3600},
+                                                {'group': 'gemini', 'groupName': 'Gemini Models', 'window': 'weekly', 'remaining': 80, 'resetsAt': now + 86400}]},
+        }
+        for engine in self.states.values():
+            scope = hashlib.sha256(os.path.abspath(engine['OCX_STATE_DIR']).encode()).hexdigest()[:16]
+            root = Path(engine['OCX_CACHE_DIR']) / ('opencodex-swiftbar-v5-%s-%s' % (os.getuid(), scope))
+            for name, payload in records.items():
+                (root / (name + '.json')).write_text(json.dumps({'schema': 1, 'fetchedAt': now - 30, 'payload': payload}, ensure_ascii=False))
+        keys = {'MINIMAX_API_KEY': 'm'}
+        expected, got = self.python('snapshot', now, extra=keys), self.swift('snapshot', now, extra=keys)
+        self.assertEqual(expected['entries'], got['entries'])
+        values = {entry['label']: entry.get('value') for entry in got['entries'] if entry.get('label')}
+        self.assertEqual((values['ChatGPT 订阅'], values['MiniMax 订阅'], values['Gemini 订阅']), ('已用 30%', '已用 40%', '已用 20%'))
+
     def test_due_alerts_and_notices(self):
         now = 1795000000.0
         windows = [{'id': 'a|5h', 'used': 95.0, 'resetsAt': now + 3600, 'span': 18000, 'current': True, 'name': 'Claude 订阅', 'window': '5 小时'},
