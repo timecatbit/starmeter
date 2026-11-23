@@ -171,6 +171,59 @@ test('a homepage row held for a moment drags to another place in its group, a cl
   await expect.poll(order).toEqual([...plans, ...apis, 'komari', 'updates']);
 });
 
+test('a press let go off its row before the hold ends never lifts it, and the next click opens the row (ORDER-1)', async ({ page }) => {
+  await open(page);
+  const row = page.locator('[data-module="chatgpt"]');
+  for (let round = 0; round < 3; round++) {
+    const box = (await row.boundingBox())!;
+    // Pressed just inside its left edge, moved a little off it (less than a drag's start), let go out there.
+    await page.mouse.move(box.x + 1, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x - 3, box.y + box.height / 2);
+    await page.mouse.up();
+    await page.waitForTimeout(500);
+    await expect(page.locator('.slot.lifted')).toHaveCount(0);
+    await expect(page.locator('.rows.dragging')).toHaveCount(0);
+  }
+  // The very next click opens it.
+  await row.locator('button').click();
+  await expect(page.getByRole('heading', { name: 'ChatGPT 订阅' })).toBeVisible();
+});
+
+test('a row dragged while the homepage scrolls drops where it is let go (ORDER-2)', async ({ page }) => {
+  await page.setViewportSize({ width: 376, height: 600 });
+  await open(page);
+  const order = () => page.locator('[data-module]').evaluateAll((all) => all.map((one) => (one as HTMLElement).dataset.module));
+  const row = (key: string) => page.locator(`[data-module="${key}"]`);
+  const scroll = () => page.evaluate(() => document.querySelector('.home .viewport')!.scrollTop);
+  await row('chatgpt').scrollIntoViewIfNeeded();
+  const before = await scroll();
+  const chatgpt = (await row('chatgpt').boundingBox())!;
+  const gemini = (await row('gemini-subscription').boundingBox())!;
+  await page.mouse.move(chatgpt.x + 80, chatgpt.y + 10);
+  await page.mouse.down();
+  await page.waitForTimeout(450);
+  await expect(row('chatgpt')).toHaveClass(/lifted/);
+  // The wheel scrolls the homepage 100 px under the held row; the row stays under the pointer.
+  await page.mouse.wheel(0, 100);
+  await expect.poll(scroll).toBeGreaterThan(before + 90);
+  const scrolled = (await scroll()) - before;
+  const held = (await row('chatgpt').boundingBox())!;
+  expect(Math.abs(held.y - chatgpt.y)).toBeLessThan(2);
+  // Taken past where Gemini 订阅's middle is on screen now, and let go: it lands after Gemini 订阅.
+  const past = gemini.y - scrolled + gemini.height / 2 + (chatgpt.height / 2 - 10) + 12;
+  await page.mouse.move(chatgpt.x + 80, past, { steps: 12 });
+  await page.mouse.up();
+  await expect.poll(order).toEqual(['claude-subscription', 'cursor-subscription', 'gemini-subscription', 'chatgpt', 'qoder-subscription',
+    'chatgpt-api', 'claude-api', 'deepseek', 'kimi-api', 'komari', 'updates']);
+  // Drawn again from the saved settings (into a page and back), the order is the same.
+  await row('claude-subscription').locator('button').click();
+  await expect(page.getByRole('heading', { name: 'Claude 订阅' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.dashboard')).toBeVisible();
+  expect((await order()).slice(0, 5)).toEqual(['claude-subscription', 'cursor-subscription', 'gemini-subscription', 'chatgpt', 'qoder-subscription']);
+});
+
 test('header buttons take clicks, and pinning turns the trend live', async ({ page }) => {
   await open(page);
   // No refresh or auto-detect in the header: opening reads what is due, pinning reads every few seconds, and

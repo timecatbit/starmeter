@@ -35,43 +35,57 @@
   /** Moved this far before then, it was a scroll or a click, not a hold. */
   const SLOP = 6;
   let slots: Record<string, HTMLDivElement> = $state({});
-  let holding: { key: string; x: number; y: number; timer: ReturnType<typeof setTimeout> } | null = null;
-  /** The row being dragged: where the pointer took it, how far it has gone, and the place it would drop into. */
-  let lifted = $state<{ key: string; pointer: number; startY: number; dy: number; tops: number[]; heights: number[]; from: number; to: number } | null>(null);
-  /** The click a drag's release makes is not a click on the row. */
-  let swallow = false;
-
-  function down(event: PointerEvent, entry: Entry) {
-    if (!entry.module || onPhone || event.button !== 0 || lifted) return;
-    const key = entry.module;
-    holding = { key, x: event.clientX, y: event.clientY, timer: setTimeout(() => lift(key, event.pointerId), HOLD) };
-  }
-  function lift(key: string, pointer: number) {
-    if (!holding || holding.key !== key) return;
-    const group = groupOf(key);
-    const boxes = group.map((k) => slots[k]?.getBoundingClientRect());
-    if (boxes.some((box) => !box)) { holding = null; return; }
-    const from = group.indexOf(key);
-    lifted = { key, pointer, startY: holding.y, dy: 0, tops: boxes.map((b) => b!.top), heights: boxes.map((b) => b!.height), from, to: from };
-    holding = null;
-    try { slots[key].setPointerCapture(pointer); } catch { /* the pointer went away meanwhile */ }
-  }
-  function move(event: PointerEvent) {
-    if (holding && Math.hypot(event.clientX - holding.x, event.clientY - holding.y) > SLOP) cancelHold();
-    if (!lifted || event.pointerId !== lifted.pointer) return;
+  let holding: { key: string; pointer: number; x: number; y: number; timer: ReturnType<typeof setTimeout> } | null = null;
+  /** The row being dragged: where the pointer took it and where it is now, the homepage's scroll when it lifted, and
+   *  where its group's rows were then. */
+  let lifted = $state<{ key: string; pointer: number; startY: number; y: number; scroll: number; tops: number[]; heights: number[]; from: number } | null>(null);
+  /** How far the dragged row has gone through the homepage: the pointer's way plus the scrolling since it lifted, so a
+   *  scroll mid-drag keeps the row under the pointer and the place it drops into true (ORDER-2). */
+  const travel = $derived(lifted ? lifted.y - lifted.startY + scrollTop - lifted.scroll : 0);
+  /** The place it would drop into: past a neighbour's middle, it takes its place. */
+  const target = $derived.by(() => {
+    if (!lifted) return 0;
     const { tops, heights, from } = lifted;
-    const dy = event.clientY - lifted.startY;
-    // Past a neighbour's middle, the dragged row takes its place.
-    const centre = tops[from] + heights[from] / 2 + dy;
+    const centre = tops[from] + heights[from] / 2 + travel;
     let to = from;
     while (to < tops.length - 1 && centre > tops[to + 1] + heights[to + 1] / 2) to++;
     while (to > 0 && centre < tops[to - 1] + heights[to - 1] / 2) to--;
-    lifted = { ...lifted, dy, to };
+    return to;
+  });
+  /** The click a drag's release makes is not a click on the row. */
+  let swallow = false;
+
+  // A press starts on the row; where it goes and where it ends are followed on the whole window, so a press let go off
+  // the row (or moved off it) before the hold ends is over and never lifts later (ORDER-1).
+  function down(event: PointerEvent, entry: Entry) {
+    if (!entry.module || onPhone || event.button !== 0 || lifted) return;
+    cancelHold();
+    const key = entry.module, pointer = event.pointerId;
+    holding = { key, pointer, x: event.clientX, y: event.clientY, timer: setTimeout(() => lift(key, pointer), HOLD) };
+  }
+  function lift(key: string, pointer: number) {
+    if (!holding || holding.key !== key) return;
+    const { y } = holding;
+    holding = null;
+    const group = groupOf(key);
+    const boxes = group.map((k) => slots[k]?.getBoundingClientRect());
+    const slot = slots[key];
+    if (!slot || boxes.some((box) => !box)) return;
+    try { slot.setPointerCapture(pointer); } catch { /* the pointer went away meanwhile */ }
+    // Let go where no release reaches the page (outside the panel): the button is up, nothing to drag.
+    if (!slot.hasPointerCapture(pointer)) return;
+    const from = group.indexOf(key);
+    lifted = { key, pointer, startY: y, y, scroll: scrollTop, tops: boxes.map((b) => b!.top), heights: boxes.map((b) => b!.height), from };
+  }
+  function move(event: PointerEvent) {
+    if (holding && event.pointerId === holding.pointer && Math.hypot(event.clientX - holding.x, event.clientY - holding.y) > SLOP) cancelHold();
+    if (lifted && event.pointerId === lifted.pointer) lifted.y = event.clientY;
   }
   function up(event: PointerEvent) {
-    cancelHold();
+    if (holding && event.pointerId === holding.pointer) cancelHold();
     if (!lifted || event.pointerId !== lifted.pointer) return;
-    const { key, from, to } = lifted;
+    const { key, from } = lifted;
+    const to = target;
     const group = groupOf(key);
     lifted = null;
     swallow = true;
@@ -93,11 +107,12 @@
    *  passed by its height, the other way. */
   function offset(key: string): number {
     if (!lifted) return 0;
-    if (key === lifted.key) return lifted.dy;
+    if (key === lifted.key) return travel;
     const group = groupOf(lifted.key);
     const index = group.indexOf(key);
     if (index < 0) return 0;
-    const { from, to, heights } = lifted;
+    const { from, heights } = lifted;
+    const to = target;
     if (from < to && index > from && index <= to) return -heights[from];
     if (to < from && index >= to && index < from) return heights[from];
     return 0;
@@ -117,7 +132,8 @@
   }
 </script>
 
-<svelte:window onkeydown={(event) => { if (lifted && event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); cancelDrag(); } }} onblur={cancelDrag} />
+<svelte:window onkeydown={(event) => { if (lifted && event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); cancelDrag(); } }} onblur={cancelDrag}
+  onpointermove={move} onpointerup={up} onpointercancel={cancelDrag} />
 
 <div class="home">
   <Scroller bind:scrollTop onheight={(h) => onheight(h + 16)}>
@@ -134,7 +150,7 @@
         {:else if entry.module}
           {@const key = entry.module}
           <div class="slot" class:lifted={lifted?.key === key} data-module={key} bind:this={slots[key]} style:transform="translateY({offset(key)}px)"
-            role="presentation" onpointerdown={(event) => down(event, entry)} onpointermove={move} onpointerup={up} onpointercancel={cancelDrag}
+            role="presentation" onpointerdown={(event) => down(event, entry)}
             onclickcapture={(event) => { if (swallow) { event.stopPropagation(); event.preventDefault(); } }} onkeydown={(event) => keydown(event, entry)}>
             <HomeRow {entry} {column} rowWidth={panel.width - 16} {onactivate} />
           </div>
