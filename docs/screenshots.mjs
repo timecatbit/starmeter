@@ -91,6 +91,9 @@ async function open(context, { height = PANEL_HEIGHT, query = '', style = 'stand
   await page.addInitScript((language) => localStorage.setItem('starmeter.language', language), context.lang);
   // 外观 → 风格, set on every page: the storage outlives a page within the context.
   await page.addInitScript((look) => localStorage.setItem('starmeter.style', look), style);
+  // What was opened stays open (expanded.svelte.ts): each picture starts with nothing opened, or the session the
+  // sessions picture opens would still be open in the live one.
+  await page.addInitScript(() => localStorage.removeItem('starmeter.expanded'));
   await page.setViewportSize({ width: 588 + 2 * MARGIN + 40, height: height + 2 * MARGIN + 40 });
   const errors = [];
   // A resize observer that sees a size change it caused in the same frame says so; it is a notice, not a failure.
