@@ -16,6 +16,8 @@ NOT_RUNNING = 'Antigravity 没有运行'
 
 
 def alive(pid):
+    # 0 (to kill(), this process's own group) and ids past a positive pid_t, as a damaged note can hold, are none.
+    if not isinstance(pid, int) or isinstance(pid, bool) or not 0 < pid <= 2**31 - 1:return False
     try:os.kill(pid, 0)
     except ProcessLookupError:return False
     except PermissionError:return True

@@ -296,7 +296,7 @@ def refresh_cadence():
         # A phone looking at the homepage (在手机上看) keeps the open panel's pace while it reads.
         until=state.get('phoneUntil')
         watched=state.get('visible') is True or (isinstance(until,(int,float)) and not isinstance(until,bool) and until>time.time())
-        visible=watched and isinstance(state.get('pid'),int) and state['pid']>0
+        visible=watched and isinstance(state.get('pid'),int) and not isinstance(state['pid'],bool) and 0<state['pid']<=2**31-1
         if visible:os.kill(state['pid'],0)
     except OSError:visible=False
     if visible:return True,False

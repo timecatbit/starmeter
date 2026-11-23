@@ -65,8 +65,12 @@ pub fn user_id() -> String {
     }
 }
 
-/// Whether a process with this id is running.
+/// Whether a process with this id is running. 0 (to kill(), this process's own group) and ids past a positive pid_t,
+/// as a damaged saved id can be, are none (PROC-1).
 pub fn alive(pid: u32) -> bool {
+    if pid == 0 || pid > i32::MAX as u32 {
+        return false;
+    }
     #[cfg(unix)]
     {
         // SAFETY: signal 0 only checks that the process exists and may be signalled.
@@ -96,4 +100,18 @@ pub fn alive(pid: u32) -> bool {
 pub fn modified(path: &Path) -> Option<f64> {
     let time = fs::symlink_metadata(path).ok()?.modified().ok()?;
     Some(time.duration_since(UNIX_EPOCH).ok()?.as_secs_f64())
+}
+
+#[cfg(test)]
+mod alive_tests {
+    use super::alive;
+
+    #[test]
+    fn a_damaged_saved_process_id_is_no_process() {
+        // PROC-1: kill(0, 0) answers for this process's own group, and u32::MAX narrows to -1 (every process).
+        assert!(alive(std::process::id()));
+        assert!(!alive(0));
+        assert!(!alive(u32::MAX));
+        assert!(!alive(i32::MAX as u32 + 1));
+    }
 }

@@ -433,8 +433,8 @@ impl Runtime {
             || state.get("phoneUntil").and_then(Json::python_float).is_some_and(|until| until > now());
         if watched
             && let Some(pid) = state.get("pid").filter(|pid| pid.as_bool().is_none()).and_then(Json::integer)
-            && pid > 0
-            && crate::platform::alive(pid as u32)
+            && let Ok(pid) = u32::try_from(pid)
+            && crate::platform::alive(pid)
         {
             return (true, false);
         }

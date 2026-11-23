@@ -91,7 +91,12 @@ impl PanelAskHost {
             .and_then(|data| Json::parse(&data).ok())
             .and_then(|value| value.as_object().cloned())
             .unwrap_or_default();
-        let pid = state.get("pid").and_then(Json::number).map(|pid| pid as u32);
+        // A saved id that isn't a whole positive number fitting a process id is none, not narrowed into one.
+        let pid = state
+            .get("pid")
+            .filter(|pid| pid.as_bool().is_none())
+            .and_then(Json::integer)
+            .and_then(|pid| u32::try_from(pid).ok());
         state.get("visible") == Some(&Json::Bool(true))
             && state.get("asks") == Some(&Json::Bool(true))
             && pid.is_some_and(platform::alive)
