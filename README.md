@@ -64,12 +64,12 @@ Starmeter 是 macOS 菜单栏（独立 App 或 SwiftBar 插件）和 Windows、L
 
 ### Mac：独立版还是 SwiftBar 插件？
 
-两版用同一个面板和同一个编译好的用量引擎，支持 macOS 13 及以上，统计口径完全相同。
+两版用同一个面板和同一个编译好的用量引擎，支持 macOS 13 及以上，统计口径完全相同，都能在面板里更新。
 
 | | 独立版 DMG | SwiftBar 插件版 |
 | --- | --- | --- |
-| 优点 | 拖进「应用程序」即可安装；不用装 SwiftBar；可在星星右键设置登录启动 | 适合已经用 SwiftBar 管理多个插件的人；包更小；可在面板内更新插件 |
-| 取舍 | 预览未公证，首次可能要手动放行；新版需下载 DMG 替换应用 | 需先装 SwiftBar；安装时要在终端用 `python3` 运行一次脚本，运行时不需要 Python |
+| 优点 | 拖进「应用程序」即可安装；不用装 SwiftBar；可在星星右键设置登录启动 | 适合已经用 SwiftBar 管理多个插件的人；包更小 |
+| 取舍 | 预览未公证，首次可能要手动放行 | 需先装 SwiftBar；安装时要在终端用 `python3` 运行一次脚本，运行时不需要 Python |
 | 适合 | 想用不依赖 SwiftBar 的独立应用 | 已经在用 SwiftBar，并希望保留现有插件管理方式 |
 
 **独立版**：打开 DMG，把 **Starmeter** 拖到 **应用程序**，推出镜像，再从应用程序打开。**预览未做 Apple 公证**。若首次打开被拦，确认下载自项目发布页后，到「系统设置 → 隐私与安全性 → 仍要打开」。受公司管理的 Mac 可能无法放行。两版共用本机设置和 Key；从插件切换到独立版时，先在 SwiftBar 停用本插件，避免两个星星和重复提醒。
@@ -107,7 +107,7 @@ python3 install.py
 ## 更新
 
 - **SwiftBar 插件**：有新版本时，主页“工具更新”下方会出现一行 **Starmeter**，右侧写着“可更新 X.Y.Z”。点“更新到 X.Y.Z”，确认后插件自动下载、校验并安装，设置、Key 和统计记录都会保留。没有新版本时这一行不显示。
-- **Mac 独立版**：有适用当前芯片的新版本时，面板会链接到发布页。退出旧版，下载同芯片的新 DMG，再替换「应用程序」里的 App；用 Homebrew 安装的运行 `brew upgrade --cask starmeter`。
+- **独立版**：同样在“工具更新”下方出现 **Starmeter** 一行。Mac 的 App、Windows 安装版和 Linux AppImage 点“更新到 X.Y.Z…”并确认，App 会下载本机对应的安装包、按 GitHub 公布的 SHA-256 校验，退出后替换并重新打开，设置、Key 和统计记录都会保留。`.deb` 和 Windows 免安装版在这一行里点“打开 GitHub 发布页”，下载新版替换；用 Homebrew 安装的也可以运行 `brew upgrade --cask starmeter`。
 - **命令行**：用 Homebrew 安装的运行 `brew upgrade starmeter-cli`；`.deb` 和 Windows 版里的命令随应用一起更新。
 - **价格表**：每天自动更新，新模型的价格不用等新版本。
 

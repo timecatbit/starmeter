@@ -64,12 +64,12 @@ Not sure which Mac you have? Apple menu → **About This Mac**: "Chip: Apple M�
 
 ### Mac: standalone app or SwiftBar plugin?
 
-Both run the same panel and the same compiled usage engine on macOS 13 or later, and count exactly the same way.
+Both run the same panel and the same compiled usage engine on macOS 13 or later, count exactly the same way and update from the panel.
 
 | | Standalone DMG | SwiftBar plugin |
 | --- | --- | --- |
-| Pros | Drag into Applications; no SwiftBar needed; start at login from the star's right-click menu | For people who already manage plugins with SwiftBar; smaller; updates itself from the panel |
-| Trade-offs | The preview isn't notarized, so the first launch may need allowing by hand; new versions replace the app from a new DMG | Needs SwiftBar; installing runs one `python3` script in Terminal, though the plugin itself needs no Python |
+| Pros | Drag into Applications; no SwiftBar needed; start at login from the star's right-click menu | For people who already manage plugins with SwiftBar; smaller |
+| Trade-offs | The preview isn't notarized, so the first launch may need allowing by hand | Needs SwiftBar; installing runs one `python3` script in Terminal, though the plugin itself needs no Python |
 | For | A standalone app without SwiftBar | SwiftBar users who want to keep managing plugins there |
 
 **Standalone app**: open the disk image, drag **Starmeter** to **Applications**, eject, and open it from Applications. The preview is **not notarized**: if macOS blocks it, make sure it came from this project's release page, then use System Settings → Privacy & Security → Open Anyway. Managed Macs may not allow this. Both versions share the same settings and keys; when switching from the plugin, disable it in SwiftBar first so you don't get two stars and duplicate alerts.
@@ -107,7 +107,7 @@ The star appears in the tray of the top bar or taskbar. A click on a Linux tray 
 ## Updates
 
 - **SwiftBar plugin**: when a new version is out, a **Starmeter** row saying "X.Y.Z available" appears under **Tool updates**. Choose **Update to X.Y.Z…** and confirm, and the plugin downloads, verifies and installs it, keeping settings, keys and statistics. The row isn't there when there's nothing new.
-- **Standalone app**: when there's a new version for your chip, the panel links to the release page; quit the app and replace it with the new disk image for the same chip. With Homebrew, run `brew upgrade --cask starmeter`.
+- **Standalone app**: the same **Starmeter** row appears under **Tool updates**. For the Mac app, the installed Windows version and the Linux AppImage, choose **Update to X.Y.Z…** and confirm: the app downloads the package for this computer, checks it against the SHA-256 GitHub publishes, then quits, replaces itself and reopens, keeping settings, keys and statistics. For the `.deb` and the portable Windows version, choose **Open the release on GitHub** under it and download the new one; with Homebrew you can also run `brew upgrade --cask starmeter`.
 - **Command line**: with Homebrew, run `brew upgrade starmeter-cli`; the command in the `.deb` and the Windows versions updates with the app.
 - **Price tables** update daily on their own, so new models don't wait for a release.
 
