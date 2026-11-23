@@ -392,3 +392,16 @@ fn in_traditional_chinese_the_text_reads_as_the_panel_converts_it() {
     assert_eq!(super::parse(&["--lang".into(), "zh-TW".into()]).unwrap().language.as_deref(), Some("zh-Hant"));
     assert!(super::parse(&["--lang".into(), "fr".into()]).is_err());
 }
+
+#[test]
+fn the_json_says_which_language_its_words_are_in() {
+    let (dashboard, entries) = fixture("today");
+    for (words, language) in [
+        (Words { english: false, traditional: false }, "zh"),
+        (Words { english: false, traditional: true }, "zh-Hant"),
+        (Words { english: true, traditional: false }, "en"),
+    ] {
+        let report = build(&dashboard, &entries, "Asia/Shanghai", words);
+        assert_eq!(report.json(&[]).get("language").and_then(Json::as_str), Some(language));
+    }
+}

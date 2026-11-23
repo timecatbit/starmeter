@@ -490,7 +490,7 @@ impl Report {
     pub fn json(&self, sections: &[&str]) -> Json {
         let mut out = object! {
             "schema" => 1, "version" => starmeter_core::VERSION,
-            "language" => if self.words.english { "en" } else { "zh" },
+            "language" => if self.words.english { "en" } else if self.words.traditional { "zh-Hant" } else { "zh" },
             "range" => object! {
                 "key" => self.range.as_str(), "label" => self.range_label.as_str(), "period" => self.period.clone(),
                 "timeZone" => self.zone.as_str(),
