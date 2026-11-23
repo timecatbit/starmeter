@@ -796,9 +796,10 @@ def request(path, method="GET", body=None, timeout=4.0, auth=True):
             headers["x-opencodex-api-key"] = token
     req = urllib.request.Request(BASE + path, data=payload, headers=headers, method=method)
     try:
-        opener = (urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        # Redirects are never followed: one to another host would carry the admin token with it.
+        opener = (urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect)
                   if urllib.parse.urlparse(BASE).hostname in ("127.0.0.1", "localhost", "::1")
-                  else urllib.request.build_opener())
+                  else urllib.request.build_opener(_NoRedirect))
         with opener.open(req, timeout=timeout) as response:
             raw = response.read()
             parsed = json.loads(raw.decode("utf-8")) if raw else {}
@@ -844,11 +845,15 @@ def deepseek_balance_direct():
             "https://api.deepseek.com/user/balance",
             headers={"Accept": "application/json", "Authorization": "Bearer " + api_key},
         )
-        with urllib.request.urlopen(req, timeout=4.0) as response:
+        with urllib.request.build_opener(_NoRedirect).open(req, timeout=4.0) as response:
             body = json.loads(response.read().decode("utf-8"))
     except Exception:
         return None
+    return deepseek_balance_report(body)
 
+
+def deepseek_balance_report(body):
+    """DeepSeek's /user/balance answer as a provider report: the balance in its currency, negative when it owes."""
     infos = body.get("balance_infos") if isinstance(body, dict) else None
     if not isinstance(infos, list):
         return None
@@ -857,8 +862,9 @@ def deepseek_balance_direct():
         values = {}
         for key in ("total_balance", "granted_balance", "topped_up_balance"):
             try:
+                # A negative total is kept: an account in debt says so (OpenCodex drops it, which is why this asks).
                 value = float(row.get(key))
-                if value >= 0:
+                if math.isfinite(value):
                     values[key] = value
             except (TypeError, ValueError):
                 pass

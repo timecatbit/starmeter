@@ -98,7 +98,17 @@ impl Runtime {
                 headers.push(("x-opencodex-api-key", token));
             }
         }
-        let request = Request { method, headers, body: body.map(ascii), timeout, direct: local, ..Request::default() };
+        // Never followed: a redirect to another host would carry the admin token with it (reqwest drops only the
+        // standard credential headers on the way, not x-opencodex-api-key).
+        let request = Request {
+            method,
+            headers,
+            body: body.map(ascii),
+            timeout,
+            direct: local,
+            follow_redirects: false,
+            ..Request::default()
+        };
         let response = match http::send(&format!("{}{path}", self.base), request) {
             Ok(response) => response,
             Err(Unreachable(message)) => return (None, Some(RequestError { code: 0, message, body: None })),
@@ -446,59 +456,14 @@ impl Runtime {
         let request = Request {
             headers: vec![("Accept", "application/json".into()), ("Authorization", format!("Bearer {secret}"))],
             timeout: 4.0,
+            follow_redirects: false,
             ..Request::default()
         };
         let response = http::send("https://api.deepseek.com/user/balance", request).ok()?;
         if !(200..300).contains(&response.status) {
             return None;
         }
-        let body = Json::parse(&response.body).ok()?;
-        let rows: Vec<Object> =
-            body.get("balance_infos")?.as_array()?.iter().filter_map(|row| row.as_object().cloned()).collect();
-        let balance = |row: &Object| -> Option<f64> {
-            let mut values: IndexMap<&str, f64> = IndexMap::new();
-            for key in ["total_balance", "granted_balance", "topped_up_balance"] {
-                if let Some(value) = row.get(key).and_then(Json::python_float).filter(|value| *value >= 0.0) {
-                    values.insert(key, value);
-                }
-            }
-            // total_balance first; when only the split fields are filled, the largest one actually available.
-            if values.get("total_balance").copied().unwrap_or(0.0) > 0.0 {
-                return values.get("total_balance").copied();
-            }
-            if let Some(largest) = values.values().copied().filter(|value| *value > 0.0).reduce(f64::max) {
-                return Some(largest);
-            }
-            values.get("total_balance").copied()
-        };
-        let funded: Vec<usize> = (0..rows.len()).filter(|&index| balance(&rows[index]).unwrap_or(0.0) > 0.0).collect();
-        let currency_of =
-            |index: usize| py::str(Some(rows[index].get("currency").unwrap_or(&Json::Null))).to_uppercase();
-        let usd = (0..rows.len()).find(|&index| currency_of(index) == "USD");
-        let cny = (0..rows.len()).find(|&index| currency_of(index) == "CNY");
-        // USD with money in it first; a CNY account skips an empty USD row.
-        let preferred = usd
-            .filter(|index| funded.contains(index))
-            .or_else(|| funded.first().copied())
-            .or(usd)
-            .or(cny)
-            .or(if rows.is_empty() { None } else { Some(0) })?;
-        let amount = balance(&rows[preferred])?;
-        let currency = py::str(Some(&py::or(rows[preferred].get("currency"), Json::from("")))).to_uppercase();
-        let symbol = match currency.as_str() {
-            "CNY" => "¥".to_string(),
-            "USD" => "$".to_string(),
-            "EUR" => "€".to_string(),
-            "GBP" => "£".to_string(),
-            _ => format!("{currency} "),
-        };
-        let now = (crate::runtime::now() * 1000.0) as i64;
-        let window = object! { "label" => format!("API balance ({symbol}{amount:.2})"), "percent" => 0 };
-        let report = object! {
-            "provider" => "deepseek", "label" => "DeepSeek", "source" => "swiftbar:direct-balance",
-            "quota" => object! { "customWindows" => Json::Array(vec![window.into()]), "updatedAt" => now },
-        };
-        Some(object! { "generatedAt" => now, "reports" => Json::Array(vec![report.into()]) })
+        balance_report(&Json::parse(&response.body).ok()?)
     }
 
     pub fn provider_quotas(&self) -> Loaded {
@@ -580,6 +545,57 @@ pub fn monitor_url(value: &str) -> String {
     if plain { text } else { String::new() }
 }
 
+/// DeepSeek's /user/balance answer as a provider report: the account's balance in its currency, negative when it owes.
+fn balance_report(body: &Json) -> Option<Object> {
+    let rows: Vec<Object> =
+        body.get("balance_infos")?.as_array()?.iter().filter_map(|row| row.as_object().cloned()).collect();
+    let balance = |row: &Object| -> Option<f64> {
+        let mut values: IndexMap<&str, f64> = IndexMap::new();
+        for key in ["total_balance", "granted_balance", "topped_up_balance"] {
+            // A negative total is kept: an account in debt says so (OpenCodex drops it, which is why this asks).
+            if let Some(value) = row.get(key).and_then(Json::python_float).filter(|value| value.is_finite()) {
+                values.insert(key, value);
+            }
+        }
+        // total_balance first; when only the split fields are filled, the largest one actually available; else the
+        // total as it is, owed money included.
+        if values.get("total_balance").copied().unwrap_or(0.0) > 0.0 {
+            return values.get("total_balance").copied();
+        }
+        if let Some(largest) = values.values().copied().filter(|value| *value > 0.0).reduce(f64::max) {
+            return Some(largest);
+        }
+        values.get("total_balance").copied()
+    };
+    let funded: Vec<usize> = (0..rows.len()).filter(|&index| balance(&rows[index]).unwrap_or(0.0) > 0.0).collect();
+    let currency_of = |index: usize| py::str(Some(rows[index].get("currency").unwrap_or(&Json::Null))).to_uppercase();
+    let usd = (0..rows.len()).find(|&index| currency_of(index) == "USD");
+    let cny = (0..rows.len()).find(|&index| currency_of(index) == "CNY");
+    // USD with money in it first; a CNY account skips an empty USD row.
+    let preferred = usd
+        .filter(|index| funded.contains(index))
+        .or_else(|| funded.first().copied())
+        .or(usd)
+        .or(cny)
+        .or(if rows.is_empty() { None } else { Some(0) })?;
+    let amount = balance(&rows[preferred])?;
+    let currency = py::str(Some(&py::or(rows[preferred].get("currency"), Json::from("")))).to_uppercase();
+    let symbol = match currency.as_str() {
+        "CNY" => "¥".to_string(),
+        "USD" => "$".to_string(),
+        "EUR" => "€".to_string(),
+        "GBP" => "£".to_string(),
+        _ => format!("{currency} "),
+    };
+    let now = (crate::runtime::now() * 1000.0) as i64;
+    let window = object! { "label" => format!("API balance ({symbol}{amount:.2})"), "percent" => 0 };
+    let report = object! {
+        "provider" => "deepseek", "label" => "DeepSeek", "source" => "swiftbar:direct-balance",
+        "quota" => object! { "customWindows" => Json::Array(vec![window.into()]), "updatedAt" => now },
+    };
+    Some(object! { "generatedAt" => now, "reports" => Json::Array(vec![report.into()]) })
+}
+
 /// The first currency sign and amount in a report's labels, as the Python regex finds them.
 pub fn report_balance(report: Option<&Object>) -> Option<(String, f64)> {
     let quota = py::dict(report.and_then(|report| report.get("quota")));
@@ -623,4 +639,73 @@ pub fn report_balance(report: Option<&Object>) -> Option<(String, f64)> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    #[test]
+    fn an_account_in_debt_shows_its_negative_balance() {
+        let body = Json::parse(br#"{"balance_infos":[{"currency":"CNY","total_balance":"-3.20","granted_balance":"0.00","topped_up_balance":"-3.20"}]}"#).unwrap();
+        let report = balance_report(&body).expect("a report");
+        let first = report
+            .get("reports")
+            .and_then(Json::as_array)
+            .and_then(|rows| rows.first())
+            .and_then(Json::as_object)
+            .cloned();
+        assert_eq!(report_balance(first.as_ref()), Some(("¥".to_string(), -3.2)));
+        // Money in the account reads as before.
+        let body = Json::parse(br#"{"balance_infos":[{"currency":"USD","total_balance":"12.50"}]}"#).unwrap();
+        let report = balance_report(&body).expect("a report");
+        let first = report
+            .get("reports")
+            .and_then(Json::as_array)
+            .and_then(|rows| rows.first())
+            .and_then(Json::as_object)
+            .cloned();
+        assert_eq!(report_balance(first.as_ref()), Some(("$".to_string(), 12.5)));
+    }
+
+    #[test]
+    fn a_redirect_from_opencodex_is_not_followed_with_the_admin_token() {
+        // Where the redirect points: it must never be asked.
+        let elsewhere = TcpListener::bind("127.0.0.1:0").unwrap();
+        elsewhere.set_nonblocking(true).unwrap();
+        let target = format!("http://127.0.0.1:{}/steal", elsewhere.local_addr().unwrap().port());
+        let server = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://127.0.0.1:{}", server.local_addr().unwrap().port());
+        let answer = std::thread::spawn(move || {
+            let (mut stream, _) = server.accept().unwrap();
+            let mut request = [0u8; 4096];
+            let read = stream.read(&mut request).unwrap();
+            let text = String::from_utf8_lossy(&request[..read]).to_lowercase();
+            let reply =
+                format!("HTTP/1.1 302 Found\r\nLocation: {target}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+            stream.write_all(reply.as_bytes()).unwrap();
+            text.contains("x-opencodex-api-key: secret-token")
+        });
+        let home = std::env::temp_dir().join(format!("starmeter-ocx-redirect-{}", crate::runtime::random_hex(6)));
+        std::fs::create_dir_all(&home).unwrap();
+        let environment: std::collections::HashMap<String, String> = [
+            ("HOME", home.to_string_lossy().into_owned()),
+            ("OCX_STATE_DIR", home.join("state").to_string_lossy().into_owned()),
+            ("OCX_BASE_URL", base),
+            ("OCX_ADMIN_TOKEN", "secret-token".to_string()),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value))
+        .collect();
+        let runtime = Runtime::new(environment, "starmeter");
+        let (data, error) = runtime.opencodex_request("/api/provider-quotas", "GET", None, 4.0, true);
+        assert!(answer.join().unwrap(), "the token went to OpenCodex itself");
+        assert!(data.is_none());
+        assert_eq!(error.map(|error| error.code), Some(302));
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        assert!(elsewhere.accept().is_err(), "the redirect was followed");
+        let _ = std::fs::remove_dir_all(&home);
+    }
 }
