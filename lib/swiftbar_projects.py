@@ -32,12 +32,18 @@ def repository(path):
     return path[:at] if at >= 0 else path
 
 
+def settings_file(configured):
+    """Claude Code's settings file: in the first folder CLAUDE_CONFIG_DIR names (several may be listed, comma
+    separated, starting with ~), else in the home folder."""
+    configured = (configured or '').strip()
+    if configured:return os.path.join(os.path.expanduser(configured.split(',')[0].strip()), '.claude.json')
+    return os.path.join(os.path.expanduser('~'), '.claude.json')
+
+
 def listed(written):
     """The folders Claude Code has run in, by their written name: the keys of `projects` in its settings, each also under
     its repository's name when it is a worktree. Read again when the file changes."""
-    home = os.environ.get('CLAUDE_CONFIG_DIR') or os.environ.get('HOME')
-    if not home:return None
-    file = os.path.join(home, '.claude.json')
+    file = settings_file(os.environ.get('CLAUDE_CONFIG_DIR'))
     try:stamp = (file, os.stat(file).st_mtime_ns)
     except OSError:stamp = (file, None)
     if SETTINGS[0] != stamp:

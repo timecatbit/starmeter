@@ -38,15 +38,21 @@ fn repository(path: &str) -> &str {
     path.find("/.claude/worktrees/").map_or(path, |at| &path[..at])
 }
 
+/// Claude Code's settings file: in the first folder CLAUDE_CONFIG_DIR names (it may list several, comma separated, and
+/// start with ~), else in the home folder (found on Windows too, where HOME is often not set).
+fn settings_file(configured: Option<&str>) -> PathBuf {
+    match configured.map(str::trim).filter(|dirs| !dirs.is_empty()) {
+        Some(dirs) => {
+            crate::files::paths::expand_user(dirs.split(',').next().unwrap_or("").trim()).join(".claude.json")
+        }
+        None => crate::files::paths::home().join(".claude.json"),
+    }
+}
+
 /// The folders Claude Code has run in, by their written name: the keys of `projects` in its settings, each also under
 /// its repository's name when it is a worktree. Read again when the file changes.
 fn listed(written: &str) -> Option<String> {
-    let home = std::env::var("CLAUDE_CONFIG_DIR")
-        .ok()
-        .filter(|dir| !dir.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| std::env::var("HOME").ok().map(PathBuf::from))?;
-    let file = home.join(".claude.json");
+    let file = settings_file(std::env::var("CLAUDE_CONFIG_DIR").ok().as_deref());
     let stamp = (file.clone(), std::fs::metadata(&file).ok().and_then(|meta| meta.modified().ok()));
     SETTINGS.with(|settings| {
         let mut settings = settings.borrow_mut();
@@ -166,6 +172,15 @@ fn scratchpad(path: &str) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_settings_file_is_in_the_first_configured_folder_with_its_tilde_expanded() {
+        let home = crate::files::paths::home();
+        assert_eq!(super::settings_file(None), home.join(".claude.json"));
+        assert_eq!(super::settings_file(Some("  ")), home.join(".claude.json"));
+        assert_eq!(super::settings_file(Some("~/.claude-work, /other")), home.join(".claude-work/.claude.json"));
+        assert_eq!(super::settings_file(Some("/opt/claude")), std::path::PathBuf::from("/opt/claude/.claude.json"));
+    }
+
     use super::*;
 
     #[test]
