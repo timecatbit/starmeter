@@ -1723,6 +1723,12 @@ def claude_subscription_load():
     return code or app,None
 
 
+def reserve_level(stale=False):
+    """订阅额度框架 (AGENTS.md): once the windows are used up, what is left to spend (Credits, extra usage, on-demand)
+    is the homepage's value, in orange: still usable, on the reserve. Red is for used up with nothing left."""
+    return None if stale else 'warning'
+
+
 def usage_level(percent,stale=False):
     if stale:return None
     return 'critical' if percent>=90 else 'warning' if percent>=70 else 'normal'
@@ -1817,11 +1823,17 @@ def claude_subscription_lines(data):
     value=used_text(max(w['used'] for w in windows)) if windows and not stale else payload.get('state','暂无本机用量快照')
     if windows and stale:value='用量待更新' if live else '本机用量待更新'
     failed=refresh_failed(error)
+    # 订阅额度框架: a window used up with extra usage on, what is left of it is the value, in orange.
+    extra_on=payload.get('extraUsage') if isinstance(payload.get('extraUsage'),dict) and payload['extraUsage'].get('enabled') else None
+    on_reserve=bool(windows) and not stale and max(w['used'] for w in windows)>=100 and extra_on is not None
+    if on_reserve:
+        symbol='$' if extra_on.get('currency','USD')=='USD' else extra_on['currency']+' '
+        value='额外用量剩 %s%.2f'%(symbol,max(0,extra_on['limit']-extra_on['used'])) if extra_on.get('limit') else '在用额外用量'
     # Like every other module: the last good figures stay, marked as a failed refresh.
     value=with_failure(value,bool(windows) and not stale,failed)
     source={'claude-oauth':'Code 登录','live':'App 登录 · 手动查询','claude-code':'Code 本机回传','app-snapshot':'App 本机快照'}.get(payload.get('source'),'Claude App 本机快照')
     limits=[(w['label'],w['used'],claude_span(w)==5*3600) for w in windows]
-    rows=[item('Claude 订阅',badge=value,panelgauges=gauges(headline_pair(limits),stale or failed),**brand_icon('claude-subscription'),panelusagelevel=usage_level(max((w['used'] for w in windows),default=0),stale or failed or not windows)),
+    rows=[item('Claude 订阅',badge=value,panelgauges=gauges(headline_pair(limits),stale or failed),**brand_icon('claude-subscription'),panelusagelevel=reserve_level(failed) if on_reserve else usage_level(max((w['used'] for w in windows),default=0),stale or failed or not windows)),
           item('来源 · '+source,level=1,color=MUTED,size=10)]
     for w in windows:
         try:resets=parse_iso(w['resetsAt']).timestamp() if w.get('resetsAt') else None
@@ -1894,12 +1906,16 @@ def cursor_subscription_lines(data):
     service=catalog.BY_KEY['cursor-subscription'];enabled=view_settings()['cursorUsage']
     payload=(data.get('cursor_subscription') or {}) if enabled else {};error=data.get('cursor_subscription_error') if enabled else None
     failed=refresh_failed(error);percent=payload.get('percent');end=payload.get('cycleEnd');start=payload.get('cycleStart')
+    # 订阅额度框架: the cycle's included usage used up with on-demand on, what is left of it is the value, in orange.
+    on_demand=payload.get('onDemand') if isinstance(payload.get('onDemand'),dict) and payload['onDemand'].get('enabled') else None
+    on_reserve=percent is not None and percent>=100 and on_demand is not None
     if not enabled:badge='未开启读取'
     elif payload.get('unlimited'):badge='不限量'
+    elif on_reserve:badge='按需剩 $%.2f'%max(0,(on_demand['limitCents']-on_demand.get('usedCents',0))/100) if on_demand.get('limitCents') else '在用按需用量'
     elif percent is not None:badge=used_text(percent)
     else:badge='暂无套餐用量' if payload else '待同步'
     rows=[item(service.label,badge=with_failure(badge,percent is not None,failed),**brand_icon('cursor-subscription'),
-               panelusagelevel=usage_level(percent,failed) if percent is not None else None),
+               panelusagelevel=(reserve_level(failed) if on_reserve else usage_level(percent,failed)) if percent is not None else None),
           item('来源 · Cursor 账户（cursor.com）',level=1,color=MUTED,size=10)]
     if percent is not None:
         # Like every window: the share, then 重置于 … · pace on its second line; the dollars get their own row.
@@ -3096,15 +3112,32 @@ def chatgpt_lines(data):
     most=max((100-w['remaining'] for w in visible),default=None)
     badge=used_text(most) if visible else ('未配置' if not chatgpt_configured() else payload.get('state','待同步'))
     if windows and not visible:badge='待刷新'
+    # 订阅额度框架: the windows used up (or ordinary use stopped) with Credits left, the Credits are the value, in
+    # orange; the free resets come under the bars once a window is at 90%.
+    credits=payload.get('credits') if isinstance(payload.get('credits'),dict) else None
+    unlimited=bool(credits) and credits.get('unlimited') is True
+    balance=credits_amount(credits.get('balance') or 0) if credits else None
+    exhausted=(most is not None and most>=100) or bool(payload.get('blocked'))
+    on_reserve=exhausted and credits is not None and bool(visible)
+    if on_reserve:badge='Credits 不限' if unlimited else '余 %s Credits'%balance
+    resets=payload.get('resets') if isinstance(payload.get('resets'),dict) else {}
+    offered=resets.get('count') or 0
+    reset_note='可免费重置 %d 次'%offered if offered and visible and (exhausted or (most is not None and most>=90)) else None
     limits=[(chatgpt_window_label(w),100-w['remaining'],chatgpt_window_label(w)=='5 小时') for w in visible]
-    lines=[item(label,badge=with_failure(badge,bool(visible),failed),panelgauges=gauges(headline_pair(limits),failed),**brand_icon('chatgpt'),
-                panelusagelevel=usage_level(most,failed) if visible else None)]
+    lines=[item(label,badge=with_failure(badge,bool(visible),failed),panelgauges=gauges(headline_pair(limits),failed),paneldetail=reset_note,**brand_icon('chatgpt'),
+                panelusagelevel=(reserve_level(failed) if on_reserve else usage_level(most,failed)) if visible else None)]
     lines.append(item('来源 · 本机登录 · 编程工具额度',level=1,color=MUTED,size=10))
     for w in visible:
         minutes=w.get('minutes') or 0
         lines.append(item(chatgpt_window_label(w),level=1,badge=used_text(100-w['remaining']),panelusagelevel=usage_level(100-w['remaining'],failed),
                           paneldetail=window_detail(100-w['remaining'],w.get('resetsAt'),minutes*60,payload.get('_fetchedAt'),failed)))
     if not visible and not failed and payload.get('state'):lines.append(item(payload['state'],level=1,color=MUTED,size=10))
+    # What is left once the windows are used up, and the free resets: after the windows, as on every plan.
+    if credits is not None:lines.append(item('Credits',level=1,badge='不限' if unlimited else '余 '+balance,paneldetail='窗口用完后按用量扣除'))
+    if offered:
+        expires=resets.get('expiresAt')
+        detail='最早 %s 过期 · 在 Codex 里使用'%datetime.fromtimestamp(expires,local_zone()).strftime('%m/%d') if expires else '一次补满窗口 · 在 Codex 里使用'
+        lines.append(item('免费重置',level=1,badge='可用 %d 次'%offered,paneldetail=detail))
     if chatgpt_configured():lines.append(refresh_row(payload,error))
     lines.append(item('打开 ChatGPT',level=1,href='https://chatgpt.com',sfimage='arrow.up.right'))
     return lines

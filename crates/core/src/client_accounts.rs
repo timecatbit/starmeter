@@ -264,6 +264,48 @@ pub mod chatgpt {
         }
         let state = if windows.is_empty() { "暂无可读取额度" } else { "已同步" };
         let plan = py::str(Some(&py::or(py::dict(account.get("account")).get("planType"), Json::from(""))));
-        object! { "state" => state, "windows" => Json::Array(windows), "plan" => plan }
+        let mut out = object! { "state" => state, "windows" => Json::Array(windows), "plan" => plan };
+        // Beside the windows (订阅额度框架): the Credits spent once they are used up, the free resets on offer, and
+        // whether ordinary use has stopped.
+        let snapshot = result
+            .get("rateLimits")
+            .filter(|limits| limits.is_truthy())
+            .cloned()
+            .or_else(|| buckets.iter().next().map(|(_, bucket)| bucket.clone()));
+        if let Some(credits) = snapshot.as_ref().and_then(|limits| limits.get("credits")).and_then(Json::as_object) {
+            let unlimited = credits.get("unlimited") == Some(&Json::Bool(true));
+            if unlimited || credits.get("hasCredits") == Some(&Json::Bool(true)) {
+                let balance = credits.get("balance").and_then(|balance| {
+                    balance.as_str().and_then(|text| text.trim().parse::<f64>().ok()).or_else(|| balance.number())
+                });
+                out.insert(
+                    "credits",
+                    object! { "balance" => balance.map_or(Json::Null, Json::Double), "unlimited" => unlimited },
+                );
+            }
+        }
+        let offered: Vec<Option<f64>> = py::dict(result.get("rateLimitResetCredits"))
+            .get("credits")
+            .and_then(Json::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|credit| credit.get("status").and_then(Json::as_str) == Some("available"))
+            .map(|credit| credit.get("expiresAt").and_then(Json::number))
+            .collect();
+        if !offered.is_empty() {
+            let soonest = offered
+                .iter()
+                .flatten()
+                .copied()
+                .fold(None, |best: Option<f64>, at| Some(best.map_or(at, |best| best.min(at))));
+            out.insert(
+                "resets",
+                object! { "count" => offered.len() as i64, "expiresAt" => soonest.map_or(Json::Null, Json::Double) },
+            );
+        }
+        if result.get("ordinaryUsageAllowed") == Some(&Json::Bool(false)) {
+            out.insert("blocked", true);
+        }
+        out
     }
 }

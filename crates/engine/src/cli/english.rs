@@ -169,7 +169,7 @@ pub static WHOLE: [Rule; 2] = [
 ];
 
 /// One part of the engine's text.
-pub static RULES: [Rule; 79] = [
+pub static RULES: [Rule; 85] = [
     rule!(r"^已用 (\d+(?:\.\d+)?%)$", |m| format!("{} used", group(m, 1))),
     rule!(r"^已用 (\d+(?:\.\d+)?%) 截至 (.+)$", |m| format!("{} used as of {}", group(m, 1), group(m, 2))),
     rule!(r"^已用 (.+)$", |m| format!("Used: {}", translate(group(m, 1)))),
@@ -191,6 +191,19 @@ pub static RULES: [Rule; 79] = [
     rule!(r"^本月 API 等值 (.+)$", |m| format!("API equivalent this month {}", group(m, 1))),
     rule!(r"^月费 (.+)$", |m| format!("Monthly {}", group(m, 1))),
     rule!(r"^剩余 (.+)$", |m| format!("{} left", group(m, 1))),
+    rule!(r"^余 (.+) Credits$", |m| format!("{} credits left", group(m, 1))),
+    rule!(r"^可免费重置 (\d+) 次$", |m| format!(
+        "{} free {}",
+        group(m, 1),
+        plural(group(m, 1), "reset", "resets")
+    )),
+    rule!(r"^可用 (\d+) 次$", |m| format!("{} available", group(m, 1))),
+    rule!(r"^最早 (.+) 过期 · 在 Codex 里使用$", |m| format!(
+        "First expires {} · use it in Codex",
+        group(m, 1)
+    )),
+    rule!(r"^额外用量剩 (.+)$", |m| format!("{} of extra usage left", group(m, 1))),
+    rule!(r"^按需剩 (.+)$", |m| format!("{} of on-demand left", group(m, 1))),
     rule!(r"^到期 (.+)$", |m| format!("Expires {}", group(m, 1))),
     rule!(r"^(.+) 订阅$", |m| format!("{} plan", translate(group(m, 1)))),
     rule!(r"^需勾选 (.+)$", |m| format!("Needs {} on", translate(group(m, 1)))),

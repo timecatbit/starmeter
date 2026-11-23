@@ -183,6 +183,12 @@ pub fn round(value: f64, digits: usize) -> f64 {
     format!("{value:.digits$}").parse().unwrap_or(value)
 }
 
+/// 订阅额度框架 (AGENTS.md): once the windows are used up, what is left to spend (Credits, extra usage, on-demand)
+/// is the homepage's value, in orange: still usable, on the reserve. Red is for used up with nothing left.
+pub fn reserve_level(stale: bool) -> Json {
+    if stale { Json::Null } else { Json::from("warning") }
+}
+
 pub fn usage_level(percent: Option<f64>, stale: bool) -> Json {
     match percent {
         Some(percent) if !stale => Json::from(if percent >= 90.0 {

@@ -1387,13 +1387,28 @@ for line in sys.stdin:
         cases = [({'account': {'type': 'chatgpt', 'planType': 'pro'}}, limits),
                  ({'account': {'type': 'chatgpt'}}, {'rateLimits': {'primary': {'usedPercent': 0, 'resetsAt': None}}}),
                  ({'account': {'type': 'apiKey'}}, limits), ({'account': None}, limits), ('nope', limits),
-                 ({'account': {'type': 'chatgptAuthTokens'}}, 'nope'), ({'account': {'type': 'chatgpt'}}, {'rateLimitsByLimitId': {}})]
+                 ({'account': {'type': 'chatgptAuthTokens'}}, 'nope'), ({'account': {'type': 'chatgpt'}}, {'rateLimitsByLimitId': {}}),
+                 # The week used up, Credits left, two free resets on offer, ordinary use stopped (as the app-server says it).
+                 ({'account': {'type': 'chatgpt', 'planType': 'pro'}}, {
+                     'ordinaryUsageAllowed': False,
+                     'rateLimits': {'limitId': 'codex', 'primary': {'usedPercent': 100, 'windowDurationMins': 10080, 'resetsAt': 1795595655},
+                                    'credits': {'hasCredits': True, 'unlimited': False, 'balance': '45934.2082570000'}},
+                     'rateLimitResetCredits': {'availableCount': 3, 'credits': [
+                         {'status': 'available', 'expiresAt': 1797115942}, {'status': 'available', 'expiresAt': 1796165913},
+                         {'status': 'used', 'expiresAt': 1790000000}, 'odd']}}),
+                 ({'account': {'type': 'chatgpt'}}, {'rateLimits': {'primary': {'usedPercent': 10}, 'credits': {'hasCredits': False, 'balance': '0'}}}),
+                 ({'account': {'type': 'chatgpt'}}, {'rateLimits': {'primary': {'usedPercent': 10}, 'credits': {'unlimited': True, 'balance': None}},
+                                                     'ordinaryUsageAllowed': True, 'rateLimitResetCredits': {'credits': []}}),
+                 ({'account': {'type': 'chatgpt'}}, {'rateLimits': {'primary': {'usedPercent': 10}, 'credits': {'hasCredits': True, 'balance': 'lots'}}})]
         for account, result in cases:
             with self.subTest(account=account, limits=result):
                 binary = self.fake_codex(account, result)
                 expected = sources.chatgpt_account(binary, self.root / 'home')
                 same(self, expected, swift('chatgpt.account', binary, str(self.root / 'home')))
         self.assertEqual(swift('chatgpt.account', str(self.root / 'missing'), None), {'error': '无法启动 ChatGPT 编程客户端'})
+        read = sources.chatgpt_account(self.fake_codex(*cases[-4]), self.root / 'home')
+        self.assertEqual((read['credits'], read['resets'], read['blocked']),
+                         ({'balance': 45934.208257, 'unlimited': False}, {'count': 2, 'expiresAt': 1796165913.0}, True))
 
 
 @unittest.skipUnless(PROBE, 'Rust engine probe not built')
@@ -1810,23 +1825,6 @@ class BackgroundParityTests(OpenCodexParityTests):
                 self.assertEqual(self.python('loaders', extra=extra), self.swift('loaders', extra=extra))
                 self.assertEqual(self.python('ready', extra=extra), self.swift('ready', extra=extra))
 
-    def test_payback_of_a_tool_off_the_homepage(self):
-        # Claude 订阅 with a price, the Claude tool not on the homepage: weighed from the tool's own month read.
-        self.settings(visible=['claude-subscription'], subscriptionPrices={'claude-subscription': 200})
-        now = time.time()
-        self.caches(now)
-        for usage, expected in (({'summary': {'estimatedCostUsd': 500, 'unpricedRequests': 1, 'requests': 9}}, '2.5 倍'),
-                                ({'error': '未找到 Claude 用量记录'}, '未找到 Claude 用量记录')):
-            with self.subTest(expected=expected):
-                for engine in self.states:
-                    record = {'schema': 1, 'fetchedAt': now - 30, 'payload': {'range': 'month', 'claude': usage}}
-                    (self.cache_dir(engine) / 'payback-month-claude.json').write_text(json.dumps(record, ensure_ascii=False))
-                python, swift = self.run_engine('python'), self.run_engine('swift')
-                self.assertEqual(python[0], swift[0])
-                self.same_text(python[1], swift[1])
-                self.assertIn(expected, python[1])
-                self.assertNotIn('需勾选', python[1])
-
     def test_a_phone_looking_keeps_the_open_panels_pace(self):
         import types
         def write(name, value):
@@ -2096,6 +2094,57 @@ class EngineRunParityTests(PanelParityTests):
         self.assertEqual(order_row['value'], '自定义')
         self.assertEqual(both(['reset-module-order'])[:3], ['chatgpt', 'claude-subscription', 'gemini-subscription'])
         self.assertEqual(self.preferences('swift')['homeOrder'], [])
+
+    def test_plans_on_their_reserves(self):
+        # 订阅额度框架: a window used up with something left to spend shows what is left, in orange; ChatGPT's free
+        # resets come under its bar.
+        codex = Path(self.common['HOME']) / '.codex'; codex.mkdir()
+        (codex / 'auth.json').write_text(json.dumps({'auth_mode': 'chatgpt'}))
+        self.settings(visible=['chatgpt', 'claude-subscription', 'cursor-subscription'], cursorUsage=True)
+        now = time.time()
+        self.caches(now)
+        def iso(at):return datetime.fromtimestamp(at, timezone.utc).isoformat()
+        records = {
+            'chatgpt': {'state': '已同步', 'plan': 'pro', 'windows': [{'name': 'codex', 'slot': 'primary', 'remaining': 0, 'minutes': 10080, 'resetsAt': now + 86400}],
+                        'credits': {'balance': 45934.208257, 'unlimited': False}, 'resets': {'count': 2, 'expiresAt': now + 20 * 86400}, 'blocked': True},
+            'claude_subscription': {'windows': [{'label': '5 小时', 'used': 100, 'resetsAt': iso(now + 3600)}, {'label': '本周', 'used': 40, 'resetsAt': iso(now + 86400), 'span': 604800}],
+                                    'source': 'oauth', 'updatedAt': now - 20, 'stale': False,
+                                    'extraUsage': {'enabled': True, 'used': 12.5, 'limit': 50, 'currency': 'USD'}},
+            'cursor_subscription': {'membership': 'pro', 'unlimited': False, 'percent': 100.0, 'usedCents': 2000.0, 'limitCents': 2000.0,
+                                    'cycleStart': now - 86400, 'cycleEnd': now + 86400 * 20, 'onDemand': {'enabled': True, 'usedCents': 150.0, 'limitCents': None}},
+        }
+        for engine in self.states:
+            for name, payload in records.items():
+                (self.cache_dir(engine) / (name + '.json')).write_text(json.dumps({'schema': 1, 'fetchedAt': now - 30, 'payload': payload}, ensure_ascii=False))
+        expected, got = self.python('snapshot', now), self.swift('snapshot', now)
+        for key in expected:
+            self.assertEqual(expected[key], got.get(key), key)
+        rows = {entry['label']: entry for entry in got['entries'] if entry.get('label')}
+        chatgpt, claude, cursor = rows['ChatGPT 订阅'], rows['Claude 订阅'], rows['Cursor 订阅']
+        self.assertEqual((chatgpt['value'], chatgpt.get('detail'), chatgpt.get('usageLevel')), ('余 45,934 Credits', '可免费重置 2 次', 'warning'))
+        children = {child['label']: child for child in chatgpt['children']}
+        self.assertEqual((children['Credits']['value'], children['免费重置']['value']), ('余 45,934', '可用 2 次'))
+        self.assertTrue(children['免费重置']['detail'].endswith('过期 · 在 Codex 里使用'))
+        self.assertEqual((claude['value'], claude.get('usageLevel')), ('额外用量剩 $37.50', 'warning'))
+        self.assertEqual((cursor['value'], cursor.get('usageLevel')), ('在用按需用量', 'warning'))
+
+    def test_payback_of_a_tool_off_the_homepage(self):
+        # Claude 订阅 with a price, the Claude tool not on the homepage: weighed from the tool's own month read.
+        self.settings(visible=['claude-subscription'], subscriptionPrices={'claude-subscription': 200})
+        now = time.time()
+        self.caches(now)
+        for usage, expected in (({'summary': {'estimatedCostUsd': 500, 'unpricedRequests': 1, 'requests': 9}}, '2.5 倍'),
+                                ({'error': '未找到 Claude 用量记录'}, '未找到 Claude 用量记录')):
+            with self.subTest(expected=expected):
+                for engine in self.states:
+                    record = {'schema': 1, 'fetchedAt': now - 30, 'payload': {'range': 'month', 'claude': usage}}
+                    (self.cache_dir(engine) / 'payback-month-claude.json').write_text(json.dumps(record, ensure_ascii=False))
+                python, swift = self.run_engine('python'), self.run_engine('swift')
+                self.assertEqual(python[0], swift[0])
+                self.same_text(python[1], swift[1])
+                self.assertIn(expected, python[1])
+                self.assertNotIn('需勾选', python[1])
+
 
 class UpdateParityTests(unittest.TestCase):
     def test_pieces(self):

@@ -158,6 +158,21 @@ impl Runtime {
             value = if live { "用量待更新" } else { "本机用量待更新" }.into();
         }
         let failed = refresh_failed(error.as_deref());
+        // 订阅额度框架: a window used up with extra usage on, what is left of it is the value, in orange.
+        let extra_on = payload
+            .get("extraUsage")
+            .and_then(Json::as_object)
+            .filter(|extra| extra.get("enabled").is_some_and(Json::is_truthy))
+            .cloned();
+        let on_reserve = !stale && most.is_some_and(|most| most >= 100.0) && extra_on.is_some();
+        if let Some(extra) = extra_on.as_ref().filter(|_| on_reserve) {
+            let currency = py::str(Some(&extra.get("currency").cloned().unwrap_or_else(|| Json::from("USD"))));
+            let symbol = if currency == "USD" { "$".to_string() } else { format!("{currency} ") };
+            value = match extra.get("limit").filter(|limit| limit.is_truthy()).and_then(Json::number) {
+                Some(limit) => format!("额外用量剩 {symbol}{:.2}", (limit - py::num(extra.get("used"))).max(0.0)),
+                None => "在用额外用量".into(),
+            };
+        }
         // Like every other module: the last good figures stay, marked as a failed refresh.
         value = with_failure(&value, !windows.is_empty() && !stale, failed);
         let source_name = match source {
@@ -180,7 +195,9 @@ impl Runtime {
                 merged(&[
                     &object! { "badge" => value, "panelgauges" => rows::gauges(&rows::headline_pair(&limits), stale || failed) },
                     &self.brand_icon("claude-subscription"),
-                    &object! { "panelusagelevel" => usage_level(Some(most.unwrap_or(0.0)), stale || failed || windows.is_empty()) },
+                    &object! {
+                        "panelusagelevel" => if on_reserve { rows::reserve_level(failed) } else { usage_level(Some(most.unwrap_or(0.0)), stale || failed || windows.is_empty()) },
+                    },
                 ]),
             ),
             item(&format!("来源 · {source_name}"), 1, muted(10)),
@@ -484,10 +501,22 @@ impl Runtime {
         let percent = payload.get("percent").filter(|p| !p.is_null()).and_then(Json::number);
         let end = payload.get("cycleEnd").and_then(Json::number);
         let start = payload.get("cycleStart").and_then(Json::number);
+        // 订阅额度框架: the cycle's included usage used up with on-demand on, what is left of it is the value, in orange.
+        let on_demand = payload
+            .get("onDemand")
+            .and_then(Json::as_object)
+            .filter(|extra| extra.get("enabled").is_some_and(Json::is_truthy))
+            .cloned();
+        let on_reserve = percent.is_some_and(|percent| percent >= 100.0) && on_demand.is_some();
         let badge = if !enabled {
             "未开启读取".to_string()
         } else if payload.get("unlimited").is_some_and(Json::is_truthy) {
             "不限量".into()
+        } else if let Some(extra) = on_demand.as_ref().filter(|_| on_reserve) {
+            match extra.get("limitCents").filter(|limit| limit.is_truthy()).and_then(Json::number) {
+                Some(limit) => format!("按需剩 ${:.2}", ((limit - py::num(extra.get("usedCents"))) / 100.0).max(0.0)),
+                None => "在用按需用量".into(),
+            }
         } else if let Some(percent) = percent {
             used_text(percent)
         } else if payload.is_empty() {
@@ -502,7 +531,9 @@ impl Runtime {
                 merged(&[
                     &object! { "badge" => with_failure(&badge, percent.is_some(), failed) },
                     &self.brand_icon("cursor-subscription"),
-                    &object! { "panelusagelevel" => if percent.is_none() { Json::Null } else { usage_level(percent, failed) } },
+                    &object! {
+                        "panelusagelevel" => if percent.is_none() { Json::Null } else if on_reserve { rows::reserve_level(failed) } else { usage_level(percent, failed) },
+                    },
                 ]),
             ),
             item("来源 · Cursor 账户（cursor.com）", 1, muted(10)),
@@ -775,6 +806,24 @@ impl Runtime {
         if !windows.is_empty() && visible.is_empty() {
             badge = "待刷新".into();
         }
+        // 订阅额度框架: the windows used up (or ordinary use stopped) with Credits left, the Credits are the value, in
+        // orange; the free resets come under the bars once a window is at 90%.
+        let credits = payload.get("credits").and_then(Json::as_object);
+        let unlimited = credits.is_some_and(|credits| credits.get("unlimited") == Some(&Json::Bool(true)));
+        let balance = credits.map(|credits| rows::credits_amount(py::num(credits.get("balance"))));
+        let exhausted = most.is_some_and(|most| most >= 100.0) || payload.get("blocked").is_some_and(Json::is_truthy);
+        let on_reserve = exhausted && credits.is_some() && !visible.is_empty();
+        if on_reserve {
+            badge = if unlimited {
+                "Credits 不限".into()
+            } else {
+                format!("余 {} Credits", balance.clone().unwrap_or_default())
+            };
+        }
+        let resets = payload.get("resets").and_then(Json::as_object);
+        let offered = resets.and_then(|resets| resets.get("count")).and_then(Json::integer).unwrap_or(0);
+        let reset_note = (offered > 0 && !visible.is_empty() && (exhausted || most.is_some_and(|most| most >= 90.0)))
+            .then(|| format!("可免费重置 {offered} 次"));
         let limits: Vec<(String, f64, bool)> = visible
             .iter()
             .map(|window| {
@@ -790,9 +839,12 @@ impl Runtime {
                 &object! {
                     "badge" => with_failure(&badge, !visible.is_empty(), failed),
                     "panelgauges" => rows::gauges(&rows::headline_pair(&limits), failed),
+                    "paneldetail" => reset_note.map_or(Json::Null, Json::from),
                 },
                 &self.brand_icon("chatgpt"),
-                &object! { "panelusagelevel" => if visible.is_empty() { Json::Null } else { usage_level(most, failed) } },
+                &object! {
+                    "panelusagelevel" => if visible.is_empty() { Json::Null } else if on_reserve { rows::reserve_level(failed) } else { usage_level(most, failed) },
+                },
             ]),
         )];
         lines.push(item("来源 · 本机登录 · 编程工具额度", 1, muted(10)));
@@ -814,6 +866,24 @@ impl Runtime {
             && let Some(state) = payload.get("state").filter(|state| state.is_truthy())
         {
             lines.push(item(&py::str(Some(state)), 1, muted(10)));
+        }
+        // What is left once the windows are used up, and the free resets: after the windows, as on every plan.
+        if credits.is_some() {
+            let badge = if unlimited { "不限".to_string() } else { format!("余 {}", balance.unwrap_or_default()) };
+            lines.push(item("Credits", 1, object! { "badge" => badge, "paneldetail" => "窗口用完后按用量扣除" }));
+        }
+        if offered > 0 {
+            let detail = match resets.and_then(|resets| resets.get("expiresAt")).and_then(Json::number) {
+                Some(at) => {
+                    format!("最早 {} 过期 · 在 Codex 里使用", dashboard::format(at, &self.local_zone(), "%m/%d"))
+                }
+                None => "一次补满窗口 · 在 Codex 里使用".into(),
+            };
+            lines.push(item(
+                "免费重置",
+                1,
+                object! { "badge" => format!("可用 {offered} 次"), "paneldetail" => detail },
+            ));
         }
         if self.chatgpt_configured() {
             lines.push(self.refresh_row(&payload, error.as_deref(), 1));

@@ -726,8 +726,24 @@ def chatgpt_account(binary=None, home=None):
                 windows.append({'name':str(bucket.get('limitName') or key), 'slot':slot,
                                 'remaining':max(0,min(100,100-window['usedPercent'])),
                                 'minutes':number(window.get('windowDurationMins')), 'resetsAt':number(window.get('resetsAt'))})
-        return {'state':'已同步' if windows else '暂无可读取额度','windows':windows,
-                'plan':str((account.get('account') or {}).get('planType') or '')}
+        out = {'state':'已同步' if windows else '暂无可读取额度','windows':windows,
+               'plan':str((account.get('account') or {}).get('planType') or '')}
+        # Beside the windows (订阅额度框架): the Credits spent once they are used up, the free resets on offer, and
+        # whether ordinary use has stopped.
+        snapshot = result.get('rateLimits') or next(iter(buckets.values()), None)
+        credits = snapshot.get('credits') if isinstance(snapshot, dict) else None
+        if isinstance(credits, dict) and (credits.get('unlimited') is True or credits.get('hasCredits') is True):
+            balance = credits.get('balance')
+            try:balance = float(balance.strip()) if isinstance(balance, str) else float(balance) if isinstance(balance, (int, float)) and not isinstance(balance, bool) else None
+            except ValueError:balance = None
+            out['credits'] = {'balance': balance, 'unlimited': credits.get('unlimited') is True}
+        offered = [credit.get('expiresAt') for credit in ((result.get('rateLimitResetCredits') or {}).get('credits') or [])
+                   if isinstance(credit, dict) and credit.get('status') == 'available']
+        if offered:
+            soonest = min((float(at) for at in offered if isinstance(at, (int, float)) and not isinstance(at, bool)), default=None)
+            out['resets'] = {'count': len(offered), 'expiresAt': soonest}
+        if result.get('ordinaryUsageAllowed') is False:out['blocked'] = True
+        return out
     except (OSError, ValueError, subprocess.SubprocessError):
         return {'error':'额度暂不可用'}
     finally:
