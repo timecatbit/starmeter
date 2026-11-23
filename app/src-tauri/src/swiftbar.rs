@@ -28,7 +28,13 @@ pub struct Files {
     state: Mutex<(bool, f64)>,
     /// One action at a time, as the engine claims one request file.
     turn: tokio_mutex::Mutex,
+    /// How long a claimed action is waited on: as long as a question the plugin asks (it may be waiting on the user),
+    /// and no longer, for a plugin that quit before writing its receipt would otherwise hold every later action.
+    claimed_limit: Duration,
 }
+
+/// As long as the panel waits for an answer to a question (`ask.rs`).
+const CLAIMED_LIMIT: Duration = Duration::from_secs(900);
 
 /// A tiny async mutex (the app has no tokio dependency of its own): actions queue in order.
 mod tokio_mutex {
@@ -110,6 +116,7 @@ impl Files {
             asked: Mutex::new(None),
             state: Mutex::new((false, 0.0)),
             turn: tokio_mutex::Mutex::default(),
+            claimed_limit: CLAIMED_LIMIT,
         })
     }
 
@@ -123,6 +130,7 @@ impl Files {
             asked: Mutex::new(None),
             state: Mutex::new((false, 0.0)),
             turn: tokio_mutex::Mutex::default(),
+            claimed_limit: CLAIMED_LIMIT,
         }
     }
 
@@ -268,7 +276,7 @@ impl Files {
             }
             // Once the plugin has claimed the action it may be waiting on a question answered in this panel, so the
             // panel waits for the receipt rather than giving up under the user.
-            if started.elapsed() > limit && (automatic || !claimed) {
+            if (started.elapsed() > limit && (automatic || !claimed)) || started.elapsed() > self.claimed_limit {
                 if !claimed {
                     let _ = std::fs::remove_file(&request);
                 }
@@ -336,6 +344,50 @@ mod tests {
         worker.join().expect("the engine thread");
         assert_eq!(status, "done");
         assert_eq!(preferences.and_then(|p| p.get("revision").cloned()), Some(json!(7)));
+        let _ = std::fs::remove_dir_all(folder);
+    }
+
+    #[test]
+    fn an_action_claimed_by_a_plugin_that_quit_is_given_up_and_the_next_goes_out() {
+        let folder = folder().with_extension("claimed");
+        std::fs::create_dir_all(&folder).expect("a folder");
+        let snapshot = folder.join("panel-view.json");
+        std::fs::write(&snapshot, b"{}").expect("a snapshot");
+        let args = vec![
+            "app".to_string(),
+            "--plugin".into(),
+            "/x/starmeter.30s.sh".into(),
+            "--snapshot".into(),
+            snapshot.to_string_lossy().into_owned(),
+        ];
+        let mut files = Files::from_args(&args).expect("panel mode");
+        files.claimed_limit = Duration::from_secs(1);
+        let files = std::sync::Arc::new(files);
+        // The plugin claims the first action and quits without a receipt; it answers the second.
+        let engine = folder.clone();
+        let worker = std::thread::spawn(move || {
+            let request = engine.join("panel-action.json");
+            let mut seen = 0;
+            for _ in 0..400 {
+                if let Some(record) = read(&request) {
+                    let _ = std::fs::remove_file(&request);
+                    seen += 1;
+                    if seen == 2 {
+                        let receipt = json!({"schema": 1, "id": record["id"], "status": "done"});
+                        std::fs::write(engine.join("panel-action-receipt.json"), receipt.to_string())
+                            .expect("a receipt");
+                        return;
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            panic!("no second request");
+        });
+        let started = Instant::now();
+        assert_eq!(files.act(&["open-settings".into()]).0, "failed");
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert_eq!(files.act(&["open-settings".into()]).0, "done");
+        worker.join().expect("the engine thread");
         let _ = std::fs::remove_dir_all(folder);
     }
 }
