@@ -23,7 +23,7 @@ Starmeter 是 macOS 菜单栏（独立 App 或 SwiftBar 插件）和 Windows、L
 
 ## 能看什么
 
-- **工具 Token 用量**：Claude（桌面 App 和 VS Code、JetBrains、终端里的 Claude Code）、ChatGPT（Codex）、OpenCodex、Magpie、OpenCode、DeepSeek Harness、WorkBuddy、Qoder（国内版 Qoder CN）、Gemini（Gemini CLI 和 Antigravity）、Cursor（桌面版和 Cursor CLI）。显示 Token、请求、缓存命中、模型分布、趋势图和用量热力图，并按模型官方价估算 API 等值费用。范围可选今天、昨天、近 24 小时、近 7/30 天、本周、本月或全部；卡片按用量从多到少排，可以按工具、按模型或按项目（会话所在的项目文件夹）查看。网关（Magpie、OpenCodex）和经过它的客户端会各记一遍同一请求，Summary 只算一次。工具自己清理掉的旧记录（Claude Code 默认只留 30 天）仍会计入，可以关闭。在 Windows 上，正在运行的 WSL 发行版里的 Claude Code 和 Codex 也一起统计。
+- **工具 Token 用量**：Claude（桌面 App 和 VS Code、JetBrains、终端里的 Claude Code）、ChatGPT（Codex）、OpenCodex、Magpie、OpenCode、DeepSeek Harness、WorkBuddy、Qoder（国内版 Qoder CN）、Gemini（Gemini CLI 和 Antigravity）、Cursor（桌面版和 Cursor CLI）。显示 Token、请求、缓存命中、模型分布、趋势图和用量热力图，并按模型官方价估算 API 等值费用。范围可选今天、昨天、近 24 小时、近 7/30 天、本周、本月或全部；卡片按用量从多到少排，可以按工具、按模型或按项目（会话所在的项目文件夹）查看。网关（Magpie、OpenCodex）和经过它的客户端会各记一遍同一请求，Summary 只算一次。工具自己清理掉的旧记录（Claude Code 默认只留 30 天）仍会计入，可以关闭。在 Windows 上，正在运行的 WSL 发行版里的 Claude Code 和 Codex 也一起统计。Gemini 桌面版在本机不记 Token，装了它时 Gemini 卡片会注明不含它的用量。
 - **订阅额度**：ChatGPT、Claude、MiniMax、Cursor、Gemini 显示已用百分比和重置时间，70% 起变橙、90% 起变红，并写出比匀速多用还是少用。ChatGPT、Claude 在主页并排画出 5 小时和本周两根条，Gemini 分成 Gemini 模型和 Claude、GPT 模型两行，各带自己的标志，名称右边写最紧的那个。窗口用完后改写还能接着花的余额（橙色）：ChatGPT 的 Credits、Claude 的额外用量、Cursor 的按需用量；ChatGPT 快用完时，条下写还能免费重置几次。Gemini 的额度来自本机运行的 Antigravity App，Qoder 读取 Qoder CN App 本机记录的 Credits 用量；Grok、Kimi 可以手动标记。填上每月订阅价后，侧栏写本月用量值订阅价的几倍（按 API 官方价估算）。
 - **API 余额与花费**：DeepSeek、Kimi、Grok 显示余额；Qoder 用组织 API Key（团队版/企业版）显示组织共享的加购 Credits；Claude 显示本月花费（需要管理员 Key）；ChatGPT、Gemini 可以测试 Key 是否可用。每个 API 可以保存多把 Key，主页显示合计和 Key 数量，如“余额 ¥12.00 (3)”。
 - **会话**：工具 / 模型 / 项目旁的第四个标签，列出所选统计范围里活动过的会话，正在运行的和最新活跃的在前，先列 5 个，其余点“查看更多”。首页上所有在本机留有会话记录的工具都会列出：Claude Code、Codex、Gemini CLI、Antigravity 与 Gemini 桌面版、OpenCode、Qoder、WorkBuddy、DeepSeek Harness（Gemini 桌面版只有缓存里最近打开过的对话，没有 Token 和金额，只写轮次和是否在运行；Magpie 是网关，Cursor 的用量来自 cursor.com，都没有会话）。每个会话一张卡：这个会话在所选统计范围里花了多少（和其他标签同一口径，钉住时实时跳动）、是否正在运行、这一轮用了多少 Token、上下文用了多少，点开看整个会话的累计花费和最近几轮各用了多少 Token、费用和工具；可选在一轮完成时提醒。
@@ -33,7 +33,7 @@ Starmeter 是 macOS 菜单栏（独立 App 或 SwiftBar 插件）和 Windows、L
 - **多台电脑合并**：在每台电脑的“齿轮 → 数据 → 多台电脑合并”里选同一个同步文件夹（iCloud 云盘、Dropbox、OneDrive 等），各自写下自己的用量，主页、菜单栏金额和导出都按合起来的数字显示，图表上方写“含 N 台电脑”。不经过任何服务器，文件里只有工具、模型和用量数字。
 - **在手机上看**：齿轮里的“在手机上看”给出一个二维码，手机扫一下就在浏览器里看主页（只读，可以换统计范围、按工具/模型/项目分组、看会话、点进工具页，也能生成分享图存到相册或发给朋友）。默认在同一个网络里直连电脑；手机不在同一个网络时可选“任何网络”，确认后经 Cloudflare 生成临时外网链接（第一次要下载 cloudflared），一小时后关闭；同一个网络里一直开着，直到点“停止”或退出 App。
 - **提醒**：订阅窗口用到 90%（可改为 70%、80% 或关闭）时发通知；余额类 API 可以按币种设置低于多少时提醒；可选在每周额度快重置却还没怎么用时提醒。
-- **工具更新**：首页上每个工具的 App 和 CLI 各占一行，写本机版本、官方最新版和安装渠道（Homebrew、npm 或官方安装）；CLI 有新版本时一键在终端运行对应的更新命令（如 `brew upgrade --cask codex`），App 点一下打开，由它自己更新。Starmeter 标题旁的小图标（圈里一个向下箭头）表示有新版，点它打开更新页，看过后收成小圆点；不想要可在“提醒”里关掉“主页提示工具更新”，系统通知照常。
+- **工具更新**：首页上每个工具的 App 和 CLI 各占一行，写本机版本、官方最新版和安装渠道（Homebrew、npm 或官方安装），可更新的排在前面；CLI 有新版本时一键在终端运行对应的更新命令（如 `brew upgrade --cask codex`），App 点一下打开，由它自己更新。Gemini 桌面版由 Google 更新程序自动更新，Qoder 的 App 没有公开的版本接口，这两行只写本机版本。Starmeter 标题旁的小图标（圈里一个向下箭头）表示有新版，点它打开更新页，看过后收成小圆点；不想要可在“提醒”里关掉“主页提示工具更新”，系统通知照常。
 - **其他**：菜单栏星星旁可选显示今天的 API 估算或最紧张的订阅额度；可设全局快捷键（如 ⌃⌥S，Windows 是 Ctrl+Alt+S），在任何地方按下即可打开或收起面板；当前范围的用量可导出成 CSV 或 JSON；可选读取 Claude、OpenAI、Cursor 的官方状态页，服务出问题时标在卡片上；API 等值估算可以改用人民币显示；Komari 服务器监控；浅色、深色或跟随系统。
 
 <p align="center">
