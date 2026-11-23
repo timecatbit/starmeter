@@ -34,7 +34,7 @@ const TOOLS: [(&str, &str); 5] = [
     ("opencode", "OpenCode"),
     ("qoder", "Qoder"),
     ("workbuddy", "WorkBuddy"),
-    ("deepseek-harness", "DeepSeek"),
+    ("deepseek-harness", "DeepSeek Harness"),
 ];
 
 /// How a request is priced when its record carries no cost.
