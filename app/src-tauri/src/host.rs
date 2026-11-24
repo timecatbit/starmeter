@@ -153,17 +153,22 @@ pub async fn share_picture(app: AppHandle, png: String, name: String, x: f64, y:
             return;
         }
         // The share sheet draws in another process; its clicks must not close the panel.
-        panel::hold_for_share(&app);
-        let _ = (x, y, width, height);
+        let round = panel::hold_for_share(&app);
         let window = app.get_webview_window(panel::PANEL);
-        let handle = app.clone();
-        let _ = app.run_on_main_thread(move || {
-            if let Some(window) = window {
+        let (handle, closing) = (app.clone(), app.clone());
+        let shown = app.run_on_main_thread(move || {
+            let shown = window.is_some_and(|window| {
                 macos::share_file(&window, &path, (x, y, width, height), move |picked| {
-                    panel::share_closed(&handle, picked)
-                });
+                    panel::share_closed(&closing, picked, round)
+                })
+            });
+            if !shown {
+                panel::share_dropped(&handle, round);
             }
         });
+        if shown.is_err() {
+            panel::share_dropped(&app, round);
+        }
     }
     #[cfg(not(target_os = "macos"))]
     {

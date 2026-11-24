@@ -39,6 +39,8 @@ pub struct Panel {
     /// A native menu or the share sheet has the pointer: a click outside is theirs, not a reason to close.
     held: AtomicBool,
     sharing: AtomicBool,
+    /// Which share menu is the latest: a closing one's late word is for its own round, not a newer menu's.
+    share_round: AtomicU64,
     modules: AtomicBool,
     /// Where the star is, in logical screen coordinates (macOS: AppKit's, origin bottom left).
     anchor: Mutex<(f64, f64)>,
@@ -80,6 +82,7 @@ impl Panel {
             pinned: AtomicBool::new(false),
             held: AtomicBool::new(false),
             sharing: AtomicBool::new(false),
+            share_round: AtomicU64::new(0),
             modules: AtomicBool::new(false),
             anchor: Mutex::new((0.0, 0.0)),
             size: Mutex::new((360.0, 520.0)),
@@ -484,10 +487,24 @@ pub fn step_aside(app: &AppHandle, aside: bool) {
     }
 }
 
-/// The share sheet (macOS) draws in another process; its clicks must not close the panel.
+/// The share sheet (macOS) draws in another process; its clicks must not close the panel. Says which round of sharing
+/// this is, for share_closed and share_dropped.
 #[cfg(target_os = "macos")]
-pub fn hold_for_share(app: &AppHandle) {
-    app.state::<Panel>().sharing.store(true, Ordering::SeqCst);
+pub fn hold_for_share(app: &AppHandle) -> u64 {
+    let state = app.state::<Panel>();
+    let round = state.share_round.fetch_add(1, Ordering::SeqCst) + 1;
+    state.sharing.store(true, Ordering::SeqCst);
+    round
+}
+
+/// The share menu of this round never came up (no window to show it on): the panel is back to closing on a click
+/// elsewhere at once.
+#[cfg(target_os = "macos")]
+pub fn share_dropped(app: &AppHandle, round: u64) {
+    let state = app.state::<Panel>();
+    if state.share_round.load(Ordering::SeqCst) == round {
+        state.sharing.store(false, Ordering::SeqCst);
+    }
 }
 
 /// The share menu closed (picked: a service was chosen). A click on another app while it was up took the focus without
@@ -495,15 +512,16 @@ pub fn hold_for_share(app: &AppHandle) {
 /// moment later, once the focus has settled, the panel closes as a click elsewhere closes it. Dismissed, that is when
 /// the panel no longer has the focus; with a service picked, only when another app has it (a service may show a
 /// window of this app's own, such as AirDrop's, which takes the focus from the panel and needs it to stay).
+/// Only for its own round: a menu opened again within the moment is the newer round's to settle.
 #[cfg(target_os = "macos")]
-pub fn share_closed(app: &AppHandle, picked: bool) {
+pub fn share_closed(app: &AppHandle, picked: bool, round: u64) {
     let app = app.clone();
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(300));
         let handle = app.clone();
         let _ = app.run_on_main_thread(move || {
             let state = handle.state::<Panel>();
-            if !state.sharing.swap(false, Ordering::SeqCst) {
+            if state.share_round.load(Ordering::SeqCst) != round || !state.sharing.swap(false, Ordering::SeqCst) {
                 return;
             }
             let focused = window(&handle).is_some_and(|panel| panel.is_focused().unwrap_or(false));
