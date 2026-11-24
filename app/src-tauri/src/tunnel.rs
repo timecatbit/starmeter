@@ -52,6 +52,14 @@ fn end(mut child: Child, guard: Option<ChildStdin>) {
         }
         std::thread::sleep(Duration::from_millis(50));
     }
+    // The watcher leads a process group of its own (command): killing the group takes cloudflared with it, where
+    // killing the watcher alone would leave cloudflared running with no one to end it.
+    #[cfg(unix)]
+    let _ = Command::new("/bin/kill")
+        .args(["-KILL", "--", &format!("-{}", child.id())])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
     let _ = child.kill();
     let _ = child.wait();
 }
@@ -62,12 +70,15 @@ fn end(mut child: Child, guard: Option<ChildStdin>) {
 /// error output it passed on, so cloudflared ending on its own still ends the stream read here.
 #[cfg(unix)]
 fn command(program: &Path) -> Command {
+    use std::os::unix::process::CommandExt;
     let mut command = Command::new("/bin/sh");
     command
         .arg("-c")
         .arg(r#""$0" "$@" </dev/null & child=$!; exec 2>&-; read -r _; kill "$child" 2>/dev/null; wait "$child""#)
         .arg(program)
-        .stdin(Stdio::piped());
+        .stdin(Stdio::piped())
+        // Its own process group, which end can kill whole if the watcher doesn't go.
+        .process_group(0);
     command
 }
 
@@ -342,6 +353,38 @@ mod tests {
             tunnel.stop();
             let _ = std::fs::remove_file(&program);
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_cloudflared_that_wont_end_goes_with_its_watcher() {
+        // One that ignores the watcher's TERM: after the wait its whole process group is killed, not the watcher alone.
+        use std::os::unix::fs::PermissionsExt;
+        let tag = starmeter_core::runtime::random_hex(8);
+        let (program, noted) = (
+            std::env::temp_dir().join(format!("starmeter-stubborn-{tag}")),
+            std::env::temp_dir().join(format!("starmeter-stubborn-{tag}.pid")),
+        );
+        std::fs::write(
+            &program,
+            format!("#!/bin/sh\ntrap '' TERM\necho $$ > '{}'\nwhile :; do sleep 1; done\n", noted.display()),
+        )
+        .unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mut child = super::command(&program).spawn().unwrap();
+        let guard = child.stdin.take();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !noted.exists() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        let pid = std::fs::read_to_string(&noted).unwrap().trim().to_string();
+        let alive = |pid: &str| std::process::Command::new("/bin/kill").args(["-0", pid]).status().unwrap().success();
+        assert!(alive(&pid));
+        super::end(child, guard);
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        assert!(!alive(&pid), "the stand-in outlived its watcher");
+        let _ = std::fs::remove_file(&program);
+        let _ = std::fs::remove_file(&noted);
     }
 
     #[test]
