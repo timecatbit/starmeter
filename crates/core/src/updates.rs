@@ -361,7 +361,9 @@ fn cached_feed(root: &str, now: f64) -> Option<Object> {
         if !path.starts_with("/codex-app-prod/appcast") || !path.ends_with(".xml") {
             continue;
         }
-        let time = database::text(&row[1]).and_then(|stamp| IsoTime::parse(stamp).ok())?;
+        // Newest first: one older than a week ends the look (the rest are older still); one that gives no release (its
+        // file evicted, an empty answer, a body that says no version) gives way to the one before it.
+        let Some(time) = database::text(&row[1]).and_then(|stamp| IsoTime::parse(stamp).ok()) else { continue };
         let mut utc = time;
         utc.offset = Some(0);
         let checked = utc.timestamp(&jiff::tz::TimeZone::UTC);
@@ -375,19 +377,17 @@ fn cached_feed(root: &str, now: f64) -> Option<Object> {
                 .unwrap_or_default();
             if !(1..=80).contains(&name.chars().count()) || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
             {
-                return None;
+                continue;
             }
             let file = format!("{root}/fsCachedData/{name}");
             if std::fs::symlink_metadata(&file).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
-                return None;
+                continue;
             }
-            let data = std::fs::read(&file).ok()?;
-            if data.len() > 1024 * 1024 {
-                return None;
-            }
+            let Some(data) = std::fs::read(&file).ok().filter(|data| data.len() <= 1024 * 1024) else { continue };
             data
         } else {
-            database::blob(&row[3])?.to_vec()
+            let Some(data) = database::blob(&row[3]) else { continue };
+            data.to_vec()
         };
         let (latest, build) = sparkle_release(&body);
         if let (Some(latest), Some(build)) = (latest, build)
@@ -398,7 +398,6 @@ fn cached_feed(root: &str, now: f64) -> Option<Object> {
                 object! { "latest" => latest, "build" => build, "releaseSource" => "client-feed", "observedAt" => checked },
             );
         }
-        return None;
     }
     None
 }
@@ -1038,5 +1037,51 @@ mod tests {
         let channel = super::codex_channel(&launcher.to_string_lossy());
         assert_eq!(channel.get("channelId").and_then(crate::json::Json::as_str), Some("npm"));
         let _ = std::fs::remove_dir_all(&prefix);
+    }
+}
+
+#[cfg(test)]
+mod feed_tests {
+    use super::cached_feed;
+    use crate::database::{Database, Mode, Value};
+    use std::path::Path;
+
+    /// The newest cached answer gone from disk (or empty): the one before it, a day older, still tells the release.
+    #[test]
+    fn a_cached_answer_that_gives_nothing_gives_way_to_the_one_before() {
+        let root = std::env::temp_dir().join(format!("starmeter-appcast-{}", crate::runtime::random_hex(6)));
+        std::fs::create_dir_all(root.join("fsCachedData")).unwrap();
+        let db = Database::open(&root.join("Cache.db"), 2.0, Mode::ReadWrite).unwrap();
+        db.execute(
+            "CREATE TABLE cfurl_cache_response(entry_ID INTEGER,request_key TEXT,time_stamp TEXT);
+             CREATE TABLE cfurl_cache_receiver_data(entry_ID INTEGER,isDataOnFS INTEGER,receiver_data BLOB);",
+        )
+        .unwrap();
+        let now = 1_795_478_400.0;
+        let feed = "<rss xmlns:sparkle=\"http://www.andymatuschak.org/xml-namespaces/sparkle\"><channel><item>\
+                    <sparkle:shortVersionString>26.1</sparkle:shortVersionString><sparkle:version>2610</sparkle:version>\
+                    </item></channel></rss>";
+        let url = "https://persistent.oaistatic.com/codex-app-prod/appcast.xml";
+        let rows: [(i64, &str, i64, Value); 3] = [
+            (1, "2026-11-23 23:00:00", 1, Value::Blob(b"evicted-file".to_vec())),
+            (2, "2026-11-23 22:00:00", 0, Value::Blob(Vec::new())),
+            (3, "2026-11-23 00:00:00", 0, Value::Blob(feed.as_bytes().to_vec())),
+        ];
+        for (entry, stamp, on_disk, body) in rows {
+            db.run(
+                "INSERT INTO cfurl_cache_response VALUES(?,?,?)",
+                &[Value::Integer(entry), Value::Text(url.into()), Value::Text(stamp.into())],
+            )
+            .unwrap();
+            db.run(
+                "INSERT INTO cfurl_cache_receiver_data VALUES(?,?,?)",
+                &[Value::Integer(entry), Value::Integer(on_disk), body],
+            )
+            .unwrap();
+        }
+        drop(db);
+        let found = cached_feed(&root.to_string_lossy(), now).expect("the older answer");
+        assert_eq!(found.get("latest").and_then(|v| v.as_str()), Some("26.1"));
+        let _ = std::fs::remove_dir_all(Path::new(&root));
     }
 }

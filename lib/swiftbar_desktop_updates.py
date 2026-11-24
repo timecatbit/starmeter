@@ -41,23 +41,27 @@ def cached_feed(root,parse_release,now):
             WHERE r.request_key LIKE 'https://persistent.oaistatic.com/codex-app-prod/appcast%'
               AND length(d.receiver_data)<=?
             ORDER BY r.time_stamp DESC LIMIT 12''',(LIMIT,))
+        # Newest first: one older than a week ends the look (the rest are older still); one that gives no release (its
+        # file evicted, an empty answer, a body that says no version) gives way to the one before it.
         for url,stamp,on_disk,body in rows:
             parts=urlsplit(url)
             if parts.hostname!='persistent.oaistatic.com' or parts.port not in (None,443) or parts.username or parts.password:continue
             if not re.fullmatch(r'/codex-app-prod/appcast(?:-\d+(?:\.\d+){0,4})?\.xml',parts.path):continue
-            checked=parse_iso(stamp).replace(tzinfo=timezone.utc).timestamp()
+            try:checked=parse_iso(stamp).replace(tzinfo=timezone.utc).timestamp()
+            except (ValueError,TypeError,AttributeError):continue
             if not -60<=now-checked<=7*86400:return None
             if on_disk:
-                name=body.decode('ascii') if isinstance(body,bytes) else body
-                if not isinstance(name,str) or not re.fullmatch(r'[a-zA-Z0-9-]{1,80}',name):return None
+                try:name=body.decode('ascii') if isinstance(body,bytes) else body
+                except UnicodeDecodeError:continue
+                if not isinstance(name,str) or not re.fullmatch(r'[a-zA-Z0-9-]{1,80}',name):continue
                 path=root/'fsCachedData'/name
-                if path.is_symlink():return None
-                body=bounded_read(path)
-            if not isinstance(body,bytes):return None
+                if path.is_symlink():continue
+                try:body=bounded_read(path)
+                except (OSError,ValueError):continue
+            if not isinstance(body,bytes):continue
             latest,build=parse_release(body)
             if version(latest) and version(build):
                 return {'latest':latest,'build':build,'releaseSource':'client-feed','observedAt':checked}
-            return None
     except (OSError,ValueError,TypeError,sqlite3.Error):pass
     finally:
         if connection is not None:connection.close()
