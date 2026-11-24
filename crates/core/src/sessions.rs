@@ -576,8 +576,9 @@ const DAYS_KEPT: i64 = 40;
 /// The session-spent cache's own version, beside the schema 1 every cache record carries (a record of another schema
 /// reads as empty): 3 keeps each session's cost by day in the counting zone and its last day of requests one by one,
 /// and when it began; 4 keeps the prices it was counted with; 5 a digest of everything each file's reading read,
-/// and the requests timed ahead of the clock apart.
-const SPENT_VERSION: i64 = 5;
+/// and the requests timed ahead of the clock apart; 6 each Claude reply once with its fullest line, kept in `best`,
+/// its own notices and lines with no tokens left out (a reading of 5 counted the first line).
+const SPENT_VERSION: i64 = 6;
 
 /// A digest of a file's first `offset` bytes, all that the last reading read: when it differs, something already
 /// counted was written over, wherever in the file (SESSION-6), and the file is read again from the start. It reads
