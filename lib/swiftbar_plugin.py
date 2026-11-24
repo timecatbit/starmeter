@@ -2609,8 +2609,10 @@ def refresh_now(source):
         fcntl.flock(lock,fcntl.LOCK_EX)
         invalidate_caches(names)
         loaders=external_loaders()
+        # OpenCodex's endpoints (its ChatGPT accounts' among them) are all read by its one loader.
+        wanted={name for name in names if name in loaders}|({'opencodex'} if 'opencodex' in loaders and any(n in OPENCODEX_ENDPOINTS for n in names) else set())
         with ThreadPoolExecutor(max_workers=4) as pool:
-            for future in [pool.submit(loaders[name]) for name in names if name in loaders]:future.result()
+            for future in [pool.submit(loaders[name]) for name in sorted(wanted)]:future.result()
     refresh_swiftbar()
 
 
@@ -3588,6 +3590,11 @@ def service_connection_entry(key,data=None):
     if service and service.category=='API':
         # Same key list as the homepage, plus pointing the classic connection at a key file.
         children=panel_entries(api_lines(key,data or {}))[0]['children']
+        # Off the homepage nothing reads it in the background, so 立即刷新 would have nothing to do here.
+        if not module_enabled(key):
+            def without_refresh(rows):
+                return [dict(row,children=without_refresh(row.get('children') or [])) for row in rows if (row.get('action') or [None])[0]!='refresh-now']
+            children=without_refresh(children)
         children.insert(len(children)-1,{'label':'选择密钥文件…','action':['configure-connection',key],'children':[]})
         if not configured and key in catalog.SETUP_NOTES:children.insert(0,{'label':catalog.SETUP_NOTES[key],'children':[]})
         return {'label':service.label,'value':'已配置' if configured else '未配置','symbol':'key','children':children}

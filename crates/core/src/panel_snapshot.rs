@@ -523,6 +523,24 @@ impl Runtime {
     }
 
     fn service_connection_entry(&self, key: &str, data: &Object) -> Json {
+        /// The rows less any 立即刷新, at every depth (a key's rows sit under it).
+        fn without_refresh(rows: Vec<Json>) -> Vec<Json> {
+            rows.into_iter()
+                .filter(|row| {
+                    row.get("action").and_then(Json::as_array).and_then(|action| action.first())
+                        != Some(&Json::from("refresh-now"))
+                })
+                .map(|row| match row {
+                    Json::Object(mut entry) => {
+                        if let Some(children) = entry.get("children").and_then(Json::as_array).cloned() {
+                            entry.insert("children", Json::Array(without_refresh(children)));
+                        }
+                        Json::Object(entry)
+                    }
+                    other => other,
+                })
+                .collect()
+        }
         let service = catalog::by_key(key);
         let configured = self.connection_ready(key);
         let value = if configured { "已配置" } else { "未配置" };
@@ -535,6 +553,10 @@ impl Runtime {
                 .and_then(Json::as_array)
                 .cloned()
                 .unwrap_or_default();
+            // Off the homepage nothing reads it in the background, so 立即刷新 would have nothing to do here.
+            if !self.module_enabled(key) {
+                children = without_refresh(children);
+            }
             let at = children.len().saturating_sub(1);
             children.insert(at, with("选择密钥文件…", object! { "action" => action(&["configure-connection", key]) }));
             if !configured && let Some(note) = note {

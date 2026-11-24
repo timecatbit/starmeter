@@ -244,14 +244,16 @@ impl Runtime {
         if names.is_empty() {
             return Ok(());
         }
+        // OpenCodex's endpoints (its ChatGPT accounts' among them) are all read by its one loader.
+        let wanted = |loader: &str| {
+            names.iter().any(|name| name == loader)
+                || (loader == "opencodex"
+                    && names.iter().any(|name| ENDPOINTS.iter().any(|endpoint| endpoint.0 == name)))
+        };
         self.with_lock("refresh.lock", true, || {
             self.invalidate(&names);
-            let work: Vec<Box<dyn FnOnce() + Send + '_>> = self
-                .external_loaders()
-                .into_iter()
-                .filter(|(name, _)| names.contains(name))
-                .map(|(_, job)| job)
-                .collect();
+            let work: Vec<Box<dyn FnOnce() + Send + '_>> =
+                self.external_loaders().into_iter().filter(|(name, _)| wanted(name)).map(|(_, job)| job).collect();
             run_concurrently(work, 4);
             self.after_reads();
         });
