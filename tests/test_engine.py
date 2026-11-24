@@ -1801,6 +1801,70 @@ class SessionParityTests(unittest.TestCase):
         self.assertEqual((got[0]['spent']['requests'], got[0]['spent']['ranges']['24h']['requests']), (3, 3))
         self.assertEqual((got[0]['turns'][0]['requests'], got[0]['turns'][0]['tokens']), (3, 900))
 
+    def test_antigravitys_copies_of_a_conversation_count_each_response_once(self):
+        """AGY-6: a conversation the app and the IDE each keep, the older copy holding a response the newer lacks: the
+        session counts every response once, as the Gemini card does, whichever copy is newer, for a task listed for
+        itself and for a parent read for its subagent."""
+        def pb(*fields):
+            def varint(n):
+                out = b''
+                while True:
+                    byte = n & 0x7f; n >>= 7
+                    out += bytes([byte | (0x80 if n else 0)])
+                    if not n:return out
+            data = b''
+            for number, value in fields:
+                if isinstance(value, int):data += varint(number << 3) + varint(value)
+                else:
+                    value = value.encode() if isinstance(value, str) else value
+                    data += varint(number << 3 | 2) + varint(len(value)) + value
+            return data
+        now = time.time()
+        moment = lambda at: pb((1, int(at)), (2, 0))
+        def store(path, responses, age):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            db = sqlite3.connect(path)
+            db.executescript('CREATE TABLE steps(idx integer, step_type integer NOT NULL DEFAULT 0, status integer NOT NULL DEFAULT 0, metadata blob);'
+                             'CREATE TABLE gen_metadata(idx integer PRIMARY KEY, data blob, size integer NOT NULL DEFAULT 0);'
+                             'CREATE TABLE trajectory_metadata_blob(id text DEFAULT "main" PRIMARY KEY, data blob);')
+            for idx, response in enumerate(responses):
+                usage = pb((2, 1000), (3, 10), (10, 10), (11, response))
+                db.execute('INSERT INTO gen_metadata(idx, data) VALUES (?, ?)', (idx, pb((1, pb((3, 1427), (4, usage), (19, 'gemini-4-carbon'))))))
+                db.execute('INSERT INTO steps(idx, metadata) VALUES (?, ?)', (idx, pb((1, moment(now - 400 + idx)), (9, pb((11, response))))))
+            db.commit(); db.close()
+            os.utime(path, (now - age, now - age))
+        def listing(app, rows):
+            db = sqlite3.connect(app / 'conversation_summaries.db')
+            db.execute('CREATE TABLE IF NOT EXISTS conversation_summaries(conversation_id TEXT PRIMARY KEY, title TEXT, workspace_uris TEXT, '
+                       'parent_conversation_id TEXT, status TEXT, not_fully_idle INTEGER)')
+            for conversation, title, parent in rows:
+                db.execute('INSERT OR REPLACE INTO conversation_summaries VALUES (?,?,?,?,?,?)', (conversation, title, '[]', parent, 'CASCADE_RUN_STATUS_IDLE', 0))
+            db.commit(); db.close()
+        for newer in ('ide', 'app'):
+            with self.subTest(newer=newer):
+                temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
+                root = Path(temp.name); home = root / 'home'; (root / 'state').mkdir()
+                gemini = home / '.gemini'
+                app, ide = gemini / 'antigravity', gemini / 'antigravity-ide'
+                # The task: r1 and r2 in one copy, r1 alone in the other. A subagent of it, changed lately, in the IDE only:
+                # the task is read for it as a parent too.
+                store(app / 'conversations' / 'task.db', ['r1', 'r2'], 600 if newer == 'ide' else 60)
+                store(ide / 'conversations' / 'task.db', ['r1'], 60 if newer == 'ide' else 600)
+                store(ide / 'conversations' / 'sub.db', ['r3'], 30)
+                listing(app, [('task', 'Two copies', None)])
+                listing(ide, [('task', 'Two copies', None), ('sub', None, 'task')])
+                (root / 'state' / 'preferences.json').write_text(json.dumps({'schema': 1, 'visible': ['summary', 'gemini', 'sessions'],
+                                                                            'modules': [m[0] for m in preferences.MODULES]}))
+                environment = {'HOME': str(home), 'OCX_STATE_DIR': str(root / 'state'), 'OCX_CACHE_DIR': str(root / 'cache'),
+                               'OCX_PLUGIN_PATH': str(ROOT / 'starmeter.30s.sh')}
+                with unittest.mock.patch.dict(os.environ, environment):
+                    for name in ('CLAUDE_CONFIG_DIR', 'XDG_CONFIG_HOME', 'CODEX_HOME', 'OCX_CHATGPT_HOME', 'GEMINI_USAGE_DIR'):os.environ.pop(name, None)
+                    card = swift('range.usage', 'today', 0)['payload']['gemini']['summary']['requests']
+                    listed = [s for s in swift('runtime', 'sessions')['payload']['sessions'] if s.get('title') == 'Two copies']
+                self.assertEqual(card, 3)
+                self.assertEqual(len(listed), 1)
+                self.assertEqual(listed[0]['spent']['requests'], 3)
+
     def test_a_new_process_reads_on_from_the_session_cost_cache(self):
         """SESSION-4: the cost read so far is kept between processes, so an unchanged transcript is not read again and a
         grown one only from where the last reading stopped; SESSION-6: one written over anywhere is read again."""

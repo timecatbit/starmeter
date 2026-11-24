@@ -207,49 +207,64 @@ fn gemini_records(cache: &Path, root: &str, since: f64) -> Vec<Record> {
             })
         })
         .collect();
-    let stores = harness::antigravity_stores(root);
-    let mut conversations: HashMap<String, Record> = HashMap::new();
-    let mut parents: HashMap<String, String> = HashMap::new();
-    // A conversation's record, from the newest of the stores that keep it.
-    let read = |id: &str, store: &str, changed: f64| -> (Record, Option<String>) {
-        let summary = antigravity_summary(store, id);
-        let events = indexed(&db, store);
+    // Each conversation's copies: the app's, the IDE's and the agy CLI's stores may each keep it.
+    let mut copies: HashMap<String, Vec<(String, f64)>> = HashMap::new();
+    for store in harness::antigravity_stores(root) {
+        let Some((_, mtime)) = harness::store_state(&store) else { continue };
+        let id = Path::new(&store).file_stem().map(|stem| stem.to_string_lossy().into_owned()).unwrap_or_default();
+        copies.entry(id).or_default().push((store, mtime as f64 / 1e9));
+    }
+    // A conversation's record: its title, project and state from its newest copy; its requests from all of them, each
+    // response once, from the copy that dates it best (its timing), as the usage counts it, since a copy may hold
+    // responses another lacks (AGY-6).
+    let read = |id: &str| -> Option<(Record, Option<String>)> {
+        let kept = copies.get(id)?;
+        let (newest, changed) = kept.iter().max_by(|a, b| a.1.total_cmp(&b.1))?;
+        let summary = antigravity_summary(newest, id);
+        let mut best: HashMap<String, Object> = HashMap::new();
+        let mut order: Vec<String> = Vec::new();
+        for (store, _) in kept {
+            for (index, event) in indexed(&db, store).into_iter().enumerate() {
+                let key =
+                    event.get("id").and_then(Json::as_str).map_or_else(|| format!("{store}#{index}"), String::from);
+                let timing = |event: &Object| event.get("timing").and_then(Json::number).unwrap_or(0.0);
+                if best.get(&key).is_some_and(|known| timing(known) >= timing(&event)) {
+                    continue;
+                }
+                if !best.contains_key(&key) {
+                    order.push(key.clone());
+                }
+                best.insert(key, event);
+            }
+        }
+        let mut events: Vec<Object> = order.into_iter().filter_map(|key| best.remove(&key)).collect();
+        events.sort_by(|a, b| number(a, "timestamp").total_cmp(&number(b, "timestamp")));
         let record = Record {
             key: format!("antigravity:{id}"),
-            changed,
+            changed: *changed,
             events,
             title: summary.title,
             project: summary.project,
             running: summary.running,
         };
-        (record, summary.parent)
+        Some((record, summary.parent))
     };
-    for store in &stores {
-        let Some((_, mtime)) = harness::store_state(store) else { continue };
-        let changed = mtime as f64 / 1e9;
-        if changed < since {
+    let mut conversations: HashMap<String, Record> = HashMap::new();
+    let mut parents: HashMap<String, String> = HashMap::new();
+    let mut listed: Vec<&String> = copies.keys().collect();
+    listed.sort();
+    for id in listed {
+        if !copies[id].iter().any(|(_, changed)| *changed >= since) {
             continue;
         }
-        let id = Path::new(store).file_stem().map(|stem| stem.to_string_lossy().into_owned()).unwrap_or_default();
-        if conversations.get(&id).is_some_and(|known| known.changed >= changed) {
-            continue;
+        let Some((record, parent)) = read(id) else { continue };
+        if let Some(parent) = parent.filter(|parent| parent != id) {
+            parents.insert(id.clone(), parent);
         }
-        let (record, parent) = read(&id, store, changed);
-        match parent.filter(|parent| *parent != id) {
-            Some(parent) => parents.insert(id.clone(), parent),
-            None => parents.remove(&id),
-        };
-        conversations.insert(id, record);
+        conversations.insert(id.clone(), record);
     }
-    // A task not read yet, from the newest of the stores that keep it (the app's or the IDE's), with its own parent.
-    fold_subagents(&mut conversations, parents, |parent| {
-        let (store, mtime) = stores
-            .iter()
-            .filter(|store| Path::new(store).file_stem().is_some_and(|stem| stem.to_string_lossy() == parent))
-            .filter_map(|store| Some((store, harness::store_state(store)?.1)))
-            .max_by_key(|(_, mtime)| *mtime)?;
-        Some(read(parent, store, mtime as f64 / 1e9))
-    });
+    // A task not read yet (only its subagents changed since): read the same way, with its own parent.
+    fold_subagents(&mut conversations, parents, |parent| read(parent));
     let mut ids: Vec<String> = conversations.keys().cloned().collect();
     ids.sort();
     records.extend(ids.into_iter().filter_map(|id| conversations.remove(&id)));
