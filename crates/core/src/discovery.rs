@@ -8,7 +8,7 @@ use std::path::Path;
 use crate::claude_usage::state_of;
 use crate::client_accounts::qoder;
 use crate::files::{self, paths};
-use crate::harness::walk;
+use crate::harness::{relative_to, walk};
 use crate::json::{Json, Object};
 use crate::opencodex::monitor_url;
 use crate::preferences::{self, Error};
@@ -26,7 +26,8 @@ fn has_records(root: Option<&str>, matches: impl Fn(&str, &str) -> bool) -> bool
         return false;
     }
     for path in walk(&base) {
-        let relative = path.get(base.len() + 1..).unwrap_or("");
+        // Below the folder however it was written (a trailing slash too: GEMINI_USAGE_DIR=/path/to/gemini/).
+        let relative = relative_to(&path, &base);
         let name = path.rsplit('/').next().unwrap_or("");
         if matches(name, relative) && state_of(Path::new(&path)).is_some_and(|state| state.size > 0) {
             return true;
@@ -291,8 +292,20 @@ impl Runtime {
 
 #[cfg(test)]
 mod tests {
-    use super::{Inputs, detect};
+    use super::{Inputs, detect, has_records};
     use std::collections::HashMap;
+
+    #[test]
+    fn a_folder_written_with_a_trailing_slash_finds_its_records() {
+        let root = std::env::temp_dir().join(format!("starmeter-trailing-{}", crate::runtime::random_hex(6)));
+        std::fs::create_dir_all(root.join("tmp/x/chats")).unwrap();
+        std::fs::write(root.join("tmp/x/chats/session-1.json"), b"{}").unwrap();
+        let with_slash = format!("{}/", root.to_string_lossy());
+        let chats = |_: &str, relative: &str| relative.split('/').any(|part| part == "chats");
+        assert!(has_records(Some(&with_slash), chats));
+        assert!(has_records(Some(&root.to_string_lossy()), chats));
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     /// The macOS app finds an app installed but not yet used (WorkBuddy, with no records), as the plugin does.
     #[cfg(target_os = "macos")]

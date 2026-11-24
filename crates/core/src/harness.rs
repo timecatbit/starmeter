@@ -539,7 +539,7 @@ pub fn walk(root: &str) -> Vec<String> {
 /// walk(), not going into the folders `skip` names (given each folder's path).
 /// A path found by `walk_except` under `folder`, from just below it: the folder may end with its separator (a root such
 /// as / or C:\\), which the walk drops before joining with '/'.
-fn relative_to<'a>(path: &'a str, folder: &str) -> &'a str {
+pub(crate) fn relative_to<'a>(path: &'a str, folder: &str) -> &'a str {
     path.strip_prefix(folder.trim_end_matches(['/', '\\'])).and_then(|rest| rest.strip_prefix('/')).unwrap_or(path)
 }
 
