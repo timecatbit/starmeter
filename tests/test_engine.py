@@ -2048,6 +2048,33 @@ class PanelParityTests(BackgroundParityTests):
         used = sorted((window['name'], window['used']) for window in got['windows'])
         self.assertEqual(used, [('ChatGPT 订阅', 100.0), ('Gemini 订阅', 100.0), ('MiniMax 订阅', 100.0)])
 
+    def test_a_window_past_its_reset_raises_no_alert_nor_stands_in_the_menu_bar(self):
+        # A window past its reset has filled again: it neither alerts nor gives the menu bar its share, as the homepage
+        # leaves it out (ChatGPT's and MiniMax's), however fresh the reading it came from; Cursor's ended cycle the same.
+        self.codex_on_path()
+        codex = Path(self.common['HOME']) / '.codex'; codex.mkdir(exist_ok=True)
+        (codex / 'auth.json').write_text(json.dumps({'auth_mode': 'chatgpt', 'tokens': {'access_token': 'x'}}))
+        self.settings(visible=['chatgpt', 'minimax', 'cursor-subscription'], cursorUsage=True, menuBar='quota', usageAlert=90)
+        now = time.time()
+        self.caches(now)
+        records = {
+            'chatgpt': {'state': '已同步', 'windows': [{'name': 'codex', 'slot': 'primary', 'remaining': 2, 'minutes': 300, 'resetsAt': now - 60},
+                                                     {'name': 'codex', 'slot': 'secondary', 'remaining': 70, 'minutes': 10080, 'resetsAt': now + 86400}]},
+            'minimax': {'windows': [{'name': '5 小时额度', 'remaining': 1, 'resetsAt': int(now) - 60}, {'name': '本周额度', 'remaining': 60, 'resetsAt': int(now) + 3600}]},
+            'cursor_subscription': {'percent': 99, 'cycleStart': now - 30 * 86400, 'cycleEnd': now - 60},
+        }
+        for engine in self.states.values():
+            scope = hashlib.sha256(os.path.abspath(engine['OCX_STATE_DIR']).encode()).hexdigest()[:16]
+            root = Path(engine['OCX_CACHE_DIR']) / ('opencodex-swiftbar-v5-%s-%s' % (os.getuid(), scope))
+            for name, payload in records.items():
+                (root / (name + '.json')).write_text(json.dumps({'schema': 1, 'fetchedAt': now - 30, 'payload': payload}, ensure_ascii=False))
+        keys = {'MINIMAX_API_KEY': 'm'}
+        expected, got = self.python('alert_inputs', extra=keys), self.swift('alert_inputs', extra=keys)
+        self.assertEqual(expected, got)
+        used = sorted((window['name'], window['used']) for window in got['windows'])
+        self.assertEqual(used, [('ChatGPT 订阅', 30.0), ('MiniMax 订阅', 40.0)])
+        self.assertEqual(got['menuBar'], '40%')
+
     def test_a_window_with_an_unknown_share_left_is_left_off_the_row(self):
         # A window whose remaining is missing or null isn't drawn as 已用 100%: the row is the windows that say.
         self.codex_on_path()

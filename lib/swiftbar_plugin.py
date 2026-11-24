@@ -2664,7 +2664,11 @@ def alert_windows(data):
     (missing, null) is no reading, not a full one (QUOTA-ALERT-1)."""
     out=[]
     known=known_share
+    moment=time.time()
     def add(source,name,window,used,resets_at,span,current):
+        # A window past its reset has filled again: what was read of it is gone, so it neither alerts nor stands in the
+        # menu bar's share (the homepage leaves ChatGPT's and MiniMax's out the same way).
+        if isinstance(resets_at,(int,float)) and not isinstance(resets_at,bool) and resets_at<=moment:return
         out.append({'id':source+'|'+window,'name':name,'window':window,'used':float(used),'resetsAt':resets_at,'span':span,'current':current})
     if module_enabled('claude-subscription'):
         payload=data.get('claude_subscription') or {}

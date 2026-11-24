@@ -171,6 +171,12 @@ impl Runtime {
         let mut out: Vec<Object> = Vec::new();
         let mut add =
             |source: &str, name: &str, window: &str, used: f64, resets_at: Json, span: Json, current: bool| {
+                // A window past its reset has filled again: what was read of it is gone, so it neither alerts nor
+                // stands in the menu bar's share (the homepage leaves ChatGPT's and MiniMax's out the same way).
+                if matches!(resets_at, Json::Int(_) | Json::Double(_)) && resets_at.number().is_some_and(|at| at <= now)
+                {
+                    return;
+                }
                 out.push(object! {
                     "id" => format!("{source}|{window}"), "name" => name, "window" => window, "used" => used,
                     "resetsAt" => resets_at, "span" => span, "current" => current,
