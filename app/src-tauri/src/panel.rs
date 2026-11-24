@@ -39,7 +39,9 @@ pub struct Panel {
     /// A native menu or the share sheet has the pointer: a click outside is theirs, not a reason to close.
     held: AtomicBool,
     sharing: AtomicBool,
-    /// Which share menu is the latest: a closing one's late word is for its own round, not a newer menu's.
+    /// Which share menu is the latest: a closing one's late word is for its own round, not a newer menu's (macOS,
+    /// whose share menu it is).
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     share_round: AtomicU64,
     modules: AtomicBool,
     /// Where the star is, in logical screen coordinates (macOS: AppKit's, origin bottom left).
