@@ -82,13 +82,19 @@ const
   WebView2Client = '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}';
 
 { Installed for the machine or for this user, as Microsoft's distribution guide says to check. }
-function NeedsWebView2: Boolean;
+{ Each place on its own: an uninstall can leave the machine's entry behind empty or as 0.0.0.0, which mustn't hide
+  a per-user install. }
+function Installed(Root: Integer; Key: String): Boolean;
 var
   Version: String;
 begin
-  Result := not ((RegQueryStringValue(HKLM, 'SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\' + WebView2Client, 'pv', Version)
-    or RegQueryStringValue(HKCU, 'Software\Microsoft\EdgeUpdate\Clients\' + WebView2Client, 'pv', Version))
-    and (Version <> '') and (Version <> '0.0.0.0'));
+  Result := RegQueryStringValue(Root, Key, 'pv', Version) and (Version <> '') and (Version <> '0.0.0.0');
+end;
+
+function NeedsWebView2: Boolean;
+begin
+  Result := not (Installed(HKLM, 'SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\' + WebView2Client)
+    or Installed(HKCU, 'Software\Microsoft\EdgeUpdate\Clients\' + WebView2Client));
 end;
 
 function InstalledExe: String;
