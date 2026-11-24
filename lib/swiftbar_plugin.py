@@ -1945,6 +1945,12 @@ def reserve_week(on_reserve,limits):
     return '%s %g%%'%(limits[0][0],round(min(100,max(0,float(limits[0][1]))),1)) if on_reserve and len(limits)==1 else None
 
 
+def reserve_share_level(on_reserve,used,stale=False):
+    """On the reserve the bar and its share are coloured by the window itself (used up is red), as paired bars are;
+    the value, what is left to spend, keeps the reserve's orange."""
+    return usage_level(used,stale) if on_reserve and used is not None else None
+
+
 def reserve_share(on_reserve,used):
     """On the reserve the value is what is left to spend, not 已用 X%, so the share used goes beside it for the row's
     bar (with one window there is no pair of bars to show it)."""
@@ -2067,7 +2073,8 @@ def claude_subscription_lines(data):
     source={'claude-oauth':'Code 登录','live':'App 登录 · 手动查询','claude-code':'Code 本机回传','app-snapshot':'App 本机快照'}.get(payload.get('source'),'Claude App 本机快照')
     limits=[(w['label'],w['used'],claude_span(w)==5*3600) for w in windows]
     rows=[item('Claude 订阅',badge=value,panelgauges=gauges(headline_pair(limits),stale or failed),paneldetail=reserve_week(on_reserve,limits),**brand_icon('claude-subscription'),panelusagelevel=reserve_level(failed) if on_reserve else usage_level(headline[0] if headline else 0,stale or failed or not windows),
-               panelshare=reserve_share(on_reserve,max((w['used'] for w in windows),default=None))),
+               panelshare=reserve_share(on_reserve,max((w['used'] for w in windows),default=None)),
+               panelsharelevel=reserve_share_level(on_reserve,max((w['used'] for w in windows),default=None),stale or failed)),
           item('来源 · '+source,level=1,color=MUTED,size=10)]
     for w in windows:
         try:resets=parse_iso(w['resetsAt']).timestamp() if w.get('resetsAt') else None
@@ -2152,7 +2159,7 @@ def cursor_subscription_lines(data):
     else:badge='暂无套餐用量' if payload else '待同步'
     rows=[item(service.label,badge=with_failure(badge,percent is not None,failed),**brand_icon('cursor-subscription'),
                panelusagelevel=(reserve_level(failed) if on_reserve else usage_level(percent,failed)) if percent is not None else None,
-               panelshare=reserve_share(on_reserve,percent)),
+               panelshare=reserve_share(on_reserve,percent),panelsharelevel=reserve_share_level(on_reserve,percent,failed)),
           item('来源 · Cursor 账户（cursor.com）',level=1,color=MUTED,size=10)]
     if percent is not None:
         # Like every window: the share, then 重置于 … · pace on its second line; the dollars get their own row.
@@ -3406,7 +3413,7 @@ def chatgpt_lines(data):
     offered=resets.get('count') or 0
     limits=[(chatgpt_window_label(w),100-w['remaining'],chatgpt_window_label(w)=='5 小时') for w in visible]
     lines=[item(label,badge=with_failure(badge,bool(visible),failed),panelgauges=gauges(headline_pair(limits),failed),paneldetail=reserve_week(on_reserve,limits),**brand_icon('chatgpt'),
-                panelusagelevel=(reserve_level(failed) if on_reserve else usage_level(headline[0] if headline else None,failed)) if visible else None,panelshare=reserve_share(on_reserve,most))]
+                panelusagelevel=(reserve_level(failed) if on_reserve else usage_level(headline[0] if headline else None,failed)) if visible else None,panelshare=reserve_share(on_reserve,most),panelsharelevel=reserve_share_level(on_reserve,most,failed))]
     lines.append(item('来源 · 本机登录 · 编程工具额度',level=1,color=MUTED,size=10))
     for w in visible:
         minutes=w.get('minutes') or 0
@@ -4176,6 +4183,7 @@ def panel_entries(lines):
             try:
                 if 'panelshare' in attrs:entry['share']=min(1.0,max(0.0,float(attrs['panelshare'])/100))
             except ValueError:pass
+            if attrs.get('panelsharelevel') in ('normal','warning','critical'):entry['shareLevel']=attrs['panelsharelevel']
             if attrs.get('panelstatus') in STATUS_LIGHTS:entry['statusLight']=attrs['panelstatus']
             if attrs.get('panelradio') in ('on','off'):entry.update(radio=True,checked=attrs['panelradio']=='on')
             if attrs.get("badge"):
@@ -4584,7 +4592,7 @@ def native_menu_line(line):
     label,separator,raw=line.partition(' | ')
     if not separator:return line
     options=dict(part.split('=',1) for part in shlex.split(raw) if '=' in part)
-    for key in ('color','sfcolor','sfcolors','panelattention','paneldetail','panelfallback','panelgauges','panelsection','panelstatus','panelradio','panelusagelevel','panelkey','panelshare'):options.pop(key,None)
+    for key in ('color','sfcolor','sfcolors','panelattention','paneldetail','panelfallback','panelgauges','panelsection','panelstatus','panelradio','panelusagelevel','panelkey','panelshare','panelsharelevel'):options.pop(key,None)
     return label+separator+' '.join(as_option(k,v) for k,v in options.items())
 
 

@@ -12,7 +12,7 @@ use crate::runtime::{Runtime, VERSION, now};
 use crate::self_update::{AUTHOR, REPOSITORY};
 use crate::{claude_bridge, discovery, files, object, preferences, pricing, py};
 
-const NATIVE_ONLY: [&str; 13] = [
+const NATIVE_ONLY: [&str; 14] = [
     "color",
     "sfcolor",
     "sfcolors",
@@ -26,6 +26,7 @@ const NATIVE_ONLY: [&str; 13] = [
     "panelusagelevel",
     "panelkey",
     "panelshare",
+    "panelsharelevel",
 ];
 
 /// A row of SwiftBar's own menu in 繁體中文: its words (the label, the figure beside it, the tooltip) converted; the

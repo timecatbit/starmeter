@@ -2086,8 +2086,9 @@ class PanelParityTests(BackgroundParityTests):
         expected, got = self.python('snapshot', now), self.swift('snapshot', now)
         self.assertEqual(expected['entries'], got['entries'])
         row = next(entry for entry in got['entries'] if entry.get('label') == 'ChatGPT 订阅')
-        self.assertEqual((row['value'], row.get('detail'), row['usageLevel'], row['share']),
-                         ('余 41,554 Credits', '本周 100%', 'warning', 1.0))
+        # The value orange (still usable, on the reserve); the bar and its share red, as a window used up is.
+        self.assertEqual((row['value'], row.get('detail'), row['usageLevel'], row['share'], row['shareLevel']),
+                         ('余 41,554 Credits', '本周 100%', 'warning', 1.0, 'critical'))
         again = next(child for child in row['children'] if child['label'] == '立即刷新')
         self.assertEqual(again['action'], ['refresh-now', 'chatgpt'])
 
@@ -2299,6 +2300,7 @@ class EngineRunParityTests(PanelParityTests):
         self.assertTrue(children['免费重置']['detail'].endswith('过期 · 在 Codex 里使用'))
         # Two windows: their bars name the week's share, so nothing under them.
         self.assertEqual((claude['value'], claude.get('detail'), claude.get('usageLevel')), ('额外用量剩 $37.50', None, 'warning'))
+        self.assertEqual((chatgpt['shareLevel'], cursor['shareLevel']), ('critical', 'critical'))
         self.assertEqual((cursor['value'], cursor.get('usageLevel')), ('在用按需用量', 'warning'))
 
     def test_payback_of_a_tool_off_the_homepage(self):

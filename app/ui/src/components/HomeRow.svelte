@@ -39,6 +39,9 @@
     return after ? { lead: '', figure: after[1], tail: after[2] + after[3] } : null;
   });
   const usage = $derived(usageShare(entry));
+  /** The single bar's own level when the row has one apart from its value's (a used-up window on the reserve: red bar,
+   *  orange value), else the row's. */
+  const barLevel = $derived(entry.shareLevel ?? entry.usageLevel);
   /** Under a single bar, a window's share (本周 100%) reads as the paired bars' names do: the name quiet, the share
    *  plain. */
   const named = $derived.by(() => {
@@ -120,11 +123,11 @@
           {/each}
         </span>
       {:else if gauge && usage !== null}
-        <span class="gauge"><span class="gauge-fill" style:width="max(3px, {usage * 100}%)" style:background={barColor(entry.usageLevel, panel.dark)}
-          style:--pen={barColor(entry.usageLevel, panel.dark)}></span></span>
+        <span class="gauge"><span class="gauge-fill" style:width="max(3px, {usage * 100}%)" style:background={barColor(barLevel, panel.dark)}
+          style:--pen={barColor(barLevel, panel.dark)}></span></span>
       {/if}
       {#if named}
-        <span class="gauge-name"><span class="gauge-label">{named.label}</span> <span class="num" style:color={usageColor(entry.usageLevel)}>{named.share}</span></span>
+        <span class="gauge-name"><span class="gauge-label">{named.label}</span> <span class="num" style:color={usageColor(barLevel)}>{named.share}</span></span>
       {:else if entry.detail}<span class="detail">{entry.detail}</span>{/if}
     </span>
     {#if entry.children.length}

@@ -205,6 +205,12 @@ pub fn reserve_week(on_reserve: bool, limits: &[(String, f64, bool)]) -> Json {
     }
 }
 
+/// On the reserve the bar and its share are coloured by the window itself (a window used up is red, 用户：已用 100% 不应该
+/// 是红色的吗), as paired bars are; the value, what is left to spend, keeps the reserve's orange.
+pub fn reserve_share_level(on_reserve: bool, used: Option<f64>, stale: bool) -> Json {
+    if on_reserve { usage_level(used, stale) } else { Json::Null }
+}
+
 /// On the reserve the value is what is left to spend, not 已用 X%, so the share used goes beside it for the row's bar
 /// (with one window there is no pair of bars to show it; 用户：ChatGPT 的订阅用量条怎么没了).
 pub fn reserve_share(on_reserve: bool, used: Option<f64>) -> Json {

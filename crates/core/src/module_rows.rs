@@ -207,6 +207,7 @@ impl Runtime {
                     &object! {
                         "panelusagelevel" => if on_reserve { rows::reserve_level(failed) } else { usage_level(Some(headline.as_ref().map_or(0.0, |(share, _)| *share)), stale || failed || windows.is_empty()) },
                         "panelshare" => rows::reserve_share(on_reserve, most),
+                        "panelsharelevel" => rows::reserve_share_level(on_reserve, most, stale || failed),
                     },
                 ]),
             ),
@@ -540,6 +541,7 @@ impl Runtime {
                     &object! {
                         "panelusagelevel" => if percent.is_none() { Json::Null } else if on_reserve { rows::reserve_level(failed) } else { usage_level(percent, failed) },
                         "panelshare" => rows::reserve_share(on_reserve, percent),
+                        "panelsharelevel" => rows::reserve_share_level(on_reserve, percent, failed),
                     },
                 ]),
             ),
@@ -874,6 +876,7 @@ impl Runtime {
                 &object! {
                     "panelusagelevel" => if visible.is_empty() { Json::Null } else if on_reserve { rows::reserve_level(failed) } else { usage_level(headline.as_ref().map(|(share, _)| *share), failed) },
                     "panelshare" => rows::reserve_share(on_reserve, most),
+                    "panelsharelevel" => rows::reserve_share_level(on_reserve, most, failed),
                 },
             ]),
         )];
