@@ -97,6 +97,12 @@ pub struct PhoneView {
     seconds_left: u64,
 }
 
+/// A public link still to be used: its cloudflared running and its hour not up. Past the hour it is closed within a few
+/// seconds (serve looks every five); until then it isn't offered, with no time left on it.
+fn usable((tunnel, until): &(crate::tunnel::Tunnel, Instant)) -> bool {
+    tunnel.alive() && Instant::now() < *until
+}
+
 fn view(running: &Running) -> PhoneView {
     let fragment = format!("#k={}", running.key);
     PhoneView {
@@ -104,12 +110,12 @@ fn view(running: &Running) -> PhoneView {
         public: running
             .public
             .as_ref()
-            .filter(|(tunnel, _)| tunnel.alive())
+            .filter(|public| usable(public))
             .map(|(tunnel, _)| format!("{}/{fragment}", tunnel.url)),
         seconds_left: running
             .public
             .as_ref()
-            .filter(|(tunnel, _)| tunnel.alive())
+            .filter(|public| usable(public))
             .map_or(0, |(_, until)| until.saturating_duration_since(Instant::now()).as_secs()),
     }
 }
@@ -190,7 +196,7 @@ fn stop_running(running: &mut Running) {
 
 /// Closes the public link once its hour is up or its cloudflared has ended; the server stays.
 fn close_public_if_over(running: &mut Running) {
-    if running.public.as_ref().is_some_and(|(tunnel, until)| !tunnel.alive() || Instant::now() >= *until)
+    if running.public.as_ref().is_some_and(|public| !usable(public))
         && let Some((mut over, _)) = running.public.take()
     {
         over.stop();
@@ -211,7 +217,7 @@ pub async fn phone_public(app: AppHandle) -> Result<PhoneView, String> {
         let Some(current) = running.as_ref().filter(|current| !current.stop.load(Ordering::SeqCst)) else {
             return Err("先打开手机查看".into());
         };
-        if current.public.as_ref().is_some_and(|(tunnel, _)| tunnel.alive()) {
+        if current.public.as_ref().is_some_and(usable) {
             return Ok(view(current));
         }
         (current.port, current.stop.clone())
@@ -220,10 +226,15 @@ pub async fn phone_public(app: AppHandle) -> Result<PhoneView, String> {
     let opened = tauri::async_runtime::spawn_blocking(move || -> Result<Option<crate::tunnel::Tunnel>, String> {
         let _turn = OPENING.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         // The link an earlier ask of this round opened while this one waited serves it too.
+        // Stopped while it waited its turn: nothing to open a link for.
+        if asked.load(Ordering::SeqCst) {
+            return Ok(None);
+        }
         let state = handle.state::<Phone>();
-        let served = state.running.lock().expect("the phone lock").as_ref().is_some_and(|current| {
-            Arc::ptr_eq(&current.stop, &asked) && current.public.as_ref().is_some_and(|(tunnel, _)| tunnel.alive())
-        });
+        let served =
+            state.running.lock().expect("the phone lock").as_ref().is_some_and(|current| {
+                Arc::ptr_eq(&current.stop, &asked) && current.public.as_ref().is_some_and(usable)
+            });
         if served {
             return Ok(None);
         }
@@ -233,7 +244,9 @@ pub async fn phone_public(app: AppHandle) -> Result<PhoneView, String> {
     .map_err(|error| error.to_string())??;
     let state = app.state::<Phone>();
     let mut running = state.running.lock().expect("the phone lock");
-    let Some(current) = running.as_mut().filter(|current| Arc::ptr_eq(&current.stop, &round)) else {
+    let Some(current) =
+        running.as_mut().filter(|current| Arc::ptr_eq(&current.stop, &round) && !round.load(Ordering::SeqCst))
+    else {
         if let Some(mut tunnel) = opened {
             tunnel.stop();
         }
