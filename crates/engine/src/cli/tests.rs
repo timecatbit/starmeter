@@ -405,3 +405,22 @@ fn the_json_says_which_language_its_words_are_in() {
         assert_eq!(report.json(&[]).get("language").and_then(Json::as_str), Some(language));
     }
 }
+
+/// A plan with two windows used up and Credits left: its value stays what is left to spend (as the panel shows it), not
+/// the two bars' shares.
+#[test]
+fn a_plan_on_its_reserve_keeps_what_is_left_in_the_quota() {
+    let (dashboard, mut entries) = fixture("today");
+    for entry in entries.iter_mut() {
+        if let Json::Object(row) = entry
+            && row.get("label").and_then(Json::as_str) == Some("ChatGPT 订阅")
+        {
+            row.insert("value", "余 45,934 Credits");
+            row.insert("usageLevel", "warning");
+            row.insert("share", 1.0);
+        }
+    }
+    let report = build(&dashboard, &entries, "Asia/Shanghai", Words { english: false, traditional: false });
+    let chatgpt = report.quotas.iter().find(|quota| quota.name.contains("ChatGPT")).expect("ChatGPT");
+    assert_eq!(chatgpt.value, "余 45,934 Credits");
+}
