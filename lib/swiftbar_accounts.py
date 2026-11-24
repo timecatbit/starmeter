@@ -216,14 +216,15 @@ def account(source,key=None,options=None):
         if source=='minimax':
             key=credential('MINIMAX_API_KEY')
             if not key:return {'state':'未配置 MiniMax 套餐密钥','windows':[]}
-            region=os.environ.get('MINIMAX_REGION','international')
+            # A cleared setting is kept as empty: the default, as no setting is.
+            region=(os.environ.get('MINIMAX_REGION') or '').strip() or 'international'
             if region not in ('international','china'):return {'state':'MiniMax 地区配置待检查','windows':[]}
             host='https://www.minimax.io' if region=='international' else 'https://api.minimaxi.com'
             return minimax_quota(get_json(host+'/v1/token_plan/remains',key))
         if source=='kimi-api':
             key=key or credential('MOONSHOT_API_KEY')
             if not key:return {'state':'未配置 Kimi API Key'}
-            region=options.get('region') or os.environ.get('MOONSHOT_REGION','china')
+            region=options.get('region') or (os.environ.get('MOONSHOT_REGION') or '').strip() or 'china'
             if region not in MOONSHOT_HOSTS:return {'state':'Kimi 地区配置待检查'}
             host,currency=MOONSHOT_HOSTS[region]
             return moonshot_balance(get_json(host+'/v1/users/me/balance',key),currency)

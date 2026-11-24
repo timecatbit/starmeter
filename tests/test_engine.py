@@ -1111,6 +1111,13 @@ class AccountParityTests(unittest.TestCase):
         self.both('grok', environment={'XAI_MANAGEMENT_API_KEY': 'k'})
         self.both('kimi-api', options={'region': 'mars'}, environment={'MOONSHOT_API_KEY': 'k'})
         self.both('minimax', environment={'MINIMAX_API_KEY': 'k', 'MINIMAX_REGION': 'moon'})
+        # A cleared connection keeps its region as empty: the default region, as none at all.
+        self.answers = {'/www.minimax.io/v1/token_plan/remains': self.ok({'base_resp': {'status_code': 0}, 'model_remains': []}),
+                        '/api.moonshot.cn/v1/users/me/balance': self.ok({'data': {'available_balance': 3}})}
+        for source, name in (('minimax', 'MINIMAX_REGION'), ('kimi-api', 'MOONSHOT_REGION')):
+            with self.subTest(source=source, region='empty'):
+                read = self.both(source, environment={'MINIMAX_API_KEY': 'k', 'MOONSHOT_API_KEY': 'k', name: ''})
+                self.assertNotIn('地区配置待检查', json.dumps(read, ensure_ascii=False))
         self.both('deepseek', '')
         self.both('claude-api', environment={'ANTHROPIC_API_KEY': ''})
 

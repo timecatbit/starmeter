@@ -397,7 +397,8 @@ impl Runtime {
                     .get("region")
                     .filter(|region| region.is_truthy())
                     .map(|region| py::str(Some(region)))
-                    .or_else(|| self.environment.get("MOONSHOT_REGION").cloned())
+                    .or_else(|| self.environment.get("MOONSHOT_REGION").map(|region| region.trim().to_string()))
+                    .filter(|region| !region.is_empty())
                     .unwrap_or_else(|| "china".into());
                 moonshot_currency(&region).unwrap_or("CNY").to_string()
             } else {

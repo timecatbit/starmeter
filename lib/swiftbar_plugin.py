@@ -4157,7 +4157,7 @@ def balance_currencies(provider,keys,values):
     def currency(entry,value):
         if value.get('kind')=='balance':return value['currency']
         if provider=='kimi-api':
-            return accounts.MOONSHOT_HOSTS.get((entry.get('options') or {}).get('region') or os.environ.get('MOONSHOT_REGION','china'),(None,'CNY'))[1]
+            return accounts.MOONSHOT_HOSTS.get((entry.get('options') or {}).get('region') or (os.environ.get('MOONSHOT_REGION') or '').strip() or 'china',(None,'CNY'))[1]
         return catalog.BALANCE_CURRENCIES[provider]
     return list(dict.fromkeys(currency(e,v) for e,v in zip(keys,values)))
 
