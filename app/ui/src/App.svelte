@@ -29,6 +29,10 @@
   import ToolPage from './components/ToolPage.svelte';
 
   const interaction = new PanelInteraction();
+  /** The action being carried out, for its row's spinner: the interaction itself isn't reactive, and an action that
+   *  redraws nothing (立即刷新 among them) left the row still, with no sign it had been pressed. */
+  let busyNow = $state<string[] | null>(null);
+  const syncBusy = () => { busyNow = interaction.active ? [...interaction.active] : null; };
   let version = $state(0);
   // As the panel shows it: in the language chosen, with the 语言 row in 通用.
   const snapshot: Snapshot | null = $derived.by(() => { void version; const shown = interaction.displayed(); return shown && localize(shown); });
@@ -476,7 +480,9 @@
       const at = pickedAt;
       setTimeout(() => { waitedOut = Math.max(waitedOut, at); }, LONGEST);
     }
-    switch (interaction.submit(action)) {
+    const submitted = interaction.submit(action);
+    syncBusy();
+    switch (submitted) {
       case 'start': void dispatch(action); break;
       case 'queued': version++; break;
     }
@@ -501,6 +507,7 @@
     }
     await reload();
     const next = interaction.next();
+    syncBusy();
     if (next) void dispatch(next);
   }
 
@@ -753,10 +760,10 @@
         <SharePage dashboard={snapshot.dashboard} project={snapshot.project ?? { name: 'Starmeter', url: 'https://github.com/timecatbit/starmeter' }}
           {rangeOptions} onrange={perform} onback={back} onheight={(h) => (wanted.share = h)} />
       {:else if toolId && tool && snapshot?.dashboard}
-        <ToolPage p={tool} dashboard={snapshot.dashboard} settings={toolSettings} busy={interaction.active} bind:scrollTop={toolScroll} onback={back}
+        <ToolPage p={tool} dashboard={snapshot.dashboard} settings={toolSettings} busy={busyNow} bind:scrollTop={toolScroll} onback={back}
           onopen={open} onchoose={choose} onheight={(h) => (wanted.tool = h)} />
       {:else if snapshot && pageEntry}
-        <DetailPage page={pageEntry} open={pageOpen} busy={interaction.active} bind:scrollTop={pageScroll} onback={back}
+        <DetailPage page={pageEntry} open={pageOpen} busy={busyNow} bind:scrollTop={pageScroll} onback={back}
           onopen={open} onchoose={choose} ontoggled={(next) => (pageOpen = next)} onheight={(h) => (wanted.page = h)} />
       {:else if snapshot && managerOnly}
         <ModulesPage entries={snapshot.moduleOptions ?? []} {leading} fromHome={settingsFromHome} bind:scrollTop={gridScroll}
@@ -800,7 +807,7 @@
     <Dashboard data={shown} {rangeOptions} reading={waiting} onprefetch={prefetchRanges} {updateMark} {updateSaid} onupdates={openUpdates} {reveal} {glows} {summaryGlow} live={pinned || leaving !== null ? feed : null} {leaving} onleft={() => { leaving = null; feed = null; }} {liveStamp} {pinned}
       {pinInterval} onrange={perform} onshare={openShare}
       onpin={() => { panel.hint = null; setPinned(!pinned); if (pinned) perform(['refresh-live']); }} onsettings={openSettings}
-      onopentool={openTool} ongroup={(key) => perform(['set-group', key])} {sessions} {view} onview={chooseView} busy={interaction.active}
+      onopentool={openTool} ongroup={(key) => perform(['set-group', key])} {sessions} {view} onview={chooseView} busy={busyNow}
       onsize={(h) => (dashboardHeight = h)} onfloor={(h) => (floorHeight = h)} ontoggle={(id, expanded) => perform(['set-expanded', id, expanded ? 'true' : 'false'])}
       onopen={open} onchoose={choose} readonly={onPhone} />
   {/if}

@@ -917,6 +917,17 @@ test('a service in trouble: the note on its card opens the status page, the card
   expect(await page.evaluate(() => (window as unknown as { opened: string[] }).opened)).toEqual(['https://status.claude.com', 'https://status.claude.com']);
 });
 
+test('立即刷新 turns while its source is read again, and stops once it is in', async ({ page }) => {
+  // The row is pressed for an action that redraws nothing by itself: it still shows it is working.
+  await open(page);
+  await page.locator('.row', { hasText: 'Cursor 订阅' }).click();
+  const again = page.locator('.detail-row', { hasText: '立即刷新' });
+  await again.click();
+  await expect(again.locator('.spinner')).toBeVisible();
+  await expect(again.locator('.spinner')).toHaveCount(0, { timeout: 3000 });
+  await expect(again.locator('.value')).toBeVisible();
+});
+
 test('a row opens its page, with usage bars and pace marks, and Esc comes back', async ({ page }) => {
   await open(page);
   await page.locator('.row', { hasText: 'Claude 订阅' }).click();
