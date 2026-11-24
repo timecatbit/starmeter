@@ -154,7 +154,7 @@
   background-size: 180px 180px, 100% 100%, 100% 100%, 15px 15px;
 }
 /* The hand's lines. */
-:root[data-style='sketch'] :is(svg.chart, svg.squares, svg.icon, svg.chevron, svg.arrow, .live canvas, .fill, .gauge-fill, .bar-fill) {
+:root[data-style='sketch'] :is(svg.chart, svg.squares, svg.icon, svg.chevron, svg.arrow, canvas.live, .fill, .gauge-fill, .bar-fill) {
   filter: url(#hand);
 }
 
