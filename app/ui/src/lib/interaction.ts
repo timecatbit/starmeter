@@ -70,11 +70,16 @@ function applyChoice(action: string[], value: Snapshot) {
   if (!walk(value.entries) && value.moduleOptions) walk(value.moduleOptions);
 }
 
+/** 允许折叠 wherever it is among the settings (in 外观's page now, not at the top). */
 function syncCollapse(enabled: boolean, value: Snapshot) {
   if (value.dashboard) value.dashboard.allowCollapse = enabled;
-  for (const option of value.moduleOptions ?? []) {
-    if (option.action?.[0] === 'set-collapse') { option.checked = enabled; option.action = ['set-collapse', enabled ? 'false' : 'true']; }
-  }
+  const update = (entries: Entry[] | undefined) => {
+    for (const option of entries ?? []) {
+      if (option.action?.[0] === 'set-collapse') { option.checked = enabled; option.action = ['set-collapse', enabled ? 'false' : 'true']; }
+      update(option.children);
+    }
+  };
+  update(value.moduleOptions);
 }
 
 /** The homepage's rows in the order given: each group (between separators) sorted by it, a row it doesn't list after

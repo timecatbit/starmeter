@@ -195,6 +195,29 @@ test('恢复默认顺序 puts the default order back at once, before the next sn
   await expect.poll(order).toEqual(defaults);
 });
 
+test('允许折叠 in 外观 stays as switched before the next snapshot comes, and switches back as asked', async ({ page }) => {
+  await open(page);
+  // From here no new snapshot arrives: only what the switch itself answers.
+  await page.evaluate(async () => {
+    const loaded = performance.getEntriesByType('resource').map((entry) => entry.name).filter((name) => name.includes('/src/lib/backend.ts'));
+    const { backend } = await import(/* @vite-ignore */ loaded.at(-1) ?? '/src/lib/backend.ts');
+    backend.snapshot = () => new Promise(() => {});
+  });
+  await button(page, '主页模块与设置').click();
+  await page.getByText('外观', { exact: true }).click();
+  const fold = page.getByRole('switch', { name: /^允许折叠/ });
+  const before = await fold.getAttribute('aria-checked');
+  const after = before === 'true' ? 'false' : 'true';
+  await fold.click();
+  await expect(fold).toHaveAttribute('aria-checked', after);
+  await page.waitForTimeout(700);
+  await expect(fold).toHaveAttribute('aria-checked', after);
+  await fold.click();
+  await expect(fold).toHaveAttribute('aria-checked', before ?? 'false');
+  await page.waitForTimeout(700);
+  await expect(fold).toHaveAttribute('aria-checked', before ?? 'false');
+});
+
 test('a press let go off its row before the hold ends never lifts it, and the next click opens the row (ORDER-1)', async ({ page }) => {
   await open(page);
   const row = page.locator('[data-module="chatgpt"]');
