@@ -537,6 +537,12 @@ pub fn walk(root: &str) -> Vec<String> {
 }
 
 /// walk(), not going into the folders `skip` names (given each folder's path).
+/// A path found by `walk_except` under `folder`, from just below it: the folder may end with its separator (a root such
+/// as / or C:\\), which the walk drops before joining with '/'.
+fn relative_to<'a>(path: &'a str, folder: &str) -> &'a str {
+    path.strip_prefix(folder.trim_end_matches(['/', '\\'])).and_then(|rest| rest.strip_prefix('/')).unwrap_or(path)
+}
+
 pub fn walk_except(root: &str, skip: &dyn Fn(&str) -> bool) -> Vec<String> {
     // Joined with '/', on Windows too (which takes either separator), so a file's name and its parent folders are
     // always the parts after the last slashes.
@@ -596,7 +602,7 @@ pub(crate) fn jsonl_files(root: &str, source: &str) -> Vec<String> {
                     if !(name(&path).contains(".jsonl") && (path.ends_with(".jsonl") || path.ends_with(".jsonl.zst"))) {
                         continue;
                     }
-                    let mut relative = path[folder.len() + 1..].to_string();
+                    let mut relative = relative_to(&path, &folder).to_string();
                     if relative.ends_with(".zst") {
                         relative.truncate(relative.len() - 4);
                     }
@@ -716,7 +722,8 @@ pub fn jsonl_usage(
     archive: Option<&Path>,
 ) -> Fallible<Object> {
     let root = normalize(&paths::expand_user(root_path).to_string_lossy());
-    if !is_directory(&root) {
+    // Codex used only inside WSL (no .codex on Windows itself) is still read, from the distributions' homes.
+    if !is_directory(&root) && !(source == "codex" && !crate::wsl::codex_homes().is_empty()) {
         return Ok(object! { "error" => "未找到记录目录" });
     }
     let archive = archive.filter(|path| !path.as_os_str().is_empty());
@@ -980,7 +987,7 @@ pub(crate) fn gemini_files(root: &str) -> Vec<String> {
                 found.insert(path.clone());
             }
             // New subagents may use UUID filenames instead of session-*.
-            let relative: Vec<&str> = path[folder.len() + 1..].split('/').collect();
+            let relative: Vec<&str> = relative_to(&path, &folder).split('/').collect();
             if file.ends_with(".jsonl")
                 && let Some(chats) = relative[..relative.len() - 1].iter().position(|part| *part == "chats")
                 && chats < relative.len() - 1
@@ -1564,7 +1571,15 @@ pub fn magpie_price(event: &Event) -> Option<f64> {
 
 #[cfg(test)]
 mod tests {
-    use super::{antigravity_model, display_model};
+    use super::{antigravity_model, display_model, relative_to};
+
+    /// From just below the folder, whether or not it ends with its separator (a root such as / or C:\\).
+    #[test]
+    fn a_path_below_a_root_keeps_its_first_letter() {
+        assert_eq!(relative_to("/Users/me/.gemini/tmp/x/chats/a.jsonl", "/Users/me/.gemini"), "tmp/x/chats/a.jsonl");
+        assert_eq!(relative_to("/chats/a.jsonl", "/"), "chats/a.jsonl");
+        assert_eq!(relative_to("C:/中文/a.jsonl", "C:\\"), "中文/a.jsonl");
+    }
 
     #[test]
     fn antigravitys_ids_name_the_api_models_they_run() {
