@@ -12,7 +12,7 @@ use crate::rows::{
 };
 use crate::runtime::{RANGES, Runtime, now};
 use crate::time::IsoTime;
-use crate::{accounts, catalog, claude_subscription, dashboard, object, py, updates};
+use crate::{accounts, catalog, claude_subscription, cursor, dashboard, object, py, updates};
 
 /// The cached payload of a source, or an empty one.
 pub fn object(data: &Object, name: &str) -> Object {
@@ -580,6 +580,23 @@ impl Runtime {
         }
         if enabled {
             rows.push(self.refresh_row("cursor-subscription", &payload, error.as_deref(), 1));
+            // An encrypted desktop login: read from the keychain once the user allows it here, macOS asking them.
+            let keychain = self.settings().get("cursorKeychain").is_some_and(Json::is_truthy);
+            if keychain || cursor::login_encrypted(&self.home, &self.environment) {
+                let detail = if keychain {
+                    "用钥匙串里的“Cursor Safe Storage”解开 Cursor 的登录，令牌只在内存中使用"
+                } else {
+                    "这个版本的 Cursor 把登录加密存进了钥匙串；打开后 macOS 会询问是否允许，选“始终允许”"
+                };
+                rows.push(item(
+                    "从钥匙串读取登录",
+                    1,
+                    merged(&[
+                        &object! { "sfimage" => "lock", "checked" => keychain, "paneldetail" => detail },
+                        &self.act("set-cursor-keychain", &[if keychain { "false" } else { "true" }]),
+                    ]),
+                ));
+            }
         } else {
             rows.push(item(
                 "读取 Cursor 用量记录…",

@@ -1,6 +1,7 @@
 //! Cursor usage from the account's own usage records on cursor.com, read only after the user turns it on. The login
 //! the desktop app or CLI saved is kept in memory and goes to cursor.com only; it is never stored, refreshed or
-//! written back.
+//! written back. A desktop app that keeps its login encrypted (Electron's safeStorage, its key in the keychain as
+//! “Cursor Safe Storage”) is read only once the user has allowed it on the Cursor page, and macOS has asked them.
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -158,18 +159,178 @@ fn numeric(value: Option<&Json>) -> Option<f64> {
     }
 }
 
-/// The user ID, token and where it came from, for the first usable login: the desktop app first, then the CLI.
-fn session(home: &str, environment: &HashMap<String, String>, now: f64) -> Result<(String, String, String), Failure> {
+/// Whether the desktop app keeps its login encrypted (what the Cursor page offers to read from the keychain for).
+pub fn login_encrypted(home: &str, environment: &HashMap<String, String>) -> bool {
+    app_token(&app_root(home, environment)).is_some_and(|token| token.starts_with(ENCRYPTED))
+}
+
+/// Electron's safeStorage as Cursor keeps its login: `cursor-safe-storage:v1:` and base64 of `v10` and the AES-128-CBC
+/// cipher text, the key PBKDF2-SHA1 of the keychain's password over "saltysalt", 1003 rounds, the IV sixteen spaces.
+pub fn decrypt_login(stored: &str, password: &[u8]) -> Option<String> {
+    let body = stored.strip_prefix(ENCRYPTED)?;
+    let body = body.strip_prefix("v1:").unwrap_or(body);
+    let data = base64_decode(body.trim())?;
+    let sealed = data.strip_prefix(b"v10")?;
+    let key = safe_storage::key(password)?;
+    let clear = safe_storage::crypt(false, &key, sealed)?;
+    String::from_utf8(clear).ok().map(|token| token.trim().to_string()).filter(|token| !token.is_empty())
+}
+
+/// The keychain's “Cursor Safe Storage” password, through the security tool (macOS asks the user the first time:
+/// 始终允许 lets later reads through without asking).
+fn keychain_password() -> Result<Vec<u8>, Failure> {
+    if !cfg!(target_os = "macos") {
+        return fail(KEYCHAIN_DENIED);
+    }
+    let output = std::process::Command::new("/usr/bin/security")
+        .args(["find-generic-password", "-s", "Cursor Safe Storage", "-w"])
+        .stderr(std::process::Stdio::null())
+        .output()
+        .map_err(|_| Failure(KEYCHAIN_DENIED.into()))?;
+    match output.status.code() {
+        Some(0) => Ok(output.stdout.trim_ascii_end().to_vec()),
+        Some(44) => fail("钥匙串里没有 Cursor 的密钥，请打开 Cursor 重新登录"),
+        _ => fail(KEYCHAIN_DENIED),
+    }
+}
+
+/// The desktop login is encrypted and reading it isn't allowed yet: what to do (用户：在 cursor 里我自己点，然后系统弹出授权).
+pub const ENCRYPTED_LOGIN: &str =
+    "这个版本的 Cursor 把登录加密存进了钥匙串；打开下面的“从钥匙串读取登录”，系统询问时选“始终允许”";
+
+const KEYCHAIN_DENIED: &str =
+    "钥匙串没有允许读取 Cursor 登录；关掉再打开下面的“从钥匙串读取登录”，系统询问时选“始终允许”";
+
+/// AES and PBKDF2 from the system's CommonCrypto (macOS); elsewhere nothing to decrypt with.
+mod safe_storage {
+    #[cfg(target_os = "macos")]
+    mod system {
+        use std::ffi::c_void;
+
+        unsafe extern "C" {
+            pub fn CCKeyDerivationPBKDF(
+                algorithm: u32,
+                password: *const u8,
+                password_len: usize,
+                salt: *const u8,
+                salt_len: usize,
+                prf: u32,
+                rounds: u32,
+                derived: *mut u8,
+                derived_len: usize,
+            ) -> i32;
+            pub fn CCCrypt(
+                op: u32,
+                alg: u32,
+                options: u32,
+                key: *const c_void,
+                key_len: usize,
+                iv: *const c_void,
+                data_in: *const c_void,
+                data_in_len: usize,
+                data_out: *mut c_void,
+                data_out_available: usize,
+                data_out_moved: *mut usize,
+            ) -> i32;
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn key(password: &[u8]) -> Option<[u8; 16]> {
+        const PBKDF2: u32 = 2;
+        const SHA1: u32 = 1;
+        let salt = b"saltysalt";
+        let mut key = [0u8; 16];
+        // SAFETY: every pointer is to a live buffer of the length passed beside it.
+        let status = unsafe {
+            system::CCKeyDerivationPBKDF(
+                PBKDF2,
+                password.as_ptr(),
+                password.len(),
+                salt.as_ptr(),
+                salt.len(),
+                SHA1,
+                1003,
+                key.as_mut_ptr(),
+                key.len(),
+            )
+        };
+        (status == 0).then_some(key)
+    }
+
+    /// AES-128-CBC with PKCS7 padding and an IV of sixteen spaces: sealed (encrypt) or opened.
+    #[cfg(target_os = "macos")]
+    pub fn crypt(encrypt: bool, key: &[u8; 16], data: &[u8]) -> Option<Vec<u8>> {
+        const AES128: u32 = 0;
+        const PKCS7: u32 = 1;
+        let iv = [b' '; 16];
+        let mut out = vec![0u8; data.len() + 16];
+        let mut moved = 0usize;
+        // SAFETY: as above; `out` has room for the input and a block of padding.
+        let status = unsafe {
+            system::CCCrypt(
+                if encrypt { 0 } else { 1 },
+                AES128,
+                PKCS7,
+                key.as_ptr().cast(),
+                key.len(),
+                iv.as_ptr().cast(),
+                data.as_ptr().cast(),
+                data.len(),
+                out.as_mut_ptr().cast(),
+                out.len(),
+                &mut moved,
+            )
+        };
+        (status == 0).then(|| {
+            out.truncate(moved);
+            out
+        })
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub fn key(_password: &[u8]) -> Option<[u8; 16]> {
+        None
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub fn crypt(_encrypt: bool, _key: &[u8; 16], _data: &[u8]) -> Option<Vec<u8>> {
+        None
+    }
+}
+
+/// The user ID, token and where it came from, for the first usable login: the desktop app first, then the CLI. An
+/// encrypted desktop login is opened with the keychain's key only when the user has allowed it (`keychain`).
+fn session(
+    home: &str,
+    environment: &HashMap<String, String>,
+    now: f64,
+    keychain: bool,
+) -> Result<(String, String, String), Failure> {
     let mut problems: HashSet<&str> = HashSet::new();
+    let mut denied: Option<Failure> = None;
     let found = [
         ("Cursor 桌面版", app_token(&app_root(home, environment))),
         ("Cursor CLI", file_token(&cli_auth(home, environment))),
     ];
     for (place, token) in found {
-        let Some(token) = token.filter(|token| !token.is_empty()) else { continue };
+        let Some(mut token) = token.filter(|token| !token.is_empty()) else { continue };
         if token.starts_with(ENCRYPTED) {
-            problems.insert("encrypted");
-            continue;
+            if !keychain {
+                problems.insert("encrypted");
+                continue;
+            }
+            match keychain_password().map(|password| decrypt_login(&token, &password)) {
+                Ok(Some(clear)) => token = clear,
+                Ok(None) => {
+                    problems.insert("undecrypted");
+                    continue;
+                }
+                Err(failure) => {
+                    denied = Some(failure);
+                    continue;
+                }
+            }
         }
         let info = claims(&token);
         let subject =
@@ -187,10 +348,14 @@ fn session(home: &str, environment: &HashMap<String, String>, now: f64) -> Resul
     if problems.contains("expired") {
         return fail("Cursor 登录已过期，请打开 Cursor 重新登录");
     }
+    if let Some(failure) = denied {
+        return Err(failure);
+    }
+    if problems.contains("undecrypted") {
+        return fail("钥匙串里的密钥打不开 Cursor 登录，请打开 Cursor 重新登录");
+    }
     if problems.contains("encrypted") {
-        return fail(
-            "这个版本的 Cursor 把登录加密存进了钥匙串，Starmeter 读不出来；可点下面的“打开用量与账单”在 cursor.com 查看",
-        );
+        return fail(ENCRYPTED_LOGIN);
     }
     if problems.contains("format") {
         return fail("无法识别 Cursor 登录信息");
@@ -293,8 +458,8 @@ fn normalize(row: &Object) -> Option<Object> {
 
 /// This billing cycle's included plan usage, as Cursor's dashboard shows it: used ÷ limit, its own percent fields
 /// only when there is no limit. Amounts are in cents.
-pub fn plan(home: &str, environment: &HashMap<String, String>, now: f64) -> Result<Object, Failure> {
-    let (user, token, place) = session(home, environment, now)?;
+pub fn plan(home: &str, environment: &HashMap<String, String>, now: f64, keychain: bool) -> Result<Object, Failure> {
+    let (user, token, place) = session(home, environment, now, keychain)?;
     let value = post(None, &user, &token, &summary_url())?;
     let usage = value.get("individualUsage").and_then(Json::as_object).cloned().unwrap_or_default();
     let part = |name: &str| usage.get(name).and_then(Json::as_object).cloned().unwrap_or_default();
@@ -356,8 +521,9 @@ pub fn refresh(
     start: f64,
     until: f64,
     now: f64,
+    keychain: bool,
 ) -> Result<Object, Failure> {
-    let (user, token, place) = session(home, environment, now)?;
+    let (user, token, place) = session(home, environment, now, keychain)?;
     let owner = account(&user);
     let held = store.cloned().unwrap_or_default();
     let (mut low, mut high) = (held.get("from").cloned(), held.get("through").cloned());
@@ -459,7 +625,8 @@ impl Runtime {
             covered && plain(held.get("through")).is_some_and(|through| end - through < self.refresh_ttl(300.0));
         let ttl = if fresh { self.refresh_ttl(300.0) } else { 0.0 };
         let (payload, error) = self.cached_fetch(name, ttl, 60.0, || {
-            match refresh(Some(&held), &self.home, &self.environment, start, now_moment, now()) {
+            let keychain = self.settings().get("cursorKeychain").is_some_and(Json::is_truthy);
+            match refresh(Some(&held), &self.home, &self.environment, start, now_moment, now(), keychain) {
                 Ok(store) => Ok((Some(store), None)),
                 Err(failure) => Ok((None, Some(failure.0))),
             }
@@ -486,5 +653,43 @@ impl Runtime {
             &self.local_zone(),
             carriers,
         )
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::*;
+
+    fn base64(bytes: &[u8]) -> String {
+        const TABLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut out = String::new();
+        for chunk in bytes.chunks(3) {
+            let n = chunk.iter().enumerate().fold(0u32, |n, (i, byte)| n | u32::from(*byte) << (16 - 8 * i));
+            for i in 0..4 {
+                out.push(if i <= chunk.len() { TABLE[(n >> (18 - 6 * i) & 63) as usize] as char } else { '=' });
+            }
+        }
+        out
+    }
+
+    /// A login as this Cursor keeps it (safeStorage with the keychain's password) opens to the token; a wrong
+    /// password, another scheme or a damaged body opens to nothing.
+    #[test]
+    fn an_encrypted_login_opens_with_the_keychains_password() {
+        let token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhdXRoMHx1c2VyXzEyMyIsImV4cCI6OTk5OTk5OTk5OX0.c2ln";
+        let key = safe_storage::key(b"keychain-password").expect("key");
+        let sealed = safe_storage::crypt(true, &key, token.as_bytes()).expect("sealed");
+        let stored = format!("{ENCRYPTED}v1:{}", base64(&[b"v10".as_slice(), &sealed].concat()));
+        assert_eq!(decrypt_login(&stored, b"keychain-password").as_deref(), Some(token));
+        assert_eq!(decrypt_login(&stored, b"another password"), None);
+        assert_eq!(
+            decrypt_login(
+                &format!("{ENCRYPTED}v1:{}", base64(&[b"v11".as_slice(), &sealed].concat())),
+                b"keychain-password"
+            ),
+            None
+        );
+        assert_eq!(decrypt_login(&format!("{ENCRYPTED}v1:not base64!"), b"keychain-password"), None);
+        assert_eq!(decrypt_login(token, b"keychain-password"), None, "not an encrypted login");
     }
 }

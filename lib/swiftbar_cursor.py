@@ -6,15 +6,18 @@ Cursor CLI saved, keeps the token in memory, and asks cursor.com for this accoun
 record per request with its model, tokens and Cursor's list-price cost. The desktop app and the CLI sign in
 to the same account, so both are in those records. The token is never stored, refreshed or written back,
 and goes to cursor.com only. Request and cookie shapes follow CodexBar's Cursor provider (MIT, see
-CODEXBAR_LICENSE).
+CODEXBAR_LICENSE). A desktop app that keeps its login encrypted (Electron's safeStorage, its key in the keychain
+as “Cursor Safe Storage”) is read only once the user has allowed it on the Cursor page, and macOS has asked them.
 """
 import base64
+import ctypes
 import hashlib
 import json
 import math
 import os
 from pathlib import Path
 import sqlite3
+import subprocess
 import time
 import urllib.error
 import urllib.request
@@ -83,18 +86,76 @@ def claims(token):
     except (IndexError, ValueError, TypeError):return {}
 
 
-def session(home, now=None):
-    """(user ID, token, where it came from) for the first usable login, desktop app first, then the CLI."""
-    now = time.time() if now is None else now;problems = []
+ENCRYPTED_LOGIN = '这个版本的 Cursor 把登录加密存进了钥匙串；打开下面的“从钥匙串读取登录”，系统询问时选“始终允许”'
+KEYCHAIN_DENIED = '钥匙串没有允许读取 Cursor 登录；关掉再打开下面的“从钥匙串读取登录”，系统询问时选“始终允许”'
+
+
+def login_encrypted(home):
+    """Whether the desktop app keeps its login encrypted (what the Cursor page offers to read from the keychain for)."""
+    token = app_token(app_root(home))
+    return bool(token) and token.startswith(ENCRYPTED)
+
+
+def _crypt(encrypt, key, data):
+    """AES-128-CBC, PKCS7 padding, an IV of sixteen spaces, through the system's CommonCrypto; None when it fails."""
+    crypto = ctypes.CDLL('/usr/lib/system/libcommonCrypto.dylib')
+    crypto.CCCrypt.argtypes = [ctypes.c_uint, ctypes.c_uint, ctypes.c_uint, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p,
+                               ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]
+    crypto.CCCrypt.restype = ctypes.c_int
+    output = ctypes.create_string_buffer(len(data) + 16);written = ctypes.c_size_t()
+    if crypto.CCCrypt(0 if encrypt else 1, 0, 1, key, len(key), b' ' * 16, data, len(data), output, len(output), ctypes.byref(written)):return None
+    return output.raw[:written.value]
+
+
+def safe_storage_key(password):
+    return hashlib.pbkdf2_hmac('sha1', password, b'saltysalt', 1003, 16)
+
+
+def decrypt_login(stored, password):
+    """Electron's safeStorage as Cursor keeps its login: `cursor-safe-storage:v1:` and base64 of `v10` and the
+    AES-128-CBC cipher text, the key PBKDF2-SHA1 of the keychain's password over "saltysalt", 1003 rounds."""
+    if not stored.startswith(ENCRYPTED):return None
+    body = stored[len(ENCRYPTED):]
+    if body.startswith('v1:'):body = body[3:]
+    try:data = base64.b64decode(body.strip(), validate=True)
+    except (ValueError, TypeError):return None
+    if not data.startswith(b'v10'):return None
+    try:clear = _crypt(False, safe_storage_key(password), data[3:])
+    except OSError:return None
+    try:token = clear.decode('utf-8').strip() if clear is not None else ''
+    except UnicodeDecodeError:return None
+    return token or None
+
+
+def keychain_password():
+    """The keychain's “Cursor Safe Storage” password, through the security tool (macOS asks the user the first time)."""
+    try:run = subprocess.run(['/usr/bin/security', 'find-generic-password', '-s', 'Cursor Safe Storage', '-w'], capture_output=True)
+    except OSError:raise CursorError(KEYCHAIN_DENIED) from None
+    if run.returncode == 44:raise CursorError('钥匙串里没有 Cursor 的密钥，请打开 Cursor 重新登录')
+    if run.returncode:raise CursorError(KEYCHAIN_DENIED)
+    return run.stdout.rstrip(b'\r\n\t ')
+
+
+def session(home, now=None, keychain=False):
+    """(user ID, token, where it came from) for the first usable login, desktop app first, then the CLI. An encrypted
+    desktop login is opened with the keychain's key only when the user has allowed it (keychain)."""
+    now = time.time() if now is None else now;problems = [];denied = None
     for where, token in (('Cursor 桌面版', app_token(app_root(home))), ('Cursor CLI', file_token(cli_auth(home)))):
         if not token:continue
-        if token.startswith(ENCRYPTED):problems.append('encrypted');continue
+        if token.startswith(ENCRYPTED):
+            if not keychain:problems.append('encrypted');continue
+            try:clear = decrypt_login(token, keychain_password())
+            except CursorError as exc:denied = exc;continue
+            if not clear:problems.append('undecrypted');continue
+            token = clear
         info = claims(token);subject = str(info.get('sub') or '').split('|')[-1]
         if not subject:problems.append('format');continue
         if not isinstance(info.get('exp'), (int, float)) or info['exp'] <= now + 60:problems.append('expired');continue
         return subject, token, where
     if 'expired' in problems:raise CursorError('Cursor 登录已过期，请打开 Cursor 重新登录')
-    if 'encrypted' in problems:raise CursorError('这个版本的 Cursor 把登录加密存进了钥匙串，Starmeter 读不出来；可点下面的“打开用量与账单”在 cursor.com 查看')
+    if denied is not None:raise denied
+    if 'undecrypted' in problems:raise CursorError('钥匙串里的密钥打不开 Cursor 登录，请打开 Cursor 重新登录')
+    if 'encrypted' in problems:raise CursorError(ENCRYPTED_LOGIN)
     if 'format' in problems:raise CursorError('无法识别 Cursor 登录信息')
     raise CursorError('未找到 Cursor 登录，请先登录 Cursor 桌面版或 Cursor CLI')
 
@@ -167,12 +228,12 @@ def normalize(row):
             'cached': number(usage.get('cacheReadTokens')), 'writes': number(usage.get('cacheWriteTokens')), 'cost': cost}
 
 
-def plan(home, now=None, opener=None):
+def plan(home, now=None, opener=None, keychain=False):
     """This billing cycle's included plan usage, as Cursor's dashboard shows it. Cursor's own words ("You've used 1%
     of your included total usage") follow used ÷ limit, so that is the share; its percent fields only stand in
     when there is no limit. Amounts are in cents."""
     from swiftbar_time import parse_iso
-    user, token, where = session(home, now)
+    user, token, where = session(home, now, keychain)
     value = post(None, user, token, opener, SUMMARY_URL)
     usage = value.get('individualUsage') if isinstance(value.get('individualUsage'), dict) else {}
     part = lambda name: usage.get(name) if isinstance(usage.get(name), dict) else {}
@@ -198,12 +259,12 @@ def account(user):
     return hashlib.sha256(('cursor:' + user).encode()).hexdigest()[:16]
 
 
-def refresh(store, home, start, until, now=None, opener=None):
+def refresh(store, home, start, until, now=None, opener=None, keychain=False):
     """The account's events from start to until, kept in one store that every range shares. Only what the store
     lacks is asked for: the days before it when a range reaches further back, and the time since the last read
     together with the hour before it, where requests still running and late records land. A store for another
     account, or one a read could not finish, starts over. Returns the new store."""
-    user, token, where = session(home, now)
+    user, token, where = session(home, now, keychain)
     owner = account(user);held = store if isinstance(store, dict) else {}
     low, high, kept = held.get('from'), held.get('through'), held.get('events')
     if held.get('account') != owner or held.get('complete') is not True or not isinstance(kept, list) \

@@ -91,6 +91,26 @@ class CursorTests(unittest.TestCase):
         self.app(jwt().encode('utf-16-le'))
         self.assertEqual(cursor.session(self.home)[0], 'user_01ABC')
 
+    @unittest.skipUnless(sys.platform == 'darwin', 'CommonCrypto is macOS')
+    def test_an_encrypted_login_is_read_from_the_keychain_only_once_allowed(self):
+        # 用户：在 cursor 里我自己点，然后系统弹出授权. Not allowed: says what to turn on, the keychain untouched; allowed:
+        # the keychain's password opens the login (safeStorage), which signs in as before; denied: says how to retry.
+        token = jwt()
+        sealed = cursor._crypt(True, cursor.safe_storage_key(b'keychain-password'), token.encode())
+        stored = 'cursor-safe-storage:v1:' + base64.b64encode(b'v10' + sealed).decode()
+        self.assertEqual(cursor.decrypt_login(stored, b'keychain-password'), token)
+        self.assertIsNone(cursor.decrypt_login(stored, b'wrong'))
+        self.app(stored)
+        self.assertTrue(cursor.login_encrypted(self.home))
+        with patch.object(cursor, 'keychain_password', side_effect=AssertionError('asked the keychain')):
+            with self.assertRaisesRegex(cursor.CursorError, '从钥匙串读取登录'):cursor.session(self.home)
+        with patch.object(cursor, 'keychain_password', return_value=b'keychain-password'):
+            self.assertEqual(cursor.session(self.home, keychain=True), ('user_01ABC', token, 'Cursor 桌面版'))
+        with patch.object(cursor, 'keychain_password', side_effect=cursor.CursorError(cursor.KEYCHAIN_DENIED)):
+            with self.assertRaisesRegex(cursor.CursorError, '始终允许'):cursor.session(self.home, keychain=True)
+        with patch.object(cursor, 'keychain_password', return_value=b'another password'):
+            with self.assertRaisesRegex(cursor.CursorError, '打不开'):cursor.session(self.home, keychain=True)
+
     def test_reading_never_creates_files_beside_cursors_database(self):
         self.app(jwt());before = sorted(p.name for p in self.root.iterdir())
         cursor.session(self.home)

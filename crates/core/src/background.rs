@@ -578,7 +578,8 @@ impl Runtime {
         if self.module_enabled("cursor-subscription") && settings.get("cursorUsage").is_some_and(Json::is_truthy) {
             add(&mut loaders, "cursor_subscription", || {
                 self.cached_fetch("cursor_subscription", self.refresh_ttl(300.0), 60.0, || {
-                    Ok(match cursor::plan(&self.home, &self.environment, now()) {
+                    let keychain = self.settings().get("cursorKeychain").is_some_and(Json::is_truthy);
+                    Ok(match cursor::plan(&self.home, &self.environment, now(), keychain) {
                         Ok(plan) => (Some(plan), None),
                         Err(failure) => (None, Some(failure.to_string())),
                     })

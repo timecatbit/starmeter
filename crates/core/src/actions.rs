@@ -1202,6 +1202,20 @@ impl Runtime {
                 self.invalidate(&[self.range_cache_name(None), "cursor_subscription".into()]);
                 self.schedule_background_refresh();
             }
+            // 从钥匙串读取登录 on the Cursor page: the user's click is the consent, macOS's own question the authorisation
+            // (用户：在 cursor 里我自己点，然后系统弹出授权). Turned on, Cursor is read at once, so the question comes now.
+            "set-cursor-keychain" => {
+                let value = one();
+                if !["true", "false"].contains(&value.as_str()) {
+                    return invalid("invalid Cursor keychain setting");
+                }
+                self.update("cursor-keychain", Some(&value), None)?;
+                self.invalidate(&[self.range_cache_name(None)]);
+                if value == "true" && self.settings().get("cursorUsage").is_some_and(Json::is_truthy) {
+                    let _ = self.refresh_now("cursor-subscription");
+                }
+                self.schedule_background_refresh();
+            }
             "set-keep-usage" => {
                 let value = one();
                 if !["true", "false"].contains(&value.as_str()) {

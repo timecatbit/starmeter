@@ -79,7 +79,7 @@ def balance_key(key):
 
 
 def read(directory):
-    defaults = {'schema': 1, 'visible': list(DEFAULT_VISIBLE), 'appearance': 'solid', 'theme': 'system', 'paths': {}, 'allowCollapse': False, 'expandedProviders': [], 'revision': 0, 'configuredSubscriptions': [], 'claudeLiveUsage': False, 'claudeOAuthUsage': False, 'cursorUsage': False,
+    defaults = {'schema': 1, 'visible': list(DEFAULT_VISIBLE), 'appearance': 'solid', 'theme': 'system', 'paths': {}, 'allowCollapse': False, 'expandedProviders': [], 'revision': 0, 'configuredSubscriptions': [], 'claudeLiveUsage': False, 'claudeOAuthUsage': False, 'cursorUsage': False, 'cursorKeychain': False,
                 'usageAlert': 90, 'resetReminder': False, 'balanceAlerts': {}, 'keepCleanedUsage': True, 'subscriptionPrices': {}, 'groupBy': 'tool', 'menuBar': 'none', 'sessionAlerts': False, 'serviceStatus': False, 'currency': 'USD', 'cnyRate': None, 'pinInterval': 2,
                 'syncFolder': '', 'deviceName': '', 'homeOrder': []}
     try:
@@ -106,6 +106,7 @@ def read(directory):
         if isinstance(value.get('claudeLiveUsage'),bool):defaults['claudeLiveUsage']=value['claudeLiveUsage']
         if isinstance(value.get('claudeOAuthUsage'),bool):defaults['claudeOAuthUsage']=value['claudeOAuthUsage']
         if isinstance(value.get('cursorUsage'),bool):defaults['cursorUsage']=value['cursorUsage']
+        if isinstance(value.get('cursorKeychain'),bool):defaults['cursorKeychain']=value['cursorKeychain']
         if value.get('usageAlert') in ALERT_LEVELS and not isinstance(value['usageAlert'],bool):defaults['usageAlert']=value['usageAlert']
         if isinstance(value.get('resetReminder'),bool):defaults['resetReminder']=value['resetReminder']
         if isinstance(value.get('keepCleanedUsage'),bool):defaults['keepCleanedUsage']=value['keepCleanedUsage']
@@ -196,6 +197,9 @@ def update_holding(directory, kind, key=None, value=None):
     elif kind == 'cursor-usage':
         if key not in ('true','false'):raise ValueError('invalid Cursor usage setting')
         current['cursorUsage']=key=='true'
+    elif kind == 'cursor-keychain':
+        if key not in ('true','false'):raise ValueError('invalid Cursor keychain setting')
+        current['cursorKeychain']=key=='true'
     elif kind == 'usage-alert':
         if key not in [str(level) for level in ALERT_LEVELS]:raise ValueError('invalid usage alert')
         current['usageAlert']=int(key)

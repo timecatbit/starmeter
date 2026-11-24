@@ -325,10 +325,20 @@ fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
             let environment: HashMap<String, String> = std::env::vars().collect();
             let store = args.first().and_then(Json::as_object);
             let number = |index: usize| args.get(index).and_then(Json::number).unwrap_or(0.0);
-            Ok(match cursor::refresh(store, text(1).unwrap_or(""), &environment, number(2), number(3), number(4)) {
-                Ok(store) => store.into(),
-                Err(failure) => object! { "failure" => failure.0 }.into(),
-            })
+            Ok(
+                match cursor::refresh(
+                    store,
+                    text(1).unwrap_or(""),
+                    &environment,
+                    number(2),
+                    number(3),
+                    number(4),
+                    false,
+                ) {
+                    Ok(store) => store.into(),
+                    Err(failure) => object! { "failure" => failure.0 }.into(),
+                },
+            )
         }
         "cursor.plan" => {
             routes(args.get(2));
@@ -338,6 +348,7 @@ fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
                     text(0).unwrap_or(""),
                     &environment,
                     args.get(1).and_then(Json::number).unwrap_or(0.0),
+                    false,
                 ) {
                     Ok(plan) => plan.into(),
                     Err(failure) => object! { "failure" => failure.0 }.into(),

@@ -2161,7 +2161,14 @@ def cursor_subscription_lines(data):
         if payload.get('limitCents'):rows.append(item('套餐额度',badge='$%.2f / $%.2f'%(payload['usedCents']/100,payload['limitCents']/100),level=1))
     extra=payload.get('onDemand') or {}
     if payload:rows.append(item('按需用量',badge=('$%.2f'%(extra.get('usedCents',0)/100)+(' / $%.2f'%(extra['limitCents']/100) if extra.get('limitCents') else '')) if extra.get('enabled') else '未开启',level=1))
-    if enabled:rows.append(refresh_row('cursor-subscription',payload,error))
+    if enabled:
+        rows.append(refresh_row('cursor-subscription',payload,error))
+        # An encrypted desktop login: read from the keychain once the user allows it here, macOS asking them.
+        keychain=view_settings()['cursorKeychain']
+        if keychain or cursor.login_encrypted(HOME):
+            detail=('用钥匙串里的“Cursor Safe Storage”解开 Cursor 的登录，令牌只在内存中使用' if keychain
+                    else '这个版本的 Cursor 把登录加密存进了钥匙串；打开后 macOS 会询问是否允许，选“始终允许”')
+            rows.append(item('从钥匙串读取登录',level=1,sfimage='lock',checked=keychain,paneldetail=detail,**act('set-cursor-keychain','false' if keychain else 'true')))
     else:rows.append(item('读取 Cursor 用量记录…',level=1,sfimage='arrow.triangle.2.circlepath',paneldetail='用本机 Cursor 登录查询 cursor.com，令牌只在内存中使用',**act('set-cursor-usage','true')))
     app=update_app_path('cursor')
     if app:rows.append(item('打开 Cursor',level=1,sfimage='macwindow',href='file://'+urllib.parse.quote(app)))
@@ -2467,7 +2474,7 @@ def cursor_range_usage(start,end,now,carriers=None):
     # Due when the store ends more than five minutes before this range does; yesterday's range never is.
     fresh=covered and number(held.get('through')) and end-held['through']<refresh_ttl(300)
     def load():
-        try:return cursor.refresh(held,HOME,start,now.timestamp()),None
+        try:return cursor.refresh(held,HOME,start,now.timestamp(),keychain=view_settings()['cursorKeychain']),None
         except cursor.CursorError as exc:return None,(0,str(exc),None)
     payload,error=cached_fetch(name,load,refresh_ttl(300) if fresh else 0)
     # A failed read reports the reason; the range bundle keeps the last good figures with their own time.
@@ -2535,7 +2542,7 @@ def external_loaders():
         loaders['service_status']=load_status
     if module_enabled('cursor-subscription') and view_settings()['cursorUsage']:
         def load_cursor_plan():
-            try:return cursor.plan(HOME),None
+            try:return cursor.plan(HOME,keychain=view_settings()['cursorKeychain']),None
             except cursor.CursorError as exc:return None,(0,str(exc),None)
         loaders['cursor_subscription']=lambda:cached_fetch('cursor_subscription',load_cursor_plan,refresh_ttl(EXTERNAL_TTLS['cursor_subscription']))
     # Asked of Antigravity's app on this computer, every minute while it runs; with it closed only its note is read.
@@ -4913,6 +4920,16 @@ def run_action(name, extra):
                 try:os.unlink(os.path.join(CACHE_DIR,name))
                 except OSError:pass
         invalidate_caches([range_cache_name(),'cursor_subscription'])
+        schedule_background_refresh()
+    elif name == 'set-cursor-keychain':
+        # The user's click is the consent, macOS's own question the authorisation; turned on, Cursor is read at once.
+        value=extra[0] if len(extra)==1 else ''
+        if value not in ('true','false'):raise ValueError('invalid Cursor keychain setting')
+        preferences.update(STATE_DIR,'cursor-keychain',value)
+        invalidate_caches([range_cache_name()])
+        if value=='true' and view_settings()['cursorUsage']:
+            try:refresh_now('cursor-subscription')
+            except ValueError:pass
         schedule_background_refresh()
     elif name == 'set-keep-usage':
         value=extra[0] if len(extra)==1 else ''

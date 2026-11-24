@@ -152,7 +152,7 @@ pub fn defaults() -> Object {
         "schema" => 1, "visible" => strings(DEFAULT_VISIBLE), "appearance" => "solid", "theme" => "system",
         "paths" => Object::new(), "allowCollapse" => false, "expandedProviders" => Json::Array(vec![]), "revision" => 0,
         "configuredSubscriptions" => Json::Array(vec![]), "claudeLiveUsage" => false, "claudeOAuthUsage" => false,
-        "cursorUsage" => false, "usageAlert" => 90, "resetReminder" => false, "balanceAlerts" => Object::new(),
+        "cursorUsage" => false, "cursorKeychain" => false, "usageAlert" => 90, "resetReminder" => false, "balanceAlerts" => Object::new(),
         "keepCleanedUsage" => true, "subscriptionPrices" => Object::new(), "groupBy" => "tool", "menuBar" => "none",
         "sessionAlerts" => false, "serviceStatus" => false, "currency" => "USD", "cnyRate" => Json::Null, "pinInterval" => 2,
         "syncFolder" => "", "deviceName" => "", "homeOrder" => Json::Array(vec![]),
@@ -220,7 +220,7 @@ pub fn read(directory: &Path) -> Object {
     if let Some(theme) = get("theme").and_then(Json::as_str).filter(|v| THEMES.contains(v)) {
         settings.insert("theme", theme);
     }
-    for flag in ["allowCollapse", "claudeLiveUsage", "claudeOAuthUsage", "cursorUsage"] {
+    for flag in ["allowCollapse", "claudeLiveUsage", "claudeOAuthUsage", "cursorUsage", "cursorKeychain"] {
         if let Some(on) = get(flag).and_then(Json::as_bool) {
             settings.insert(flag, on);
         }
@@ -394,6 +394,7 @@ fn update_holding(directory: &Path, kind: &str, key: Option<&str>, value: Option
         "claude-live" => flag(&mut current, "claudeLiveUsage", "invalid Claude live usage setting")?,
         "claude-oauth" => flag(&mut current, "claudeOAuthUsage", "invalid Claude OAuth setting")?,
         "cursor-usage" => flag(&mut current, "cursorUsage", "invalid Cursor usage setting")?,
+        "cursor-keychain" => flag(&mut current, "cursorKeychain", "invalid Cursor keychain setting")?,
         "usage-alert" => {
             let level = ALERT_LEVELS.into_iter().find(|level| Some(level.to_string().as_str()) == key);
             current.insert("usageAlert", level.ok_or(Error::Invalid("invalid usage alert"))?);
