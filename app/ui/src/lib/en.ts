@@ -115,7 +115,7 @@ export const phrases: Record<string, string> = {
   '安装失败：写入临时文件失败': 'Install failed: couldn\'t write a temporary file', 安装包校验失败: 'The package failed its checksum',
   '下载失败：GitHub 和镜像都连不上': 'Download failed: neither GitHub nor its mirrors could be reached',
   '正在读取…': 'Reading…',
-  '不含 Gemini App 用量': 'Gemini app not counted', 'Starmeter 有新版本 {v}': 'Starmeter {v} is out', '{n} 个工具可更新': '{n} tools have updates', 更新: 'Update',
+  '不含 Gemini App 用量': 'Gemini app not counted', 'Starmeter 有新版本 {v}': 'Starmeter {v} is out', '{n} 个工具可更新': '{n} tools have updates', '{n} 个工具可更新|1': '{n} tool has an update', 数据待更新: 'Waiting for fresh data', 更新: 'Update',
   主页提示工具更新: 'Show updates on the homepage', '有新版本时在 Starmeter 旁和工具更新那一行提示；关掉后只发系统通知': 'Marks new versions beside Starmeter and on the Tool updates row; off, only the system notification tells',
   新版本的签名者与已安装的不一致: 'The new version isn\'t signed by the same developer as the installed one',
   发布中没有安装包: 'The release has no package', 发布中没有校验值: 'The release has no checksum', 校验值格式错误: 'The checksum is malformed',
@@ -286,6 +286,9 @@ function windowShare(part: string, tr: (text: string) => string): string {
 export const whole: Rule[] = [
   [/^已用 (.+ · .+)$/, (m, tr) => `Used: ${m[1].split(' · ').map((part) => windowShare(part, tr)).join(' · ')}`],
   [/^更新时间：(.+)$/, (m) => `Updated ${m[1]}`],
+  // Whole, as the parts they'd be split into (at " · ", at "：") mean nothing alone.
+  [/^最早 (.+) 过期 · 在 Codex 里使用$/, (m) => `First expires ${m[1]} · use it in Codex`],
+  [/^加到主页：(.+)$/, (m, tr) => `Add to the homepage: ${m[1].split('、').map(tr).join(', ')}`],
 ];
 
 /** One part of the engine's text. */
@@ -315,13 +318,12 @@ export const rules: Rule[] = [
   [/^余 (.+) Credits$/, (m) => `${m[1]} credits left`],
   [/^可免费重置 (\d+) 次$/, (m) => `${m[1]} free ${plural(m[1], 'reset', 'resets')}`],
   [/^可用 (\d+) 次$/, (m) => `${m[1]} available`],
-  [/^最早 (.+) 过期 · 在 Codex 里使用$/, (m) => `First expires ${m[1]} · use it in Codex`],
   [/^额外用量剩 (.+)$/, (m) => `${m[1]} of extra usage left`],
   [/^按需剩 (.+)$/, (m) => `${m[1]} of on-demand left`],
   [/^到期 (.+)$/, (m) => `Expires ${m[1]}`],
   [/^(.+) 订阅$/, (m, tr) => `${tr(m[1])} plan`],
+  [/^(.+) 服务状态$/, (m, tr) => `${tr(m[1])} status`],
   [/^需勾选 (.+)$/, (m, tr) => `Needs ${tr(m[1])} on`],
-  [/^加到主页：(.+)$/, (m, tr) => `Add to the homepage: ${m[1].split('、').map(tr).join(', ')}`],
   [/^Antigravity 没有给出额度（HTTP (\d+)）$/, (m) => `Antigravity gave no quota (HTTP ${m[1]})`],
   // Updated and when
   [/^(\d+) 分钟前更新$/, (m) => `${m[1]} min ago`],
