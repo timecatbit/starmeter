@@ -4377,15 +4377,19 @@ def heatmap_cells(key, now, used):
     def name(d):return '%d月%d日 %s'%(d.month,d.day,WEEKDAYS[d.weekday()])
     if key in HOURLY_RANGES:
         if key=='24h':
+            # The last 24 hours are 24 real hours, the rows' own (keyed by the hour they begin), labelled with the zone's
+            # clock where each begins (23:30 where the zone is half an hour off).
             base=int(now.timestamp())//3600*3600-23*3600
-            moments=[datetime.fromtimestamp(base+3600*i,zone) for i in range(24)];names=['24小时']
-        else:
-            first=day-timedelta(days={'today':0,'yesterday':1,'7d':6,'week':day.weekday()}[key])
-            # Each row is one local day of wall-clock hours.
-            rows={'today':1,'yesterday':1,'7d':7,'week':day.weekday()+1}[key]
-            moments=[(first+timedelta(days=d)).replace(hour=h) for d in range(rows) for h in range(24)]
-            names={'today':['今天'],'yesterday':['昨天']}.get(key) or [WEEKDAYS[(first+timedelta(days=d)).weekday()] for d in range(rows)]
-        return [(int(m.timestamp())//3600*3600,name(m)+' %02d:00'%m.hour,m>now) for m in moments],24,names
+            moments=[datetime.fromtimestamp(base+3600*i,zone) for i in range(24)]
+            return [(base+3600*i,name(m)+' %02d:%02d'%(m.hour,m.minute),m>now) for i,m in enumerate(moments)],24,['24小时']
+        first=day-timedelta(days={'today':0,'yesterday':1,'7d':6,'week':day.weekday()}[key])
+        # A row is one of the zone's days of its wall-clock hours, each square keyed by that day and hour (as
+        # heatmap_payload files the rows): on the day the clocks go forward its 02:00 is empty, on the day they go back
+        # its 01:00 holds both.
+        rows={'today':1,'yesterday':1,'7d':7,'week':day.weekday()+1}[key]
+        moments=[(first+timedelta(days=d)).replace(hour=h) for d in range(rows) for h in range(24)]
+        names={'today':['今天'],'yesterday':['昨天']}.get(key) or [WEEKDAYS[(first+timedelta(days=d)).weekday()] for d in range(rows)]
+        return [((m.date().isoformat(),m.hour),name(m)+' %02d:00'%m.hour,m>now) for m in moments],24,names
     if key=='30d':first,count=day-timedelta(days=29),30
     elif key=='month':first,count=day.replace(day=1),calendar.monthrange(day.year,day.month)[1]
     else:
@@ -4418,9 +4422,17 @@ def streak_text(days, today):
     return '连续 %d 天 · 最长 %d 天'%(current,longest) if current>=2 else '最长连续 %d 天'%longest
 
 
-def heatmap_payload(bundle, key, now, selected, error=None):
-    """The squares under Summary for the selected range, counted as Summary counts them."""
+def heatmap_payload(bundle, key, now, selected, error=None, start=None, end=None):
+    """The squares under Summary for the selected range, counted as Summary counts them.
+    The rows are real hours as the sources count them (each begins on the hour, UTC); the squares of a calendar range are
+    the zone's own hours. A row goes to the zone's hour most of it falls in (its middle), kept within the range [start,
+    end]: where the zone is half an hour off, the hour half before the range begins or half after it ends holds only the
+    range's part, which belongs to its first or last square."""
     hourly=key in HOURLY_RANGES;totals={};partial=False;days=set()
+    if start is None or end is None:start,end=range_bounds(key,now)
+    def local_hour(stamp):
+        at=datetime.fromtimestamp(min(max(stamp+1800,start),max(end-1,start)),now.tzinfo)
+        return (at.date().isoformat(),at.hour)
     for part in summary_usage(selected).values():
         usage=part['usage'] or {}
         days.update(str(row.get('date',''))[:10] for row in usage.get('days') or [] if float(row.get('totalTokens') or 0)>0 or int(row.get('requests') or 0)>0)
@@ -4428,7 +4440,9 @@ def heatmap_payload(bundle, key, now, selected, error=None):
         # A source whose hours couldn't be read (OpenCodex's timeline) leaves the squares short.
         if hourly and not rows and (usage.get('summary') or {}).get('requests'):partial=True
         for row in rows:
-            slot=int(row.get('timestamp') or 0)//3600*3600 if hourly else str(row.get('date',''))[:10]
+            if key=='24h':slot=int(row.get('timestamp') or 0)//3600*3600
+            elif hourly:slot=local_hour(int(row.get('timestamp') or 0)//3600*3600)
+            else:slot=str(row.get('date',''))[:10]
             t=totals.setdefault(slot,[0.0,0,0.0,0])
             t[0]+=max(0.0,float(row.get('totalTokens') or 0));t[1]+=int(row.get('requests') or 0)
             t[2]+=max(0.0,float(row.get('estimatedCostUsd') or 0));t[3]+=int(row.get('unpricedRequests') or 0)
@@ -4601,7 +4615,7 @@ def dashboard_payload(data):
             'grouping':grouping,'groupings':[{'key':k,'label':v} for k,v in GROUPINGS.items()],'cards':cards,'currency':currency_unit(data),
             'groupNote':'按客户端自己的记录' if grouping=='project' and cards is not None else None,
             'chartUnit':unit,'chartSpan':span,'period':period,'chartStatus':chart_status,'updated':updated,'fetchedAt':bundle.get('_fetchedAt'),'chartPositions':chart_positions,
-            'heatmap':heatmap_payload(bundle,key,now,selected,data.get('range_usage_error')) if module_enabled('heatmap') and selected else None,
+            'heatmap':heatmap_payload(bundle,key,now,selected,data.get('range_usage_error'),start,end) if module_enabled('heatmap') and selected else None,
             'showSummary':module_enabled('summary'),'allowCollapse':view_settings()['allowCollapse'],'expandedProviders':view_settings()['expandedProviders']}
 
 

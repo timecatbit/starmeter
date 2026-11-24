@@ -729,13 +729,20 @@ impl Runtime {
             format!("{month}月{date}日 {}", weekday_name(day))
         };
         if HOURLY_RANGES.contains(&key) {
-            let mut moments: Vec<(f64, i64, i64)> = Vec::new();
+            let mut cells: Vec<Cell> = Vec::new();
             let names: Vec<String> = if key == "24h" {
+                // The last 24 hours are 24 real hours, the rows' own (keyed by the hour they begin), labelled with the
+                // zone's clock where each begins (23:30 where the zone is half an hour off).
                 let base = now.floor() as i64 / 3600 * 3600 - 23 * 3600;
                 for i in 0..24 {
                     let moment = (base + 3600 * i) as f64;
                     let local = Wall::at(moment, zone);
-                    moments.push((moment, days_from_civil(local.year, local.month, local.day), local.seconds / 3600));
+                    let day = days_from_civil(local.year, local.month, local.day);
+                    cells.push(Cell {
+                        slot: (base + 3600 * i).to_string(),
+                        label: format!("{} {:02}:{:02}", name(day), local.seconds / 3600, local.seconds % 3600 / 60),
+                        later: moment > now,
+                    });
                 }
                 vec!["24小时".into()]
             } else {
@@ -747,12 +754,19 @@ impl Runtime {
                     _ => (weekday, weekday + 1),
                 };
                 let first = today - back;
+                // A row is one of the zone's days of its wall-clock hours, each square keyed by that day and hour
+                // (local_hour_slot): on the day the clocks go forward its 02:00 is empty, on the day they go back
+                // its 01:00 holds both.
                 for d in 0..rows {
                     let (year, month, day) = py::civil_from_days(first + d);
                     for h in 0..24 {
                         let mut at = Wall::date(year, month, day, zone);
                         at.seconds = h * 3600;
-                        moments.push((at.timestamp(), first + d, h));
+                        cells.push(Cell {
+                            slot: format!("{}:{h}", first + d),
+                            label: format!("{} {h:02}:00", name(first + d)),
+                            later: at.timestamp() > now,
+                        });
                     }
                 }
                 match key {
@@ -761,14 +775,6 @@ impl Runtime {
                     _ => (0..rows).map(|offset| weekday_name(first + offset).to_string()).collect(),
                 }
             };
-            let cells = moments
-                .into_iter()
-                .map(|(moment, day, hour)| Cell {
-                    slot: (moment.floor() as i64 / 3600 * 3600).to_string(),
-                    label: format!("{} {hour:02}:00", name(day)),
-                    later: moment > now,
-                })
-                .collect();
             return (cells, 24, names);
         }
         let (first, count) = match key {
@@ -810,12 +816,21 @@ impl Runtime {
         &self,
         bundle: &Object,
         key: &str,
-        now: f64,
+        (now, start, end): (f64, f64, f64),
         zone: &TimeZone,
         selected: &[Selected],
         error: Option<&str>,
     ) -> Json {
         let hourly = HOURLY_RANGES.contains(&key);
+        // The rows are real hours as the sources count them (each begins on the hour, UTC); the squares of a calendar
+        // range are the zone's own hours. A row goes to the zone's hour most of it falls in (its middle), kept within
+        // the range: where the zone is half an hour off, the hour half before the range begins or half after it ends
+        // holds only the range's part, which belongs to its first or last square.
+        let local_hour_slot = |stamp: i64| {
+            let at = (stamp as f64 + 1800.0).clamp(start, (end - 1.0).max(start));
+            let wall = Wall::at(at, zone);
+            format!("{}:{}", days_from_civil(wall.year, wall.month, wall.day), wall.seconds / 3600)
+        };
         let mut totals: IndexMap<String, (f64, i64, f64, i64)> = IndexMap::new();
         let mut partial = false;
         let mut days: HashSet<String> = HashSet::new();
@@ -844,8 +859,10 @@ impl Runtime {
                 partial = true;
             }
             for row in &rows {
-                let slot = if hourly {
+                let slot = if key == "24h" {
                     (int(row.get("timestamp")) / 3600 * 3600).to_string()
+                } else if hourly {
+                    local_hour_slot(int(row.get("timestamp")) / 3600 * 3600)
                 } else {
                     date_prefix(row.get("date"))
                 };
@@ -1377,7 +1394,7 @@ impl Runtime {
             Json::Null
         };
         let heatmap = if self.module_enabled("heatmap") && !selected.is_empty() {
-            self.heatmap_payload(&bundle, &key, now, &zone, &selected, range_error)
+            self.heatmap_payload(&bundle, &key, (now, start, end), &zone, &selected, range_error)
         } else {
             Json::Null
         };

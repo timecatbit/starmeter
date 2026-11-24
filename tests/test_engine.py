@@ -868,6 +868,52 @@ class RangeParityTests(unittest.TestCase):
                     if data.get('range_usage') is ancient and 'claude' in variant.get('visible', ['claude']):
                         self.assertEqual(expected['chartStatus'], '图表展示最近 366 天')
 
+    def test_the_heatmap_squares_are_the_zones_own_hours(self):
+        # The sources count real hours from the hour (UTC); the squares of a calendar range are the zone's hours. Each
+        # source hour goes to the zone's hour most of it falls in, kept within the range: none is dropped or drawn twice
+        # where the zone is half an hour off (Kolkata) or on the days New York's clocks go forward and back.
+        import types
+        def at(zone, *wall):return datetime(*wall, tzinfo=ZoneInfo(zone)).timestamp()
+        utc = lambda *wall: datetime(*wall, tzinfo=timezone.utc).timestamp()
+        cases = [
+            # Yesterday in Kolkata (+05:30) is 11-23 00:00 to 11-24 00:00, 18:30 to 18:30 UTC. The hour from 18:00 UTC on
+            # the 22nd holds its first half hour (00:00); the one from 18:00 UTC on the 23rd its last (23:30–24:00).
+            ('Asia/Kolkata', 'yesterday', at('Asia/Kolkata', 2026, 11, 24, 12),
+             [(utc(2026, 11, 22, 18), 10), (utc(2026, 11, 23, 17), 20), (utc(2026, 11, 23, 18), 40)], {0: 10, 23: 60}),
+            ('Asia/Kathmandu', 'today', at('Asia/Kathmandu', 2026, 11, 24, 12),
+             [(utc(2026, 11, 23, 18), 5), (utc(2026, 11, 24, 5), 7)], {0: 5, 11: 7}),
+            # 2026-11-01: 01:00 EDT (05:00 UTC) and 01:00 EST (06:00 UTC) are both 01:00; 02:00 EST is 07:00 UTC.
+            ('America/New_York', 'today', at('America/New_York', 2026, 11, 1, 12),
+             [(utc(2026, 11, 1, 5), 1), (utc(2026, 11, 1, 6), 2), (utc(2026, 11, 1, 7), 4)], {1: 3, 2: 4}),
+            # 2026-03-08: 01:00 EST is 06:00 UTC, then 03:00 EDT is 07:00 UTC; there is no 02:00.
+            ('America/New_York', 'today', at('America/New_York', 2026, 3, 8, 12),
+             [(utc(2026, 3, 8, 6), 1), (utc(2026, 3, 8, 7), 2)], {1: 1, 3: 2}),
+        ]
+        for zone, key, frozen, hours, squares in cases:
+            with self.subTest(zone=zone, key=key, frozen=frozen):
+                usage = {'summary': {'requests': len(hours), 'totalTokens': sum(n for _, n in hours)},
+                         'hours': [{'timestamp': int(stamp), 'totalTokens': n, 'requests': 1} for stamp, n in hours]}
+                data = {'range_usage': {'range': key, 'claude': usage}, 'displayed_range': key}
+                common = dict(self.common, OCX_TIMEZONE=zone)
+                for engine in ('python', 'swift'):
+                    (Path(self.states[engine]['OCX_STATE_DIR']) / 'preferences.json').write_text(json.dumps(
+                        {'schema': 1, 'visible': ['summary', 'heatmap', 'claude'], 'modules': [m[0] for m in preferences.MODULES], 'range': key}))
+                with unittest.mock.patch.dict(os.environ, dict(common, **self.states['python'])):
+                    plugin = types.ModuleType('plugin_heat')
+                    exec(compile((ROOT / 'lib/swiftbar_plugin.py').read_text(), 'plugin', 'exec'), plugin.__dict__)
+                    plugin.usage_now = lambda: datetime.fromtimestamp(frozen, plugin.local_zone())
+                    expected = plugin.dashboard_payload(data)
+                environment = {k: v for k, v in os.environ.items() if k not in ('CLAUDE_CONFIG_DIR', 'XDG_CONFIG_HOME', 'CODEX_HOME', 'OCX_BASE_URL', 'TZ')}
+                environment.update(common, **self.states['swift'])
+                done = subprocess.run([PROBE], input=json.dumps({'call': 'dashboard', 'args': [data, frozen, None]}).encode(),
+                                      capture_output=True, check=True, env=environment)
+                answer = probed(done.stdout)
+                self.assertNotIn('error', answer)
+                same(self, expected, answer['result'])
+                tokens = answer['result']['heatmap']['tokens']
+                self.assertEqual({hour: n for hour, n in enumerate(tokens) if n}, squares)
+                self.assertEqual(answer['result']['heatmap']['labels'][0][-5:], '00:00')
+
     def test_range_bounds_follow_the_wall_clock(self):
         import types
         plugin = types.ModuleType('plugin_bounds')
