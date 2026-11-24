@@ -1,8 +1,8 @@
 {
  "source": {
   "project": "ccusage",
-  "commit": "48b7a625a1def5c62245dbf5ba6648bfa95b499e",
-  "committedAt": "2026-11-23T11:28:34Z",
+  "commit": "538716a678b7b3b2db193266ee64cb9373a0e8ab",
+  "committedAt": "2026-11-24T06:34:48Z",
   "license": "MIT"
  },
  "models": {
@@ -462,12 +462,6 @@
    "output": 0.3,
    "cacheRead": 0.0075,
    "cacheWrite": 0.09375
-  },
-  "gemini-2.5-computer-use-preview-10-2025": {
-   "input": 1.25,
-   "output": 10,
-   "cacheRead": 0.125,
-   "cacheWrite": 1.5625
   },
   "gemini-2.5-flash": {
    "input": 0.3,
@@ -1331,12 +1325,6 @@
    "cacheRead": 0.062854,
    "cacheWrite": 0.785675
   },
-  "kimi-k2-instruct-fast": {
-   "input": 0.4,
-   "output": 1.8,
-   "cacheRead": 0.2,
-   "cacheWrite": 0.5
-  },
   "kimi-k2-thinking": {
    "input": 0.4,
    "output": 2.5,
@@ -1599,10 +1587,10 @@
    "cacheWrite": 0.365625
   },
   "qwen-4-max": {
-   "input": 1.5,
-   "output": 4.5,
-   "cacheRead": 0.075,
-   "cacheWrite": 1.875
+   "input": 1.875,
+   "output": 5.625,
+   "cacheRead": 0.09375,
+   "cacheWrite": 2.34375
   },
   "qwen-deep-research": {
    "input": 7.742,
