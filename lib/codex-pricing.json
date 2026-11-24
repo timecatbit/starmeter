@@ -1,8 +1,8 @@
 {
  "source": {
   "project": "ccusage",
-  "commit": "896c1f623965fd6efaba9f1226fa0c770e90989d",
-  "committedAt": "2026-11-22T11:39:38Z",
+  "commit": "48b7a625a1def5c62245dbf5ba6648bfa95b499e",
+  "committedAt": "2026-11-23T11:28:34Z",
   "license": "MIT"
  },
  "aliases": {
@@ -590,6 +590,12 @@
    "output": 0.697,
    "cacheRead": 0.0179,
    "cacheWrite": 0.22375
+  },
+  "gpt-oss-safeguard-20b": {
+   "input": 0.07,
+   "output": 0.2,
+   "cacheRead": 0.007,
+   "cacheWrite": 0.0875
   },
   "o1": {
    "input": 15,
