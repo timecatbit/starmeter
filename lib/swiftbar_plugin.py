@@ -4977,7 +4977,10 @@ def run_action(name, extra):
         preferences.update(STATE_DIR,'cursor-usage',value)
         if value=='true':preferences.update(STATE_DIR,'module','cursor','true')
         else:
-            for name in [n for n in os.listdir(CACHE_DIR) if n.startswith(('cursor_usage_','cursor_subscription'))]:
+            # No cache folder yet (nothing read so far): nothing to clear.
+            try:cached=os.listdir(CACHE_DIR)
+            except OSError:cached=[]
+            for name in [n for n in cached if n.startswith(('cursor_usage_','cursor_subscription'))]:
                 try:os.unlink(os.path.join(CACHE_DIR,name))
                 except OSError:pass
         invalidate_caches([range_cache_name(),'cursor_subscription'])
