@@ -245,32 +245,22 @@ impl Runtime {
         }
         // Failures and stale data are explained once here, not on each row.
         let age = if windows.is_empty() { String::new() } else { self.freshness(payload.get("updatedAt")) };
+        // 立即刷新: with the sign-in read, the Claude retry (its own backoff, CLAUDE-QUOTA-2); otherwise a read again now.
+        let oauth = self.settings().get("claudeOAuthUsage").is_some_and(Json::is_truthy);
+        let again =
+            if oauth { self.act("retry-claude-usage", &[]) } else { self.act("refresh-now", &["claude-subscription"]) };
         if failed {
             let mut detail = error.clone().unwrap_or_default();
             if !windows.is_empty() {
                 detail += &format!("\n保留最近一次成功的数据 · {age}");
             }
-            rows.push(item(
-                "更新时间",
-                1,
-                object! { "badge" => "刷新失败", "paneldetail" => detail, "color" => WARN_COLOR, "size" => 10 },
-            ));
+            rows.push(self.refresh_now_row(again, "刷新失败", Some(&detail), true, 1));
         } else if !windows.is_empty() {
-            rows.push(item(
-                "更新时间",
-                1,
-                object! {
-                    "badge" => age, "paneldetail" => if stale { Json::from("数据待更新") } else { Json::Null },
-                    "color" => MUTED_COLOR, "size" => 10,
-                },
-            ));
+            rows.push(self.refresh_now_row(again, &age, stale.then_some("数据待更新"), false, 1));
+        } else if oauth {
+            rows.push(item("立即刷新", 1, merged(&[&object! { "sfimage" => "arrow.clockwise" }, &again])));
         }
-        if self.settings().get("claudeOAuthUsage").is_some_and(Json::is_truthy) {
-            rows.push(item(
-                "立即刷新用量",
-                1,
-                merged(&[&object! { "sfimage" => "arrow.clockwise" }, &self.act("retry-claude-usage", &[])]),
-            ));
+        if oauth {
             if failed {
                 rows.push(item(
                     "重新授权读取登录…",
@@ -363,20 +353,12 @@ impl Runtime {
         }
         let hint = "在 Qoder 窗口右下角打开 Credits 用量后更新";
         if failed {
-            rows.push(item(
-                "更新时间",
-                1,
-                object! { "badge" => "刷新失败", "paneldetail" => error.unwrap_or_default(), "color" => WARN_COLOR, "size" => 10 },
-            ));
+            let again = self.act("refresh-now", &["qoder-subscription"]);
+            rows.push(self.refresh_now_row(again, "刷新失败", Some(&error.unwrap_or_default()), true, 1));
         } else if let Some(observed) = observed.filter(|at| *at != 0.0) {
-            rows.push(item(
-                "更新时间",
-                1,
-                object! {
-                    "badge" => self.freshness(Some(&Json::Double(observed))),
-                    "paneldetail" => if stale { Json::from(hint) } else { Json::Null }, "color" => MUTED_COLOR, "size" => 10,
-                },
-            ));
+            let badge = self.freshness(Some(&Json::Double(observed)));
+            let again = self.act("refresh-now", &["qoder-subscription"]);
+            rows.push(self.refresh_now_row(again, &badge, stale.then_some(hint), false, 1));
         } else {
             rows.push(item(hint, 1, muted(10)));
         }
@@ -486,7 +468,7 @@ impl Runtime {
                 muted(10),
             ));
         } else {
-            rows.push(self.refresh_row(&payload, error.as_deref(), 1));
+            rows.push(self.refresh_row("gemini-subscription", &payload, error.as_deref(), 1));
         }
         if let Some(app) = antigravity_app(&self.home) {
             rows.push(item(
@@ -522,7 +504,6 @@ impl Runtime {
         } else if let Some(extra) = on_demand.as_ref().filter(|_| on_reserve) {
             match extra.get("limitCents").filter(|limit| limit.is_truthy()).and_then(Json::number) {
                 Some(limit) => format!("按需剩 ${:.2}", ((limit - py::num(extra.get("usedCents"))) / 100.0).max(0.0)),
-                        "panelshare" => rows::reserve_share(on_reserve, percent),
                 None => "在用按需用量".into(),
             }
         } else if let Some(percent) = percent {
@@ -541,6 +522,7 @@ impl Runtime {
                     &self.brand_icon("cursor-subscription"),
                     &object! {
                         "panelusagelevel" => if percent.is_none() { Json::Null } else if on_reserve { rows::reserve_level(failed) } else { usage_level(percent, failed) },
+                        "panelshare" => rows::reserve_share(on_reserve, percent),
                     },
                 ]),
             ),
@@ -580,7 +562,7 @@ impl Runtime {
             rows.push(item("按需用量", 1, object! { "badge" => text }));
         }
         if enabled {
-            rows.push(self.refresh_row(&payload, error.as_deref(), 1));
+            rows.push(self.refresh_row("cursor-subscription", &payload, error.as_deref(), 1));
         } else {
             rows.push(item(
                 "读取 Cursor 用量记录…",
@@ -770,7 +752,7 @@ impl Runtime {
                 ));
             }
             if self.opencodex_configured() {
-                lines.push(self.refresh_row(&object(data, "quota"), error.as_deref(), 1));
+                lines.push(self.refresh_row("chatgpt", &object(data, "quota"), error.as_deref(), 1));
             }
             lines.push(item(
                 "打开账户管理",
@@ -835,7 +817,6 @@ impl Runtime {
             .then(|| format!("可免费重置 {offered} 次"));
         let limits: Vec<(String, f64, bool)> = visible
             .iter()
-                    "panelshare" => rows::reserve_share(on_reserve, most),
             .map(|window| {
                 let name = chatgpt_window_label(window);
                 let five_hours = name == "5 小时";
@@ -854,6 +835,7 @@ impl Runtime {
                 &self.brand_icon("chatgpt"),
                 &object! {
                     "panelusagelevel" => if visible.is_empty() { Json::Null } else if on_reserve { rows::reserve_level(failed) } else { usage_level(most, failed) },
+                    "panelshare" => rows::reserve_share(on_reserve, most),
                 },
             ]),
         )];
@@ -896,7 +878,7 @@ impl Runtime {
             ));
         }
         if self.chatgpt_configured() {
-            lines.push(self.refresh_row(&payload, error.as_deref(), 1));
+            lines.push(self.refresh_row("chatgpt", &payload, error.as_deref(), 1));
         }
         lines.push(item("打开 ChatGPT", 1, object! { "href" => "https://chatgpt.com", "sfimage" => "arrow.up.right" }));
         lines

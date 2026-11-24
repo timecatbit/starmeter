@@ -400,6 +400,9 @@ function groupCards(key) {
 // MARK: The homepage rows and the module list
 
 const entry = (label, fields = {}, children = []) => ({ label, children, ...fields });
+/** 立即刷新, where a page says when its figures were read: a click reads the source again; beside it when, or 刷新失败. */
+const refreshNow = (source, value, detail, failed = false) =>
+  entry('立即刷新', { symbol: 'arrow.clockwise', value, ...(detail ? { detail } : {}), ...(failed ? { usageLevel: 'warning' } : {}), action: ['refresh-now', source] });
 const separator = () => ({ label: '', separator: true, children: [] });
 const location = (label, paths) => entry(label, { detail: paths.join('\n'), verbatim: true });
 const HOME = '/Users/demo';
@@ -407,7 +410,7 @@ const STATE = HOME + '/Library/Application Support/SwiftBarToken';
 
 function subscriptionRows(state) {
   const failed = state === 'failed', pending = state === 'pending';
-  const updated = (text) => entry('更新时间', { value: pending ? '待同步' : text });
+  const updated = (text, source) => refreshNow(source, pending ? '待同步' : text);
   const window = (label, used, detail) => {
     const level = used >= 90 ? 'critical' : used >= 70 ? 'warning' : 'normal';
     return entry(label, { ...(failed ? {} : { usageLevel: level }), value: `已用 ${used}%`, ...(failed ? {} : { detail }) });
@@ -420,12 +423,12 @@ function subscriptionRows(state) {
   const price = (key, value) => entry('订阅月费…', { symbol: 'dollarsign.circle', value, action: ['set-subscription-price', key] });
   return [
     entry('ChatGPT 订阅', { ...moduleIcon('chatgpt'), ...(pending ? {} : { usageLevel: 'normal' }), value: pending ? '待同步' : '已用 38%',
-      ...gauges(['5 小时', 12], ['本周', 38]), onOpenAction: ['refresh-source', 'chatgpt'] }, pending ? [entry('来源 · 本机登录 · 编程工具额度'), updated('')] : [
+      ...gauges(['5 小时', 12], ['本周', 38]), onOpenAction: ['refresh-source', 'chatgpt'] }, pending ? [entry('来源 · 本机登录 · 编程工具额度'), updated('', 'chatgpt')] : [
       entry('来源 · 本机登录 · 编程工具额度'),
       window('5 小时', 12, '重置于 18:20 · 比匀速少用 9%'),
       window('本周', 38, '重置于 11/23 09:00 · 比匀速多用 6%'),
       window('Codex Spark', 4, '重置于 11/23 09:00 · 与匀速持平'),
-      updated('刚刚更新'),
+      updated('刚刚更新', 'chatgpt'),
       entry('打开 ChatGPT', { ...moduleIcon('chatgpt'), href: 'https://chatgpt.com' }),
       price('chatgpt', '$20.00'),
       entry('本月回本 6.2 倍', { detail: '本月 API 等值 $124.40 · 月费 $20.00' }),
@@ -438,9 +441,8 @@ function subscriptionRows(state) {
       window('Fable', 41, '重置于 11/20 22:00 · 比匀速少用 23%'),
       window('5 小时', 22, '重置于 17:00 · 与匀速持平'),
       entry('额外用量', { value: '$4.20 / $50.00', detail: '本月已用 · 剩余 $45.80' }),
-      failed ? entry('更新时间', { value: '15 分钟前更新', detail: '本次读取失败：令牌已过期，请在 Claude Code 里运行 /login · 保留最近一次成功的数据 · 15:25' })
-        : updated('2 分钟前更新'),
-      entry('立即刷新用量', { symbol: 'arrow.clockwise', action: ['retry-claude-usage'] }),
+      failed ? refreshNow('claude-subscription', '刷新失败', '本次读取失败：令牌已过期，请在 Claude Code 里运行 /login · 保留最近一次成功的数据 · 15:25', true)
+        : updated('2 分钟前更新', 'claude-subscription'),
       entry('打开 Claude', { ...moduleIcon('claude-subscription'), href: 'file:///Applications/Claude.app' }),
       entry('打开订阅用量', { symbol: 'arrow.up.right', href: 'https://claude.ai/settings/usage' }),
       price('claude-subscription', '$100.00'),
@@ -452,7 +454,7 @@ function subscriptionRows(state) {
       window('本周期', 91, '重置于 12/03 16:50 · 比匀速多用 43%'),
       entry('套餐额度', { value: '$18.20 / $20.00 · 剩余 $1.80', fallbacks: ['$18.20 / $20.00'] }),
       entry('按需用量', { value: '未开启' }),
-      updated('4 分钟前更新'),
+      updated('4 分钟前更新', 'cursor-subscription'),
       entry('打开 Cursor', { ...moduleIcon('cursor-subscription'), href: 'file:///Applications/Cursor.app' }),
       entry('打开用量与账单', { symbol: 'arrow.up.right', href: 'https://cursor.com/dashboard' }),
       price('cursor-subscription', '未填写'),
@@ -462,7 +464,7 @@ function subscriptionRows(state) {
       entry('来源 · Qoder 桌面 App 的本机日志'),
       entry('套餐 Credits', { ...(failed ? {} : { usageLevel: 'normal' }), value: '已用 58%', detail: '1,160 / 2,000 Credits · 到期 12/08' }),
       entry('加购 Credits', { ...(failed ? {} : { usageLevel: 'normal' }), value: '已用 10%', detail: '50 / 500 Credits · 到期 2027-02-01' }),
-      updated(failed ? '6 小时前更新' : '12 分钟前更新'),
+      updated(failed ? '6 小时前更新' : '12 分钟前更新', 'qoder-subscription'),
       entry('在 Qoder 窗口右下角打开 Credits 用量后更新'),
     ]),
     // Antigravity's quota, read from its app on this computer.
@@ -474,7 +476,7 @@ function subscriptionRows(state) {
       window('本周', 9, '重置于 12/06 09:40 · 比匀速少用 20%'),
       window('5 小时 · Claude 和 GPT', 6, '重置于 12/01 19:05'),
       window('本周 · Claude 和 GPT', 18, '重置于 12/06 10:15'),
-      updated('刚刚更新'),
+      updated('刚刚更新', 'gemini-subscription'),
       entry('打开 Antigravity', { symbol: 'macwindow', href: 'file:///Applications/Antigravity.app' }),
       entry('打开订阅管理', { symbol: 'arrow.up.right', href: 'https://gemini.google.com' }),
       price('gemini-subscription', '未填写'),
@@ -498,7 +500,7 @@ function apiRows(state) {
     entry('Claude API', { ...moduleIcon('claude-api'), value: value('本月已用 $12.40'), onOpenAction: ['refresh-source', 'claude-api'] }, [
       apiKey('claude-api', 'default', '默认', value('本月已用 $12.40'), [
         entry('今天已用（UTC）', { value: '$1.05' }),
-        entry('更新时间', { value: '7 分钟前更新' }),
+        refreshNow('claude-api', '7 分钟前更新'),
         entry('测试 Key', { value: 'Key 可用', action: ['test-api-key', 'claude-api', 'default'] }),
       ]),
       entry('添加 Key…', { symbol: 'plus', action: ['add-api-key', 'claude-api'] }),
@@ -507,16 +509,16 @@ function apiRows(state) {
     entry('DeepSeek API', { ...moduleIcon('deepseek'), value: value(failed ? '余额 ¥186.40 · 刷新失败' : '余额 ¥229.15 (2)'), fallbacks: ['余额 ¥229.15'],
       onOpenAction: ['refresh-source', 'deepseek'] }, [
       apiKey('deepseek', 'default', '默认', value('余额 ¥186.40'), [
-        failed ? entry('更新时间', { value: '1 小时前更新', detail: '本次读取失败：网络连接超时 · 保留最近一次成功的数据 · 14:31' }) : entry('更新时间', { value: '4 分钟前更新' }),
+        failed ? refreshNow('deepseek', '刷新失败', '本次读取失败：网络连接超时 · 保留最近一次成功的数据 · 14:31', true) : refreshNow('deepseek', '4 分钟前更新'),
       ], false),
-      apiKey('deepseek', '7c41e2aa', 'demo', value('余额 ¥42.75'), [entry('更新时间', { value: '4 分钟前更新' })]),
+      apiKey('deepseek', '7c41e2aa', 'demo', value('余额 ¥42.75'), [refreshNow('deepseek', '4 分钟前更新')]),
       entry('添加 Key…', { symbol: 'plus', action: ['add-api-key', 'deepseek'] }),
       entry('余额提醒…', { symbol: 'bell', value: '¥20.00', action: ['set-balance-alert', 'deepseek', 'CNY'] }),
       entry('打开用量与账单', { symbol: 'arrow.up.right', href: 'https://platform.deepseek.com/usage' }),
     ]),
     entry('Kimi API', { ...moduleIcon('kimi-api'), value: value('余额 ¥86.30 · $18.20'), fallbacks: ['余额 ¥86.30'], onOpenAction: ['refresh-source', 'kimi-api'] }, [
-      apiKey('kimi-api', 'default', '默认', value('余额 ¥86.30'), [entry('更新时间', { value: '9 分钟前更新' })], false),
-      apiKey('kimi-api', '0f93ab10', '国际站', value('余额 $18.20'), [entry('更新时间', { value: '9 分钟前更新' })]),
+      apiKey('kimi-api', 'default', '默认', value('余额 ¥86.30'), [refreshNow('kimi-api', '9 分钟前更新')], false),
+      apiKey('kimi-api', '0f93ab10', '国际站', value('余额 $18.20'), [refreshNow('kimi-api', '9 分钟前更新')]),
       entry('添加 Key…', { symbol: 'plus', action: ['add-api-key', 'kimi-api'] }),
       entry('人民币余额提醒…', { symbol: 'bell', value: '关闭', action: ['set-balance-alert', 'kimi-api', 'CNY'] }),
       entry('美元余额提醒…', { symbol: 'bell', value: '$5.00', action: ['set-balance-alert', 'kimi-api', 'USD'] }),
@@ -592,9 +594,8 @@ function komariRows(state) {
     server('home-nas', true, '在线 · CPU 2% · 内存 17% · 到期 长期'),
     server('lab-pi', false, '离线 · 最后在线 11/17 08:10 · 到期 长期'),
     separator(),
-    entry('更新时间', { value: '刚刚更新' }),
+    refreshNow('komari', '刚刚更新'),
     entry('打开 Komari 面板', { href: 'https://komari.example.com' }),
-    entry('刷新监控数据', { action: ['refresh-monitor'] }),
   ]);
 }
 

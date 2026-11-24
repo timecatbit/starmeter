@@ -2067,10 +2067,12 @@ def claude_subscription_lines(data):
     elif isinstance(extra,dict):rows.append(item('额外用量',badge='未开启',level=1,color=MUTED,size=10))
     # Failures and stale data are explained once here, like every other source, not on each row.
     age=freshness({'_fetchedAt':payload['updatedAt']}) if windows else ''
-    if failed:rows.append(item('更新时间',badge='刷新失败',paneldetail=str(error[1])+('\n保留最近一次成功的数据 · '+age if windows else ''),level=1,color=WARN,size=10))
-    elif windows:rows.append(item('更新时间',badge=age,paneldetail='数据待更新' if stale else None,level=1,color=MUTED,size=10))
-    if view_settings()['claudeOAuthUsage']:
-        rows.append(item('立即刷新用量',level=1,sfimage='arrow.clockwise',**act('retry-claude-usage')))
+    # 立即刷新: with the sign-in read, the Claude retry (its own backoff, CLAUDE-QUOTA-2); otherwise a read again now.
+    oauth=view_settings()['claudeOAuthUsage'];again=act('retry-claude-usage') if oauth else act('refresh-now','claude-subscription')
+    if failed:rows.append(refresh_now_row(again,'刷新失败',str(error[1])+('\n保留最近一次成功的数据 · '+age if windows else ''),True))
+    elif windows:rows.append(refresh_now_row(again,age,'数据待更新' if stale else None,False))
+    elif oauth:rows.append(item('立即刷新',level=1,sfimage='arrow.clockwise',**again))
+    if oauth:
         if failed:rows.append(item('重新授权读取登录…',level=1,sfimage='lock',**act('reauthorize-claude-oauth')))
     else:
         rows.append(item('启用 Claude Code 登录查询…',level=1,sfimage='arrow.triangle.2.circlepath',paneldetail='主动获取订阅用量，不读取 Cookie',**act('set-claude-oauth','true')))
@@ -2109,8 +2111,8 @@ def qoder_subscription_lines(data):
         if name=='套餐 Credits' and payload.get('resetsAt'):detail+='\n重置于 '+datetime.fromtimestamp(payload['resetsAt'],local_zone()).strftime('%m/%d %H:%M')
         rows.append(item(name,badge=used_text(used),paneldetail=detail,level=1,panelusagelevel=usage_level(used,stale or failed)))
     hint='在 Qoder 窗口右下角打开 Credits 用量后更新'
-    if failed:rows.append(item('更新时间',badge='刷新失败',paneldetail=str(error[1]),level=1,color=WARN,size=10))
-    elif observed:rows.append(item('更新时间',badge=freshness({'_fetchedAt':observed}),paneldetail=hint if stale else None,level=1,color=MUTED,size=10))
+    if failed:rows.append(refresh_now_row(act('refresh-now','qoder-subscription'),'刷新失败',str(error[1]),True))
+    elif observed:rows.append(refresh_now_row(act('refresh-now','qoder-subscription'),freshness({'_fetchedAt':observed}),hint if stale else None,False))
     else:rows.append(item(hint,level=1,color=MUTED,size=10))
     app=update_app_path('qoder')
     if app:rows.append(item('打开 Qoder',level=1,sfimage='macwindow',href='file://'+urllib.parse.quote(app)))
@@ -2142,7 +2144,7 @@ def cursor_subscription_lines(data):
         if payload.get('limitCents'):rows.append(item('套餐额度',badge='$%.2f / $%.2f'%(payload['usedCents']/100,payload['limitCents']/100),level=1))
     extra=payload.get('onDemand') or {}
     if payload:rows.append(item('按需用量',badge=('$%.2f'%(extra.get('usedCents',0)/100)+(' / $%.2f'%(extra['limitCents']/100) if extra.get('limitCents') else '')) if extra.get('enabled') else '未开启',level=1))
-    if enabled:rows.append(refresh_row(payload,error))
+    if enabled:rows.append(refresh_row('cursor-subscription',payload,error))
     else:rows.append(item('读取 Cursor 用量记录…',level=1,sfimage='arrow.triangle.2.circlepath',paneldetail='用本机 Cursor 登录查询 cursor.com，令牌只在内存中使用',**act('set-cursor-usage','true')))
     app=update_app_path('cursor')
     if app:rows.append(item('打开 Cursor',level=1,sfimage='macwindow',href='file://'+urllib.parse.quote(app)))
@@ -2226,7 +2228,7 @@ def gemini_subscription_lines(data):
                          paneldetail=window_detail(used,w.get('resetsAt'),gemini_span(w),read_at,closed or failed)))
     if closed and read_at:rows.append(item('更新时间',badge=freshness(payload),paneldetail='Antigravity 没开，打开后更新',color=MUTED,size=10,level=1))
     elif closed or not present:rows.append(item('打开 Antigravity 后更新' if present else '装好 Antigravity 并登录后显示额度',level=1,color=MUTED,size=10))
-    else:rows.append(refresh_row(payload,error))
+    else:rows.append(refresh_row('gemini-subscription',payload,error))
     app=antigravity_app()
     if app:rows.append(item('打开 Antigravity',level=1,sfimage='macwindow',href='file://'+urllib.parse.quote(app)))
     rows.append(item('打开订阅管理',level=1,sfimage='arrow.up.right',href=service.url))
@@ -2560,6 +2562,22 @@ def refresh_resource(source):
     checks[source]=now;checks['schema']=1;write_json_cache(cache_path('resource-checks'),checks)
     invalidate_caches(names)
     schedule_background_refresh()
+
+def refresh_now(source):
+    """立即刷新 on a page: its source read again now, back once the reading is in (or failed), so the row turns until
+    then. A refresh already under way is waited for first."""
+    if source not in RESOURCE_CACHES or not module_enabled(source):raise ValueError('invalid resource')
+    names=resource_cache_names(source,external_loaders())
+    if not names:return
+    os.makedirs(CACHE_DIR,mode=0o700,exist_ok=True)
+    with open(os.path.join(CACHE_DIR,'refresh.lock'),'a') as lock:
+        fcntl.flock(lock,fcntl.LOCK_EX)
+        invalidate_caches(names)
+        loaders=external_loaders()
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            for future in [pool.submit(loaders[name]) for name in names if name in loaders]:future.result()
+    refresh_swiftbar()
+
 
 def refresh_swiftbar():
     if MAC_APP or DESKTOP is not None:return
@@ -3249,8 +3267,7 @@ def komari_lines(data):
         lines.append(item("%s %s  %s · %s" % (mark, pad_display(name, 18), label, expiry_text),
                           level=1, color=color, font="Menlo", size=12, tooltip=detail, href=url,
                           panelstatus="ok" if state is True else "issue" if state is False else "unknown"))
-    lines.extend(["-----", refresh_row(payload,error), item("打开 Komari 面板", level=1, href=KOMARI_BASE_URL),
-                  item("刷新监控数据", level=1, **act("refresh-monitor"))])
+    lines.extend(["-----", refresh_row('komari',payload,error), item("打开 Komari 面板", level=1, href=KOMARI_BASE_URL)])
     return lines
 
 
@@ -3334,7 +3351,7 @@ def chatgpt_lines(data):
         for name,used,state in usage:
             lines.append(item(name,level=1,badge=(used_text(used) if used is not None else '额度待同步')+state,
                               panelusagelevel=usage_level(used,failed) if used is not None else None))
-        if ocx_configured():lines.append(refresh_row(data.get('quota') or {},error))
+        if ocx_configured():lines.append(refresh_row('chatgpt',data.get('quota') or {},error))
         lines.append(item('打开账户管理',level=1,href=BASE+'/',sfimage='arrow.up.right'))
         return lines
     payload=data.get('chatgpt') or {};windows=[w for w in payload.get('windows') or [] if known_share(w)];error=data.get('chatgpt_error');failed=refresh_failed(error)
@@ -3368,7 +3385,7 @@ def chatgpt_lines(data):
         expires=resets.get('expiresAt')
         detail='最早 %s 过期 · 在 Codex 里使用'%datetime.fromtimestamp(expires,local_zone()).strftime('%m/%d') if expires else '一次补满窗口 · 在 Codex 里使用'
         lines.append(item('免费重置',level=1,badge='可用 %d 次'%offered,paneldetail=detail))
-    if chatgpt_configured():lines.append(refresh_row(payload,error))
+    if chatgpt_configured():lines.append(refresh_row('chatgpt',payload,error))
     lines.append(item('打开 ChatGPT',level=1,href='https://chatgpt.com',sfimage='arrow.up.right'))
     return lines
 
@@ -3992,7 +4009,7 @@ def key_lines(provider,entry,data,level):
     if payload.get('permission') is False:
         rows.append(item(payload.get('state','没有查看花费的权限'),level=level,color=WARN,size=10,
                          paneldetail='需要管理员 Key（sk-ant-admin…），个人组织需先转为团队组织' if payload.get('reason')!='workspace' else '这把 Key 绑定了 Workspace，换用管理员 Key（sk-ant-admin…）'))
-    if provider in KEY_TTLS:rows.append(refresh_row(payload,error,level))
+    if provider in KEY_TTLS:rows.append(refresh_row(provider,payload,error,level))
     if provider in accounts.KEY_CHECKS:
         check=key_check(provider,entry['id'])
         rows.append(item('测试 Key',level=level,badge=(check['state']+' · '+freshness({'_fetchedAt':check['checkedAt']}).replace('更新','')) if check else '未测试',
@@ -4023,7 +4040,7 @@ def provider_account_lines(key,data):
     for w in windows:
         rows.append(item(w['name'],level=1,badge=used_text(100-w['remaining']),panelusagelevel=usage_level(100-w['remaining'],failed),
                          paneldetail=window_detail(100-w['remaining'],w.get('resetsAt'),minimax_span(w),payload.get('_fetchedAt'),failed)))
-    rows.append(refresh_row(payload,error) if connection_ready(key) else item('选择密钥文件…',level=1,**act('configure-connection',key)))
+    rows.append(refresh_row(key,payload,error) if connection_ready(key) else item('选择密钥文件…',level=1,**act('configure-connection',key)))
     rows.append(item('打开用量与账单',level=1,href=service.url,sfimage='arrow.up.right'))
     return rows
 
@@ -4084,11 +4101,17 @@ def with_failure(badge,has_data,failed):
     return badge+' · 刷新失败' if has_data else '刷新失败'
 
 
-def refresh_row(payload,error,level=1):
+def refresh_row(source,payload,error,level=1):
     failed=refresh_failed(error)
     state='刷新失败' if failed else freshness(payload)
     detail=(str(error[1])+('\n保留最近一次成功的数据 · '+freshness(payload) if payload.get('_fetchedAt') else '')) if failed else None
-    return item('更新时间',badge=state,paneldetail=detail,level=level,color=WARN if failed else MUTED,size=10)
+    return refresh_now_row(act('refresh-now',source),state,detail,failed,level)
+
+
+def refresh_now_row(action,badge,detail,failed,level=1):
+    """立即刷新, where a page says when its figures were read: the source read again on a click, the row turning till
+    the reading is in; beside it when the figures were read or 刷新失败 in orange, and under it why."""
+    return item('立即刷新',level=level,sfimage='arrow.clockwise',badge=badge,paneldetail=detail,panelusagelevel='warning' if failed else None,**action)
 
 
 def panel_entries(lines):
@@ -4116,6 +4139,9 @@ def panel_entries(lines):
             if attrs.get("panelsection")=="true":entry["section"]=True
             if attrs.get("panelattention")=="true":entry["attention"]=True
             if attrs.get('panelusagelevel') in ('normal','warning','critical'):entry['usageLevel']=attrs['panelusagelevel']
+            try:
+                if 'panelshare' in attrs:entry['share']=min(1.0,max(0.0,float(attrs['panelshare'])/100))
+            except ValueError:pass
             if attrs.get('panelstatus') in STATUS_LIGHTS:entry['statusLight']=attrs['panelstatus']
             if attrs.get('panelradio') in ('on','off'):entry.update(radio=True,checked=attrs['panelradio']=='on')
             if attrs.get("badge"):
@@ -4139,9 +4165,6 @@ def panel_entries(lines):
                 entry["href"] = attrs["href"]
             if attrs.get("param2") == "--action" and attrs.get("param3"):
                 entry["action"] = [attrs["param" + str(i)] for i in range(3, 20) if "param" + str(i) in attrs]
-            try:
-                if 'panelshare' in attrs:entry['share']=min(1.0,max(0.0,float(attrs['panelshare'])/100))
-            except ValueError:pass
             if level and label.startswith(("●", "○", "?")) and attrs.get("tooltip"):
                 # The panel draws the status light; the text mark is only for SwiftBar's own menu.
                 entry["label"] = re.sub(r"\s{2,}", " · ", label[1:].strip()).split(" · ")[0]
@@ -4800,6 +4823,8 @@ def run_action(name, extra):
         schedule_background_refresh()
     elif name == 'refresh-source':
         refresh_resource(extra[0] if len(extra)==1 else '')
+    elif name == 'refresh-now':
+        refresh_now(extra[0] if len(extra)==1 else '')
     elif name in ('choose-client-home','reset-client-connection','reveal-client-home','set-proxy-address','choose-admin-token'):
         configure_client_action(name,extra)
     elif name in ('configure-connection','clear-connection'):

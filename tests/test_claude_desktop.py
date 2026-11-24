@@ -157,15 +157,15 @@ class DesktopTests(unittest.TestCase):
   with patch.object(self.m.claude_oauth,'fetch',side_effect=AssertionError('rendering must not query or renew')):
    head=self.m.panel_entries(self.m.claude_subscription_lines({}))[0]
   self.assertEqual(head['value'],'待同步')
-  self.assertIn('立即刷新用量',[c['label'] for c in head['children']])
+  self.assertIn('立即刷新',[c['label'] for c in head['children']])
  def test_refresh_failure_is_explained_once_not_on_every_row(self):
   limits={'limits':[{'kind':'weekly','percent':10,'resets_at':'2026-11-12T13:59:59Z'},{'percent':5,'scope':{'model':{'display_name':'Fable'}}}]}
   payload=dict(live.parse_usage(dict(limits,extra_usage={'is_enabled':True,'monthly_limit':2000,'used_credits':0})),source='claude-oauth')
   error=(0,'登录续期未完成，请在 Claude Code 检查登录',None)
   rows=self.m.panel_entries(self.m.claude_subscription_lines({'claude_subscription':payload,'claude_subscription_error':error}))[0]['children']
-  details='\n'.join(r.get('detail') or '' for r in rows if r['label']!='更新时间')
+  details='\n'.join(r.get('detail') or '' for r in rows if r['label']!='立即刷新')
   self.assertNotIn('刷新失败',details)
-  status=[r for r in rows if r['label']=='更新时间']
+  status=[r for r in rows if r['label']=='立即刷新']
   self.assertEqual(len(status),1);self.assertEqual(status[0]['value'],'刷新失败')
   self.assertIn('登录续期未完成',status[0]['detail']);self.assertIn('保留最近一次成功的数据',status[0]['detail'])
   self.assertFalse(any(r['label'].startswith('登录续期') for r in rows))

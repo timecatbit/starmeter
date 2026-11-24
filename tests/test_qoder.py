@@ -70,7 +70,7 @@ class QoderPanelTests(unittest.TestCase):
         head,source,plan,extra,updated,*rest=self.rows(payload)
         self.assertEqual(head['value'],'已用 75%');self.assertEqual(head['usageLevel'],'warning')
         self.assertTrue(plan['detail'].startswith('1,500 / 2,000 · 剩余 500'));self.assertIn('重置于',plan['detail'])
-        self.assertEqual(extra['value'],'已用 20%');self.assertEqual(updated['label'],'更新时间')
+        self.assertEqual(extra['value'],'已用 20%');self.assertEqual(updated['label'],'立即刷新');self.assertEqual(updated['action'],['refresh-now','qoder-subscription'])
         old=self.rows(dict(payload,observedAt=self.now-7200))
         self.assertTrue(old[0]['value'].startswith('已用 75% · 截至 '));self.assertNotIn('usageLevel',old[0])
         self.assertIn('Credits 用量',old[4]['detail'])

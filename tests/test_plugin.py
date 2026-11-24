@@ -125,11 +125,11 @@ class PluginTests(unittest.TestCase):
         self.m.invalidate_caches(['provider_quotas'])
         during=self.deepseek_entry(*self.m.cache_result(self.m.read_cache('provider_quotas'),ttl))
         self.assertEqual(before['value'],during['value']);self.assertEqual(during['value'],'余额 ¥2.00')
-        state=next(row for row in during['children'][0]['children'] if row['label']=='更新时间')
-        self.assertEqual(state['value'],next(row['value'] for row in before['children'][0]['children'] if row['label']=='更新时间'))
+        state=next(row for row in during['children'][0]['children'] if row['label']=='立即刷新')
+        self.assertEqual(state['value'],next(row['value'] for row in before['children'][0]['children'] if row['label']=='立即刷新'))
         after=self.deepseek_entry(*self.m.cached_fetch('provider_quotas',lambda:(payload,None),ttl))
         self.assertEqual(after['value'],'余额 ¥2.00')
-        self.assertEqual(next(row for row in after['children'][0]['children'] if row['label']=='更新时间')['value'],'刚刚更新')
+        self.assertEqual(next(row for row in after['children'][0]['children'] if row['label']=='立即刷新')['value'],'刚刚更新')
 
     def test_deepseek_initial_loading_and_refresh_failure_remain_distinct(self):
         ttl=self.m.EXTERNAL_TTLS['provider_quotas']
@@ -139,7 +139,7 @@ class PluginTests(unittest.TestCase):
         self.record('provider_quotas',{'reports':[{'provider':'deepseek','quota':{'customWindows':[{'label':'¥2.00'}]}}]},age=3600)
         failed=self.deepseek_entry(*self.m.cached_fetch('provider_quotas',lambda:(None,(0,'timeout',None)),ttl))
         self.assertEqual(failed['value'],'余额 ¥2.00 · 刷新失败')
-        state=next(row for row in failed['children'][0]['children'] if row['label']=='更新时间')
+        state=next(row for row in failed['children'][0]['children'] if row['label']=='立即刷新')
         self.assertEqual(state['value'],'刷新失败');self.assertIn('保留最近一次成功的数据',state['detail'])
 
     def test_atomic_cache_is_private_and_complete(self):
@@ -206,13 +206,13 @@ class PluginTests(unittest.TestCase):
             data=self.m.gather()
             rows=self.m.panel_entries(self.m.chatgpt_lines(data)+self.m.api_lines('kimi-api',data))
             self.assertEqual([r['value'] for r in rows],['已用 60%','余额 ¥12.50'])
-            self.assertEqual([next(c['value'] for c in (r['children'] if r is rows[0] else r['children'][0]['children']) if c['label']=='更新时间') for r in rows],['6 分钟前更新','6 分钟前更新'])
+            self.assertEqual([next(c['value'] for c in (r['children'] if r is rows[0] else r['children'][0]['children']) if c['label']=='立即刷新') for r in rows],['6 分钟前更新','6 分钟前更新'])
             for name in ('chatgpt','kimi-api'):
                 self.m.cached_fetch(name,lambda:(None,(0,'网络超时',None)),300)
             data=self.m.gather()
             rows=self.m.panel_entries(self.m.chatgpt_lines(data)+self.m.api_lines('kimi-api',data))
         self.assertEqual([r['value'] for r in rows],['已用 60% · 刷新失败','余额 ¥12.50 · 刷新失败'])
-        status=next(c for c in rows[0]['children'] if c['label']=='更新时间')
+        status=next(c for c in rows[0]['children'] if c['label']=='立即刷新')
         self.assertEqual(status['value'],'刷新失败');self.assertIn('网络超时',status['detail']);self.assertIn('保留最近一次成功的数据',status['detail'])
         self.assertNotIn('上次',json.dumps(rows,ensure_ascii=False))
 

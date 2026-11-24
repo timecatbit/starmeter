@@ -2054,6 +2054,28 @@ class PanelParityTests(BackgroundParityTests):
         values = {entry['label']: entry.get('value') for entry in got['entries'] if entry.get('label')}
         self.assertEqual((values['ChatGPT 订阅'], values['MiniMax 订阅'], values['Gemini 订阅']), ('已用 30%', '已用 40%', '已用 20%'))
 
+    def test_a_plan_on_its_reserve_keeps_its_bar(self):
+        # One window, used up, with Credits left: the value is the Credits; the share used goes beside it, so the row
+        # keeps its bar (用户：ChatGPT 的订阅用量条怎么没了). 立即刷新 reads it again.
+        self.codex_on_path()
+        codex = Path(self.common['HOME']) / '.codex'; codex.mkdir(exist_ok=True)
+        (codex / 'auth.json').write_text(json.dumps({'auth_mode': 'chatgpt', 'tokens': {'access_token': 'x'}}))
+        self.settings(visible=['chatgpt'])
+        now = time.time()
+        self.caches(now)
+        record = {'state': '已同步', 'plan': 'pro', 'credits': {'balance': 41554.16, 'unlimited': False}, 'resets': {'count': 2, 'expiresAt': now + 86400 * 7},
+                  'windows': [{'name': 'codex', 'slot': 'primary', 'remaining': 0, 'minutes': 10080, 'resetsAt': now + 86400}]}
+        for engine in self.states.values():
+            scope = hashlib.sha256(os.path.abspath(engine['OCX_STATE_DIR']).encode()).hexdigest()[:16]
+            root = Path(engine['OCX_CACHE_DIR']) / ('opencodex-swiftbar-v5-%s-%s' % (os.getuid(), scope))
+            (root / 'chatgpt.json').write_text(json.dumps({'schema': 1, 'fetchedAt': now - 30, 'payload': record}, ensure_ascii=False))
+        expected, got = self.python('snapshot', now), self.swift('snapshot', now)
+        self.assertEqual(expected['entries'], got['entries'])
+        row = next(entry for entry in got['entries'] if entry.get('label') == 'ChatGPT 订阅')
+        self.assertEqual((row['value'], row['usageLevel'], row['share']), ('余 41,554 Credits', 'warning', 1.0))
+        again = next(child for child in row['children'] if child['label'] == '立即刷新')
+        self.assertEqual(again['action'], ['refresh-now', 'chatgpt'])
+
     def test_due_alerts_and_notices(self):
         now = 1795000000.0
         windows = [{'id': 'a|5h', 'used': 95.0, 'resetsAt': now + 3600, 'span': 18000, 'current': True, 'name': 'Claude 订阅', 'window': '5 小时'},

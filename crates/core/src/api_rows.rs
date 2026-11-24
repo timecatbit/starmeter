@@ -335,7 +335,7 @@ impl Runtime {
             rows.push(item(&state, level, object! { "color" => WARN_COLOR, "size" => 10, "paneldetail" => detail }));
         }
         if key_ttl(provider).is_some() {
-            rows.push(self.refresh_row(&payload, error.as_deref(), level));
+            rows.push(self.refresh_row(provider, &payload, error.as_deref(), level));
         }
         let id = py::str(entry.get("id"));
         if KEY_CHECK_PROVIDERS.contains(&provider) {
@@ -562,7 +562,7 @@ impl Runtime {
             ));
         }
         rows.push(if self.connection_ready(key) {
-            self.refresh_row(&payload, error.as_deref(), 1)
+            self.refresh_row(key, &payload, error.as_deref(), 1)
         } else {
             item("选择密钥文件…", 1, self.act("configure-connection", &[key]))
         });

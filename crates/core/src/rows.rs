@@ -425,22 +425,42 @@ impl Runtime {
         }
     }
 
-    pub fn refresh_row(&self, payload: &Object, error: Option<&str>, level: usize) -> String {
+    pub fn refresh_row(&self, source: &str, payload: &Object, error: Option<&str>, level: usize) -> String {
         let failed = refresh_failed(error);
         let detail = if failed {
             let mut text = error.unwrap_or("").to_string();
             if payload.get("_fetchedAt").is_some_and(Json::is_truthy) {
                 text += &format!("\n保留最近一次成功的数据 · {}", self.freshness(payload.get("_fetchedAt")));
             }
-            Json::from(text)
+            Some(text)
         } else {
-            Json::Null
+            None
         };
         let badge = if failed { "刷新失败".to_string() } else { self.freshness(payload.get("_fetchedAt")) };
+        self.refresh_now_row(self.act("refresh-now", &[source]), &badge, detail.as_deref(), failed, level)
+    }
+
+    /// 立即刷新, where a page says when its figures were read: the source read again on a click, the row turning till
+    /// the reading is in (用户：用户看到刷新失败的结果后，没有任何办法). Beside it, when the figures were read or 刷新失败
+    /// in orange, and under it why.
+    pub fn refresh_now_row(
+        &self,
+        action: Options,
+        badge: &str,
+        detail: Option<&str>,
+        failed: bool,
+        level: usize,
+    ) -> String {
         item(
-            "更新时间",
+            "立即刷新",
             level,
-            object! { "badge" => badge, "paneldetail" => detail, "color" => if failed { WARN_COLOR } else { MUTED_COLOR }, "size" => 10 },
+            merged(&[
+                &object! {
+                    "sfimage" => "arrow.clockwise", "badge" => badge, "paneldetail" => detail.map_or(Json::Null, Json::from),
+                    "panelusagelevel" => if failed { Json::from("warning") } else { Json::Null },
+                },
+                &action,
+            ]),
         )
     }
 

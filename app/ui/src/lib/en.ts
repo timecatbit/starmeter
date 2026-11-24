@@ -43,7 +43,7 @@ export const phrases: Record<string, string> = {
   '{n} Token': '{n} tokens', Token: 'Tokens', '{unit} Token': '{unit} tokens',
   // Subscriptions
   来源: 'Source', 本机登录: 'local sign-in', 编程工具额度: 'coding limits', '5 小时': '5 hours', 更新时间: 'Updated',
-  '订阅月费…': 'Monthly price…', 'Code 登录': 'Code sign-in', 额外用量: 'Extra usage', 立即刷新用量: 'Refresh usage now',
+  '订阅月费…': 'Monthly price…', 'Code 登录': 'Code sign-in', 额外用量: 'Extra usage', 立即刷新用量: 'Refresh usage now', 立即刷新: 'Refresh now',
   打开订阅用量: 'Open plan usage', 'Cursor 账户（cursor.com）': 'Cursor account (cursor.com)', 本周期: 'This cycle',
   套餐额度: 'Plan allowance', 按需用量: 'On-demand usage', 'Credits 不限': 'Unlimited credits', 对数: 'log', 免费重置: 'Free resets', 不限: 'Unlimited',
   窗口用完后按用量扣除: 'Spent once the windows are used up', '一次补满窗口 · 在 Codex 里使用': 'Refills the windows at once · use it in Codex',

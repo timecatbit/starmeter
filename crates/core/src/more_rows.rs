@@ -241,9 +241,8 @@ impl Runtime {
             ));
         }
         lines.push("-----".into());
-        lines.push(self.refresh_row(&payload, error.as_deref(), 1));
+        lines.push(self.refresh_row("komari", &payload, error.as_deref(), 1));
         lines.push(item("打开 Komari 面板", 1, object! { "href" => address.as_str() }));
-        lines.push(item("刷新监控数据", 1, self.act("refresh-monitor", &[])));
         lines
     }
 

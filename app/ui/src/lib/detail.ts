@@ -23,7 +23,7 @@ export const toggle = (e: Entry) => e.checked !== undefined && e.radio !== true 
 export const leads = (e: Entry) => (e.checked !== undefined && !toggle(e)) || e.statusLight !== undefined || e.image !== undefined || e.symbol !== undefined;
 
 const actionSymbols: Record<string, string> = {
-  'refresh-monitor': 'arrow.clockwise', 'check-app-updates': 'arrow.clockwise', 'retry-claude-usage': 'arrow.clockwise',
+  'refresh-monitor': 'arrow.clockwise', 'refresh-now': 'arrow.clockwise', 'check-app-updates': 'arrow.clockwise', 'retry-claude-usage': 'arrow.clockwise',
   'choose-source': 'folder', 'choose-client-home': 'folder', 'reveal-source': 'folder', 'reveal-client-home': 'folder',
   'auto-source': 'arrow.uturn.backward', 'reset-client-connection': 'arrow.uturn.backward', 'set-proxy-address': 'link',
   'choose-admin-token': 'key', 'configure-connection': 'key', 'test-api-key': 'checkmark.shield', 'rename-api-key': 'pencil',
@@ -99,7 +99,7 @@ export const isPreference = (action: string[]) =>
   ['set-module', 'set-appearance', 'set-theme', 'reset-modules', 'set-collapse', 'set-expanded', 'move-module', 'reset-module-order'].includes(action[0]);
 export const automatic = (action: string[]) => ['refresh-view', 'refresh-source', 'refresh-live'].includes(action[0]);
 export const passive = (action: string[]) =>
-  ['refresh-source', 'refresh-view', 'refresh', 'refresh-live', 'refresh-monitor', 'check-app-updates', 'set-range', 'set-group', 'retry-claude-usage'].includes(action[0]);
+  ['refresh-source', 'refresh-view', 'refresh', 'refresh-live', 'refresh-monitor', 'refresh-now', 'check-app-updates', 'set-range', 'set-group', 'retry-claude-usage'].includes(action[0]);
 
 /** Actions that hand the user to another app (an App, a log or the config file in an editor, Finder, a terminal). */
 const handOff = new Set(['open-claude', 'open-cli-update-log', 'open-home', 'open-settings', 'reveal-source', 'reveal-client-home', 'update-cli', 'logs', 'panel',

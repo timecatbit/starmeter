@@ -11,7 +11,7 @@ use std::time::Duration;
 use regex::Regex;
 
 use crate::api_rows::KEY_CHECK_PROVIDERS;
-use crate::background::{EXTERNAL_TTLS, KEY_TTLS, RESOURCE_CACHES};
+use crate::background::{EXTERNAL_TTLS, KEY_TTLS, RESOURCE_CACHES, run_concurrently};
 use crate::dashboard::{Selected, summary_usage};
 use crate::files::paths;
 use crate::host::{HostFailure, connections, terminal_jobs, usage_export};
@@ -231,6 +231,31 @@ impl Runtime {
         self.write_json_cache(&self.cache_path("resource-checks"), &Json::Object(checks));
         self.invalidate(&names);
         self.schedule_background_refresh();
+        Ok(())
+    }
+
+    /// 立即刷新 on a page: its source read again now, and the action back once the reading is in (or has failed), so
+    /// the row turns until then and the page shows the outcome. A refresh already under way is waited for first.
+    fn refresh_now(&self, source: &str) -> Result<(), ActionError> {
+        if !RESOURCE_CACHES.iter().any(|pair| pair.0 == source) || !self.module_enabled(source) {
+            return invalid("invalid resource");
+        }
+        let names = self.resource_cache_names(source, &self.loader_names());
+        if names.is_empty() {
+            return Ok(());
+        }
+        self.with_lock("refresh.lock", true, || {
+            self.invalidate(&names);
+            let work: Vec<Box<dyn FnOnce() + Send + '_>> = self
+                .external_loaders()
+                .into_iter()
+                .filter(|(name, _)| names.contains(name))
+                .map(|(_, job)| job)
+                .collect();
+            run_concurrently(work, 4);
+            self.after_reads();
+        });
+        self.refresh_swiftbar();
         Ok(())
     }
 
@@ -1057,6 +1082,7 @@ impl Runtime {
                 }
             }
             "refresh-source" => self.refresh_resource(&one())?,
+            "refresh-now" => self.refresh_now(&one())?,
             "choose-client-home"
             | "reset-client-connection"
             | "reveal-client-home"
