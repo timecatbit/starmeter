@@ -23,6 +23,8 @@ export const phrases: Record<string, string> = {
   读取失败: 'Read failed', 数据暂不可用: 'Data unavailable for now', '未计入 Summary': 'Not in Summary', 'Token 未记录': 'Tokens not logged',
   '已由 Magpie 计入': 'Counted by Magpie', 未命名对话: 'Untitled chat', 'ChatGPT 对话': 'ChatGPT chats', 'ChatGPT 项目': 'ChatGPT project', 未标注项目: 'No project',
   未标注: 'Unlabelled', 服务部分降级: 'Partial outage', 服务大范围故障: 'Major outage', 服务严重故障: 'Critical outage', 服务维护中: 'Maintenance',
+  '状态页这次没读到，点开在浏览器里看': 'The status page couldn\'t be read this time; open it in the browser', 正在调查: 'Investigating', 已找到原因: 'Identified', '已修复，观察中': 'Fixed, monitoring', 维护中: 'Under maintenance', 维护验证中: 'Verifying maintenance',
+  计划维护: 'Scheduled maintenance', 性能下降: 'Degraded performance', 部分中断: 'Partial outage', 大范围中断: 'Major outage',
   客户端: 'Clients', '{n} 请求': '{n} requests', '{n} 请求|1': '{n} request', '{n} 会话': '{n} sessions', '{n} 会话|1': '{n} session', '输出 {n}': 'Output {n}', '缓存 —': 'Cache —',
   '缓存 {n}%': 'Cache {n}%', '已定价 {n}%': '{n}% priced', '{n} 次未定价': '{n} unpriced', 缓存: 'Cache', 输出: 'Output', 费用: 'Cost', 会话数: 'Sessions', 输入: 'Input', 缓存读: 'Cache read', 缓存写: 'Cache write',
   // Why a tool's or a plan's figures can't be read (the engine's statuses)

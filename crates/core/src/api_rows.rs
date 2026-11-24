@@ -578,6 +578,8 @@ impl Runtime {
         }
         let Some((name, _, link)) = service_status::page(page) else { return vec![] };
         let state = object(data, "service_status").get(page).and_then(Json::as_object).cloned().unwrap_or_default();
+        let trouble = state.get("indicator").and_then(Json::as_str).is_some_and(|indicator| indicator != "none")
+            && !state.get("error").is_some_and(Json::is_truthy);
         let (badge, light) = if state.is_empty() {
             ("待同步".to_string(), "unknown")
         } else if state.get("error").is_some_and(Json::is_truthy) {
@@ -590,13 +592,23 @@ impl Runtime {
                 if indicator == "none" { "ok" } else { "issue" },
             )
         };
+        // In trouble: what is wrong (the incidents, or the parts not working) and a link to read about it, not just a
+        // word (用户：claude 有部分服务降级，然后呢？).
+        let (detail, href) = if trouble {
+            (
+                service_status::trouble(&state)
+                    .map_or_else(|| state.get("description").cloned().unwrap_or(Json::Null), Json::from),
+                service_status::trouble_link(&state, link),
+            )
+        } else if state.get("error").is_some_and(Json::is_truthy) {
+            (Json::from("状态页这次没读到，点开在浏览器里看"), link.to_string())
+        } else {
+            (state.get("description").cloned().unwrap_or(Json::Null), link.to_string())
+        };
         vec![item(
             &format!("{name} 服务状态"),
             1,
-            object! {
-                "badge" => badge, "href" => link, "panelstatus" => light,
-                "paneldetail" => state.get("description").cloned().unwrap_or(Json::Null),
-            },
+            object! { "badge" => badge, "href" => href, "panelstatus" => light, "paneldetail" => detail },
         )]
     }
 

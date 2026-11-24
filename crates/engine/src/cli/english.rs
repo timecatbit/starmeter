@@ -341,6 +341,10 @@ pub fn translate(text: &str) -> String {
     }
     if let Some(known) = PHRASES.get(text) {
         return known.clone();
+    // A detail of several lines: each line on its own.
+    if text.contains('\n') {
+        return text.split('\n').map(translate).collect::<Vec<_>>().join("\n");
+    }
     }
     if let Some(out) = apply(&WHOLE, text) {
         return out;

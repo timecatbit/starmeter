@@ -33,7 +33,7 @@ class StatusPageTests(unittest.TestCase):
         read, seen = opener({'page': {'name': 'Claude'}, 'status': {'indicator': 'minor', 'description': 'Partially Degraded Service'}})
         self.assertEqual(status.read('claude', '9.9.9', read), {'indicator': 'minor', 'description': 'Partially Degraded Service'})
         request = seen[0]
-        self.assertEqual(request.full_url, 'https://status.claude.com/api/v2/status.json')
+        self.assertEqual(request.full_url, 'https://status.claude.com/api/v2/summary.json')
         self.assertEqual(sorted(k.lower() for k in request.headers), ['accept', 'user-agent']); self.assertEqual(request.get_header('User-agent'), 'Starmeter/9.9.9')
 
     def test_unreadable_or_odd_pages_say_so_for_themselves(self):

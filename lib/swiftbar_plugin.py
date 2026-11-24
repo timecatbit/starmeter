@@ -3086,7 +3086,12 @@ def status_lines(key,data):
     if not state:badge,light='待同步','unknown'
     elif state.get('error'):badge,light='读取失败','unknown'
     else:badge,light=(service_status.INDICATORS[state['indicator']] or '运行正常'),('ok' if state['indicator']=='none' else 'issue')
-    return [item(name+' 服务状态',level=1,badge=badge,href=link,panelstatus=light,paneldetail=state.get('description'))]
+    # In trouble: what is wrong and a link to read about it, not just a word.
+    if state.get('indicator') not in (None,'none') and not state.get('error'):
+        detail,href=service_status.trouble(state) or state.get('description'),service_status.trouble_link(state,link)
+    elif state.get('error'):detail,href='状态页这次没读到，点开在浏览器里看',link
+    else:detail,href=state.get('description'),link
+    return [item(name+' 服务状态',level=1,badge=badge,href=href,panelstatus=light,paneldetail=detail)]
 
 
 def session_prices():
@@ -4457,7 +4462,13 @@ def dashboard_payload(data):
         status='运行正常' if source=='opencodex' and data.get('healthz') else '已同步'
         providers.append(provider(source,label,usage,'',status))
         # A service in trouble right now, from its official status page (服务状态 on).
-        if view_settings()['serviceStatus']:providers[-1]['serviceNote']=service_status.note(data.get('service_status'),source)
+        if view_settings()['serviceStatus']:
+            note=service_status.note(data.get('service_status'),source)
+            providers[-1]['serviceNote']=note
+            # On its page, the same trouble as a row that says what is wrong and opens where to read about it.
+            page=service_status.MODULE_PAGES.get(source);state=((data.get('service_status') or {}).get(page or '')) if note else None
+            providers[-1]['serviceStatus']={'name':service_status.PAGES[page][0],'note':note,'detail':service_status.trouble(state),
+                                            'link':service_status.trouble_link(state,service_status.PAGES[page][2])} if state else None
     # The client's card still shows all its own records, while Summary adds what summary_usage counts.
     counting=summary_usage(selected)
     for p,(source,label,usage) in zip(providers,selected):

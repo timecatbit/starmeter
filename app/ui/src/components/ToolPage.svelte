@@ -2,7 +2,7 @@
   // A tool's own page, opened from its card: what it used in the range (figures, notes, its own trend, every model, a
   // gateway's clients), then its settings as the module grid has them (where it reads from, what to open).
   import { chartPositions, smoothCurves, svgPath } from '../lib/chart';
-  import { t } from '../lib/i18n.svelte';
+  import { shown, t } from '../lib/i18n.svelte';
   import { alpha, toolColour } from '../lib/colors';
   import { clientLine, colourOf, headline, modelAmount, modelName, notes, share, tokens } from '../lib/format';
   import { grabWindow, panel } from '../lib/ui.svelte';
@@ -26,7 +26,13 @@
     ...(credits ? [] : [[t('缓存'), p.cache === null ? '—' : (p.cache * 100).toFixed(1) + '%'], [t('输出'), tokens(p.output)]] as [string, string][]),
     [t('会话'), String(p.sessions)],
   ] : []);
-  const said = $derived(notes(p));
+  const said = $derived(notes(p).filter(([text]) => !p.serviceStatus || text !== p.serviceStatus.note));
+  /** The service in trouble (服务状态 on): a row that says what is wrong and opens where to read about it, in place of
+   *  the bare note (用户：claude 有部分服务降级，然后呢？). */
+  const trouble = $derived<Entry[]>(p.serviceStatus ? [{
+    label: shown(`${p.serviceStatus.name} 服务状态`), value: p.serviceStatus.note, statusLight: 'issue',
+    detail: p.serviceStatus.detail ?? undefined, href: p.serviceStatus.link, children: [],
+  }] : []);
   const clients = $derived(clientLine(p));
 
   // Its own trend over the range, on its own scale.
@@ -66,6 +72,11 @@
         {#each said as [text, warning] (text)}
           <p class="note" class:warning>{text}</p>
         {/each}
+        {#if trouble.length}
+          <div class="trouble">
+            <DetailList entries={trouble} {open} {busy} rowWidth={panel.width - 16} {onopen} {onchoose} ontoggled={(next) => (open = next)} />
+          </div>
+        {/if}
         {#if trend}
           <h3 class="section">{t('{unit} Token', { unit: dashboard.chartUnit })}</h3>
           <svg class="trend" width={W} height={H} aria-hidden="true">
@@ -182,4 +193,5 @@
   }
   .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 1.5px; }
   .settings { margin: 0 -8px; }
+  .trouble { margin: 2px -8px 4px; }
 </style>

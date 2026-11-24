@@ -77,6 +77,8 @@ export function translate(text: string): string {
   // Fields the engine leaves empty (null) pass through as they are.
   if (typeof text !== 'string') return text;
   if (!CJK.test(text)) return text.replace(TOKENS, '$1 tokens');
+  // A detail of several lines: each line on its own.
+  if (text.includes('\n')) return text.split('\n').map(translate).join('\n');
   const known = cache.get(text);
   if (known !== undefined) return known;
   const rule = (list: typeof rules) => {
@@ -140,6 +142,7 @@ function provider(p: ProviderUsage): ProviderUsage {
   return {
     ...p, name: shown(p.name), subtitle: shown(p.subtitle), status: shown(p.status),
     priceNote: p.priceNote ? shown(p.priceNote) : p.priceNote, serviceNote: p.serviceNote ? shown(p.serviceNote) : p.serviceNote,
+    serviceStatus: p.serviceStatus ? { ...p.serviceStatus, note: shown(p.serviceStatus.note), detail: p.serviceStatus.detail ? shown(p.serviceStatus.detail) : null } : p.serviceStatus,
     models: p.models.map((m) => ({ ...m, name: shown(m.name), priceNote: m.priceNote ? shown(m.priceNote) : m.priceNote })),
     clients: p.clients ? p.clients.map((c) => ({ ...c, name: shown(c.name) })) : p.clients,
   };

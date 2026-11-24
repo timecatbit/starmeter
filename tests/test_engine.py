@@ -1878,10 +1878,24 @@ class BackgroundParityTests(OpenCodexParityTests):
                 self.assertEqual((self.python('ttl', 30), self.swift('ttl', 30)), (ttl, ttl))
 
     def test_status_pages_and_rate(self):
-        self.answers = {'/status.claude.com/': self.ok({'status': {'indicator': 'minor', 'description': 'Elevated errors' * 30}}),
+        # A summary as Statuspage gives it: open incidents (and a resolved one, a link that isn't https), a maintenance in
+        # progress and one only scheduled, parts degraded (and a group, which isn't one).
+        incident = lambda name, state, link='https://stspg.io/x': {'name': name, 'status': state, 'shortlink': link, 'impact': 'minor'}
+        claude = {'status': {'indicator': 'minor', 'description': 'Elevated errors' * 30},
+                  'incidents': [incident('Elevated errors on Opus', 'investigating'), incident('Old one', 'resolved'),
+                                incident('Slow logins' + ' x' * 100, 'monitoring', 'http://insecure')],
+                  'scheduled_maintenances': [incident('Database upgrade', 'in_progress'), incident('Later', 'scheduled'), incident('Fourth', 'verifying')],
+                  'components': [{'name': 'claude.ai', 'status': 'degraded_performance'}, {'name': 'API', 'status': 'operational'},
+                                 {'name': 'Group', 'status': 'major_outage', 'group': True}, {'name': 'Console', 'status': 'partial_outage'}]}
+        self.answers = {'/status.claude.com/': self.ok(claude),
                         '/status.openai.com/': self.ok({'status': {'indicator': 'odd'}}), '/status.cursor.com/': (500, b'', {}),
                         '/api.frankfurter.dev/': self.ok({'rates': {'CNY': '7.1234'}, 'date': '2026-11-18T00:00'})}
-        self.assertEqual(self.python('status', ['claude', 'openai', 'cursor', 'nowhere']), self.swift('status', ['claude', 'openai', 'cursor', 'nowhere']))
+        read = self.swift('status', ['claude', 'openai', 'cursor', 'nowhere'])
+        self.assertEqual(self.python('status', ['claude', 'openai', 'cursor', 'nowhere']), read)
+        self.assertEqual([(i['name'][:12], i['status'], i['link']) for i in read['claude']['incidents']],
+                         [('Elevated err', 'investigating', 'https://stspg.io/x'), ('Slow logins ', 'monitoring', None), ('Database upg', 'in_progress', 'https://stspg.io/x')])
+        self.assertEqual(read['claude']['components'], [{'name': 'claude.ai', 'status': 'degraded_performance'}, {'name': 'Console', 'status': 'partial_outage'}])
+        self.assertEqual(service_status.trouble(read['claude']).split('\n')[0], 'Elevated errors on Opus · 正在调查')
         for answer in (self.ok({'rates': {'CNY': '7.1234'}, 'date': '2026-11-18T00:00'}), self.ok({'rates': {'CNY': 30}, 'date': 'x'}), (503, b'', {})):
             self.answers['/api.frankfurter.dev/'] = answer
             self.assertEqual(self.python('fx'), self.swift('fx'))
@@ -2077,6 +2091,33 @@ class PanelParityTests(BackgroundParityTests):
         self.assertEqual(again['action'], ['refresh-now', 'chatgpt'])
 
     def test_due_alerts_and_notices(self):
+    def test_a_service_in_trouble_says_what_and_where(self):
+        # 服务状态 on, Claude degraded: the status row and the tool page's row say what is wrong and open where to read
+        # about it (one incident: its own page; none: the parts not working and the status page). Not just a word.
+        self.settings(visible=['claude', 'claude-subscription', 'chatgpt-api'], serviceStatus=True)
+        now = time.time()
+        self.caches(now)
+        pages = {'claude': {'indicator': 'minor', 'description': 'Partially Degraded Service',
+                            'incidents': [{'name': 'Claude for Microsoft 365 add-in missing', 'status': 'investigating', 'link': 'https://stspg.io/ffdq'}],
+                            'components': [{'name': 'claude.ai', 'status': 'degraded_performance'}]},
+                 'openai': {'indicator': 'major', 'description': 'Partial System Outage', 'components': [{'name': 'Codex', 'status': 'partial_outage'}]}}
+        for engine in self.states.values():
+            scope = hashlib.sha256(os.path.abspath(engine['OCX_STATE_DIR']).encode()).hexdigest()[:16]
+            root = Path(engine['OCX_CACHE_DIR']) / ('opencodex-swiftbar-v5-%s-%s' % (os.getuid(), scope))
+            (root / 'service_status.json').write_text(json.dumps({'schema': 1, 'fetchedAt': now - 30, 'payload': pages}, ensure_ascii=False))
+        expected, got = self.python('snapshot', now), self.swift('snapshot', now)
+        for key in expected:
+            self.assertEqual(expected[key], got.get(key), key)
+        rows = {entry['label']: entry for entry in got['entries'] if entry.get('label')}
+        claude_row = next(child for child in rows['Claude 订阅']['children'] if child['label'] == 'Claude 服务状态')
+        self.assertEqual((claude_row['value'], claude_row['detail'], claude_row['href']),
+                         ('服务部分降级', 'Claude for Microsoft 365 add-in missing · 正在调查', 'https://stspg.io/ffdq'))
+        openai_row = next(child for child in rows['ChatGPT API']['children'] if child['label'] == 'OpenAI 服务状态')
+        self.assertEqual((openai_row['value'], openai_row['detail'], openai_row['href']), ('服务大范围故障', 'Codex · 部分中断', 'https://status.openai.com'))
+        card = next(p for p in got['dashboard']['providers'] if p['id'] == 'claude')
+        self.assertEqual(card['serviceStatus'], {'name': 'Claude', 'note': '服务部分降级', 'detail': 'Claude for Microsoft 365 add-in missing · 正在调查',
+                                                 'link': 'https://stspg.io/ffdq'})
+
         now = 1795000000.0
         windows = [{'id': 'a|5h', 'used': 95.0, 'resetsAt': now + 3600, 'span': 18000, 'current': True, 'name': 'Claude 订阅', 'window': '5 小时'},
                    {'id': 'a|w', 'used': 40.0, 'resetsAt': now + 7200, 'span': 604800, 'current': True, 'name': 'Claude 订阅', 'window': '本周'},

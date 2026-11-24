@@ -519,6 +519,19 @@ pub fn service_note(statuses: Option<&Json>, module: &str) -> Option<String> {
     Some(note.to_string())
 }
 
+/// A card's service in trouble, for its page: the service's name, the note, what is wrong and where to read about it.
+fn service_trouble(statuses: Option<&Json>, module: &str, note: &str) -> Option<Object> {
+    use crate::background::service_status;
+    let page = service_status::module_page(module)?;
+    let (name, _, link) = service_status::page(page)?;
+    let state = statuses?.get(page)?.as_object()?;
+    Some(object! {
+        "name" => name, "note" => note,
+        "detail" => service_status::trouble(state).map_or(Json::Null, Json::from),
+        "link" => service_status::trouble_link(state, link),
+    })
+}
+
 /// A heatmap square: what it adds up, its label, and whether it is still to come.
 struct Cell {
     slot: String,
@@ -1128,10 +1141,11 @@ impl Runtime {
             let mut card = provider(source, label, usage, "", status);
             // A service in trouble right now, from its official status page (服务状态 on).
             if settings.get("serviceStatus").is_some_and(Json::is_truthy) {
-                card.insert(
-                    "serviceNote",
-                    service_note(data.get("service_status"), source).map_or(Json::Null, Json::from),
-                );
+                let note = service_note(data.get("service_status"), source);
+                // On its page, the same trouble as a row that says what is wrong and opens where to read about it.
+                let status = note.as_ref().and_then(|note| service_trouble(data.get("service_status"), source, note));
+                card.insert("serviceNote", note.map_or(Json::Null, Json::from));
+                card.insert("serviceStatus", status.map_or(Json::Null, Json::Object));
             }
             providers.push(card);
         }

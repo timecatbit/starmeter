@@ -97,6 +97,9 @@ export interface ProviderUsage {
   accent?: string | null;
   priceNote?: string | null;
   serviceNote?: string | null;
+  /** The service in trouble, for the tool's page: its name, the note, what is wrong (a line each) and where to read
+   *  about it (the incident's page, or the status page). */
+  serviceStatus?: { name: string; note: string; detail: string | null; link: string } | null;
 }
 
 export interface UsageHeatmap {

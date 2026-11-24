@@ -13,14 +13,15 @@ use crate::{accounts, catalog, claude_app, claude_subscription, cursor, files, k
 use crate::{platform, preferences, pricing, py, shell};
 
 /// Official service status pages, read only when the user turns 服务状态 on. Each is a public Statuspage
-/// document; nothing about the user is sent, only a plain User-Agent.
+/// summary (its status, the parts not working and the incidents open now); nothing about the user is sent, only a
+/// plain User-Agent.
 pub mod service_status {
     use super::*;
 
     pub const PAGES: [(&str, &str, &str, &str); 3] = [
-        ("claude", "Claude", "https://status.claude.com/api/v2/status.json", "https://status.claude.com"),
-        ("openai", "OpenAI", "https://status.openai.com/api/v2/status.json", "https://status.openai.com"),
-        ("cursor", "Cursor", "https://status.cursor.com/api/v2/status.json", "https://status.cursor.com"),
+        ("claude", "Claude", "https://status.claude.com/api/v2/summary.json", "https://status.claude.com"),
+        ("openai", "OpenAI", "https://status.openai.com/api/v2/summary.json", "https://status.openai.com"),
+        ("cursor", "Cursor", "https://status.cursor.com/api/v2/summary.json", "https://status.cursor.com"),
     ];
     pub const MODULE_PAGES: [(&str, &str); 9] = [
         ("claude", "claude"),
@@ -41,6 +42,23 @@ pub mod service_status {
         ("maintenance", "服务维护中"),
     ];
 
+    /// What an open incident or maintenance is doing, in the panel's words; one not listed (resolved) isn't shown.
+    pub const INCIDENT_STATES: [(&str, &str); 6] = [
+        ("investigating", "正在调查"),
+        ("identified", "已找到原因"),
+        ("monitoring", "已修复，观察中"),
+        ("in_progress", "维护中"),
+        ("verifying", "维护验证中"),
+        ("scheduled", "计划维护"),
+    ];
+    /// A part of the service that isn't working fully.
+    pub const COMPONENT_STATES: [(&str, &str); 4] = [
+        ("degraded_performance", "性能下降"),
+        ("partial_outage", "部分中断"),
+        ("major_outage", "大范围中断"),
+        ("under_maintenance", "维护中"),
+    ];
+
     /// (name, status document, page) of one page.
     pub fn page(key: &str) -> Option<(&'static str, &'static str, &'static str)> {
         PAGES.iter().find(|page| page.0 == key).map(|page| (page.1, page.2, page.3))
@@ -54,24 +72,35 @@ pub mod service_status {
         INDICATORS.iter().find(|pair| pair.0 == name).map(|pair| pair.1)
     }
 
-    /// One page's indicator and description, or the name of what went wrong.
+    /// One page's indicator and description, with the incidents and maintenances open now (name, what is being done,
+    /// its own page) and the parts not working fully, so a note of trouble says what it is and where to read more
+    /// (用户：你不可以给一个信息之后就不管了); or the name of what went wrong.
     pub fn read(key: &str, version: &str) -> Object {
         let Some((_, url, _)) = page(key) else { return object! { "error" => "KeyError" } };
         let headers = vec![("User-Agent", format!("Starmeter/{version}")), ("Accept", "application/json".to_string())];
         let Ok(response) =
-            http::send(url, Request { headers, timeout: 10.0, limit: 64 * 1024 + 1, ..Request::default() })
+            http::send(url, Request { headers, timeout: 10.0, limit: 256 * 1024 + 1, ..Request::default() })
         else {
             return object! { "error" => "URLError" };
         };
         if !(200..300).contains(&response.status) {
             return object! { "error" => "HTTPError" };
         }
-        if response.body.len() > 64 * 1024 {
+        if response.body.len() > 256 * 1024 {
             return object! { "error" => "ValueError" };
         }
         let Some(document) = Json::parse(&response.body).ok().and_then(|value| value.as_object().cloned()) else {
             return object! { "error" => "JSONDecodeError" };
         };
+        summary(&document)
+    }
+
+    fn clipped(text: &str, most: usize) -> String {
+        text.trim().chars().take(most).collect()
+    }
+
+    /// A summary document as kept: the status, then up to three open incidents or maintenances and five parts.
+    pub fn summary(document: &Object) -> Object {
         let status = py::dict(document.get("status"));
         let (Some(name), Some(description)) =
             (status.get("indicator").and_then(Json::as_str), status.get("description").and_then(Json::as_str))
@@ -81,7 +110,82 @@ pub mod service_status {
         if indicator(name).is_none() {
             return object! { "error" => "ValueError" };
         }
-        object! { "indicator" => name, "description" => description.chars().take(200).collect::<String>() }
+        let mut result = object! { "indicator" => name, "description" => clipped(description, 200) };
+        let listed = |field: &str| -> Vec<Object> {
+            document
+                .get(field)
+                .and_then(Json::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Json::as_object)
+                .cloned()
+                .collect()
+        };
+        let incidents: Vec<Json> = listed("incidents")
+            .into_iter()
+            .chain(listed("scheduled_maintenances"))
+            .filter_map(|incident| {
+                let state = incident.get("status").and_then(Json::as_str)?;
+                INCIDENT_STATES.iter().find(|pair| pair.0 == state && state != "scheduled")?;
+                let name = incident.get("name").and_then(Json::as_str).map(|name| clipped(name, 120))?;
+                let link = incident
+                    .get("shortlink")
+                    .and_then(Json::as_str)
+                    .filter(|link| link.starts_with("https://"))
+                    .map_or(Json::Null, |link| Json::from(clipped(link, 300)));
+                Some(object! { "name" => name, "status" => state, "link" => link }.into())
+            })
+            .take(3)
+            .collect();
+        if !incidents.is_empty() {
+            result.insert("incidents", Json::Array(incidents));
+        }
+        let parts: Vec<Json> = listed("components")
+            .into_iter()
+            .filter(|part| part.get("group") != Some(&Json::Bool(true)))
+            .filter_map(|part| {
+                let state = part.get("status").and_then(Json::as_str)?;
+                COMPONENT_STATES.iter().find(|pair| pair.0 == state)?;
+                let name = part.get("name").and_then(Json::as_str).map(|name| clipped(name, 60))?;
+                Some(object! { "name" => name, "status" => state }.into())
+            })
+            .take(5)
+            .collect();
+        if !parts.is_empty() {
+            result.insert("components", Json::Array(parts));
+        }
+        result
+    }
+
+    /// What is wrong, a line each: the open incidents and maintenances with what is being done, or else the parts not
+    /// working fully; None when the page names neither.
+    pub fn trouble(state: &Object) -> Option<String> {
+        let named = |field: &str, states: &[(&str, &str)]| -> Vec<String> {
+            state
+                .get(field)
+                .and_then(Json::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Json::as_object)
+                .filter_map(|item| {
+                    let status = item.get("status").and_then(Json::as_str)?;
+                    let said = states.iter().find(|pair| pair.0 == status)?.1;
+                    Some(format!("{} · {said}", py::str(item.get("name"))))
+                })
+                .collect()
+        };
+        let incidents = named("incidents", &INCIDENT_STATES);
+        let lines = if incidents.is_empty() { named("components", &COMPONENT_STATES) } else { incidents };
+        (!lines.is_empty()).then(|| lines.join("\n"))
+    }
+
+    /// Where to read about it: the incident's own page when there is just one, else the status page.
+    pub fn trouble_link(state: &Object, page: &str) -> String {
+        let incidents: Vec<&Json> = state.get("incidents").and_then(Json::as_array).into_iter().flatten().collect();
+        match incidents.as_slice() {
+            [only] => only.get("link").and_then(Json::as_str).unwrap_or(page).to_string(),
+            _ => page.to_string(),
+        }
     }
 
     pub fn read_all(wanted: &[String], version: &str) -> Object {
