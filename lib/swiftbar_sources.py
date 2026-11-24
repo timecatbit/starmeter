@@ -928,6 +928,22 @@ def display_model(name):
     return ident.replace('.', '-') if ident.startswith('claude-') else ident
 
 
+def antigravity_project(path, conversation):
+    """The project an Antigravity conversation ran in, by name: the first workspace its own list (conversation_summaries.db
+    beside conversations/) gives it; none outside any project."""
+    folder = next((p for p in Path(path).parents if p.name == 'conversations'), None)
+    listing = folder.parent/'conversation_summaries.db' if folder is not None else None
+    if listing is None or not listing.is_file():return None
+    try:
+        db = sqlite3.connect(listing.resolve().as_uri()+'?mode=ro', uri=True, timeout=2)
+        try:row = db.execute('SELECT workspace_uris FROM conversation_summaries WHERE conversation_id=?', (conversation,)).fetchone()
+        finally:db.close()
+        uris = json.loads(row[0]) if row and isinstance(row[0], str) else None
+    except (sqlite3.Error, ValueError):return None
+    first = next((uri for uri in uris if isinstance(uri, str)), None) if isinstance(uris, list) else None
+    return project_name(first) if first else None
+
+
 def antigravity_file(path, changed):
     """One Antigravity conversation's requests, from its store's gen_metadata: a row each, with its tokens
     (exa.codeium_common_pb.ModelUsageStats: 2 input not from the cache, 3 output, which is 9 thinking and 10 the
@@ -938,7 +954,7 @@ def antigravity_file(path, changed):
     db = sqlite3.connect(path.resolve().as_uri()+'?mode=ro', uri=True, timeout=2)
     try:
         db.execute('PRAGMA query_only=ON')
-        conversation = path.stem; by_response = {}; by_generation = {}
+        conversation = path.stem; by_response = {}; by_generation = {}; project = antigravity_project(path, conversation)
         for (metadata,) in db.execute('SELECT metadata FROM steps'):
             fields = proto(metadata) if isinstance(metadata, bytes) else None
             if fields is None:continue
@@ -977,6 +993,7 @@ def antigravity_file(path, changed):
             event = metrics(model, proto_number(usage, 2) or 0, output, proto_number(usage, 5) or 0, proto_number(usage, 4) or 0)
             event.update(id=identity('antigravity', response or '%s:%d' % (conversation, idx or 0)), session=identity(conversation),
                          timestamp=at, provider='google', timing=timing)
+            if project:event['project'] = project
             events.append(event)
         return events
     finally:db.close()
@@ -1009,7 +1026,7 @@ def gemini_usage(root, cache, start, end, zone, exclude_proxy=False, carriers=No
     if not paths and not stores and not (archive and Path(archive).is_file()): return {'error':'暂无 Gemini 用量记录'}
     # v3: Antigravity's models are kept by the API model they name (antigravity_model); v4: each of its generations says
     # how exactly its time is known (AGY-1). Older readings are read again.
-    target = Path(cache)/('harness-gemini-v4-'+identity(str(root.resolve()))[:12]+'.sqlite3')
+    target = Path(cache)/('harness-gemini-v5-'+identity(str(root.resolve()))[:12]+'.sqlite3')
     target.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
     db = sqlite3.connect(target,timeout=10);os.chmod(target,0o600)
     try:

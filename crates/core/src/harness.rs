@@ -1016,8 +1016,8 @@ pub fn gemini_usage(
         return Ok(object! { "error" => "暂无 Gemini 用量记录" });
     }
     // v3: Antigravity's models are kept by the API model they name (antigravity_model); v4: each of its generations
-    // says how exactly its time is known (AGY-1). Older readings are read again.
-    let target = cache.join(format!("harness-gemini-v4-{}.sqlite3", root_identity(&root)));
+    // says how exactly its time is known (AGY-1); v5: its project, from its workspace. Older readings are read again.
+    let target = cache.join(format!("harness-gemini-v5-{}.sqlite3", root_identity(&root)));
     files::make_directory(cache, 0o700)?;
     let db = Database::open(&target, 10.0, Mode::ReadWrite)?;
     files::owner_only(&target);
@@ -1317,6 +1317,7 @@ fn antigravity_file(path: &str, changed: f64) -> Result<Vec<Event>, FileError> {
     let db = Database::open(Path::new(path), 2.0, Mode::ReadOnly).map_err(unreadable)?;
     db.execute("PRAGMA query_only=ON").map_err(unreadable)?;
     let conversation = Path::new(path).file_stem().map(|stem| stem.to_string_lossy().into_owned()).unwrap_or_default();
+    let project = antigravity_project(path, &conversation);
     let mut by_response: HashMap<String, f64> = HashMap::new();
     let mut by_generation: HashMap<String, f64> = HashMap::new();
     for row in db.rows("SELECT metadata FROM steps", &[]).map_err(unreadable)? {
@@ -1380,9 +1381,38 @@ fn antigravity_file(path: &str, changed: f64) -> Result<Vec<Event>, FileError> {
         event.insert("timestamp", at);
         event.insert("provider", "google");
         event.insert("timing", timing);
+        if let Some(project) = &project {
+            event.insert("project", project.as_str());
+        }
         events.push(event);
     }
     Ok(events)
+}
+
+/// The project an Antigravity conversation ran in, by name: the first workspace its own list
+/// (conversation_summaries.db beside conversations/) gives it (用户：反重力在项目里也没显示). A subagent's list row names
+/// its parent's workspace too; a conversation outside any project has none.
+pub fn antigravity_project(store: &str, conversation: &str) -> Option<String> {
+    let list = Path::new(store)
+        .ancestors()
+        .find(|folder| folder.file_name().is_some_and(|name| name == "conversations"))?
+        .parent()?
+        .join("conversation_summaries.db");
+    if !list.is_file() {
+        return None;
+    }
+    let uri = crate::database::file_uri(&list.to_string_lossy(), "mode=ro");
+    let db = Database::open(Path::new(&uri), 2.0, Mode::ReadOnlyUri).ok()?;
+    let row = db
+        .first(
+            "SELECT workspace_uris FROM conversation_summaries WHERE conversation_id=?",
+            &[Value::Text(conversation.to_string())],
+        )
+        .ok()
+        .flatten()?;
+    let uris = Json::parse(database::text(row.first()?)?.as_bytes()).ok()?;
+    let first = uris.as_array()?.iter().find_map(Json::as_str)?.to_string();
+    py::project_name(Some(&Json::from(first))).as_str().map(String::from)
 }
 
 /// OpenCode's own database, read only.

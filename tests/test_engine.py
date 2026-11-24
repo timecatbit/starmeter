@@ -646,7 +646,17 @@ class HarnessReaderParityTests(unittest.TestCase):
         os.utime(quiet, (self.start + 7200, self.start + 7200))
         (gemini / 'antigravity' / 'conversations' / 'empty.db').write_bytes(b'')
         (gemini / 'antigravity' / 'conversations' / 'old.pb').write_bytes(b'\x0a\x00')
+        # Its own list names the workspace a conversation ran in: its requests count under that project (用户：反重力在项目里
+        # 也没显示); the IDE's copy of the same conversation names it in its own list. The agy CLI's has no list here.
+        for app in ('antigravity', 'antigravity-ide'):
+            listing = sqlite3.connect(gemini / app / 'conversation_summaries.db')
+            listing.execute('CREATE TABLE conversation_summaries(conversation_id TEXT PRIMARY KEY, title TEXT, workspace_uris TEXT, '
+                            'parent_conversation_id TEXT, status TEXT, not_fully_idle INTEGER)')
+            listing.execute('INSERT INTO conversation_summaries VALUES (?,?,?,?,?,?)',
+                            ('c1', 'Fix the parser', '["file:///Users/demo/harbor%20app"]', None, 'CASCADE_RUN_STATUS_IDLE', 0))
+            listing.commit(); listing.close()
         result = self.compare('gemini', gemini, 'Antigravity alone')
+        self.assertEqual(sorted((p['project'] or '', p['requests']) for p in result['projects']), [('', 1), ('harbor app', 4)])
         self.assertEqual(result['summary']['requests'], 5)
         self.assertEqual(sorted(m['model'] for m in result['models']),
                          ['claude-opus-5-5', 'gemini-3.5-flash', 'gemini-3.8-flash', 'gemini-4-carbon', 'gemini-4-neon'])
