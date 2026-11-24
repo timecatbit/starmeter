@@ -198,8 +198,12 @@ fn percent_decoded(text: &str) -> String {
     let mut out = Vec::with_capacity(bytes.len());
     let mut index = 0;
     while index < bytes.len() {
+        // Only %XX with two ASCII hex digits is an escape; a bare % before anything else (a multi-byte character among
+        // them) stays as it is, never cutting a character in half.
         if bytes[index] == b'%'
             && index + 2 < bytes.len()
+            && bytes[index + 1].is_ascii_hexdigit()
+            && bytes[index + 2].is_ascii_hexdigit()
             && let Ok(value) = u8::from_str_radix(&text[index + 1..index + 3], 16)
         {
             out.push(value);
@@ -960,6 +964,10 @@ mod tests {
     fn a_workspace_uri_names_the_project() {
         assert_eq!(percent_decoded("/Users/me/My%20Paper"), "/Users/me/My Paper");
         assert_eq!(percent_decoded("/a/%E4%B8%AD"), "/a/中");
+        // A bare % before a multi-byte character, or at the end: as it is, no panic.
+        assert_eq!(percent_decoded("/Users/me/100%中文"), "/Users/me/100%中文");
+        assert_eq!(percent_decoded("/a/b%"), "/a/b%");
+        assert_eq!(percent_decoded("/a/%zz"), "/a/%zz");
     }
 }
 
