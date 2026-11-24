@@ -71,11 +71,6 @@ def trouble(state):
     return '\n'.join(lines) if lines else None
 
 
-def trouble_link(state, page):
-    """Where to read about it: the incident's own page when there is just one, else the status page."""
-    incidents = state.get('incidents') or []
-    return (incidents[0].get('link') or page) if len(incidents) == 1 else page
-
 
 def read_all(pages, version, opener=urllib.request.urlopen):
     return {page: read(page, version, opener) for page in pages if page in PAGES}

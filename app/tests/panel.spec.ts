@@ -899,6 +899,24 @@ test('a list opened with 查看更多 folds back with 收起 at its end, the but
   await expect(page.getByRole('button', { name: /查看更多 \d+ 个会话/ })).toBeVisible();
 });
 
+test('a service in trouble: the note on its card opens the status page, the card elsewhere its page', async ({ page }) => {
+  // 用户：降级那个提醒是否可以直接看这个网页 (https://status.claude.com), not the page the card opens.
+  await page.addInitScript(() => { (window as unknown as { opened: string[] }).opened = []; window.open = ((url: string) => { (window as unknown as { opened: string[] }).opened.push(url); return null; }) as typeof window.open; });
+  await open(page, '?fixture=failed');
+  const note = page.getByRole('button', { name: '打开 Claude 状态页' });
+  await expect(note).toHaveText('服务部分降级 ↗');
+  await note.click();
+  expect(await page.evaluate(() => (window as unknown as { opened: string[] }).opened)).toEqual(['https://status.claude.com']);
+  await expect(page.locator('.dashboard')).toBeVisible();
+  // The card elsewhere opens its page, where the same trouble is a row saying what is wrong, opening the same page.
+  await page.getByRole('button', { name: 'Claude 详情' }).click();
+  const row = page.locator('.detail-row', { hasText: 'Claude 服务状态' });
+  await expect(row).toContainText('服务部分降级');
+  await expect(row).toContainText('Elevated errors on Claude Opus 5.5 · 正在调查');
+  await row.click();
+  expect(await page.evaluate(() => (window as unknown as { opened: string[] }).opened)).toEqual(['https://status.claude.com', 'https://status.claude.com']);
+});
+
 test('a row opens its page, with usage bars and pace marks, and Esc comes back', async ({ page }) => {
   await open(page);
   await page.locator('.row', { hasText: 'Claude 订阅' }).click();

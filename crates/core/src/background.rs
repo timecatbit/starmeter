@@ -179,15 +179,6 @@ pub mod service_status {
         (!lines.is_empty()).then(|| lines.join("\n"))
     }
 
-    /// Where to read about it: the incident's own page when there is just one, else the status page.
-    pub fn trouble_link(state: &Object, page: &str) -> String {
-        let incidents: Vec<&Json> = state.get("incidents").and_then(Json::as_array).into_iter().flatten().collect();
-        match incidents.as_slice() {
-            [only] => only.get("link").and_then(Json::as_str).unwrap_or(page).to_string(),
-            _ => page.to_string(),
-        }
-    }
-
     pub fn read_all(wanted: &[String], version: &str) -> Object {
         let mut result = Object::new();
         for key in wanted.iter().filter(|key| page(key).is_some()) {

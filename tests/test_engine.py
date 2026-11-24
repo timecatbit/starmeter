@@ -2092,8 +2092,8 @@ class PanelParityTests(BackgroundParityTests):
         self.assertEqual(again['action'], ['refresh-now', 'chatgpt'])
 
     def test_a_service_in_trouble_says_what_and_where(self):
-        # 服务状态 on, Claude degraded: the status row and the tool page's row say what is wrong and open where to read
-        # about it (one incident: its own page; none: the parts not working and the status page). Not just a word.
+        # 服务状态 on, Claude degraded: the status row and the tool page's row say what is wrong (the incidents, or with
+        # none the parts not working), and open the status page itself. Not just a word.
         self.settings(visible=['claude', 'claude-subscription', 'chatgpt-api'], serviceStatus=True)
         now = time.time()
         self.caches(now)
@@ -2111,12 +2111,12 @@ class PanelParityTests(BackgroundParityTests):
         rows = {entry['label']: entry for entry in got['entries'] if entry.get('label')}
         claude_row = next(child for child in rows['Claude 订阅']['children'] if child['label'] == 'Claude 服务状态')
         self.assertEqual((claude_row['value'], claude_row['detail'], claude_row['href']),
-                         ('服务部分降级', 'Claude for Microsoft 365 add-in missing · 正在调查', 'https://stspg.io/ffdq'))
+                         ('服务部分降级', 'Claude for Microsoft 365 add-in missing · 正在调查', 'https://status.claude.com'))
         openai_row = next(child for child in rows['ChatGPT API']['children'] if child['label'] == 'OpenAI 服务状态')
         self.assertEqual((openai_row['value'], openai_row['detail'], openai_row['href']), ('服务大范围故障', 'Codex · 部分中断', 'https://status.openai.com'))
         card = next(p for p in got['dashboard']['providers'] if p['id'] == 'claude')
         self.assertEqual(card['serviceStatus'], {'name': 'Claude', 'note': '服务部分降级', 'detail': 'Claude for Microsoft 365 add-in missing · 正在调查',
-                                                 'link': 'https://stspg.io/ffdq'})
+                                                 'link': 'https://status.claude.com'})
 
     def test_due_alerts_and_notices(self):
         now = 1795000000.0

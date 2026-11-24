@@ -3103,7 +3103,7 @@ def status_lines(key,data):
     else:badge,light=(service_status.INDICATORS[state['indicator']] or '运行正常'),('ok' if state['indicator']=='none' else 'issue')
     # In trouble: what is wrong and a link to read about it, not just a word.
     if state.get('indicator') not in (None,'none') and not state.get('error'):
-        detail,href=service_status.trouble(state) or state.get('description'),service_status.trouble_link(state,link)
+        detail,href=service_status.trouble(state) or state.get('description'),link
     elif state.get('error'):detail,href='状态页这次没读到，点开在浏览器里看',link
     else:detail,href=state.get('description'),link
     return [item(name+' 服务状态',level=1,badge=badge,href=href,panelstatus=light,paneldetail=detail)]
@@ -4489,7 +4489,7 @@ def dashboard_payload(data):
             # On its page, the same trouble as a row that says what is wrong and opens where to read about it.
             page=service_status.MODULE_PAGES.get(source);state=((data.get('service_status') or {}).get(page or '')) if note else None
             providers[-1]['serviceStatus']={'name':service_status.PAGES[page][0],'note':note,'detail':service_status.trouble(state),
-                                            'link':service_status.trouble_link(state,service_status.PAGES[page][2])} if state else None
+                                            'link':service_status.PAGES[page][2]} if state else None
     # The client's card still shows all its own records, while Summary adds what summary_usage counts.
     counting=summary_usage(selected)
     for p,(source,label,usage) in zip(providers,selected):

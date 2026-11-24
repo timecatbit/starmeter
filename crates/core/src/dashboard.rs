@@ -519,7 +519,8 @@ pub fn service_note(statuses: Option<&Json>, module: &str) -> Option<String> {
     Some(note.to_string())
 }
 
-/// A card's service in trouble, for its page: the service's name, the note, what is wrong and where to read about it.
+/// A card's service in trouble: the service's name, the note, what is wrong and its status page (the note on the card
+/// and the row on its page open it).
 fn service_trouble(statuses: Option<&Json>, module: &str, note: &str) -> Option<Object> {
     use crate::background::service_status;
     let page = service_status::module_page(module)?;
@@ -528,7 +529,7 @@ fn service_trouble(statuses: Option<&Json>, module: &str, note: &str) -> Option<
     Some(object! {
         "name" => name, "note" => note,
         "detail" => service_status::trouble(state).map_or(Json::Null, Json::from),
-        "link" => service_status::trouble_link(state, link),
+        "link" => link,
     })
 }
 

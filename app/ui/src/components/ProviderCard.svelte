@@ -5,6 +5,7 @@
   // own that opens the tool's page. Not folded, a click anywhere on the card opens the page. One gesture each: the
   // card's click never means one thing first and another the second time.
   import { alpha, blend, label as labelColour, toolColour } from '../lib/colors';
+  import { shell } from '../lib/backend';
   import { t } from '../lib/i18n.svelte';
   import { clientLine, colourOf, headline, isGrouped, modelAmount, modelName, notes, share, statsForms, tokenLine } from '../lib/format';
   import { figureWidth, font, ROUNDED, width } from '../lib/measure';
@@ -29,12 +30,14 @@
   const nameWidth = $derived(Math.min(headerRight - costWidth - 14 - (left + 21), width(p.name, font(13, 600)) + 1));
   const shownNotes = $derived.by(() => {
     let x = left + 21 + nameWidth + 7;
-    const out: { text: string; warning: boolean; x: number; w: number }[] = [];
+    const out: { text: string; warning: boolean; x: number; w: number; link: string | null }[] = [];
     for (const [text, warning] of notes(p)) {
       const room = headerRight - costWidth - 10 - x;
       if (room <= 12) break;
-      const w = Math.min(room, width(text, font(9.5)) + 1);
-      out.push({ text, warning, x, w });
+      // The service's trouble opens its status page (用户：降级那个提醒是否可以直接看这个网页), an arrow after it.
+      const link = p.serviceStatus && text === p.serviceStatus.note ? p.serviceStatus.link : null;
+      const w = Math.min(room, width(link ? text + ' ↗' : text, font(9.5)) + 1);
+      out.push({ text, warning, x, w, link });
       x += w + 6;
     }
     return out;
@@ -87,7 +90,13 @@
   </span>
   <span class="name" style:left="{left + 21}px" style:width="{nameWidth}px">{p.name}</span>
   {#each shownNotes as note (note.text)}
-    <span class="card-note" class:warning={note.warning} style:left="{note.x}px" style:width="{note.w}px">{note.text}</span>
+    {#if note.link}
+      <button class="card-note warning link" style:left="{note.x}px" style:width="{note.w}px"
+        aria-label={t('打开 {name} 状态页', { name: p.serviceStatus?.name ?? '' })}
+        onclick={(event) => { event.stopPropagation(); void shell.openLink(note.link!); }}>{note.text} ↗</button>
+    {:else}
+      <span class="card-note" class:warning={note.warning} style:left="{note.x}px" style:width="{note.w}px">{note.text}</span>
+    {/if}
   {/each}
   <span class="cost" style:left="{headerRight - costWidth - 2}px">
     <Figure value={cost} size={16} room={costWidth + 2} align="right" color={glowing} />
@@ -192,6 +201,24 @@
     pointer-events: none;
   }
   .card-note.warning { color: var(--orange); }
+  /* The service's trouble: a link to its status page, over the card's own button. */
+  .card-note.link {
+    position: absolute;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--orange);
+    pointer-events: auto;
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    font-size: 9.5px;
+    line-height: 1.2;
+    text-align: left;
+    cursor: pointer;
+  }
+  .card-note.link:hover { text-decoration: underline; }
   .cost { top: 5px; pointer-events: none; overflow: visible !important; }
   .lead {
     top: 29px;

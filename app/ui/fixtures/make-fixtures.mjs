@@ -830,7 +830,7 @@ function scenario(state) {
       d.chartStatus = '部分图表数据不可用'; d.updated = '更新时间：15:25';
       d.providers = d.providers.map((p) => p.id === 'gemini' ? { ...p, available: false, status: '读取失败：~/.gemini/tmp 不可读', cost: null, models: [], priceNote: null }
         : p.id === 'codex' ? { ...p, status: '刷新失败 · 保留原数据' } : p.id === 'qoder' ? { ...p, status: '部分记录未读取' } : p.id === 'claude' ? { ...p, serviceNote: '服务部分降级',
-          serviceStatus: { name: 'Claude', note: '服务部分降级', detail: 'Elevated errors on Claude Opus 5.5 · 正在调查', link: 'https://status.claude.com/incidents/demo' } } : p);
+          serviceStatus: { name: 'Claude', note: '服务部分降级', detail: 'Elevated errors on Claude Opus 5.5 · 正在调查', link: 'https://status.claude.com' } } : p);
     }
     for (const p of d.providers) if (p.counted === undefined) delete p.counted;
     dashboards[key] = d;

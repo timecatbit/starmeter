@@ -592,13 +592,13 @@ impl Runtime {
                 if indicator == "none" { "ok" } else { "issue" },
             )
         };
-        // In trouble: what is wrong (the incidents, or the parts not working) and a link to read about it, not just a
-        // word (用户：claude 有部分服务降级，然后呢？).
+        // In trouble: what is wrong (the incidents, or the parts not working) under it, not just a word (用户：claude 有部分
+        // 服务降级，然后呢？); a click opens the status page itself (用户：降级那个提醒是否可以直接看这个网页).
         let (detail, href) = if trouble {
             (
                 service_status::trouble(&state)
                     .map_or_else(|| state.get("description").cloned().unwrap_or(Json::Null), Json::from),
-                service_status::trouble_link(&state, link),
+                link.to_string(),
             )
         } else if state.get("error").is_some_and(Json::is_truthy) {
             (Json::from("状态页这次没读到，点开在浏览器里看"), link.to_string())
