@@ -785,7 +785,38 @@ pub fn copy_png(png: &[u8]) -> bool {
 }
 
 /// The system share menu for a picture file, at a box in the web view (top-left origin, as the page measures it).
-pub fn share_file(panel: &WebviewWindow, path: &std::path::Path, rect: (f64, f64, f64, f64)) {
+/// Told when the share menu is done: true if a service was picked, false if it was dismissed.
+type ShareHandler = Box<dyn Fn(bool) + Send + Sync>;
+static SHARE_HANDLER: OnceLock<ShareHandler> = OnceLock::new();
+
+thread_local! {
+    /// The picker of the last share and its delegate (the picker holds it weakly), kept while its menu may be up.
+    static SHARE: RefCell<Option<(Retained<AnyObject>, Retained<ShareDelegate>)>> = const { RefCell::new(None) };
+}
+
+define_class!(
+    #[unsafe(super(NSObject))]
+    #[name = "StarmeterShareDelegate"]
+    struct ShareDelegate;
+
+    impl ShareDelegate {
+        /// Called once the menu closes: with the service picked, or nil when it was dismissed (a click elsewhere, Esc).
+        #[unsafe(method(sharingServicePicker:didChooseSharingService:))]
+        fn chose(&self, _picker: *mut AnyObject, service: *mut AnyObject) {
+            if let Some(handler) = SHARE_HANDLER.get() {
+                handler(!service.is_null());
+            }
+        }
+    }
+);
+
+pub fn share_file(
+    panel: &WebviewWindow,
+    path: &std::path::Path,
+    rect: (f64, f64, f64, f64),
+    done: impl Fn(bool) + Send + Sync + 'static,
+) {
+    let _ = SHARE_HANDLER.set(Box::new(done));
     let Ok(window) = panel.ns_window() else { return };
     unsafe {
         let window = window.cast::<AnyObject>();
@@ -796,12 +827,23 @@ pub fn share_file(panel: &WebviewWindow, path: &std::path::Path, rect: (f64, f64
         let anchor = NSRect::new(NSPoint::new(rect.0, y), NSSize::new(rect.2, rect.3));
         let url: Retained<AnyObject> = msg_send![class!(NSURL), fileURLWithPath: &*ns_string(&path.to_string_lossy())];
         let items: Retained<AnyObject> = msg_send![class!(NSArray), arrayWithObject: &*url];
-        // The picker stays alive for as long as its menu may be up; one per share is little to keep.
         let picker: *mut AnyObject = msg_send![class!(NSSharingServicePicker), alloc];
         let picker: *mut AnyObject = msg_send![picker, initWithItems: &*items];
+        let Some(picker) = Retained::from_raw(picker) else { return };
+        let delegate: Retained<ShareDelegate> = msg_send![ShareDelegate::class(), new];
+        let _: () = msg_send![&*picker, setDelegate: &*delegate];
         // Below the button: NSMinYEdge in an unflipped view, NSMaxYEdge in a flipped one.
         let edge: usize = if flipped { 3 } else { 1 };
-        let _: () = msg_send![picker, showRelativeToRect: anchor, ofView: view, preferredEdge: edge];
+        let _: () = msg_send![&*picker, showRelativeToRect: anchor, ofView: view, preferredEdge: edge];
+        SHARE.with(|share| *share.borrow_mut() = Some((picker, delegate)));
+    }
+}
+
+/// Whether this app is the active one (one of its windows has the focus, or a menu of its own is up).
+pub fn app_active() -> bool {
+    unsafe {
+        let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+        msg_send![app, isActive]
     }
 }
 

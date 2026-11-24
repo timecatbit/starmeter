@@ -490,6 +490,31 @@ pub fn hold_for_share(app: &AppHandle) {
     app.state::<Panel>().sharing.store(true, Ordering::SeqCst);
 }
 
+/// The share menu closed (picked: a service was chosen). A click on another app while it was up took the focus without
+/// closing the panel (blurred stood aside for the menu) and the panel would stay up, floating, until clicked again: a
+/// moment later, once the focus has settled, the panel closes as a click elsewhere closes it. Dismissed, that is when
+/// the panel no longer has the focus; with a service picked, only when another app has it (a service may show a
+/// window of this app's own, such as AirDrop's, which takes the focus from the panel and needs it to stay).
+#[cfg(target_os = "macos")]
+pub fn share_closed(app: &AppHandle, picked: bool) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(300));
+        let handle = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            let state = handle.state::<Panel>();
+            if !state.sharing.swap(false, Ordering::SeqCst) {
+                return;
+            }
+            let focused = window(&handle).is_some_and(|panel| panel.is_focused().unwrap_or(false));
+            let away = if picked { !crate::macos::app_active() } else { !focused };
+            if away {
+                blurred(&handle);
+            }
+        });
+    });
+}
+
 fn set_pinned_state(app: &AppHandle, pinned: bool) {
     let state = app.state::<Panel>();
     if state.pinned.swap(pinned, Ordering::SeqCst) == pinned {

@@ -156,9 +156,12 @@ pub async fn share_picture(app: AppHandle, png: String, name: String, x: f64, y:
         panel::hold_for_share(&app);
         let _ = (x, y, width, height);
         let window = app.get_webview_window(panel::PANEL);
+        let handle = app.clone();
         let _ = app.run_on_main_thread(move || {
             if let Some(window) = window {
-                macos::share_file(&window, &path, (x, y, width, height));
+                macos::share_file(&window, &path, (x, y, width, height), move |picked| {
+                    panel::share_closed(&handle, picked)
+                });
             }
         });
     }
