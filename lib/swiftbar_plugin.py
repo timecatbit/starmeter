@@ -4164,7 +4164,7 @@ def api_lines(provider,data):
         currencies=balance_currencies(provider,keys,values);lines=view_settings()['balanceAlerts']
         for currency in currencies:
             line=lines.get(provider+'|'+currency)
-            rows.append(item('余额提醒…' if len(currencies)==1 else CURRENCY_NAMES[currency]+'余额提醒…',level=1,sfimage='bell',
+            rows.append(item('余额提醒…' if len(currencies)==1 else CURRENCY_NAMES.get(currency,currency)+'余额提醒…',level=1,sfimage='bell',
                              badge='低于 '+money_text(line,currency) if line else '关闭',**act('set-balance-alert',provider,currency)))
     rows.append(item('打开用量与账单',level=1,href=service.url,sfimage='arrow.up.right'))
     return rows
