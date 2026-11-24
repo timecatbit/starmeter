@@ -58,8 +58,9 @@ pub async fn alert(app: &AppHandle, title: &str, message: &str) {
 pub async fn save_file(app: &AppHandle, name: &str, extension: &str) -> Option<PathBuf> {
     let (app, name, extension) = (app.clone(), name.to_owned(), extension.to_owned());
     tauri::async_runtime::spawn_blocking(move || {
+        // AppKit's own work on the main thread, never this worker's.
         #[cfg(target_os = "macos")]
-        macos::activate();
+        macos::on_main(&app, macos::activate);
         let mut dialog =
             app.dialog().file().set_file_name(&name).add_filter(extension.to_uppercase(), &[extension.as_str()]);
         if let Ok(desktop) = app.path().desktop_dir() {
