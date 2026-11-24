@@ -358,7 +358,12 @@ fn main() {
     #[cfg(windows)]
     win::claim_identity();
     let mut builder = tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| relaunched(app, args)))
+        // The plugin tells from a worker thread on macOS: the panel opens and closes on the main thread, where AppKit
+        // and the app it hands the focus back to (kept per thread) are.
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            let handle = app.clone();
+            let _ = app.run_on_main_thread(move || relaunched(&handle, args));
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
