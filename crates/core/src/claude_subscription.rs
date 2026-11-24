@@ -463,7 +463,8 @@ fn credentials() -> Result<(String, f64, String), OAuthError> {
                 }
             }
             Err(error) if error.code == "missing" => legacy = true,
-            Err(_) => {}
+            // Not allowed (钥匙串未授权…): said as it is, as the Python reader says it, not taken for no login at all.
+            Err(error) => return Err(error),
         }
     }
     if data.is_none() {
