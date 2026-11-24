@@ -128,17 +128,15 @@ struct Opened {
     max_height: f64,
 }
 
-/// The tallest the panel may grow under the star before it scrolls.
+/// The tallest the panel may grow under the star before it scrolls; never under the least a page asks for (a screen
+/// that reports no height for a moment, asleep or being switched, is no reason for a panel of nothing).
 fn max_height(app: &AppHandle) -> f64 {
     let anchor = *app.state::<Panel>().anchor.lock().expect("the anchor lock");
     #[cfg(target_os = "macos")]
-    {
-        macos::max_height(anchor)
-    }
+    let tallest = macos::max_height(anchor);
     #[cfg(not(target_os = "macos"))]
-    {
-        work_area(app, anchor).map(|area| area.3 - 16.0).unwrap_or(800.0)
-    }
+    let tallest = work_area(app, anchor).map(|area| area.3 - 16.0).unwrap_or(800.0);
+    tallest.max(80.0)
 }
 
 /// The working area (without taskbar or menu bar) of the monitor under a point, logical: x, y, width, height.
@@ -234,7 +232,7 @@ fn place(app: &AppHandle, animate: bool) {
                 let x = chosen_left(&state, start.x).min(area.0 + area.2 - width).max(area.0);
                 placed_left(&state, x);
                 let y = start.y.max(area.1);
-                (x, y, height.min(area.1 + area.3 - y))
+                (x, y, height.min(area.1 + area.3 - y).max(MIN_SIZE.1))
             }
             None => {
                 let Some(area) = work_area(app, anchor) else { return };
@@ -701,7 +699,7 @@ pub fn resize_panel(app: AppHandle, width: f64, height: f64, animate: bool, resi
         return;
     }
     let limit = if free(&state) { 10_000.0 } else { max_height(&app) };
-    let size = (width.clamp(240.0, 900.0), height.clamp(80.0, limit).round());
+    let size = (width.clamp(240.0, 900.0), height.clamp(80.0, limit.max(80.0)).round());
     {
         let mut current = state.size.lock().expect("the size lock");
         if *current == size {
@@ -738,10 +736,19 @@ pub fn size_panel(app: AppHandle, width: f64, height: f64) {
         let frame = macos::free_frame(current, asked.0, asked.1);
         (frame.size.width.round(), frame.size.height.round())
     });
+    // As macOS keeps a frame on its screen: no taller than from the window's top to the bottom of its working area
+    // (place keeps the window there), so the page lays out for the size the window has, its corner on screen.
     #[cfg(not(target_os = "macos"))]
     let size = {
-        let _ = &window;
-        asked
+        let top =
+            window.outer_position().ok().zip(window.scale_factor().ok()).map(|(p, scale)| p.to_logical::<f64>(scale));
+        match top.and_then(|top| work_area(&app, (top.x + 1.0, top.y + 1.0)).map(|area| (top, area))) {
+            Some((top, area)) => {
+                let room = (area.1 + area.3 - top.y.max(area.1)).max(MIN_SIZE.1);
+                (asked.0.min(area.2.max(MIN_SIZE.0)).round(), asked.1.min(room).round())
+            }
+            None => asked,
+        }
     };
     state.sized.store(true, Ordering::SeqCst);
     {
