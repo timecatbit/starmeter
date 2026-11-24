@@ -362,13 +362,17 @@ fn cached_feed(root: &str, now: f64) -> Option<Object> {
             continue;
         }
         // Newest first: one older than a week ends the look (the rest are older still); one that gives no release (its
-        // file evicted, an empty answer, a body that says no version) gives way to the one before it.
+        // file evicted, an empty answer, a body that says no version) gives way to the one before it, and so does one
+        // timed ahead of now (written while the clock ran ahead), which comes first.
         let Some(time) = database::text(&row[1]).and_then(|stamp| IsoTime::parse(stamp).ok()) else { continue };
         let mut utc = time;
         utc.offset = Some(0);
         let checked = utc.timestamp(&jiff::tz::TimeZone::UTC);
-        if !(-60.0..=7.0 * 86400.0).contains(&(now - checked)) {
+        if now - checked > 7.0 * 86400.0 {
             return None;
+        }
+        if now - checked < -60.0 {
+            continue;
         }
         let body = if database::int(&row[2]).unwrap_or(0) != 0 {
             let name = database::blob(&row[3])
@@ -1046,7 +1050,8 @@ mod feed_tests {
     use crate::database::{Database, Mode, Value};
     use std::path::Path;
 
-    /// The newest cached answer gone from disk (or empty): the one before it, a day older, still tells the release.
+    /// The newest cached answer timed ahead, gone from disk or empty: the one before them, a day older, still tells
+    /// the release.
     #[test]
     fn a_cached_answer_that_gives_nothing_gives_way_to_the_one_before() {
         let root = std::env::temp_dir().join(format!("starmeter-appcast-{}", crate::runtime::random_hex(6)));
@@ -1062,7 +1067,9 @@ mod feed_tests {
                     <sparkle:shortVersionString>26.1</sparkle:shortVersionString><sparkle:version>2610</sparkle:version>\
                     </item></channel></rss>";
         let url = "https://persistent.oaistatic.com/codex-app-prod/appcast.xml";
-        let rows: [(i64, &str, i64, Value); 3] = [
+        // A day ahead (written while the clock ran ahead) comes first, newest; then the evicted, the empty, the good.
+        let rows: [(i64, &str, i64, Value); 4] = [
+            (4, "2026-11-25 00:00:00", 0, Value::Blob(Vec::new())),
             (1, "2026-11-23 23:00:00", 1, Value::Blob(b"evicted-file".to_vec())),
             (2, "2026-11-23 22:00:00", 0, Value::Blob(Vec::new())),
             (3, "2026-11-23 00:00:00", 0, Value::Blob(feed.as_bytes().to_vec())),

@@ -42,14 +42,16 @@ def cached_feed(root,parse_release,now):
               AND length(d.receiver_data)<=?
             ORDER BY r.time_stamp DESC LIMIT 12''',(LIMIT,))
         # Newest first: one older than a week ends the look (the rest are older still); one that gives no release (its
-        # file evicted, an empty answer, a body that says no version) gives way to the one before it.
+        # file evicted, an empty answer, a body that says no version) gives way to the one before it, and so does one
+        # timed ahead of now (written while the clock ran ahead), which comes first.
         for url,stamp,on_disk,body in rows:
             parts=urlsplit(url)
             if parts.hostname!='persistent.oaistatic.com' or parts.port not in (None,443) or parts.username or parts.password:continue
             if not re.fullmatch(r'/codex-app-prod/appcast(?:-\d+(?:\.\d+){0,4})?\.xml',parts.path):continue
             try:checked=parse_iso(stamp).replace(tzinfo=timezone.utc).timestamp()
             except (ValueError,TypeError,AttributeError):continue
-            if not -60<=now-checked<=7*86400:return None
+            if now-checked>7*86400:return None
+            if now-checked<-60:continue
             if on_disk:
                 try:name=body.decode('ascii') if isinstance(body,bytes) else body
                 except UnicodeDecodeError:continue

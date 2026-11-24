@@ -42,7 +42,8 @@ class DesktopUpdateTests(unittest.TestCase):
   c.executescript('CREATE TABLE cfurl_cache_response(entry_ID INTEGER,request_key TEXT,time_stamp TEXT);CREATE TABLE cfurl_cache_receiver_data(entry_ID INTEGER,isDataOnFS INTEGER,receiver_data BLOB);')
   url='https://persistent.oaistatic.com/codex-app-prod/appcast.xml'
   stamp=lambda age:datetime.fromtimestamp(time.time()-age,timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
-  for entry,age,on_disk,body in ((1,60,1,b'evicted-file'),(2,120,0,b''),(3,86400,0,b'<rss/>')):
+  # One timed an hour ahead (the clock ran ahead) comes first: passed over too.
+  for entry,age,on_disk,body in ((4,-3600,0,b''),(1,60,1,b'evicted-file'),(2,120,0,b''),(3,86400,0,b'<rss/>')):
    c.execute('INSERT INTO cfurl_cache_response VALUES(?,?,?)',(entry,url,stamp(age)));c.execute('INSERT INTO cfurl_cache_receiver_data VALUES(?,?,?)',(entry,on_disk,body))
   c.commit();c.close()
   self.parse.side_effect=lambda body:('26.1103.31037','25241') if body==b'<rss/>' else (None,None)
