@@ -86,7 +86,7 @@ def model_aliases(repo):
     if data.exists() and 'static ALIASES' in (text := data.read_text()):
         body = text.split('static ALIASES', 1)[1].split('\n];', 1)[0]
         return dict(re.findall(r'\(\s*"([^"]+)",\s*"([^"]+)"\s*\)', body))
-    pricing = (source / 'pricing.rs').read_text()
+    pricing = (source / 'pricing.rs').read_text() if (source / 'pricing.rs').exists() else ''
     if 'fn pricing_alias(' in pricing:
         body = pricing.split('fn pricing_alias(', 1)[1].split('\n}\n', 1)[0]
         return dict(re.findall(r'"([^"]+)" => Some\("([^"]+)"\)', body))
