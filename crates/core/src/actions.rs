@@ -1150,7 +1150,9 @@ impl Runtime {
                         } else {
                             "使用 Claude Code 登录查询用量？"
                         };
-                        let detail = if self.is_desktop() {
+                        // By the system, not by app or plugin: on macOS the login is in the keychain and an expired
+                        // one is renewed through Claude Code (claude_subscription::renew_with_claude), the app's too.
+                        let detail = if !cfg!(target_os = "macos") {
                             "读取 Claude Code 本机登录文件，仅向 api.anthropic.com 查询用量。不会读取 Cookie，也不会调用模型。凭据不写入插件配置或日志；登录过期时在 Claude Code 重新登录。"
                         } else {
                             "读取 Claude Code 现有登录，仅向 api.anthropic.com 查询订阅用量。无需 Cookie 或模型调用。登录过期时可启动 Code 自检续期，不发送消息。\n凭据只在内存；不写入插件配置或日志。macOS 可能询问钥匙串权限。"
