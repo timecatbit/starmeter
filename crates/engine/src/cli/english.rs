@@ -178,7 +178,7 @@ pub static WHOLE: [Rule; 4] = [
 ];
 
 /// One part of the engine's text.
-pub static RULES: [Rule; 91] = [
+pub static RULES: [Rule; 92] = [
     rule!(r"^已用 (\d+(?:\.\d+)?%)$", |m| format!("{} used", group(m, 1))),
     rule!(r"^已用 (\d+(?:\.\d+)?%) 截至 (.+)$", |m| format!("{} used as of {}", group(m, 1), group(m, 2))),
     rule!(r"^已用 (.+)$", |m| format!("Used: {}", translate(group(m, 1)))),
@@ -218,6 +218,10 @@ pub static RULES: [Rule; 91] = [
     rule!(r"^需勾选 (.+)$", |m| format!("Needs {} on", translate(group(m, 1)))),
     rule!(r"^Antigravity 没有给出额度（HTTP (\d+)）$", |m| format!(
         "Antigravity gave no quota (HTTP {})",
+        group(m, 1)
+    )),
+    rule!(r"^DeepSeek 余额查询失败（HTTP (\d+)）$", |m| format!(
+        "DeepSeek balance check failed (HTTP {})",
         group(m, 1)
     )),
     rule!(r"^(\d+) 分钟前更新$", |m| format!("{} min ago", group(m, 1))),
@@ -427,6 +431,8 @@ mod tests {
         }
         assert!(seen >= 20, "only {seen} statuses found: the pattern no longer matches the core");
         assert_eq!(translate("未找到 Claude 用量记录"), "No Claude usage records found");
+        assert_eq!(translate("DeepSeek 余额查询失败（HTTP 401）"), "DeepSeek balance check failed (HTTP 401)");
+        assert_eq!(translate("DeepSeek 余额查询失败"), "DeepSeek balance check failed");
     }
 
     #[test]

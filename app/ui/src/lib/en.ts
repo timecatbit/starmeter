@@ -59,6 +59,7 @@ export const phrases: Record<string, string> = {
   '未发现 Antigravity': 'No Antigravity found', '装好 Antigravity 并登录后显示额度': 'Install Antigravity and sign in to see the quota',
   'Antigravity 没开，打开后更新': 'Antigravity is closed; it updates once it is open', 'Antigravity 没有运行': 'Antigravity isn\'t running',
   'Antigravity 没有给出额度': 'Antigravity gave no quota',
+  'DeepSeek 余额查询失败': 'DeepSeek balance check failed', '未配置 DeepSeek API 凭据': 'No DeepSeek API key set up',
   打开订阅管理: 'Open subscription settings', 刚刚更新: 'Just now', 未开启: 'Off', 未填写: 'Not set', 已标记: 'Marked',
   标记为已配置: 'Mark as set up', 本月已用: 'Spent this month', 与匀速持平: 'on even pace', 未开启读取: 'Reading is off',
   // API keys
@@ -325,6 +326,7 @@ export const rules: Rule[] = [
   [/^(.+) 服务状态$/, (m, tr) => `${tr(m[1])} status`],
   [/^需勾选 (.+)$/, (m, tr) => `Needs ${tr(m[1])} on`],
   [/^Antigravity 没有给出额度（HTTP (\d+)）$/, (m) => `Antigravity gave no quota (HTTP ${m[1]})`],
+  [/^DeepSeek 余额查询失败（HTTP (\d+)）$/, (m) => `DeepSeek balance check failed (HTTP ${m[1]})`],
   // Updated and when
   [/^(\d+) 分钟前更新$/, (m) => `${m[1]} min ago`],
   [/^(\d+) 小时前更新$/, (m) => `${m[1]} h ago`],
