@@ -51,7 +51,8 @@ def present(home):
 def windows(summary):
     """The summary's buckets as windows: each group's five-hour and weekly limit, in the order the app lists them, a
     bucket without a share left out."""
-    groups = ((summary or {}).get('response') or {}).get('groups') if isinstance(summary, dict) else None
+    response = summary.get('response') if isinstance(summary, dict) else None
+    groups = response.get('groups') if isinstance(response, dict) else None
     found = []
     for group in groups if isinstance(groups, list) else []:
         if not isinstance(group, dict):continue
@@ -84,8 +85,12 @@ def quota(home):
                 found = windows(json.loads(answer.read(1 << 20)))
         except urllib.error.HTTPError as error:
             failure = 'Antigravity 没有给出额度（HTTP %d）' % error.code;continue
-        except (OSError, ValueError):
-            failure = NOT_RUNNING;continue
+        except ValueError:
+            failure = 'Antigravity 没有给出额度';continue
+        except OSError:
+            # A note left by a server gone (its process id now another's) refuses the connection: what a live one
+            # answered before it stays the reason, not 没有运行.
+            continue
         if not found:
             failure = 'Antigravity 没有给出额度';continue
         return {'windows': found}, None
