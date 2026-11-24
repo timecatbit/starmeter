@@ -2525,7 +2525,7 @@ def loader_due(name):
         return time.time()>=read_cache(name).get('retryAt',0)
     if name=='service_status':
         record=read_cache(name)
-        return cache_due(record,refresh_ttl(service_status.lifetime(record.get('payload'))))
+        return cache_due(record,refresh_ttl(status_lifetime(record.get('payload'))))
     if name!='opencodex':return cache_due(read_cache(name),refresh_ttl(ttl_for(name)))
     health=read_cache('healthz')
     if cache_due(health,refresh_ttl(EXTERNAL_TTLS['healthz'])):return True
@@ -2552,7 +2552,7 @@ def external_loaders():
     if pages:
         def load_status():
             previous=read_cache('service_status').get('payload') or {}
-            return cached_fetch('service_status',lambda:(service_status.merged(previous,service_status.read_all(pages,VERSION)),None),service_status.lifetime(previous))
+            return cached_fetch('service_status',lambda:(service_status.merged(previous,service_status.read_all(pages,VERSION)),None),status_lifetime(previous))
         loaders['service_status']=load_status
     if module_enabled('cursor-subscription') and view_settings()['cursorUsage']:
         def load_cursor_plan():
@@ -3122,6 +3122,13 @@ def status_pages():
     """The status pages to read: none unless 服务状态 is on, then only those of the modules shown."""
     if not view_settings()['serviceStatus']:return []
     return sorted({page for module,page in service_status.MODULE_PAGES.items() if module_enabled(module)})
+
+
+def status_lifetime(payload):
+    """How long the status pages read last hold: none when a page now wanted isn't among them (a module just put on the
+    homepage), so its status is read at once rather than shown as 待同步 for up to five minutes."""
+    if any(page not in (payload or {}) for page in status_pages()):return 0
+    return service_status.lifetime(payload)
 
 
 def status_lines(key,data):

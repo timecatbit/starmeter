@@ -1924,6 +1924,20 @@ class BackgroundParityTests(OpenCodexParityTests):
                 self.swift('wake')
                 self.assertEqual(bool(json.loads(records['swift'].read_text()).get('force')), due)
 
+    def test_a_status_page_newly_wanted_is_read_at_once(self):
+        # Cursor just put on the homepage: its page isn't in the five-minute reading yet, so the reading is due now (the
+        # panel open), not shown as 待同步 until it expires; with the page there, it keeps its five minutes.
+        self.settings(visible=['claude-subscription', 'chatgpt', 'cursor-subscription'], serviceStatus=True)
+        good = {'claude': {'indicator': 'none', 'description': 'OK'}, 'openai': {'indicator': 'none', 'description': 'OK'}}
+        for payload, due in ((good, True), (dict(good, cursor={'indicator': 'none', 'description': 'OK'}), False)):
+            with self.subTest(pages=sorted(payload)):
+                for engine in self.states.values():
+                    scope = hashlib.sha256(os.path.abspath(engine['OCX_STATE_DIR']).encode()).hexdigest()[:16]
+                    root = Path(engine['OCX_CACHE_DIR']) / ('opencodex-swiftbar-v5-%s-%s' % (os.getuid(), scope)); root.mkdir(parents=True, exist_ok=True)
+                    (root / 'service_status.json').write_text(json.dumps({'schema': 1, 'fetchedAt': time.time() - 5, 'payload': payload}))
+                    (root / 'panel-state.json').write_text(json.dumps({'schema': 1, 'visible': True, 'pid': os.getpid()}))
+                self.assertEqual((self.python('due', 'service_status'), self.swift('due', 'service_status')), (due, due))
+
     def test_a_phone_looking_keeps_the_open_panels_pace(self):
         import types
         def write(name, value):
