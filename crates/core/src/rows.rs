@@ -195,6 +195,16 @@ pub fn reserve_level(stale: bool) -> Json {
     if stale { Json::Null } else { Json::from("warning") }
 }
 
+/// On the reserve the value is what is left to spend; the week's share used goes under it, beside it on the row
+/// (用户：字有点多……优化下布局): the bars' names say it when there are two, a line under the single bar when there is
+/// one window.
+pub fn reserve_week(on_reserve: bool, limits: &[(String, f64, bool)], headline: Option<&(f64, String)>) -> Json {
+    match headline {
+        Some((_, text)) if on_reserve && headline_pair(limits).is_empty() => Json::from(text.as_str()),
+        _ => Json::Null,
+    }
+}
+
 /// On the reserve the value is what is left to spend, not 已用 X%, so the share used goes beside it for the row's bar
 /// (with one window there is no pair of bars to show it; 用户：ChatGPT 的订阅用量条怎么没了).
 pub fn reserve_share(on_reserve: bool, used: Option<f64>) -> Json {

@@ -29,6 +29,15 @@
     for (const form of [entry.value, ...(entry.fallbacks ?? [])]) if (valueWidth(form) <= room) return form;
     return entry.fallbacks?.at(-1) ?? entry.value;
   });
+  /** A plan's share used, its words quiet and the figure plain (用户：字有点多……优化下布局): 本周已用 / 已用 before it
+   *  (繁體 本週已用), or "used this week" / "used" after it in English. */
+  const parts = $derived.by(() => {
+    if (value === undefined) return null;
+    const before = /^(本周已用|本週已用|已用) (.+)$/.exec(value);
+    if (before) return { lead: before[1], figure: before[2], tail: '' };
+    const after = /^(\d[\d.]*%) (used this week|used)(.*)$/.exec(value);
+    return after ? { lead: '', figure: after[1], tail: after[2] + after[3] } : null;
+  });
   const usage = $derived(usageShare(entry));
   const gauge = $derived(onPhone ? usage !== null : hasGauge(entry));
   /** A plan with more than one limit: a line of bars per model group, five hours on the left and the week on the
@@ -75,6 +84,8 @@
             <span class="value pill num">{value}</span>
           {:else if configuredState !== null}
             <span class="value configured num"><StatusLight state={configuredState ? 'ok' : 'unknown'} />{value}</span>
+          {:else if parts}
+            <span class="value num" style:color={valueColor}>{#if parts.lead}<span class="said">{parts.lead + ' '}</span>{/if}{parts.figure}{#if parts.tail}<span class="said">{' ' + parts.tail}</span>{/if}</span>
           {:else}
             <span class="value num" style:color={valueColor}>{value}</span>
           {/if}
@@ -194,6 +205,11 @@
     font-size: 11px;
     white-space: nowrap;
     line-height: 1.2;
+  }
+  /* A share used: the words quiet beside the figure. */
+  .said {
+    font-size: 10px;
+    color: var(--secondary);
   }
   .value.pill {
     padding: 2px 8px;

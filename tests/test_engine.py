@@ -2086,8 +2086,8 @@ class PanelParityTests(BackgroundParityTests):
         expected, got = self.python('snapshot', now), self.swift('snapshot', now)
         self.assertEqual(expected['entries'], got['entries'])
         row = next(entry for entry in got['entries'] if entry.get('label') == 'ChatGPT 订阅')
-        self.assertEqual((row['value'], row['fallbacks'], row['usageLevel'], row['share']),
-                         ('本周已用 100% · 余 41,554 Credits', ['余 41,554 Credits'], 'warning', 1.0))
+        self.assertEqual((row['value'], row.get('detail'), row['usageLevel'], row['share']),
+                         ('余 41,554 Credits', '本周已用 100%', 'warning', 1.0))
         again = next(child for child in row['children'] if child['label'] == '立即刷新')
         self.assertEqual(again['action'], ['refresh-now', 'chatgpt'])
 
@@ -2291,13 +2291,14 @@ class EngineRunParityTests(PanelParityTests):
             self.assertEqual(expected[key], got.get(key), key)
         rows = {entry['label']: entry for entry in got['entries'] if entry.get('label')}
         chatgpt, claude, cursor = rows['ChatGPT 订阅'], rows['Claude 订阅'], rows['Cursor 订阅']
-        # The week's share stays beside what is left; the free resets are on its page, not under the row.
+        # What is left is the value; the week's share is under its single bar; the free resets are on its page.
         self.assertEqual((chatgpt['value'], chatgpt.get('fallbacks'), chatgpt.get('detail'), chatgpt.get('usageLevel')),
-                         ('本周已用 100% · 余 45,934 Credits', ['余 45,934 Credits'], None, 'warning'))
+                         ('余 45,934 Credits', None, '本周已用 100%', 'warning'))
         children = {child['label']: child for child in chatgpt['children']}
         self.assertEqual((children['Credits']['value'], children['免费重置']['value']), ('余 45,934', '可用 2 次'))
         self.assertTrue(children['免费重置']['detail'].endswith('过期 · 在 Codex 里使用'))
-        self.assertEqual((claude['value'], claude.get('usageLevel')), ('本周已用 40% · 额外用量剩 $37.50', 'warning'))
+        # Two windows: their bars name the week's share, so nothing under them.
+        self.assertEqual((claude['value'], claude.get('detail'), claude.get('usageLevel')), ('额外用量剩 $37.50', None, 'warning'))
         self.assertEqual((cursor['value'], cursor.get('usageLevel')), ('在用按需用量', 'warning'))
 
     def test_payback_of_a_tool_off_the_homepage(self):

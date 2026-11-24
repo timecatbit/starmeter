@@ -177,11 +177,7 @@ impl Runtime {
                 Some(limit) => format!("额外用量剩 {symbol}{:.2}", (limit - py::num(extra.get("used"))).max(0.0)),
                 None => "在用额外用量".into(),
             };
-            // The week's share stays beside what is left (用户：额度写在已用附近).
-            value = match week {
-                Some(week) => format!("本周{} · {left}", used_text(week)),
-                None => left,
-            };
+            value = left;
         }
         // Like every other module: the last good figures stay, marked as a failed refresh.
         value = with_failure(&value, !windows.is_empty() && !stale, failed);
@@ -203,7 +199,10 @@ impl Runtime {
                 "Claude 订阅",
                 0,
                 merged(&[
-                    &object! { "badge" => value, "panelgauges" => rows::gauges(&rows::headline_pair(&limits), stale || failed) },
+                    &object! {
+                        "badge" => value, "panelgauges" => rows::gauges(&rows::headline_pair(&limits), stale || failed),
+                        "paneldetail" => rows::reserve_week(on_reserve, &limits, headline.as_ref()),
+                    },
                     &self.brand_icon("claude-subscription"),
                     &object! {
                         "panelusagelevel" => if on_reserve { rows::reserve_level(failed) } else { usage_level(Some(headline.as_ref().map_or(0.0, |(share, _)| *share)), stale || failed || windows.is_empty()) },
@@ -828,20 +827,11 @@ impl Runtime {
         let balance = credits.map(|credits| rows::credits_amount(py::num(credits.get("balance"))));
         let exhausted = most.is_some_and(|most| most >= 100.0) || payload.get("blocked").is_some_and(Json::is_truthy);
         let on_reserve = exhausted && credits.is_some() && !visible.is_empty();
-        let mut fallback = Json::Null;
         if on_reserve {
-            let left = if unlimited {
+            badge = if unlimited {
                 "Credits 不限".to_string()
             } else {
                 format!("余 {} Credits", balance.clone().unwrap_or_default())
-            };
-            badge = match week {
-                Some(week) => {
-                    // A narrow row keeps what is left to spend.
-                    fallback = Json::from(left.clone());
-                    format!("本周{} · {left}", used_text(week))
-                }
-                None => left,
             };
         }
         let resets = payload.get("resets").and_then(Json::as_object);
@@ -860,8 +850,8 @@ impl Runtime {
             merged(&[
                 &object! {
                     "badge" => with_failure(&badge, !visible.is_empty(), failed),
-                    "panelfallback" => fallback,
                     "panelgauges" => rows::gauges(&rows::headline_pair(&limits), failed),
+                    "paneldetail" => rows::reserve_week(on_reserve, &limits, headline.as_ref()),
                 },
                 &self.brand_icon("chatgpt"),
                 &object! {

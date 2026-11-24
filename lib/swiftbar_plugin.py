@@ -1939,6 +1939,12 @@ def reserve_level(stale=False):
     return None if stale else 'warning'
 
 
+def reserve_week(on_reserve,limits,headline):
+    """On the reserve the value is what is left to spend; the week's share used goes under it: the bars' names say it
+    when there are two, a line under the single bar when there is one window."""
+    return headline[1] if on_reserve and headline and not headline_pair(limits) else None
+
+
 def reserve_share(on_reserve,used):
     """On the reserve the value is what is left to spend, not 已用 X%, so the share used goes beside it for the row's
     bar (with one window there is no pair of bars to show it)."""
@@ -2055,13 +2061,12 @@ def claude_subscription_lines(data):
     on_reserve=bool(windows) and not stale and max(w['used'] for w in windows)>=100 and extra_on is not None
     if on_reserve:
         symbol='$' if extra_on.get('currency','USD')=='USD' else extra_on['currency']+' '
-        left='额外用量剩 %s%.2f'%(symbol,max(0,extra_on['limit']-extra_on['used'])) if extra_on.get('limit') else '在用额外用量'
-        value='本周%s · %s'%(used_text(week),left) if week is not None else left
+        value='额外用量剩 %s%.2f'%(symbol,max(0,extra_on['limit']-extra_on['used'])) if extra_on.get('limit') else '在用额外用量'
     # Like every other module: the last good figures stay, marked as a failed refresh.
     value=with_failure(value,bool(windows) and not stale,failed)
     source={'claude-oauth':'Code 登录','live':'App 登录 · 手动查询','claude-code':'Code 本机回传','app-snapshot':'App 本机快照'}.get(payload.get('source'),'Claude App 本机快照')
     limits=[(w['label'],w['used'],claude_span(w)==5*3600) for w in windows]
-    rows=[item('Claude 订阅',badge=value,panelgauges=gauges(headline_pair(limits),stale or failed),**brand_icon('claude-subscription'),panelusagelevel=reserve_level(failed) if on_reserve else usage_level(headline[0] if headline else 0,stale or failed or not windows),
+    rows=[item('Claude 订阅',badge=value,panelgauges=gauges(headline_pair(limits),stale or failed),paneldetail=reserve_week(on_reserve,limits,headline),**brand_icon('claude-subscription'),panelusagelevel=reserve_level(failed) if on_reserve else usage_level(headline[0] if headline else 0,stale or failed or not windows),
                panelshare=reserve_share(on_reserve,max((w['used'] for w in windows),default=None))),
           item('来源 · '+source,level=1,color=MUTED,size=10)]
     for w in windows:
@@ -3389,15 +3394,11 @@ def chatgpt_lines(data):
     balance=credits_amount(credits.get('balance') or 0) if credits else None
     exhausted=(most is not None and most>=100) or bool(payload.get('blocked'))
     on_reserve=exhausted and credits is not None and bool(visible)
-    fallback=None
-    if on_reserve:
-        left='Credits 不限' if unlimited else '余 %s Credits'%balance
-        if week is not None:fallback=left;badge='本周%s · %s'%(used_text(week),left)
-        else:badge=left
+    if on_reserve:badge='Credits 不限' if unlimited else '余 %s Credits'%balance
     resets=payload.get('resets') if isinstance(payload.get('resets'),dict) else {}
     offered=resets.get('count') or 0
     limits=[(chatgpt_window_label(w),100-w['remaining'],chatgpt_window_label(w)=='5 小时') for w in visible]
-    lines=[item(label,badge=with_failure(badge,bool(visible),failed),panelfallback=fallback,panelgauges=gauges(headline_pair(limits),failed),**brand_icon('chatgpt'),
+    lines=[item(label,badge=with_failure(badge,bool(visible),failed),panelgauges=gauges(headline_pair(limits),failed),paneldetail=reserve_week(on_reserve,limits,headline),**brand_icon('chatgpt'),
                 panelusagelevel=(reserve_level(failed) if on_reserve else usage_level(headline[0] if headline else None,failed)) if visible else None,panelshare=reserve_share(on_reserve,most))]
     lines.append(item('来源 · 本机登录 · 编程工具额度',level=1,color=MUTED,size=10))
     for w in visible:
