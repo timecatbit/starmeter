@@ -2327,6 +2327,7 @@ class EngineRunParityTests(PanelParityTests):
         # Two windows: their bars name the week's share, so nothing under them.
         self.assertEqual((claude['value'], claude.get('detail'), claude.get('usageLevel')), ('额外用量剩 $37.50', None, 'warning'))
         self.assertEqual((chatgpt['shareLevel'], cursor['shareLevel']), ('critical', 'critical'))
+        self.assertEqual(cursor.get('detail'), '本周期 100%')
         self.assertEqual((cursor['value'], cursor.get('usageLevel')), ('在用按需用量', 'warning'))
 
     def test_payback_of_a_tool_off_the_homepage(self):

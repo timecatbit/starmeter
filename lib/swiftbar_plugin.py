@@ -2152,13 +2152,14 @@ def cursor_subscription_lines(data):
     failed=refresh_failed(error);percent=payload.get('percent');end=payload.get('cycleEnd');start=payload.get('cycleStart')
     # 订阅额度框架: the cycle's included usage used up with on-demand on, what is left of it is the value, in orange.
     on_demand=payload.get('onDemand') if isinstance(payload.get('onDemand'),dict) and payload['onDemand'].get('enabled') else None
-    on_reserve=percent is not None and percent>=100 and on_demand is not None
+    # Not with an unlimited plan: nothing to run out of, so no reserve and no full bar.
+    on_reserve=percent is not None and percent>=100 and on_demand is not None and not payload.get('unlimited')
     if not enabled:badge='未开启读取'
     elif payload.get('unlimited'):badge='不限量'
     elif on_reserve:badge='按需剩 $%.2f'%max(0,(on_demand['limitCents']-on_demand.get('usedCents',0))/100) if on_demand.get('limitCents') else '在用按需用量'
     elif percent is not None:badge=used_text(percent)
     else:badge='暂无套餐用量' if payload else '待同步'
-    rows=[item(service.label,badge=with_failure(badge,percent is not None,failed),**brand_icon('cursor-subscription'),
+    rows=[item(service.label,badge=with_failure(badge,percent is not None,failed),paneldetail=reserve_week(on_reserve,[('本周期',percent or 0,False)]),**brand_icon('cursor-subscription'),
                panelusagelevel=(reserve_level(failed) if on_reserve else usage_level(percent,failed)) if percent is not None else None,
                panelshare=reserve_share(on_reserve,percent),panelsharelevel=reserve_share_level(on_reserve,percent,failed)),
           item('来源 · Cursor 账户（cursor.com）',level=1,color=MUTED,size=10)]
@@ -3580,13 +3581,13 @@ def cursor_connection_entry(installed):
               {'label':'来源 · Cursor 桌面版与 Cursor CLI','children':[]},
               {'label':'两者同一账户，用量都在账户记录里','children':[]},
               location_entry('登录来源',[os.path.join(source_path('cursor'),'state.vscdb'),str(cursor.cli_auth(HOME))])]
-    app=update_app_path('cursor')
     # The keychain switch the Cursor page has, here too.
     keychain=view_settings()['cursorKeychain']
     if enabled and sys.platform=='darwin' and (keychain or cursor.login_encrypted(HOME)):
         children.insert(1,{'label':'从钥匙串读取登录','detail':('用钥匙串里的“Cursor Safe Storage”解开 Cursor 的登录，令牌只在内存中使用' if keychain
                            else '这个版本的 Cursor 把登录加密存进了钥匙串；打开后 macOS 会询问是否允许，选“始终允许”'),
                            'symbol':'lock','checked':keychain,'action':['set-cursor-keychain','false' if keychain else 'true'],'children':[]})
+    app=update_app_path('cursor')
     if app:children.append({'label':'打开 Cursor','symbol':'macwindow','href':'file://'+urllib.parse.quote(app),'children':[]})
     return {'label':'Cursor','value':'已配置' if enabled else '未配置','symbol':'key','children':children}
 
@@ -4948,7 +4949,8 @@ def run_action(name, extra):
         value=extra[0] if len(extra)==1 else ''
         if value not in ('true','false'):raise ValueError('invalid Cursor keychain setting')
         preferences.update(STATE_DIR,'cursor-keychain',value)
-        invalidate_caches([range_cache_name()])
+        # The Cursor card's events and the plan read again with the new choice, not held by the last failure's backoff.
+        invalidate_caches([range_cache_name(),'cursor_usage_events','cursor_subscription'])
         if value=='true' and view_settings()['cursorUsage']:
             try:refresh_now('cursor-subscription')
             except ValueError:pass
