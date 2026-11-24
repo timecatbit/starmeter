@@ -30,6 +30,24 @@ const CONNECTIONS: usize = 24;
 /// A connection's whole request read within this; a client trickling a byte now and then is let go.
 const REQUEST_TIME: Duration = Duration::from_secs(15);
 
+/// A request read with one deadline for all of it: each read waits only for what is left of it, so a client trickling
+/// a byte now and then (each byte used to start the socket's ten seconds again) is let go at the deadline.
+struct Deadline {
+    stream: TcpStream,
+    until: Instant,
+}
+
+impl Read for Deadline {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let left = self.until.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err(std::io::ErrorKind::TimedOut.into());
+        }
+        self.stream.set_read_timeout(Some(left.min(Duration::from_secs(10))))?;
+        self.stream.read(buf)
+    }
+}
+
 /// The connections being answered: a slot taken for each, given back when its answer ends, however it ends.
 struct Slots(Arc<AtomicUsize>);
 
@@ -285,7 +303,8 @@ fn answer(app: &AppHandle, mut stream: TcpStream, key: &str) -> std::io::Result<
     stream.set_read_timeout(Some(Duration::from_secs(10)))?;
     stream.set_write_timeout(Some(Duration::from_secs(20)))?;
     let started = Instant::now();
-    let mut reader = BufReader::new(stream.try_clone()?.take(16 * 1024));
+    let mut reader =
+        BufReader::new(Deadline { stream: stream.try_clone()?, until: started + REQUEST_TIME }.take(16 * 1024));
     let mut line = String::new();
     reader.read_line(&mut line)?;
     let mut parts = line.split_whitespace();
@@ -478,8 +497,37 @@ fn strip(entry: &mut Value) {
 
 #[cfg(test)]
 mod tests {
-    use super::{AtomicUsize, CONNECTIONS, Ordering, Slot, Slots, same};
+    use super::{AtomicUsize, CONNECTIONS, Deadline, Ordering, Slot, Slots, same};
+    use std::io::{BufRead, BufReader};
+    use std::net::{TcpListener, TcpStream};
     use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    /// A client sending a byte every 100 ms, never ending its line: the read stops at the deadline, not at each
+    /// byte's own timeout.
+    #[test]
+    fn a_trickling_client_is_let_go_at_the_deadline() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let client = std::thread::spawn(move || {
+            let mut stream = TcpStream::connect(address).unwrap();
+            for _ in 0..30 {
+                if std::io::Write::write_all(&mut stream, b"G").is_err() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        });
+        let (server, _) = listener.accept().unwrap();
+        let started = Instant::now();
+        let mut reader = BufReader::new(Deadline { stream: server, until: started + Duration::from_millis(500) });
+        let mut line = String::new();
+        let read = reader.read_line(&mut line);
+        assert!(read.is_err(), "{read:?} {line:?}");
+        assert!(started.elapsed() < Duration::from_millis(1500), "{:?}", started.elapsed());
+        drop(reader);
+        client.join().unwrap();
+    }
 
     #[test]
     fn connections_past_the_limit_wait_for_a_slot_given_back_however_an_answer_ends() {
