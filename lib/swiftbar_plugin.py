@@ -2619,7 +2619,19 @@ def refresh_now(source):
         wanted={name for name in names if name in loaders}|({'opencodex'} if 'opencodex' in loaders and any(n in OPENCODEX_ENDPOINTS for n in names) else set())
         with ThreadPoolExecutor(max_workers=4) as pool:
             for future in [pool.submit(loaders[name]) for name in sorted(wanted)]:future.result()
+        # As after the background's reads: a window this reading put past the line is said now, not at the next round.
+        after_reads()
     refresh_swiftbar()
+
+
+def after_reads():
+    """What follows a round of reads (the background's, or 立即刷新's): OpenCodex's own update, the update and usage
+    notices from what was read."""
+    if (DESKTOP is None or DESKTOP.local_proxy(BASE)) and ocx_configured() and (
+            module_enabled('opencodex') or auto_update_state().get('status')=='running'):
+        auto_update_opencodex()
+    if module_enabled('updates'):notify_app_updates(update_rows({}))
+    check_usage_alerts()
 
 
 def refresh_swiftbar():
@@ -2823,11 +2835,7 @@ def background_refresh(wait=False):
                 if pricing_due():futures.append(pool.submit(refresh_pricing))
                 for future in futures:
                     future.result()
-            if (DESKTOP is None or DESKTOP.local_proxy(BASE)) and ocx_configured() and (
-                    module_enabled('opencodex') or auto_update_state().get('status')=='running'):
-                auto_update_opencodex()
-            if module_enabled('updates'):notify_app_updates(update_rows({}))
-            check_usage_alerts()
+            after_reads()
             collect_cache_garbage()
         if futures:refresh_swiftbar()
         return 0
