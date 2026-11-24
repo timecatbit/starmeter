@@ -1035,12 +1035,15 @@ def gemini_usage(root, cache, start, end, zone, exclude_proxy=False, carriers=No
         # Deleted sessions keep contributing only through the archive, when there is one.
         with db:forget_missing(db,{identity(str(path)) for path in paths+stores},archive)
         for path in paths:
-            file_id=identity(str(path));st=path.stat()
+            file_id=identity(str(path))
+            # Gone since it was listed (a session deleted meanwhile): read short this time, not a failed read.
+            try:st=path.stat()
+            except OSError:errors+=1;continue
             if db.execute('SELECT size,mtime FROM files WHERE path=?',(file_id,)).fetchone()==(st.st_size,st.st_mtime_ns):continue
             if st.st_mtime<start:continue
             state={'session':path.stem};events=[]
             try:
-                with path.open() as handle:
+                with path.open(encoding='utf-8') as handle:
                     if path.suffix=='.json':
                         data=json.load(handle);state['session']=str(data.get('sessionId') or state['session']);records=data.get('messages') or []
                     else:
@@ -1063,7 +1066,8 @@ def gemini_usage(root, cache, start, end, zone, exclude_proxy=False, carriers=No
                     db.execute('DELETE FROM events WHERE file=?',(file_id,))
                     for e in events:db.execute('INSERT OR REPLACE INTO events VALUES (?,?,?,?)',(e['id'],file_id,e['timestamp'],json.dumps(e)))
                     db.execute('INSERT OR REPLACE INTO files VALUES (?,?,?)',(file_id,st.st_size,st.st_mtime_ns))
-            except (OSError,ValueError,TypeError,KeyError):errors+=1
+            # A session that isn't an object (AttributeError) is one unread file, as the engine counts it.
+            except (OSError,ValueError,TypeError,KeyError,AttributeError):errors+=1
         # Antigravity's stores, each read again only when it or its write-ahead log changed. A generation kept in two
         # stores (the app's and the IDE's) counts once, by its response.
         for path in stores:
