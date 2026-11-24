@@ -495,7 +495,8 @@ def as_option(key, value):
         return key + "=" + ("true" if value else "false")
     # SwiftBar 的属性不能跨物理行，否则 tooltip 内容会泄漏成灰色菜单项。
     text = " · ".join(part.strip() for part in str(value).replace("\r", "\n").split("\n") if part.strip())
-    if text and not any(c in text for c in ' \t"'):
+    # Quoted too with a backslash or a single quote, which the line's reader would take as an escape or a quote.
+    if text and not any(c in text for c in ' \t"\'\\'):
         return key + "=" + text
     return key + '="' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
 

@@ -45,7 +45,9 @@ pub fn as_option(key: &str, value: &Json) -> String {
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>()
         .join(" · ");
-    if !text.is_empty() && !text.contains([' ', '\t', '"']) {
+    // Quoted too when it holds a backslash or a single quote, which the line's reader would otherwise take as an escape
+    // or the start of a quote (a Windows path losing its separators, a name like Team's swallowing the row's options).
+    if !text.is_empty() && !text.contains([' ', '\t', '"', '\'', '\\']) {
         return format!("{key}={text}");
     }
     format!("{key}=\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""))
@@ -567,8 +569,20 @@ impl Runtime {
 
 #[cfg(test)]
 mod tests {
-    use super::{Bar, FALLBACK_SEPARATOR, GAUGE_FIELD, gauges, headline_pair};
+    use super::{Bar, FALLBACK_SEPARATOR, GAUGE_FIELD, as_option, gauges, headline_pair};
     use crate::json::Json;
+
+    /// A value with a backslash or a single quote reads back as it was written: a Windows path keeps its separators,
+    /// a name like Team's doesn't swallow the options after it.
+    #[test]
+    fn a_value_with_a_backslash_or_a_quote_reads_back_whole() {
+        for value in [r"C:\Users\alice\keys\kimi-api\a1b2.key", "与「Team's」同一组织", "/Users/o'neil/x", "plain"]
+        {
+            let line = format!("{} badge=after", as_option("paneldetail", &Json::from(value)));
+            let words = crate::panel_snapshot::shell_split(&line);
+            assert_eq!(words, [format!("paneldetail={value}"), "badge=after".to_string()], "{line}");
+        }
+    }
 
     #[test]
     fn a_plan_with_two_limits_draws_five_hours_and_the_tightest_of_the_rest() {
