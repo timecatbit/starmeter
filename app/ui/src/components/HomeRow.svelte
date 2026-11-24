@@ -39,6 +39,13 @@
     return after ? { lead: '', figure: after[1], tail: after[2] + after[3] } : null;
   });
   const usage = $derived(usageShare(entry));
+  /** Under a single bar, a window's share (本周 100%) reads as the paired bars' names do: the name quiet, the share
+   *  plain. */
+  const named = $derived.by(() => {
+    if (!entry.detail || !gauge || usage === null || (entry.gauges?.length ?? 0) > 1) return null;
+    const found = /^(.+) (\d[\d.]*%)$/.exec(entry.detail);
+    return found && !found[1].includes('\n') ? { label: found[1], share: found[2] } : null;
+  });
   const gauge = $derived(onPhone ? usage !== null : hasGauge(entry));
   /** A plan with more than one limit: a line of bars per model group, five hours on the left and the week on the
    *  right, each named under it; Gemini 订阅's lines end with their group's logos (Gemini's; Claude's and OpenAI's).
@@ -85,9 +92,9 @@
           {:else if configuredState !== null}
             <span class="value configured num"><StatusLight state={configuredState ? 'ok' : 'unknown'} />{value}</span>
           {:else if parts}
-            <span class="value num" style:color={valueColor}>{#if parts.lead}<span class="said">{parts.lead + ' '}</span>{/if}{parts.figure}{#if parts.tail}<span class="said">{' ' + parts.tail}</span>{/if}</span>
+            <span class="value num metric" style:color={valueColor}>{#if parts.lead}<span class="said">{parts.lead + ' '}</span>{/if}{parts.figure}{#if parts.tail}<span class="said">{' ' + parts.tail}</span>{/if}</span>
           {:else}
-            <span class="value num" style:color={valueColor}>{value}</span>
+            <span class="value num" class:metric={gauge && usage !== null} style:color={valueColor}>{value}</span>
           {/if}
         {/if}
       </span>
@@ -116,7 +123,9 @@
         <span class="gauge"><span class="gauge-fill" style:width="max(3px, {usage * 100}%)" style:background={barColor(entry.usageLevel, panel.dark)}
           style:--pen={barColor(entry.usageLevel, panel.dark)}></span></span>
       {/if}
-      {#if entry.detail}<span class="detail">{entry.detail}</span>{/if}
+      {#if named}
+        <span class="gauge-name"><span class="gauge-label">{named.label}</span> <span class="num" style:color={usageColor(entry.usageLevel)}>{named.share}</span></span>
+      {:else if entry.detail}<span class="detail">{entry.detail}</span>{/if}
     </span>
     {#if entry.children.length}
       <svg class="arrow" width="8" height="10" viewBox="0 0 8 10" aria-hidden="true"><path d="M2 1 6 5 2 9" fill="none" stroke="var(--label)" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
@@ -206,9 +215,16 @@
     white-space: nowrap;
     line-height: 1.2;
   }
-  /* A share used: the words quiet beside the figure. */
+  /* A plan's figure: a touch larger and firmer than the row's other values, its words (本周已用) quiet beside it. */
+  .value.metric {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: -0.1px;
+  }
   .said {
     font-size: 10px;
+    font-weight: 400;
+    letter-spacing: 0;
     color: var(--secondary);
   }
   .value.pill {
@@ -227,7 +243,7 @@
   .gauge {
     position: relative;
     height: 3px;
-    margin-top: 4px;
+    margin-top: 6px;
     margin-bottom: 1px;
     border-radius: 1.5px;
     background: var(--track);
@@ -237,8 +253,8 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     column-gap: 12px;
-    row-gap: 5px;
-    margin-top: 4px;
+    row-gap: 7px;
+    margin-top: 6px;
   }
   .half {
     display: flex;
@@ -249,7 +265,7 @@
   .gauge-name {
     display: flex;
     gap: 3px;
-    margin-top: 3px;
+    margin-top: 4px;
     font-size: 10px;
     line-height: 1.2;
     color: var(--secondary);
@@ -260,7 +276,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .gauge-name .num { flex: none; }
+  .gauge-name .num { flex: none; font-weight: 500; color: var(--label); }
   /* At the right end of the line's names, under the end of its week's bar: whose models the line counts. */
   .marks {
     display: flex;

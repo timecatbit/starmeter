@@ -195,12 +195,12 @@ pub fn reserve_level(stale: bool) -> Json {
     if stale { Json::Null } else { Json::from("warning") }
 }
 
-/// On the reserve the value is what is left to spend; the week's share used goes under it, beside it on the row
-/// (用户：字有点多……优化下布局): the bars' names say it when there are two, a line under the single bar when there is
-/// one window.
-pub fn reserve_week(on_reserve: bool, limits: &[(String, f64, bool)], headline: Option<&(f64, String)>) -> Json {
-    match headline {
-        Some((_, text)) if on_reserve && headline_pair(limits).is_empty() => Json::from(text.as_str()),
+/// On the reserve the value is what is left to spend; the window's share used goes under it, beside it on the row
+/// (用户：字有点多……优化下布局): the bars' names say it when there are two, a name under the single bar, as the
+/// paired bars name theirs (本周 100%), when there is one window.
+pub fn reserve_week(on_reserve: bool, limits: &[(String, f64, bool)]) -> Json {
+    match limits {
+        [(name, used, _)] if on_reserve => Json::from(format!("{name} {}%", g(round(used.clamp(0.0, 100.0), 1)))),
         _ => Json::Null,
     }
 }

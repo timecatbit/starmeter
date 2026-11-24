@@ -1939,10 +1939,10 @@ def reserve_level(stale=False):
     return None if stale else 'warning'
 
 
-def reserve_week(on_reserve,limits,headline):
-    """On the reserve the value is what is left to spend; the week's share used goes under it: the bars' names say it
-    when there are two, a line under the single bar when there is one window."""
-    return headline[1] if on_reserve and headline and not headline_pair(limits) else None
+def reserve_week(on_reserve,limits):
+    """On the reserve the value is what is left to spend; the window's share used goes under it: the bars' names say
+    it when there are two, a name under the single bar (本周 100%) when there is one window."""
+    return '%s %g%%'%(limits[0][0],round(min(100,max(0,float(limits[0][1]))),1)) if on_reserve and len(limits)==1 else None
 
 
 def reserve_share(on_reserve,used):
@@ -2066,7 +2066,7 @@ def claude_subscription_lines(data):
     value=with_failure(value,bool(windows) and not stale,failed)
     source={'claude-oauth':'Code 登录','live':'App 登录 · 手动查询','claude-code':'Code 本机回传','app-snapshot':'App 本机快照'}.get(payload.get('source'),'Claude App 本机快照')
     limits=[(w['label'],w['used'],claude_span(w)==5*3600) for w in windows]
-    rows=[item('Claude 订阅',badge=value,panelgauges=gauges(headline_pair(limits),stale or failed),paneldetail=reserve_week(on_reserve,limits,headline),**brand_icon('claude-subscription'),panelusagelevel=reserve_level(failed) if on_reserve else usage_level(headline[0] if headline else 0,stale or failed or not windows),
+    rows=[item('Claude 订阅',badge=value,panelgauges=gauges(headline_pair(limits),stale or failed),paneldetail=reserve_week(on_reserve,limits),**brand_icon('claude-subscription'),panelusagelevel=reserve_level(failed) if on_reserve else usage_level(headline[0] if headline else 0,stale or failed or not windows),
                panelshare=reserve_share(on_reserve,max((w['used'] for w in windows),default=None))),
           item('来源 · '+source,level=1,color=MUTED,size=10)]
     for w in windows:
@@ -3405,7 +3405,7 @@ def chatgpt_lines(data):
     resets=payload.get('resets') if isinstance(payload.get('resets'),dict) else {}
     offered=resets.get('count') or 0
     limits=[(chatgpt_window_label(w),100-w['remaining'],chatgpt_window_label(w)=='5 小时') for w in visible]
-    lines=[item(label,badge=with_failure(badge,bool(visible),failed),panelgauges=gauges(headline_pair(limits),failed),paneldetail=reserve_week(on_reserve,limits,headline),**brand_icon('chatgpt'),
+    lines=[item(label,badge=with_failure(badge,bool(visible),failed),panelgauges=gauges(headline_pair(limits),failed),paneldetail=reserve_week(on_reserve,limits),**brand_icon('chatgpt'),
                 panelusagelevel=(reserve_level(failed) if on_reserve else usage_level(headline[0] if headline else None,failed)) if visible else None,panelshare=reserve_share(on_reserve,most))]
     lines.append(item('来源 · 本机登录 · 编程工具额度',level=1,color=MUTED,size=10))
     for w in visible:

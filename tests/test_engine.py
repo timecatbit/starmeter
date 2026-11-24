@@ -2087,7 +2087,7 @@ class PanelParityTests(BackgroundParityTests):
         self.assertEqual(expected['entries'], got['entries'])
         row = next(entry for entry in got['entries'] if entry.get('label') == 'ChatGPT 订阅')
         self.assertEqual((row['value'], row.get('detail'), row['usageLevel'], row['share']),
-                         ('余 41,554 Credits', '本周已用 100%', 'warning', 1.0))
+                         ('余 41,554 Credits', '本周 100%', 'warning', 1.0))
         again = next(child for child in row['children'] if child['label'] == '立即刷新')
         self.assertEqual(again['action'], ['refresh-now', 'chatgpt'])
 
@@ -2291,9 +2291,9 @@ class EngineRunParityTests(PanelParityTests):
             self.assertEqual(expected[key], got.get(key), key)
         rows = {entry['label']: entry for entry in got['entries'] if entry.get('label')}
         chatgpt, claude, cursor = rows['ChatGPT 订阅'], rows['Claude 订阅'], rows['Cursor 订阅']
-        # What is left is the value; the week's share is under its single bar; the free resets are on its page.
+        # What is left is the value; the week's share is named under its single bar, as paired bars name theirs.
         self.assertEqual((chatgpt['value'], chatgpt.get('fallbacks'), chatgpt.get('detail'), chatgpt.get('usageLevel')),
-                         ('余 45,934 Credits', None, '本周已用 100%', 'warning'))
+                         ('余 45,934 Credits', None, '本周 100%', 'warning'))
         children = {child['label']: child for child in chatgpt['children']}
         self.assertEqual((children['Credits']['value'], children['免费重置']['value']), ('余 45,934', '可用 2 次'))
         self.assertTrue(children['免费重置']['detail'].endswith('过期 · 在 Codex 里使用'))

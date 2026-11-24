@@ -201,7 +201,7 @@ impl Runtime {
                 merged(&[
                     &object! {
                         "badge" => value, "panelgauges" => rows::gauges(&rows::headline_pair(&limits), stale || failed),
-                        "paneldetail" => rows::reserve_week(on_reserve, &limits, headline.as_ref()),
+                        "paneldetail" => rows::reserve_week(on_reserve, &limits),
                     },
                     &self.brand_icon("claude-subscription"),
                     &object! {
@@ -868,7 +868,7 @@ impl Runtime {
                 &object! {
                     "badge" => with_failure(&badge, !visible.is_empty(), failed),
                     "panelgauges" => rows::gauges(&rows::headline_pair(&limits), failed),
-                    "paneldetail" => rows::reserve_week(on_reserve, &limits, headline.as_ref()),
+                    "paneldetail" => rows::reserve_week(on_reserve, &limits),
                 },
                 &self.brand_icon("chatgpt"),
                 &object! {

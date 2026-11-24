@@ -169,11 +169,12 @@ pub static WHOLE: [Rule; 2] = [
 ];
 
 /// One part of the engine's text.
-pub static RULES: [Rule; 91] = [
+pub static RULES: [Rule; 92] = [
     rule!(r"^已用 (\d+(?:\.\d+)?%)$", |m| format!("{} used", group(m, 1))),
     rule!(r"^已用 (\d+(?:\.\d+)?%) 截至 (.+)$", |m| format!("{} used as of {}", group(m, 1), group(m, 2))),
     rule!(r"^已用 (.+)$", |m| format!("Used: {}", translate(group(m, 1)))),
     rule!(r"^本周已用 (\d+(?:\.\d+)?%)$", |m| format!("{} used this week", group(m, 1))),
+    rule!(r"^(本周|本周期|5 小时) (\d+(?:\.\d+)?%)$", |m| format!("{} {}", translate(group(m, 1)), group(m, 2))),
     rule!(r"^截至 (.+)$", |m| format!("as of {}", group(m, 1))),
     rule!(r"^(\d+) 个账户$", |m| format!("{} accounts", group(m, 1))),
     rule!(r"^(\d+) 台电脑$", |m| format!("{} {}", group(m, 1), plural(group(m, 1), "computer", "computers"))),
