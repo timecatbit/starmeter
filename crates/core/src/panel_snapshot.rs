@@ -512,6 +512,27 @@ impl Runtime {
                 ],
             ),
         ];
+        // The keychain switch the Cursor page has, here too: the message that sends the user to it is seen on the tool's
+        // page and in the module grid as well.
+        let keychain = self.settings().get("cursorKeychain").is_some_and(Json::is_truthy);
+        if enabled && cfg!(target_os = "macos") && (keychain || cursor::login_encrypted(&self.home, &self.environment))
+        {
+            children.insert(
+                1,
+                with(
+                    "从钥匙串读取登录",
+                    object! {
+                        "detail" => if keychain {
+                            "用钥匙串里的“Cursor Safe Storage”解开 Cursor 的登录，令牌只在内存中使用"
+                        } else {
+                            "这个版本的 Cursor 把登录加密存进了钥匙串；打开后 macOS 会询问是否允许，选“始终允许”"
+                        },
+                        "symbol" => "lock", "checked" => keychain,
+                        "action" => action(&["set-cursor-keychain", if keychain { "false" } else { "true" }]),
+                    },
+                ),
+            );
+        }
         if let Some(app) = self.update_app_path("cursor") {
             children.push(with("打开 Cursor", object! { "symbol" => "macwindow", "href" => self.file_href(&app) }));
         }

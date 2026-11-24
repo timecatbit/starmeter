@@ -2173,7 +2173,7 @@ def cursor_subscription_lines(data):
         rows.append(refresh_row('cursor-subscription',payload,error))
         # An encrypted desktop login: read from the keychain once the user allows it here, macOS asking them.
         keychain=view_settings()['cursorKeychain']
-        if keychain or cursor.login_encrypted(HOME):
+        if sys.platform=='darwin' and (keychain or cursor.login_encrypted(HOME)):
             detail=('用钥匙串里的“Cursor Safe Storage”解开 Cursor 的登录，令牌只在内存中使用' if keychain
                     else '这个版本的 Cursor 把登录加密存进了钥匙串；打开后 macOS 会询问是否允许，选“始终允许”')
             rows.append(item('从钥匙串读取登录',level=1,sfimage='lock',checked=keychain,paneldetail=detail,**act('set-cursor-keychain','false' if keychain else 'true')))
@@ -3581,6 +3581,12 @@ def cursor_connection_entry(installed):
               {'label':'两者同一账户，用量都在账户记录里','children':[]},
               location_entry('登录来源',[os.path.join(source_path('cursor'),'state.vscdb'),str(cursor.cli_auth(HOME))])]
     app=update_app_path('cursor')
+    # The keychain switch the Cursor page has, here too.
+    keychain=view_settings()['cursorKeychain']
+    if enabled and sys.platform=='darwin' and (keychain or cursor.login_encrypted(HOME)):
+        children.insert(1,{'label':'从钥匙串读取登录','detail':('用钥匙串里的“Cursor Safe Storage”解开 Cursor 的登录，令牌只在内存中使用' if keychain
+                           else '这个版本的 Cursor 把登录加密存进了钥匙串；打开后 macOS 会询问是否允许，选“始终允许”'),
+                           'symbol':'lock','checked':keychain,'action':['set-cursor-keychain','false' if keychain else 'true'],'children':[]})
     if app:children.append({'label':'打开 Cursor','symbol':'macwindow','href':'file://'+urllib.parse.quote(app),'children':[]})
     return {'label':'Cursor','value':'已配置' if enabled else '未配置','symbol':'key','children':children}
 
@@ -5216,7 +5222,7 @@ def consume_panel_action():
                 allowed.append(node["action"])
                 # A persistent picker may queue another click before the previous refresh.
                 candidate=node['action']
-                if len(candidate)==2 and candidate[0] in ('set-collapse','set-reset-reminder','set-cursor-usage','set-keep-usage','set-session-alerts','set-service-status'):allowed.extend([[candidate[0],v] for v in ('true','false')])
+                if len(candidate)==2 and candidate[0] in ('set-collapse','set-reset-reminder','set-cursor-usage','set-cursor-keychain','set-keep-usage','set-session-alerts','set-service-status'):allowed.extend([[candidate[0],v] for v in ('true','false')])
                 if len(candidate)==3 and candidate[0]=='set-module' and candidate[1] in preferences.KNOWN:
                     allowed.extend([['set-module',candidate[1],value] for value in ('true','false')])
             nodes.extend(node.get("children") or [])

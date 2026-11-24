@@ -73,10 +73,11 @@ const CONNECTION_ORDER: [&str; 13] = [
     "claude-api",
 ];
 
-const TOGGLES: [&str; 6] = [
+const TOGGLES: [&str; 7] = [
     "set-collapse",
     "set-reset-reminder",
     "set-cursor-usage",
+    "set-cursor-keychain",
     "set-keep-usage",
     "set-session-alerts",
     "set-service-status",
@@ -1212,7 +1213,13 @@ impl Runtime {
                     return invalid("invalid Cursor keychain setting");
                 }
                 self.update("cursor-keychain", Some(&value), None)?;
-                self.invalidate(&[self.range_cache_name(None)]);
+                // The Cursor card's events and the plan read again with the new choice, not held by the last failure's
+                // backoff.
+                self.invalidate(&[
+                    self.range_cache_name(None),
+                    "cursor_usage_events".into(),
+                    "cursor_subscription".into(),
+                ]);
                 if value == "true" && self.settings().get("cursorUsage").is_some_and(Json::is_truthy) {
                     let _ = self.refresh_now("cursor-subscription");
                 }

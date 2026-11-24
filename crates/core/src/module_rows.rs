@@ -584,7 +584,7 @@ impl Runtime {
             rows.push(self.refresh_row("cursor-subscription", &payload, error.as_deref(), 1));
             // An encrypted desktop login: read from the keychain once the user allows it here, macOS asking them.
             let keychain = self.settings().get("cursorKeychain").is_some_and(Json::is_truthy);
-            if keychain || cursor::login_encrypted(&self.home, &self.environment) {
+            if cfg!(target_os = "macos") && (keychain || cursor::login_encrypted(&self.home, &self.environment)) {
                 let detail = if keychain {
                     "用钥匙串里的“Cursor Safe Storage”解开 Cursor 的登录，令牌只在内存中使用"
                 } else {

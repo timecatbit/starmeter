@@ -2129,6 +2129,22 @@ class PanelParityTests(BackgroundParityTests):
         self.assertEqual(card['serviceStatus'], {'name': 'Claude', 'note': '服务部分降级', 'detail': 'Claude for Microsoft 365 add-in missing · 正在调查',
                                                  'link': 'https://status.claude.com'})
 
+    def test_cursors_keychain_switch_is_on_its_page_and_its_settings(self):
+        # Turned on, the switch is where the message sends the user, on the plan's page and on Cursor's settings (the
+        # tool's page and the module grid); only on macOS, whose keychain it reads.
+        self.settings(visible=['cursor', 'cursor-subscription'], cursorUsage=True, cursorKeychain=True)
+        now = time.time()
+        self.caches(now)
+        expected, got = self.python('snapshot', now), self.swift('snapshot', now)
+        for key in expected:
+            self.assertEqual(expected[key], got.get(key), key)
+        def labels(entries):
+            for entry in entries:
+                yield entry.get('label')
+                yield from labels(entry.get('children') or [])
+        found = list(labels(got['entries'])) + list(labels(list((got.get('connections') or {}).values()) if isinstance(got.get('connections'), dict) else got.get('connections') or []))
+        self.assertEqual(found.count('从钥匙串读取登录') >= 1, sys.platform == 'darwin')
+
     def test_due_alerts_and_notices(self):
         now = 1795000000.0
         windows = [{'id': 'a|5h', 'used': 95.0, 'resetsAt': now + 3600, 'span': 18000, 'current': True, 'name': 'Claude 订阅', 'window': '5 小时'},
