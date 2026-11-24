@@ -383,7 +383,16 @@ pub fn state_of(path: &Path) -> Option<FileState> {
     #[cfg(not(unix))]
     {
         let mtime = metadata.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos() as i64;
-        Some(FileState { inode: 0, size: metadata.len() as i64, mtime })
+        // Windows has no inode here: when the file was made stands in, so a file put in another's place (larger, at
+        // the same path) is read again from the start rather than on from the old one's offset.
+        #[cfg(windows)]
+        let inode = {
+            use std::os::windows::fs::MetadataExt;
+            metadata.creation_time() as i64
+        };
+        #[cfg(not(windows))]
+        let inode = 0;
+        Some(FileState { inode, size: metadata.len() as i64, mtime })
     }
 }
 
@@ -522,7 +531,7 @@ fn index(
         let offset = if incremental { old.as_ref().and_then(|row| database::int(&row[3])).unwrap_or(0) } else { 0 };
         let stem = Path::new(path).file_stem().map(|stem| stem.to_string_lossy().into_owned()).unwrap_or_default();
         let fallback = allowed_sessions
-            .and_then(|allowed| path.split('/').rev().find(|part| allowed.contains(*part)).map(String::from))
+            .and_then(|allowed| path.split(['/', '\\']).rev().find(|part| allowed.contains(*part)).map(String::from))
             .unwrap_or(stem);
         let location = hex(&key);
         // The folder Claude files the conversation under is its project, wherever it went on to work.
