@@ -2332,7 +2332,7 @@ class PanelParityTests(BackgroundParityTests):
         row = next(entry for entry in got['entries'] if entry.get('label') == 'ChatGPT 订阅')
         # The value orange (still usable, on the reserve); the bar and its share red, as a window used up is.
         self.assertEqual((row['value'], row.get('detail'), row['usageLevel'], row['share'], row['shareLevel']),
-                         ('余 41,554 Credits', '本周 100%', 'warning', 1.0, 'critical'))
+                         ('余 41,554 Credits', '本周已用 100%', 'warning', 1.0, 'critical'))
         again = next(child for child in row['children'] if child['label'] == '立即刷新')
         self.assertEqual(again['action'], ['refresh-now', 'chatgpt'])
 
@@ -2554,14 +2554,14 @@ class EngineRunParityTests(PanelParityTests):
         chatgpt, claude, cursor = rows['ChatGPT 订阅'], rows['Claude 订阅'], rows['Cursor 订阅']
         # What is left is the value; the week's share is named under its single bar, as paired bars name theirs.
         self.assertEqual((chatgpt['value'], chatgpt.get('fallbacks'), chatgpt.get('detail'), chatgpt.get('usageLevel')),
-                         ('余 45,934 Credits', None, '本周 100%', 'warning'))
+                         ('余 45,934 Credits', None, '本周已用 100%', 'warning'))
         children = {child['label']: child for child in chatgpt['children']}
         self.assertEqual((children['Credits']['value'], children['免费重置']['value']), ('余 45,934', '可用 2 次'))
         self.assertTrue(children['免费重置']['detail'].endswith('过期 · 在 Codex 里使用'))
         # Two windows: their bars name the week's share, so nothing under them.
         self.assertEqual((claude['value'], claude.get('detail'), claude.get('usageLevel')), ('额外用量剩 $37.50', None, 'warning'))
         self.assertEqual((chatgpt['shareLevel'], cursor['shareLevel']), ('critical', 'critical'))
-        self.assertEqual(cursor.get('detail'), '本周期 100%')
+        self.assertEqual(cursor.get('detail'), '本周期已用 100%')
         self.assertEqual((cursor['value'], cursor.get('usageLevel')), ('在用按需用量', 'warning'))
 
     def test_payback_of_a_tool_off_the_homepage(self):

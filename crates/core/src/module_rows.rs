@@ -541,7 +541,7 @@ impl Runtime {
                 merged(&[
                     &object! {
                         "badge" => with_failure(&badge, percent.is_some(), failed),
-                        // Under the single bar on the reserve, as ChatGPT's: 本周期 100%.
+                        // Under the single bar on the reserve, as ChatGPT's: 本周期已用 100%.
                         "paneldetail" => rows::reserve_week(on_reserve, &[("本周期".into(), percent.unwrap_or(0.0), false)]),
                     },
                     &self.brand_icon("cursor-subscription"),

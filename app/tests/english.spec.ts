@@ -79,6 +79,29 @@ async function rows(page: Page, left: Leftovers, where: string) {
   }
 }
 
+test('English: a plan on its reserve names its single bar with its share first, as the headline says it', async ({ page }) => {
+  await english(page);
+  await page.evaluate(async () => {
+    const loaded = performance.getEntriesByType('resource').map((entry) => entry.name).filter((name) => name.includes('/src/lib/backend.ts'));
+    const { backend } = await import(/* @vite-ignore */ loaded.at(-1) ?? '/src/lib/backend.ts');
+    const real = backend.snapshot;
+    backend.snapshot = async () => {
+      const shot = await real();
+      for (const entry of shot.entries as { label?: string; module?: string }[]) {
+        if (entry.module === 'chatgpt' && entry.label === 'ChatGPT 订阅') {
+          Object.assign(entry, { value: '余 45,934 Credits', usageLevel: 'warning', share: 100, shareLevel: 'critical', detail: '本周已用 100%' });
+          delete (entry as { gauges?: unknown }).gauges;
+        }
+      }
+      return shot;
+    };
+    await backend.action(['set-group', 'tool']);
+  });
+  const row = page.locator('.row', { hasText: 'ChatGPT plan' });
+  await expect(row.locator('.gauge-name')).toHaveText('100% used this week');
+  await expect(row.locator('.gauge-label')).toHaveText('used this week');
+});
+
 test('English: the homepage, its pages and the card groupings', async ({ page }) => {
   const left = new Leftovers();
   await english(page);

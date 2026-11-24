@@ -1947,8 +1947,8 @@ def reserve_level(stale=False):
 
 def reserve_week(on_reserve,limits):
     """On the reserve the value is what is left to spend; the window's share used goes under it: the bars' names say
-    it when there are two, a name under the single bar (本周 100%) when there is one window."""
-    return '%s %g%%'%(limits[0][0],round(min(100,max(0,float(limits[0][1]))),1)) if on_reserve and len(limits)==1 else None
+    it when there are two, a name under the single bar (本周已用 100%, worded as the headline's) when there is one."""
+    return '%s已用 %g%%'%(limits[0][0],round(min(100,max(0,float(limits[0][1]))),1)) if on_reserve and len(limits)==1 else None
 
 
 def reserve_share_level(on_reserve,used,stale=False):

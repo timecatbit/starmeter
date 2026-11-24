@@ -42,12 +42,15 @@
   /** The single bar's own level when the row has one apart from its value's (a used-up window on the reserve: red bar,
    *  orange value), else the row's. */
   const barLevel = $derived(entry.shareLevel ?? entry.usageLevel);
-  /** Under a single bar, a window's share (本周 100%) reads as the paired bars' names do: the name quiet, the share
+  /** Under a single bar, a window's share (本周已用 100%) reads as the paired bars' names do: the name quiet, the share
    *  plain. */
   const named = $derived.by(() => {
     if (!entry.detail || !gauge || usage === null || (entry.gauges?.length ?? 0) > 1) return null;
     const found = /^(.+) (\d[\d.]*%)$/.exec(entry.detail);
-    return found && !found[1].includes('\n') ? { label: found[1], share: found[2] } : null;
+    if (found && !found[1].includes('\n')) return { label: found[1], share: found[2], first: false };
+    // English puts the share first (100% used this week).
+    const after = /^(\d[\d.]*%) ([^\n]+)$/.exec(entry.detail);
+    return after ? { label: after[2], share: after[1], first: true } : null;
   });
   const gauge = $derived(onPhone ? usage !== null : hasGauge(entry));
   /** A plan with more than one limit: a line of bars per model group, five hours on the left and the week on the
@@ -127,7 +130,11 @@
           style:--pen={barColor(barLevel, panel.dark)}></span></span>
       {/if}
       {#if named}
-        <span class="gauge-name"><span class="gauge-label">{named.label}</span> <span class="num" style:color={usageColor(barLevel)}>{named.share}</span></span>
+        {#if named.first}
+          <span class="gauge-name"><span class="num" style:color={usageColor(barLevel)}>{named.share}</span> <span class="gauge-label">{named.label}</span></span>
+        {:else}
+          <span class="gauge-name"><span class="gauge-label">{named.label}</span> <span class="num" style:color={usageColor(barLevel)}>{named.share}</span></span>
+        {/if}
       {:else if entry.detail}<span class="detail">{entry.detail}</span>{/if}
     </span>
     {#if entry.children.length}

@@ -199,10 +199,11 @@ pub fn reserve_level(stale: bool) -> Json {
 
 /// On the reserve the value is what is left to spend; the window's share used goes under it, beside it on the row
 /// (用户：字有点多……优化下布局): the bars' names say it when there are two, a name under the single bar, as the
-/// paired bars name theirs (本周 100%), when there is one window.
+/// paired bars name theirs, when there is one window: 本周已用 100%, worded as the headline's 本周已用 (用户：应该是本周已用
+/// 100% 才对).
 pub fn reserve_week(on_reserve: bool, limits: &[(String, f64, bool)]) -> Json {
     match limits {
-        [(name, used, _)] if on_reserve => Json::from(format!("{name} {}%", g(round(used.clamp(0.0, 100.0), 1)))),
+        [(name, used, _)] if on_reserve => Json::from(format!("{name}已用 {}%", g(round(used.clamp(0.0, 100.0), 1)))),
         _ => Json::Null,
     }
 }
