@@ -188,3 +188,16 @@ Codex 按主线 `ec80479` 核对 v6.0.14 的实现、调用入口和已有交接
 | R5-11 | 待复审 · `4510f0e` · P2 15 | **已过重置时间的窗口仍参与告警，菜单栏额度也还算它。** 告警输入跳过重置时间已到的窗口，与主页一致（ChatGPT、MiniMax，以及 Cursor 已结束的周期）；Rust 与 Python 同改。自测：对照测试 `test_a_window_past_its_reset_raises_no_alert_nor_stands_in_the_menu_bar`，两侧只剩 ChatGPT 30%、MiniMax 40%，菜单栏为 40%。 |
 | R5-12 | 待复审 · `3b80063` `5b11613` `b70ebb3` `6d090a6` `167a91f` `4fa6c48` · P2 19 | **六处后端问题。** Antigravity：较新服务给出的 HTTP 错误不再被旧记录的拒绝连接改写成“没有运行”，Python 侧对格式不对的回答也不再抛错（Rust/Python 单测）。DeepSeek 直连失败时写「DeepSeek 余额查询失败（HTTP 401）」，不再报未配置（对照测试 `test_provider_quotas`）。Claude OAuth 的说明按系统选：macOS 独立版也写钥匙串和续期。新勾选的模块缺状态页时，服务状态立即到期重读（`test_a_status_page_newly_wanted_is_read_at_once`）。`Wall::at` 四舍五入进到下一秒时日期跟着进位（`the_last_microsecond_of_a_day_rounds_to_the_next_days_midnight`）。本机 ChatGPT 记录让给 OpenCodex 时，今天图表从其他电脑的首次调用开始（`test_todays_chart_starts_at_the_other_computers_first_call`，撤掉修复时是 11:00，修复后是 09:17）。 |
 | R5-13 | 待复审 · `068866b` `21990dc` `e4fc314` `d9e76d7` `7189681` `5428c6d` `291a525` `1685f1e` `1061560` `4dede11` `4955f6a` `66c915c` `002ef08` · P3 | **低危与对照层。** CLI 开关带值（如 `--yes=false`）时报错；Linux 升级后 AppImage 直接运行自己，不再经过 env（单测用替身 setsid，路径含 `=`）；手机外网链接到点后、被清理前不再提供，停止后排队的生成请求不再打开链接；不退出的 cloudflared 随看护进程的进程组一起结束（单测：忽略 TERM 的替身也被结束）；下拉菜单为空时按方向键或回车不报错；手绘主题的线条滤镜作用到实时图上（选择器改为 `canvas.live`，手绘主题下的效果与流畅度未在真机上看过）；`build.py --app` 带上内置引擎；update_pricing 两种别名表都没有时给出自己的提示。Python 对照层：立即刷新后也发更新和用量提醒；缓存目录不存在时关闭 Cursor 读取不报错；未知币种的余额提醒用币种代码命名；会话行图标按工具或模块选，并写「N 轮」；Gemini 会话按 UTF-8 读取，读到一半消失或不是对象时只算一个文件读取失败。 |
+
+### 第五轮复审补漏（2026-11-24）
+
+用户转来的复审逐行看过 `ea51080..002ef08`，指出 6 处问题，都成立，已在同一分支修复。修复后 Rust 全套、Python 626 项、WebKit 103 项都通过了。
+
+| 编号 | 状态 | 问题、修复与验收 |
+| --- | --- | --- |
+| AGY-4 | 待复审 · `e6f48b6` · P1（`ea51080` 引入） | **多层子代理会复活已合并的会话，请求算两次。** `fold_subagents` 改为沿 parent 链一直找到最顶层任务，链上每个会话只并入一次。只为子代理读取的中间任务带上它自己的 parent，所以能继续往上找。成环时归到最小的 id 下。补读的任务取最新的那份 store（App 和 IDE 都有时）。会话的项目名改用与用量相同的 `harness::workspace_project`，整段 JSON 一起解析，原来的 `percent_decoded` 删掉。自测：`a_subagents_subagent_is_part_of_the_top_task_once`，覆盖 child 的 id 排在前、只有孙代理变了、成环三种情况，都是一个会话、请求不重复；`a_workspace_uri_names_the_project` 覆盖名字里带空格、逗号、方括号和裸 `%` 的情况。 |
+| R5-14 | 待复审 · `b6deaec` · P2 | **旧账户名回退时，钥匙串拒绝授权仍被当成未登录。** 回退路径上除“找不到”以外的错误照实返回，与 Python 一致。钥匙串无法自动化，按代码核对。 |
+| R5-15 | 待复审 · `237f116` · P2 | **DeepSeek 查询失败的文案没有英文。** en.ts 补上“DeepSeek 余额查询失败”“未配置 DeepSeek API 凭据”和带 HTTP 码的规则，english.rs 补上同一条规则；CLI 单测核对译文。 |
+| R5-16 | 待复审 · `3e4f882` · P2 | **只勾了 Cursor 工具时，打开「从钥匙串读取登录」不会马上读取。** 订阅勾了才立即刷新订阅；工具勾了就立即按当前范围读取 Cursor 记录（macOS 当场询问钥匙串），范围的统计在后台重算。Rust 与 Python 同改。自测：Python 单测 `test_turning_the_keychain_on_with_only_the_card_reads_cursor_at_once`。 |
+| R5-17 | 待复审 · `7600e98` · P2 | **外网链接生成中切回「同一个网络」，Wi-Fi 和只读提示仍被隐藏。** 提示的条件同样改为只在生成外网链接时隐藏。自测：WebKit TUNNEL-1 用例补上切回后的二维码、无等待文案和两条提示；撤掉修复时该用例失败。 |
+| R5-18 | 待复审 · `a212d9a` `619fd95` · P3 | **分享菜单关闭的竞态，以及 Python 的授权说明。** 每次分享记一个轮次，关闭回调只处理自己那一轮；菜单没能弹出（没有窗口、`ns_window` 失败、主线程调度失败）时立即解除 sharing。关闭时要通知的回调随这次分享保存，委托核对是不是当前这个 picker 才通知（原来写一次的 OnceLock 只会记住第一次的回调）。Python 的 Claude OAuth 说明改为按系统选（`sys.platform != 'darwin'`），原测试固定在 macOS 下比对。分享菜单仍没有在真机上点过。 |
