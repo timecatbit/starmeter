@@ -1417,7 +1417,13 @@ pub fn antigravity_project(store: &str, conversation: &str) -> Option<String> {
         )
         .ok()
         .flatten()?;
-    let uris = Json::parse(database::text(row.first()?)?.as_bytes()).ok()?;
+    workspace_project(database::text(row.first()?)?)
+}
+
+/// The project a conversation's workspace_uris names: the first of its JSON list (file:///Users/me/project → project),
+/// read whole, so a folder with spaces, commas or brackets in its name keeps them. 会话 names it the same way.
+pub fn workspace_project(uris: &str) -> Option<String> {
+    let uris = Json::parse(uris.as_bytes()).ok()?;
     let first = uris.as_array()?.iter().find_map(Json::as_str)?.to_string();
     py::project_name(Some(&Json::from(first))).as_str().map(String::from)
 }

@@ -182,38 +182,8 @@ fn antigravity_summary(store: &str, conversation: &str) -> Summary {
     let status = row.get(1).and_then(database::text).unwrap_or("");
     let busy = row.get(2).and_then(database::int).is_some_and(|flag| flag != 0);
     let running = Some(status.contains("RUNNING") || busy);
-    // The first workspace: file:///Users/me/project → project.
-    let project = row.get(3).and_then(database::text).and_then(|uris| {
-        let start = uris.find("file://")? + "file://".len();
-        let rest = &uris[start..];
-        let end = rest.find(['"', ',', ' ', ']']).unwrap_or(rest.len());
-        let folder = percent_decoded(&rest[..end]);
-        py::project_name(Some(&Json::from(folder.trim_end_matches('/')))).as_str().map(String::from)
-    });
+    let project = row.get(3).and_then(database::text).and_then(harness::workspace_project);
     Summary { title, running, project, parent }
-}
-
-fn percent_decoded(text: &str) -> String {
-    let bytes = text.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut index = 0;
-    while index < bytes.len() {
-        // Only %XX with two ASCII hex digits is an escape; a bare % before anything else (a multi-byte character among
-        // them) stays as it is, never cutting a character in half.
-        if bytes[index] == b'%'
-            && index + 2 < bytes.len()
-            && bytes[index + 1].is_ascii_hexdigit()
-            && bytes[index + 2].is_ascii_hexdigit()
-            && let Ok(value) = u8::from_str_radix(&text[index + 1..index + 3], 16)
-        {
-            out.push(value);
-            index += 3;
-            continue;
-        }
-        out.push(bytes[index]);
-        index += 1;
-    }
-    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// Gemini's sessions: the CLI's chat files and Antigravity's conversations (one store each; a conversation kept in two
@@ -271,12 +241,14 @@ fn gemini_records(cache: &Path, root: &str, since: f64) -> Vec<Record> {
         };
         conversations.insert(id, record);
     }
+    // A task not read yet, from the newest of the stores that keep it (the app's or the IDE's), with its own parent.
     fold_subagents(&mut conversations, parents, |parent| {
-        let store = stores
+        let (store, mtime) = stores
             .iter()
-            .find(|store| Path::new(store).file_stem().is_some_and(|stem| stem.to_string_lossy() == parent))?;
-        let (_, mtime) = harness::store_state(store)?;
-        Some(read(parent, store, mtime as f64 / 1e9).0)
+            .filter(|store| Path::new(store).file_stem().is_some_and(|stem| stem.to_string_lossy() == parent))
+            .filter_map(|store| Some((store, harness::store_state(store)?.1)))
+            .max_by_key(|(_, mtime)| *mtime)?;
+        Some(read(parent, store, mtime as f64 / 1e9))
     });
     let mut ids: Vec<String> = conversations.keys().cloned().collect();
     ids.sort();
@@ -284,27 +256,48 @@ fn gemini_records(cache: &Path, root: &str, since: f64) -> Vec<Record> {
     records
 }
 
-/// Each subagent into its task (by `parents`, subagent → task): its requests among the task's, by time; the task
-/// running while it is. A task not read (only its subagents changed since) is read through `load`; a subagent whose
-/// task is gone stays a session of its own.
+/// Each subagent into its task (by `parents`, subagent → task), a subagent's subagent too: up the chain of parents to
+/// the top task, every conversation on the way folded into it once (its requests among the task's, by time; the task
+/// running while any of them is). A task not read (only its subagents changed since) is read through `load`, with its
+/// own parent, so the chain goes on above it; a chain that loops ends at its least id. A subagent whose task is gone
+/// stays a session of its own, and so does one under it.
 fn fold_subagents(
     conversations: &mut HashMap<String, Record>,
-    parents: HashMap<String, String>,
-    mut load: impl FnMut(&str) -> Option<Record>,
+    mut parents: HashMap<String, String>,
+    mut load: impl FnMut(&str) -> Option<(Record, Option<String>)>,
 ) {
-    let mut children: Vec<(String, String)> = parents.into_iter().collect();
+    let mut children: Vec<String> = parents.keys().cloned().collect();
     children.sort();
-    for (child, parent) in children {
-        if !conversations.contains_key(&parent)
-            && let Some(record) = load(&parent)
-        {
-            conversations.insert(parent.clone(), record);
+    let mut tops: HashMap<String, String> = HashMap::new();
+    for child in children {
+        let mut chain = vec![child];
+        let top = loop {
+            let current = chain.last().expect("the chain").clone();
+            let Some(parent) = parents.get(&current).cloned() else { break current };
+            if let Some(at) = chain.iter().position(|id| *id == parent) {
+                break chain[at..].iter().min().expect("the loop").clone();
+            }
+            if !conversations.contains_key(&parent) {
+                let Some((record, above)) = load(&parent) else { break current };
+                conversations.insert(parent.clone(), record);
+                if let Some(above) = above.filter(|above| *above != parent) {
+                    parents.insert(parent.clone(), above);
+                }
+            }
+            chain.push(parent);
+        };
+        for id in chain.into_iter().filter(|id| *id != top) {
+            tops.insert(id, top.clone());
         }
-        if !conversations.contains_key(&parent) {
+    }
+    let mut folded: Vec<(String, String)> = tops.into_iter().collect();
+    folded.sort();
+    for (id, top) in folded {
+        let Some(sub) = conversations.remove(&id) else { continue };
+        let Some(task) = conversations.get_mut(&top) else {
+            conversations.insert(id, sub);
             continue;
-        }
-        let Some(sub) = conversations.remove(&child) else { continue };
-        let Some(task) = conversations.get_mut(&parent) else { continue };
+        };
         task.changed = task.changed.max(sub.changed);
         task.events.extend(sub.events);
         task.events.sort_by(|a, b| number(a, "timestamp").total_cmp(&number(b, "timestamp")));
@@ -952,7 +945,7 @@ mod tests {
         let parents =
             [("r2".to_string(), "old".to_string()), ("r3".to_string(), "gone".to_string())].into_iter().collect();
         fold_subagents(&mut conversations, parents, |id| {
-            (id == "old").then(|| record(now - 7200.0, vec![event(now - 7200.0, "gemini-4-carbon", 1, None)]))
+            (id == "old").then(|| (record(now - 7200.0, vec![event(now - 7200.0, "gemini-4-carbon", 1, None)]), None))
         });
         let mut ids: Vec<&String> = conversations.keys().collect();
         ids.sort();
@@ -961,13 +954,62 @@ mod tests {
     }
 
     #[test]
+    fn a_subagents_subagent_is_part_of_the_top_task_once() {
+        // grandchild → child → root, the child's id sorting first: every request counted once, in root, and the child
+        // not listed again of its own.
+        let now = 1_800_000_000.0;
+        let one = |at: f64| record(at, vec![event(at, "gemini-4-carbon", 1, None)]);
+        let mut conversations: HashMap<String, Record> =
+            [("a-child", one(now - 300.0)), ("b-grandchild", one(now - 200.0)), ("root", one(now - 400.0))]
+                .into_iter()
+                .map(|(id, record)| (id.to_string(), record))
+                .collect();
+        let parents = [("a-child", "root"), ("b-grandchild", "a-child")]
+            .into_iter()
+            .map(|(child, parent)| (child.to_string(), parent.to_string()))
+            .collect();
+        fold_subagents(&mut conversations, parents, |_| None);
+        assert_eq!(conversations.keys().collect::<Vec<_>>(), ["root"]);
+        assert_eq!(conversations["root"].events.len(), 3);
+        // Only the grandchild changed since: the child is read with its own parent, so it and its task are read and
+        // all three are one session.
+        let mut conversations: HashMap<String, Record> = [("b-grandchild".to_string(), one(now - 200.0))].into();
+        let mut asked = Vec::new();
+        fold_subagents(&mut conversations, [("b-grandchild".to_string(), "a-child".to_string())].into(), |id| {
+            asked.push(id.to_string());
+            match id {
+                "a-child" => Some((one(now - 300.0), Some("root".to_string()))),
+                "root" => Some((one(now - 400.0), None)),
+                _ => None,
+            }
+        });
+        assert_eq!(asked, ["a-child", "root"]);
+        assert_eq!(conversations.keys().collect::<Vec<_>>(), ["root"]);
+        assert_eq!((conversations["root"].events.len(), conversations["root"].changed), (3, now - 200.0));
+        // A loop (x → y → x) is one session, under its least id; nothing is lost.
+        let mut conversations: HashMap<String, Record> =
+            [("x".to_string(), one(now - 50.0)), ("y".to_string(), one(now - 60.0))].into();
+        fold_subagents(
+            &mut conversations,
+            [("x".to_string(), "y".to_string()), ("y".to_string(), "x".to_string())].into(),
+            |_| None,
+        );
+        assert_eq!(conversations.keys().collect::<Vec<_>>(), ["x"]);
+        assert_eq!(conversations["x"].events.len(), 2);
+    }
+
+    #[test]
     fn a_workspace_uri_names_the_project() {
-        assert_eq!(percent_decoded("/Users/me/My%20Paper"), "/Users/me/My Paper");
-        assert_eq!(percent_decoded("/a/%E4%B8%AD"), "/a/中");
+        use crate::harness::workspace_project;
+        let name = |uris: &str| workspace_project(uris);
+        assert_eq!(name(r#"["file:///Users/me/My%20Paper"]"#).as_deref(), Some("My Paper"));
+        assert_eq!(name(r#"["file:///a/%E4%B8%AD"]"#).as_deref(), Some("中"));
+        // A space, a comma or a bracket in the folder's name: kept, the list read whole.
+        assert_eq!(name(r#"["file:///Users/me/Q1 report, final [v2]"]"#).as_deref(), Some("Q1 report, final [v2]"));
         // A bare % before a multi-byte character, or at the end: as it is, no panic.
-        assert_eq!(percent_decoded("/Users/me/100%中文"), "/Users/me/100%中文");
-        assert_eq!(percent_decoded("/a/b%"), "/a/b%");
-        assert_eq!(percent_decoded("/a/%zz"), "/a/%zz");
+        assert_eq!(name(r#"["file:///Users/me/100%中文"]"#).as_deref(), Some("100%中文"));
+        assert_eq!(name(r#"["file:///a/b%"]"#).as_deref(), Some("b%"));
+        assert_eq!(name("not a list"), None);
     }
 }
 
