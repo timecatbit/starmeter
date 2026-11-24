@@ -32,6 +32,11 @@ fn the_command_takes_the_homepages_ranges_and_groups() {
     assert!(parse(&arguments("--color sometimes")).is_err());
     assert!(parse(&arguments("--lang fr")).is_err());
     assert!(parse(&arguments("--bogus")).is_err());
+    // A switch takes no value: --yes=false isn't a yes, nor --json=false JSON.
+    for switch in ["--yes=false", "--json=false", "--detail=no", "--no-refresh=0", "--help=x", "--version=1"] {
+        assert!(parse(&arguments(&format!("detect {switch}"))).is_err(), "{switch}");
+    }
+    assert!(parse(&arguments("detect --yes")).expect("detect --yes").yes);
 }
 
 /// The panel's fixture: its 7-day dashboard and its homepage rows.

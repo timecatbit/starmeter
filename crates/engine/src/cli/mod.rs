@@ -70,21 +70,28 @@ pub fn parse(arguments: &[String]) -> Result<Options, String> {
             Some((name, value)) if name.starts_with("--") => (name, Some(value.to_string())),
             _ => (argument.as_str(), None),
         };
+        // A switch takes no value: --yes=false is a mistake, not a yes (detect would write without asking).
+        let bare = || -> Result<(), String> {
+            match inline {
+                Some(_) => Err(format!("{name} takes no value: {argument}")),
+                None => Ok(()),
+            }
+        };
         let mut value = |what: &str| -> Result<String, String> {
             inline.clone().or_else(|| rest.next().cloned()).ok_or_else(|| format!("{what} needs a value"))
         };
         match name {
-            "-h" | "--help" | "help" => command = Some(Command::Help),
-            "-V" | "--version" | "version" => command = Some(Command::Version),
+            "-h" | "--help" | "help" => command = bare().map(|_| Some(Command::Help))?,
+            "-V" | "--version" | "version" => command = bare().map(|_| Some(Command::Version))?,
             "usage" if command.is_none() => command = Some(Command::Usage),
             "quota" | "quotas" if command.is_none() => command = Some(Command::Quota),
             "detect" if command.is_none() => command = Some(Command::Detect),
-            "-y" | "--yes" => options.yes = true,
+            "-y" | "--yes" => options.yes = bare().map(|_| true)?,
             "-r" | "--range" => options.range = value("--range")?,
             "-g" | "--group" => options.group = value("--group")?,
-            "-d" | "--detail" => options.detail = true,
-            "--json" => options.json = true,
-            "--no-refresh" => options.refresh = false,
+            "-d" | "--detail" => options.detail = bare().map(|_| true)?,
+            "--json" => options.json = bare().map(|_| true)?,
+            "--no-refresh" => options.refresh = bare().map(|_| false)?,
             "--color" | "--colour" => options.colour = value("--color")?,
             "--lang" => options.language = Some(value("--lang")?),
             _ if RANGES.iter().any(|(key, _)| *key == name) => options.range = name.to_string(),
