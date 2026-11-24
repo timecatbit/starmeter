@@ -987,7 +987,7 @@ pub(crate) fn gemini_files(root: &str) -> Vec<String> {
                 found.insert(path.clone());
             }
             // New subagents may use UUID filenames instead of session-*.
-            let relative: Vec<&str> = relative_to(&path, &folder).split('/').collect();
+            let relative: Vec<&str> = relative_to(&path, folder).split('/').collect();
             if file.ends_with(".jsonl")
                 && let Some(chats) = relative[..relative.len() - 1].iter().position(|part| *part == "chats")
                 && chats < relative.len() - 1
