@@ -3263,8 +3263,11 @@ def sessions_lines(data):
             seconds=int(max(0,time.time()-started)) if isinstance(started,(int,float)) else 0
             state='运行中 '+lasted(seconds) if seconds>=60 else '运行中'
         else:state='空闲' if ago<60 else '空闲 '+lasted(ago)
+        # A session whose record keeps no requests (the Gemini app's) counts the user's messages instead.
+        rounds=s.get('rounds')
+        rounds='%d 轮'%rounds if isinstance(rounds,int) and not isinstance(rounds,bool) and rounds>0 else ''
         detail=' · '.join(part for part in (state,model,s.get('effort') or '',
-                                              '上下文 %d%%'%round(100*s['context']) if s.get('context') is not None else '') if part)
+                                              '上下文 %d%%'%round(100*s['context']) if s.get('context') is not None else '',rounds) if part)
         # The live figure: what the session cost in the range the panel shows, as the other tabs count, rising as it
         # works; 全部 (or a reading from before ranges were kept) the whole session. This turn's tokens until the cost
         # is read. The whole session's cost heads its turns.
@@ -3274,7 +3277,7 @@ def sessions_lines(data):
         else:live=fmt_tokens(latest['tokens'])+' Token' if latest else ('运行中' if running else '空闲')
         # Two sessions can share a name: the panel tells them apart by panelkey.
         lines.append(item(name,level=1,badge=live,paneldetail=detail,panelstatus='new' if running else 'unknown',panelkey=s.get('id'),
-                          **brand_icon('claude-subscription' if s['tool']=='Claude' else 'chatgpt')))
+                          **session_icon(s['tool'],s.get('module'))))
         lines.extend(turn_lines(turns,unit,s.get('project') if s.get('title') else None,total))
     if found is not None and not found:lines.append(item(label+'没有会话',level=1,color=MUTED,size=11))
     # Which sessions are listed and what their figures count.
@@ -3286,6 +3289,18 @@ def sessions_lines(data):
     lines.append(item('这一轮完成时提醒',level=1,sfimage='bell',checked=alerts_on,paneldetail='运行中的会话这一轮完成时发通知',
                       **act('set-session-alerts','false' if alerts_on else 'true')))
     return lines
+
+
+def session_icon(tool,module):
+    """A session's logo: its tool's (Claude's, ChatGPT's), else its module's, else a terminal."""
+    if tool=='Claude':return brand_icon('claude-subscription')
+    if tool=='ChatGPT':return brand_icon('chatgpt')
+    if module=='deepseek-harness':return brand_icon('deepseek')
+    if module in MODULE_LOGOS:
+        name,template=MODULE_LOGOS[module]
+        raw=memoized(('logo',name),lambda:read_logo(os.path.join(LOGO_DIR,name)))
+        if raw:return {('templateimage' if template else 'image'):raw,'width':MENU_ICON_SIZE,'height':MENU_ICON_SIZE}
+    return {'sfimage':'terminal'}
 
 
 def komari_lines(data):
