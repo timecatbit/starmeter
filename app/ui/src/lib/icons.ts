@@ -19,6 +19,11 @@ const icons: Record<string, Icon> = {
   folder: { d: 'M2.8 5.5c0-.8.6-1.4 1.4-1.4h3.4l1.6 1.8h6.6c.8 0 1.4.6 1.4 1.4v7.4c0 .8-.6 1.4-1.4 1.4H4.2c-.8 0-1.4-.6-1.4-1.4z' },
   'questionmark.folder': { d: 'M2.8 5.5c0-.8.6-1.4 1.4-1.4h3.4l1.6 1.8h6.6c.8 0 1.4.6 1.4 1.4v7.4c0 .8-.6 1.4-1.4 1.4H4.2c-.8 0-1.4-.6-1.4-1.4z M8.4 9.4a1.6 1.6 0 1 1 2.3 1.4c-.5.3-.7.6-.7 1.1 M10 13.6h.01' },
   'arrow.clockwise': { d: 'M15.6 10a5.6 5.6 0 1 1-1.9-4.2 M14.2 2.8v3.4h-3.4' },
+  // The engine names these too (Cursor's keychain switch and Claude's re-authorising, reading usage on, a plan paying
+  // for itself): without them the rows showed a dot.
+  lock: { d: 'M5.2 9h9.6a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H5.2a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1z M7 9V6.6a3 3 0 0 1 6 0V9 M10 12.2v1.8' },
+  'arrow.triangle.2.circlepath': { d: 'M4.4 9.2a5.7 5.7 0 0 1 10.2-3.1 M15.6 10.8a5.7 5.7 0 0 1-10.2 3.1 M14.9 3.2v3.2h-3.2 M5.1 16.8v-3.2h3.2' },
+  'chart.line.uptrend.xyaxis': { d: 'M3.5 3v13.5H17 M5.8 13.2l3.2-3.4 2.6 2 4.4-5.3 M13.4 6.5h2.6v2.6' },
   'arrow.counterclockwise': { d: 'M4.4 10a5.6 5.6 0 1 0 1.9-4.2 M5.8 2.8v3.4h3.4' },
   'arrow.uturn.backward': { d: 'M7.4 4.6 4 8l3.4 3.4 M4 8h7.6a4.4 4.4 0 0 1 0 8.8H9' },
   link: { d: 'M8.6 11.4a3 3 0 0 0 4.3 0l2.3-2.3a3 3 0 0 0-4.3-4.3l-.9.9 M11.4 8.6a3 3 0 0 0-4.3 0l-2.3 2.3a3 3 0 0 0 4.3 4.3l.9-.9' },
