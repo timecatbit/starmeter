@@ -832,6 +832,25 @@ test('the grouping lit is the one clicked last, from the click on, and the cards
   await expect(page.locator('.card .name').first()).toHaveText('Claude Opus 5.5');
 });
 
+test('the grouping tabs move with the arrow keys, and Tab leaves them (GROUP-KEY)', async ({ page }) => {
+  await open(page);
+  const tool = page.getByRole('radio', { name: '工具' });
+  const model = page.getByRole('radio', { name: '模型' });
+  await tool.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(model).toHaveAttribute('aria-checked', 'true');
+  await expect(model).toBeFocused();
+  await expect(page.locator('.card .name').first()).toHaveText('Claude Opus 5.5');
+  await page.keyboard.press('ArrowLeft');
+  await expect(tool).toHaveAttribute('aria-checked', 'true');
+  await expect(tool).toBeFocused();
+  await expect(page.getByRole('button', { name: 'Claude 详情' })).toBeVisible();
+  // One Tab stop for the group: the next Tab is past it.
+  await expect(model).toHaveAttribute('tabindex', '-1');
+  await page.keyboard.press('Tab');
+  await expect(page.locator('.tabs [role="radio"]:focus')).toHaveCount(0);
+});
+
 test('a range picked shows once read through, never the old range or a source at a time; the menu reads ahead', async ({ page }) => {
   const asked: string[] = [];
   page.on('console', (message) => { if (message.text().startsWith('[fixtures] action')) asked.push(message.text()); });
