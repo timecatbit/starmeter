@@ -167,3 +167,24 @@ Codex 按主线 `ec80479` 核对 v6.0.14 的实现、调用入口和已有交接
 - **第二轮：AppleScript 不转义 \n/\r。** 复核仍不成立：osacompile 编译并运行带 LF 与 CR 的字符串字面量，正常返回原文；弹窗另用 `& return &` 拼接换行。同上一条的结论。
 - **第二轮：主页拖动时行数变少导致 order[to±1] 越界。** 复核仍不成立：按住期间到达的快照要等松手、点击处理完后才套用（HOME-1 的修复），拖动过程中行数不变；引擎对移动目标也有白名单校验。
 - **Claude 离线恢复期间静默。** 延迟显示警告符合用户明确的产品约定，沿用已关闭的 CLAUDE-QUOTA-3。WAKE-2 只涉及后台重新取数。
+
+## 第五轮外部审查（2026-11-24）
+
+用户转来的全仓审查（P1 8 条、P2 11 条、P3 若干），加上同期用户报告的 Antigravity 会话问题。Claude 逐条核对后都已修复，提交在分支 `claude/antigravity-subagents`（尚未合入 main，也未推送）。提交前 Rust（fmt、clippy -D warnings、全部测试）、Python 625 项（含引擎对照）、WebKit 103 项都已通过。
+
+| 编号 | 状态 | 问题、修复与验收 |
+| --- | --- | --- |
+| AGY-3 | 待复审 · `ea51080` `a3da483` `b72bfab` · 用户真机报告 | **Antigravity 的子代理各自显示为一个会话，项目也不显示。** 修复：子代理按 parent_conversation_id 并入发起它的任务；用量按 conversation_summaries.db 的 workspace_uris 归到项目（索引升到 harness-gemini-v5）；Gemini App 里 0 轮且未运行的空对话不再列出；workspace 地址里 % 后面跟多字节字符时原样保留，不再 panic。自测：Rust 单测 `antigravitys_subagents_are_part_of_their_tasks_session`；本机真实记录（只读）里，任务「Repository Bug Analysis And Review」合并为一个会话，149 次请求，项目为 swiftbar-token-monitor。验收：同一任务的子代理只显示一个会话，项目名正确。 |
+| R5-1 | 待复审 · `4b2400d` `e78f3f9` · P1 1–3、8 | **路径切片、菜单属性转义、仅在 WSL 里用的 Codex。** 根目录（`/`、`C:\`）下的相对路径不再丢首字母，也不会在多字节字符中间切开；属性值含 `\` 或 `'` 时加引号，Windows 路径和 Team's 这类名字能完整读回；Windows 上只在 WSL 里用 Codex 时照常读取。自测：`a_path_below_a_root_keeps_its_first_letter`、`a_value_with_a_backslash_or_a_quote_reads_back_whole`。 |
+| R5-2 | 待复审 · `22cc546` · P1 6 | **保存/选择对话框在工作线程上调用 AppKit。** 改为 `macos::on_main` 在主线程把 App 提到前面。未在真机上点保存核对。 |
+| R5-3 | 待复审 · `e88a784` · P1 7 | **手机查看的慢速连接能一直占着名额。** 整个请求的读取共用一个截止时间（每次读取的超时取剩余时间和 10 秒中的较小值）。自测：`a_trickling_client_is_let_go_at_the_deadline`。 |
+| R5-4 | 待复审 · `91b849d` `3810660` · P1 4 | **立即刷新：代理模式空跑、页面上不转圈、未上主页的 API 报错。** OpenCodex 的各个端点交给它自己的加载器读取；按下后行在读取期间转圈（busy 改为响应式状态）；不在主页的 API 设置页不再提供立即刷新。 |
+| R5-5 | 待复审 · `0e18851` · P1 5 | **Claude Code 钥匙串拒绝授权被当成未登录。** 除“找不到条目”以外的钥匙串错误照实显示。 |
+| R5-6 | 待复审 · `9ce19ea` · P2 9 | **Cursor 钥匙串开关。** 设置页也有这个开关；只在 macOS 上提供；面板能连续切换两次；切换后 Cursor 的几份缓存重新读取。自测：对照测试 `test_cursors_keychain_switch_is_on_its_page_and_its_settings`。 |
+| R5-7 | 待复审 · `3c80389` `770c48e` · P2 10–11 | **储备状态。** CLI 里双窗口订阅进入储备时，值仍是储备余额；Cursor 储备时单条写「本周期 100%」；不限量套餐不进入储备。自测：CLI 单测 `a_plan_on_its_reserve_keeps_what_is_left_in_the_quota`、对照测试 `test_a_plan_on_its_reserve_keeps_its_bar`。 |
+| R5-8 | 待复审 · `a3aaf29` `8bab4b7` `edada06` `ca7f41a` · P2 12、16–18 | **英文、图标、Esc、手机页。** 两条被拆分后匹配不到的英文规则改为整句匹配，补上服务状态、数据待更新和单数的“1 个工具可更新”；补上 lock、arrow.triangle.2.circlepath、chart.line.uptrend.xyaxis 三个图标；Esc 只取消行内询问或悬起的行，不再退出页面或关闭面板；范围是否读完按引擎时钟判断，两台设备时钟有差也不会卡在“正在读取”；切回「同一个网络」时不再被外网的等待态盖住二维码。 |
+| R5-9 | 待复审 · `6633068` · P2 13 | **分享菜单开着时点别的 App，未钉住的面板一直浮着。** 给 NSSharingServicePicker 设了 delegate：菜单关闭 0.3 秒后，如果是被取消且面板已经失去焦点，就按点在别处处理、收起面板；选了服务时，只在焦点去了别的 App 时收起（AirDrop 这类在本 App 里开窗的服务不受影响）。未覆盖：系统菜单无法自动化，没在真机上点过。 |
+| R5-10 | 待复审 · `ab2a2be` · P2 14 | **小时热力图在半小时时区和夏令时切换日丢数或重复。** 日历范围的格子改按本地日期加本地小时计；各来源按 UTC 整点分的桶，归到它大部分时间所在的本地小时，并限制在范围之内；近 24 小时仍是 24 个真实小时，标签写本地起点（如 23:30）。Rust 与 Python 同改。自测：对照测试 `test_the_heatmap_squares_are_the_zones_own_hours`，覆盖加尔各答「昨天」首尾两个半小时、加德满都，以及纽约 2026-03-08、2026-11-01，两侧一致，各格数值与手算一致；撤掉修复时其中 3 组失败，与审查描述一致。 |
+| R5-11 | 待复审 · `4510f0e` · P2 15 | **已过重置时间的窗口仍参与告警，菜单栏额度也还算它。** 告警输入跳过重置时间已到的窗口，与主页一致（ChatGPT、MiniMax，以及 Cursor 已结束的周期）；Rust 与 Python 同改。自测：对照测试 `test_a_window_past_its_reset_raises_no_alert_nor_stands_in_the_menu_bar`，两侧只剩 ChatGPT 30%、MiniMax 40%，菜单栏为 40%。 |
+| R5-12 | 待复审 · `3b80063` `5b11613` `b70ebb3` `6d090a6` `167a91f` `4fa6c48` · P2 19 | **六处后端问题。** Antigravity：较新服务给出的 HTTP 错误不再被旧记录的拒绝连接改写成“没有运行”，Python 侧对格式不对的回答也不再抛错（Rust/Python 单测）。DeepSeek 直连失败时写「DeepSeek 余额查询失败（HTTP 401）」，不再报未配置（对照测试 `test_provider_quotas`）。Claude OAuth 的说明按系统选：macOS 独立版也写钥匙串和续期。新勾选的模块缺状态页时，服务状态立即到期重读（`test_a_status_page_newly_wanted_is_read_at_once`）。`Wall::at` 四舍五入进到下一秒时日期跟着进位（`the_last_microsecond_of_a_day_rounds_to_the_next_days_midnight`）。本机 ChatGPT 记录让给 OpenCodex 时，今天图表从其他电脑的首次调用开始（`test_todays_chart_starts_at_the_other_computers_first_call`，撤掉修复时是 11:00，修复后是 09:17）。 |
+| R5-13 | 待复审 · `068866b` `21990dc` `e4fc314` `d9e76d7` `7189681` `5428c6d` `291a525` `1685f1e` `1061560` `4dede11` `4955f6a` `66c915c` `002ef08` · P3 | **低危与对照层。** CLI 开关带值（如 `--yes=false`）时报错；Linux 升级后 AppImage 直接运行自己，不再经过 env（单测用替身 setsid，路径含 `=`）；手机外网链接到点后、被清理前不再提供，停止后排队的生成请求不再打开链接；不退出的 cloudflared 随看护进程的进程组一起结束（单测：忽略 TERM 的替身也被结束）；下拉菜单为空时按方向键或回车不报错；手绘主题的线条滤镜作用到实时图上（选择器改为 `canvas.live`，手绘主题下的效果与流畅度未在真机上看过）；`build.py --app` 带上内置引擎；update_pricing 两种别名表都没有时给出自己的提示。Python 对照层：立即刷新后也发更新和用量提醒；缓存目录不存在时关闭 Cursor 读取不报错；未知币种的余额提醒用币种代码命名；会话行图标按工具或模块选，并写「N 轮」；Gemini 会话按 UTF-8 读取，读到一半消失或不是对象时只算一个文件读取失败。 |
