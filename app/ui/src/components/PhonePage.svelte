@@ -195,7 +195,7 @@
           </div>
         {:else}
           <div class="code">
-            {#if busy}
+            {#if busy && reach === 'public'}
               <span class="spinner" aria-label={t('生成链接')}></span>
               <span class="wait">{t('正在向 Cloudflare 要链接…')}</span>
             {:else if address}

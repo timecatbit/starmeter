@@ -83,9 +83,14 @@
   const LONGEST = 10_000;
   let pickedAt = 0;
   let waitedOut = $state(0);
+  /** The engine's clock as its readings show it (the newest read time seen): a range read since the pick is judged by
+   *  it, never by this device's clock, which may differ from the computer's (a phone's, by a minute or more). */
+  let engineSeen = 0;
+  let pickedEngine = 0;
+  $effect(() => { const at = snapshot?.dashboard?.fetchedAt; if (at && at > engineSeen) engineSeen = at; });
   const unsynced = (d: DashboardData) => d.providers.some((p) => !p.available && reads(p.status, '待同步'));
   const readThrough = (d: DashboardData) => d.rangeKey === pickedRange && !unsynced(d)
-    && (d.fetchedAt == null || d.fetchedAt * 1000 >= pickedAt - FRESH);
+    && (d.fetchedAt == null || !pickedEngine || d.fetchedAt * 1000 >= pickedEngine - FRESH);
   const waiting = $derived(!!pickedRange && !!snapshot?.dashboard && !readThrough(snapshot.dashboard) && waitedOut < pickedAt);
   $effect(() => { if (pickedRange && snapshot?.dashboard && (readThrough(snapshot.dashboard) || waitedOut >= pickedAt)) pickedRange = null; });
   /** The range menu open: the ranges in it are read ahead, so the one picked is most likely read already. */
@@ -477,6 +482,7 @@
     if (action[0] === 'set-range') {
       pickedRange = action[1] === snapshot?.dashboard?.rangeKey && !waiting ? null : action[1];
       pickedAt = Date.now();
+      pickedEngine = engineSeen * 1000;
       const at = pickedAt;
       setTimeout(() => { waitedOut = Math.max(waitedOut, at); }, LONGEST);
     }
