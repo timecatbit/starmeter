@@ -132,7 +132,8 @@
   }
 </script>
 
-<svelte:window onkeydown={(event) => { if (lifted && event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); cancelDrag(); } }} onblur={cancelDrag}
+<!-- Caught on the way down: the panel's own Esc (back, closing it) listens on the window too and would come first. -->
+<svelte:window onkeydowncapture={(event) => { if (lifted && event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); cancelDrag(); } }} onblur={cancelDrag}
   onpointermove={move} onpointerup={up} onpointercancel={cancelDrag} />
 
 <div class="home">
