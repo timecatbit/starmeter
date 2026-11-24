@@ -1,5 +1,6 @@
-// What the user opened stays open (用户：展开会话或项目后不要再折回去): 查看更多 on the models', projects' and sessions'
-// lists, each grouping by its own, and every session opened. They used to live in the lists' components and went
+// What the user opened stays open until they fold it (用户：展开之后就是不能再折叠回去了): 查看更多 on the models',
+// projects' and sessions' lists, each grouping by its own, folded again with 收起 at the list's end; and every session
+// opened. They used to live in the lists' components and went
 // with them, so switching tabs, opening a page and coming back, or a fresh reading folded them up again. Kept in the
 // web view's storage, so a reopened panel or a restarted app has them as they were.
 
@@ -35,6 +36,13 @@ export const listOpen = (name: string) => expanded.lists.includes(name);
 export function openList(name: string) {
   if (listOpen(name)) return;
   expanded.lists = [...expanded.lists, name];
+  save();
+}
+
+/** 收起: back to its first five. */
+export function closeList(name: string) {
+  if (!listOpen(name)) return;
+  expanded.lists = expanded.lists.filter((known) => known !== name);
   save();
 }
 

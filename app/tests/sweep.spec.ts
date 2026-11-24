@@ -50,7 +50,12 @@ test('every part of the panel opens what it should and comes back', async ({ pag
         const shown = await page.locator(selector).count();
         await more.click();
         await expect.poll(() => page.locator(selector).count()).toBeGreaterThan(shown);
-        await expect(more).toHaveCount(0);
+        // The whole list ends with 收起, which folds it back; opened again for what follows.
+        await expect(more).toHaveText('收起');
+        await more.click();
+        await expect(page.locator(selector)).toHaveCount(shown);
+        await more.click();
+        await expect(more).toHaveText('收起');
       }
     }
     // Every session opens and closes.

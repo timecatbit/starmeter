@@ -729,11 +729,13 @@ test('grouping by model or project swaps the cards, five of them and the rest be
   await page.getByRole('button', { name: '查看更多 10 个模型' }).click();
   await expect(page.locator('.card')).toHaveCount(15);
   await expect(page.getByRole('button', { name: /查看更多/ })).toHaveCount(0);
-  // Nothing folded into “其他”: every model has its card, and the list ends where the last one does.
+  // Nothing folded into “其他”: every model has its card, and the list ends with 收起 under the last one.
   await expect(page.locator('.card .name', { hasText: '其他' })).toHaveCount(0);
   const last = (await page.locator('.card').last().boundingBox())!;
+  const fold = (await page.getByRole('button', { name: '收起' }).boundingBox())!;
   const list = (await page.locator('.dashboard').boundingBox())!;
-  expect(Math.abs(list.y + list.height - (last.y + last.height + 4))).toBeLessThan(2);
+  expect(Math.abs(fold.y - (last.y + last.height))).toBeLessThan(2);
+  expect(Math.abs(list.y + list.height - (fold.y + fold.height + 6 + 4))).toBeLessThan(2);
   await page.getByRole('radio', { name: '项目' }).click();
   await expect(page.locator('.tabs .note')).toHaveText('按客户端自己的记录');
   await expect(page.locator('.card')).toHaveCount(5);
@@ -855,6 +857,7 @@ test('what was opened stays open: 查看更多 and an opened session, across tab
   await expect(page.locator('.dashboard')).toBeVisible();
   await expect(page.locator('.session')).toHaveCount(sessions);
   await expect(page.getByRole('button', { name: /查看更多/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '收起' })).toHaveAttribute('aria-expanded', 'true');
   // A reopened panel (the page loaded afresh) has them as they were.
   await page.reload();
   await expect(page.locator('.dashboard')).toBeVisible();
@@ -869,6 +872,31 @@ test('what was opened stays open: 查看更多 and an opened session, across tab
   await expect(page.locator('.dashboard')).toBeVisible();
   await page.getByRole('radio', { name: '会话' }).click();
   await expect(page.locator('.session .head').first()).toHaveAttribute('aria-expanded', 'false');
+});
+
+test('a list opened with 查看更多 folds back with 收起 at its end, the button staying under the pointer', async ({ page }) => {
+  // 用户：展开之后就是不能再折叠回去了. Sessions, models and projects alike; folded, it stays folded.
+  await open(page);
+  for (const [tab, item, more] of [['会话', '.session', /查看更多 \d+ 个会话/], ['模型', '.card', /查看更多 \d+ 个模型/], ['项目', '.card', /查看更多 \d+ 个项目/]] as const) {
+    await page.getByRole('radio', { name: tab }).click();
+    await expect(page.locator(item)).toHaveCount(5);
+    await page.getByRole('button', { name: more }).click();
+    const whole = await page.locator(item).count();
+    expect(whole, tab).toBeGreaterThan(5);
+    const fold = page.getByRole('button', { name: '收起' });
+    await expect(fold).toHaveAttribute('aria-expanded', 'true');
+    await fold.click();
+    await expect(page.locator(item), tab).toHaveCount(5);
+    const again = page.getByRole('button', { name: more });
+    await expect(again).toHaveAttribute('aria-expanded', 'false');
+    // Still in sight, not off with the rows that went.
+    await expect(again, tab).toBeInViewport();
+  }
+  await page.reload();
+  await expect(page.locator('.dashboard')).toBeVisible();
+  await page.getByRole('radio', { name: '会话' }).click();
+  await expect(page.locator('.session')).toHaveCount(5);
+  await expect(page.getByRole('button', { name: /查看更多 \d+ 个会话/ })).toBeVisible();
 });
 
 test('a row opens its page, with usage bars and pace marks, and Esc comes back', async ({ page }) => {

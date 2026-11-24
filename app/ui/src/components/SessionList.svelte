@@ -12,7 +12,7 @@
   import DetailList from './DetailList.svelte';
   import Glyph from './Glyph.svelte';
   import MoreButton from './MoreButton.svelte';
-  import { listOpen, openList, sessionOpen, toggleSession } from '../lib/expanded.svelte';
+  import { closeList, listOpen, openList, sessionOpen, toggleSession } from '../lib/expanded.svelte';
   import StatusLight from './StatusLight.svelte';
 
   let { entry, busy, onopen, onchoose, onfit }: {
@@ -128,8 +128,9 @@
       {/if}
     </div>
   {/each}
-  {#if listed.length < sessions.length}
-    <MoreButton label={t('查看更多 {n} 个会话', { n: sessions.length - listed.length })} onclick={() => openList('sessions')} />
+  {#if sessions.length > SHOWN}
+    <MoreButton open={everything} label={everything ? t('收起') : t('查看更多 {n} 个会话', { n: sessions.length - listed.length })}
+      onclick={() => (everything ? closeList : openList)('sessions')} />
   {/if}
   {#each notes as note, i (i)}
     <div class="empty">{note.label}</div>

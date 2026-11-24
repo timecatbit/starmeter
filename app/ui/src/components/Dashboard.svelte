@@ -23,7 +23,7 @@
   import ProviderCard from './ProviderCard.svelte';
   import SessionList from './SessionList.svelte';
   import MoreButton from './MoreButton.svelte';
-  import { listOpen, openList } from '../lib/expanded.svelte';
+  import { closeList, listOpen, openList } from '../lib/expanded.svelte';
   import SummaryChart from './SummaryChart.svelte';
 
   let { data, rangeOptions, reveal, glows, summaryGlow, live, leaving = null, onleft, liveStamp, pinned, pinInterval, onrange,
@@ -96,10 +96,12 @@
   const MORE = 34;
   const listed = $derived(!data.cards || listOpen(data.grouping ?? '') ? cardList : cardList.slice(0, SHOWN));
   const unlisted = $derived(cardList.length - listed.length);
+  /** The whole list shown by 查看更多: 收起 at its end folds it back. */
+  const folds = $derived(!!data.cards && !unlisted && cardList.length > SHOWN);
   const collapsible = $derived(data.allowCollapse === true && !data.cards);
   const expanded = $derived(new Set(data.expandedProviders ?? []));
   const listHeight = $derived(showingSessions ? sessionsHeight
-    : Math.max(cardList.length === 0 && data.providers.length ? 24 : 0, listed.reduce((s, p) => s + cardHeight(p), 0) + (unlisted ? MORE : 0))
+    : Math.max(cardList.length === 0 && data.providers.length ? 24 : 0, listed.reduce((s, p) => s + cardHeight(p), 0) + (unlisted || folds ? MORE : 0))
       + (data.providers.length ? 4 : 0));
   const total = $derived(summaryHeight + heatmapHeight + harnessHeader + groupingHeight + listHeight);
   // A pinned panel fits down to the end of the third card or session (the user makes it taller at its edges).
@@ -225,9 +227,9 @@
         <ProviderCard {p} {collapsible} expanded={expanded.has(p.id)} glow={glows[p.id] ?? 0} ontoggle={() => ontoggle(p.id, !expanded.has(p.id))}
           onopen={isGrouped(p) ? undefined : () => onopentool(p.id)} />
       {/each}
-      {#if unlisted}
-        <MoreButton label={t(data.grouping === 'project' ? '查看更多 {n} 个项目' : '查看更多 {n} 个模型', { n: unlisted })}
-          onclick={() => openList(data.grouping ?? '')} />
+      {#if unlisted || folds}
+        <MoreButton open={folds} label={folds ? t('收起') : t(data.grouping === 'project' ? '查看更多 {n} 个项目' : '查看更多 {n} 个模型', { n: unlisted })}
+          onclick={() => (folds ? closeList : openList)(data.grouping ?? '')} />
       {/if}
     {/if}
   </div>
