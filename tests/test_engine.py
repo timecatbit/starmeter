@@ -1946,7 +1946,7 @@ class PanelParityTests(BackgroundParityTests):
             'minimax': {'windows': [{'name': '本周额度', 'remaining': 5, 'resetsAt': int(now) + 3600, 'startsAt': int(now) - 6 * 86400}]},
             'kimi-api': {'balance': 12.5, 'currency': 'CNY', 'state': '已同步'},
             'grok': {'balance': 3.25, 'currency': 'USD', 'state': '已同步'},
-            # Antigravity's quota, out of order and with a window already past its reset (dropped by both).
+            # Antigravity's quota, out of order and with a window already past its reset (filled again in both: 0%, in its place).
             'gemini_subscription': {'windows': [
                 {'group': '3p', 'groupName': 'Claude and GPT models', 'window': 'weekly', 'remaining': 100.0, 'resetsAt': now + 6 * 86400},
                 {'group': 'gemini', 'groupName': 'Gemini Models', 'window': 'weekly', 'remaining': 99.4, 'resetsAt': now + 6 * 86400 + 600},
@@ -2133,10 +2133,12 @@ class EngineRunParityTests(PanelParityTests):
                         for key in expected:self.assertEqual(self.steady(expected[key]), self.steady(got.get(key)), key)
                         gemini = next((e for e in got['entries'] if e.get('label') == 'Gemini 订阅'), None)
                         if 'gemini-subscription' in values['visible']:
-                            # The most used window leads; Gemini's own come first, five hours before the week; the expired one is gone.
+                            # The most used window leads; Gemini's own come first, five hours before the week; the expired one
+                            # has filled again and keeps its place, at 0%.
                             self.assertEqual(gemini['value'], '已用 97.6%')
-                            self.assertEqual([c['label'] for c in gemini['children'] if c.get('value', '').startswith('已用')],
-                                             ['5 小时', '本周', '本周 · Claude 和 GPT', '5 小时 · Other models'])
+                            self.assertEqual([(c['label'], c['value']) for c in gemini['children'] if c.get('value', '').startswith('已用')],
+                                             [('5 小时', '已用 97.6%'), ('本周', '已用 0.6%'), ('5 小时 · Claude 和 GPT', '已用 0%'),
+                                              ('本周 · Claude 和 GPT', '已用 0%'), ('5 小时 · Other models', '已用 50%')])
 
     def test_actions_and_panel_requests(self):
         self.settings(visible=['summary', 'claude', 'codex'])

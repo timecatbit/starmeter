@@ -2149,8 +2149,9 @@ def antigravity_app():
 
 def gemini_windows(payload,now):
     """Gemini 订阅's windows as last read: Gemini's first, then Claude's with GPT's, each five hours before the week; a
-    window past its reset has filled again and is left out."""
-    windows=[w for w in payload.get('windows') or [] if known_share(w) and not (isinstance(w.get('resetsAt'),(int,float)) and w['resetsAt']<=now)]
+    window past its reset has filled again (none used, no reset known) and keeps its place, so the bars stay whole."""
+    past=lambda w:isinstance(w.get('resetsAt'),(int,float)) and not isinstance(w.get('resetsAt'),bool) and w['resetsAt']<=now
+    windows=[dict(w,remaining=100.0,resetsAt=None) if past(w) else w for w in payload.get('windows') or [] if known_share(w)]
     return sorted(windows,key=lambda w:({'gemini':0,'3p':1}.get(w.get('group'),2),w.get('window')!='5h'))
 
 

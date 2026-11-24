@@ -388,7 +388,7 @@ impl Runtime {
 
     /// Gemini 订阅: the quota Antigravity's app shows, asked of it on this computer (antigravity.rs). Gemini's five-hour
     /// and weekly limits, then Claude's with GPT's; with the app closed the last figures stay, marked with when they
-    /// were read, and a window past its reset is dropped, as it has filled again.
+    /// were read, and a window past its reset reads as filled again.
     /// Gemini 订阅's bars, each group's line marked with its logos: Gemini's, and Claude's with OpenAI's.
     fn gemini_bars_marked(&self, windows: &[Object]) -> Vec<rows::Bar> {
         let mut bars = gemini_bars(windows);
@@ -911,7 +911,8 @@ pub fn antigravity_app(home: &str) -> Option<String> {
 }
 
 /// Gemini 订阅's windows as last read: Gemini's first, then Claude's with GPT's, each five hours before the week; a
-/// window past its reset has filled again and is left out.
+/// window past its reset has filled again: none of it used and no reset known (as an unused one reads), kept in its
+/// place so the row's bars stay a whole grid (用户：空着一格很丑; it used to be left out, its place empty).
 pub fn gemini_windows(payload: &Object, now: f64) -> Vec<Object> {
     let mut windows: Vec<Object> = payload
         .get("windows")
@@ -919,9 +920,15 @@ pub fn gemini_windows(payload: &Object, now: f64) -> Vec<Object> {
         .into_iter()
         .flatten()
         .filter_map(Json::as_object)
-        .filter(|window| window.get("resetsAt").and_then(Json::number).is_none_or(|at| at > now))
         .filter(|window| rows::known_share(window))
-        .cloned()
+        .map(|window| {
+            let mut window = window.clone();
+            if window.get("resetsAt").and_then(Json::number).is_some_and(|at| at <= now) {
+                window.insert("remaining", Json::Double(100.0));
+                window.insert("resetsAt", Json::Null);
+            }
+            window
+        })
         .collect();
     let rank = |window: &Object| {
         let group = window.get("group").and_then(Json::as_str).unwrap_or("");
@@ -1008,9 +1015,10 @@ pub fn gemini_span(window: &Object) -> Option<f64> {
 
 #[cfg(test)]
 mod tests {
+    use super::{gemini_bars, gemini_windows};
     use crate::json::{Json, Object};
-    use crate::object;
     use crate::runtime::{Runtime, now};
+    use crate::{object, py};
 
     /// CLAUDE-QUOTA-1: a refresh that failed keeps the same login's last good figures on the homepage, beside 刷新失败,
     /// while the reading is recent and its windows haven't reset; past ten minutes it goes stale as any reading does.
@@ -1047,5 +1055,30 @@ mod tests {
         let line = first(kept(900.0));
         assert!(!line.contains("39%") && line.contains("刷新失败"), "{line}");
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// A Gemini window past its reset has filled again: 0% used and no reset known, in its place, so the row's bars
+    /// stay a whole grid; one still running is as read.
+    #[test]
+    fn a_gemini_window_past_its_reset_reads_as_filled_again() {
+        let now = 1_800_000_000.0;
+        let window = |group: &str, span: &str, left: f64, resets: f64| -> Json {
+            object! { "group" => group, "window" => span, "remaining" => left, "resetsAt" => resets }.into()
+        };
+        let payload = object! { "windows" => Json::Array(vec![
+            window("gemini", "5h", 90.7, now - 60.0),
+            window("gemini", "weekly", 89.5, now + 86400.0),
+            window("3p", "5h", 100.0, now - 1.0),
+            window("3p", "weekly", 50.3, now + 86400.0),
+        ]) };
+        let windows = gemini_windows(&payload, now);
+        let read: Vec<(f64, Option<f64>)> = windows
+            .iter()
+            .map(|window| (py::num(window.get("remaining")), window.get("resetsAt").and_then(Json::number)))
+            .collect();
+        assert_eq!(read, [(100.0, None), (89.5, Some(now + 86400.0)), (100.0, None), (50.3, Some(now + 86400.0))]);
+        let bars: Vec<(usize, f64)> = gemini_bars(&windows).iter().map(|bar| (bar.place, bar.used)).collect();
+        assert_eq!(bars.len(), 4, "a whole grid: {bars:?}");
+        assert!((bars[0].1 - 0.0).abs() < 1e-9 && (bars[2].1 - 0.0).abs() < 1e-9);
     }
 }

@@ -241,8 +241,16 @@ class DesktopTests(unittest.TestCase):
   self.assertEqual([(bool(mark['image']),mark['template']) for mark in row['gauges'][2]['marks']],[(True,False),(True,True)])
   self.assertNotIn('marks',gemini(quota[:2])['gauges'][0])
   self.assertEqual(bars(gemini(quota[:2])),[(0,'','5 小时',5.6,'normal'),(1,'','本周',4.1,'normal')])
-  # A window past its reset is left out: its place stays empty, and the group is named on the line's bar that remains.
+  # A window not read at all leaves its place empty, and the group is named on the line's bar that remains.
   self.assertEqual(bars(gemini([quota[0],quota[1],quota[3]]))[2:],[(3,'Claude 和 GPT','本周',49.7,'normal')])
+  # One past its reset has filled again: 0% in its place, so the grid stays whole (it used to leave a hole). The row's
+  # figure is then Gemini's other window.
+  past=lambda window:dict(window,resetsAt=now-10)
+  row=gemini([past(quota[0]),quota[1],past(quota[2]),quota[3]])
+  self.assertEqual(bars(row),[(0,'Gemini','5 小时',0.0,'normal'),(1,'','本周',4.1,'normal'),(2,'Claude 和 GPT','5 小时',0.0,'normal'),(3,'','本周',49.7,'normal')])
+  self.assertEqual(row['value'],'已用 4.1%')
+  self.assertEqual(bars(gemini([past(quota[0]),past(quota[1]),past(quota[2]),past(quota[3])])),
+                   [(0,'Gemini','5 小时',0.0,'normal'),(1,'','本周',0.0,'normal'),(2,'Claude 和 GPT','5 小时',0.0,'normal'),(3,'','本周',0.0,'normal')])
   # Weeks only (a Starter plan): still a line per group, the week in its column.
   self.assertEqual(bars(gemini([quota[1],quota[3]])),[(1,'Gemini','本周',4.1,'normal'),(3,'Claude 和 GPT','本周',49.7,'normal')])
   self.assertNotIn('gauges',gemini(quota,m.antigravity.NOT_RUNNING),'Antigravity closed: the last figure, marked with its time, and no bars')
