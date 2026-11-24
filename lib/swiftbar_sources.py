@@ -944,6 +944,34 @@ def antigravity_project(path, conversation):
     return project_name(first) if first else None
 
 
+def antigravity_projects(stores):
+    """The project each of these Antigravity stores' conversations ran in, by its session (the identity of its id), as
+    its list (conversation_summaries.db beside conversations/) says now: one query per list. Kept by both the app and
+    the IDE, the first list that names one."""
+    lists, found = {}, {}
+    for path in stores:
+        path = Path(path)
+        folder = next((p for p in path.parents if p.name == 'conversations'), None)
+        if folder is None:continue
+        listing = folder.parent/'conversation_summaries.db'
+        if listing not in lists:
+            rows = {}
+            if listing.is_file():
+                try:
+                    db = sqlite3.connect(listing.resolve().as_uri()+'?mode=ro', uri=True, timeout=2)
+                    try:rows = {c: u for c, u in db.execute('SELECT conversation_id, workspace_uris FROM conversation_summaries') if isinstance(c, str) and isinstance(u, str)}
+                    finally:db.close()
+                except sqlite3.Error:rows = {}
+            lists[listing] = rows
+        uris = lists[listing].get(path.stem)
+        try:listed = json.loads(uris) if uris is not None else None
+        except ValueError:listed = None
+        first = next((uri for uri in listed if isinstance(uri, str)), None) if isinstance(listed, list) else None
+        session = identity(path.stem)
+        if found.get(session) is None:found[session] = project_name(first) if first else None
+    return found
+
+
 def antigravity_file(path, changed):
     """One Antigravity conversation's requests, from its store's gen_metadata: a row each, with its tokens
     (exa.codeium_common_pb.ModelUsageStats: 2 input not from the cache, 3 output, which is 9 thinking and 10 the
@@ -1084,7 +1112,15 @@ def gemini_usage(root, cache, start, end, zone, exclude_proxy=False, carriers=No
                 db.execute('INSERT OR REPLACE INTO files VALUES (?,?,?)',(file_id,size,mtime))
         # Antigravity serves Claude and GPT models too: each request is priced by the model it names (the plugin
         # passes magpie_price, as the engine does).
-        result=aggregate(kept.merged(db,best_timed_events(db,start,end),archive,start,end),start,end,zone,exclude_proxy,price,carriers)
+        events=kept.merged(db,best_timed_events(db,start,end),archive,start,end)
+        # Each Antigravity conversation's project as its list says now: the index keeps the one read with the store, and
+        # a list written after (a workspace added, changed or taken away) changes no store (AGY-5).
+        projects=antigravity_projects(stores)
+        for event in events:
+            if 'timing' in event and event.get('session') in projects:
+                if projects[event['session']]:event['project']=projects[event['session']]
+                else:event.pop('project',None)
+        result=aggregate(events,start,end,zone,exclude_proxy,price,carriers)
         if errors:
             result['partial']=True
             if not result['summary']['requests']:result['error']='Gemini 记录格式待检查'

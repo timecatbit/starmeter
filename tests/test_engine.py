@@ -674,6 +674,25 @@ class HarnessReaderParityTests(unittest.TestCase):
         (chats / 'session-1.json').write_text(json.dumps({'sessionId': 'gs1', 'messages': [{'type': 'gemini', 'id': 'g1', 'model': 'gemini-3-pro',
             'timestamp': '2026-11-18T10:00:00Z', 'tokens': {'input': 100, 'output': 10, 'cached': 20, 'thoughts': 5, 'tool': 2, 'total': 117}}]}))
         self.assertEqual(self.compare('gemini', gemini, 'with Gemini CLI')['summary']['requests'], 7)
+        # AGY-5: the lists written after the stores were read, the cache kept: the projects as the lists say now (a
+        # workspace changed, taken away, added where there was none), the totals as they were.
+        def workspace(uris, conversation='c1'):
+            for app in ('antigravity', 'antigravity-ide'):
+                listing = sqlite3.connect(gemini / app / 'conversation_summaries.db')
+                listing.execute('INSERT OR REPLACE INTO conversation_summaries VALUES (?,?,?,?,?,?)',
+                                (conversation, 'Fix the parser', uris, None, 'CASCADE_RUN_STATUS_IDLE', 0))
+                listing.commit(); listing.close()
+        def grouped(name):
+            result = self.compare('gemini', gemini, name)
+            self.assertEqual((result['summary']['requests'], result['summary']['totalTokens']), (7, before['summary']['totalTokens']), name)
+            return sorted((p['project'] or '', p['requests']) for p in result['projects'])
+        before = self.compare('gemini', gemini, 'before the lists change')
+        workspace('["file:///Users/demo/dock"]')
+        self.assertEqual(grouped('a workspace changed'), [('', 2), ('dock', 5)])
+        workspace('[]')
+        self.assertEqual(grouped('the workspace taken away'), [('', 7)])
+        workspace('["file:///Users/demo/harbor%20app"]')
+        self.assertEqual(grouped('a workspace added'), [('', 2), ('harbor app', 5)])
         # AGY-1: the app's copy knows only when its conversation began (yesterday in Shanghai), the IDE's when its step
         # ran (today): it counts once, on the IDE's day, whichever store was read first.
         for name, ide_first in (('app read first', False), ('IDE read first', True)):

@@ -1105,7 +1105,22 @@ pub fn gemini_usage(
             Err(_) => errors += 1,
         }
     }
-    let events = archive::merged(&db, best_timed_events(&db, start, end)?, archive, start, end);
+    let mut events = archive::merged(&db, best_timed_events(&db, start, end)?, archive, start, end);
+    // Each Antigravity conversation's project as its list says now: the index keeps the one read with the store, and a
+    // list written after (a workspace added, changed or taken away) changes no store (AGY-5).
+    let projects = antigravity_projects(&stores);
+    for event in &mut events {
+        if event.contains_key("timing")
+            && let Some(project) = event.get("session").and_then(Json::as_str).and_then(|session| projects.get(session))
+        {
+            match project {
+                Some(project) => event.insert("project", project.as_str()),
+                None => {
+                    event.remove("project");
+                }
+            }
+        }
+    }
     // Antigravity serves Claude and GPT models too: each request is priced by the model it names, as Magpie's are.
     let mut result = tally::aggregate(&events, start, end, zone, exclude_proxy, Some(&magpie_price), carriers);
     if errors > 0 {
@@ -1399,6 +1414,48 @@ fn antigravity_file(path: &str, changed: f64) -> Result<Vec<Event>, FileError> {
 /// The project an Antigravity conversation ran in, by name: the first workspace its own list
 /// (conversation_summaries.db beside conversations/) gives it (用户：反重力在项目里也没显示). A subagent's list row names
 /// its parent's workspace too; a conversation outside any project has none.
+/// The project each of these Antigravity stores' conversations ran in, by its session (the identity of its id), as
+/// its list (conversation_summaries.db beside conversations/) says now: one query per list. Kept by both the app and
+/// the IDE, the first list that names one.
+fn antigravity_projects(stores: &[String]) -> HashMap<String, Option<String>> {
+    let mut lists: HashMap<std::path::PathBuf, HashMap<String, String>> = HashMap::new();
+    let mut found: HashMap<String, Option<String>> = HashMap::new();
+    for store in stores {
+        let Some(list) = Path::new(store)
+            .ancestors()
+            .find(|folder| folder.file_name().is_some_and(|name| name == "conversations"))
+            .and_then(Path::parent)
+            .map(|parent| parent.join("conversation_summaries.db"))
+        else {
+            continue;
+        };
+        let rows = lists.entry(list.clone()).or_insert_with(|| {
+            if !list.is_file() {
+                return HashMap::new();
+            }
+            let uri = crate::database::file_uri(&list.to_string_lossy(), "mode=ro");
+            Database::open(Path::new(&uri), 2.0, Mode::ReadOnlyUri)
+                .and_then(|db| db.rows("SELECT conversation_id, workspace_uris FROM conversation_summaries", &[]))
+                .map(|rows| {
+                    rows.iter()
+                        .filter_map(|row| {
+                            Some((database::text(&row[0])?.to_string(), database::text(&row[1])?.to_string()))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        });
+        let conversation =
+            Path::new(store).file_stem().map(|stem| stem.to_string_lossy().into_owned()).unwrap_or_default();
+        let project = rows.get(&conversation).and_then(|uris| workspace_project(uris));
+        let session = py::identity(vec![conversation.as_str().into()]);
+        if !found.get(&session).is_some_and(Option::is_some) {
+            found.insert(session, project);
+        }
+    }
+    found
+}
+
 pub fn antigravity_project(store: &str, conversation: &str) -> Option<String> {
     let list = Path::new(store)
         .ancestors()
