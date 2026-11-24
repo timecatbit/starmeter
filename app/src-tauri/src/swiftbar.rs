@@ -219,7 +219,7 @@ impl Files {
     }
 
     fn wake(&self) {
-        let url = format!("swiftbar://refreshplugin?name={}", self.name);
+        let url = refresh_link(&self.name);
         #[cfg(all(target_os = "macos", not(test)))]
         crate::macos::open_url(&url, false);
         #[cfg(any(not(target_os = "macos"), test))]
@@ -286,9 +286,27 @@ impl Files {
     }
 }
 
+/// SwiftBar's link to refresh a plugin, its name (a renamed one's spaces and Chinese too) written into the link.
+fn refresh_link(name: &str) -> String {
+    let name: String = name
+        .bytes()
+        .map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => (byte as char).to_string(),
+            _ => format!("%{byte:02X}"),
+        })
+        .collect();
+    format!("swiftbar://refreshplugin?name={name}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_renamed_plugins_name_is_written_into_the_refresh_link() {
+        assert_eq!(refresh_link("starmeter"), "swiftbar://refreshplugin?name=starmeter");
+        assert_eq!(refresh_link("my meter 星"), "swiftbar://refreshplugin?name=my%20meter%20%E6%98%9F");
+    }
 
     fn folder() -> PathBuf {
         let folder = std::env::temp_dir().join(format!(
