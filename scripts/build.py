@@ -190,4 +190,5 @@ if __name__ == '__main__':
     if args.panel:
         build_app(args.panel, 'panel', args.universal)
     if args.app:
-        build_app(args.app, 'app', args.universal)
+        # The app carries the engine it was built beside, as the release builds do (its command line runs it).
+        build_app(args.app, 'app', args.universal, engine=args.engine)
