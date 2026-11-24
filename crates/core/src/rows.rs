@@ -195,6 +195,15 @@ pub fn reserve_level(stale: bool) -> Json {
     if stale { Json::Null } else { Json::from("warning") }
 }
 
+/// On the reserve the value is what is left to spend, not 已用 X%, so the share used goes beside it for the row's bar
+/// (with one window there is no pair of bars to show it; 用户：ChatGPT 的订阅用量条怎么没了).
+pub fn reserve_share(on_reserve: bool, used: Option<f64>) -> Json {
+    match used.filter(|_| on_reserve) {
+        Some(used) => Json::from(g(round(used.clamp(0.0, 100.0), 1))),
+        None => Json::Null,
+    }
+}
+
 pub fn usage_level(percent: Option<f64>, stale: bool) -> Json {
     match percent {
         Some(percent) if !stale => Json::from(if percent >= 90.0 {

@@ -59,6 +59,7 @@ export const destructive = (e: Entry) => ['remove-api-key', 'clear-connection', 
 
 /** "已用 38%", "已用 main 76% · alt 20%": the tightest share, for the bar under a usage row. */
 export function usageShare(e: Entry): number | null {
+  if (e.usageLevel !== undefined && e.share !== undefined) return Math.min(1, Math.max(0, e.share));
   const value = source(e).value;
   if (e.usageLevel === undefined || value === undefined) return null;
   const shares = [...value.matchAll(/(\d+(?:\.\d+)?)(?=%)/g)].map((m) => Number(m[1]));

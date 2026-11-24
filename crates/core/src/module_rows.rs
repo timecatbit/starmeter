@@ -197,6 +197,7 @@ impl Runtime {
                     &self.brand_icon("claude-subscription"),
                     &object! {
                         "panelusagelevel" => if on_reserve { rows::reserve_level(failed) } else { usage_level(Some(most.unwrap_or(0.0)), stale || failed || windows.is_empty()) },
+                        "panelshare" => rows::reserve_share(on_reserve, most),
                     },
                 ]),
             ),
@@ -521,6 +522,7 @@ impl Runtime {
         } else if let Some(extra) = on_demand.as_ref().filter(|_| on_reserve) {
             match extra.get("limitCents").filter(|limit| limit.is_truthy()).and_then(Json::number) {
                 Some(limit) => format!("按需剩 ${:.2}", ((limit - py::num(extra.get("usedCents"))) / 100.0).max(0.0)),
+                        "panelshare" => rows::reserve_share(on_reserve, percent),
                 None => "在用按需用量".into(),
             }
         } else if let Some(percent) = percent {
@@ -833,6 +835,7 @@ impl Runtime {
             .then(|| format!("可免费重置 {offered} 次"));
         let limits: Vec<(String, f64, bool)> = visible
             .iter()
+                    "panelshare" => rows::reserve_share(on_reserve, most),
             .map(|window| {
                 let name = chatgpt_window_label(window);
                 let five_hours = name == "5 小时";

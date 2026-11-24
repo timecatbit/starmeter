@@ -24,6 +24,9 @@ export interface Entry {
   /** Shorter forms of the value, for when the label needs the room. */
   fallbacks?: string[];
   usageLevel?: 'normal' | 'warning' | 'critical';
+  /** The share used (0–1) for the row's bar when the value isn't 已用 X%: a plan on its reserve, whose value is what is
+   *  left to spend (余 41,554 Credits). */
+  share?: number;
   /** A plan with more than one limit: a bar for each window shown, in place of the single bar of the tightest, its name
    *  and share (percent) under it. `place` 0 and 1 are the first line's left (five hours) and right (the week), 2 and 3
    *  the second line's; `group`, on a line's first bar, is the model group the line is for (Gemini 订阅's), and `marks`

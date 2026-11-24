@@ -168,6 +168,9 @@ pub fn panel_entries(lines: &[String]) -> Vec<Json> {
             {
                 entry.insert("usageLevel", level.as_str());
             }
+            if let Some(share) = attrs.get("panelshare").and_then(|share| share.parse::<f64>().ok()) {
+                entry.insert("share", (share / 100.0).clamp(0.0, 1.0));
+            }
             if let Some(light) =
                 attrs.get("panelstatus").filter(|l| ["new", "ok", "issue", "unknown"].contains(&l.as_str()))
             {
