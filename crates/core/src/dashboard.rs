@@ -1224,8 +1224,15 @@ impl Runtime {
         let first_activity = |card: &Object| -> Option<Json> {
             let id = card.get("id").and_then(Json::as_str).unwrap_or("");
             let usage = bundle.get(id).and_then(Json::as_object).cloned().unwrap_or_default();
+            // The part the card's counted figures are: the other computers' records (多台电脑合并) where this
+            // computer's ChatGPT records defer to OpenCodex, else what Summary counts of its own.
+            let deferred = counting.get(id).and_then(|part| part.get("others")).is_some_and(Json::is_truthy);
             let source = if card.contains_key("counted") {
-                usage.get("counted").and_then(Json::as_object).cloned().unwrap_or_default()
+                usage
+                    .get(if deferred { "others" } else { "counted" })
+                    .and_then(Json::as_object)
+                    .cloned()
+                    .unwrap_or_default()
             } else {
                 usage
             };

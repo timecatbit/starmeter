@@ -914,6 +914,30 @@ class RangeParityTests(unittest.TestCase):
                 self.assertEqual({hour: n for hour, n in enumerate(tokens) if n}, squares)
                 self.assertEqual(answer['result']['heatmap']['labels'][0][-5:], '00:00')
 
+    def test_todays_chart_starts_at_the_other_computers_first_call(self):
+        # This computer's ChatGPT records defer to OpenCodex; the other computer's (多台电脑合并) count, and today's chart
+        # starts at its first call when that came first (the engine only: the plugin doesn't merge other computers).
+        zone = ZoneInfo('Asia/Shanghai')
+        frozen = datetime(2026, 11, 24, 15, 0, tzinfo=zone).timestamp()
+        def at(hour, minute=0):return datetime(2026, 11, 24, hour, minute, tzinfo=zone).timestamp()
+        hour = lambda moment: int(moment) // 3600 * 3600
+        others = {'summary': {'requests': 1, 'totalTokens': 100}, 'hours': [{'timestamp': hour(at(9, 17)), 'totalTokens': 100, 'requests': 1}],
+                  'firstActivityAt': at(9, 17)}
+        bundle = {'range': 'today', 'opencodex': {'summary': {'requests': 1, 'totalTokens': 40}, 'firstActivityAt': at(11),
+                                                  'hours': [{'timestamp': hour(at(11)), 'totalTokens': 40, 'requests': 1}]},
+                  'codex': dict(others, others=others)}
+        (Path(self.states['swift']['OCX_STATE_DIR']) / 'preferences.json').write_text(json.dumps(
+            {'schema': 1, 'visible': ['summary', 'opencodex', 'codex'], 'modules': [m[0] for m in preferences.MODULES]}))
+        environment = {k: v for k, v in os.environ.items() if k not in ('CLAUDE_CONFIG_DIR', 'XDG_CONFIG_HOME', 'CODEX_HOME', 'OCX_BASE_URL', 'TZ')}
+        environment.update(self.common, **self.states['swift'])
+        data = {'range_usage': bundle, 'displayed_range': 'today'}
+        done = subprocess.run([PROBE], input=json.dumps({'call': 'dashboard', 'args': [data, frozen, None]}).encode(),
+                              capture_output=True, check=True, env=environment)
+        result = probed(done.stdout)['result']
+        codex = next(card for card in result['providers'] if card['id'] == 'codex')
+        self.assertEqual(codex['subtitle'], '本机记录未计入 Summary')
+        self.assertEqual(result['dates'][1], '09:17')
+
     def test_range_bounds_follow_the_wall_clock(self):
         import types
         plugin = types.ModuleType('plugin_bounds')
