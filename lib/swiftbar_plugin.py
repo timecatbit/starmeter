@@ -5008,8 +5008,14 @@ def run_action(name, extra):
         # The Cursor card's events and the plan read again with the new choice, not held by the last failure's backoff.
         invalidate_caches([range_cache_name(),'cursor_usage_events','cursor_subscription'])
         if value=='true' and view_settings()['cursorUsage']:
-            try:refresh_now('cursor-subscription')
-            except ValueError:pass
+            if module_enabled('cursor-subscription'):
+                try:refresh_now('cursor-subscription')
+                except ValueError:pass
+            # The Cursor card alone (its switch is on its page too): its records are asked for now, so macOS asks about
+            # the keychain at once; the range is counted again from them in the background.
+            if module_enabled('cursor'):
+                moment=usage_now();start,end=range_bounds(selected_range(),moment)
+                cursor_range_usage(start,end,moment)
         schedule_background_refresh()
     elif name == 'set-keep-usage':
         value=extra[0] if len(extra)==1 else ''

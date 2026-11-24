@@ -1223,7 +1223,16 @@ impl Runtime {
                     "cursor_subscription".into(),
                 ]);
                 if value == "true" && self.settings().get("cursorUsage").is_some_and(Json::is_truthy) {
-                    let _ = self.refresh_now("cursor-subscription");
+                    if self.module_enabled("cursor-subscription") {
+                        let _ = self.refresh_now("cursor-subscription");
+                    }
+                    // The Cursor card alone (its switch is on its page too): its records are asked for now, so macOS
+                    // asks about the keychain at once; the range is counted again from them in the background.
+                    if self.module_enabled("cursor") {
+                        let moment = now();
+                        let (start, end) = self.range_bounds(&self.selected_range(), moment, &self.local_zone());
+                        let _ = self.cursor_range_usage_live(start, end, moment, &mut []);
+                    }
                 }
                 self.schedule_background_refresh();
             }
