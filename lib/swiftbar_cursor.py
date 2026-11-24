@@ -94,7 +94,7 @@ def session(home, now=None):
         if not isinstance(info.get('exp'), (int, float)) or info['exp'] <= now + 60:problems.append('expired');continue
         return subject, token, where
     if 'expired' in problems:raise CursorError('Cursor 登录已过期，请打开 Cursor 重新登录')
-    if 'encrypted' in problems:raise CursorError('Cursor 登录已加密保存，暂时无法读取')
+    if 'encrypted' in problems:raise CursorError('这个版本的 Cursor 把登录加密存进了钥匙串，Starmeter 读不出来；可点下面的“打开用量与账单”在 cursor.com 查看')
     if 'format' in problems:raise CursorError('无法识别 Cursor 登录信息')
     raise CursorError('未找到 Cursor 登录，请先登录 Cursor 桌面版或 Cursor CLI')
 

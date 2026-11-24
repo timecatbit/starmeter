@@ -188,7 +188,9 @@ fn session(home: &str, environment: &HashMap<String, String>, now: f64) -> Resul
         return fail("Cursor 登录已过期，请打开 Cursor 重新登录");
     }
     if problems.contains("encrypted") {
-        return fail("Cursor 登录已加密保存，暂时无法读取");
+        return fail(
+            "这个版本的 Cursor 把登录加密存进了钥匙串，Starmeter 读不出来；可点下面的“打开用量与账单”在 cursor.com 查看",
+        );
     }
     if problems.contains("format") {
         return fail("无法识别 Cursor 登录信息");

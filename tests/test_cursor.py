@@ -86,7 +86,7 @@ class CursorTests(unittest.TestCase):
         self.app(jwt(exp=1000))
         with self.assertRaisesRegex(cursor.CursorError, '已过期'):cursor.session(self.home, now=2000)
         self.app('cursor-safe-storage:v1:abcd')
-        with self.assertRaisesRegex(cursor.CursorError, '已加密'):cursor.session(self.home)
+        with self.assertRaisesRegex(cursor.CursorError, '加密'):cursor.session(self.home)
         # A UTF-16 value, as some Cursor versions store it, still reads.
         self.app(jwt().encode('utf-16-le'))
         self.assertEqual(cursor.session(self.home)[0], 'user_01ABC')

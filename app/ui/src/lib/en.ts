@@ -35,7 +35,7 @@ export const phrases: Record<string, string> = {
   '未找到 Cursor 登录，请先登录 Cursor 桌面版或 Cursor CLI': 'No Cursor sign-in found: sign in to the Cursor app or Cursor CLI first',
   'Cursor 登录已失效，请打开 Cursor 重新登录': 'Cursor\'s sign-in no longer works: open Cursor and sign in again',
   'Cursor 登录已过期，请打开 Cursor 重新登录': 'Cursor\'s sign-in has expired: open Cursor and sign in again',
-  'Cursor 登录已加密保存，暂时无法读取': 'Cursor keeps its sign-in encrypted; it can\'t be read for now', '无法识别 Cursor 登录信息': 'Cursor\'s sign-in couldn\'t be recognized',
+  '这个版本的 Cursor 把登录加密存进了钥匙串，Starmeter 读不出来；可点下面的“打开用量与账单”在 cursor.com 查看': 'This version of Cursor keeps its sign-in encrypted in the keychain, which Starmeter can\'t read; open the usage and billing page below to see it on cursor.com', '无法识别 Cursor 登录信息': 'Cursor\'s sign-in couldn\'t be recognized',
   客户端接口不可用: 'The client\'s interface is unavailable', '无法启动 ChatGPT 编程客户端': 'Couldn\'t start the ChatGPT coding client',
   无法读取客户端登录状态: 'Couldn\'t read the client\'s sign-in', 额度暂不可用: 'Limits unavailable for now', 暂时无法读取数据: 'Can\'t read the data for now',
   // Heatmap
