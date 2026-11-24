@@ -828,7 +828,8 @@ def request(path, method="GET", body=None, timeout=4.0, auth=True):
 
 
 def deepseek_balance_direct():
-    """OpenCodex 会过滤负余额；必要时直接向 DeepSeek 查询并保留负数。"""
+    """OpenCodex 会过滤负余额；必要时直接向 DeepSeek 查询并保留负数。The report; None when no DeepSeek key is set up to ask
+    with; {'failed': why} when asking failed (said as such, not as 未配置)."""
     try:
         api_key = str(os.environ.get('DEEPSEEK_API_KEY') or '').strip()
         key_file = os.environ.get('DEEPSEEK_API_KEY_FILE')
@@ -840,20 +841,23 @@ def deepseek_balance_direct():
             with open(CONFIG_FILE, "r", encoding="utf-8") as handle: config = json.load(handle)
             provider = (config.get("providers") or {}).get("deepseek") or {}
         base_url = str(provider.get("baseUrl") or "").rstrip("/")
-        if base_url not in ("https://api.deepseek.com", "https://api.deepseek.com/v1"):
-            return None
         api_key = str(provider.get("apiKey") or "").strip()
-        if not api_key:
-            return None
-        req = urllib.request.Request(
-            "https://api.deepseek.com/user/balance",
-            headers={"Accept": "application/json", "Authorization": "Bearer " + api_key},
-        )
-        with urllib.request.build_opener(_NoRedirect).open(req, timeout=4.0) as response:
-            body = json.loads(response.read().decode("utf-8"))
     except Exception:
         return None
-    return deepseek_balance_report(body)
+    if base_url not in ("https://api.deepseek.com", "https://api.deepseek.com/v1") or not api_key:
+        return None
+    req = urllib.request.Request(
+        "https://api.deepseek.com/user/balance",
+        headers={"Accept": "application/json", "Authorization": "Bearer " + api_key},
+    )
+    try:
+        with urllib.request.build_opener(_NoRedirect).open(req, timeout=4.0) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        return {'failed': 'DeepSeek 余额查询失败（HTTP %d）' % error.code}
+    except Exception:
+        return {'failed': 'DeepSeek 余额查询失败'}
+    return deepseek_balance_report(body) or {'failed': 'DeepSeek 余额查询失败'}
 
 
 def deepseek_balance_report(body):
@@ -924,6 +928,7 @@ def provider_quotas_cached():
     def load():
         if os.environ.get('DEEPSEEK_API_KEY') or os.environ.get('DEEPSEEK_API_KEY_FILE') or not ocx_configured():
             direct = deepseek_balance_direct()
+            if direct and direct.get('failed'):return None, (0, direct['failed'], None)
             return (direct, None) if direct else (None, (0, '未配置 DeepSeek API 凭据', None))
         payload, error = request("/api/provider-quotas", timeout=4.0)
         reports = list(payload.get("reports") or []) if isinstance(payload, dict) else []
@@ -933,7 +938,7 @@ def provider_quotas_cached():
         # Only call DeepSeek when the proxy has no usable balance, including a negative balance.
         if value is None or value == 0:
             direct = deepseek_balance_direct()
-            if direct:
+            if direct and not direct.get('failed'):
                 reports = [row for row in reports if isinstance(row, dict) and
                            str(row.get("provider", "")).lower() != "deepseek"] + direct["reports"]
                 error = None

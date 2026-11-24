@@ -1211,6 +1211,13 @@ class OpenCodexParityTests(unittest.TestCase):
         self.compare('provider_quotas', extra={'DEEPSEEK_API_KEY': 'sk-direct'})
         self.answers['/api.deepseek.com/user/balance'] = self.ok({'balance_infos': [{'currency': 'USD', 'granted_balance': '2', 'topped_up_balance': '5'}]})
         self.compare('provider_quotas', extra={'DEEPSEEK_API_KEY': 'sk-direct'})
+        # Asking DeepSeek with a key set up and failing is said as a failed query, not as 未配置 (no key at all still is).
+        self.answers['/api.deepseek.com/user/balance'] = (401, b'{"error": "bad key"}', {})
+        self.assertEqual(self.compare('provider_quotas', extra={'DEEPSEEK_API_KEY': 'sk-direct'})[1], 'DeepSeek 余额查询失败（HTTP 401）')
+        self.answers['/api.deepseek.com/user/balance'] = self.ok({'balance_infos': 'odd'})
+        self.assertEqual(self.compare('provider_quotas', extra={'DEEPSEEK_API_KEY': 'sk-direct'})[1], 'DeepSeek 余额查询失败')
+        self.assertEqual(self.compare('provider_quotas', extra={'DEEPSEEK_API_KEY': ' ', 'OCX_HOME': '/nonexistent', 'OCX_BASE_URL': ''})[1],
+                         '未配置 DeepSeek API 凭据')
 
     def test_komari(self):
         def rpc(path, headers):
