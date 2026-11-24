@@ -189,9 +189,36 @@ pub mod paths {
         let resolved = std::fs::canonicalize(path).ok()?;
         // Windows gives \\?\C:\..., which the Python reference never shows.
         #[cfg(windows)]
-        if let Some(plain) = resolved.to_str().and_then(|text| text.strip_prefix(r"\\?\")) {
+        if let Some(plain) = resolved.to_str().and_then(without_verbatim) {
             return Some(PathBuf::from(plain));
         }
         Some(resolved)
+    }
+
+    /// A Windows path without its \\?\ prefix: \\?\C:\x is C:\x, and a share (\\?\UNC\host\share, as WSL's
+    /// \\wsl.localhost\Ubuntu comes back) is \\host\share again, not the relative UNC\host\share.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub(crate) fn without_verbatim(text: &str) -> Option<String> {
+        if let Some(share) = text.strip_prefix(r"\\?\UNC\") {
+            return Some(format!(r"\\{share}"));
+        }
+        text.strip_prefix(r"\\?\").map(String::from)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::paths::without_verbatim;
+
+    #[test]
+    fn a_share_keeps_its_two_backslashes_without_the_verbatim_prefix() {
+        assert_eq!(without_verbatim(r"\\?\C:\Users\me\x").as_deref(), Some(r"C:\Users\me\x"));
+        // WSL's home, as canonicalize gives it back: a share, not the relative UNC\wsl.localhost\….
+        assert_eq!(
+            without_verbatim(r"\\?\UNC\wsl.localhost\Ubuntu\home\me\.claude").as_deref(),
+            Some(r"\\wsl.localhost\Ubuntu\home\me\.claude")
+        );
+        assert_eq!(without_verbatim(r"\\?\UNC\wsl$\Ubuntu\home").as_deref(), Some(r"\\wsl$\Ubuntu\home"));
+        assert_eq!(without_verbatim(r"C:\plain"), None);
     }
 }
