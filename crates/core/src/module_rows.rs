@@ -148,9 +148,14 @@ impl Runtime {
         let most = windows.iter().map(|window| py::num(window.get("used"))).fold(None, |best: Option<f64>, used| {
             Some(best.map_or(used, |best| if used > best { used } else { best }))
         });
-        // The tightest, like every other plan; the homepage's two bars name the limits.
-        let mut value = if let Some(most) = most.filter(|_| !stale) {
-            used_text(most)
+        // 本周已用: the week's own window (本周); with none, the tightest. The homepage's two bars name the limits.
+        let week = windows
+            .iter()
+            .find(|window| py::str(window.get("label")) == "本周")
+            .map(|window| py::num(window.get("used")));
+        let headline = rows::headline_used(week, most);
+        let mut value = if let Some((_, text)) = headline.as_ref().filter(|_| !stale) {
+            text.clone()
         } else {
             py::str(Some(&payload.get("state").cloned().unwrap_or_else(|| Json::from("暂无本机用量快照"))))
         };
@@ -168,9 +173,14 @@ impl Runtime {
         if let Some(extra) = extra_on.as_ref().filter(|_| on_reserve) {
             let currency = py::str(Some(&extra.get("currency").cloned().unwrap_or_else(|| Json::from("USD"))));
             let symbol = if currency == "USD" { "$".to_string() } else { format!("{currency} ") };
-            value = match extra.get("limit").filter(|limit| limit.is_truthy()).and_then(Json::number) {
+            let left = match extra.get("limit").filter(|limit| limit.is_truthy()).and_then(Json::number) {
                 Some(limit) => format!("额外用量剩 {symbol}{:.2}", (limit - py::num(extra.get("used"))).max(0.0)),
                 None => "在用额外用量".into(),
+            };
+            // The week's share stays beside what is left (用户：额度写在已用附近).
+            value = match week {
+                Some(week) => format!("本周{} · {left}", used_text(week)),
+                None => left,
             };
         }
         // Like every other module: the last good figures stay, marked as a failed refresh.
@@ -196,7 +206,7 @@ impl Runtime {
                     &object! { "badge" => value, "panelgauges" => rows::gauges(&rows::headline_pair(&limits), stale || failed) },
                     &self.brand_icon("claude-subscription"),
                     &object! {
-                        "panelusagelevel" => if on_reserve { rows::reserve_level(failed) } else { usage_level(Some(most.unwrap_or(0.0)), stale || failed || windows.is_empty()) },
+                        "panelusagelevel" => if on_reserve { rows::reserve_level(failed) } else { usage_level(Some(headline.as_ref().map_or(0.0, |(share, _)| *share)), stale || failed || windows.is_empty()) },
                         "panelshare" => rows::reserve_share(on_reserve, most),
                     },
                 ]),
@@ -411,12 +421,20 @@ impl Runtime {
             .fold(None, |best: Option<f64>, used| {
                 Some(best.map_or(used, |best| if used > best { used } else { best }))
             });
+        // 本周已用: Gemini's own week, when it was read.
+        let week = windows
+            .iter()
+            .find(|window| {
+                window.get("group").and_then(Json::as_str) == Some("gemini")
+                    && window.get("window").and_then(Json::as_str) != Some("5h")
+            })
+            .map(|window| 100.0 - py::num(window.get("remaining")));
+        let headline = rows::headline_used(week, most);
+        let most = headline.as_ref().map(|(share, _)| *share);
         let present = self.connection_ready("gemini-subscription");
-        let badge = match most {
-            Some(most) if closed => {
-                format!("{} · 截至 {}", used_text(most), self.snapshot_time(read_at.unwrap_or(0.0)))
-            }
-            Some(most) => used_text(most),
+        let badge = match &headline {
+            Some((_, text)) if closed => format!("{text} · 截至 {}", self.snapshot_time(read_at.unwrap_or(0.0))),
+            Some((_, text)) => text.clone(),
             None if closed || !present => if present || antigravity_app(&self.home).is_some() {
                 "打开 Antigravity 后显示"
             } else {
@@ -787,8 +805,14 @@ impl Runtime {
             .fold(None, |best: Option<f64>, used| {
                 Some(best.map_or(used, |best| if used > best { used } else { best }))
             });
-        let mut badge = match most {
-            Some(most) => used_text(most),
+        // 本周已用: the week's own window; with none, the tightest.
+        let week = visible
+            .iter()
+            .find(|window| chatgpt_window_label(window) == "本周")
+            .map(|window| 100.0 - py::num(window.get("remaining")));
+        let headline = rows::headline_used(week, most);
+        let mut badge = match &headline {
+            Some((_, text)) => text.clone(),
             None if self.chatgpt_configured() => {
                 py::str(Some(&payload.get("state").cloned().unwrap_or_else(|| Json::from("待同步"))))
             }
@@ -797,24 +821,31 @@ impl Runtime {
         if !windows.is_empty() && visible.is_empty() {
             badge = "待刷新".into();
         }
-        // 订阅额度框架: the windows used up (or ordinary use stopped) with Credits left, the Credits are the value, in
-        // orange; the free resets come under the bars once a window is at 90%.
+        // 订阅额度框架: the windows used up (or ordinary use stopped) with Credits left, the Credits go beside the week's
+        // share, in orange (用户：GPT 的额度可以写在已用附近); the free resets are on its page (用户：GPT 的重置可以写在里面).
         let credits = payload.get("credits").and_then(Json::as_object);
         let unlimited = credits.is_some_and(|credits| credits.get("unlimited") == Some(&Json::Bool(true)));
         let balance = credits.map(|credits| rows::credits_amount(py::num(credits.get("balance"))));
         let exhausted = most.is_some_and(|most| most >= 100.0) || payload.get("blocked").is_some_and(Json::is_truthy);
         let on_reserve = exhausted && credits.is_some() && !visible.is_empty();
+        let mut fallback = Json::Null;
         if on_reserve {
-            badge = if unlimited {
-                "Credits 不限".into()
+            let left = if unlimited {
+                "Credits 不限".to_string()
             } else {
                 format!("余 {} Credits", balance.clone().unwrap_or_default())
+            };
+            badge = match week {
+                Some(week) => {
+                    // A narrow row keeps what is left to spend.
+                    fallback = Json::from(left.clone());
+                    format!("本周{} · {left}", used_text(week))
+                }
+                None => left,
             };
         }
         let resets = payload.get("resets").and_then(Json::as_object);
         let offered = resets.and_then(|resets| resets.get("count")).and_then(Json::integer).unwrap_or(0);
-        let reset_note = (offered > 0 && !visible.is_empty() && (exhausted || most.is_some_and(|most| most >= 90.0)))
-            .then(|| format!("可免费重置 {offered} 次"));
         let limits: Vec<(String, f64, bool)> = visible
             .iter()
             .map(|window| {
@@ -829,12 +860,12 @@ impl Runtime {
             merged(&[
                 &object! {
                     "badge" => with_failure(&badge, !visible.is_empty(), failed),
+                    "panelfallback" => fallback,
                     "panelgauges" => rows::gauges(&rows::headline_pair(&limits), failed),
-                    "paneldetail" => reset_note.map_or(Json::Null, Json::from),
                 },
                 &self.brand_icon("chatgpt"),
                 &object! {
-                    "panelusagelevel" => if visible.is_empty() { Json::Null } else if on_reserve { rows::reserve_level(failed) } else { usage_level(most, failed) },
+                    "panelusagelevel" => if visible.is_empty() { Json::Null } else if on_reserve { rows::reserve_level(failed) } else { usage_level(headline.as_ref().map(|(share, _)| *share), failed) },
                     "panelshare" => rows::reserve_share(on_reserve, most),
                 },
             ]),

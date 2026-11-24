@@ -1987,6 +1987,14 @@ def used_text(percent):
     return '已用 %g%%'%round(min(100,max(0,float(percent))),1)
 
 
+def headline_used(week,tightest):
+    """A plan's homepage figure: its week's share as 本周已用 X% when it has a weekly window, else the tightest as
+    已用 X%; (share, text), or None."""
+    if week is not None:return week,'本周'+used_text(week)
+    if tightest is not None:return tightest,used_text(tightest)
+    return None
+
+
 # Between a homepage bar's name, share, level, place, group and marks in panelgauges; the bars themselves are split by
 # FALLBACK.
 GAUGE_FIELD='\x1e'
@@ -2036,7 +2044,10 @@ def claude_subscription_lines(data):
     if payload.get('fetchError'):error=(0,payload['fetchError'],None)
     stale=claude_usage_stale(payload)
     # The tightest, like every other plan; the homepage's two bars name the limits.
-    value=used_text(max(w['used'] for w in windows)) if windows and not stale else payload.get('state','暂无本机用量快照')
+    # 本周已用: the week's own window (本周); with none, the tightest.
+    week=next((w['used'] for w in windows if w.get('label')=='本周'),None)
+    headline=headline_used(week,max((w['used'] for w in windows),default=None))
+    value=headline[1] if headline and not stale else payload.get('state','暂无本机用量快照')
     if windows and stale:value='用量待更新' if live else '本机用量待更新'
     failed=refresh_failed(error)
     # 订阅额度框架: a window used up with extra usage on, what is left of it is the value, in orange.
@@ -2044,12 +2055,13 @@ def claude_subscription_lines(data):
     on_reserve=bool(windows) and not stale and max(w['used'] for w in windows)>=100 and extra_on is not None
     if on_reserve:
         symbol='$' if extra_on.get('currency','USD')=='USD' else extra_on['currency']+' '
-        value='额外用量剩 %s%.2f'%(symbol,max(0,extra_on['limit']-extra_on['used'])) if extra_on.get('limit') else '在用额外用量'
+        left='额外用量剩 %s%.2f'%(symbol,max(0,extra_on['limit']-extra_on['used'])) if extra_on.get('limit') else '在用额外用量'
+        value='本周%s · %s'%(used_text(week),left) if week is not None else left
     # Like every other module: the last good figures stay, marked as a failed refresh.
     value=with_failure(value,bool(windows) and not stale,failed)
     source={'claude-oauth':'Code 登录','live':'App 登录 · 手动查询','claude-code':'Code 本机回传','app-snapshot':'App 本机快照'}.get(payload.get('source'),'Claude App 本机快照')
     limits=[(w['label'],w['used'],claude_span(w)==5*3600) for w in windows]
-    rows=[item('Claude 订阅',badge=value,panelgauges=gauges(headline_pair(limits),stale or failed),**brand_icon('claude-subscription'),panelusagelevel=reserve_level(failed) if on_reserve else usage_level(max((w['used'] for w in windows),default=0),stale or failed or not windows),
+    rows=[item('Claude 订阅',badge=value,panelgauges=gauges(headline_pair(limits),stale or failed),**brand_icon('claude-subscription'),panelusagelevel=reserve_level(failed) if on_reserve else usage_level(headline[0] if headline else 0,stale or failed or not windows),
                panelshare=reserve_share(on_reserve,max((w['used'] for w in windows),default=None))),
           item('来源 · '+source,level=1,color=MUTED,size=10)]
     for w in windows:
@@ -2205,7 +2217,7 @@ def gemini_span(window):
 def gemini_subscription_lines(data):
     """Gemini 订阅: the quota Antigravity's app shows, asked of it on this computer (swiftbar_antigravity). Gemini's
     five-hour and weekly limits, then Claude's with GPT's; with the app closed the last figures stay, marked with when
-    they were read, and a window past its reset is dropped, as it has filled again."""
+    they were read, and a window past its reset reads as filled again."""
     service=catalog.BY_KEY['gemini-subscription']
     payload=data.get('gemini_subscription') or {};error=data.get('gemini_subscription_error')
     closed=error==antigravity.NOT_RUNNING;failed=refresh_failed(error) and not closed
@@ -2213,9 +2225,12 @@ def gemini_subscription_lines(data):
     # The row's own figure is Gemini's: its own windows' tightest; Claude's with GPT's are a separate allowance.
     own=[w for w in windows if w.get('group')=='gemini'] or windows
     most=max((100-w.get('remaining',0) for w in own),default=None)
+    # 本周已用: Gemini's own week, when it was read.
+    week=next((100-w.get('remaining',0) for w in windows if w.get('group')=='gemini' and w.get('window')!='5h'),None)
+    headline=headline_used(week,most);most=headline[0] if headline else None
     present=connection_ready('gemini-subscription')
-    if most is not None and closed:badge='%s · 截至 %s'%(used_text(most),snapshot_time(read_at or 0))
-    elif most is not None:badge=used_text(most)
+    if headline and closed:badge='%s · 截至 %s'%(headline[1],snapshot_time(read_at or 0))
+    elif headline:badge=headline[1]
     elif closed or not present:badge='打开 Antigravity 后显示' if present or antigravity_app() else '未发现 Antigravity'
     else:badge='待同步'
     rows=[item(service.label,badge=with_failure(badge,bool(windows),failed),panelgauges=gauges(gemini_bars_marked(windows),closed or failed),
@@ -3362,22 +3377,28 @@ def chatgpt_lines(data):
     payload=data.get('chatgpt') or {};windows=[w for w in payload.get('windows') or [] if known_share(w)];error=data.get('chatgpt_error');failed=refresh_failed(error)
     visible=[w for w in windows if not w.get('resetsAt') or w['resetsAt']>time.time()]
     most=max((100-w['remaining'] for w in visible),default=None)
-    badge=used_text(most) if visible else ('未配置' if not chatgpt_configured() else payload.get('state','待同步'))
+    # 本周已用: the week's own window; with none, the tightest.
+    week=next((100-w['remaining'] for w in visible if chatgpt_window_label(w)=='本周'),None)
+    headline=headline_used(week,most)
+    badge=headline[1] if headline else ('未配置' if not chatgpt_configured() else payload.get('state','待同步'))
     if windows and not visible:badge='待刷新'
-    # 订阅额度框架: the windows used up (or ordinary use stopped) with Credits left, the Credits are the value, in
-    # orange; the free resets come under the bars once a window is at 90%.
+    # 订阅额度框架: the windows used up (or ordinary use stopped) with Credits left, the Credits go beside the week's
+    # share, in orange; the free resets are on its page.
     credits=payload.get('credits') if isinstance(payload.get('credits'),dict) else None
     unlimited=bool(credits) and credits.get('unlimited') is True
     balance=credits_amount(credits.get('balance') or 0) if credits else None
     exhausted=(most is not None and most>=100) or bool(payload.get('blocked'))
     on_reserve=exhausted and credits is not None and bool(visible)
-    if on_reserve:badge='Credits 不限' if unlimited else '余 %s Credits'%balance
+    fallback=None
+    if on_reserve:
+        left='Credits 不限' if unlimited else '余 %s Credits'%balance
+        if week is not None:fallback=left;badge='本周%s · %s'%(used_text(week),left)
+        else:badge=left
     resets=payload.get('resets') if isinstance(payload.get('resets'),dict) else {}
     offered=resets.get('count') or 0
-    reset_note='可免费重置 %d 次'%offered if offered and visible and (exhausted or (most is not None and most>=90)) else None
     limits=[(chatgpt_window_label(w),100-w['remaining'],chatgpt_window_label(w)=='5 小时') for w in visible]
-    lines=[item(label,badge=with_failure(badge,bool(visible),failed),panelgauges=gauges(headline_pair(limits),failed),paneldetail=reset_note,**brand_icon('chatgpt'),
-                panelusagelevel=(reserve_level(failed) if on_reserve else usage_level(most,failed)) if visible else None,panelshare=reserve_share(on_reserve,most))]
+    lines=[item(label,badge=with_failure(badge,bool(visible),failed),panelfallback=fallback,panelgauges=gauges(headline_pair(limits),failed),**brand_icon('chatgpt'),
+                panelusagelevel=(reserve_level(failed) if on_reserve else usage_level(headline[0] if headline else None,failed)) if visible else None,panelshare=reserve_share(on_reserve,most))]
     lines.append(item('来源 · 本机登录 · 编程工具额度',level=1,color=MUTED,size=10))
     for w in visible:
         minutes=w.get('minutes') or 0

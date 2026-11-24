@@ -422,7 +422,7 @@ function subscriptionRows(state) {
       ...(group ? { group } : {}), ...(marks ? { marks } : {}) })) });
   const price = (key, value) => entry('订阅月费…', { symbol: 'dollarsign.circle', value, action: ['set-subscription-price', key] });
   return [
-    entry('ChatGPT 订阅', { ...moduleIcon('chatgpt'), ...(pending ? {} : { usageLevel: 'normal' }), value: pending ? '待同步' : '已用 38%',
+    entry('ChatGPT 订阅', { ...moduleIcon('chatgpt'), ...(pending ? {} : { usageLevel: 'normal' }), value: pending ? '待同步' : '本周已用 38%',
       ...gauges(['5 小时', 12], ['本周', 38]), onOpenAction: ['refresh-source', 'chatgpt'] }, pending ? [entry('来源 · 本机登录 · 编程工具额度'), updated('', 'chatgpt')] : [
       entry('来源 · 本机登录 · 编程工具额度'),
       window('5 小时', 12, '重置于 18:20 · 比匀速少用 9%'),
@@ -434,7 +434,7 @@ function subscriptionRows(state) {
       entry('本月回本 6.2 倍', { detail: '本月 API 等值 $124.40 · 月费 $20.00' }),
     ]),
     entry('Claude 订阅', { ...moduleIcon('claude-subscription'), ...(pending || failed ? {} : { usageLevel: 'warning' }),
-      value: pending ? '待同步' : failed ? '已用 76% · 刷新失败' : '已用 76%', ...(failed ? { fallbacks: ['刷新失败'] } : {}), ...gauges(['5 小时', 22], ['本周', 76]),
+      value: pending ? '待同步' : failed ? '本周已用 76% · 刷新失败' : '本周已用 76%', ...(failed ? { fallbacks: ['刷新失败'] } : {}), ...gauges(['5 小时', 22], ['本周', 76]),
       onOpenAction: ['refresh-source', 'claude-subscription'] }, [
       entry('来源 · Code 登录'),
       window('本周', 76, '重置于 11/20 22:00 · 比匀速多用 12%'),
@@ -468,7 +468,7 @@ function subscriptionRows(state) {
       entry('在 Qoder 窗口右下角打开 Credits 用量后更新'),
     ]),
     // Antigravity's quota, read from its app on this computer.
-    entry('Gemini 订阅', { ...moduleIcon('gemini-subscription'), ...(pending ? {} : { usageLevel: 'normal' }), value: pending ? '待同步' : '已用 24%',
+    entry('Gemini 订阅', { ...moduleIcon('gemini-subscription'), ...(pending ? {} : { usageLevel: 'normal' }), value: pending ? '待同步' : '本周已用 9%',
       ...gauges(['5 小时', 24, 'Gemini', [{ image: 'logo:logos/gemini.svg', template: false }]], ['本周', 9],
         ['5 小时', 6, 'Claude 和 GPT', [{ image: 'logo:logos/claude.svg', template: false }, { image: 'logo:logos/openai.svg', template: true }]], ['本周', 18]), onOpenAction: ['refresh-source', 'gemini-subscription'] }, [
       entry('来源 · Antigravity 本机额度'),

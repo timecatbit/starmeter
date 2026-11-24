@@ -169,10 +169,12 @@ pub static WHOLE: [Rule; 2] = [
 ];
 
 /// One part of the engine's text.
-pub static RULES: [Rule; 89] = [
+pub static RULES: [Rule; 91] = [
     rule!(r"^已用 (\d+(?:\.\d+)?%)$", |m| format!("{} used", group(m, 1))),
     rule!(r"^已用 (\d+(?:\.\d+)?%) 截至 (.+)$", |m| format!("{} used as of {}", group(m, 1), group(m, 2))),
     rule!(r"^已用 (.+)$", |m| format!("Used: {}", translate(group(m, 1)))),
+    rule!(r"^本周已用 (\d+(?:\.\d+)?%)$", |m| format!("{} used this week", group(m, 1))),
+    rule!(r"^截至 (.+)$", |m| format!("as of {}", group(m, 1))),
     rule!(r"^(\d+) 个账户$", |m| format!("{} accounts", group(m, 1))),
     rule!(r"^(\d+) 台电脑$", |m| format!("{} {}", group(m, 1), plural(group(m, 1), "computer", "computers"))),
     rule!(r"^还剩 (\d+) 分钟$", |m| format!("{} min left", group(m, 1))),
@@ -339,12 +341,12 @@ pub fn translate(text: &str) -> String {
     if !CJK.is_match(text) {
         return plural_tokens(text);
     }
-    if let Some(known) = PHRASES.get(text) {
-        return known.clone();
     // A detail of several lines: each line on its own.
     if text.contains('\n') {
         return text.split('\n').map(translate).collect::<Vec<_>>().join("\n");
     }
+    if let Some(known) = PHRASES.get(text) {
+        return known.clone();
     }
     if let Some(out) = apply(&WHOLE, text) {
         return out;

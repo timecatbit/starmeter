@@ -222,6 +222,17 @@ pub fn used_text(percent: f64) -> String {
     format!("已用 {}%", g(round(percent.clamp(0.0, 100.0), 1)))
 }
 
+/// A plan's homepage figure: its week's share as 本周已用 X% when it has a weekly window (用户：已用那里改成本周已用,
+/// the week's own window, not the tightest: five hours and a model's own limit are the bars under it), else the
+/// tightest as 已用 X%.
+pub fn headline_used(week: Option<f64>, tightest: Option<f64>) -> Option<(f64, String)> {
+    match (week, tightest) {
+        (Some(week), _) => Some((week, format!("本周{}", used_text(week)))),
+        (None, Some(most)) => Some((most, used_text(most))),
+        _ => None,
+    }
+}
+
 /// Between a homepage bar's name, share, level, place, group and marks in panelgauges; the bars themselves are split
 /// by FALLBACK_SEPARATOR.
 pub const GAUGE_FIELD: &str = "\u{1E}";

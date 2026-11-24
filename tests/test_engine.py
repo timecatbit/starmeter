@@ -2066,7 +2066,7 @@ class PanelParityTests(BackgroundParityTests):
         expected, got = self.python('snapshot', now, extra=keys), self.swift('snapshot', now, extra=keys)
         self.assertEqual(expected['entries'], got['entries'])
         values = {entry['label']: entry.get('value') for entry in got['entries'] if entry.get('label')}
-        self.assertEqual((values['ChatGPT 订阅'], values['MiniMax 订阅'], values['Gemini 订阅']), ('已用 30%', '已用 40%', '已用 20%'))
+        self.assertEqual((values['ChatGPT 订阅'], values['MiniMax 订阅'], values['Gemini 订阅']), ('本周已用 30%', '已用 40%', '本周已用 20%'))
 
     def test_a_plan_on_its_reserve_keeps_its_bar(self):
         # One window, used up, with Credits left: the value is the Credits; the share used goes beside it, so the row
@@ -2086,11 +2086,11 @@ class PanelParityTests(BackgroundParityTests):
         expected, got = self.python('snapshot', now), self.swift('snapshot', now)
         self.assertEqual(expected['entries'], got['entries'])
         row = next(entry for entry in got['entries'] if entry.get('label') == 'ChatGPT 订阅')
-        self.assertEqual((row['value'], row['usageLevel'], row['share']), ('余 41,554 Credits', 'warning', 1.0))
+        self.assertEqual((row['value'], row['fallbacks'], row['usageLevel'], row['share']),
+                         ('本周已用 100% · 余 41,554 Credits', ['余 41,554 Credits'], 'warning', 1.0))
         again = next(child for child in row['children'] if child['label'] == '立即刷新')
         self.assertEqual(again['action'], ['refresh-now', 'chatgpt'])
 
-    def test_due_alerts_and_notices(self):
     def test_a_service_in_trouble_says_what_and_where(self):
         # 服务状态 on, Claude degraded: the status row and the tool page's row say what is wrong and open where to read
         # about it (one incident: its own page; none: the parts not working and the status page). Not just a word.
@@ -2118,6 +2118,7 @@ class PanelParityTests(BackgroundParityTests):
         self.assertEqual(card['serviceStatus'], {'name': 'Claude', 'note': '服务部分降级', 'detail': 'Claude for Microsoft 365 add-in missing · 正在调查',
                                                  'link': 'https://stspg.io/ffdq'})
 
+    def test_due_alerts_and_notices(self):
         now = 1795000000.0
         windows = [{'id': 'a|5h', 'used': 95.0, 'resetsAt': now + 3600, 'span': 18000, 'current': True, 'name': 'Claude 订阅', 'window': '5 小时'},
                    {'id': 'a|w', 'used': 40.0, 'resetsAt': now + 7200, 'span': 604800, 'current': True, 'name': 'Claude 订阅', 'window': '本周'},
@@ -2198,7 +2199,7 @@ class EngineRunParityTests(PanelParityTests):
                         if 'gemini-subscription' in values['visible']:
                             # The most used window leads; Gemini's own come first, five hours before the week; the expired one
                             # has filled again and keeps its place, at 0%.
-                            self.assertEqual(gemini['value'], '已用 97.6%')
+                            self.assertEqual(gemini['value'], '本周已用 0.6%')
                             self.assertEqual([(c['label'], c['value']) for c in gemini['children'] if c.get('value', '').startswith('已用')],
                                              [('5 小时', '已用 97.6%'), ('本周', '已用 0.6%'), ('5 小时 · Claude 和 GPT', '已用 0%'),
                                               ('本周 · Claude 和 GPT', '已用 0%'), ('5 小时 · Other models', '已用 50%')])
@@ -2290,11 +2291,13 @@ class EngineRunParityTests(PanelParityTests):
             self.assertEqual(expected[key], got.get(key), key)
         rows = {entry['label']: entry for entry in got['entries'] if entry.get('label')}
         chatgpt, claude, cursor = rows['ChatGPT 订阅'], rows['Claude 订阅'], rows['Cursor 订阅']
-        self.assertEqual((chatgpt['value'], chatgpt.get('detail'), chatgpt.get('usageLevel')), ('余 45,934 Credits', '可免费重置 2 次', 'warning'))
+        # The week's share stays beside what is left; the free resets are on its page, not under the row.
+        self.assertEqual((chatgpt['value'], chatgpt.get('fallbacks'), chatgpt.get('detail'), chatgpt.get('usageLevel')),
+                         ('本周已用 100% · 余 45,934 Credits', ['余 45,934 Credits'], None, 'warning'))
         children = {child['label']: child for child in chatgpt['children']}
         self.assertEqual((children['Credits']['value'], children['免费重置']['value']), ('余 45,934', '可用 2 次'))
         self.assertTrue(children['免费重置']['detail'].endswith('过期 · 在 Codex 里使用'))
-        self.assertEqual((claude['value'], claude.get('usageLevel')), ('额外用量剩 $37.50', 'warning'))
+        self.assertEqual((claude['value'], claude.get('usageLevel')), ('本周已用 40% · 额外用量剩 $37.50', 'warning'))
         self.assertEqual((cursor['value'], cursor.get('usageLevel')), ('在用按需用量', 'warning'))
 
     def test_payback_of_a_tool_off_the_homepage(self):

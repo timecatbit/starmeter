@@ -85,7 +85,7 @@ test('English: the homepage, its pages and the card groupings', async ({ page })
   await left.take(page, 'home');
   // Tokens are counted in the plural, a plan's limits are named under their bars, and the heatmap is made of dots.
   await expect(page.locator('.card', { has: page.locator('.name', { hasText: /^Magpie$/ }) })).toContainText('7.24M tokens');
-  await expect(page.locator('.row', { hasText: 'Claude plan' }).locator('.value')).toHaveText('76% used');
+  await expect(page.locator('.row', { hasText: 'Claude plan' }).locator('.value')).toHaveText('76% used this week');
   await expect(page.locator('.row', { hasText: 'Claude plan' }).locator('.gauge-name')).toHaveText(['5 hours 22%', 'This week 76%']);
   await expect(page.locator('.row', { hasText: 'Gemini plan' }).locator('.gauge-name')).toHaveText(['5 hours 24%', 'This week 9%', '5 hours 6%', 'This week 18%']);
   expect(await page.locator('.row', { hasText: 'Gemini plan' }).locator('.marks').evaluateAll((all) => all.map((one) => one.getAttribute('aria-label')))).toEqual(['Gemini', 'Claude and GPT']);

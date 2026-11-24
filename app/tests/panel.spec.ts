@@ -67,11 +67,13 @@ test('the homepage shows Summary, the trend, the heatmap, the cards and the rows
   await expect(page.locator('.row .title')).toContainText(['ChatGPT 订阅', 'Claude 订阅', 'Cursor 订阅']);
   // Usage rows carry their 3pt bar, coloured by level (Gemini 订阅's from Antigravity among them); a plan with more
   // than one limit has a bar per window, side by side, named under it: five hours on the left and the week on the
-  // right, Gemini 订阅's two groups a line each, ended by their logos; the row's figure the tightest.
+  // right, Gemini 订阅's two groups a line each, ended by their logos; the row's figure the week's (本周已用).
   await expect(page.locator('.gauge')).toHaveCount(10);
   const plan = (name: string) => page.locator('button.row', { hasText: name });
   const names = (name: string) => plan(name).locator('.gauge-name');
-  await expect(plan('ChatGPT 订阅').locator('.value')).toHaveText('已用 38%');
+  await expect(plan('ChatGPT 订阅').locator('.value')).toHaveText('本周已用 38%');
+  await expect(plan('Claude 订阅').locator('.value')).toHaveText('本周已用 76%');
+  await expect(plan('Gemini 订阅').locator('.value')).toHaveText('本周已用 9%');
   await expect(names('ChatGPT 订阅')).toHaveText(['5 小时 12%', '本周 38%']);
   await expect(names('Claude 订阅')).toHaveText(['5 小时 22%', '本周 76%']);
   await expect(names('Gemini 订阅')).toHaveText(['5 小时 24%', '本周 9%', '5 小时 6%', '本周 18%']);

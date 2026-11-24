@@ -205,13 +205,13 @@ class PluginTests(unittest.TestCase):
              patch.object(self.m,'default_ready',return_value=True),patch.object(self.m,'schedule_background_refresh'):
             data=self.m.gather()
             rows=self.m.panel_entries(self.m.chatgpt_lines(data)+self.m.api_lines('kimi-api',data))
-            self.assertEqual([r['value'] for r in rows],['已用 60%','余额 ¥12.50'])
+            self.assertEqual([r['value'] for r in rows],['本周已用 60%','余额 ¥12.50'])
             self.assertEqual([next(c['value'] for c in (r['children'] if r is rows[0] else r['children'][0]['children']) if c['label']=='立即刷新') for r in rows],['6 分钟前更新','6 分钟前更新'])
             for name in ('chatgpt','kimi-api'):
                 self.m.cached_fetch(name,lambda:(None,(0,'网络超时',None)),300)
             data=self.m.gather()
             rows=self.m.panel_entries(self.m.chatgpt_lines(data)+self.m.api_lines('kimi-api',data))
-        self.assertEqual([r['value'] for r in rows],['已用 60% · 刷新失败','余额 ¥12.50 · 刷新失败'])
+        self.assertEqual([r['value'] for r in rows],['本周已用 60% · 刷新失败','余额 ¥12.50 · 刷新失败'])
         status=next(c for c in rows[0]['children'] if c['label']=='立即刷新')
         self.assertEqual(status['value'],'刷新失败');self.assertIn('网络超时',status['detail']);self.assertIn('保留最近一次成功的数据',status['detail'])
         self.assertNotIn('上次',json.dumps(rows,ensure_ascii=False))

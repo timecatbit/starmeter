@@ -199,7 +199,7 @@ class DesktopTests(unittest.TestCase):
   payload={'source':'claude-oauth','updatedAt':now,'_fetchedAt':now,'windows':[{'label':'本周','used':39,'resetsAt':now+86400}]}
   with patch.object(self.m,'claude_usage_stale',return_value=False):
    row=self.m.panel_entries(self.m.claude_subscription_lines({'claude_subscription':payload,'claude_subscription_error':'HTTP 503'}))[0]
-  self.assertEqual(row['value'],'已用 39% · 刷新失败')
+  self.assertEqual(row['value'],'本周已用 39% · 刷新失败')
   self.assertNotIn('gauges',row,'A failed read keeps the figure, not the bars')
  def test_a_plan_with_two_limits_draws_a_bar_for_each(self):
   now=self.m.time.time();m=self.m
@@ -210,18 +210,18 @@ class DesktopTests(unittest.TestCase):
     return home(m.chatgpt_lines({'chatgpt':{'_fetchedAt':now,'windows':list(windows)}}))
   plan=lambda minutes,left:{'name':'codex','minutes':minutes,'remaining':left,'resetsAt':now+9000}
   spark=lambda left:{'name':'GPT-6-Codex-Spark','minutes':10080,'remaining':left,'resetsAt':now+86400}
-  # Five hours and the week; the row's figure is the tighter.
+  # Five hours and the week; the row's figure is the week's (本周已用).
   row=chatgpt(plan(10080,40),plan(300,70),spark(96))
-  self.assertEqual(row['value'],'已用 60%');self.assertEqual(bars(row),[(0,'','5 小时',30.0,'normal'),(1,'','本周',60.0,'normal')])
-  # Another limit tighter than the week takes the second bar, so the figure is always one of the two.
+  self.assertEqual(row['value'],'本周已用 60%');self.assertEqual(bars(row),[(0,'','5 小时',30.0,'normal'),(1,'','本周',60.0,'normal')])
+  # Another limit tighter than the week takes the second bar; the figure is still the week's.
   row=chatgpt(plan(300,70),plan(10080,40),spark(5.5))
-  self.assertEqual(row['value'],'已用 94.5%');self.assertEqual(bars(row),[(0,'','5 小时',30.0,'normal'),(1,'','GPT-6-Codex-Spark · 本周',94.5,'critical')])
+  self.assertEqual(row['value'],'本周已用 60%');self.assertEqual(bars(row),[(0,'','5 小时',30.0,'normal'),(1,'','GPT-6-Codex-Spark · 本周',94.5,'critical')])
   self.assertNotIn('gauges',chatgpt(plan(300,70)),'One limit keeps its single bar')
   # Claude: no five-hour limit here, so the first and the tightest of the rest; stale figures draw no bars.
   week=lambda label,used:{'label':label,'used':used,'span':604800,'resetsAt':datetime.fromtimestamp(now+86400,ZoneInfo('UTC')).isoformat()}
   claude={'source':'claude-oauth','updatedAt':now,'_fetchedAt':now,'windows':[week('本周',48),week('Fable',59)]}
   with patch.object(m,'claude_usage_stale',return_value=False):row=home(m.claude_subscription_lines({'claude_subscription':claude}))
-  self.assertEqual(row['value'],'已用 59%');self.assertEqual(bars(row),[(0,'','本周',48.0,'normal'),(1,'','Fable',59.0,'normal')])
+  self.assertEqual(row['value'],'本周已用 48%');self.assertEqual(bars(row),[(0,'','本周',48.0,'normal'),(1,'','Fable',59.0,'normal')])
   with patch.object(m,'claude_usage_stale',return_value=True):self.assertNotIn('gauges',home(m.claude_subscription_lines({'claude_subscription':claude})))
   # Gemini: a line per model group, every window in it, five hours on the left and the week (本周, as every plan's) on
   # the right, the group named on the line's first bar; with one group, its two windows.
@@ -231,8 +231,8 @@ class DesktopTests(unittest.TestCase):
    with patch.object(m,'connection_ready',return_value=True),patch.object(m,'antigravity_app',return_value=None):
     return home(m.gemini_subscription_lines({'gemini_subscription':{'_fetchedAt':now,'windows':windows},'gemini_subscription_error':error}))
   row=gemini(quota)
-  # The row's figure is Gemini's own tightest; Claude's with GPT's (49.7%) is its own allowance, on its own line.
-  self.assertEqual(row['value'],'已用 5.6%')
+  # The row's figure is Gemini's own week (本周已用); Claude's with GPT's (49.7%) is its own allowance, on its own line.
+  self.assertEqual(row['value'],'本周已用 4.1%')
   self.assertEqual(gemini(quota[2:])['value'],'已用 49.7%','With no Gemini window read, the tightest there is')
   self.assertEqual(bars(row),[(0,'Gemini','5 小时',5.6,'normal'),(1,'','本周',4.1,'normal'),(2,'Claude 和 GPT','5 小时',0.0,'normal'),(3,'','本周',49.7,'normal')])
   # Each line carries its group's logos for the end of its names: Gemini's, then Claude's and OpenAI's (OpenAI's takes
@@ -248,7 +248,7 @@ class DesktopTests(unittest.TestCase):
   past=lambda window:dict(window,resetsAt=now-10)
   row=gemini([past(quota[0]),quota[1],past(quota[2]),quota[3]])
   self.assertEqual(bars(row),[(0,'Gemini','5 小时',0.0,'normal'),(1,'','本周',4.1,'normal'),(2,'Claude 和 GPT','5 小时',0.0,'normal'),(3,'','本周',49.7,'normal')])
-  self.assertEqual(row['value'],'已用 4.1%')
+  self.assertEqual(row['value'],'本周已用 4.1%')
   self.assertEqual(bars(gemini([past(quota[0]),past(quota[1]),past(quota[2]),past(quota[3])])),
                    [(0,'Gemini','5 小时',0.0,'normal'),(1,'','本周',0.0,'normal'),(2,'Claude 和 GPT','5 小时',0.0,'normal'),(3,'','本周',0.0,'normal')])
   # Weeks only (a Starter plan): still a line per group, the week in its column.
