@@ -3475,7 +3475,7 @@ def chatgpt_lines(data):
 
 
 def detected_modules():
-    return discovery.detect({key:source_path(key) for key in preferences.USAGE},HOME,ocx_configured(),KOMARI_BASE_URL,app_roots=[] if DESKTOP is not None else [os.path.join(HOME,'Applications'),'/Applications'],chatgpt_home=chatgpt_home(),configured_subscriptions=view_settings()['configuredSubscriptions'])
+    return discovery.detect({key:source_path(key) for key in preferences.USAGE},HOME,ocx_configured(),KOMARI_BASE_URL,app_roots=[os.path.join(HOME,'Applications'),'/Applications'] if sys.platform=='darwin' else [],chatgpt_home=chatgpt_home(),configured_subscriptions=view_settings()['configuredSubscriptions'])
 
 
 def detection_help_entries():

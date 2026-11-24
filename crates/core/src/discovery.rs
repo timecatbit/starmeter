@@ -274,10 +274,12 @@ impl Runtime {
             home: &self.home,
             configured_proxy: self.opencodex_configured(),
             komari_url: &komari,
-            app_roots: if self.is_desktop() {
-                Vec::new()
-            } else {
+            // By the system, not by app or plugin: the macOS app and its command line look for the apps too (they
+            // count as desktop hosts, as Windows and Linux do, which keep no .app folders).
+            app_roots: if cfg!(target_os = "macos") {
                 vec![format!("{}/Applications", self.home), "/Applications".into()]
+            } else {
+                Vec::new()
             },
             chatgpt_home: Some(self.codex_home_absolute()),
             configured_subscriptions: subscriptions,
@@ -291,6 +293,22 @@ impl Runtime {
 mod tests {
     use super::{Inputs, detect};
     use std::collections::HashMap;
+
+    /// The macOS app finds an app installed but not yet used (WorkBuddy, with no records), as the plugin does.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_apps_folder_is_looked_in_on_macos() {
+        let home = std::env::temp_dir().join(format!("starmeter-apps-detect-{}", crate::runtime::random_hex(6)));
+        std::fs::create_dir_all(home.join("Applications/WorkBuddy.app")).unwrap();
+        let environment: HashMap<String, String> = [
+            ("HOME".to_string(), home.to_string_lossy().into_owned()),
+            ("OCX_STATE_DIR".to_string(), home.join("state").to_string_lossy().into_owned()),
+        ]
+        .into();
+        let runtime = crate::runtime::Runtime::new(environment, "starmeter");
+        assert!(runtime.detected_modules().contains(&"workbuddy".to_string()));
+        let _ = std::fs::remove_dir_all(&home);
+    }
 
     #[test]
     fn antigravity_turns_on_gemini() {
