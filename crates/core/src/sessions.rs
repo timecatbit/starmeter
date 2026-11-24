@@ -355,11 +355,43 @@ pub(crate) fn last_turns(turns: Vec<Object>) -> Vec<Json> {
     kept[start..].iter().rev().cloned().map(Json::Object).collect()
 }
 
+/// A Claude reply's tokens, or None for a line that is no request: Claude Code's own notices (model <synthetic>) and
+/// lines with no tokens, as the usage leaves them out.
+fn reply_tokens(message: &Object) -> Option<Json> {
+    let model = message.get("model").and_then(Json::as_str)?;
+    if model.is_empty() || model == "<synthetic>" || model == "synthetic" {
+        return None;
+    }
+    let usage = message.get("usage").and_then(Json::as_object)?;
+    let tokens = ["input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "output_tokens"]
+        .iter()
+        .fold(Json::Int(0), |sum, key| add(&sum, &number(usage.get(key))));
+    (tokens.number().unwrap_or(0.0) != 0.0).then_some(tokens)
+}
+
+/// A count taken back: -n, of the same kind.
+fn negated(value: &Json) -> Json {
+    match value {
+        Json::Int(n) => Json::Int(-n),
+        other => Json::Double(-other.number().unwrap_or(0.0)),
+    }
+}
+
+/// What tells a Claude reply's lines apart: its message's id, else the row's; None for a line with neither, a reply
+/// of its own.
+fn reply_key(message: &Object, row: &Object) -> Option<String> {
+    py::or(message.get("id"), row.get("uuid").cloned().unwrap_or(Json::Null))
+        .is_truthy()
+        .then(|| py::dumps(&py::or(message.get("id"), row.get("uuid").cloned().unwrap_or(Json::Null))))
+}
+
 /// The last turns of a Claude Code session, newest first: from one prompt to the next. A reply streamed over several
-/// lines counts once; a subagent's work belongs to the turn that started it.
+/// lines (its output written as it goes) counts once, in the turn of its first line, with the most any of its lines
+/// says, as the usage takes it; a subagent's work belongs to the turn that started it.
 fn claude_turns(path: &str, price: &Price) -> Result<Vec<Json>, FileError> {
     let mut turns = vec![turn(Json::Null)];
-    let mut seen: HashSet<String> = HashSet::new();
+    // Each reply counted: the turn it is in, its tokens and its cost.
+    let mut best: HashMap<String, (usize, Json, Option<f64>)> = HashMap::new();
     let own = own_id(path);
     for row in rows_at_end(path, DETAIL)? {
         if copied(&row, &own) {
@@ -390,22 +422,39 @@ fn claude_turns(path: &str, price: &Price) -> Result<Vec<Json>, FileError> {
                     count_tool(turns.last_mut().expect("a turn"), &py::str(Some(name)));
                 }
             }
-            let key = py::dumps(&py::or(message.get("id"), row.get("uuid").cloned().unwrap_or(Json::Null)));
-            if let Some(usage) = message.get("usage").and_then(Json::as_object)
-                && !seen.contains(&key)
-            {
-                seen.insert(key);
-                let current = turns.last_mut().expect("a turn");
-                bump(current, "requests", Json::Int(1));
-                let tokens =
-                    ["input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "output_tokens"]
-                        .iter()
-                        .fold(Json::Int(0), |sum, key| add(&sum, &number(usage.get(key))));
-                bump(current, "tokens", tokens);
-                match price(message.get("model"), usage) {
-                    Some(cost) => bump(current, "cost", Json::Double(cost)),
-                    None => bump(current, "unpriced", Json::Int(1)),
+            let Some(tokens) = reply_tokens(&message) else { continue };
+            let usage = message.get("usage").and_then(Json::as_object).cloned().unwrap_or_default();
+            let key = reply_key(&message, &row);
+            let before = key.as_ref().and_then(|key| best.get(key)).cloned();
+            let size = |tokens: &Json| tokens.number().unwrap_or(0.0);
+            if before.as_ref().is_some_and(|(_, counted, _)| size(&tokens) <= size(counted)) {
+                continue;
+            }
+            let cost = price(message.get("model"), &usage);
+            let at = match before {
+                // A later line of a reply counted already: its turn has the reply as this line tells it.
+                Some((at, counted, was)) => {
+                    let where_ = &mut turns[at];
+                    bump(where_, "tokens", add(&tokens, &negated(&counted)));
+                    match was {
+                        Some(was) => bump(where_, "cost", Json::Double(-was)),
+                        None => bump(where_, "unpriced", Json::Int(-1)),
+                    }
+                    at
                 }
+                None => {
+                    let at = turns.len() - 1;
+                    bump(&mut turns[at], "requests", Json::Int(1));
+                    bump(&mut turns[at], "tokens", tokens.clone());
+                    at
+                }
+            };
+            match cost {
+                Some(cost) => bump(&mut turns[at], "cost", Json::Double(cost)),
+                None => bump(&mut turns[at], "unpriced", Json::Int(1)),
+            }
+            if let Some(key) = key {
+                best.insert(key, (at, tokens, cost));
             }
         }
     }
@@ -658,6 +707,70 @@ fn settle(tally: &mut Object, until: f64, since: f64, zone: &TimeZone) {
     tally.insert("later", Json::Array(waiting));
 }
 
+/// A reading's sums as it goes: the session's total, its days, its requests since `since` and those waiting in
+/// `later` (timed after `until`).
+struct Ledger<'a> {
+    requests: i64,
+    cost: f64,
+    unpriced: i64,
+    days: Object,
+    spends: Vec<Json>,
+    later: Vec<Json>,
+    since: f64,
+    until: f64,
+    zone: &'a TimeZone,
+}
+
+impl Ledger<'_> {
+    fn add(&mut self, priced: Option<f64>, at: Json) {
+        if at.number().is_some_and(|moment| moment > self.until) {
+            self.later.push(Json::Array(vec![at, priced.map_or(Json::Null, Json::Double)]));
+            return;
+        }
+        self.requests += 1;
+        match priced {
+            Some(spent) => self.cost += spent,
+            None => self.unpriced += 1,
+        }
+        let Some(moment) = at.number() else { return };
+        add_to_day(&mut self.days, &day_of(moment, self.zone), priced);
+        if moment >= self.since {
+            self.spends.push(Json::Array(vec![at, priced.map_or(Json::Null, Json::Double)]));
+        }
+    }
+
+    /// A request counted at `at` costing `was`, better told by a later line (a streamed reply's): `now` instead, in its
+    /// total, its day and its place among the requests since `since`, or among those waiting, where it waits.
+    fn correct(&mut self, at: &Json, was: Option<f64>, now: Option<f64>) {
+        let entry = |priced: Option<f64>| Json::Array(vec![at.clone(), priced.map_or(Json::Null, Json::Double)]);
+        if let Some(waiting) = self.later.iter_mut().rev().find(|spend| **spend == entry(was)) {
+            *waiting = entry(now);
+            return;
+        }
+        let change = |cost: &mut f64, unpriced: &mut i64| {
+            match was {
+                Some(spent) => *cost -= spent,
+                None => *unpriced -= 1,
+            }
+            match now {
+                Some(spent) => *cost += spent,
+                None => *unpriced += 1,
+            }
+        };
+        change(&mut self.cost, &mut self.unpriced);
+        let Some(moment) = at.number() else { return };
+        if let Some(Json::Array(figure)) = self.days.get_mut(&day_of(moment, self.zone)) {
+            let (mut spent, mut left) = (figure[1].python_float().unwrap_or(0.0), figure[2].integer().unwrap_or(0));
+            change(&mut spent, &mut left);
+            figure[1] = Json::Double(spent);
+            figure[2] = Json::Int(left);
+        }
+        if let Some(spend) = self.spends.iter_mut().rev().find(|spend| **spend == entry(was)) {
+            *spend = entry(now);
+        }
+    }
+}
+
 /// What a whole session has cost: every request in its transcript, counted as the turns count them (a Claude reply
 /// streamed over several lines once; each change of Codex's running token total once). A Claude fork's copied
 /// history is left to the session it came from. With `kept`, the tally of the last reading (by inode and the offset it
@@ -693,18 +806,20 @@ fn spent(
             })
     });
     let field = |name: &str| resumed.and_then(|kept| kept.get(name)).cloned();
-    let mut requests = field("requests").and_then(|value| value.integer()).unwrap_or(0);
-    let mut cost = field("cost").and_then(|value| value.python_float()).unwrap_or(0.0);
-    let mut unpriced = field("unpriced").and_then(|value| value.integer()).unwrap_or(0);
+    let requests = field("requests").and_then(|value| value.integer()).unwrap_or(0);
+    let cost = field("cost").and_then(|value| value.python_float()).unwrap_or(0.0);
+    let unpriced = field("unpriced").and_then(|value| value.integer()).unwrap_or(0);
     let mut seen: Vec<String> = field("seen")
         .and_then(|value| value.as_array().cloned())
         .map(|keys| keys.iter().filter_map(|key| key.as_str().map(String::from)).collect())
         .unwrap_or_default();
     let mut model = field("model").unwrap_or(Json::Null);
-    let mut total: Option<Option<Json>> = field("total").map(|total| total.get("value").cloned());
-    let mut spends: Vec<Json> = field("spends").and_then(|value| value.as_array().cloned()).unwrap_or_default();
-    let mut days: Object = field("days").and_then(|value| value.as_object().cloned()).unwrap_or_default();
-    let mut later: Vec<Json> = field("later").and_then(|value| value.as_array().cloned()).unwrap_or_default();
+    // None until a running total has been seen: a reading that saw none kept null, not a total that was missing.
+    let mut total: Option<Option<Json>> =
+        field("total").filter(|total| !total.is_null()).map(|total| total.get("value").cloned());
+    let spends: Vec<Json> = field("spends").and_then(|value| value.as_array().cloned()).unwrap_or_default();
+    let days: Object = field("days").and_then(|value| value.as_object().cloned()).unwrap_or_default();
+    let later: Vec<Json> = field("later").and_then(|value| value.as_array().cloned()).unwrap_or_default();
     let start = field("offset").and_then(|value| value.integer()).unwrap_or(0) as u64;
     let own = own_id(path);
 
@@ -715,23 +830,21 @@ fn spent(
     // Complete lines only: one being written is read next time.
     let complete = data.iter().rposition(|&byte| byte == b'\n').map_or(0, |at| at + 1);
     let mut known: HashSet<String> = seen.iter().cloned().collect();
-    let mut add_request = |model: Option<&Json>, usage: &Object, at: Json| {
-        let priced = price(model, usage);
-        if at.number().is_some_and(|moment| moment > until) {
-            later.push(Json::Array(vec![at, priced.map_or(Json::Null, Json::Double)]));
-            return;
-        }
-        requests += 1;
-        match priced {
-            Some(spent) => cost += spent,
-            None => unpriced += 1,
-        }
-        let Some(moment) = at.number() else { return };
-        add_to_day(&mut days, &day_of(moment, zone), priced);
-        if moment >= since {
-            spends.push(Json::Array(vec![at, priced.map_or(Json::Null, Json::Double)]));
-        }
-    };
+    // Each Claude reply counted, by its key: its tokens, the time it was counted at and its cost then; a later line
+    // with more (a reply streamed over several lines) is the reply as counted, at the same time.
+    let mut best: HashMap<String, (Json, Json, Option<f64>)> = field("best")
+        .and_then(|value| value.as_object().cloned())
+        .map(|best| {
+            best.iter()
+                .filter_map(|(key, value)| {
+                    let parts = value.as_array()?;
+                    let priced = parts.get(2).filter(|priced| !priced.is_null()).and_then(Json::number);
+                    Some((key.clone(), (parts.first()?.clone(), parts.get(1)?.clone(), priced)))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut ledger = Ledger { requests, cost, unpriced, days, spends, later, since, until, zone };
     for line in data[..complete].split(|&byte| byte == b'\n') {
         let Some(row) =
             Json::parse_selected(line, &Selection::All, true).ok().and_then(|value| value.as_object().cloned())
@@ -743,13 +856,24 @@ fn spent(
                 continue;
             }
             let message = row.get("message").and_then(Json::as_object).cloned().unwrap_or_default();
-            let key = py::dumps(&py::or(message.get("id"), row.get("uuid").cloned().unwrap_or(Json::Null)));
-            if let Some(usage) = message.get("usage").and_then(Json::as_object)
-                && !known.contains(&key)
-            {
+            let Some(tokens) = reply_tokens(&message) else { continue };
+            let usage = message.get("usage").and_then(Json::as_object).cloned().unwrap_or_default();
+            let priced = price(message.get("model"), &usage);
+            let Some(key) = reply_key(&message, &row) else {
+                ledger.add(priced, stamp(row.get("timestamp")));
+                continue;
+            };
+            if !known.contains(&key) {
+                let at = stamp(row.get("timestamp"));
                 known.insert(key.clone());
-                seen.push(key);
-                add_request(message.get("model"), usage, stamp(row.get("timestamp")));
+                seen.push(key.clone());
+                best.insert(key, (tokens, at.clone(), priced));
+                ledger.add(priced, at);
+            } else if let Some((counted, at, was)) = best.get(&key).cloned()
+                && tokens.number().unwrap_or(0.0) > counted.number().unwrap_or(0.0)
+            {
+                ledger.correct(&at, was, priced);
+                best.insert(key, (tokens, at, priced));
             }
         } else {
             let data = row.get("payload").and_then(Json::as_object).cloned().unwrap_or_default();
@@ -768,12 +892,21 @@ fn spent(
                     continue;
                 }
                 total = Some(running);
-                add_request(Some(&model), &last, stamp(row.get("timestamp")));
+                ledger.add(price(Some(&model), &last), stamp(row.get("timestamp")));
             }
         }
     }
+    let Ledger { requests, cost, unpriced, days, mut spends, later, .. } = ledger;
     let cut = seen.len().saturating_sub(SEEN_KEPT);
     seen.drain(..cut);
+    let kept: HashSet<&String> = seen.iter().collect();
+    let best: Object = best
+        .into_iter()
+        .filter(|(key, _)| kept.contains(key))
+        .map(|(key, (tokens, at, priced))| {
+            (key, Json::Array(vec![tokens, at, priced.map_or(Json::Null, Json::Double)]))
+        })
+        .collect();
     // The oldest go as they pass out of every range a session's cost is shown in.
     spends.retain(|spend| spend_parts(spend).0.is_some_and(|at| at >= since));
     let oldest = day_of(since - DAYS_KEPT as f64 * 86400.0, zone);
@@ -789,6 +922,7 @@ fn spent(
         "cost" => cost, "unpriced" => unpriced, "seen" => Json::Array(seen.into_iter().map(Json::from).collect()),
         "model" => model, "total" => total.map_or(Json::Null, |value| object! { "value" => value.unwrap_or(Json::Null) }.into()),
         "zone" => counted, "days" => Json::Object(days), "spends" => Json::Array(spends), "later" => Json::Array(later),
+        "best" => Json::Object(best),
     };
     Ok((object! { "requests" => requests, "cost" => cost, "unpriced" => unpriced }.into(), tally))
 }
@@ -1243,7 +1377,7 @@ impl Runtime {
 
 #[cfg(test)]
 mod tests {
-    use super::{Price, active, range_costs, read_digest, spent};
+    use super::{Price, active, claude_turns, range_costs, read_digest, spent};
     use crate::json::{Json, Object};
     use std::collections::{HashMap, HashSet};
     use std::io::Write;
@@ -1385,8 +1519,59 @@ mod tests {
         let (_, tally) = spent(&path, "Claude", &price, None, 0.0, f64::INFINITY, &utc).unwrap();
         std::fs::write(&file, reply("a", 2_000_000) + &filler + &reply("z", 1_000_000)).unwrap();
         let (far, _) = spent(&path, "Claude", &price, Some(&tally), 0.0, f64::INFINITY, &utc).unwrap();
-        assert_eq!((far.get("requests").and_then(Json::integer), cost(&far)), (Some(122), 9.0));
+        // The filler's lines have no tokens: no requests, as the usage leaves them out.
+        assert_eq!((far.get("requests").and_then(Json::integer), cost(&far)), (Some(2), 9.0));
         assert_eq!(far.serialized(), fresh().serialized());
+        let _ = std::fs::remove_dir_all(&folder);
+    }
+
+    #[test]
+    fn a_streamed_reply_counts_once_with_its_fullest_line() {
+        // Claude Code writes a reply over several lines, its output as it goes: once, at its first line's time, with
+        // the most any line says, whether the last line came in the same reading or a later one. Its own notices
+        // (<synthetic>) and lines with no tokens are no requests; lines with neither id are each a reply.
+        let folder = std::env::temp_dir().join(format!("starmeter-streamed-{}", crate::runtime::random_hex(6)));
+        std::fs::create_dir_all(&folder).unwrap();
+        let file = folder.join("session.jsonl");
+        let path = file.to_string_lossy().into_owned();
+        let line = |id: Option<&str>, model: &str, at: &str, output: i64| {
+            let id = id.map_or(String::new(), |id| format!("\"id\":\"{id}\","));
+            format!(
+                "{{\"type\":\"assistant\",\"timestamp\":\"2026-11-21T10:00:{at}Z\",\"message\":{{{id}\"model\":\"{model}\",\"usage\":{{\"input_tokens\":100,\"output_tokens\":{output}}}}}}}\n"
+            )
+        };
+        let price: Price =
+            Box::new(|_, usage| Some(usage.get("output_tokens").and_then(Json::integer)? as f64 / 100.0));
+        let utc = jiff::tz::TimeZone::UTC;
+        let figures = |figure: &Json| {
+            (figure.get("requests").and_then(Json::integer), figure.get("cost").and_then(Json::python_float))
+        };
+        std::fs::write(&file, line(Some("m1"), "claude-opus-5-5", "01", 1)).unwrap();
+        let (first, tally) = spent(&path, "Claude", &price, None, 0.0, f64::INFINITY, &utc).unwrap();
+        assert_eq!(figures(&first), (Some(1), Some(0.01)));
+        let rest = line(Some("m1"), "claude-opus-5-5", "02", 400)
+            + &line(Some("m1"), "claude-opus-5-5", "03", 300)
+            + &line(Some("n1"), "<synthetic>", "04", 0)
+            + &line(None, "claude-opus-5-5", "05", 100)
+            + &line(None, "claude-opus-5-5", "06", 100);
+        std::fs::OpenOptions::new().append(true).open(&file).unwrap().write_all(rest.as_bytes()).unwrap();
+        let (resumed, _) = spent(&path, "Claude", &price, Some(&tally), 0.0, f64::INFINITY, &utc).unwrap();
+        let (fresh, kept) = spent(&path, "Claude", &price, None, 0.0, f64::INFINITY, &utc).unwrap();
+        assert_eq!(figures(&fresh), (Some(3), Some(6.0)));
+        assert_eq!(resumed.serialized(), fresh.serialized());
+        // Its day and its place among the requests since `since` follow the fullest line too, at the first line's time.
+        let day = kept.get("days").and_then(|days| days.get("2026-11-21")).cloned().unwrap();
+        assert_eq!(day.serialized(), "[3, 6.0, 0]");
+        let first_spend =
+            kept.get("spends").and_then(Json::as_array).and_then(|spends| spends.first()).cloned().unwrap();
+        assert_eq!(first_spend.as_array().and_then(|spend| spend.get(1)).and_then(Json::number), Some(4.0));
+        // The turns: one reply with its 500 tokens, then the two of their own.
+        let turns = claude_turns(&path, &price).unwrap();
+        let figure = |key: &str| turns[0].get(key).cloned().unwrap();
+        assert_eq!(
+            (figure("requests"), figure("tokens"), figure("cost")),
+            (Json::Int(3), Json::Int(900), Json::Double(6.0))
+        );
         let _ = std::fs::remove_dir_all(&folder);
     }
 
