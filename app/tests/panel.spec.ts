@@ -1119,8 +1119,13 @@ test('在手机上看: 任何网络 chosen again while its link is made waits fo
   await page.getByRole('radio', { name: '任何网络' }).click();
   await button(page, '生成链接').click();
   await expect(phone.locator('.wait')).toHaveText('正在向 Cloudflare 要链接…');
-  // Back and forth while it is made: no second question, no second request; the wait stays.
+  // Back on 同一个网络 meanwhile: its code, its address and what to do with them, not the public link's wait.
   await page.getByRole('radio', { name: '同一个网络' }).click();
+  await expect(phone.locator('svg.qr')).toBeVisible();
+  await expect(phone.locator('.wait')).toHaveCount(0);
+  await expect(phone.locator('.note').first()).toContainText('手机和电脑连同一个网络（Wi-Fi）后扫码');
+  await expect(phone.locator('.note').nth(1)).toContainText('只读');
+  // Back and forth while it is made: no second question, no second request; the wait stays.
   await page.getByRole('radio', { name: '任何网络' }).click();
   await page.waitForTimeout(200);
   await expect(button(page, '生成链接')).toHaveCount(0);
