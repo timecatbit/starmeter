@@ -37,8 +37,9 @@ VARIANTS = {'啓': '啟', '鈎': '鉤', '綫': '線', '衆': '眾', '爲': '為'
 # Characters ICU gets wrong whatever their context (沉 is not 沈), or leaves in the rarer form (面板里 is 面板裡;
 # Starmeter's 里 is always "in", never a distance): fixed in every phrase too.
 FORCED = {'沉': '沉', '里': '裡'}
-# A character's form on its own, where ICU's is the rarer one; in context the phrases decide (一只 is 一隻).
-SINGLE = {'只': '只', '系': '系', '尽': '盡', '里': '裡', '划': '劃'}
+# A character's form on its own, where ICU's is the rarer one; in context the phrases decide (一只 is 一隻). Starmeter's
+# 余 is always "left" (余 41,521 Credits), never the pronoun ICU reads a lone 余 as.
+SINGLE = {'只': '只', '系': '系', '尽': '盡', '里': '裡', '划': '劃', '余': '餘'}
 
 # Characters whose form their context decides, where ICU misses it: each phrase is the same length as the Simplified.
 WORDS = {
