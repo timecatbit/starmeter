@@ -93,6 +93,21 @@
     && (d.fetchedAt == null || !pickedEngine || d.fetchedAt * 1000 >= pickedEngine - FRESH);
   const waiting = $derived(!!pickedRange && !!snapshot?.dashboard && !readThrough(snapshot.dashboard) && waitedOut < pickedAt);
   $effect(() => { if (pickedRange && snapshot?.dashboard && (readThrough(snapshot.dashboard) || waitedOut >= pickedAt)) pickedRange = null; });
+  /** The grouping last picked (工具, 模型, 项目): its tab lit from the click on, whatever the snapshots in between say (the
+   *  range being read, the grouping picked before it), and the cards below held, dimmed and out of reach, until that
+   *  grouping's own come; ten seconds at most, as a range (GROUP-PICK, GROUP-FLASH). */
+  let pickedGroup = $state<string | null>(null);
+  let groupPickedAt = 0;
+  let groupWaitedOut = $state(0);
+  const groupShown = (d: DashboardData) => d.grouping ?? 'tool';
+  const regrouping = $derived(!!pickedGroup && !!snapshot?.dashboard && groupShown(snapshot.dashboard) !== pickedGroup
+    && groupWaitedOut < groupPickedAt);
+  $effect(() => {
+    void version;
+    if (!pickedGroup || !snapshot?.dashboard) return;
+    const arrived = groupShown(snapshot.dashboard) === pickedGroup && interaction.latest('set-group') === null;
+    if (arrived || groupWaitedOut >= groupPickedAt) pickedGroup = null;
+  });
   /** The range menu open: the ranges in it are read ahead, so the one picked is most likely read already. */
   function prefetchRanges() {
     if (onPhone) return;
@@ -486,6 +501,12 @@
       const at = pickedAt;
       setTimeout(() => { waitedOut = Math.max(waitedOut, at); }, LONGEST);
     }
+    if (action[0] === 'set-group') {
+      pickedGroup = action[1];
+      groupPickedAt = Date.now();
+      const at = groupPickedAt;
+      setTimeout(() => { groupWaitedOut = Math.max(groupWaitedOut, at); }, LONGEST);
+    }
     const submitted = interaction.submit(action);
     syncBusy();
     switch (submitted) {
@@ -813,7 +834,7 @@
     <Dashboard data={shown} {rangeOptions} reading={waiting} onprefetch={prefetchRanges} {updateMark} {updateSaid} onupdates={openUpdates} {reveal} {glows} {summaryGlow} live={pinned || leaving !== null ? feed : null} {leaving} onleft={() => { leaving = null; feed = null; }} {liveStamp} {pinned}
       {pinInterval} onrange={perform} onshare={openShare}
       onpin={() => { panel.hint = null; setPinned(!pinned); if (pinned) perform(['refresh-live']); }} onsettings={openSettings}
-      onopentool={openTool} ongroup={(key) => perform(['set-group', key])} {sessions} {view} onview={chooseView} busy={busyNow}
+      onopentool={openTool} grouping={pickedGroup} {regrouping} ongroup={(key) => perform(['set-group', key])} {sessions} {view} onview={chooseView} busy={busyNow}
       onsize={(h) => (dashboardHeight = h)} onfloor={(h) => (floorHeight = h)} ontoggle={(id, expanded) => perform(['set-expanded', id, expanded ? 'true' : 'false'])}
       onopen={open} onchoose={choose} readonly={onPhone} />
   {/if}

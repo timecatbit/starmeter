@@ -770,6 +770,68 @@ test('grouping by model or project swaps the cards, five of them and the rest be
   await expect(page.locator('.card')).toHaveCount(15);
 });
 
+/** The grouping's answers slowed (190 ms, as Codex measured them), every action noted in window.asked. */
+async function slowGroups(page: Page) {
+  await page.evaluate(async () => {
+    const loaded = performance.getEntriesByType('resource').map((entry) => entry.name).filter((name) => name.includes('/src/lib/backend.ts'));
+    const { backend } = await import(/* @vite-ignore */ loaded.at(-1) ?? '/src/lib/backend.ts');
+    const real = backend.action;
+    const w = window as unknown as { asked: string[][] };
+    w.asked = [];
+    backend.action = async (action: string[]) => {
+      w.asked.push(action);
+      if (action[0] === 'set-group') await new Promise((resolve) => setTimeout(resolve, 190));
+      return real(action);
+    };
+  });
+}
+
+test('the grouping clicked last is the one kept, a click back to the one on screen among them (GROUP-PICK)', async ({ page }) => {
+  await open(page);
+  await slowGroups(page);
+  await choose(page, /统计范围/, '近 7 天');
+  // 模型, and 40 ms later back to 工具, while 近 7 天 is being read.
+  await page.getByRole('radio', { name: '模型' }).click();
+  await page.waitForTimeout(40);
+  await page.getByRole('radio', { name: '工具' }).click();
+  await expect(page.getByRole('radio', { name: '工具' })).toHaveAttribute('aria-checked', 'true');
+  await page.waitForTimeout(1200);
+  await expect(page.getByRole('radio', { name: '工具' })).toHaveAttribute('aria-checked', 'true');
+  // The cards are the tools', and the last grouping asked is 工具.
+  await expect(page.getByRole('button', { name: 'Claude 详情' })).toBeVisible();
+  const asked = await page.evaluate(() => (window as unknown as { asked: string[][] }).asked.filter((a) => a[0] === 'set-group').map((a) => a[1]));
+  expect(asked.at(-1)).toBe('tool');
+});
+
+test('the grouping lit is the one clicked last, from the click on, and the cards before it are out of reach (GROUP-FLASH)', async ({ page }) => {
+  await open(page);
+  await slowGroups(page);
+  // Every frame from the click on 项目: which tab is lit.
+  await page.getByRole('radio', { name: '模型' }).click();
+  await page.getByRole('radio', { name: '项目' }).click();
+  const lit = await page.evaluate(async () => {
+    const seen: string[] = [];
+    const until = performance.now() + 1200;
+    while (performance.now() < until) {
+      seen.push(document.querySelector('.tabs [aria-checked="true"]')?.textContent ?? '');
+      await new Promise(requestAnimationFrame);
+    }
+    return seen;
+  });
+  expect(new Set(lit)).toEqual(new Set(['项目']));
+  await expect(page.locator('.card .name').first()).toHaveText('starmeter');
+  // 近 7 天, 模型, then at once the first card: the tool card still on screen is held, its page doesn't open.
+  await page.getByRole('radio', { name: '工具' }).click();
+  await expect(page.getByRole('button', { name: 'Claude 详情' })).toBeVisible();
+  await choose(page, /统计范围/, '近 7 天');
+  await page.getByRole('radio', { name: '模型' }).click();
+  await page.locator('.list .card').first().click({ force: true });
+  await page.waitForTimeout(600);
+  await expect(page.getByRole('heading', { name: 'Claude', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('radio', { name: '模型' })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.locator('.card .name').first()).toHaveText('Claude Opus 5.5');
+});
+
 test('a range picked shows once read through, never the old range or a source at a time; the menu reads ahead', async ({ page }) => {
   const asked: string[] = [];
   page.on('console', (message) => { if (message.text().startsWith('[fixtures] action')) asked.push(message.text()); });

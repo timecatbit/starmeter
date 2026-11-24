@@ -41,6 +41,12 @@ export class PanelInteraction {
     return this.active;
   }
 
+  /** The last of a kind of action still on its way (running or queued): its argument, or null. */
+  latest(kind: string): string | null {
+    const pending = [...(this.active ? [this.active] : []), ...this.queued].filter((action) => action[0] === kind);
+    return pending.at(-1)?.[1] ?? null;
+  }
+
   displayed(): Snapshot | null {
     if (!this.source) return null;
     const value: Snapshot = structuredClone(this.source);
