@@ -21,6 +21,45 @@ use crate::host as shell;
 #[cfg(target_os = "macos")]
 use crate::macos;
 
+/// 会话's row with its figures in `range`, as the panel draws it.
+fn sessions_row(runtime: &Runtime, range: &str) -> Json {
+    runtime.render(|| {
+        let data = runtime.cached_data();
+        let lines = runtime.sessions_lines_in(&data, &runtime.currency_unit(&data), range);
+        starmeter_core::panel_snapshot::panel_entries(&lines).into_iter().next().unwrap_or(Json::Null)
+    })
+}
+
+/// 会话 on /api/live: today's row, and when each session's latest turn began. Nothing at all while 会话 is off the
+/// homepage: its cache keeps the last reading, so a session last seen running would run on the phone for ever and its
+/// title, project and cost go out though the user turned 会话 off (STAGE-1).
+fn live_sessions(runtime: &Runtime) -> (Value, serde_json::Map<String, Value>) {
+    let mut turns = serde_json::Map::new();
+    if !runtime.module_enabled("sessions") {
+        return (Value::Null, turns);
+    }
+    if let Some(sessions) = runtime
+        .read_cache("sessions")
+        .get("payload")
+        .and_then(|payload| payload.get("sessions"))
+        .and_then(Json::as_array)
+    {
+        for session in sessions {
+            let id = session.get("id").and_then(Json::as_str);
+            let began = session
+                .get("turns")
+                .and_then(Json::as_array)
+                .and_then(|turns| turns.first())
+                .and_then(|turn| turn.get("at"))
+                .and_then(Json::number);
+            if let (Some(id), Some(began)) = (id, began) {
+                turns.insert(id.to_string(), serde_json::json!(began));
+            }
+        }
+    }
+    (to_value(sessions_row(runtime, "today")), turns)
+}
+
 /// Whether the panel is on screen, for the core's refresh cadence.
 pub static PANEL_OPEN: AtomicBool = AtomicBool::new(false);
 /// When a phone last read the homepage (在手机上看), in seconds: for a minute after, the core keeps the open panel's
@@ -163,12 +202,7 @@ impl Engine {
     pub fn sessions_entry(&self, range: &str) -> Value {
         let runtime = self.runtime();
         let _turn = self.rendering.lock().expect("the render lock");
-        let entry = runtime.render(|| {
-            let data = runtime.cached_data();
-            let lines = runtime.sessions_lines_in(&data, &runtime.currency_unit(&data), range);
-            starmeter_core::panel_snapshot::panel_entries(&lines).into_iter().next().unwrap_or(Json::Null)
-        });
-        to_value(entry)
+        to_value(sessions_row(&runtime, range))
     }
 
     /// A phone watching 手机版's live view: today's usage read again from the local logs, and the sessions, as a pinned
@@ -191,30 +225,14 @@ impl Engine {
                 runtime.sessions_cached(Some(0.0));
             }
         }
-        let mut turns = serde_json::Map::new();
-        if let Some(sessions) = runtime
-            .read_cache("sessions")
-            .get("payload")
-            .and_then(|payload| payload.get("sessions"))
-            .and_then(Json::as_array)
-        {
-            for session in sessions {
-                let id = session.get("id").and_then(Json::as_str);
-                let began = session
-                    .get("turns")
-                    .and_then(Json::as_array)
-                    .and_then(|turns| turns.first())
-                    .and_then(|turn| turn.get("at"))
-                    .and_then(Json::number);
-                if let (Some(id), Some(began)) = (id, began) {
-                    turns.insert(id.to_string(), serde_json::json!(began));
-                }
-            }
-        }
+        let (sessions, turns) = {
+            let _turn = self.rendering.lock().expect("the render lock");
+            live_sessions(&runtime)
+        };
         serde_json::json!({
             "at": moment,
             "dashboard": self.dashboard_grouped("today", Some("tool")),
-            "sessions": self.sessions_entry("today"),
+            "sessions": sessions,
             "turns": turns,
         })
     }
@@ -727,6 +745,48 @@ fn online() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// STAGE-1: a session last read running, still in 会话's cache, goes to a phone's live view only while 会话 is on
+    /// the homepage; turned off, nothing of it does (no row, no turn's start).
+    #[test]
+    fn the_live_view_has_no_sessions_while_they_are_off_the_homepage() {
+        let home = std::env::temp_dir().join(format!("starmeter-live-{}", starmeter_core::runtime::random_hex(6)));
+        let (state, cache) = (home.join("state"), home.join("cache"));
+        std::fs::create_dir_all(&state).unwrap();
+        std::fs::create_dir_all(&cache).unwrap();
+        let moment = now();
+        let record = serde_json::json!({
+            "schema": 1, "fetchedAt": moment,
+            "payload": {"sessions": [{
+                "id": "s1", "title": "重做设置页", "tool": "claude", "state": "running", "at": moment,
+                "turns": [{"at": moment - 30.0, "requests": 1}],
+            }]},
+        });
+        let environment: HashMap<String, String> = [
+            ("HOME", home.to_string_lossy().into_owned()),
+            ("OCX_STATE_DIR", state.to_string_lossy().into_owned()),
+            ("OCX_CACHE_DIR", cache.to_string_lossy().into_owned()),
+            ("PATH", home.join("bin").to_string_lossy().into_owned()),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value))
+        .collect();
+        let read = |visible: &str| {
+            std::fs::write(state.join("preferences.json"), format!(r#"{{"schema":1,"visible":[{visible}]}}"#)).unwrap();
+            let runtime = Runtime::new(environment.clone(), "starmeter");
+            let path = runtime.cache_path("sessions");
+            std::fs::create_dir_all(Path::new(&path).parent().unwrap()).unwrap();
+            std::fs::write(&path, record.to_string()).unwrap();
+            live_sessions(&runtime)
+        };
+        let (entry, turns) = read(r#""claude","sessions""#);
+        assert_eq!(entry["label"], "会话", "{entry}");
+        assert_eq!(turns.get("s1").and_then(Value::as_f64), Some(moment - 30.0));
+        let (entry, turns) = read(r#""claude""#);
+        assert!(entry.is_null(), "{entry}");
+        assert!(turns.is_empty(), "{turns:?}");
+        let _ = std::fs::remove_dir_all(&home);
+    }
 
     /// Two-second looks from `from` to `to`, each answered by `online`; the moments the clock read, and how.
     fn run(clock: &mut Clock, from: f64, to: f64, online: impl Fn(f64) -> bool) -> Vec<(f64, Tick)> {
