@@ -514,3 +514,44 @@ test('保持亮屏 holds one lock at most, and lets it go when switched off or w
   await expect(page.locator('.dashboard')).toBeVisible();
   await expect.poll(async () => (await held()).held).toBe(0);
 });
+
+/** The page out of sight for `seconds` on the phone's clock (its Date moved on), the computer's clock at `computer`. */
+async function away(page: Page, work: ReturnType<typeof scripted>, seconds: number, computer: number) {
+  const visibility = (state: string) => page.evaluate((state) => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+    document.dispatchEvent(new Event('visibilitychange'));
+  }, state);
+  await visibility('hidden');
+  await page.waitForTimeout(300);
+  work.at(computer);
+  // Date.now as it stands (moved on already, if it was) plus the time away.
+  await page.evaluate((ms) => { const was = Date.now.bind(Date); Date.now = () => was() + ms; }, seconds * 1000);
+  await visibility('visible');
+}
+
+test('back after a while out of sight, what went on meanwhile is not this moment\'s speed, nor a turn just done (STAGE-3)', async ({ page }) => {
+  const work = scripted();
+  await phone(page, PORTRAIT, '', { live: work.live });
+  work.at(3);
+  await expect(page.locator('.stage .monitor.working')).toBeVisible();
+  const rate = page.locator('.stage .monitor [data-figure="rate"] [data-value]');
+  await expect.poll(() => rate.getAttribute('data-value'), { timeout: 5000 }).not.toBeNull();
+  await page.waitForTimeout(2500);
+  const before = await rate.getAttribute('data-value');
+  const events = await page.locator('.stage .feed .event').count();
+  // Locked for 100 s while both sessions worked on (the computer at 9 s, seven requests landed meanwhile): still working,
+  // but what was written while locked is not spread over the last minute, nor dropped on the curve as landing now.
+  await away(page, work, 100, 9);
+  await expect.poll(() => page.locator('.stage .activity .session').count(), { timeout: 5000 }).toBe(2);
+  await page.waitForTimeout(2500);
+  await expect(page.locator('.stage .monitor.working')).toBeVisible();
+  // (Nothing seen written in the last minute: the speed eases to nothing, never what the locked minutes added over 60 s.)
+  expect(Number(await rate.getAttribute('data-value'))).toBeLessThanOrEqual(Number(before));
+  expect(await page.locator('.stage .feed .event.usage').count()).toBeLessThanOrEqual(events);
+  // Locked for three minutes while both turns ended: resting, no turn said done now with the locked minutes as its time.
+  await away(page, work, 180, 200);
+  await expect(page.locator('.stage .monitor .state')).toHaveText(/休息中/, { timeout: 5000 });
+  await page.waitForTimeout(2500);
+  await expect(page.locator('.stage .turn-done')).toHaveCount(0);
+  await expect(page.locator('.stage .feed .event.done')).toHaveCount(0);
+});

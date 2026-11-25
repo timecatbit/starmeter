@@ -21,6 +21,9 @@ import type { Dashboard, Entry, LiveAnswer } from './types';
 /** Tokens added this recently still count as working, between requests of a turn that has no session to say so. */
 const QUIET = 40_000;
 const BUSY_EVERY = 2_000, REST_EVERY = 5_000;
+/** Readings further apart than this left a gap (the page out of sight, the computer out of reach): what changed in it
+ *  happened at moments nobody saw, so it is neither this moment's speed, nor requests landing now, nor a turn just done. */
+const GAP = 15_000;
 /** The curve's span. */
 export const LIVE_SPAN = 5 * 60_000;
 
@@ -65,7 +68,7 @@ export interface LiveEvent {
 export interface Landing { id: string; tokens: number; at: number }
 
 /** A 会话 row read into a live session, by its Chinese wording (the row as the engine wrote it). */
-function readSession(e: Entry, turns: Record<string, number>, skew: number, before: LiveSession | undefined, now: number): LiveSession {
+function readSession(e: Entry, turns: Record<string, number>, skew: number, before: LiveSession | undefined, now: number, gap = false): LiveSession {
   const said = source(e), detail = said.detail ?? '';
   const running = e.statusLight === 'new';
   const shownParts = (e.detail ?? '').split(' · ');
@@ -87,7 +90,7 @@ function readSession(e: Entry, turns: Record<string, number>, skew: number, befo
   const called = { ...(before?.called ?? {}) };
   for (const [name, count] of tools) {
     const was = before?.tools.find(([n]) => n === name)?.[1] ?? 0;
-    if (before && count > was) called[name] = now;
+    if (before && !gap && count > was) called[name] = now;
   }
   return {
     key, title: e.label, image: e.image, template: e.template, symbol: e.symbol, running, about, context: context ? Number(context[1]) / 100 : null,
@@ -139,6 +142,8 @@ export class PhoneLive {
   private restingSince = 0;
   private before: Map<string, { name: string; tokens: number; cost: number }> | null = null;
   private beforeDay: string | null = null;
+  /** When the last reading was taken, on this phone's clock. */
+  private lastTake = 0;
   private nextId = 1;
   private visible = () => typeof document === 'undefined' || document.visibilityState === 'visible';
   private onVisible = () => { if (this.visible() && !this.stopped) { clearTimeout(this.timer); void this.loop(); } };
@@ -180,6 +185,8 @@ export class PhoneLive {
     if (Number.isFinite(answer.at)) this.skew = answer.at * 1000 - now;
     // Quiet and resting are judged on the computer's clock (the readings' own moments), not this phone's.
     const moment = Number.isFinite(answer.at) ? answer.at * 1000 : now;
+    const gap = this.lastTake > 0 && now - this.lastTake > GAP;
+    this.lastTake = now;
     const shown = localize({ entries: answer.sessions ? [answer.sessions] : [], dashboard: answer.dashboard });
     const dashboard = shown.dashboard ?? null, entry = shown.entries[0] ?? null;
     const events: LiveEvent[] = [];
@@ -191,7 +198,7 @@ export class PhoneLive {
     if (dashboard) {
       currency.unit = dashboard.currency ?? currency.unit;
       const now_ = counted(dashboard), day = dashboard.date;
-      if (this.before && this.beforeDay === day) {
+      if (this.before && this.beforeDay === day && !gap) {
         for (const [id, part] of now_) {
           const was = this.before.get(id);
           const added = was ? part.tokens - was.tokens : 0;
@@ -202,11 +209,14 @@ export class PhoneLive {
           }
         }
       }
+      const grew = !!this.before && [...now_].some(([id, part]) => part.tokens > (this.before?.get(id)?.tokens ?? 0) + 0.5);
       this.before = now_;
       this.beforeDay = day;
-      this.feed.add(dashboard, now);
+      this.feed.add(dashboard, now, gap);
       const costs = [...now_.values()].map((p) => p.cost), total = costs.reduce((a, b) => a + b, 0);
-      if (this.cost !== null && total > this.cost + 0.00005) this.costAdded = { amount: total - this.cost, at: now };
+      if (this.cost !== null && total > this.cost + 0.00005 && !gap) this.costAdded = { amount: total - this.cost, at: now };
+      // Work went on in the gap, when exactly unknown: the last activity is what the sessions say of themselves.
+      if (gap && grew) this.lastActive = null;
       this.cost = dashboard.providers.some((p) => p.available && summaryPart(p)?.cost !== null) ? total : null;
       this.dashboard = dashboard;
     }
@@ -217,10 +227,11 @@ export class PhoneLive {
     const rows = (entry?.children ?? []).filter((c) => c.statusLight !== undefined);
     const known = new Map(this.sessions.map((s) => [s.key, s]));
     const first = this.events.length === 0 && this.sessions.length === 0 && !this.dashboardSeen;
-    const sessions = rows.map((row) => readSession(row, answer.turns ?? {}, this.skew, known.get(row.key ?? row.label), now));
+    const sessions = rows.map((row) => readSession(row, answer.turns ?? {}, this.skew, known.get(row.key ?? row.label), now, gap));
     for (const s of sessions) {
       const was = known.get(s.key);
-      if (!was) continue;
+      // Turns begun or done in a gap went at moments unknown: no event at this one, no time made up for them.
+      if (!was || gap) continue;
       if (was.running && !s.running) {
         const took = s.began !== null ? duration(now - s.began, s.exact) : '';
         event('done', s.title, took ? t('这一轮完成 · {d}', { d: took }) : t('这一轮完成'));
@@ -242,7 +253,7 @@ export class PhoneLive {
 
     // Working or resting; resting for a while and now working is waking.
     const working = sessions.some((s) => s.running) || (this.lastGrowth > 0 && moment - this.lastGrowth < QUIET);
-    if (working && this.state === 'resting' && !first && this.restingSince && moment - this.restingSince >= 6_000) {
+    if (working && this.state === 'resting' && !first && !gap && this.restingSince && moment - this.restingSince >= 6_000) {
       this.woke = now;
       const who = sessions.find((s) => s.running)?.title ?? (landings[0] ? this.before?.get(landings[0].id)?.name : null) ?? 'AI';
       event('wake', who, t('开始工作'));

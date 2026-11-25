@@ -41,7 +41,9 @@ export class LiveFeed {
   private shifts = new Map<string, Part>();
   private shifted = new Map<string, Part>();
 
-  add(dashboard: Dashboard, at = Date.now()) {
+  /** `fresh`: a reading after a long gap (a phone's page out of sight, the computer out of reach): what was added while
+   *  nobody looked happened at no moment the line knows, so it adds nothing, as a new range doesn't. */
+  add(dashboard: Dashboard, at = Date.now(), fresh = false) {
     const raw = new Map<string, Part>();
     for (const p of dashboard.providers) {
       const part = summaryPart(p);
@@ -57,7 +59,7 @@ export class LiveFeed {
     if (!raw.size) return;
     const newRange = dashboard.rangeKey !== this.rangeKey;
     this.rangeKey = dashboard.rangeKey;
-    const comparable = !newRange && this.raw.size > 0 && raw.size === this.raw.size && [...raw].every(([id, now]) => {
+    const comparable = !fresh && !newRange && this.raw.size > 0 && raw.size === this.raw.size && [...raw].every(([id, now]) => {
       const before = this.raw.get(id);
       return !!before && now.tokens >= before.tokens - 0.5 && now.output >= before.output - 0.5 && now.cost >= before.cost - 1e-9;
     });
