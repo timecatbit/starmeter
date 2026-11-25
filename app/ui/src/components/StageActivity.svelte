@@ -68,7 +68,8 @@
 
   <div class="head feed-head"><span>{t('动态')}</span></div>
   {#if events.length}
-    <ol class="feed">
+    <!-- data-moving: a new row comes in every couple of seconds and moves the rest (textFits.ts knows). -->
+    <ol class="feed" data-moving>
       {#each events as e (e.id)}
         <li class="event {e.kind}" in:fly={{ y: -12, duration: motion(380) }} animate:flip={{ duration: motion(300) }}>
           <span class="when num">{clock(e.at)}</span>

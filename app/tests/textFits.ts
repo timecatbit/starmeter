@@ -1,7 +1,9 @@
 // Words cut off, found by the page itself rather than by eye: every piece of text under `root`, as the browser lays it
 // out (Range.getClientRects), must at some scroll of its page be seen whole: inside the screen across, inside every
 // ancestor that clips (overflow hidden or clip) and inside what is seen of its scrolling ancestors (below a bar that
-// sticks, above Safari's bars: the visual viewport), and not under another element. A text cut short on purpose
+// sticks, above Safari's bars: the visual viewport), and not under another element; in a list that moves by design
+// ([data-moving], 动态: a new row every couple of seconds) whenever it is seen, and not asked to have been seen (it may
+// have moved between the scrolls). A text cut short on purpose
 // (text-overflow: ellipsis) counts as its whole element, as do a rolling figure (its wheels clip by design) and a chart
 // drawn on a canvas (its words are pixels: the canvas itself must fit). What is hidden on purpose is passed over: not
 // shown (visibility, opacity 0, no box), for a screen reader only, or wholly outside a clipping ancestor (a folded
@@ -153,7 +155,7 @@ export async function cutWords(page: Page, root = '.stage'): Promise<string[]> {
     scrollers.forEach((s, i) => (s.scrollTop = kept[i]));
     await frame();
     const lines = [...wrong].map(([piece, why]) => `${why}: "${piece.label.trim().slice(0, 48)}" (${name(piece.element)})`);
-    for (const piece of pieces) if (!wrong.has(piece) && !seenWhole.has(piece) && !hidden.has(piece) && !moving.has(piece)) lines.push(`never seen whole: "${piece.label.trim().slice(0, 48)}" (${name(piece.element)})`);
+    for (const piece of pieces) if (!wrong.has(piece) && !seenWhole.has(piece) && !hidden.has(piece) && !moving.has(piece) && !piece.element.closest('[data-moving]')) lines.push(`never seen whole: "${piece.label.trim().slice(0, 48)}" (${name(piece.element)})`);
     return lines;
   }, root);
 }

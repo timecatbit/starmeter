@@ -1220,6 +1220,11 @@ async function skyPoint(page: Page): Promise<{ x: number; y: number }> {
 }
 
 test('a tap on the sky sends stars out from there and a ring, pushing what floats near; a tap on a control is only the control\'s', async ({ page }) => {
+  // What floats where, the same each run (things are placed at random): something is near the tap.
+  await page.addInitScript(() => {
+    let seed = 42;
+    Math.random = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+  });
   const work = scripted();
   await phone(page, PORTRAIT, '', { live: work.live });
   const drift = page.locator('.stage .sky canvas.drift');
