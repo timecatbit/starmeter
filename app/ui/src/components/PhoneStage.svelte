@@ -826,9 +826,10 @@
   }
   .word { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
   .word.away { transform: translateY(-100%); opacity: 0; }
-  .compact { font-family: var(--rounded); font-size: var(--fig-m); font-weight: 600; transform: translateY(100%); opacity: 0; }
+  /* The figure whole; the word after it (正在工作, the range) gives way with an ellipsis on a narrow bar. */
+  .compact { display: flex; align-items: baseline; max-width: 100%; font-family: var(--rounded); font-size: var(--fig-m); font-weight: 600; transform: translateY(100%); opacity: 0; }
   .compact.shown { transform: none; opacity: 1; }
-  .compact-range { margin-left: 8px; font-family: var(--text-face); font-size: var(--type-caption); font-weight: 500; color: var(--ink-2); }
+  .compact-range { min-width: 0; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; margin-left: 8px; font-family: var(--text-face); font-size: var(--type-caption); font-weight: 500; color: var(--ink-2); }
   .live { flex: none; display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-2); }
   /* Blinks at each reading: the page is in touch with the computer. */
   .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--good); animation: blink 0.9s ease-out; }
