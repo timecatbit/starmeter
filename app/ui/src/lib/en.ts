@@ -260,7 +260,7 @@ export const phrases: Record<string, string> = {
   昨日: 'Yesterday', 累计: 'All time', '已知 API 等值估算': 'Known API-equivalent estimate', 'API 等值估算': 'API-equivalent estimate',
   缓存命中: 'Cache hits',
   // 在手机上看 on the phone: 手机版, and the choice between it and the homepage as the computer shows it
-  手机版: 'Phone', 电脑版: 'Desktop', 手机上的样式: 'Layout on this phone', 工具占比: 'Share by tool', '按 Token': 'by tokens',
+  手机版: 'Phone', 电脑版: 'Desktop', '电脑还没有读到用量，手机版会在有数字后出现': 'The computer has read no usage yet: Phone appears once it has figures', 手机上的样式: 'Layout on this phone', 工具占比: 'Share by tool', '按 Token': 'by tokens',
   订阅与服务: 'Plans and services', 统计: 'Figures', 保持亮屏: 'Keep the screen on', 连不上电脑: 'Can\'t reach the computer',
   '只读：实时数字每 2 秒从电脑上的 Starmeter 读一次，休息时每 5 秒': 'Read-only: the live figures come from Starmeter on your computer every 2 seconds, every 5 while it rests',
   // 手机版's live view: working or resting, how fast, what happened
