@@ -38,6 +38,7 @@
   import type { PhoneLook } from '../lib/phoneLook.svelte';
   import { panel } from '../lib/ui.svelte';
   import { paintEdges } from '../lib/edges';
+  import { ScreenLock } from '../lib/screenLock';
   import { style } from '../lib/style.svelte';
   import type { Dashboard, Entry } from '../lib/types';
   import Icon from './Icon.svelte';
@@ -151,19 +152,18 @@
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   });
 
-  // Keeping the screen on (a monitor by the desk): only where the browser offers it (an https page, iOS 16.4 on).
-  const lockable = typeof navigator !== 'undefined' && 'wakeLock' in navigator;
+  // Keeping the screen on (a monitor by the desk): only where the browser offers it (an https page, iOS 16.4 on). One
+  // lock at most, let go when the switch goes off or this page goes away (to 电脑版, to the share page).
+  const lockable = ScreenLock.offered();
+  const screenLock = lockable ? ScreenLock.browser() : null;
   let awake = $state(false);
-  let lock: { release: () => Promise<void> } | null = null;
-  async function holdScreen(on: boolean) {
+  function holdScreen(on: boolean) {
     awake = on;
-    try {
-      if (on) lock = await (navigator as unknown as { wakeLock: { request: (kind: string) => Promise<{ release: () => Promise<void> }> } }).wakeLock.request('screen');
-      else { await lock?.release(); lock = null; }
-    } catch { awake = false; lock = null; }
+    void screenLock?.hold(on).then((held) => { if (!held) awake = false; });
   }
   // The system lets go of it when the page is hidden: taken again when it comes back.
-  $effect(() => { if (awake && !asleep && !lock) untrack(() => void holdScreen(true)); if (asleep) lock = null; });
+  $effect(() => { if (awake && !asleep) untrack(() => void screenLock?.resume()); });
+  onMount(() => () => screenLock?.dispose());
 
   // MARK: Summary
 

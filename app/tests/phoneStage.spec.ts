@@ -471,3 +471,46 @@ test('on a phone the browser\'s bars take the page\'s colours: 手机版\'s sky 
   await expect(page.locator('.dashboard')).toBeVisible();
   await expect.poll(async () => (await edges()).html).toBe(await page.locator('.window.phone').evaluate((e) => getComputedStyle(e).backgroundColor));
 });
+
+test('保持亮屏 holds one lock at most, and lets it go when switched off or when the page goes away (STAGE-2)', async ({ page }) => {
+  // A browser's wake lock, slow to answer: the locks held, and how many requests went out.
+  await page.addInitScript(() => {
+    const state = { held: 0, asked: 0 };
+    (window as unknown as { lockState: typeof state }).lockState = state;
+    Object.defineProperty(navigator, 'wakeLock', {
+      configurable: true,
+      value: {
+        request: () => new Promise((resolve) => {
+          state.asked++;
+          setTimeout(() => {
+            state.held++;
+            let released = false;
+            resolve({ release: async () => { if (!released) { released = true; state.held--; } }, addEventListener: () => {} });
+          }, 300);
+        }),
+      },
+    });
+  });
+  await phone(page, LANDSCAPE);
+  const held = () => page.evaluate(() => (window as unknown as { lockState: { held: number; asked: number } }).lockState);
+  const button = page.getByRole('button', { name: '保持亮屏' });
+  await button.click();
+  await expect(button).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(async () => (await held()).held).toBe(1);
+  await page.waitForTimeout(500);
+  expect(await held()).toEqual({ held: 1, asked: 1 });
+  // Off: nothing held.
+  await button.click();
+  await expect.poll(async () => (await held()).held).toBe(0);
+  // Off again before the lock arrives: the lock that comes is let go.
+  await button.click();
+  await button.click();
+  await page.waitForTimeout(500);
+  expect((await held()).held).toBe(0);
+  // On, then to 电脑版: this page gone, nothing held.
+  await button.click();
+  await expect.poll(async () => (await held()).held).toBe(1);
+  await page.getByRole('radio', { name: '电脑版' }).click();
+  await expect(page.locator('.dashboard')).toBeVisible();
+  await expect.poll(async () => (await held()).held).toBe(0);
+});
