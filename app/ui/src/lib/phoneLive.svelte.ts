@@ -81,13 +81,19 @@ function readSession(e: Entry, turns: Record<string, number>, skew: number, befo
   const labelParts = (turn?.label ?? '').split(' · ');
   const tools = [...(turnSaid?.detail ?? '').matchAll(/([^\s·×]+) ×(\d+)/g)].map((m) => [m[1], Number(m[2])] as [string, number]);
   const requests = /(\d+) 次请求/.exec(turnSaid?.detail ?? '');
-  // The turn's start: the computer's second when it says, else the minute the turn's line begins with (today).
+  // The turn's start: the computer's second when it says, else the minute the turn's line begins with, on the
+  // computer's clock (this phone's moved by the difference), the day before when that minute is still to come there.
   const key = e.key ?? e.label;
   let began: number | null = null, exact = false;
   if (turns[key] !== undefined) { began = turns[key] * 1000 - skew; exact = true; }
   else {
     const hm = /^(\d{1,2}):(\d{2})/.exec(turnSaid?.label ?? '');
-    if (hm) { const d = new Date(now); d.setHours(Number(hm[1]), Number(hm[2]), 0, 0); began = d.getTime(); }
+    if (hm) {
+      const there = now + skew, d = new Date(there);
+      d.setHours(Number(hm[1]), Number(hm[2]), 0, 0);
+      if (d.getTime() > there + 60_000) d.setDate(d.getDate() - 1);
+      began = d.getTime() - skew;
+    }
   }
   const called = { ...(before?.called ?? {}) };
   for (const [name, count] of tools) {
