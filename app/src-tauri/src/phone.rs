@@ -469,6 +469,8 @@ fn phone_snapshot(app: &AppHandle, range: Option<&str>, group: Option<&str>) -> 
         }
     }
     snapshot["moduleOptions"] = json!([]);
+    // The computer's look (标准 or 手绘): the phone follows it, as it follows the theme and the background.
+    snapshot["style"] = json!(crate::style::current());
     if let Some(entries) = snapshot.get_mut("entries").and_then(Value::as_array_mut) {
         for entry in entries {
             // 会话 keeps its sessions for the phone's 会话 tab, and the mark the panel knows the row by; every other row

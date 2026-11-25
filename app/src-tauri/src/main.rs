@@ -18,6 +18,7 @@ mod macos;
 mod panel;
 mod phone;
 mod shortcut;
+mod style;
 mod swiftbar;
 mod tunnel;
 #[cfg(windows)]
@@ -396,6 +397,7 @@ fn main() {
             guide::guide_shown,
             guide::mark_guide_shown,
             language::set_language,
+            style::set_style,
             phone::phone_start,
             phone::phone_status,
             phone::phone_stop,
