@@ -652,3 +652,145 @@ async function never(locator: ReturnType<Page['locator']>) {
     await locator.page().waitForTimeout(100);
   }
 }
+
+// MARK: STAGE-8's small points
+
+const fixtureData = () => JSON.parse(readFileSync(new URL('../ui/fixtures/default.json', import.meta.url), 'utf8'));
+/** 会话's row as the phone has it, from the fixtures. */
+const sessionsRow = (data: { snapshot: { entries: { onOpenAction?: string[]; children: { action?: unknown; separator?: boolean }[] }[] } }) => {
+  const entry = structuredClone(data.snapshot.entries.find((e) => e.onOpenAction?.[1] === 'sessions')!);
+  entry.children = entry.children.filter((c) => !c.action).filter((c, i, all) => !(c.separator && i === all.length - 1));
+  delete entry.onOpenAction;
+  return entry;
+};
+
+/** Today standing still, nothing running: resting. */
+const resting = (data = fixtureData()) => () => ({ at: Date.now() / 1000, dashboard: structuredClone(data.dashboards.today), sessions: null, turns: {} });
+
+test('resting, the bar says when the computer was last read, not the time now (STAGE-8 · 1)', async ({ page }) => {
+  await phone(page, PORTRAIT, '', { live: resting() });
+  const said = page.locator('.stage .bar .live .num');
+  await expect(said).toHaveText(/^\d\d:\d\d$/);
+  const read = await said.textContent();
+  // The computer stops answering (a reading on its way for ever), and five minutes pass on the phone.
+  await page.route('**/api/live**', () => {});
+  await page.waitForTimeout(5500);
+  await page.evaluate(() => { const was = Date.now.bind(Date); Date.now = () => was() + 5 * 60_000; });
+  await page.waitForTimeout(1300);
+  await expect(said).toHaveText(read!);
+});
+
+test('in English, resting, today\'s tokens are Tokens (STAGE-8 · 2)', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('starmeter.language', 'en'));
+  await phone(page, PORTRAIT, '', { live: resting() });
+  await expect(page.locator('.stage .monitor .ticker .tick-label').last()).toHaveText('Tokens');
+});
+
+test('a request costing less than a cent says no $0.00, neither in what happened nor rising off the estimate (STAGE-8 · 3)', async ({ page }) => {
+  const data = fixtureData();
+  let n = 0;
+  const live = () => {
+    const dashboard = structuredClone(data.dashboards.today), p = dashboard.providers.find((x: { id: string }) => x.id === 'claude');
+    p.tokens += n * 2000; p.output += n * 20; p.cost += n * 0.002; p.requests += n;
+    if (p.counted) { p.counted.tokens += n * 2000; p.counted.output = (p.counted.output ?? 0) + n * 20; p.counted.cost += n * 0.002; p.counted.requests += n; }
+    n++;
+    return { at: Date.now() / 1000, dashboard, sessions: null, turns: {} };
+  };
+  await phone(page, PORTRAIT, '', { live });
+  await expect.poll(() => page.locator('.stage .feed .event.usage').count(), { timeout: 8000 }).toBeGreaterThan(1);
+  for (const text of await page.locator('.stage .feed .event.usage .what').allTextContents()) expect(text).not.toContain('$0.00');
+  await never(page.locator('.stage .monitor .added'));
+});
+
+test('before the live view\'s first reading, the monitor shows the homepage\'s estimate for today, not — (STAGE-8 · 5)', async ({ page }) => {
+  await page.setViewportSize(PORTRAIT);
+  await servePhone(page, PHONE_KEY);
+  await page.route('**/api/live**', () => {});
+  await page.goto('/#k=' + PHONE_KEY);
+  await expect(page.locator('.stage')).toBeVisible();
+  const homepage = await page.locator('.stage .hero .amount [data-value]').getAttribute('data-value');
+  expect(homepage).toMatch(/^\$\d/);
+  await expect(page.locator('.stage .monitor [data-figure="today"] [data-value]').first()).toHaveAttribute('data-value', homepage!);
+});
+
+test('a turn\'s minute from 会话 (no second from the computer) begun before midnight on the computer\'s clock reads its minutes (STAGE-8 · 6)', async ({ page }) => {
+  const data = fixtureData();
+  // The computer's clock two hours ahead of the phone's and a minute past its midnight; the turn began at 23:58.
+  const offset = 2 * 3600_000;
+  const live = () => {
+    const there = new Date(Date.now() + offset);
+    const midnight = new Date(there); midnight.setHours(0, 0, 0, 0);
+    const at = midnight.getTime() + 60_000;
+    const sessions = sessionsRow(data);
+    const row = sessions.children.find((c: { statusLight?: string }) => c.statusLight !== undefined) as { statusLight: string; detail: string; children: { label: string; detail?: string }[] };
+    row.statusLight = 'new';
+    row.detail = row.detail.replace(/^[^·]*·/, '运行中 3 分钟 ·');
+    const turn = row.children.find((c) => c.detail !== undefined)!;
+    turn.label = '23:58 · 12.0K Token · $0.05';
+    turn.detail = '1 次请求 · Bash ×1';
+    return { at: at / 1000, dashboard: structuredClone(data.dashboards.today), sessions, turns: {} };
+  };
+  await phone(page, PORTRAIT, '', { live });
+  await expect(page.locator('.stage .activity .session').first().locator('.timer')).toHaveText('3分钟');
+});
+
+test('the computer back on dollars, the live figures are in dollars again (STAGE-8 · 7)', async ({ page }) => {
+  const data = fixtureData();
+  let yuan = true;
+  const live = () => ({ at: Date.now() / 1000, dashboard: { ...structuredClone(data.dashboards.today), currency: yuan ? { code: 'CNY', symbol: '¥', rate: 7.2 } : null }, sessions: null, turns: {} });
+  await phone(page, PORTRAIT, '', { live });
+  const today = page.locator('.stage .monitor [data-figure="today"] [data-value]').first();
+  await expect(today).toHaveAttribute('data-value', /^¥/, { timeout: 7000 });
+  yuan = false;
+  await expect(today).toHaveAttribute('data-value', /^\$/, { timeout: 7000 });
+});
+
+/** The snapshot the phone is sent, changed by `change`. */
+async function snapshotAs(page: Page, change: (snapshot: Record<string, unknown> & { entries: { gauges?: { label: string }[] }[] }) => void) {
+  await page.route('**/api/snapshot**', async (route) => {
+    const answer = await route.fetch();
+    const body = await answer.json();
+    change(body);
+    await route.fulfill({ response: answer, json: body });
+  });
+}
+
+test('a plan\'s window with a long name in a narrow column keeps its share whole, the name giving way (STAGE-8 · 4)', async ({ page }) => {
+  await page.setViewportSize({ width: 667, height: 375 });
+  await servePhone(page, PHONE_KEY);
+  await snapshotAs(page, (snapshot) => {
+    for (const entry of snapshot.entries) for (const g of entry.gauges ?? []) g.label = g.label + ' 编程工具与网页共用的额度';
+  });
+  await page.goto('/#k=' + PHONE_KEY);
+  await expect(page.locator('.stage .plan').first()).toBeVisible();
+  const windows = await page.locator('.stage .window-name').evaluateAll((list) => list.map((name) => {
+    const box = name.getBoundingClientRect(), share = name.querySelector('.num')!.getBoundingClientRect();
+    return { name: box.right, share: share.right, width: share.width, text: name.querySelector('.num')!.textContent };
+  }));
+  expect(windows.length).toBeGreaterThan(0);
+  for (const w of windows) {
+    expect(w.width, w.text!).toBeGreaterThan(0);
+    expect(w.share, w.text!).toBeLessThanOrEqual(w.name + 0.5);
+  }
+});
+
+test('with no figures from the computer yet, a phone that chose 手机版 sees the homepage as it is, and can still choose (STAGE-8 · 8)', async ({ page }) => {
+  await page.setViewportSize(PORTRAIT);
+  await servePhone(page, PHONE_KEY);
+  await snapshotAs(page, (snapshot) => { snapshot.dashboard = null; });
+  await page.goto('/#k=' + PHONE_KEY);
+  await expect(page.locator('.look-foot')).toBeVisible();
+  // The homepage laid out as 电脑版 lays it out, not 手机版's screen-wide frame.
+  await expect(page.locator('.window')).not.toHaveClass(/staged/);
+  await expect(page.locator('.stage')).toHaveCount(0);
+  const foot = page.locator('.look-foot');
+  await expect(foot.getByRole('radio', { name: '手机版' })).toHaveAttribute('aria-checked', 'true');
+  await expect(foot.locator('.look-note')).toBeVisible();
+  await foot.getByRole('radio', { name: '电脑版' }).click();
+  await expect(foot.getByRole('radio', { name: '电脑版' })).toHaveAttribute('aria-checked', 'true');
+  await expect(foot.locator('.look-note')).toHaveCount(0);
+  expect(new URL(page.url()).hash).toContain('v=panel');
+  await foot.getByRole('radio', { name: '手机版' }).click();
+  await expect(foot.getByRole('radio', { name: '手机版' })).toHaveAttribute('aria-checked', 'true');
+  expect(new URL(page.url()).hash).toContain('v=stage');
+});
