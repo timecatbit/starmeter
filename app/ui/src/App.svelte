@@ -174,13 +174,16 @@
   // MARK: The window
 
   let pinned = $state(false);
-  // 会话 sits beside 工具 / 模型 / 项目 when its module is on the homepage, instead of among the other rows. Pinning
-  // turns to it (a pinned panel is for watching work as it happens) and unpinning turns back.
+  // 会话 sits beside 工具 / 模型 / 项目 when its module is on the homepage, instead of among the other rows, and 实时
+  // (what the AI is doing now) last. Pinning turns to 实时 (a pinned panel is for watching work as it happens) and
+  // unpinning turns back, unless another was picked meanwhile.
   const sessions = $derived(snapshot ? sessionsEntry(snapshot.entries) : null);
   const VIEW = 'starmeter.homeView';
-  let view = $state<'cards' | 'sessions'>(typeof localStorage !== 'undefined' && localStorage.getItem(VIEW) === 'sessions' ? 'sessions' : 'cards');
-  let viewBeforePin: 'cards' | 'sessions' | null = null;
-  function chooseView(next: 'cards' | 'sessions') {
+  type View = 'cards' | 'sessions' | 'live';
+  const keptView = typeof localStorage !== 'undefined' ? localStorage.getItem(VIEW) : null;
+  let view = $state<View>(keptView === 'sessions' || keptView === 'live' ? keptView : 'cards');
+  let viewBeforePin: View | null = null;
+  function chooseView(next: View) {
     view = next;
     viewBeforePin = null;
     if (typeof localStorage !== 'undefined') localStorage.setItem(VIEW, next);
@@ -317,14 +320,14 @@
     pinned = value;
     panel.pinned = value;
     // Unpinned, the panel goes back under the star at its pages' own size, and to the cards it showed. Pinned from the
-    // homepage, it turns to 会话 and fits the dashboard: down to just above the subscriptions, whatever is chosen.
+    // homepage, it turns to 实时 and fits the dashboard: down to just above the subscriptions, whatever is chosen.
     fitting = false;
     if (!value) {
       free = null;
       if (viewBeforePin !== null) view = viewBeforePin;
       viewBeforePin = null;
     } else if (!free && !managerOnly && !pageEntry && !sharing && !toolId) {
-      if (sessions && view !== 'sessions') { viewBeforePin = view; view = 'sessions'; }
+      if (view !== 'live') { viewBeforePin = view; view = 'live'; }
       homeScroll = 0;
       fitting = true;
     }
@@ -836,7 +839,7 @@
           onback={finishModules} ondone={finishModules} onaction={perform} onopen={push} onheight={(h) => (wanted.grid = h)} />
       {:else if snapshot && stageReady}
         <!-- 网页版: the figures as they came in (held, as the panel holds them, while a range picked is read). -->
-        <PhoneStage data={(waiting ? shown : snapshot.dashboard)!} {rangeOptions} reading={waiting} grouping={pickedGroup} {regrouping} {sessions} {view}
+        <PhoneStage data={(waiting ? shown : snapshot.dashboard)!} {rangeOptions} reading={waiting} grouping={pickedGroup} {regrouping} {sessions} view={view === 'live' ? 'cards' : view}
           entries={without(snapshot.entries, sessions)} problem={phoneProblem} material={snapshot.appearance} onrange={perform} ongroup={(key) => perform(['set-group', key])}
           onview={chooseView} onshare={openShare} onlook={chooseLook} />
       {:else if snapshot}

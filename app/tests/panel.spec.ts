@@ -290,8 +290,12 @@ test('header buttons take clicks, and pinning turns the trend live', async ({ pa
   await expect(page.locator('.grabber')).not.toHaveClass(/faded/);
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('panel-hover', { detail: false })));
   await expect(page.locator('.grabber')).toHaveClass(/faded/);
-  // Pinned, the panel turns to 会话 and fits down to the end of the third session; the rest is below, to scroll to or
+  // Pinned, the panel turns to 实时: what the AI is doing now.
+  await expect(page.getByRole('radio', { name: '实时' })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.locator('.panel-live')).toBeVisible();
+  // 会话 picked while pinned stays, and fits down to the end of the third session; the rest is below, to scroll to or
   // to make the panel taller for.
+  await page.getByRole('radio', { name: '会话' }).click();
   await expect(page.getByRole('radio', { name: '会话' })).toHaveAttribute('aria-checked', 'true');
   await expect(page.locator('.session')).toHaveCount(5);
   const gap = async () => {
@@ -319,8 +323,8 @@ test('header buttons take clicks, and pinning turns the trend live', async ({ pa
   await button(page, '取消钉住面板').click();
   await expect(page.getByLabel('实时用量图')).toHaveCount(0);
   await expect(page.locator('.grabber')).toHaveCount(0);
-  // Unpinned, the cards it showed come back.
-  await expect(page.getByRole('radio', { name: '工具' })).toHaveAttribute('aria-checked', 'true');
+  // Unpinned, 会话 stays: picked while pinned, it is the user's.
+  await expect(page.getByRole('radio', { name: '会话' })).toHaveAttribute('aria-checked', 'true');
 });
 
 test('a new range while pinned carries the live line on instead of starting it over', async ({ page }) => {
@@ -558,7 +562,7 @@ test('a pinned panel resized at its edges lays its pages out at that width, and 
   const edge = await right('.dashboard');
   expect(edge - (await right('.figure'))).toBeLessThan(16);
   expect(edge - (await right('.live'))).toBeLessThan(16);
-  expect(edge - (await right('.session .value'))).toBeLessThan(16);
+  expect(edge - (await right('.panel-live .clock'))).toBeLessThan(16);
   // The corner handle follows the pointer: no wider than 480 (wider only adds air), no narrower than 360.
   const corner = async () => (await page.getByRole('separator', { name: '拖动调整大小' }).boundingBox())!;
   const drag = async (dx: number, dy: number) => {
@@ -1561,8 +1565,8 @@ test('pinned, a row\'s page fits its own rows, and the homepage keeps its size',
   await button(page, '钉住面板').click();
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('panel-resized', { detail: { width: 400, height: 760 } })));
   await expect(page.locator('.window')).toHaveCSS('height', '760px');
-  // Pinned, 正在运行 comes in under the heatmap with its first reading: in place before a row is clicked.
-  await expect(page.locator('.pinned-now')).toBeVisible();
+  // Pinned, 实时 comes in with its first reading.
+  await expect(page.locator('.panel-live')).toBeVisible();
   await page.locator('.row', { hasText: 'Kimi API' }).first().click();
   await expect(page.locator('.page h2.title')).toHaveText('Kimi API');
   // Its own height, not the 760 the homepage was sized to; the width stays the panel's.

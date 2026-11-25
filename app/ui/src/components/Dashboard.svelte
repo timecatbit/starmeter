@@ -19,9 +19,9 @@
   import GroupTabs from './GroupTabs.svelte';
   import Heatmap from './Heatmap.svelte';
   import HintButton from './HintButton.svelte';
-  import { onMount } from 'svelte';
   import LiveChart from './LiveChart.svelte';
-  import PinnedNow from './PinnedNow.svelte';
+  import { onMount } from 'svelte';
+  import PanelLive from './PanelLive.svelte';
   import ProviderCard from './ProviderCard.svelte';
   import SessionList from './SessionList.svelte';
   import MoreButton from './MoreButton.svelte';
@@ -58,7 +58,7 @@
     onfloor?: (height: number) => void;
     onopentool: (id: string) => void;
     /** The 会话 module's row, when it is on the homepage: its sessions are the fourth choice beside the groupings. */
-    sessions?: Entry | null; view?: 'cards' | 'sessions'; onview?: (view: 'cards' | 'sessions') => void;
+    sessions?: Entry | null; view?: 'cards' | 'sessions' | 'live'; onview?: (view: 'cards' | 'sessions' | 'live') => void;
     busy?: string[] | null; onopen?: (e: Entry) => void; onchoose?: (e: Entry) => void;
   } = $props();
 
@@ -69,27 +69,6 @@
   const showSummary = $derived(data.showSummary !== false);
   const extra = $derived(chartExtra(data, right - left));
   const summaryHeight = $derived(showSummary ? 230 + extra : 44);
-  /** Pinned, under the live curve and its heatmap: the sessions running and what happened (PinnedNow), as tall as it
-   *  is. Under the heatmap, the least a pinned panel shows stays the curve down to the heatmap (it can still be made
-   *  small at its corner), and fitting the homepage takes the strip in. */
-  const nowShown = $derived(pinned && !!live && showSummary);
-  let nowHeight = $state(0);
-  // Its height comes in as its first reading does, just after pinning: one arriving while a pointer is down waits till
-  // the click is done, so the rows under it don't move under the press.
-  let pressed = false, heldHeight: number | null = null;
-  function nowHeightIs(height: number) { if (pressed) heldHeight = height; else nowHeight = height; }
-  onMount(() => {
-    const down = () => (pressed = true);
-    const up = () => {
-      pressed = false;
-      setTimeout(() => { if (!pressed && heldHeight !== null) { nowHeight = heldHeight; heldHeight = null; } }, 0);
-    };
-    window.addEventListener('pointerdown', down, true);
-    window.addEventListener('pointerup', up, true);
-    window.addEventListener('pointercancel', up, true);
-    return () => { window.removeEventListener('pointerdown', down, true); window.removeEventListener('pointerup', up, true); window.removeEventListener('pointercancel', up, true); };
-  });
-  const nowSpace = $derived(nowShown ? nowHeight : 0);
   const column = $derived(labelColumn(data));
   const dot = $derived(panelDot(panel.width));
   const heatmapLayout = $derived(data.heatmap ? new HeatmapLayout(left + column, summaryHeight + 8, right - left - column, data.heatmap.columns, heatmapRows(data.heatmap), dot) : null);
@@ -97,11 +76,43 @@
   const harnessHeader = $derived(!data.providers.length || !showSummary || data.heatmap ? 0 : 6);
   /** The grouping the tabs show and a click is measured against: the one last picked while it is on its way. */
   const wantedGrouping = $derived(grouping ?? data.grouping ?? 'tool');
-  const tabOptions = $derived([...(data.providers.length ? data.groupings ?? [] : []), ...(sessions ? [{ key: 'sessions', label: t('会话') }] : [])]);
+  // 实时 last: what the AI is doing now (PanelLive), where pinning turns.
+  const tabOptions = $derived([...(data.providers.length ? data.groupings ?? [] : []), ...(sessions ? [{ key: 'sessions', label: t('会话') }] : []),
+    { key: 'live', label: t('实时') }]);
   // 会话 when chosen, and always when there are no cards to choose instead (its row has left the other rows for here).
-  const showingSessions = $derived(!!sessions && (view === 'sessions' || !data.providers.length));
+  const showingLive = $derived(view === 'live');
+  const showingSessions = $derived(!showingLive && !!sessions && (view === 'sessions' || !data.providers.length));
   const groupingHeight = $derived(tabOptions.length < 2 ? 0 : 30);
   let sessionsHeight = $state(0);
+  // 实时's height as it is drawn (its sessions and what happened come and go), taken a frame after it changes; one
+  // coming in while a pointer is down waits till the click is done, so the rows under it don't move under the press.
+  let liveHeight = $state(0);
+  let pressed = false, heldHeight: number | null = null;
+  function liveHeightIs(height: number) { if (pressed) heldHeight = height; else liveHeight = height; }
+  onMount(() => {
+    const down = () => (pressed = true);
+    const up = () => {
+      pressed = false;
+      setTimeout(() => { if (!pressed && heldHeight !== null) { liveHeight = heldHeight; heldHeight = null; } }, 0);
+    };
+    window.addEventListener('pointerdown', down, true);
+    window.addEventListener('pointerup', up, true);
+    window.addEventListener('pointercancel', up, true);
+    return () => { window.removeEventListener('pointerdown', down, true); window.removeEventListener('pointerup', up, true); window.removeEventListener('pointercancel', up, true); };
+  });
+  let liveBox: HTMLDivElement | undefined = $state();
+  $effect(() => {
+    const box = liveBox;
+    if (!box) return;
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => liveHeightIs(box.offsetHeight));
+    });
+    observer.observe(box);
+    liveHeightIs(box.offsetHeight);
+    return () => { observer.disconnect(); cancelAnimationFrame(frame); };
+  });
   let sessionsBox: HTMLDivElement | undefined = $state();
   // The list's height, taken a frame after it changes: set inside the observer's own callback it would resize what
   // other observers watch in the same frame (the browser then warns of a resize loop).
@@ -130,16 +141,17 @@
   const folds = $derived(!!data.cards && !unlisted && cardList.length > SHOWN);
   const collapsible = $derived(data.allowCollapse === true && !data.cards);
   const expanded = $derived(new Set(data.expandedProviders ?? []));
-  const listHeight = $derived(showingSessions ? sessionsHeight
+  const listHeight = $derived(showingLive ? liveHeight : showingSessions ? sessionsHeight
     : Math.max(cardList.length === 0 && data.providers.length ? 24 : 0, listed.reduce((s, p) => s + cardHeight(p), 0) + (unlisted || folds ? MORE : 0))
       + (data.providers.length ? 4 : 0));
-  const total = $derived(summaryHeight + nowSpace + heatmapHeight + harnessHeader + groupingHeight + listHeight);
+  const total = $derived(summaryHeight + heatmapHeight + harnessHeader + groupingHeight + listHeight);
   // A pinned panel fits down to the end of the third card or session (the user makes it taller at its edges).
   const FIT = 3;
   let sessionsFit = $state(0);
-  const fitList = $derived(showingSessions ? sessionsFit
+  // 实时 fits whole up to a screenful's share: its sessions and the latest of what happened.
+  const fitList = $derived(showingLive ? Math.min(liveHeight, 320) : showingSessions ? sessionsFit
     : cardList.length <= FIT ? listHeight : cardList.slice(0, FIT).reduce((s, p) => s + cardHeight(p), 0) + 4);
-  $effect(() => onsize?.(summaryHeight + nowSpace + heatmapHeight + harnessHeader + groupingHeight + fitList));
+  $effect(() => onsize?.(summaryHeight + heatmapHeight + harnessHeader + groupingHeight + fitList));
   $effect(() => onfloor?.(summaryHeight + heatmapHeight));
 
   const counted = $derived(summaryProviders(data));
@@ -240,15 +252,14 @@
   {#if data.heatmap}
     <Heatmap heatmap={data.heatmap} {column} top={summaryHeight} {right} current={data.rangeKey !== 'yesterday'} max={dot} />
   {/if}
-  {#if nowShown}
-    <div class="now-room" style:top="{summaryHeight + heatmapHeight}px"><PinnedNow onheight={nowHeightIs} /></div>
-  {/if}
-  <div class="cards" style:top="{summaryHeight + heatmapHeight + nowSpace + harnessHeader}px">
+  <div class="cards" style:top="{summaryHeight + heatmapHeight + harnessHeader}px">
     {#if groupingHeight}
-      <GroupTabs options={tabOptions} chosen={showingSessions ? 'sessions' : wantedGrouping} note={showingSessions || regrouping ? null : data.groupNote}
-        onchoose={(key) => { if (key === 'sessions') onview?.('sessions'); else { onview?.('cards'); if (key !== wantedGrouping) ongroup(key); } }} />
+      <GroupTabs options={tabOptions} chosen={showingLive ? 'live' : showingSessions ? 'sessions' : wantedGrouping} note={showingLive || showingSessions || regrouping ? null : data.groupNote}
+        onchoose={(key) => { if (key === 'live' || key === 'sessions') onview?.(key); else { onview?.('cards'); if (key !== wantedGrouping) ongroup(key); } }} />
     {/if}
-    {#if showingSessions && sessions}
+    {#if showingLive}
+      <div class="live-room" bind:this={liveBox}><PanelLive /></div>
+    {:else if showingSessions && sessions}
       <div class="sessions" bind:this={sessionsBox}>
         <SessionList entry={sessions} {busy} onopen={(e) => onopen?.(e)} onchoose={(e) => onchoose?.(e)} onfit={(h) => (sessionsFit = h)} />
       </div>
@@ -379,7 +390,6 @@
     height: 230px;
     pointer-events: none;
   }
-  .now-room { position: absolute; left: 0; width: 100%; }
   .cards {
     position: absolute;
     left: 0;
