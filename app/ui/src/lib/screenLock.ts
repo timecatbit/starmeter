@@ -11,7 +11,8 @@ type Request = () => Promise<Sentinel>;
 
 export class ScreenLock {
   private held: Sentinel | null = null;
-  private asking = false;
+  /** The request out, for a switch turned on again before it answers to wait for the same answer. */
+  private asking: Promise<boolean> | null = null;
   private wanted = false;
   private gone = false;
   /** Why the browser last refused it (NotAllowedError: Low Power Mode, a page not in front), for the page to say. */
@@ -47,17 +48,20 @@ export class ScreenLock {
     this.letGo();
   }
 
-  private async take(): Promise<boolean> {
-    if (this.held || this.asking || this.gone) return true;
-    this.asking = true;
+  private take(): Promise<boolean> {
+    if (this.held || this.gone) return Promise.resolve(true);
+    this.asking ??= this.ask().finally(() => { this.asking = null; });
+    return this.asking;
+  }
+
+  private async ask(): Promise<boolean> {
     let got: Sentinel;
     try { got = await this.request(); } catch (error) {
-      this.asking = false; this.wanted = false;
+      this.wanted = false;
       this.refusal = error instanceof Error ? error.name : 'Error';
       return false;
     }
     this.refusal = null;
-    this.asking = false;
     if (!this.wanted || this.gone) {
       void got.release().catch(() => {});
       return true;

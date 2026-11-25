@@ -88,6 +88,8 @@ for (const [size, viewport, seen] of SIZES) {
         await expect(tab.locator('.stage .activity .title').first()).toHaveText(language === 'zh-Hant' ? toHant(LONG['session-1']) : LONG['session-1']);
         await expect(tab.locator('.stage .activity .timer-figure').first()).toHaveText(/^1:23:\d\d$/);
         await expect(tab.locator('.stage .activity .timer').nth(1)).toHaveText(/^1\s*(小时|小時|hr)\s*2\d\s*(分钟|分鐘|min)$/);
+        // Both figures of it in the figures' face, the words in the text's (STAGE-19: the minutes were in the words').
+        await expect(tab.locator('.stage .activity .timer').nth(1).locator('.timer-figure')).toHaveText(['1', /^2\d$/]);
         // Begun before the logs read: no start known, and said to be running rather than left empty (it vanished).
         await expect(tab.locator('.stage .activity .timer').nth(2)).toHaveText(/^(运行中|運行中|Running)$/);
         // Each clock whole in its card, right of its title (cut short before it), never under it.

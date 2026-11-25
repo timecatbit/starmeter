@@ -90,7 +90,9 @@ export const svgPath = (c: Curve) => `M${c.start[0]},${c.start[1]}` + c.segments
  *  between its two points and no further, so a line never goes past its readings (below zero, or a peak that was
  *  never read) and a flat stretch stays flat. For the live lines, a straight line from point to point before. */
 export function monotoneCurve(given: Point[]): Curve {
-  const points = given.filter((p, i) => i === 0 || p[0] > given[i - 1][0] + 0.01);
+  // Each point right of the last one kept (not of the one before it in the list, which may have been left out).
+  const points: Point[] = [];
+  for (const p of given) if (!points.length || p[0] > points[points.length - 1][0] + 0.01) points.push(p);
   const n = points.length;
   if (n < 2) return { start: points[0] ?? [0, 0], segments: [], end: points[0] ?? [0, 0] };
   const dx = points.slice(1).map((p, i) => p[0] - points[i][0]);

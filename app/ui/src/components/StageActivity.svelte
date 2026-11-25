@@ -19,18 +19,18 @@
   const events = $derived(live.events.slice(0, shown));
   const pad = (n: number) => String(n).padStart(2, '0');
   const clock = (at: number) => { const d = new Date(at); return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
-  /** A turn's clock: m:ss to the second when the computer gave its start, else its minutes, the figure in the figures'
-   *  face and the word in the text's (4 分钟). */
-  const timer = (began: number | null, exact: boolean): { figure: string; words: string } => {
+  /** A turn's clock: m:ss to the second when the computer gave its start, else its minutes, each figure in the figures'
+   *  face and each word in the text's (4 分钟; 1 小时 23 分钟, the 23 a figure too: STAGE-19). */
+  const timer = (began: number | null, exact: boolean): { text: string; figure: boolean }[] => {
     // No start known (a turn begun before the logs read): it is running, said so, never an empty space.
-    if (began === null) return { figure: '', words: t('运行中') };
+    if (began === null) return [{ text: t('运行中'), figure: false }];
     const seconds = Math.max(0, Math.floor((now - began) / 1000));
     if (!exact) {
-      const said = duration(seconds * 1000, false), found = /^(\D*)(\d+)(.*)$/.exec(said);
-      return found ? { figure: found[2], words: (found[1] + found[3]).trim() } : { figure: '', words: said };
+      return duration(seconds * 1000, false).split(/(\d+)/).map((piece) => piece.trim()).filter(Boolean)
+        .map((text) => ({ text, figure: /^\d+$/.test(text) }));
     }
     const h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60), s = seconds % 60;
-    return { figure: h ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`, words: '' };
+    return [{ text: h ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`, figure: true }];
   };
   const motion = (ms: number) => (panel.reduceMotion ? 0 : ms);
   const tint = $derived(panel.dark ? 'rgb(235, 238, 255)' : 'rgb(30, 40, 80)');
@@ -45,8 +45,8 @@
           <div class="top">
             <span class="mark"><span class="orbit" aria-hidden="true"></span><Glyph image={s.image} template={s.template} symbol={s.symbol ?? 'terminal'} size={17} {tint} /></span>
             <span class="title">{s.title}</span>
-            <span class="timer" title={t('本轮用时')}><span class="timer-figure num">{timer(s.began, s.exact).figure}</span>{#if timer(s.began, s.exact).words}<span
-                class="timer-words">{timer(s.began, s.exact).words}</span>{/if}</span>
+            <span class="timer" title={t('本轮用时')}>{#each timer(s.began, s.exact) as piece, i (i)}<span
+                class={piece.figure ? 'timer-figure num' : 'timer-words'}>{piece.text}</span>{/each}</span>
           </div>
           {#if s.about}
             <div class="about">

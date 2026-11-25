@@ -1622,6 +1622,56 @@ test('with reduced motion the one still frame is drawn, by day and on paper too 
   }
 });
 
+test('a request landed and the computer then quiet: the curve no longer drawn every frame once the drop is over (STAGE-19)', async ({ page }) => {
+  const work = scripted();
+  await phone(page, PORTRAIT, '', { live: work.live });
+  work.at(9);
+  await page.waitForTimeout(2600);
+  work.at(10);
+  await expect.poll(() => page.locator('.stage .monitor .added').count(), { timeout: 5000 }).toBeGreaterThan(0);
+  // The computer gone quiet: its answers never come.
+  await page.route('**/api/live**', () => {});
+  await page.waitForTimeout(3200);
+  const canvas = page.locator('.stage .live-chart canvas');
+  const before = Number(await canvas.getAttribute('data-draws'));
+  await page.waitForTimeout(1000);
+  expect(Number(await canvas.getAttribute('data-draws')) - before).toBeLessThan(20);
+});
+
+test('a right-click on the sky is no tap: no sparks, nothing pushed (STAGE-19)', async ({ page }) => {
+  await phone(page, { width: 1280, height: 800 }, '', { live: resting() });
+  const drift = page.locator('.stage .sky canvas.drift');
+  const pokes = Number(await drift.getAttribute('data-pokes'));
+  // Somewhere on the sky clear of the panes: its left edge, halfway down.
+  await page.mouse.click(6, 400, { button: 'right' });
+  await page.mouse.click(6, 400, { button: 'middle' });
+  await page.waitForTimeout(300);
+  expect(Number(await drift.getAttribute('data-pokes'))).toBe(pokes);
+  await page.mouse.click(6, 400);
+  await expect.poll(async () => Number(await drift.getAttribute('data-pokes'))).toBe(pokes + 1);
+});
+
+test('保持亮屏 switched off before the lock comes says it is off, not that the screen stays on (STAGE-19)', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'wakeLock', { configurable: true, value: {
+      request: () => new Promise((resolve) => setTimeout(() => resolve({ release: async () => {}, addEventListener: () => {} }), 400)) } });
+  });
+  await phone(page, LANDSCAPE);
+  const button = page.getByRole('button', { name: '保持亮屏' });
+  await button.click();
+  await button.click();
+  await expect(button).toHaveAttribute('aria-pressed', 'false');
+  await page.waitForTimeout(700);
+  await expect(page.locator('.stage .notice')).toHaveText('已恢复自动锁屏');
+  // On, off and on again before it comes: on, and said so once it has.
+  await button.click();
+  await button.click();
+  await button.click();
+  await page.waitForTimeout(700);
+  await expect(button).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.stage .notice')).toHaveText('屏幕会保持常亮，离开这一页就恢复自动锁屏');
+});
+
 /** The page as the phone server serves it, with the computer's look written in (phone.rs). */
 async function servedWithLook(page: Page, look: { theme: string; style: string }) {
   await page.route((url) => url.pathname === '/', async (route) => {

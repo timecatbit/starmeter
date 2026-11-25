@@ -68,6 +68,10 @@
    *  round it by an unsteady hand (each pen's a little different). */
   const BOX = 64, GLYPH = 40;
   const sprites = new Map<string, HTMLCanvasElement | null>();
+  /** Counted up each time the drawn marks are let go (a new look, a new pixel ratio): a logo still loading for an
+   *  older one is drawn into nothing (STAGE-19: it was kept, in the old colour or at the old density). */
+  let spriteRound = 0;
+  function clearSprites() { sprites.clear(); spriteRound++; }
   function ring(c: CanvasRenderingContext2D, rgb: string, seed: number) {
     c.strokeStyle = `rgb(${rgb})`; c.lineWidth = 1.6; c.lineCap = 'round'; c.beginPath();
     for (let i = 0; i <= 14; i++) {
@@ -79,13 +83,13 @@
   }
   function logoSprite(mark: Mark, pen: number | null): HTMLCanvasElement | null {
     const tint = pen === null ? null : pens()![pen];
-    const key = `${look}|${mark.key}|${pen ?? ''}`;
+    const key = `${look}|${mark.key}|${pen ?? ''}`, ink = INK[look], round = spriteRound;
     if (sprites.has(key)) return sprites.get(key)!;
     sprites.set(key, null);
     const [made, c] = blank(BOX);
     const at = (BOX - GLYPH) / 2;
     if (!mark.image) {
-      c.fillStyle = `rgb(${tint ?? INK[look]})`;
+      c.fillStyle = `rgb(${tint ?? ink})`;
       for (const [cx, cy, r] of DOTS) { c.beginPath(); c.arc(at + (cx / 24) * GLYPH, at + (cy / 24) * GLYPH, (r / 24) * GLYPH, 0, Math.PI * 2); c.fill(); }
       if (tint) ring(c, tint, pen!);
       sprites.set(key, made);
@@ -94,10 +98,11 @@
     const image = new Image();
     const type = mark.image.startsWith('iVBOR') ? 'image/png' : mark.image.startsWith('/9j/') ? 'image/jpeg' : 'image/svg+xml';
     image.onload = () => {
+      if (round !== spriteRound) return;
       c.drawImage(image, at, at, GLYPH, GLYPH);
       if (tint || mark.template) {
         c.globalCompositeOperation = 'source-in';
-        c.fillStyle = `rgb(${tint ?? INK[look]})`;
+        c.fillStyle = `rgb(${tint ?? ink})`;
         c.fillRect(0, 0, BOX, BOX);
         c.globalCompositeOperation = 'source-over';
       }
@@ -204,7 +209,7 @@
     const box = canvas.getBoundingClientRect();
     width = box.width; height = box.height;
     const next = Math.min(2, window.devicePixelRatio || 1);
-    if (next !== ratio) { ratio = next; sprites.clear(); }
+    if (next !== ratio) { ratio = next; clearSprites(); }
     canvas.width = Math.round(width * ratio); canvas.height = Math.round(height * ratio);
     const stars = things.filter((t) => t.kind === 'star'), logos = things.filter((t) => t.kind === 'logo');
     while (stars.length < starsFor()) stars.push(thing('star', true));
@@ -381,7 +386,8 @@
     queue();
   }
   function down(event: PointerEvent) {
-    if (still || !event.isPrimary || !onSky(event.target)) { press = null; return; }
+    // The main button only: a right-click (its menu) or a middle one is no tap on the sky.
+    if (still || !event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0) || !onSky(event.target)) { press = null; return; }
     press = { id: event.pointerId, x: event.clientX, y: event.clientY, at: performance.now() };
   }
   function up(event: PointerEvent) {
@@ -444,7 +450,7 @@
     });
   });
   // The look changed: the pictures drawn again in its way.
-  $effect(() => { void look; untrack(() => sprites.clear()); });
+  $effect(() => { void look; untrack(() => clearSprites()); });
   let burstSeen = 0;
   $effect(() => {
     const at = burst;

@@ -190,10 +190,15 @@
     ? '保持亮屏要用 https 链接：在电脑上选“任何网络”，用它生成的链接打开就能用' : '这个浏览器不支持保持亮屏（iPhone 需要 iOS 16.4 以上）');
   const refused = () => t(screenLock?.refusal === 'NotAllowedError'
     ? '没能保持亮屏：浏览器没有允许（低电量模式下会这样）' : '没能保持亮屏：这个浏览器不支持');
+  /** Each turn of the switch; only the last says what it did (STAGE-19: switched off before the lock came, the page
+   *  said the screen would stay on). */
+  let switched = 0;
   function holdScreen(on: boolean) {
     if (!screenLock) { say(unoffered(), true); return; }
     awake = on;
+    const turn = ++switched;
     void screenLock?.hold(on).then((held) => {
+      if (turn !== switched) return;
       if (!on) say(t('已恢复自动锁屏'));
       else if (held) say(t('屏幕会保持常亮，离开这一页就恢复自动锁屏'));
       else { awake = false; say(refused()); }

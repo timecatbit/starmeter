@@ -87,6 +87,8 @@
   let running = false;
   /** The next drawing while nothing on the curve moves but its flow left (a timer, not every frame). */
   let later: ReturnType<typeof setTimeout> | undefined;
+  /** How many times drawn (for the tests: every frame only while something moves). */
+  let draws = 0;
   function queue() {
     clearTimeout(later);
     if (running) return;
@@ -275,11 +277,14 @@
       }
     }
     canvas.dataset.hand = sketch ? 'twice' : '';
+    canvas.dataset.draws = String(++draws);
     // Keep flowing while the page shows it; reduced motion draws only at readings. Every frame while something moves on
     // it (a request landing, its sparks, the scale easing); otherwise only as the flow left moves it half a point (a
     // minute across the width: about 12 times a second; five minutes: twice).
     if (still || document.visibilityState !== 'visible') return;
-    const moving = drops.length > 0 || sparks.some((s) => now - s.born < SPARK) || shownTop !== top;
+    // A drop is moving for its fall and its rise, not for as long as it is kept (until the next reading: STAGE-19, a
+    // computer gone quiet just after one kept every frame drawn).
+    const moving = drops.some((d) => now - d.born < DROP + RISE) || sparks.some((s) => now - s.born < SPARK) || shownTop !== top;
     if (moving) queue();
     else later = setTimeout(queue, Math.min(1000, Math.max(33, (span / Math.max(1, right)) * 0.5)));
   }
