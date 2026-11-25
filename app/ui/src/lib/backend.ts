@@ -16,6 +16,11 @@ import type { ActionReceipt, Dashboard, LiveAnswer, LiveReading, Question, Shell
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 /** On a phone (在手机上看): the computer's app served this page, with its key in the address's fragment. */
 export const onPhone = !inTauri && typeof location !== 'undefined' && /(^#|&)k=[0-9a-f]{32}/.test(location.hash);
+/** Served by the phone server (outside the app, not the dev server) without a key that opens it: a link cut short, or
+ *  typed in by hand (a Tailscale address with the port alone). The page says so instead of an empty panel; ?keyless
+ *  shows it on the dev server. */
+export const keyless = !inTauri && !onPhone && typeof location !== 'undefined'
+  && (!import.meta.env.DEV || new URLSearchParams(location.search).has('keyless'));
 
 type Fixtures = typeof import('./fixtureBackend');
 let fixtures: Promise<Fixtures> | null = null;
@@ -48,7 +53,8 @@ export const backend = {
       return () => void stop.then((f) => f());
     }
     let off = () => {};
-    void browser().then((f) => (off = f.onChange(changed)));
+    // Outside the app with nothing behind the page (a release build opened elsewhere), there is nothing to hear.
+    void browser().then((f) => (off = f.onChange(changed))).catch(() => {});
     return () => off();
   },
 };
@@ -58,12 +64,20 @@ const quiet = () => Promise.resolve();
 const localGuide = () => { try { return localStorage.getItem('starmeter.guide') === '1'; } catch { return false; } };
 
 /** Where a phone can open the homepage, and how long the public link has left (0 without one). */
-export interface PhoneView { local: string | null; public: string | null; secondsLeft: number }
+export interface PhoneView {
+  local: string | null; tailnet?: string | null; public: string | null; secondsLeft: number;
+  /** The public link seen to open from outside before it was shown; false when the wait for it ran out (PHONE-11). */
+  publicChecked?: boolean;
+}
 /** The browser's stand-in for the phone server, for the tests and the dev server. */
 const browserPhone = (() => {
   let on = false, open = false;
-  const view = (): PhoneView | null => (on ? { local: 'http://192.168.1.20:51234/#k=0123456789abcdef0123456789abcdef',
-    public: open ? 'https://quiet-river-1234.trycloudflare.com/#k=0123456789abcdef0123456789abcdef' : null, secondsLeft: open ? 3540 : 0 } : null);
+  // ?tailnet: this computer on a tailnet too.
+  const tailnet = () => (new URLSearchParams(location.search).has('tailnet') ? 'http://100.76.55.73:51234/#k=0123456789abcdef0123456789abcdef' : null);
+  const view = (): PhoneView | null => (on ? { local: 'http://192.168.1.20:51234/#k=0123456789abcdef0123456789abcdef', tailnet: tailnet(),
+    public: open ? 'https://quiet-river-1234.trycloudflare.com/#k=0123456789abcdef0123456789abcdef' : null, secondsLeft: open ? 3540 : 0,
+    // ?unchecked: the wait for the public link to open ran out.
+    publicChecked: !new URLSearchParams(location.search).has('unchecked') } : null);
   return {
     view, start: () => { on = true; return view()!; }, stop: () => { on = false; open = false; },
     open: () => { open = true; return view()!; }, close: () => { open = false; return view(); },

@@ -207,7 +207,12 @@ export const phrases: Record<string, string> = {
   // 在手机上看
   // Short enough for its cell in the module grid.
   在手机上看: 'Phone view', 扫码在手机浏览器里看: 'Scan with your phone',
-  '外网链接断开了，可以重新生成': 'The public link dropped; you can make a new one',
+  外网链接断开了: 'The public link dropped', 没能生成外网链接: "Couldn't make the link", 可以重新生成一个新链接: 'You can make a new one',
+  改用同一个网络: 'Use the same network', 重新生成: 'Make a new one',
+  'Tailscale 没有连上': "Tailscale isn't connected", 链接不完整: 'This link is incomplete', 链接打不开: "This link can't open",
+  '手机查看的链接要带上 # 后面的一次性口令。请在电脑的“在手机上看”里扫码，或点二维码下的地址复制完整链接。': 'A phone view link carries a one-time key after the #. Scan the code in Phone view on the computer, or click the address under the code to copy the whole link.',
+  '这台电脑打开 Tailscale 后，二维码会回来': 'The code comes back once Tailscale is on here',
+  '手机也连上同一个 Tailscale 网络后扫码，在哪都能打开，不经过 Cloudflare': 'With the phone on the same tailnet, scan it to open from anywhere, without Cloudflare',
   '这个网络的 DNS 查不到 Cloudflare 隧道的地址（常见于代理或 VPN），换个网络或关掉代理再试':
     'This network\'s DNS can\'t find Cloudflare\'s tunnel servers (common behind a proxy or VPN); try another network or turn the proxy off',
   'Cloudflare 暂时不给新的临时链接，稍后再试': 'Cloudflare isn\'t giving out new temporary links right now; try again later',
@@ -223,6 +228,8 @@ export const phrases: Record<string, string> = {
   '第一次要从 Cloudflare 的 GitHub 发布页下载 cloudflared（约 20 MB），校验后存在 App 的数据文件夹。':
     'The first time, cloudflared (about 20 MB) is downloaded from Cloudflare\'s GitHub releases, checked, and kept in the app\'s data folder.',
   下载并生成: 'Download and make it', 生成链接: 'Make the link', '正在向 Cloudflare 要链接…': 'Asking Cloudflare for a link…',
+  '确认手机能打开后再显示，通常十几秒': 'Shown once a phone can open it, usually within 20 seconds',
+  '还没确认手机能打开：扫码打不开就等一分钟再试': "Not yet seen to open: if the phone can't open it, try again in a minute",
   手机扫这个二维码: 'Scan this with your phone', 这台电脑没有连上网络: 'This computer isn\'t on a network', 正在开启: 'Starting',
   已复制链接: 'Link copied', '任何网络都能打开，链接带一次性口令，还能用 {n} 分钟': 'Opens from any network with its one-time key; {n} min left',
   '手机和电脑连同一个网络（Wi-Fi）后扫码；第一次打开时系统可能问是否允许 Starmeter 接收连接，选允许':

@@ -1464,20 +1464,221 @@ test('在手机上看: a start that fails once says why and offers 重试, which
   await expect(button(page, '停止')).toBeVisible();
 });
 
-test('在手机上看: a public link that fails goes back to the same network and says why, until the next try', async ({ page }) => {
+test('在手机上看: a public link that fails stays on 任何网络, says why in the code\'s place, with 重试 and 改用同一个网络', async ({ page }) => {
+  await open(page);
+  // Cloudflare not answering: twice (the first is asked again on its own), then the link as it comes.
+  await page.evaluate(async (source) => {
+    const shell = await eval(source);
+    const real = shell.phonePublic;
+    const w = window as unknown as { asked: number };
+    w.asked = 0;
+    shell.phonePublic = () => (++w.asked <= 2 ? Promise.reject('Cloudflare 这次没有连上，稍后再试') : real());
+  }, panelShell);
+  const asked = () => page.evaluate(() => (window as unknown as { asked: number }).asked);
+  await button(page, '主页模块与设置').click();
+  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  const phone = page.locator('.phone-page');
+  await page.getByRole('radio', { name: '任何网络' }).click();
+  await button(page, '生成链接').click();
+  // 用户：在所有网络失败，应该停留在所有网络的页面，而不是返回到同一网络显示错误.
+  await expect(phone.getByRole('status')).toContainText('没能生成外网链接');
+  await expect(page.getByRole('radio', { name: '任何网络' })).toHaveAttribute('aria-checked', 'true');
+  await expect(phone.locator('.failed')).toContainText('Cloudflare 这次没有连上');
+  expect(await asked()).toBe(2);
+  // No code, and nothing about the same network's: neither is what is chosen.
+  await expect(phone.locator('svg.qr')).toHaveCount(0);
+  await expect(phone.locator('.address')).toHaveCount(0);
+  await expect(phone.locator('.note', { hasText: '同一个网络（Wi-Fi）' })).toHaveCount(0);
+  // 重试: the link this time, on 任何网络 still.
+  await button(page, '重试').click();
+  await expect(phone.locator('.address')).toContainText('trycloudflare.com');
+  await expect(phone.locator('svg.qr')).toBeVisible();
+  await expect(phone.locator('.failed')).toHaveCount(0);
+  await expect(page.getByRole('radio', { name: '任何网络' })).toHaveAttribute('aria-checked', 'true');
+});
+
+test('在手机上看: 改用同一个网络 from a failed public link shows the same network\'s code at once', async ({ page }) => {
   await open(page, '?tunnel-fails');
   await button(page, '主页模块与设置').click();
   await page.getByRole('button', { name: /^在手机上看/ }).click();
   const phone = page.locator('.phone-page');
   await page.getByRole('radio', { name: '任何网络' }).click();
   await button(page, '生成链接').click();
-  await expect(phone.locator('.failed')).toContainText('Cloudflare 这次没有连上');
+  await expect(phone.getByRole('status')).toContainText('没能生成外网链接');
+  await button(page, '改用同一个网络').click();
   await expect(page.getByRole('radio', { name: '同一个网络' })).toHaveAttribute('aria-checked', 'true');
-  await expect(phone.locator('svg[role="img"]')).toBeVisible();
+  await expect(phone.locator('svg.qr')).toBeVisible();
+  await expect(phone.locator('.failed')).toHaveCount(0);
   // Trying again starts afresh: the question, without the last failure under it.
   await page.getByRole('radio', { name: '任何网络' }).click();
   await expect(phone.locator('.ask')).toBeVisible();
   await expect(phone.locator('.failed')).toHaveCount(0);
+});
+
+test('在手机上看: a public link that drops stays on 任何网络, with 重新生成 in the code\'s place', async ({ page }) => {
+  await open(page);
+  await page.evaluate(async (source) => {
+    const shell = await eval(source);
+    const real = shell.phoneStatus;
+    const w = window as unknown as { dropped: boolean };
+    w.dropped = false;
+    // Once dropped, the status says the server is up and its public link gone (its cloudflared ended).
+    shell.phoneStatus = async () => {
+      const view = await real();
+      return w.dropped && view ? { ...view, public: null, secondsLeft: 0 } : view;
+    };
+  }, panelShell);
+  await page.clock.install();
+  await button(page, '主页模块与设置').click();
+  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  const phone = page.locator('.phone-page');
+  await page.getByRole('radio', { name: '任何网络' }).click();
+  await button(page, '生成链接').click();
+  await expect(phone.locator('.address')).toContainText('trycloudflare.com');
+  await page.evaluate(() => { (window as unknown as { dropped: boolean }).dropped = true; });
+  await page.clock.fastForward(10_500);
+  await expect(phone.getByRole('status')).toContainText('外网链接断开了');
+  await expect(page.getByRole('radio', { name: '任何网络' })).toHaveAttribute('aria-checked', 'true');
+  await expect(phone.locator('svg.qr')).toHaveCount(0);
+  await expect(button(page, '重新生成')).toBeVisible();
+  await expect(button(page, '改用同一个网络')).toBeVisible();
+});
+
+test('在手机上看: a public link that fails after 同一个网络 or Tailscale was chosen leaves that code alone (PHONE-12)', async ({ page }) => {
+  for (const away of ['同一个网络', 'Tailscale']) {
+    await open(page, '?tailnet');
+    await button(page, '主页模块与设置').click();
+    await page.getByRole('button', { name: /^在手机上看/ }).click();
+    const phone = page.locator('.phone-page');
+    await expect(phone.locator('svg.qr')).toBeVisible();
+    // The link takes its time (PHONE-11's wait), then fails for good.
+    await page.evaluate(async (source) => {
+      const shell = await eval(source);
+      const w = window as unknown as { letGo: () => void };
+      shell.phonePublic = () => new Promise((_, refuse) => (w.letGo = () => refuse('Cloudflare 这次没有给出链接，稍后再试')));
+    }, panelShell);
+    await page.getByRole('radio', { name: '任何网络' }).click();
+    await button(page, '生成链接').click();
+    await expect(phone.locator('.wait')).toHaveText('正在向 Cloudflare 要链接…');
+    await page.getByRole('radio', { name: away }).click();
+    const address = away === 'Tailscale' ? 'http://100.76.55.73:51234/' : 'http://192.168.1.20:51234/';
+    await expect(phone.locator('.address')).toHaveText(address);
+    await page.evaluate(() => (window as unknown as { letGo: () => void }).letGo());
+    await page.waitForTimeout(300);
+    // The chosen code as it was, nothing of Cloudflare under it.
+    await expect(page.getByRole('radio', { name: away })).toHaveAttribute('aria-checked', 'true');
+    await expect(phone.locator('.address')).toHaveText(address);
+    await expect(phone.locator('svg.qr')).toBeVisible();
+    await expect(phone.locator('.failed')).toHaveCount(0);
+    await expect(phone.locator('.stopped')).toHaveCount(0);
+    // 任何网络 chosen again asks as it always does.
+    await page.getByRole('radio', { name: '任何网络' }).click();
+    await expect(button(page, '生成链接')).toBeVisible();
+  }
+});
+
+test('在手机上看: the public link shows once a phone can open it, its wait saying so, and a wait run out says to give it a minute (PHONE-11)', async ({ page }) => {
+  for (const query of ['', '?unchecked']) {
+    await open(page, query);
+    await button(page, '主页模块与设置').click();
+    await page.getByRole('button', { name: /^在手机上看/ }).click();
+    const phone = page.locator('.phone-page');
+    await expect(phone.locator('svg.qr')).toBeVisible();
+    // The host answers once the link is seen to open (or the wait for it is over): held here to look at the wait.
+    await page.evaluate(async (source) => {
+      const shell = await eval(source);
+      const w = window as unknown as { letGo: () => void };
+      const made = shell.phonePublic;
+      shell.phonePublic = () => new Promise((done) => (w.letGo = () => done(made())));
+    }, panelShell);
+    await page.getByRole('radio', { name: '任何网络' }).click();
+    await button(page, '生成链接').click();
+    await expect(phone.locator('.wait')).toHaveText('正在向 Cloudflare 要链接…');
+    await expect(phone.locator('.wait-detail')).toHaveText('确认手机能打开后再显示，通常十几秒');
+    await expect(phone.locator('svg.qr')).toHaveCount(0);
+    await page.evaluate(() => (window as unknown as { letGo: () => void }).letGo());
+    await expect(phone.locator('.address')).toHaveText('https://quiet-river-1234.trycloudflare.com/');
+    await expect(phone.locator('svg.qr')).toBeVisible();
+    await expect(phone.locator('.wait-detail')).toHaveCount(0);
+    // Seen to open: nothing more said. Not seen in time: shown all the same, with what to do.
+    await expect(phone.locator('.note.caution')).toHaveText(query ? ['还没确认手机能打开：扫码打不开就等一分钟再试'] : []);
+  }
+});
+
+test('在手机上看: on a tailnet, Tailscale is a choice of its own, its code the computer\'s Tailscale address', async ({ page }) => {
+  await open(page, '?tailnet');
+  await button(page, '主页模块与设置').click();
+  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  const phone = page.locator('.phone-page');
+  await expect(phone.getByRole('radio')).toHaveText(['同一个网络', 'Tailscale', '任何网络']);
+  await page.getByRole('radio', { name: 'Tailscale' }).click();
+  await expect(page.getByRole('radio', { name: 'Tailscale' })).toHaveAttribute('aria-checked', 'true');
+  await expect(phone.locator('.address')).toHaveText('http://100.76.55.73:51234/');
+  await expect(phone.locator('svg.qr')).toBeVisible();
+  await expect(phone.locator('.note').first()).toContainText('Tailscale');
+  // The pill under the middle choice, a third of the bar, once it has slid there.
+  await expect(async () => {
+    const pill = (await phone.locator('.reach .pill').boundingBox())!;
+    const middle = (await page.getByRole('radio', { name: 'Tailscale' }).boundingBox())!;
+    expect(Math.abs(pill.x - middle.x)).toBeLessThan(2);
+    expect(Math.abs(pill.width - middle.width)).toBeLessThan(2);
+  }).toPass();
+});
+
+test('在手机上看: off a tailnet there are the two choices, and Tailscale gone while chosen says so in the code\'s place', async ({ page }) => {
+  await open(page);
+  // Off a tailnet at first; then on it, then off it again: the status asked every ten seconds says which.
+  await page.evaluate(async (source) => {
+    const shell = await eval(source);
+    const real = shell.phoneStatus;
+    const w = window as unknown as { on: boolean };
+    w.on = false;
+    const tailnet = (view: { local: string } | null) => view && { ...view, tailnet: w.on ? 'http://100.76.55.73:51234/#k=0123456789abcdef0123456789abcdef' : null };
+    shell.phoneStatus = async () => tailnet(await real());
+  }, panelShell);
+  // The page's ten seconds on a clock the test moves (installed now: the module lookup above reads real timings).
+  await page.clock.install();
+  await button(page, '主页模块与设置').click();
+  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  const phone = page.locator('.phone-page');
+  await expect(phone.getByRole('radio')).toHaveText(['同一个网络', '任何网络']);
+  await page.evaluate(() => { (window as unknown as { on: boolean }).on = true; });
+  await page.clock.fastForward(10_500);
+  await expect(phone.getByRole('radio')).toHaveText(['同一个网络', 'Tailscale', '任何网络']);
+  await page.getByRole('radio', { name: 'Tailscale' }).click();
+  await expect(phone.locator('.address')).toHaveText('http://100.76.55.73:51234/');
+  await page.evaluate(() => { (window as unknown as { on: boolean }).on = false; });
+  await page.clock.fastForward(10_500);
+  await expect(phone.getByRole('status')).toContainText('Tailscale 没有连上');
+  await expect(page.getByRole('radio', { name: 'Tailscale' })).toHaveAttribute('aria-checked', 'true');
+  await expect(phone.locator('svg.qr')).toHaveCount(0);
+  await button(page, '改用同一个网络').click();
+  await expect(phone.locator('.address')).toHaveText('http://192.168.1.20:51234/');
+  await expect(phone.getByRole('radio')).toHaveText(['同一个网络', '任何网络']);
+});
+
+test('on the phone: a link without its key says so in the panel\'s place, not an empty panel', async ({ page }) => {
+  await page.goto('/?keyless');
+  await expect(page.getByRole('status')).toContainText('链接不完整');
+  await expect(page.getByRole('status')).toContainText('# 后面的一次性口令');
+  await expect(page.locator('.dashboard')).toHaveCount(0);
+  // Nothing behind the page is asked for: a release build has nothing there to answer, and its refusal went unheard
+  // into the console (PHONE-13).
+  await page.waitForTimeout(600);
+  const asked = await page.evaluate(() => performance.getEntriesByType('resource').map((entry) => entry.name)
+    .filter((name) => /fixtureBackend|phoneBackend/.test(name)));
+  expect(asked).toEqual([]);
+});
+
+test('on the phone: a key no longer the server\'s, at the first reading, says so in the panel\'s place', async ({ page }) => {
+  await servePhone(page, 'ffffffffffffffffffffffffffffffff');
+  await page.goto('/#k=' + PHONE_KEY);
+  await expect(page.getByRole('status').first()).toContainText('链接打不开');
+  await expect(page.getByRole('status').first()).toContainText('链接已失效');
+  await expect(page.locator('.dashboard')).toHaveCount(0);
+  await expect(page.locator('.phone-problem')).toHaveCount(0);
+  // The browser logs the refused request itself; nothing else may have gone wrong.
+  errors.splice(0, errors.length, ...errors.filter((line) => !/Failed to load resource/.test(line)));
 });
 
 test('在手机上看: 已复制链接 only once the clipboard took it; refused, the whole link to copy by hand', async ({ page }) => {

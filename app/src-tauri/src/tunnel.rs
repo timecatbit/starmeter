@@ -26,6 +26,8 @@ pub struct Tunnel {
     guard: Option<ChildStdin>,
     /// Cleared when cloudflared ends on its own (its connection to Cloudflare lost for good).
     alive: Arc<AtomicBool>,
+    /// Seen to open from outside before it was shown (PHONE-11).
+    pub checked: bool,
 }
 
 impl Tunnel {
@@ -315,16 +317,248 @@ fn start(program: &Path, port: u16, extra: &[&str]) -> Result<Tunnel, (String, b
             Err(_) => break ("Cloudflare 这次没有给出链接，稍后再试".into(), false),
         }
         if connected && let Some(url) = url.take() {
-            return Ok(Tunnel { url, child: Some(child), guard, alive });
+            return Ok(Tunnel { url, child: Some(child), guard, alive, checked: false });
         }
     };
     end(child, guard);
     Err(failed)
 }
 
+/// How the wait for the link to open ended.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Reach {
+    Opens,
+    /// Stopped meanwhile, or cloudflared ended.
+    Gone,
+    /// Not seen to open in time: shown all the same, the panel saying a phone may have to wait a moment.
+    Unconfirmed,
+}
+
+/// What Cloudflare's own resolver says of the link's name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Named {
+    Yes,
+    NotYet,
+    /// Its resolver out of reach from this computer (blocked on its network).
+    Unknown,
+}
+
+/// Measured on this network (2026-11-25): the name was in Cloudflare's resolver about 9 s after cloudflared had
+/// connected, and the page opened through the link about 14 s after; the wait gives up well beyond.
+const OPEN_LIMIT: Duration = Duration::from_secs(45);
+/// With Cloudflare's resolver out of reach, the page is first fetched this long after the connection, when the name
+/// has most likely been added (an earlier look-up by this computer's resolver could leave it "no such name").
+const UNNAMED_GRACE: Duration = Duration::from_secs(15);
+
+impl Tunnel {
+    /// Waits until the link opens from outside, before it is shown (PHONE-11). A quick tunnel's name is added to
+    /// trycloudflare.com's DNS some seconds after cloudflared prints it (the zone has no wildcard), and a phone that
+    /// looks the name up first is told it doesn't exist, which its resolver keeps for up to a minute (the zone's
+    /// negative TTL is 60 s; measured: AliDNS, asked once early, answered "no such name" for 70 s, and Google's flapped
+    /// as long). So until the name is known only Cloudflare's own resolver is asked, never the ones phones use nor this
+    /// computer's (its network's may be the phone's); Cloudflare's knew the name within seconds and didn't keep a "no".
+    /// Then the server's check is fetched through the link with the key, until this computer's server answers it.
+    pub fn confirm(&self, key: &str, stopped: &AtomicBool) -> Reach {
+        let host = self.url.trim_start_matches("https://").to_string();
+        wait_reachable(
+            || cloudflare_knows(&host),
+            || opens(&self.url, key),
+            || stopped.load(Ordering::SeqCst) || !self.alive(),
+            (OPEN_LIMIT, UNNAMED_GRACE, Duration::from_secs(1)),
+        )
+    }
+}
+
+/// The wait itself, its look-ups given: (limit, grace without Cloudflare's resolver, pause between tries).
+fn wait_reachable(
+    mut named: impl FnMut() -> Named,
+    mut opens: impl FnMut() -> bool,
+    gone: impl Fn() -> bool,
+    (limit, grace, pause): (Duration, Duration, Duration),
+) -> Reach {
+    let started = Instant::now();
+    let mut known = false;
+    loop {
+        if gone() {
+            return Reach::Gone;
+        }
+        if started.elapsed() >= limit {
+            return Reach::Unconfirmed;
+        }
+        if !known {
+            known = match named() {
+                Named::Yes => true,
+                Named::NotYet => false,
+                Named::Unknown => started.elapsed() >= grace,
+            };
+        }
+        if known && opens() {
+            return Reach::Opens;
+        }
+        std::thread::sleep(pause);
+    }
+}
+
+/// Asks Cloudflare's resolver (DNS over HTTPS, by way of the system's proxy like every request) for the name.
+fn cloudflare_knows(host: &str) -> Named {
+    let request = Request {
+        headers: vec![("Accept", "application/dns-json".into())],
+        timeout: 3.0,
+        follow_redirects: false,
+        limit: 64 << 10,
+        ..Request::default()
+    };
+    match http::send(&format!("https://cloudflare-dns.com/dns-query?name={host}&type=A"), request) {
+        Ok(response) if response.status == 200 => named(&response.body),
+        _ => Named::Unknown,
+    }
+}
+
+/// A resolver's JSON answer: an address (or an alias) for the name, or a "no such name" or "nothing yet".
+fn named(body: &[u8]) -> Named {
+    let Ok(answer) = serde_json::from_slice::<serde_json::Value>(body) else { return Named::Unknown };
+    let Some(status) = answer["Status"].as_u64() else { return Named::Unknown };
+    let records = answer["Answer"].as_array().map_or(&[][..], Vec::as_slice);
+    if status == 0 && records.iter().any(|record| matches!(record["type"].as_u64(), Some(1 | 5 | 28))) {
+        Named::Yes
+    } else {
+        Named::NotYet
+    }
+}
+
+/// Whether the server's check comes back through the link: this computer's own server answering, not one of
+/// Cloudflare's pages (530 while the link isn't routed yet).
+fn opens(url: &str, key: &str) -> bool {
+    let request = Request {
+        headers: vec![("X-Starmeter-Key", key.to_string())],
+        timeout: 5.0,
+        follow_redirects: false,
+        limit: 1024,
+        ..Request::default()
+    };
+    http::send(&format!("{url}/api/ping"), request)
+        .is_ok_and(|response| response.status == 200 && response.body == crate::phone::PING)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{address, reason};
+    use super::{Named, Reach, address, named, reason, wait_reachable};
+    use std::cell::{Cell, RefCell};
+    use std::time::Duration;
+
+    const QUICK: (Duration, Duration, Duration) = (Duration::from_secs(5), Duration::ZERO, Duration::from_millis(1));
+
+    #[test]
+    fn the_link_is_shown_once_it_opens_and_never_fetched_before_its_name_is_known() {
+        // Cloudflare's resolver doesn't know the name twice, then does; the page answers on the second fetch.
+        let said = RefCell::new(vec![Named::NotYet, Named::NotYet, Named::Yes]);
+        let (asked, fetched) = (Cell::new(0), Cell::new(0));
+        let reach = wait_reachable(
+            || {
+                asked.set(asked.get() + 1);
+                let mut said = said.borrow_mut();
+                if said.len() > 1 { said.remove(0) } else { said[0] }
+            },
+            || {
+                // The page is fetched (this computer's resolver asked) only once the name is in DNS.
+                assert!(asked.get() >= 3, "fetched before the name was known");
+                fetched.set(fetched.get() + 1);
+                fetched.get() == 2
+            },
+            || false,
+            (Duration::from_secs(5), Duration::from_secs(5), Duration::from_millis(1)),
+        );
+        assert_eq!(reach, Reach::Opens);
+        // Known once, the name isn't asked again.
+        assert_eq!((asked.get(), fetched.get()), (3, 2));
+    }
+
+    #[test]
+    fn without_cloudflares_resolver_the_page_is_fetched_after_the_grace() {
+        let fetched = Cell::new(false);
+        let reach = wait_reachable(
+            || Named::Unknown,
+            || {
+                fetched.set(true);
+                true
+            },
+            || false,
+            QUICK,
+        );
+        assert_eq!(reach, Reach::Opens);
+        assert!(fetched.get());
+        // Before the grace, it isn't.
+        let started = std::time::Instant::now();
+        let reach = wait_reachable(
+            || Named::Unknown,
+            || started.elapsed() >= Duration::from_millis(30),
+            || false,
+            (Duration::from_secs(5), Duration::from_millis(30), Duration::from_millis(1)),
+        );
+        assert_eq!(reach, Reach::Opens);
+        assert!(started.elapsed() >= Duration::from_millis(30));
+    }
+
+    #[test]
+    fn a_link_stopped_or_ended_while_waiting_is_gone_and_one_never_opening_is_unconfirmed() {
+        let stopped = Cell::new(0);
+        let gone = || {
+            stopped.set(stopped.get() + 1);
+            stopped.get() > 3
+        };
+        assert_eq!(wait_reachable(|| Named::Yes, || false, gone, QUICK), Reach::Gone);
+        let limit = (Duration::from_millis(20), Duration::ZERO, Duration::from_millis(1));
+        assert_eq!(wait_reachable(|| Named::Yes, || false, || false, limit), Reach::Unconfirmed);
+    }
+
+    /// The whole wait against Cloudflare (PHONE-11): `STARMETER_CLOUDFLARED=<path> cargo test -p starmeter-app
+    /// a_real_quick_tunnel -- --ignored --nocapture`. A stand-in server answers the check; once the wait says the link
+    /// opens, AliDNS (which phones in mainland China often use, and which no one has asked yet) knows the name at once.
+    #[test]
+    #[ignore = "opens a real quick tunnel through Cloudflare"]
+    fn a_real_quick_tunnel_is_shown_once_it_opens() {
+        use std::io::{Read, Write};
+        let program = std::path::PathBuf::from(std::env::var("STARMETER_CLOUDFLARED").expect("STARMETER_CLOUDFLARED"));
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for mut stream in listener.incoming().map_while(Result::ok) {
+                let mut asked = [0u8; 2048];
+                let _ = stream.read(&mut asked);
+                let keyed = String::from_utf8_lossy(&asked).to_ascii_lowercase().contains("x-starmeter-key: k");
+                let body: &[u8] = if keyed { crate::phone::PING } else { b"no" };
+                let _ =
+                    write!(stream, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+                let _ = stream.write_all(body);
+            }
+        });
+        let started = std::time::Instant::now();
+        let mut tunnel = super::start(&program, port, &super::NAMED_EDGE).unwrap_or_else(|(why, _)| panic!("{why}"));
+        let up = started.elapsed();
+        let reach = tunnel.confirm("k", &std::sync::atomic::AtomicBool::new(false));
+        let opened = started.elapsed();
+        let host = tunnel.url.trim_start_matches("https://").to_string();
+        let ali = starmeter_core::http::send(
+            &format!("https://dns.alidns.com/resolve?name={host}&type=A"),
+            starmeter_core::http::Request { timeout: 5.0, ..Default::default() },
+        )
+        .map(|response| named(&response.body));
+        tunnel.stop();
+        eprintln!("{host}: up {up:?}, opens {opened:?}, AliDNS {ali:?}");
+        assert_eq!(reach, Reach::Opens);
+        assert_eq!(ali, Ok(Named::Yes));
+    }
+
+    #[test]
+    fn a_resolvers_answer_says_whether_the_name_is_there() {
+        let answer =
+            br#"{"Status":0,"Answer":[{"name":"a.trycloudflare.com","type":1,"TTL":300,"data":"104.16.230.132"}]}"#;
+        assert_eq!(named(answer), Named::Yes);
+        let none = br#"{"Status":3,"Authority":[{"name":"trycloudflare.com","type":6,"TTL":60}]}"#;
+        assert_eq!(named(none), Named::NotYet);
+        assert_eq!(named(br#"{"Status":0}"#), Named::NotYet);
+        assert_eq!(named(b"<html>blocked</html>"), Named::Unknown);
+    }
 
     /// A stand-in cloudflared that says its two lines in the order given, then stays up.
     #[cfg(unix)]

@@ -92,10 +92,16 @@ struct Running {
 pub struct PhoneView {
     /// http://192.168.1.5:51234/#k=… on this network; None without one.
     local: Option<String>,
+    /// http://100.x.y.z:51234/#k=… through Tailscale, when this computer is on a tailnet: a phone on it opens the page
+    /// from anywhere, nothing going through Cloudflare.
+    tailnet: Option<String>,
     /// https://….trycloudflare.com/#k=… once the public link is up.
     public: Option<String>,
     /// The public link's time left; 0 without one.
     seconds_left: u64,
+    /// Whether the public link was seen to open from outside before it was shown (PHONE-11); false only when the wait
+    /// for it ran out, so the panel says the phone may have to wait a moment.
+    public_checked: bool,
 }
 
 /// A public link still to be used: its cloudflared running and its hour not up. Past the hour it is closed within a few
@@ -106,8 +112,10 @@ fn usable((tunnel, until): &(crate::tunnel::Tunnel, Instant)) -> bool {
 
 fn view(running: &Running) -> PhoneView {
     let fragment = format!("#k={}", running.key);
+    let lan = lan_address();
     PhoneView {
-        local: lan_address().map(|ip| format!("http://{ip}:{}/{fragment}", running.port)),
+        local: lan.map(|ip| format!("http://{ip}:{}/{fragment}", running.port)),
+        tailnet: tailnet_address(lan).map(|ip| format!("http://{ip}:{}/{fragment}", running.port)),
         public: running
             .public
             .as_ref()
@@ -118,6 +126,7 @@ fn view(running: &Running) -> PhoneView {
             .as_ref()
             .filter(|public| usable(public))
             .map_or(0, |(_, until)| until.saturating_duration_since(Instant::now()).as_secs()),
+        public_checked: running.public.as_ref().is_none_or(|(tunnel, _)| tunnel.checked),
     }
 }
 
@@ -128,6 +137,23 @@ fn lan_address() -> Option<IpAddr> {
     socket.connect("192.0.2.1:9").ok()?;
     let ip = socket.local_addr().ok()?.ip();
     (!ip.is_loopback() && !ip.is_unspecified()).then_some(ip)
+}
+
+/// This computer's Tailscale address: the one its traffic to Tailscale's own service address (100.100.100.100, on the
+/// tailnet's route) would leave from, when that is a Tailscale address (100.64.0.0/10) and not the network's own.
+fn tailnet_address(lan: Option<IpAddr>) -> Option<IpAddr> {
+    let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect("100.100.100.100:53").ok()?;
+    tailnet_ip(socket.local_addr().ok()?.ip(), lan)
+}
+
+/// A Wi-Fi of its own can hand out 100.64.0.0/10 too (a carrier's or a campus's): without Tailscale the route to
+/// 100.100.100.100 is the default one, from the network's own address, which is no tailnet's.
+fn tailnet_ip(ip: IpAddr, lan: Option<IpAddr>) -> Option<IpAddr> {
+    match ip {
+        IpAddr::V4(v4) if Some(ip) != lan && v4.octets()[0] == 100 && v4.octets()[1] & 0xC0 == 64 => Some(ip),
+        _ => None,
+    }
 }
 
 fn new_key() -> String {
@@ -212,7 +238,7 @@ static OPENING: Mutex<()> = Mutex::new(());
 /// belongs to the round it was asked in: stopped and started again meanwhile, it is closed, not handed to the new one.
 #[tauri::command]
 pub async fn phone_public(app: AppHandle) -> Result<PhoneView, String> {
-    let (port, round) = {
+    let (port, round, key) = {
         let state = app.state::<Phone>();
         let running = state.running.lock().expect("the phone lock");
         let Some(current) = running.as_ref().filter(|current| !current.stop.load(Ordering::SeqCst)) else {
@@ -221,7 +247,7 @@ pub async fn phone_public(app: AppHandle) -> Result<PhoneView, String> {
         if current.public.as_ref().is_some_and(usable) {
             return Ok(view(current));
         }
-        (current.port, current.stop.clone())
+        (current.port, current.stop.clone(), current.key.clone())
     };
     let (handle, asked) = (app.clone(), round.clone());
     let opened = tauri::async_runtime::spawn_blocking(move || -> Result<Option<crate::tunnel::Tunnel>, String> {
@@ -239,7 +265,21 @@ pub async fn phone_public(app: AppHandle) -> Result<PhoneView, String> {
         if served {
             return Ok(None);
         }
-        crate::tunnel::open(&handle, port).map(Some)
+        let mut tunnel = crate::tunnel::open(&handle, port)?;
+        // Shown once it opens from outside (PHONE-11): a phone that looks the name up before Cloudflare has added it
+        // is told it doesn't exist, and keeps being told so for up to a minute.
+        match tunnel.confirm(&key, &asked) {
+            crate::tunnel::Reach::Opens => tunnel.checked = true,
+            crate::tunnel::Reach::Unconfirmed => {}
+            // Stopped meanwhile: the round's over, and the link is closed below with it.
+            crate::tunnel::Reach::Gone if asked.load(Ordering::SeqCst) => {}
+            // cloudflared ended before the link opened: the panel asks once more on its own.
+            crate::tunnel::Reach::Gone => {
+                tunnel.stop();
+                return Err("Cloudflare 这次没有连上，稍后再试".into());
+            }
+        }
+        Ok(Some(tunnel))
     })
     .await
     .map_err(|error| error.to_string())??;
@@ -351,6 +391,10 @@ fn answer(app: &AppHandle, mut stream: TcpStream, key: &str) -> std::io::Result<
         // The phone's own grouping of the cards, as its range is its own: the computer's choices stay as they are.
         let group =
             query.split('&').find_map(|pair| pair.strip_prefix("group=")).filter(|group| GROUPS.contains(group));
+        // The panel's check that the public link reaches this server (PHONE-11): nothing read, nothing refreshed.
+        if call == "ping" {
+            return respond(&mut stream, 200, "text/plain; charset=utf-8", PING, true);
+        }
         looking(app);
         let body = match call {
             "snapshot" => phone_snapshot(app, range, group),
@@ -463,6 +507,9 @@ fn looking(app: &AppHandle) {
         Data::Fixtures(_) => {}
     }
 }
+
+/// What the server answers the panel's check with, telling it from Cloudflare's own pages.
+pub const PING: &[u8] = b"starmeter";
 
 /// The key compared in full whatever it holds.
 fn same(given: &str, key: &str) -> bool {
@@ -873,7 +920,22 @@ fn strip(entry: &mut Value) {
 
 #[cfg(test)]
 mod tests {
-    use super::{AtomicUsize, CONNECTIONS, Deadline, Ordering, Slot, Slots, same};
+    use super::{AtomicUsize, CONNECTIONS, Deadline, Ordering, Slot, Slots, same, tailnet_ip};
+
+    #[test]
+    fn a_tailnet_address_is_tailscales_range_and_not_the_networks_own() {
+        let ip = |text: &str| text.parse::<std::net::IpAddr>().unwrap();
+        // Tailscale on: its own address, beside the Wi-Fi's.
+        assert_eq!(tailnet_ip(ip("100.76.55.73"), Some(ip("192.168.1.5"))), Some(ip("100.76.55.73")));
+        // A Wi-Fi that hands out 100.64.0.0/10 itself, and no Tailscale: the route is the default one, no tailnet.
+        assert_eq!(tailnet_ip(ip("100.69.38.146"), Some(ip("100.69.38.146"))), None);
+        // Both in the range and apart: Tailscale's beside a carrier's network.
+        assert_eq!(tailnet_ip(ip("100.76.55.73"), Some(ip("100.69.38.146"))), Some(ip("100.76.55.73")));
+        // Outside the range (another VPN's), or the range's edges.
+        for other in ["192.168.1.5", "10.0.0.2", "100.63.255.255", "100.128.0.1"] {
+            assert_eq!(tailnet_ip(ip(other), Some(ip("192.168.1.5"))), None, "{other}");
+        }
+    }
     use std::io::{BufRead, BufReader};
     use std::net::{TcpListener, TcpStream};
     use std::sync::Arc;

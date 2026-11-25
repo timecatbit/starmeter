@@ -3,7 +3,8 @@
   // display, the window's size, the pinned live mode and the rolling figures.
   import { onMount, tick, untrack } from 'svelte';
   import { fade } from 'svelte/transition';
-  import { backend, inTauri, onPhone, shell } from './lib/backend';
+  import { backend, inTauri, keyless, onPhone, shell } from './lib/backend';
+  import Icon from './components/Icon.svelte';
   import { automatic, entryKey, isModule, keepsPanelOpen, opening, passive, sessionsEntry, without } from './lib/detail';
   import { currency } from './lib/format';
   import { PanelInteraction } from './lib/interaction';
@@ -120,6 +121,9 @@
       document.cookie = 'starmeter-phone-look=; max-age=0; path=/; samesite=strict';
     } catch { /* nothing kept */ }
   }
+  /** The phone page can't show the panel: its link has no key, or the first reading already failed (the key no longer
+   *  the server's, the computer out of reach). Said in the panel's place, not as a line under an empty one. */
+  const phoneGate = $derived(keyless || (onPhone && !snapshot && !!phoneProblem));
   /** A tool's page, opened from its card: its usage and its settings. */
   let toolId = $state<string | null>(null);
   const tool = $derived(toolId ? snapshot?.dashboard?.providers.find((p) => p.id === toolId) ?? null : null);
@@ -176,7 +180,7 @@
   /** On a phone (在手机上看): the page fills the screen's width, between 320 and 480. */
   let screenWidth = $state(typeof window === 'undefined' ? 360 : window.innerWidth);
   const phoneWidth = $derived(Math.min(480, Math.max(320, screenWidth)));
-  const panelWidth = $derived(onPhone ? phoneWidth : grid ? 588 : free?.width ?? 360);
+  const panelWidth = $derived(onPhone || keyless ? phoneWidth : grid ? 588 : free?.width ?? 360);
   // Pinned, the homepage keeps the size the panel was given (fitted, or the user's); every other page fits its own
   // content (a share page its picture, a tool's or a row's page its rows), unless the user sizes it at its edges while
   // on it, which holds until they leave it.
@@ -253,7 +257,8 @@
    *  panel's width in the middle. */
   const stageShown = $derived(viewKey === 'stage' || viewKey === 'waiting');
   /** On a phone, the computer not yet answered: the window lets the last load's sky show through. */
-  const awaitingStage = $derived(onPhone && !snapshot);
+  // A link that can't open the panel (its key gone) is said in the panel's place, not 网页版 waiting.
+  const awaitingStage = $derived(onPhone && !snapshot && !phoneGate);
   // On a phone, the browser's bars take the page's colour (网页版 paints its own sky's edges): a page of the panel's
   // (the share page, a row's page), its background in the theme and look the computer chose.
   $effect(() => {
@@ -817,7 +822,7 @@
 
   onMount(() => {
     // The browser preview's desktop behind the panel; a phone's page is the screen itself.
-    if (!inTauri && !onPhone) document.body.classList.add('preview');
+    if (!inTauri && !onPhone && !keyless) document.body.classList.add('preview');
     const down = () => { pressing = true; document.documentElement.classList.remove('keyboard'); };
     // Focus rings belong to moving through the panel with Tab.
     const tabbing = (event: KeyboardEvent) => { if (event.key === 'Tab') document.documentElement.classList.add('keyboard'); };
@@ -826,7 +831,8 @@
     window.addEventListener('pointerdown', down, true);
     window.addEventListener('pointerup', up, true);
     window.addEventListener('pointercancel', up, true);
-    const stops = [backend.onSnapshot(() => void reload()), shell.onOpened(opened), shell.onClosed(closed),
+    // A phone link without its key reads nothing: there is no computer behind it to ask (PHONE-13).
+    const stops = [...(keyless ? [] : [backend.onSnapshot(() => void reload())]), shell.onOpened(opened), shell.onClosed(closed),
       shell.onResized((width, height) => {
         if (!pinned) return;
         // On a page the height is that page's; the width is the panel's everywhere.
@@ -843,6 +849,8 @@
     if (inTauri) restoreStyle();
     void shell.info().then((value) => {
       info = value;
+      // A phone link without its key reads nothing (PHONE-13).
+      if (keyless) return;
       // Started hidden (the app's start, at login): the figures are read, the panel is not taken as opened; the app
       // says when it is (STAGE-11).
       if (value.visible === false) void reload();
@@ -866,9 +874,17 @@
 
 <svelte:window onkeydown={keydown} onresize={() => (screenWidth = window.innerWidth)} />
 
-<div class="window" bind:this={windowBox} data-material={windowMaterial} class:solid={!glass} class:browser={!inTauri && !onPhone} class:phone={onPhone} class:staged={stageShown || awaitingStage} oncontextmenu={contextmenu} role="application" aria-label={t('AI 用量面板')}
+<div class="window" bind:this={windowBox} data-material={windowMaterial} class:solid={!glass} class:browser={!inTauri && !onPhone && !keyless} class:phone={onPhone || keyless} class:staged={stageShown || awaitingStage} oncontextmenu={contextmenu} role="application" aria-label={t('AI 用量面板')}
   onpointermove={() => { if (pinned) showChrome(); }} onpointerleave={() => { if (pinned && !cornerFrom) showChrome(700); }}
-  style:width={inTauri ? '100vw' : onPhone ? null : `${panelWidth}px`} style:height={inTauri ? '100vh' : onPhone ? null : `${panelHeight}px`}>
+  style:width={inTauri ? '100vw' : onPhone || keyless ? null : `${panelWidth}px`} style:height={inTauri ? '100vh' : onPhone || keyless ? null : `${panelHeight}px`}>
+  {#if phoneGate}
+    <!-- A phone link that can't open the panel: why, and where the right one comes from, in the panel's place. -->
+    <div class="phone-gate" role="status">
+      <span class="gate-glyph"><Icon name="iphone" size={30} /></span>
+      <h1 class="gate-title">{t(keyless ? '链接不完整' : '链接打不开')}</h1>
+      <p class="gate-detail">{t(keyless ? '手机查看的链接要带上 # 后面的一次性口令。请在电脑的“在手机上看”里扫码，或点二维码下的地址复制完整链接。' : phoneProblem ?? '')}</p>
+    </div>
+  {:else}
   {#key viewKey}
     <!-- On a phone the pages keep the panel's width in the middle of the screen; 网页版 has all of it. -->
     <div class="view" class:centred={onPhone && !stageShown} style:--page-width={onPhone ? `${panelWidth}px` : null} in:pageIn={{ dir }} out:pageOut={{ dir }}>
@@ -899,7 +915,8 @@
       {/if}
     </div>
   {/key}
-  {#if onPhone && phoneProblem}
+  {/if}
+  {#if onPhone && phoneProblem && !phoneGate}
     <p class="phone-problem" class:staged={stageShown} role="status">{t(phoneProblem)}</p>
   {/if}
   {#if hint}
@@ -956,6 +973,12 @@
   .window.solid { background: var(--solid); }
   /* On a phone the page is the screen, under the browser's bars too (viewport-fit=cover): no edge, no shadow. */
   .window.phone { position: fixed; inset: 0; border-radius: 0; background: var(--solid); }
+  .phone-gate {
+    position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+    padding: 0 32px calc(40px + env(safe-area-inset-bottom)); text-align: center; color: var(--secondary);
+  }
+  .gate-title { margin: 6px 0 0; font-size: 18px; font-weight: 600; color: var(--label); }
+  .gate-detail { margin: 0; max-width: 320px; font-size: 14px; line-height: 1.55; }
   .window.phone::after { display: none; }
   .window.staged { background: transparent; }
   .view.centred { left: 50%; right: auto; width: var(--page-width); margin-left: calc(var(--page-width) / -2); }
