@@ -100,14 +100,6 @@
   let groupPickedAt = 0;
   let groupWaitedOut = $state(0);
   const groupShown = (d: DashboardData) => d.grouping ?? 'tool';
-  const regrouping = $derived(!!pickedGroup && !!snapshot?.dashboard && groupShown(snapshot.dashboard) !== pickedGroup
-    && groupWaitedOut < groupPickedAt);
-  $effect(() => {
-    void version;
-    if (!pickedGroup || !snapshot?.dashboard) return;
-    const arrived = groupShown(snapshot.dashboard) === pickedGroup && interaction.latest('set-group') === null;
-    if (arrived || groupWaitedOut >= groupPickedAt) pickedGroup = null;
-  });
   /** The range menu open: the ranges in it are read ahead, so the one picked is most likely read already. */
   function prefetchRanges() {
     if (onPhone) return;
@@ -203,6 +195,21 @@
   // MARK: The figures on screen: they roll from the last reading to the next, and a new range draws its trend in
 
   let shown = $state<DashboardData | null>(null);
+  const regroupWaited = $derived(!!pickedGroup && groupWaitedOut < groupPickedAt);
+  /** The reading come in isn't the grouping picked (one picked before it, on its way): the cards on screen stay as
+   *  they are, so a grouping between is never drawn (GROUP-FLASH). */
+  const groupHeld = $derived(regroupWaited && !!snapshot?.dashboard && groupShown(snapshot.dashboard) !== pickedGroup);
+  /** The cards on screen aren't the grouping picked, held as they are (the grouping picked not come in yet, or come in
+   *  while a range picked is still read): dimmed and out of reach. */
+  const regrouping = $derived(regroupWaited && !!shown && groupShown(shown) !== pickedGroup);
+  $effect(() => {
+    void version;
+    if (!pickedGroup) return;
+    // Let go once the grouping picked is the one on screen, with no other on its way: come in while a range picked is
+    // still read, the cards on screen are the old range's, still the grouping before it (GROUP-PICK).
+    const drawn = !!shown && groupShown(shown) === pickedGroup && interaction.latest('set-group') === null;
+    if (drawn || groupWaitedOut >= groupPickedAt) pickedGroup = null;
+  });
   let reveal = $state(1);
   let glows = $state<Record<string, number>>({});
   let summaryGlow = $state(0);
@@ -261,8 +268,9 @@
   $effect(() => {
     const next = snapshot?.dashboard;
     currency.unit = next?.currency ?? null;
-    // Waiting for a picked range, the figures on screen stay as they are; the new reading comes in whole.
-    if (waiting && shown) return;
+    // Waiting for a picked range, the figures on screen stay as they are; the new reading comes in whole. So, for a
+    // grouping picked, until the reading is that grouping's.
+    if ((waiting || groupHeld) && shown) return;
     untrack(() => present(next ?? null));
   });
 

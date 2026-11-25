@@ -770,9 +770,10 @@ test('grouping by model or project swaps the cards, five of them and the rest be
   await expect(page.locator('.card')).toHaveCount(15);
 });
 
-/** The grouping's answers slowed (190 ms, as Codex measured them), every action noted in window.asked. */
-async function slowGroups(page: Page) {
-  await page.evaluate(async () => {
+/** The grouping's answers slowed (190 ms, as Codex measured them; 0 for their usual pace), every action noted in
+ *  window.asked. */
+async function slowGroups(page: Page, slow = 190) {
+  await page.evaluate(async (slow) => {
     const loaded = performance.getEntriesByType('resource').map((entry) => entry.name).filter((name) => name.includes('/src/lib/backend.ts'));
     const { backend } = await import(/* @vite-ignore */ loaded.at(-1) ?? '/src/lib/backend.ts');
     const real = backend.action;
@@ -780,11 +781,22 @@ async function slowGroups(page: Page) {
     w.asked = [];
     backend.action = async (action: string[]) => {
       w.asked.push(action);
-      if (action[0] === 'set-group') await new Promise((resolve) => setTimeout(resolve, 190));
+      if (action[0] === 'set-group' && slow) await new Promise((resolve) => setTimeout(resolve, slow));
       return real(action);
     };
-  });
+  }, slow);
 }
+/** Every frame for the time given: which grouping tab is lit, and the first card's name. */
+const frames = (page: Page, ms: number) => page.evaluate(async (ms) => {
+  const seen: { lit: string; card: string }[] = [];
+  const until = performance.now() + ms;
+  while (performance.now() < until) {
+    seen.push({ lit: document.querySelector('.tabs [aria-checked="true"]')?.textContent ?? '',
+      card: document.querySelector('.card .name')?.textContent?.trim() ?? '' });
+    await new Promise(requestAnimationFrame);
+  }
+  return seen;
+}, ms);
 
 test('the grouping clicked last is the one kept, a click back to the one on screen among them (GROUP-PICK)', async ({ page }) => {
   await open(page);
@@ -830,6 +842,55 @@ test('the grouping lit is the one clicked last, from the click on, and the cards
   await expect(page.getByRole('heading', { name: 'Claude', exact: true })).toHaveCount(0);
   await expect(page.getByRole('radio', { name: '模型' })).toHaveAttribute('aria-checked', 'true');
   await expect(page.locator('.card .name').first()).toHaveText('Claude Opus 5.5');
+});
+
+test('at their usual pace, a grouping picked while a range is read is kept to the end, the last click its own (GROUP-PICK)', async ({ page }) => {
+  await open(page);
+  await slowGroups(page, 0);
+  // 模型 answers at once, while 近 7 天 is still read (the cards on screen still today's tools).
+  await choose(page, /统计范围/, '近 7 天');
+  await page.getByRole('radio', { name: '模型' }).click();
+  const before = await frames(page, 120);
+  expect(new Set(before.map((frame) => frame.lit))).toEqual(new Set(['模型']));
+  await page.getByRole('radio', { name: '工具' }).click();
+  const after = await frames(page, 1200);
+  expect(new Set(after.map((frame) => frame.lit))).toEqual(new Set(['工具']));
+  await expect(page.getByRole('button', { name: 'Claude 详情' })).toBeVisible();
+  const asked = await page.evaluate(() => (window as unknown as { asked: string[][] }).asked.filter((a) => a[0] === 'set-group').map((a) => a[1]));
+  expect(asked).toEqual(['model', 'tool']);
+});
+
+test('at their usual pace, the tool cards of a range still read are out of reach once 模型 is picked (GROUP-FLASH)', async ({ page }) => {
+  await open(page);
+  await slowGroups(page, 0);
+  await choose(page, /统计范围/, '近 7 天');
+  await page.getByRole('radio', { name: '模型' }).click();
+  await page.waitForTimeout(60);
+  await expect(page.locator('.list')).toHaveAttribute('inert', '');
+  await page.locator('.list .card').first().click({ force: true });
+  await page.waitForTimeout(800);
+  await expect(page.getByRole('heading', { name: 'Claude', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('radio', { name: '模型' })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.locator('.card .name').first()).toHaveText('Claude Opus 5.5');
+  await expect(page.locator('.list')).not.toHaveAttribute('inert', '');
+});
+
+test('工具, 模型, 项目: the grouping between is never drawn, the tool cards held until the projects\' come (GROUP-FLASH)', async ({ page }) => {
+  await open(page);
+  await slowGroups(page);
+  const tools = (await page.locator('.card .name').first().textContent())!.trim();
+  await page.getByRole('radio', { name: '模型' }).click();
+  await page.getByRole('radio', { name: '项目' }).click();
+  const seen = await frames(page, 1200);
+  expect(new Set(seen.map((frame) => frame.card))).toEqual(new Set([tools, 'starmeter']));
+  expect(seen.at(-1)!.card).toBe('starmeter');
+  // 工具, 模型, back to 工具: the models' never drawn either.
+  await page.getByRole('radio', { name: '工具' }).click();
+  await expect(page.locator('.card .name').first()).toHaveText(tools);
+  await page.getByRole('radio', { name: '模型' }).click();
+  await page.getByRole('radio', { name: '工具' }).click();
+  const back = await frames(page, 1000);
+  expect(new Set(back.map((frame) => frame.card))).toEqual(new Set([tools]));
 });
 
 test('the grouping tabs move with the arrow keys, and Tab leaves them (GROUP-KEY)', async ({ page }) => {
