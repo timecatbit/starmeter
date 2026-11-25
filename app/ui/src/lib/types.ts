@@ -232,6 +232,8 @@ export interface ShellInfo {
   maxHeight: number;
   /** Opened from the star's right-click menu: the module list is the whole panel. */
   modules: boolean;
+  /** The window on screen as the page loads; hidden at the app's start (absent outside the app: shown). */
+  visible?: boolean;
 }
 
 /** A question the core asks while an action runs, answered in the panel: confirm (true/false), text (the line typed),

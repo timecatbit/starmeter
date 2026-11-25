@@ -78,7 +78,7 @@ const base64 = (bytes: Uint8Array) => {
 export const shell = {
   info: (): Promise<ShellInfo> => (inTauri ? invoke('shell_info')
     : Promise.resolve({ platform: 'browser', mode: 'browser', version: '6.0.0', maxHeight: Math.max(400, window.innerHeight - 16),
-      modules: new URLSearchParams(location.search).has('modules') })),
+      modules: new URLSearchParams(location.search).has('modules'), visible: !new URLSearchParams(location.search).has('hidden') })),
   /** Esc or the star hand the focus back to the app used before; a click elsewhere leaves it where it went. */
   close: (returnFocus = true) => (inTauri ? invoke<void>('close_panel', { returnFocus }) : quiet()),
   /** The panel's size; the top stays under the star (or, moved by the user, where they put it). Animated, it eases

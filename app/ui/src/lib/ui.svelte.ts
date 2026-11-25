@@ -24,7 +24,7 @@ class PanelState {
   arranged = $state(false);
   /** The panel on screen (the app's window opened, not yet gone again): what reads live figures for it stops while it
    *  is away. Outside the app (the browser preview, a phone) always. */
-  shown = $state(!inTauri);
+  shown = $state(!inTauri && !(typeof location !== 'undefined' && new URLSearchParams(location.search).has('hidden')));
 
   constructor() {
     darkQuery?.addEventListener('change', (e) => (this.systemDark = e.matches));

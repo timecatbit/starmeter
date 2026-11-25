@@ -814,7 +814,10 @@
     if (inTauri) restoreStyle();
     void shell.info().then((value) => {
       info = value;
-      opened(value.modules);
+      // Started hidden (the app's start, at login): the figures are read, the panel is not taken as opened; the app
+      // says when it is (STAGE-11).
+      if (value.visible === false) void reload();
+      else opened(value.modules);
     });
     return () => {
       stops.forEach((stop) => stop());

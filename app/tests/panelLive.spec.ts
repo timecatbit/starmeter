@@ -184,6 +184,22 @@ test('实时 opens with what happened in the last minutes, and reads only while 
   await expect(live.locator('.live-session .clock').first()).not.toHaveText(clock!, { timeout: 2500 });
 });
 
+test('started hidden (the app at login) with 实时 the tab last shown, nothing is read until the panel is opened (STAGE-11)', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('starmeter.homeView', 'live'));
+  // ?hidden: the browser's stand-in for the app's window not yet on screen (info().visible false).
+  await page.goto('/?hidden');
+  await expect(page.locator('.dashboard')).toBeAttached();
+  await page.waitForTimeout(3500);
+  expect(await asked(page)).toBe(0);
+  // The star clicked: the panel opened, 实时 reads at once and its clocks go.
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('panel-opened', { detail: { modules: false, maxHeight: 900 } })));
+  await expect.poll(() => asked(page), { timeout: 1500 }).toBeGreaterThan(0);
+  const live = page.locator('.panel-live');
+  await expect(live.locator('.live-session')).toHaveCount(3);
+  const clock = await live.locator('.live-session .clock').first().textContent();
+  await expect(live.locator('.live-session .clock').first()).not.toHaveText(clock!, { timeout: 2500 });
+});
+
 test('pinned, the live line opens with the last minutes the app kept: its speed at once, and a gap in them no burst', async ({ page }) => {
   await open(page);
   // Fifty seconds of Claude writing 25 tokens a second.
