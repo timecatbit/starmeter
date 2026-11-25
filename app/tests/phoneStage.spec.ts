@@ -366,8 +366,12 @@ test('the live view is asked for only while the page shows', async ({ page }) =>
   await expect.poll(live, { timeout: 1500 }).toBeGreaterThan(hidden);
 });
 
-test('网页版 in a computer\'s window: the monitor large beside what is happening, the figures under both, a page that scrolls', async ({ page }) => {
+test('网页版 in a computer\'s window: the monitor large beside what is happening, the figures under both, a page that scrolls', async ({ context }) => {
   for (const size of [{ width: 1440, height: 900 }, { width: 1280, height: 800 }, { width: 1024, height: 768 }]) {
+    // A page of its own for each size: loading another address in the same page cancels a live read on its way, which
+    // the browser logs as an error.
+    const page = await context.newPage();
+    page.on('pageerror', (error) => errors.push(String(error)));
     const work = scripted();
     await phone(page, size, '', { live: work.live });
     await expect(page.locator('.stage.desk')).toBeVisible();
@@ -388,6 +392,7 @@ test('网页版 in a computer\'s window: the monitor large beside what is happen
     await page.mouse.move(trend.x + trend.width / 2, trend.y + trend.height / 2);
     await expect(page.locator('.stage .trend .bubble')).toBeVisible();
     await page.mouse.move(0, 0);
+    await page.close();
   }
 });
 

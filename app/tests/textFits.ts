@@ -155,7 +155,8 @@ export async function cutWords(page: Page, root = '.stage'): Promise<string[]> {
     scrollers.forEach((s, i) => (s.scrollTop = kept[i]));
     await frame();
     const lines = [...wrong].map(([piece, why]) => `${why}: "${piece.label.trim().slice(0, 48)}" (${name(piece.element)})`);
-    for (const piece of pieces) if (!wrong.has(piece) && !seenWhole.has(piece) && !hidden.has(piece) && !moving.has(piece) && !piece.element.closest('[data-moving]')) lines.push(`never seen whole: "${piece.label.trim().slice(0, 48)}" (${name(piece.element)})`);
+    // Gone from the page meanwhile (a row of 动态 let go as new ones came in): nothing left to see.
+    for (const piece of pieces) if (piece.element.isConnected && !wrong.has(piece) && !seenWhole.has(piece) && !hidden.has(piece) && !moving.has(piece) && !piece.element.closest('[data-moving]')) lines.push(`never seen whole: "${piece.label.trim().slice(0, 48)}" (${name(piece.element)})`);
     return lines;
   }, root);
 }
