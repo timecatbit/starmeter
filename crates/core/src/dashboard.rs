@@ -345,6 +345,8 @@ pub fn summary_usage(selected: &[Selected]) -> HashMap<String, Object> {
 struct Group {
     fields: IndexMap<&'static str, f64>,
     tools: IndexMap<String, f64>,
+    /// Each tool's Token, apart from its Credits: a tool that logs none counts Credits (R6-1).
+    tool_tokens: HashMap<String, f64>,
     tool_names: HashMap<String, String>,
 }
 
@@ -353,6 +355,7 @@ impl Default for Group {
         Group {
             fields: GROUP_FIELDS.iter().map(|field| (*field, 0.0)).collect(),
             tools: IndexMap::new(),
+            tool_tokens: HashMap::new(),
             tool_names: HashMap::new(),
         }
     }
@@ -387,31 +390,44 @@ fn group_add(groups: &mut IndexMap<String, Group>, key: String, tool: (&str, &st
     }
     let id = format!("{}\u{1F}{}", tool.0, tool.1);
     *group.tools.entry(id.clone()).or_default() += if tokens != 0.0 { tokens } else { num("credits") };
+    *group.tool_tokens.entry(id.clone()).or_default() += tokens;
     group.tool_names.insert(id, tool.1.to_string());
 }
 
 /// A model or project card in the shape of a tool's, with the tools that make it up as its rows.
 fn group_card(id: &str, name: &str, mark: Object, accent: Option<&str>, group: &Group) -> Json {
-    let weight: f64 = group.tools.values().sum();
-    let divisor = if weight != 0.0 { weight } else { 1.0 };
     let requests = group.field("requests") as i64;
     let unpriced = group.field("unpriced") as i64;
     let tokens = group.field("tokens");
     let credits = group.field("credits");
-    let items: Vec<(String, f64)> = group.tools.iter().map(|(tool, amount)| (tool.clone(), *amount)).collect();
-    let tools: Vec<Json> = stable_sorted(&items, |(_, amount)| -amount)
+    // Each tool in its own unit, its share of its own kind: Token for the ones that log it, Credits for the ones that
+    // count only those; the Token ones first (R6-1).
+    let mut items: Vec<(String, f64, bool)> = group
+        .tools
+        .iter()
+        .map(|(tool, amount)| {
+            let tokens = group.tool_tokens.get(tool).copied().unwrap_or(0.0);
+            if tokens != 0.0 { (tool.clone(), tokens, false) } else { (tool.clone(), *amount, true) }
+        })
+        .collect();
+    let total = |kind: bool| -> f64 {
+        let sum: f64 = items.iter().filter(|(_, _, credit)| *credit == kind).map(|(_, amount, _)| amount).sum();
+        if sum != 0.0 { sum } else { 1.0 }
+    };
+    let (token_total, credit_total) = (total(false), total(true));
+    items = stable_sorted(&items, |(_, amount, _)| -amount);
+    items.sort_by_key(|(_, _, credit)| *credit);
+    let tools: Vec<Json> = items
         .into_iter()
         .take(3)
-        .map(|(tool, amount)| {
-            let mut row = object! {
-                "name" => group.tool_names.get(&tool).cloned().unwrap_or_else(|| tool.clone()),
-                "tokens" => if tokens != 0.0 { Json::Double(amount) } else { Json::Int(0) },
-                "share" => capped(amount / divisor),
-            };
-            if tokens == 0.0 {
-                row.insert("credits", amount);
+        .map(|(tool, amount, credit)| {
+            let name = group.tool_names.get(&tool).cloned().unwrap_or_else(|| tool.clone());
+            if credit {
+                object! { "name" => name, "tokens" => 0, "share" => capped(amount / credit_total), "credits" => amount }
+            } else {
+                object! { "name" => name, "tokens" => Json::Double(amount), "share" => capped(amount / token_total) }
             }
-            row.into()
+            .into()
         })
         .collect();
     let priced = requests > unpriced;

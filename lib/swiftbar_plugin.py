@@ -4323,18 +4323,23 @@ def group_add(groups, key, tool, row):
     def num(name):
         try:return max(0.0,float(row.get(name) or 0))
         except (TypeError,ValueError):return 0.0
-    g=groups.setdefault(key,dict({field:0.0 for field in GROUP_FIELDS},tools={}))
+    g=groups.setdefault(key,dict({field:0.0 for field in GROUP_FIELDS},tools={},tool_tokens={}))
     tokens=num('totalTokens')
     for field,value in (('tokens',tokens),('cost',num('estimatedCostUsd')),('requests',num('requests')),('unpriced',num('unpricedRequests')),
                         ('output',num('outputTokens')),('credits',num('credits')),('cached',num('cacheReadInputTokens') or num('cachedInputTokens')),
                         ('inputs',num('cacheEligibleInputTokens') if 'cacheEligibleInputTokens' in row else num('inputTokens'))):g[field]+=value
     g['tools'][tool]=g['tools'].get(tool,0.0)+(tokens or num('credits'))
+    g['tool_tokens'][tool]=g['tool_tokens'].get(tool,0.0)+tokens
 
 def group_card(card_id, name, mark, accent, g):
     """A model or project card in the shape of a tool's, with the tools that make it up as its rows."""
-    weight=sum(g['tools'].values()) or 1;requests=int(g['requests']);unpriced=int(g['unpriced'])
-    tools=[{'name':tool[1] if isinstance(tool,tuple) else tool,'tokens':amount if g['tokens'] else 0,'share':min(1,amount/weight),**({'credits':amount} if not g['tokens'] else {})}
-           for tool,amount in sorted(g['tools'].items(),key=lambda item:-item[1])[:3]]
+    requests=int(g['requests']);unpriced=int(g['unpriced'])
+    # Each tool in its own unit, its share of its own kind: Token for the ones that log it, Credits for the ones that
+    # count only those; the Token ones first (R6-1).
+    rows=[(tool,g['tool_tokens'][tool],False) if g['tool_tokens'].get(tool) else (tool,amount,True) for tool,amount in g['tools'].items()]
+    totals={kind:sum(amount for _,amount,credit in rows if credit==kind) or 1 for kind in (False,True)}
+    tools=[{'name':tool[1] if isinstance(tool,tuple) else tool,'tokens':0 if credit else amount,'share':min(1,amount/totals[credit]),**({'credits':amount} if credit else {})}
+           for tool,amount,credit in sorted(rows,key=lambda row:(row[2],-row[1]))[:3]]
     priced=requests>unpriced
     return {'id':card_id,'name':name,**mark,'accent':accent,'subtitle':'','status':'已同步' if priced or g['credits'] else '费用待定价','available':True,
             'credits':g['credits'] or None,'clients':None,'cost':g['cost'] if priced else None,'tokens':g['tokens'],'requests':requests,'output':g['output'],

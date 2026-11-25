@@ -355,13 +355,17 @@ function modelTitle(key) {
   return key;
 }
 function groupCard(id, name, mark, accent, group) {
-  const weight = group.tools.reduce((a, [, v]) => a + v, 0) || 1;
+  // Each tool in its own unit, its share of its own kind: Token for the ones that log it, Credits for the ones that
+  // count only those; the Token ones first (R6-1).
+  const rows = group.tools.map(([tool, amount, tokens]) => (tokens ? [tool, tokens, false] : [tool, amount, true]));
+  const total = (credit) => rows.filter((row) => row[2] === credit).reduce((a, row) => a + row[1], 0) || 1;
+  const tokenTotal = total(false), creditTotal = total(true);
   const priced = group.requests > group.unpriced;
   return { id, name, ...mark, accent, subtitle: '', status: priced || group.credits ? '已同步' : '费用待定价', available: true, credits: group.credits || null, clients: null,
     cost: priced ? round6(group.cost) : null, tokens: group.tokens, requests: group.requests, output: group.output, cache: group.inputs ? capped(group.cached / group.inputs) : null,
     coverage: null, sessions: 0, unpriced: group.unpriced,
-    models: [...group.tools].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([tool, amount]) => (group.tokens ? { name: tool, tokens: amount, share: capped(amount / weight) }
-      : { name: tool, tokens: 0, share: capped(amount / weight), credits: amount })),
+    models: [...rows].sort((a, b) => Number(a[2]) - Number(b[2]) || b[1] - a[1]).slice(0, 3).map(([tool, amount, credit]) => (credit
+      ? { name: tool, tokens: 0, share: capped(amount / creditTotal), credits: amount } : { name: tool, tokens: amount, share: capped(amount / tokenTotal) })),
     history: [], summaryIncluded: false, priceNote: group.unpriced > 0 && group.unpriced < group.requests && !group.credits ? `${group.unpriced} 次未定价` : null };
 }
 function addTo(groups, key, toolName, share, part, tool) {
@@ -371,7 +375,7 @@ function addTo(groups, key, toolName, share, part, tool) {
   g.unpriced += tool.unpriced && key.startsWith('gemini-3.5') ? Math.round(part.requests * share) : Math.round(part.unpriced * share * (tool.unpriced ? 0 : 1));
   g.output += Math.round(part.output * share); g.credits += credits; g.cached += tokens * (part.cache ?? 0); g.inputs += tokens * 0.98;
   const existing = g.tools.find(([name]) => name === toolName);
-  if (existing) existing[1] += tokens || credits; else g.tools.push([toolName, tokens || credits]);
+  if (existing) { existing[1] += tokens || credits; existing[2] += tokens; } else g.tools.push([toolName, tokens || credits, tokens]);
 }
 function groupCards(key) {
   const [start, end] = bounds(key);

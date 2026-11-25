@@ -887,6 +887,44 @@ class RangeParityTests(unittest.TestCase):
                     if data.get('range_usage') is ancient and 'claude' in variant.get('visible', ['claude']):
                         self.assertEqual(expected['chartStatus'], '图表展示最近 366 天')
 
+    def test_a_project_shared_by_token_and_credit_tools_keeps_each_in_its_own_unit(self):
+        # R6-1: Qoder counts Credits, Claude and Codex Token; in a project (or model) card they all use, Qoder's row is
+        # its Credits, its share of the Credits, and the Token tools share the Token among them.
+        import types
+        payload, _, _ = self.python('today')
+        projects = [row for row in payload['claude'].get('projects') or [] if row.get('project')]
+        self.assertTrue(projects)
+        shared = projects[0]['project']
+        payload['qoder'] = {'summary': {'requests': 3, 'credits': 7.5, 'totalTokens': 0},
+                            'projects': [{'project': shared, 'requests': 3, 'credits': 7.5, 'totalTokens': 0}],
+                            'models': [{'model': 'qfmodel', 'requests': 3, 'credits': 7.5, 'totalTokens': 0}]}
+        frozen = time.time()
+        for engine in ('python', 'swift'):
+            state = Path(self.states[engine]['OCX_STATE_DIR'])
+            (state / 'preferences.json').write_text(json.dumps({'schema': 1, 'visible': ['summary', 'claude', 'codex', 'qoder'],
+                                                                'modules': [m[0] for m in preferences.MODULES], 'groupBy': 'project'}))
+        data = {'range_usage': payload, 'displayed_range': 'today'}
+        with unittest.mock.patch.dict(os.environ, dict(self.common, **self.states['python'])):
+            plugin = types.ModuleType('plugin_dash')
+            exec(compile((ROOT / 'lib/swiftbar_plugin.py').read_text(), 'plugin', 'exec'), plugin.__dict__)
+            plugin.usage_now = lambda: datetime.fromtimestamp(frozen, plugin.local_zone())
+            expected = plugin.dashboard_payload(data)
+        environment = {k: v for k, v in os.environ.items() if k not in ('CLAUDE_CONFIG_DIR', 'XDG_CONFIG_HOME', 'CODEX_HOME', 'OCX_BASE_URL', 'TZ')}
+        environment.update(self.common, **self.states['swift'])
+        done = subprocess.run([PROBE], input=json.dumps({'call': 'dashboard', 'args': [data, frozen, None]}).encode(),
+                              capture_output=True, check=True, env=environment)
+        answer = probed(done.stdout)
+        self.assertNotIn('error', answer)
+        same(self, expected, answer['result'])
+        card = next(c for c in expected['cards'] if c['id'] == 'project:' + shared)
+        rows = {row['name']: row for row in card['models']}
+        self.assertEqual((rows['Qoder']['tokens'], rows['Qoder']['credits'], rows['Qoder']['share']), (0, 7.5, 1))
+        tokens = [row for row in card['models'] if 'credits' not in row]
+        self.assertTrue(tokens and all(row['tokens'] > 0 for row in tokens))
+        self.assertAlmostEqual(sum(row['share'] for row in tokens), 1.0 if len(card['models']) <= 3 else sum(row['share'] for row in tokens))
+        # The Token tools first, Qoder after them.
+        self.assertEqual(card['models'][-1]['name'], 'Qoder')
+
     def test_the_heatmap_squares_are_the_zones_own_hours(self):
         # The sources count real hours from the hour (UTC); the squares of a calendar range are the zone's hours. Each
         # source hour goes to the zone's hour most of it falls in, kept within the range: none is dropped or drawn twice
