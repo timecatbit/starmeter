@@ -172,11 +172,11 @@ export async function drawNightPicture(d: Dashboard, project: Project, dark: boo
 
   // Signature.
   // A shooting star across the end of the sky, then the signature.
-  const streak = ctx.createLinearGradient(M + 60, L.foot + 22, WIDTH - M - 60, L.foot + 6);
+  const streak = ctx.createLinearGradient(M + 60, L.foot + 20, WIDTH - M - 60, L.foot + 5);
   streak.addColorStop(0, alpha(c.soft, 0)); streak.addColorStop(1, alpha(c.soft, 0.9));
   ctx.strokeStyle = streak; ctx.lineWidth = 1.4; ctx.lineCap = 'round';
-  ctx.beginPath(); ctx.moveTo(M + 60, L.foot + 24); ctx.quadraticCurveTo(WIDTH / 2, L.foot + 10, WIDTH - M - 60, L.foot + 6); ctx.stroke();
-  ctx.fillStyle = c.text; ctx.beginPath(); ctx.arc(WIDTH - M - 60, L.foot + 6, 1.8, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(M + 60, L.foot + 21); ctx.quadraticCurveTo(WIDTH / 2, L.foot + 9, WIDTH - M - 60, L.foot + 5); ctx.stroke();
+  ctx.fillStyle = c.text; ctx.beginPath(); ctx.arc(WIDTH - M - 60, L.foot + 5, 1.8, 0, Math.PI * 2); ctx.fill();
   drawSignature(ctx, p, project, L.sign + 20, { name: serif(18), small: (s) => serif(s, false), size: 13, ink: c.text, muted: c.dim });
   return canvas;
 }

@@ -12,7 +12,7 @@ import { t, t as tr } from './i18n.svelte';
 import { chartPositions } from './chart';
 import { axisTokens, creditsText, currency, legendName, modelAmount, modelName, share, summaryPart, tokenLine, tokens } from './format';
 import { qrLook, qrModules } from './qr';
-import { BOTTOM_BAND, dollars, drawBrand, drawMark, load, loadMarks, measure, middleText, shownHeatmap, shownRows, tag, TOP_BAND, WIDTH, type Marks } from './shareCommon';
+import { BOTTOM_BAND, dollars, drawBrand, drawMark, grain, load, loadMarks, measure, middleText, SCALE, shownHeatmap, shownRows, tag, TOP_BAND, WIDTH, type Marks } from './shareCommon';
 import type { Dashboard, ModelUsage, ProviderUsage } from './types';
 
 /** A sum of money split for drawing: the sign set small and raised, the figure with thousands separators. */
@@ -252,29 +252,53 @@ export function drawMembers(ctx: CanvasRenderingContext2D, p: Poster, t: PosterT
 }
 
 /** How tall the signature is: its QR code's tile. */
-export const SIGNATURE = 66;
+export const SIGNATURE = 76;
 export interface SignStyle { name: string; small: (size: number) => string; ink: string; muted: string; size?: number }
 
-/** The QR code in the logo's look: midnight-navy dots on a pale tile, rounded finder eyes, our icon in the middle (level
- *  Q, so the modules under the icon are recovered). Dark modules on light, which every scanner reads. */
-function drawQr(ctx: CanvasRenderingContext2D, brand: HTMLImageElement | null, url: string, x: number, y: number, size: number): boolean {
-  const modules = qrModules(url, 'Q');
+/** The QR code as a patch of the logo's night sky: round stars for modules, the finder eyes rounded rings around a round
+ *  star, a few faint far stars between, nothing in the middle. On a dark page it is the logo itself, white stars on the
+ *  midnight-navy tile with its sheen; on a light page the same sky turns over, navy stars on a pale tile, because a light
+ *  code on a light page is the one Apple's newest detector (Vision revisions 3 and 4) often missed. Glowing rims and
+ *  star-shaped eyes read worse in both, so the stars stay plain. */
+function drawQr(ctx: CanvasRenderingContext2D, url: string, x: number, y: number, size: number, night: boolean): boolean {
+  const modules = qrModules(url, 'M');
   if (!modules) return false;
-  const { n, dots, eyes, icon } = qrLook(modules);
-  const quiet = 2, cell = size / (n + quiet * 2), ox = x + quiet * cell, oy = y + quiet * cell, paper = '#F4F7FF';
-  ctx.fillStyle = paper; ctx.beginPath(); ctx.roundRect(x, y, size, size, size * 0.16); ctx.fill();
-  ctx.strokeStyle = 'rgba(31, 58, 122, 0.16)'; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.roundRect(x + 0.4, y + 0.4, size - 0.8, size - 0.8, size * 0.16); ctx.stroke();
-  const ink = ctx.createLinearGradient(x, y, x + size * 0.35, y + size);
-  ink.addColorStop(0, '#1F3A7A'); ink.addColorStop(0.55, '#0E1D4C'); ink.addColorStop(1, '#050A24');
-  ctx.fillStyle = ink;
-  for (const [mx, my] of dots) { ctx.beginPath(); ctx.arc(ox + (mx + 0.5) * cell, oy + (my + 0.5) * cell, cell * 0.43, 0, Math.PI * 2); ctx.fill(); }
+  const { n, dots, eyes } = qrLook(modules, false);
+  const quiet = 2.5, cell = size / (n + quiet * 2), ox = x + quiet * cell, oy = y + quiet * cell, radius = size * 0.22;
+  const navy = ctx.createLinearGradient(x, y, x + size * 0.35, y + size);
+  navy.addColorStop(0, '#1F3A7A'); navy.addColorStop(0.55, '#0E1D4C'); navy.addColorStop(1, '#050A24');
+  ctx.save();
+  ctx.beginPath(); ctx.roundRect(x, y, size, size, radius); ctx.clip();
+  if (night) { ctx.fillStyle = navy; ctx.fillRect(x, y, size, size); }
+  else {
+    const dawn = ctx.createLinearGradient(x, y, x + size * 0.35, y + size);
+    dawn.addColorStop(0, '#FFFFFF'); dawn.addColorStop(1, '#E9EFFC');
+    ctx.fillStyle = dawn; ctx.fillRect(x, y, size, size);
+  }
+  const sheen = ctx.createRadialGradient(x + size * 0.28, y + size * 0.1, 0, x + size * 0.28, y + size * 0.1, size * 0.8);
+  sheen.addColorStop(0, `rgba(255, 255, 255, ${night ? 0.16 : 0.5})`); sheen.addColorStop(1, 'rgba(255, 255, 255, 0)');
+  ctx.fillStyle = sheen; ctx.fillRect(x, y, size, size);
+  const dot = (cx: number, cy: number, r: number) => { ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill(); };
+  // Far stars in the empty sky (never in an eye or the light strip round it), too faint for a scanner to count.
+  const nearEye = (mx: number, my: number) => (mx < 8 && my < 8) || (mx >= n - 8 && my < 8) || (mx < 8 && my >= n - 8);
+  modules.forEach((row, my) => row.forEach((dark, mx) => {
+    if (dark || nearEye(mx, my)) return;
+    const g = grain(mx, my, 11);
+    if (g % 5) return;
+    ctx.fillStyle = night ? `rgba(214, 228, 255, ${0.1 + (g % 7) * 0.015})` : `rgba(14, 29, 76, ${0.07 + (g % 7) * 0.01})`;
+    dot(ox + (mx + 0.5) * cell, oy + (my + 0.5) * cell, cell * (0.1 + (g % 3) * 0.03));
+  }));
+  // The modules, each a round star; the eyes, a rounded ring around a round star.
+  ctx.fillStyle = night ? '#F2F6FF' : navy;
+  for (const [mx, my] of dots) dot(ox + (mx + 0.5) * cell, oy + (my + 0.5) * cell, cell * 0.48);
   for (const [fx, fy] of eyes) {
     const ex = ox + fx * cell, ey = oy + fy * cell;
-    ctx.fillStyle = ink; ctx.beginPath(); ctx.roundRect(ex, ey, cell * 7, cell * 7, cell * 2.2); ctx.fill();
-    ctx.fillStyle = paper; ctx.beginPath(); ctx.roundRect(ex + cell, ey + cell, cell * 5, cell * 5, cell * 1.5); ctx.fill();
-    ctx.fillStyle = ink; ctx.beginPath(); ctx.roundRect(ex + cell * 2, ey + cell * 2, cell * 3, cell * 3, cell * 1); ctx.fill();
+    ctx.beginPath(); ctx.roundRect(ex, ey, cell * 7, cell * 7, cell * 2.4); ctx.roundRect(ex + cell, ey + cell, cell * 5, cell * 5, cell * 1.7); ctx.fill('evenodd');
+    dot(ex + cell * 3.5, ey + cell * 3.5, cell * 1.5);
   }
-  drawBrand(ctx, brand, { x: ox + icon.at * cell, y: oy + icon.at * cell, w: icon.size * cell, h: icon.size * cell });
+  ctx.restore();
+  ctx.strokeStyle = night ? 'rgba(255, 255, 255, 0.13)' : 'rgba(31, 58, 122, 0.16)'; ctx.lineWidth = 0.6;
+  ctx.beginPath(); ctx.roundRect(x + 0.3, y + 0.3, size - 0.6, size - 0.6, radius); ctx.stroke();
   return true;
 }
 
@@ -285,9 +309,11 @@ export function drawSignature(ctx: CanvasRenderingContext2D, p: Poster, project:
   let size = s.size ?? 11.5;
   while (size > 8 && measure(ctx, project.url, s.small(size)) > room) size -= 0.5;
   const nameWidth = measure(ctx, project.name, s.name), block = Math.max(28 + nameWidth, measure(ctx, project.url, s.small(size)));
-  const shown = qrModules(project.url, 'Q') !== null, tile = shown ? SIGNATURE : 0, gap = shown ? 16 : 0;
+  const shown = qrModules(project.url, 'M') !== null, tile = shown ? SIGNATURE : 0, gap = shown ? 16 : 0;
   const left = Math.round((WIDTH - tile - gap - block) / 2), middle = y + SIGNATURE / 2;
-  if (shown) drawQr(ctx, p.marks.brand, project.url, left, y, tile);
+  // The page under the signature decides which way the sky turns: night on a dark page, dawn on a light one.
+  const [red, green, blue] = ctx.getImageData(Math.round(left * SCALE) - 6, Math.round(middle * SCALE), 1, 1).data;
+  if (shown) drawQr(ctx, project.url, left, y, tile, (0.2126 * red + 0.7152 * green + 0.0722 * blue) / 255 < 0.5);
   const x = left + tile + gap;
   drawBrand(ctx, p.marks.brand, { x, y: middle - 21, w: 20, h: 20 });
   middleText(ctx, project.name, x + 28, middle - 11, nameWidth + 2, s.name, s.ink);
@@ -298,7 +324,7 @@ export function drawSignature(ctx: CanvasRenderingContext2D, p: Poster, project:
 
 /** Each section's height, the same in every style, so a picture is as tall in one style as in another and switching
  *  styles never moves anything. A tool takes a head (its name row and figures line), a row per model, and padding. */
-export const ROWS = { title: 52, hero: 120, stats: 76, chart: 168, head: 52, model: 21, pad: 12, gap: 8, foot: 28, sign: 106 };
+export const ROWS = { title: 52, hero: 120, stats: 76, chart: 168, head: 52, model: 21, pad: 12, gap: 8, foot: 24, sign: 114 };
 /** Where the hero's figure sits, from the top of its section, in every style. */
 export const HERO_BASELINE = 104;
 export const toolHeight = (t: PosterTool) => ROWS.head + (t.members.length ? 1 : t.models.length) * ROWS.model + ROWS.pad;
