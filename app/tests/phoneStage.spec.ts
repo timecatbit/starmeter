@@ -537,6 +537,91 @@ test('on a phone the browser\'s bars take the page\'s colours: 网页版\'s sky 
   await expect.poll(async () => (await edges()).html).toBe(await page.locator('.window.phone').evaluate((e) => getComputedStyle(e).backgroundColor));
 });
 
+/** What Safari 26 would read for its bars (as far as a browser here can tell): at the middle of the top and bottom
+ *  edges, the frontmost fixed element (the samplers take no taps: they are let take them for the asking) and its
+ *  background colour; where it is; and the page's own colour at that edge. */
+async function barSamples(page: Page) {
+  return page.evaluate(() => {
+    const read = (y: number) => {
+      const samplers = [...document.querySelectorAll<HTMLElement>('.bar-tint')];
+      samplers.forEach((s) => (s.style.pointerEvents = 'auto'));
+      const hit = document.elementFromPoint(innerWidth / 2, y) as HTMLElement | null;
+      samplers.forEach((s) => (s.style.pointerEvents = ''));
+      const css = hit ? getComputedStyle(hit) : null, box = hit?.getBoundingClientRect();
+      return { sampler: hit?.className ?? '', colour: css?.backgroundColor ?? '', position: css?.position ?? '', left: box?.left, width: box?.width, height: box?.height };
+    };
+    const edge = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return { top: read(3), bottom: read(innerHeight - 3), wanted: { top: edge('--bar-top'), bottom: edge('--bar-bottom') } };
+  });
+}
+const rgb = (hex: string) => { const n = parseInt(hex.slice(1), 16); return `rgb(${n >> 16}, ${(n >> 8) & 255}, ${n & 255})`; };
+
+test('Safari 26\'s bars: at the middle of each edge the frontmost thing is a fixed sampler as wide as the screen, in the page\'s edge colour, scrolled or not, both ways up, on another page, read again when it changes', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await phone(page);
+  await page.evaluate(() => {
+    const seen: string[] = [];
+    (window as unknown as { refreshes: string[] }).refreshes = seen;
+    new MutationObserver(() => seen.push(document.documentElement.className)).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+  });
+  const check = async (top: string, bottom: string, where: string) => {
+    const seen = await barSamples(page);
+    expect(seen.top, where).toMatchObject({ sampler: 'bar-tint top', colour: rgb(top), position: 'fixed', left: 0, width: await page.evaluate(() => innerWidth), height: 11 });
+    expect(seen.bottom, where).toMatchObject({ sampler: 'bar-tint bottom', colour: rgb(bottom), position: 'fixed', left: 0, height: 11 });
+  };
+  // The night sky's edges, at rest and scrolled down (the bar raised under the top's).
+  await check('#1F3A7A', '#050A24', 'dark');
+  await page.locator('.stage > .scroll').evaluate((s) => { s.scrollTop = 600; });
+  await page.waitForTimeout(400);
+  await check('#1F3A7A', '#050A24', 'scrolled');
+  expect(await page.locator('.stage .bar.raised').evaluate((b) => getComputedStyle(b).backgroundColor)).toBe(rgb('#1F3A7A'));
+  // The computer turns light: the samplers follow, and are read again (12 points for a moment).
+  const before = (await page.evaluate(() => (window as unknown as { refreshes: string[] }).refreshes.length));
+  await computerChose(page, { theme: 'light' });
+  await expect(page.locator('.stage.light')).toBeVisible();
+  await expect.poll(async () => (await barSamples(page)).top.colour).toBe(rgb('#DCE3FF'));
+  await check('#DCE3FF', '#F7F6FF', 'light');
+  const refreshes = (await page.evaluate(() => (window as unknown as { refreshes: string[] }).refreshes)).slice(before);
+  expect(refreshes.some((c) => c.includes('bar-refresh'))).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.classList.contains('bar-refresh'))).toBe(false);
+  // On its side.
+  await page.setViewportSize(LANDSCAPE);
+  await page.waitForTimeout(500);
+  await check('#DCE3FF', '#F7F6FF', 'on its side');
+  // Another page (the share page): its own background at both edges.
+  await page.getByRole('button', { name: '分享用量图' }).click();
+  await expect(page.locator('.share-page')).toBeVisible();
+  const ground = await page.locator('.window.phone').evaluate((e) => getComputedStyle(e).backgroundColor);
+  await expect.poll(async () => (await barSamples(page)).top.colour).toBe(ground);
+  expect((await barSamples(page)).bottom.colour).toBe(ground);
+});
+
+test('Safari 26\'s bar samplers paint nothing: the page shows through them, whatever their colour', async ({ page, browser }) => {
+  await phone(page);
+  // Red samplers: not one red pixel in the strips they cover.
+  await page.evaluate(() => { document.documentElement.style.setProperty('--bar-top', 'rgb(255, 0, 0)'); document.documentElement.style.setProperty('--bar-bottom', 'rgb(255, 0, 0)'); });
+  await page.waitForTimeout(200);
+  const strips = [await page.screenshot({ clip: { x: 0, y: 0, width: PORTRAIT.width, height: 12 } }), await page.screenshot({ clip: { x: 0, y: PORTRAIT.height - 12, width: PORTRAIT.width, height: 12 } })];
+  const reader = await browser.newPage();
+  for (const strip of strips) {
+    const red = await reader.evaluate(async (data) => {
+      const image = new Image();
+      image.src = 'data:image/png;base64,' + data;
+      await image.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = image.width; canvas.height = image.height;
+      const c = canvas.getContext('2d')!;
+      c.drawImage(image, 0, 0);
+      const pixels = c.getImageData(0, 0, canvas.width, canvas.height).data;
+      let n = 0;
+      for (let i = 0; i < pixels.length; i += 4) if (pixels[i] > 200 && pixels[i + 1] < 60 && pixels[i + 2] < 60) n++;
+      return n;
+    }, strip.toString('base64'));
+    expect(red).toBe(0);
+  }
+  await reader.close();
+});
+
 test('保持亮屏 holds one lock at most, and lets it go when switched off or when the page goes away (STAGE-2)', async ({ page }) => {
   // A browser's wake lock, slow to answer: the locks held, and how many requests went out.
   await page.addInitScript(() => {
@@ -1398,6 +1483,8 @@ test('the computer gone from 手绘 dark to 标准 dark, the phone reloaded: its
   const colours = () => page.evaluate(() => ({ meta: document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.content, html: getComputedStyle(document.documentElement).backgroundColor }));
   await expect.poll(colours).toEqual({ meta: '#1F3A7A', html: 'rgb(5, 10, 36)' });
   expect(await page.evaluate(() => localStorage.getItem('starmeter.style'))).toBe('standard');
+  // Safari 26's samplers too, from the first frame (index.html, coloured by first-frame.js).
+  expect(await page.evaluate(() => [...document.querySelectorAll('.bar-tint')].map((s) => getComputedStyle(s).backgroundColor))).toEqual(['rgb(31, 58, 122)', 'rgb(5, 10, 36)']);
   // The sky's two colours over the whole screen in one piece (with no height the page's ground repeated in stripes).
   expect(await page.evaluate(() => document.documentElement.getBoundingClientRect().height)).toBeGreaterThanOrEqual(PORTRAIT.height - 1);
   // And the page, drawn, keeps them.

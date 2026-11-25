@@ -1,7 +1,9 @@
 // On a phone, the browser's own bars (the status bar above, Safari's toolbar below) take the page's colours, so the
 // page runs on under them instead of stopping at a white band. theme-color is the top's (the status bar in Safari
 // before iOS 26, and in Chrome); the page's background behind everything is the top's colour above and the bottom's
-// below (Safari 26 tints its bars from the page, and from what is fixed at its edges, which the pages paint too).
+// below. Safari 26 ignores theme-color and reads a fixed element along each edge (index.html's two samplers, which paint
+// nothing): they take the colours here, and are read again when they change (their height 12 for two frames), when
+// the phone turns, and when the page comes back.
 //
 // Safari takes the bars' colour from the first frame it draws: the colours and the computer's theme are kept in the
 // page's storage, and on a reload public/first-frame.js paints them before anything else (else the first frame is the
@@ -30,7 +32,31 @@ export function paintEdges(top: string, bottom: string) {
   const root = document.documentElement.style;
   root.backgroundColor = bottom;
   root.backgroundImage = `linear-gradient(${top} 0 50%, ${bottom} 50% 100%)`;
+  root.setProperty('--bar-top', top);
+  root.setProperty('--bar-bottom', bottom);
+  document.documentElement.classList.add('phone-page');
   keep({ top, bottom });
+  rereadBars();
+  watchBars();
+}
+
+/** Safari keeps the colour it read: the samplers change height for two frames, and it reads them again. */
+function rereadBars() {
+  const root = document.documentElement;
+  root.classList.add('bar-refresh');
+  requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove('bar-refresh')));
+}
+let watching = false;
+/** Read again when the phone turns and when the page comes back (from another tab, from the app switcher). */
+function watchBars() {
+  if (watching) return;
+  watching = true;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const soon = () => { clearTimeout(timer); timer = setTimeout(rereadBars, 120); };
+  addEventListener('resize', soon);
+  addEventListener('orientationchange', soon);
+  addEventListener('pageshow', rereadBars);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') rereadBars(); });
 }
 
 /** The computer's theme, kept for the next load's first frame, before the computer has answered. */

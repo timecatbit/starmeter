@@ -7,6 +7,8 @@
   try {
     if (!/(^#|&)k=[0-9a-f]{32}/.test(location.hash)) return;
     var root = document.documentElement;
+    // The bars' samplers (index.html) on, at the colours below.
+    root.classList.add('phone-page');
     var kept = JSON.parse(localStorage.getItem('starmeter.edges') || 'null') || {};
     var look = window.STARMETER_LOOK;
     var top, bottom, theme;
@@ -28,6 +30,8 @@
     meta.name = 'theme-color';
     meta.content = top;
     document.head.appendChild(meta);
+    root.style.setProperty('--bar-top', top);
+    root.style.setProperty('--bar-bottom', bottom);
     root.style.backgroundColor = bottom;
     // The two colours over the whole screen in one piece: before the stylesheet (height: 100%) the page has no height,
     // and its background would repeat in thin stripes.

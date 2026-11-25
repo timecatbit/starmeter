@@ -806,9 +806,9 @@
   }
   /* Scrolled, the bar is the status bar's own colour carried down: one band at the top of the screen. */
   .bar.raised {
-    background: color-mix(in srgb, var(--edge-top) 88%, transparent);
-    backdrop-filter: blur(18px) saturate(1.5);
-    -webkit-backdrop-filter: blur(18px) saturate(1.5);
+    /* Solid: the status bar's own colour (Safari takes it from the samplers at the top edge, index.html) carried on
+       down, one band; see-through, what scrolled under it showed and the two read as different colours. */
+    background: var(--edge-top);
     box-shadow: 0 0.5px 0 var(--glass-edge);
   }
   .side .bar { position: relative; margin: 0; padding: 0; height: 50px; }
@@ -1035,7 +1035,7 @@
     box-shadow: inset 0 0 0 1.3px var(--separator), inset 0 1px 0 var(--sheen-edge), var(--sheet-shadow);
   }
   .stage.sketch .turn-done { background: var(--paper); }
-  .stage.sketch .bar.raised { background: color-mix(in srgb, var(--paper) 92%, transparent); box-shadow: inset 0 -1px var(--separator); }
+  .stage.sketch .bar.raised { background: var(--paper); box-shadow: inset 0 -1px var(--separator); }
   /* The wobble filter on what stands still only (worked out again whenever what it covers is drawn): the live chart draws
      its lines twice by hand itself, and the trend's end stops breathing. */
   .stage.sketch :global(:is(.chart svg, .ring svg, .dial svg, .bar .fill, .model-fill, .window-fill, .context span)) { filter: url(#hand); }
