@@ -145,7 +145,14 @@ enum Ran {
 /// Runs a command to its end within `timeout` seconds: its exit and everything it wrote, the standard output then
 /// the standard error. Each stream is drained on its own thread, so a command that writes much to one while the other
 /// is still open finishes instead of waiting on a full pipe until the timeout (OCX-1). Past the timeout it is killed.
-fn run_collecting(binary: &str, arguments: &[&str], timeout: f64) -> Result<(std::process::ExitStatus, Vec<u8>), Ran> {
+/// It runs in the environment given, the runtime's: opened from Finder or at login, the process's own has neither
+/// config.local.sh's settings (OCX_HOME…) nor Homebrew's PATH, which a script's `#!/usr/bin/env node` needs (R9-2).
+fn run_collecting(
+    binary: &str,
+    arguments: &[&str],
+    timeout: f64,
+    environment: &HashMap<String, String>,
+) -> Result<(std::process::ExitStatus, Vec<u8>), Ran> {
     fn drain<R: Read + Send + 'static>(stream: Option<R>) -> mpsc::Receiver<Vec<u8>> {
         let (sender, receiver) = mpsc::channel();
         std::thread::spawn(move || {
@@ -159,6 +166,8 @@ fn run_collecting(binary: &str, arguments: &[&str], timeout: f64) -> Result<(std
     }
     let mut child = Command::new(binary)
         .args(arguments)
+        .env_clear()
+        .envs(environment)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -354,7 +363,7 @@ impl Runtime {
         if !Path::new(&binary).exists() {
             return Some("找不到 ocx 命令".into());
         }
-        let (status, data) = match run_collecting(&binary, arguments, timeout) {
+        let (status, data) = match run_collecting(&binary, arguments, timeout, &self.environment) {
             Ok(done) => done,
             Err(Ran::NotStarted) => return Some("找不到 ocx 命令".into()),
             Err(Ran::TimedOut) => return Some(format!("ocx {} 执行超时", arguments.join(" "))),
@@ -1891,7 +1900,7 @@ mod run_tests {
         // full pipe until the timeout.
         let script = "head -c 1048576 /dev/zero | tr '\\0' x >&2; echo >&2; echo done; echo 'last words' >&2; exit 3";
         let started = std::time::Instant::now();
-        let (status, data) = run_collecting("/bin/sh", &["-c", script], 20.0).expect("finished");
+        let (status, data) = run_collecting("/bin/sh", &["-c", script], 20.0, &bare()).expect("finished");
         assert!(started.elapsed().as_secs_f64() < 10.0, "took {:?}", started.elapsed());
         assert_eq!(status.code(), Some(3));
         let text = String::from_utf8_lossy(&data);
@@ -1903,7 +1912,44 @@ mod run_tests {
     #[test]
     fn a_command_past_its_time_is_stopped_and_one_not_found_says_so() {
         #[cfg(unix)]
-        assert_eq!(run_collecting("/bin/sh", &["-c", "sleep 30"], 0.5).unwrap_err(), Ran::TimedOut);
-        assert_eq!(run_collecting("/nonexistent/ocx", &[], 1.0).unwrap_err(), Ran::NotStarted);
+        assert_eq!(run_collecting("/bin/sh", &["-c", "sleep 30"], 0.5, &bare()).unwrap_err(), Ran::TimedOut);
+        assert_eq!(run_collecting("/nonexistent/ocx", &[], 1.0, &bare()).unwrap_err(), Ran::NotStarted);
+    }
+
+    /// The bare PATH of an app opened from Finder.
+    fn bare() -> HashMap<String, String> {
+        HashMap::from([("PATH".to_string(), "/usr/bin:/bin:/usr/sbin:/sbin".to_string())])
+    }
+
+    /// R9-2: ocx found on the runtime's PATH and run in its environment, config.local.sh's OCX_HOME among it, and a
+    /// script it runs by name (`#!/usr/bin/env node`) found on that PATH too.
+    #[cfg(unix)]
+    #[test]
+    fn ocx_runs_in_the_runtimes_environment() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!("starmeter-ocx-env-{}", crate::runtime::random_hex(8)));
+        let bin = root.join("homebrew-bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let tool = |name: &str, body: &str| {
+            let path = bin.join(name);
+            std::fs::write(&path, body).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        };
+        // ocx is a script for a runtime that is only on Homebrew's PATH, as `#!/usr/bin/env node` is.
+        tool("fakenode", "#!/bin/sh\nshift\nprintf '%s|%s' \"$OCX_HOME\" \"$*\" > \"$OCX_HOME/ran\"\n");
+        tool("ocx", "#!/usr/bin/env fakenode\n");
+        let home = root.join("custom-opencodex");
+        std::fs::create_dir_all(&home).unwrap();
+        let mut environment = bare();
+        environment.insert("PATH".into(), format!("{}:/usr/bin:/bin:/usr/sbin:/sbin", bin.to_string_lossy()));
+        environment.insert("OCX_HOME".into(), home.to_string_lossy().into_owned());
+        environment.insert("OCX_STATE_DIR".into(), root.join("state").to_string_lossy().into_owned());
+        environment.insert("OCX_CACHE_DIR".into(), root.join("cache").to_string_lossy().into_owned());
+        environment.insert("HOME".into(), root.to_string_lossy().into_owned());
+        let runtime = Runtime::new(environment, "starmeter");
+        assert_eq!(runtime.ocx(&["restart"], 10.0), None);
+        let ran = std::fs::read_to_string(home.join("ran")).unwrap();
+        assert_eq!(ran, format!("{}|restart", home.to_string_lossy()));
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
