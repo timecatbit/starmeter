@@ -78,7 +78,9 @@ pub fn quota(home: &str) -> Result<Object, String> {
                 return Ok(object! { "windows" => Json::Array(windows) });
             }
             Ok(response) => failure = format!("Antigravity 没有给出额度（HTTP {}）", response.status),
-            Err(_) => failure = NOT_RUNNING.into(),
+            // A note left by a server gone (its process id now another's) refuses the connection: what a live one
+            // answered before it stays the reason, not 没有运行.
+            Err(_) => {}
         }
     }
     Err(failure)
@@ -119,8 +121,40 @@ fn windows(summary: &Json) -> Vec<Json> {
 
 #[cfg(test)]
 mod tests {
-    use super::windows;
+    use super::{NOT_RUNNING, quota, windows};
     use crate::json::Json;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    #[test]
+    fn a_live_servers_answer_is_the_reason_not_a_gone_ones_refusal() {
+        // The newer note's server is up and answers 500; an older note's process id is alive (another's now) but
+        // nothing listens on its port. The reason is the 500, not 没有运行.
+        let server = TcpListener::bind("127.0.0.1:0").unwrap();
+        let live = server.local_addr().unwrap().port();
+        let gone = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            let (mut stream, _) = server.accept().unwrap();
+            let mut request = [0u8; 4096];
+            let _ = stream.read(&mut request);
+            let _ = stream
+                .write_all(b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+        });
+        let home = std::env::temp_dir().join(format!("starmeter-agy-hubs-{}", crate::runtime::random_hex(6)));
+        let daemon = home.join(".gemini/antigravity/daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        let note = |port: u16| format!(r#"{{"pid":{},"httpPort":{port},"csrfToken":"t"}}"#, std::process::id());
+        std::fs::write(daemon.join("hub_1.json"), note(gone)).unwrap();
+        std::fs::write(daemon.join("hub_2.json"), note(live)).unwrap();
+        let earlier = std::time::SystemTime::now() - std::time::Duration::from_secs(600);
+        std::fs::File::options().write(true).open(daemon.join("hub_1.json")).unwrap().set_modified(earlier).unwrap();
+        let home_text = home.to_string_lossy().into_owned();
+        assert_eq!(quota(&home_text).err().as_deref(), Some("Antigravity 没有给出额度（HTTP 500）"));
+        // With only the gone one noted, it is 没有运行.
+        std::fs::remove_file(daemon.join("hub_2.json")).unwrap();
+        assert_eq!(quota(&home_text).err().as_deref(), Some(NOT_RUNNING));
+        let _ = std::fs::remove_dir_all(&home);
+    }
 
     #[test]
     fn the_summary_reads_as_each_groups_two_windows() {

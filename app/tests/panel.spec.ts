@@ -195,6 +195,29 @@ test('恢复默认顺序 puts the default order back at once, before the next sn
   await expect.poll(order).toEqual(defaults);
 });
 
+test('允许折叠 in 外观 stays as switched before the next snapshot comes, and switches back as asked', async ({ page }) => {
+  await open(page);
+  // From here no new snapshot arrives: only what the switch itself answers.
+  await page.evaluate(async () => {
+    const loaded = performance.getEntriesByType('resource').map((entry) => entry.name).filter((name) => name.includes('/src/lib/backend.ts'));
+    const { backend } = await import(/* @vite-ignore */ loaded.at(-1) ?? '/src/lib/backend.ts');
+    backend.snapshot = () => new Promise(() => {});
+  });
+  await button(page, '主页模块与设置').click();
+  await page.getByText('外观', { exact: true }).click();
+  const fold = page.getByRole('switch', { name: /^允许折叠/ });
+  const before = await fold.getAttribute('aria-checked');
+  const after = before === 'true' ? 'false' : 'true';
+  await fold.click();
+  await expect(fold).toHaveAttribute('aria-checked', after);
+  await page.waitForTimeout(700);
+  await expect(fold).toHaveAttribute('aria-checked', after);
+  await fold.click();
+  await expect(fold).toHaveAttribute('aria-checked', before ?? 'false');
+  await page.waitForTimeout(700);
+  await expect(fold).toHaveAttribute('aria-checked', before ?? 'false');
+});
+
 test('a press let go off its row before the hold ends never lifts it, and the next click opens the row (ORDER-1)', async ({ page }) => {
   await open(page);
   const row = page.locator('[data-module="chatgpt"]');
@@ -747,6 +770,121 @@ test('grouping by model or project swaps the cards, five of them and the rest be
   await expect(page.locator('.card')).toHaveCount(15);
 });
 
+/** The grouping's answers slowed (190 ms, as Codex measured them), every action noted in window.asked. */
+async function slowGroups(page: Page) {
+  await page.evaluate(async () => {
+    const loaded = performance.getEntriesByType('resource').map((entry) => entry.name).filter((name) => name.includes('/src/lib/backend.ts'));
+    const { backend } = await import(/* @vite-ignore */ loaded.at(-1) ?? '/src/lib/backend.ts');
+    const real = backend.action;
+    const w = window as unknown as { asked: string[][] };
+    w.asked = [];
+    backend.action = async (action: string[]) => {
+      w.asked.push(action);
+      if (action[0] === 'set-group') await new Promise((resolve) => setTimeout(resolve, 190));
+      return real(action);
+    };
+  });
+}
+
+test('the grouping clicked last is the one kept, a click back to the one on screen among them (GROUP-PICK)', async ({ page }) => {
+  await open(page);
+  await slowGroups(page);
+  await choose(page, /统计范围/, '近 7 天');
+  // 模型, and 40 ms later back to 工具, while 近 7 天 is being read.
+  await page.getByRole('radio', { name: '模型' }).click();
+  await page.waitForTimeout(40);
+  await page.getByRole('radio', { name: '工具' }).click();
+  await expect(page.getByRole('radio', { name: '工具' })).toHaveAttribute('aria-checked', 'true');
+  await page.waitForTimeout(1200);
+  await expect(page.getByRole('radio', { name: '工具' })).toHaveAttribute('aria-checked', 'true');
+  // The cards are the tools', and the last grouping asked is 工具.
+  await expect(page.getByRole('button', { name: 'Claude 详情' })).toBeVisible();
+  const asked = await page.evaluate(() => (window as unknown as { asked: string[][] }).asked.filter((a) => a[0] === 'set-group').map((a) => a[1]));
+  expect(asked.at(-1)).toBe('tool');
+});
+
+test('the grouping lit is the one clicked last, from the click on, and the cards before it are out of reach (GROUP-FLASH)', async ({ page }) => {
+  await open(page);
+  await slowGroups(page);
+  // Every frame from the click on 项目: which tab is lit.
+  await page.getByRole('radio', { name: '模型' }).click();
+  await page.getByRole('radio', { name: '项目' }).click();
+  const lit = await page.evaluate(async () => {
+    const seen: string[] = [];
+    const until = performance.now() + 1200;
+    while (performance.now() < until) {
+      seen.push(document.querySelector('.tabs [aria-checked="true"]')?.textContent ?? '');
+      await new Promise(requestAnimationFrame);
+    }
+    return seen;
+  });
+  expect(new Set(lit)).toEqual(new Set(['项目']));
+  await expect(page.locator('.card .name').first()).toHaveText('starmeter');
+  // 近 7 天, 模型, then at once the first card: the tool card still on screen is held, its page doesn't open.
+  await page.getByRole('radio', { name: '工具' }).click();
+  await expect(page.getByRole('button', { name: 'Claude 详情' })).toBeVisible();
+  await choose(page, /统计范围/, '近 7 天');
+  await page.getByRole('radio', { name: '模型' }).click();
+  await page.locator('.list .card').first().click({ force: true });
+  await page.waitForTimeout(600);
+  await expect(page.getByRole('heading', { name: 'Claude', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('radio', { name: '模型' })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.locator('.card .name').first()).toHaveText('Claude Opus 5.5');
+});
+
+test('the grouping tabs move with the arrow keys, and Tab leaves them (GROUP-KEY)', async ({ page }) => {
+  await open(page);
+  const tool = page.getByRole('radio', { name: '工具' });
+  const model = page.getByRole('radio', { name: '模型' });
+  await tool.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(model).toHaveAttribute('aria-checked', 'true');
+  await expect(model).toBeFocused();
+  await expect(page.locator('.card .name').first()).toHaveText('Claude Opus 5.5');
+  await page.keyboard.press('ArrowLeft');
+  await expect(tool).toHaveAttribute('aria-checked', 'true');
+  await expect(tool).toBeFocused();
+  await expect(page.getByRole('button', { name: 'Claude 详情' })).toBeVisible();
+  // One Tab stop for the group: the next Tab is past it.
+  await expect(model).toHaveAttribute('tabindex', '-1');
+  await page.keyboard.press('Tab');
+  await expect(page.locator('.tabs [role="radio"]:focus')).toHaveCount(0);
+});
+
+/** ChatGPT 订阅 on its reserve: the week used up, what is left in Credits as its value, the single bar named under it. */
+async function chatgptOnReserve(page: Page) {
+  await page.evaluate(async () => {
+    const loaded = performance.getEntriesByType('resource').map((entry) => entry.name).filter((name) => name.includes('/src/lib/backend.ts'));
+    const { backend } = await import(/* @vite-ignore */ loaded.at(-1) ?? '/src/lib/backend.ts');
+    const real = backend.snapshot;
+    backend.snapshot = async () => {
+      const shot = await real();
+      const walk = (entries: { label?: string; module?: string; children?: unknown[] }[]) => {
+        for (const entry of entries) {
+          if (entry.module === 'chatgpt' && entry.label === 'ChatGPT 订阅') {
+            Object.assign(entry, { value: '余 45,934 Credits', usageLevel: 'warning', share: 100, shareLevel: 'critical', detail: '本周已用 100%' });
+            delete (entry as { gauges?: unknown }).gauges;
+          }
+          walk((entry.children ?? []) as typeof entries);
+        }
+      };
+      walk(shot.entries);
+      return shot;
+    };
+    // Something changed, as the engine says it: the panel reads the snapshot again.
+    await backend.action(['set-group', 'tool']);
+  });
+}
+
+test('a plan on its reserve names its single bar 本周已用, as its headline would', async ({ page }) => {
+  await open(page);
+  await chatgptOnReserve(page);
+  const row = page.locator('.row', { hasText: 'ChatGPT 订阅' });
+  await expect(row.locator('.value')).toHaveText('余 45,934 Credits');
+  await expect(row.locator('.gauge-name')).toHaveText('本周已用 100%');
+  await expect(row.locator('.gauge-label')).toHaveText('本周已用');
+});
+
 test('a range picked shows once read through, never the old range or a source at a time; the menu reads ahead', async ({ page }) => {
   const asked: string[] = [];
   page.on('console', (message) => { if (message.text().startsWith('[fixtures] action')) asked.push(message.text()); });
@@ -915,6 +1053,17 @@ test('a service in trouble: the note on its card opens the status page, the card
   await expect(row).toContainText('Elevated errors on Claude Opus 5.5 · 正在调查');
   await row.click();
   expect(await page.evaluate(() => (window as unknown as { opened: string[] }).opened)).toEqual(['https://status.claude.com', 'https://status.claude.com']);
+});
+
+test('立即刷新 turns while its source is read again, and stops once it is in', async ({ page }) => {
+  // The row is pressed for an action that redraws nothing by itself: it still shows it is working.
+  await open(page);
+  await page.locator('.row', { hasText: 'Cursor 订阅' }).click();
+  const again = page.locator('.detail-row', { hasText: '立即刷新' });
+  await again.click();
+  await expect(again.locator('.spinner')).toBeVisible();
+  await expect(again.locator('.spinner')).toHaveCount(0, { timeout: 3000 });
+  await expect(again.locator('.value')).toBeVisible();
 });
 
 test('a row opens its page, with usage bars and pace marks, and Esc comes back', async ({ page }) => {
@@ -1108,8 +1257,13 @@ test('在手机上看: 任何网络 chosen again while its link is made waits fo
   await page.getByRole('radio', { name: '任何网络' }).click();
   await button(page, '生成链接').click();
   await expect(phone.locator('.wait')).toHaveText('正在向 Cloudflare 要链接…');
-  // Back and forth while it is made: no second question, no second request; the wait stays.
+  // Back on 同一个网络 meanwhile: its code, its address and what to do with them, not the public link's wait.
   await page.getByRole('radio', { name: '同一个网络' }).click();
+  await expect(phone.locator('svg.qr')).toBeVisible();
+  await expect(phone.locator('.wait')).toHaveCount(0);
+  await expect(phone.locator('.note').first()).toContainText('手机和电脑连同一个网络（Wi-Fi）后扫码');
+  await expect(phone.locator('.note').nth(1)).toContainText('只读');
+  // Back and forth while it is made: no second question, no second request; the wait stays.
   await page.getByRole('radio', { name: '任何网络' }).click();
   await page.waitForTimeout(200);
   await expect(button(page, '生成链接')).toHaveCount(0);

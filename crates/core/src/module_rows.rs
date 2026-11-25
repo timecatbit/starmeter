@@ -514,7 +514,10 @@ impl Runtime {
             .and_then(Json::as_object)
             .filter(|extra| extra.get("enabled").is_some_and(Json::is_truthy))
             .cloned();
-        let on_reserve = percent.is_some_and(|percent| percent >= 100.0) && on_demand.is_some();
+        // Not with an unlimited plan: nothing to run out of, so no reserve and no full bar.
+        let on_reserve = percent.is_some_and(|percent| percent >= 100.0)
+            && on_demand.is_some()
+            && !payload.get("unlimited").is_some_and(Json::is_truthy);
         let badge = if !enabled {
             "未开启读取".to_string()
         } else if payload.get("unlimited").is_some_and(Json::is_truthy) {
@@ -536,7 +539,11 @@ impl Runtime {
                 &service.label(),
                 0,
                 merged(&[
-                    &object! { "badge" => with_failure(&badge, percent.is_some(), failed) },
+                    &object! {
+                        "badge" => with_failure(&badge, percent.is_some(), failed),
+                        // Under the single bar on the reserve, as ChatGPT's: 本周期已用 100%.
+                        "paneldetail" => rows::reserve_week(on_reserve, &[("本周期".into(), percent.unwrap_or(0.0), false)]),
+                    },
                     &self.brand_icon("cursor-subscription"),
                     &object! {
                         "panelusagelevel" => if percent.is_none() { Json::Null } else if on_reserve { rows::reserve_level(failed) } else { usage_level(percent, failed) },
@@ -584,7 +591,7 @@ impl Runtime {
             rows.push(self.refresh_row("cursor-subscription", &payload, error.as_deref(), 1));
             // An encrypted desktop login: read from the keychain once the user allows it here, macOS asking them.
             let keychain = self.settings().get("cursorKeychain").is_some_and(Json::is_truthy);
-            if keychain || cursor::login_encrypted(&self.home, &self.environment) {
+            if cfg!(target_os = "macos") && (keychain || cursor::login_encrypted(&self.home, &self.environment)) {
                 let detail = if keychain {
                     "用钥匙串里的“Cursor Safe Storage”解开 Cursor 的登录，令牌只在内存中使用"
                 } else {

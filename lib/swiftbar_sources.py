@@ -928,6 +928,50 @@ def display_model(name):
     return ident.replace('.', '-') if ident.startswith('claude-') else ident
 
 
+def antigravity_project(path, conversation):
+    """The project an Antigravity conversation ran in, by name: the first workspace its own list (conversation_summaries.db
+    beside conversations/) gives it; none outside any project."""
+    folder = next((p for p in Path(path).parents if p.name == 'conversations'), None)
+    listing = folder.parent/'conversation_summaries.db' if folder is not None else None
+    if listing is None or not listing.is_file():return None
+    try:
+        db = sqlite3.connect(listing.resolve().as_uri()+'?mode=ro', uri=True, timeout=2)
+        try:row = db.execute('SELECT workspace_uris FROM conversation_summaries WHERE conversation_id=?', (conversation,)).fetchone()
+        finally:db.close()
+        uris = json.loads(row[0]) if row and isinstance(row[0], str) else None
+    except (sqlite3.Error, ValueError):return None
+    first = next((uri for uri in uris if isinstance(uri, str)), None) if isinstance(uris, list) else None
+    return project_name(first) if first else None
+
+
+def antigravity_projects(stores):
+    """The project each of these Antigravity stores' conversations ran in, by its session (the identity of its id), as
+    its list (conversation_summaries.db beside conversations/) says now: one query per list. Kept by both the app and
+    the IDE, the first list that names one."""
+    lists, found = {}, {}
+    for path in stores:
+        path = Path(path)
+        folder = next((p for p in path.parents if p.name == 'conversations'), None)
+        if folder is None:continue
+        listing = folder.parent/'conversation_summaries.db'
+        if listing not in lists:
+            rows = {}
+            if listing.is_file():
+                try:
+                    db = sqlite3.connect(listing.resolve().as_uri()+'?mode=ro', uri=True, timeout=2)
+                    try:rows = {c: u for c, u in db.execute('SELECT conversation_id, workspace_uris FROM conversation_summaries') if isinstance(c, str) and isinstance(u, str)}
+                    finally:db.close()
+                except sqlite3.Error:rows = {}
+            lists[listing] = rows
+        uris = lists[listing].get(path.stem)
+        try:listed = json.loads(uris) if uris is not None else None
+        except ValueError:listed = None
+        first = next((uri for uri in listed if isinstance(uri, str)), None) if isinstance(listed, list) else None
+        session = identity(path.stem)
+        if found.get(session) is None:found[session] = project_name(first) if first else None
+    return found
+
+
 def antigravity_file(path, changed):
     """One Antigravity conversation's requests, from its store's gen_metadata: a row each, with its tokens
     (exa.codeium_common_pb.ModelUsageStats: 2 input not from the cache, 3 output, which is 9 thinking and 10 the
@@ -938,7 +982,7 @@ def antigravity_file(path, changed):
     db = sqlite3.connect(path.resolve().as_uri()+'?mode=ro', uri=True, timeout=2)
     try:
         db.execute('PRAGMA query_only=ON')
-        conversation = path.stem; by_response = {}; by_generation = {}
+        conversation = path.stem; by_response = {}; by_generation = {}; project = antigravity_project(path, conversation)
         for (metadata,) in db.execute('SELECT metadata FROM steps'):
             fields = proto(metadata) if isinstance(metadata, bytes) else None
             if fields is None:continue
@@ -977,6 +1021,7 @@ def antigravity_file(path, changed):
             event = metrics(model, proto_number(usage, 2) or 0, output, proto_number(usage, 5) or 0, proto_number(usage, 4) or 0)
             event.update(id=identity('antigravity', response or '%s:%d' % (conversation, idx or 0)), session=identity(conversation),
                          timestamp=at, provider='google', timing=timing)
+            if project:event['project'] = project
             events.append(event)
         return events
     finally:db.close()
@@ -1009,7 +1054,7 @@ def gemini_usage(root, cache, start, end, zone, exclude_proxy=False, carriers=No
     if not paths and not stores and not (archive and Path(archive).is_file()): return {'error':'暂无 Gemini 用量记录'}
     # v3: Antigravity's models are kept by the API model they name (antigravity_model); v4: each of its generations says
     # how exactly its time is known (AGY-1). Older readings are read again.
-    target = Path(cache)/('harness-gemini-v4-'+identity(str(root.resolve()))[:12]+'.sqlite3')
+    target = Path(cache)/('harness-gemini-v5-'+identity(str(root.resolve()))[:12]+'.sqlite3')
     target.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
     db = sqlite3.connect(target,timeout=10);os.chmod(target,0o600)
     try:
@@ -1018,12 +1063,15 @@ def gemini_usage(root, cache, start, end, zone, exclude_proxy=False, carriers=No
         # Deleted sessions keep contributing only through the archive, when there is one.
         with db:forget_missing(db,{identity(str(path)) for path in paths+stores},archive)
         for path in paths:
-            file_id=identity(str(path));st=path.stat()
+            file_id=identity(str(path))
+            # Gone since it was listed (a session deleted meanwhile): read short this time, not a failed read.
+            try:st=path.stat()
+            except OSError:errors+=1;continue
             if db.execute('SELECT size,mtime FROM files WHERE path=?',(file_id,)).fetchone()==(st.st_size,st.st_mtime_ns):continue
             if st.st_mtime<start:continue
             state={'session':path.stem};events=[]
             try:
-                with path.open() as handle:
+                with path.open(encoding='utf-8') as handle:
                     if path.suffix=='.json':
                         data=json.load(handle);state['session']=str(data.get('sessionId') or state['session']);records=data.get('messages') or []
                     else:
@@ -1046,7 +1094,8 @@ def gemini_usage(root, cache, start, end, zone, exclude_proxy=False, carriers=No
                     db.execute('DELETE FROM events WHERE file=?',(file_id,))
                     for e in events:db.execute('INSERT OR REPLACE INTO events VALUES (?,?,?,?)',(e['id'],file_id,e['timestamp'],json.dumps(e)))
                     db.execute('INSERT OR REPLACE INTO files VALUES (?,?,?)',(file_id,st.st_size,st.st_mtime_ns))
-            except (OSError,ValueError,TypeError,KeyError):errors+=1
+            # A session that isn't an object (AttributeError) is one unread file, as the engine counts it.
+            except (OSError,ValueError,TypeError,KeyError,AttributeError):errors+=1
         # Antigravity's stores, each read again only when it or its write-ahead log changed. A generation kept in two
         # stores (the app's and the IDE's) counts once, by its response.
         for path in stores:
@@ -1063,7 +1112,15 @@ def gemini_usage(root, cache, start, end, zone, exclude_proxy=False, carriers=No
                 db.execute('INSERT OR REPLACE INTO files VALUES (?,?,?)',(file_id,size,mtime))
         # Antigravity serves Claude and GPT models too: each request is priced by the model it names (the plugin
         # passes magpie_price, as the engine does).
-        result=aggregate(kept.merged(db,best_timed_events(db,start,end),archive,start,end),start,end,zone,exclude_proxy,price,carriers)
+        events=kept.merged(db,best_timed_events(db,start,end),archive,start,end)
+        # Each Antigravity conversation's project as its list says now: the index keeps the one read with the store, and
+        # a list written after (a workspace added, changed or taken away) changes no store (AGY-5).
+        projects=antigravity_projects(stores)
+        for event in events:
+            if 'timing' in event and event.get('session') in projects:
+                if projects[event['session']]:event['project']=projects[event['session']]
+                else:event.pop('project',None)
+        result=aggregate(events,start,end,zone,exclude_proxy,price,carriers)
         if errors:
             result['partial']=True
             if not result['summary']['requests']:result['error']='Gemini 记录格式待检查'

@@ -279,7 +279,8 @@ const LINUX_HELPER: &str = r#"i=0
 while kill -0 "$STARMETER_PID" 2>/dev/null && [ "$i" -lt $((STARMETER_WAIT * 10)) ]; do sleep 0.1; i=$((i+1)); done
 if kill -0 "$STARMETER_PID" 2>/dev/null; then rm -f "$STARMETER_STAGED"; exit 1; fi
 mv -f "$STARMETER_STAGED" "$STARMETER_TARGET" || rm -f "$STARMETER_STAGED"
-setsid "$STARMETER_OPEN" "$STARMETER_TARGET" >/dev/null 2>&1 < /dev/null &"#;
+if [ -n "$STARMETER_OPEN" ]; then set -- "$STARMETER_OPEN" "$STARMETER_TARGET"; else set -- "$STARMETER_TARGET"; fi
+setsid "$@" >/dev/null 2>&1 < /dev/null &"#;
 
 const WINDOWS_HELPER: &str = "try { Wait-Process -Id ([int]$env:STARMETER_PID) -Timeout ([int]$env:STARMETER_WAIT) -ErrorAction SilentlyContinue } catch {}; \
      if (Get-Process -Id ([int]$env:STARMETER_PID) -ErrorAction SilentlyContinue) { Remove-Item -LiteralPath $env:STARMETER_SETUP -ErrorAction SilentlyContinue; exit 1 }; \
@@ -305,7 +306,8 @@ pub fn finish(prepared: &Prepared, pid: u32, open: Option<&str>, wait: u32) -> R
             command
                 .args(["-c", LINUX_HELPER])
                 .envs([("STARMETER_STAGED", staged.as_os_str()), ("STARMETER_TARGET", target.as_os_str())]);
-            command.env("STARMETER_OPEN", open.unwrap_or("env"));
+            // The AppImage runs itself (through env, a path with = in it would be taken for a setting).
+            command.env("STARMETER_OPEN", open.unwrap_or(""));
             command
         }
         Prepared::Windows { setup, target } => {
@@ -379,6 +381,42 @@ mod tests {
     #[cfg(unix)]
     fn version(copy: &Path) -> String {
         std::fs::read_to_string(if copy.is_dir() { copy.join("version") } else { copy.to_path_buf() }).unwrap()
+    }
+
+    /// Linux's helper with no opener given: the AppImage runs itself, a path with = in it as well (through env it
+    /// was taken for a setting and nothing opened). setsid is a stand-in here, so this runs on macOS too.
+    #[cfg(unix)]
+    #[test]
+    fn the_appimage_opens_itself_with_an_equals_sign_in_its_path() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = folder("appimage=1");
+        let executable = |path: &Path, text: &str| {
+            std::fs::write(path, text).unwrap();
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        };
+        let bin = root.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        executable(&bin.join("setsid"), "#!/bin/sh\nexec \"$@\"\n");
+        let (target, staged, marker) = (root.join("Star=meter.AppImage"), root.join(".new"), root.join("ran"));
+        std::fs::write(&target, "old").unwrap();
+        executable(&staged, &format!("#!/bin/sh\necho \"$0\" > '{}'\n", marker.display()));
+        let mut gone = Command::new("/bin/sleep").arg("0").spawn().unwrap();
+        let pid = gone.id().to_string();
+        let _ = gone.wait();
+        let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+        let status = Command::new("/bin/sh")
+            .args(["-c", LINUX_HELPER])
+            .envs([("PATH", path.as_str()), ("STARMETER_PID", &pid), ("STARMETER_WAIT", "5"), ("STARMETER_OPEN", "")])
+            .envs([("STARMETER_STAGED", staged.as_os_str()), ("STARMETER_TARGET", target.as_os_str())])
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !marker.exists() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        assert_eq!(std::fs::read_to_string(&marker).unwrap().trim(), target.to_string_lossy());
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[cfg(target_os = "macos")]

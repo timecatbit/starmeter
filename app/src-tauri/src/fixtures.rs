@@ -265,33 +265,31 @@ impl Fixtures {
         s["pinInterval"] = json!(self.pin_interval);
         s["menuBarText"] = json!(self.menu_bar_text());
         let collapse = self.prefs["allowCollapse"].as_bool().unwrap_or(false);
-        for option in s["moduleOptions"].as_array_mut().into_iter().flatten() {
-            match option["action"][0].as_str() {
-                Some("set-module") => {
-                    let id = option["action"][1].as_str().unwrap_or_default().to_owned();
-                    let on = visible.contains(&id);
-                    option["checked"] = json!(on);
-                    option["action"] = json!(["set-module", id, (!on).to_string()]);
-                }
-                Some("set-collapse") => {
-                    option["checked"] = json!(collapse);
-                    option["action"] = json!(["set-collapse", (!collapse).to_string()]);
-                }
-                _ => {}
-            }
-            if option["label"] == "外观与设置" {
-                for row in option["children"].as_array_mut().into_iter().flatten() {
-                    match row["action"][0].as_str() {
-                        Some("set-theme") => row["checked"] = json!(row["action"][1] == self.prefs["theme"]),
-                        Some("set-appearance") => row["checked"] = json!(row["action"][1] == self.prefs["appearance"]),
-                        _ => {}
+        // Wherever each switch is among the settings (外观 and 通用 have their own pages now), at any depth.
+        fn sync(rows: &mut Value, visible: &[String], collapse: bool, prefs: &Value, label: &Value) {
+            for row in rows.as_array_mut().into_iter().flatten() {
+                match row["action"][0].as_str() {
+                    Some("set-module") => {
+                        let id = row["action"][1].as_str().unwrap_or_default().to_owned();
+                        let on = visible.contains(&id);
+                        row["checked"] = json!(on);
+                        row["action"] = json!(["set-module", id, (!on).to_string()]);
                     }
-                    if row["label"] == "导出用量" {
-                        row["value"] = label.clone();
+                    Some("set-collapse") => {
+                        row["checked"] = json!(collapse);
+                        row["action"] = json!(["set-collapse", (!collapse).to_string()]);
                     }
+                    Some("set-theme") => row["checked"] = json!(row["action"][1] == prefs["theme"]),
+                    Some("set-appearance") => row["checked"] = json!(row["action"][1] == prefs["appearance"]),
+                    _ => {}
                 }
+                if row["label"] == "导出用量" {
+                    row["value"] = label.clone();
+                }
+                sync(&mut row["children"], visible, collapse, prefs, label);
             }
         }
+        sync(&mut s["moduleOptions"], &visible, collapse, &self.prefs, &label);
         s
     }
 

@@ -463,7 +463,8 @@ fn credentials() -> Result<(String, f64, String), OAuthError> {
                 }
             }
             Err(error) if error.code == "missing" => legacy = true,
-            Err(_) => {}
+            // Not allowed (钥匙串未授权…): said as it is, as the Python reader says it, not taken for no login at all.
+            Err(error) => return Err(error),
         }
     }
     if data.is_none() {
@@ -478,12 +479,17 @@ fn credentials() -> Result<(String, f64, String), OAuthError> {
         }
     }
     if data.is_none() && legacy {
-        // Older installs may have used another account name; only without a local file.
-        if let Ok(raw) = keychain_data(None) {
-            data = login_document(&raw);
-            if data.is_none() {
-                unreadable = Some("Claude Code 钥匙串里的登录无法解析");
+        // Older installs may have used another account name; only without a local file. Refused (or failing) is said
+        // as it is, as by the account name above; only none there means no login.
+        match keychain_data(None) {
+            Ok(raw) => {
+                data = login_document(&raw);
+                if data.is_none() {
+                    unreadable = Some("Claude Code 钥匙串里的登录无法解析");
+                }
             }
+            Err(error) if error.code != "missing" => return Err(error),
+            Err(_) => {}
         }
     }
     let Some(data) = data else {

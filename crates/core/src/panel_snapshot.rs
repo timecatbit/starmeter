@@ -512,6 +512,27 @@ impl Runtime {
                 ],
             ),
         ];
+        // The keychain switch the Cursor page has, here too: the message that sends the user to it is seen on the tool's
+        // page and in the module grid as well.
+        let keychain = self.settings().get("cursorKeychain").is_some_and(Json::is_truthy);
+        if enabled && cfg!(target_os = "macos") && (keychain || cursor::login_encrypted(&self.home, &self.environment))
+        {
+            children.insert(
+                1,
+                with(
+                    "从钥匙串读取登录",
+                    object! {
+                        "detail" => if keychain {
+                            "用钥匙串里的“Cursor Safe Storage”解开 Cursor 的登录，令牌只在内存中使用"
+                        } else {
+                            "这个版本的 Cursor 把登录加密存进了钥匙串；打开后 macOS 会询问是否允许，选“始终允许”"
+                        },
+                        "symbol" => "lock", "checked" => keychain,
+                        "action" => action(&["set-cursor-keychain", if keychain { "false" } else { "true" }]),
+                    },
+                ),
+            );
+        }
         if let Some(app) = self.update_app_path("cursor") {
             children.push(with("打开 Cursor", object! { "symbol" => "macwindow", "href" => self.file_href(&app) }));
         }
@@ -523,6 +544,24 @@ impl Runtime {
     }
 
     fn service_connection_entry(&self, key: &str, data: &Object) -> Json {
+        /// The rows less any 立即刷新, at every depth (a key's rows sit under it).
+        fn without_refresh(rows: Vec<Json>) -> Vec<Json> {
+            rows.into_iter()
+                .filter(|row| {
+                    row.get("action").and_then(Json::as_array).and_then(|action| action.first())
+                        != Some(&Json::from("refresh-now"))
+                })
+                .map(|row| match row {
+                    Json::Object(mut entry) => {
+                        if let Some(children) = entry.get("children").and_then(Json::as_array).cloned() {
+                            entry.insert("children", Json::Array(without_refresh(children)));
+                        }
+                        Json::Object(entry)
+                    }
+                    other => other,
+                })
+                .collect()
+        }
         let service = catalog::by_key(key);
         let configured = self.connection_ready(key);
         let value = if configured { "已配置" } else { "未配置" };
@@ -535,6 +574,10 @@ impl Runtime {
                 .and_then(Json::as_array)
                 .cloned()
                 .unwrap_or_default();
+            // Off the homepage nothing reads it in the background, so 立即刷新 would have nothing to do here.
+            if !self.module_enabled(key) {
+                children = without_refresh(children);
+            }
             let at = children.len().saturating_sub(1);
             children.insert(at, with("选择密钥文件…", object! { "action" => action(&["configure-connection", key]) }));
             if !configured && let Some(note) = note {

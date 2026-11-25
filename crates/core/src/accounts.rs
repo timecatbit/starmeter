@@ -347,7 +347,12 @@ pub fn account(
             if secret.is_empty() {
                 return Ok(object! { "state" => "未配置 MiniMax 套餐密钥", "windows" => Json::Array(vec![]) });
             }
-            let region = environment.get("MINIMAX_REGION").cloned().unwrap_or_else(|| "international".into());
+            // A cleared setting is kept as empty: the default, as no setting is.
+            let region = environment
+                .get("MINIMAX_REGION")
+                .map(|region| region.trim().to_string())
+                .filter(|region| !region.is_empty())
+                .unwrap_or_else(|| "international".into());
             if !["international", "china"].contains(&region.as_str()) {
                 return Ok(object! { "state" => "MiniMax 地区配置待检查", "windows" => Json::Array(vec![]) });
             }
@@ -363,7 +368,8 @@ pub fn account(
                 .get("region")
                 .filter(|region| region.is_truthy())
                 .map(|region| py::str(Some(region)))
-                .or_else(|| environment.get("MOONSHOT_REGION").cloned())
+                .or_else(|| environment.get("MOONSHOT_REGION").map(|region| region.trim().to_string()))
+                .filter(|region| !region.is_empty())
                 .unwrap_or_else(|| "china".into());
             let (host, currency) = match region.as_str() {
                 "china" => ("https://api.moonshot.cn", "CNY"),

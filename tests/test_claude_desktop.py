@@ -144,7 +144,8 @@ class DesktopTests(unittest.TestCase):
   self.m.write_json_cache(self.m.cache_path('panel-view'),{'schema':1,'entries':[{'children':children}]})
   for accepted in (False,True):
    self.m.write_json_cache(self.m.cache_path('panel-action'),{'id':str(accepted),'action':['reauthorize-claude-oauth'],'createdAt':self.m.time.time()})
-   with patch.object(self.m,'confirm',return_value=accepted) as confirm,patch.object(self.m,'launch_background') as launch:
+   # The macOS plugin's words (the keychain, renewal through Code), wherever the test runs.
+   with patch.object(self.m,'confirm',return_value=accepted) as confirm,patch.object(self.m,'launch_background') as launch,patch.object(self.m.sys,'platform','darwin'):
     self.m.consume_panel_action()
    confirm.assert_called_once()
    # Consent names everything the plugin may do with the login, every time it asks.

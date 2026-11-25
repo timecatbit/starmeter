@@ -367,7 +367,8 @@ fn quotas(entries: &[Json], words: Words) -> Vec<Quota> {
                     format!("{} {}%", text(bar.get("label")), g(bar.get("used").and_then(Json::number).unwrap_or(0.0)))
                 })
                 .collect();
-            let (value, short) = if bars.len() == 2 {
+            // On the reserve the value is what is left to spend (余 45,934 Credits): kept, not traded for the bars' shares.
+            let (value, short) = if bars.len() == 2 && entry.get("share").is_none() {
                 (format!("已用 {}", bars.join(" · ")), Some(text(entry.get("value"))))
             } else {
                 let short =

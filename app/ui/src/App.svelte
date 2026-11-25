@@ -29,6 +29,10 @@
   import ToolPage from './components/ToolPage.svelte';
 
   const interaction = new PanelInteraction();
+  /** The action being carried out, for its row's spinner: the interaction itself isn't reactive, and an action that
+   *  redraws nothing (立即刷新 among them) left the row still, with no sign it had been pressed. */
+  let busyNow = $state<string[] | null>(null);
+  const syncBusy = () => { busyNow = interaction.active ? [...interaction.active] : null; };
   let version = $state(0);
   // As the panel shows it: in the language chosen, with the 语言 row in 通用.
   const snapshot: Snapshot | null = $derived.by(() => { void version; const shown = interaction.displayed(); return shown && localize(shown); });
@@ -79,11 +83,31 @@
   const LONGEST = 10_000;
   let pickedAt = 0;
   let waitedOut = $state(0);
+  /** The engine's clock as its readings show it (the newest read time seen): a range read since the pick is judged by
+   *  it, never by this device's clock, which may differ from the computer's (a phone's, by a minute or more). */
+  let engineSeen = 0;
+  let pickedEngine = 0;
+  $effect(() => { const at = snapshot?.dashboard?.fetchedAt; if (at && at > engineSeen) engineSeen = at; });
   const unsynced = (d: DashboardData) => d.providers.some((p) => !p.available && reads(p.status, '待同步'));
   const readThrough = (d: DashboardData) => d.rangeKey === pickedRange && !unsynced(d)
-    && (d.fetchedAt == null || d.fetchedAt * 1000 >= pickedAt - FRESH);
+    && (d.fetchedAt == null || !pickedEngine || d.fetchedAt * 1000 >= pickedEngine - FRESH);
   const waiting = $derived(!!pickedRange && !!snapshot?.dashboard && !readThrough(snapshot.dashboard) && waitedOut < pickedAt);
   $effect(() => { if (pickedRange && snapshot?.dashboard && (readThrough(snapshot.dashboard) || waitedOut >= pickedAt)) pickedRange = null; });
+  /** The grouping last picked (工具, 模型, 项目): its tab lit from the click on, whatever the snapshots in between say (the
+   *  range being read, the grouping picked before it), and the cards below held, dimmed and out of reach, until that
+   *  grouping's own come; ten seconds at most, as a range (GROUP-PICK, GROUP-FLASH). */
+  let pickedGroup = $state<string | null>(null);
+  let groupPickedAt = 0;
+  let groupWaitedOut = $state(0);
+  const groupShown = (d: DashboardData) => d.grouping ?? 'tool';
+  const regrouping = $derived(!!pickedGroup && !!snapshot?.dashboard && groupShown(snapshot.dashboard) !== pickedGroup
+    && groupWaitedOut < groupPickedAt);
+  $effect(() => {
+    void version;
+    if (!pickedGroup || !snapshot?.dashboard) return;
+    const arrived = groupShown(snapshot.dashboard) === pickedGroup && interaction.latest('set-group') === null;
+    if (arrived || groupWaitedOut >= groupPickedAt) pickedGroup = null;
+  });
   /** The range menu open: the ranges in it are read ahead, so the one picked is most likely read already. */
   function prefetchRanges() {
     if (onPhone) return;
@@ -473,10 +497,19 @@
     if (action[0] === 'set-range') {
       pickedRange = action[1] === snapshot?.dashboard?.rangeKey && !waiting ? null : action[1];
       pickedAt = Date.now();
+      pickedEngine = engineSeen * 1000;
       const at = pickedAt;
       setTimeout(() => { waitedOut = Math.max(waitedOut, at); }, LONGEST);
     }
-    switch (interaction.submit(action)) {
+    if (action[0] === 'set-group') {
+      pickedGroup = action[1];
+      groupPickedAt = Date.now();
+      const at = groupPickedAt;
+      setTimeout(() => { groupWaitedOut = Math.max(groupWaitedOut, at); }, LONGEST);
+    }
+    const submitted = interaction.submit(action);
+    syncBusy();
+    switch (submitted) {
       case 'start': void dispatch(action); break;
       case 'queued': version++; break;
     }
@@ -501,6 +534,7 @@
     }
     await reload();
     const next = interaction.next();
+    syncBusy();
     if (next) void dispatch(next);
   }
 
@@ -753,10 +787,10 @@
         <SharePage dashboard={snapshot.dashboard} project={snapshot.project ?? { name: 'Starmeter', url: 'https://github.com/timecatbit/starmeter' }}
           {rangeOptions} onrange={perform} onback={back} onheight={(h) => (wanted.share = h)} />
       {:else if toolId && tool && snapshot?.dashboard}
-        <ToolPage p={tool} dashboard={snapshot.dashboard} settings={toolSettings} busy={interaction.active} bind:scrollTop={toolScroll} onback={back}
+        <ToolPage p={tool} dashboard={snapshot.dashboard} settings={toolSettings} busy={busyNow} bind:scrollTop={toolScroll} onback={back}
           onopen={open} onchoose={choose} onheight={(h) => (wanted.tool = h)} />
       {:else if snapshot && pageEntry}
-        <DetailPage page={pageEntry} open={pageOpen} busy={interaction.active} bind:scrollTop={pageScroll} onback={back}
+        <DetailPage page={pageEntry} open={pageOpen} busy={busyNow} bind:scrollTop={pageScroll} onback={back}
           onopen={open} onchoose={choose} ontoggled={(next) => (pageOpen = next)} onheight={(h) => (wanted.page = h)} />
       {:else if snapshot && managerOnly}
         <ModulesPage entries={snapshot.moduleOptions ?? []} {leading} fromHome={settingsFromHome} bind:scrollTop={gridScroll}
@@ -800,7 +834,7 @@
     <Dashboard data={shown} {rangeOptions} reading={waiting} onprefetch={prefetchRanges} {updateMark} {updateSaid} onupdates={openUpdates} {reveal} {glows} {summaryGlow} live={pinned || leaving !== null ? feed : null} {leaving} onleft={() => { leaving = null; feed = null; }} {liveStamp} {pinned}
       {pinInterval} onrange={perform} onshare={openShare}
       onpin={() => { panel.hint = null; setPinned(!pinned); if (pinned) perform(['refresh-live']); }} onsettings={openSettings}
-      onopentool={openTool} ongroup={(key) => perform(['set-group', key])} {sessions} {view} onview={chooseView} busy={interaction.active}
+      onopentool={openTool} grouping={pickedGroup} {regrouping} ongroup={(key) => perform(['set-group', key])} {sessions} {view} onview={chooseView} busy={busyNow}
       onsize={(h) => (dashboardHeight = h)} onfloor={(h) => (floorHeight = h)} ontoggle={(id, expanded) => perform(['set-expanded', id, expanded ? 'true' : 'false'])}
       onopen={open} onchoose={choose} readonly={onPhone} />
   {/if}

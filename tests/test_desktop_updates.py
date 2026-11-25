@@ -36,6 +36,19 @@ class DesktopUpdateTests(unittest.TestCase):
  def test_unrelated_host_cannot_supply_a_release(self):
   self.cache(url='https://persistent.oaistatic.com.example.test/codex-app-prod/appcast-99.0.xml')
   self.assertIsNone(desktop.chatgpt_release(self.home,desktop.BUNDLE,self.parse));self.parse.assert_not_called()
+ def test_a_cached_answer_that_gives_nothing_gives_way_to_the_one_before(self):
+  # The newest answer's file evicted, the next one empty: the one before them, older but within the week, tells it.
+  c=sqlite3.connect(self.root/'Cache.db')
+  c.executescript('CREATE TABLE cfurl_cache_response(entry_ID INTEGER,request_key TEXT,time_stamp TEXT);CREATE TABLE cfurl_cache_receiver_data(entry_ID INTEGER,isDataOnFS INTEGER,receiver_data BLOB);')
+  url='https://persistent.oaistatic.com/codex-app-prod/appcast.xml'
+  stamp=lambda age:datetime.fromtimestamp(time.time()-age,timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+  # One timed an hour ahead (the clock ran ahead) comes first: passed over too.
+  for entry,age,on_disk,body in ((4,-3600,0,b''),(1,60,1,b'evicted-file'),(2,120,0,b''),(3,86400,0,b'<rss/>')):
+   c.execute('INSERT INTO cfurl_cache_response VALUES(?,?,?)',(entry,url,stamp(age)));c.execute('INSERT INTO cfurl_cache_receiver_data VALUES(?,?,?)',(entry,on_disk,body))
+  c.commit();c.close()
+  self.parse.side_effect=lambda body:('26.1103.31037','25241') if body==b'<rss/>' else (None,None)
+  row=desktop.chatgpt_release(self.home,desktop.BUNDLE,self.parse)
+  self.assertEqual((row['releaseSource'],row['latest']),('client-feed','26.1103.31037'))
  def test_old_or_corrupt_cache_does_not_claim_an_update(self):
   self.cache(age=8*86400)
   self.assertIsNone(desktop.chatgpt_release(self.home,desktop.BUNDLE,self.parse));self.parse.assert_not_called()

@@ -280,7 +280,7 @@ const CURRENT_INDEXES: [&str; 7] = [
     "harness-v6-codex-",
     "harness-v6-qoder-",
     "harness-v6-magpie-",
-    "harness-gemini-v4-",
+    "harness-gemini-v5-",
     "harness-gateway-v2-",
 ];
 const RETIRED_INDEXES: [&str; 3] = ["harness-v4-magpie-", "harness-v4-codex-", "harness-v4-qoder-"];
@@ -429,6 +429,16 @@ impl Runtime {
         pages.into_iter().map(String::from).collect()
     }
 
+    /// How long the status pages read last hold: none when a page now wanted isn't among them (a module just put on
+    /// the homepage), so its status is read at once rather than shown as 待同步 for up to five minutes.
+    fn status_lifetime(&self, payload: &Object) -> f64 {
+        if self.status_pages().iter().any(|page| !payload.contains_key(page)) {
+            0.0
+        } else {
+            service_status::lifetime(payload)
+        }
+    }
+
     /// The day's ECB reference rate of the yuan to the dollar, from Frankfurter; only a User-Agent is sent.
     pub fn exchange_rate_load(&self) -> Loaded {
         let headers = vec![("User-Agent", format!("Starmeter/{VERSION}")), ("Accept", "application/json".to_string())];
@@ -570,7 +580,7 @@ impl Runtime {
                     .and_then(Json::as_object)
                     .cloned()
                     .unwrap_or_default();
-                self.cached_fetch("service_status", service_status::lifetime(&previous), 60.0, || {
+                self.cached_fetch("service_status", self.status_lifetime(&previous), 60.0, || {
                     Ok((Some(service_status::merged(&previous, service_status::read_all(&pages, VERSION))), None))
                 });
             });
@@ -675,7 +685,7 @@ impl Runtime {
         if name == "service_status" {
             let record = self.read_cache(name);
             let payload = record.get("payload").and_then(Json::as_object).cloned().unwrap_or_default();
-            return self.cache_due(&record, self.refresh_ttl(service_status::lifetime(&payload)));
+            return self.cache_due(&record, self.refresh_ttl(self.status_lifetime(&payload)));
         }
         if name != "opencodex" {
             return self.cache_due(&self.read_cache(name), self.refresh_ttl(self.ttl_for(name)));

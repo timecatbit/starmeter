@@ -32,15 +32,17 @@ pub struct Wall {
 impl Wall {
     pub fn at(moment: f64, zone: &TimeZone) -> Wall {
         let local = moment + offset_at(zone, moment) as f64;
-        let whole = local.floor();
-        let days = (whole / 86400.0).floor() as i64;
-        let (year, month, day) = py::civil_from_days(days);
-        let mut seconds = whole as i64 - days * 86400;
-        let mut microsecond = ((local - whole) * 1_000_000.0).round() as i64;
+        let mut whole = local.floor() as i64;
+        let mut microsecond = ((local - local.floor()) * 1_000_000.0).round() as i64;
+        // Rounded up to the next second, carried before the day is read: the last microsecond of a day rounds to the
+        // next day's 00:00, not to 24:00 of its own (as Python's datetime has it).
         if microsecond >= 1_000_000 {
             microsecond -= 1_000_000;
-            seconds += 1;
+            whole += 1;
         }
+        let days = whole.div_euclid(86400);
+        let (year, month, day) = py::civil_from_days(days);
+        let seconds = whole - days * 86400;
         Wall { year, month, day, seconds, microsecond, zone: zone.clone() }
     }
 
@@ -598,6 +600,19 @@ mod tests {
 
     fn zone(name: &str) -> TimeZone {
         TimeZone::get(name).unwrap()
+    }
+
+    #[test]
+    fn the_last_microsecond_of_a_day_rounds_to_the_next_days_midnight() {
+        // 2026-11-24 00:00 UTC less 0.4 µs: rounded to the microsecond it is the 24th's midnight, not 24:00 of the 23rd.
+        let utc = zone("UTC");
+        let wall = Wall::at(1_795_478_400.0 - 0.000_000_4, &utc);
+        assert_eq!((wall.year, wall.month, wall.day, wall.seconds, wall.microsecond), (2026, 11, 24, 0, 0));
+        let wall = Wall::at(1_795_478_400.0 - 0.25, &utc);
+        assert_eq!((wall.day, wall.seconds, wall.microsecond), (23, 86_399, 750_000));
+        // Before 1970 too: the day is read after the carry.
+        let wall = Wall::at(-86_400.0 - 0.000_000_4, &utc);
+        assert_eq!((wall.year, wall.month, wall.day, wall.seconds), (1969, 12, 31, 0));
     }
 
     /// The moments here were worked out from the zones' own rules, not from the Python reference, which used to

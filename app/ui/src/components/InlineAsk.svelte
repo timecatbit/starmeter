@@ -11,6 +11,7 @@
   let { question, indent = 0, sheet = false }: { question: Question; indent?: number; sheet?: boolean } = $props();
 
   let field: HTMLInputElement | undefined = $state();
+  let buttons: HTMLDivElement | undefined = $state();
   // svelte-ignore state_referenced_locally
   let text = $state(question.value ?? '');
   const destructive = $derived(/删除|清除|移除|覆盖|关闭|停止|重置/.test(question.accept ?? ''));
@@ -19,7 +20,10 @@
   // itself the moment it appears.
   onMount(() => {
     if (!sheet) ask.placed++;
+    // The focus comes into the question, its field or else its first button (取消, 好), so Esc cancels it rather than
+    // going on to the panel's own Esc (back, or closing the panel).
     if (field) { field.focus(); field.select(); }
+    else buttons?.querySelector('button')?.focus({ preventScroll: true });
   });
   onDestroy(() => { if (!sheet) ask.placed--; });
 
@@ -46,7 +50,7 @@
     <input bind:this={field} class="field" type={question.hidden ? 'password' : 'text'} bind:value={text} autocomplete="off" spellcheck="false"
       aria-label={shown(question.title)} />
   {/if}
-  <div class="buttons">
+  <div class="buttons" bind:this={buttons}>
     {#if question.kind === 'notice'}
       <button class="button pressable" onclick={() => answer(null)}>{t('好')}</button>
     {:else}

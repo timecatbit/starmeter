@@ -88,11 +88,13 @@
     // The panel's own Esc (back) and Return stay out of it while the menu is open.
     event.stopPropagation();
     if (event.key === 'Escape') { event.preventDefault(); settle(); }
+    // Tab or Shift+Tab leaves the menu: it closes with the choice as it was, and the focus goes on its way.
+    else if (event.key === 'Tab') close();
+    // A menu with nothing in it has nothing to light or pick.
+    else if (!options.length) return;
     else if (event.key === 'ArrowDown') { event.preventDefault(); lit = (lit + 1) % options.length; reveal(); }
     else if (event.key === 'ArrowUp') { event.preventDefault(); lit = (lit - 1 + options.length) % options.length; reveal(); }
     else if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); settle(options[lit].value); }
-    // Tab or Shift+Tab leaves the menu: it closes with the choice as it was, and the focus goes on its way.
-    else if (event.key === 'Tab') close();
     // The ends of the list (and its pages) are the menu's, not the page's: left to the browser, they scrolled what is
     // around the menu, and the menu with it, out of sight.
     else if (event.key === 'Home' || event.key === 'PageUp') { event.preventDefault(); lit = 0; reveal(); }

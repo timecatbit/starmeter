@@ -28,7 +28,7 @@
 
   let { data, rangeOptions, reveal, glows, summaryGlow, live, leaving = null, onleft, liveStamp, pinned, pinInterval, onrange,
     onshare, onpin, onsettings, ongroup, ontoggle, onopentool, onsize, onfloor, sessions = null, view = 'cards', onview, busy = null, onopen, onchoose,
-    readonly = false, reading = false, onprefetch, updateMark = null, updateSaid = '', onupdates }: {
+    readonly = false, reading = false, grouping = null, regrouping = false, onprefetch, updateMark = null, updateSaid = '', onupdates }: {
     data: Dashboard; rangeOptions: Entry[]; reveal: number; glows: Record<string, number>; summaryGlow: number; live: LiveFeed | null;
     leaving?: number | null; onleft?: () => void;
     liveStamp: string | null; pinned: boolean; pinInterval: number;
@@ -39,6 +39,11 @@
     /** A range picked and still being read: the menu shows it, the figures are still the last range's. */
     /** A range picked and not read through yet: what is on screen is the old reading, dimmed, until the new one is in. */
     reading?: boolean;
+    /** The grouping last picked, while its cards are on their way: its tab is the lit one, and the one a click is
+     *  measured against (a click back to the grouping on screen is a pick too). */
+    grouping?: string | null;
+    /** The cards on screen are another grouping's than the one picked: held, dimmed and out of reach, till it comes. */
+    regrouping?: boolean;
     onprefetch?: () => void;
     /** A newer version waiting: a pill beside Starmeter until looked at, then a dot (updateHints.svelte.ts). */
     updateMark?: { count: number; own: string | null; fresh: boolean } | null;
@@ -67,6 +72,8 @@
   const heatmapLayout = $derived(data.heatmap ? new HeatmapLayout(left + column, summaryHeight + 8, right - left - column, data.heatmap.columns, heatmapRows(data.heatmap), dot) : null);
   const heatmapHeight = $derived(heatmapLayout && data.heatmap ? blockHeight(heatmapLayout, data.heatmap) : 0);
   const harnessHeader = $derived(!data.providers.length || !showSummary || data.heatmap ? 0 : 6);
+  /** The grouping the tabs show and a click is measured against: the one last picked while it is on its way. */
+  const wantedGrouping = $derived(grouping ?? data.grouping ?? 'tool');
   const tabOptions = $derived([...(data.providers.length ? data.groupings ?? [] : []), ...(sessions ? [{ key: 'sessions', label: t('会话') }] : [])]);
   // 会话 when chosen, and always when there are no cards to choose instead (its row has left the other rows for here).
   const showingSessions = $derived(!!sessions && (view === 'sessions' || !data.providers.length));
@@ -212,25 +219,27 @@
   {/if}
   <div class="cards" style:top="{summaryHeight + heatmapHeight + harnessHeader}px">
     {#if groupingHeight}
-      <GroupTabs options={tabOptions} chosen={showingSessions ? 'sessions' : data.grouping ?? 'tool'} note={showingSessions ? null : data.groupNote}
-        onchoose={(key) => { if (key === 'sessions') onview?.('sessions'); else { onview?.('cards'); if (key !== (data.grouping ?? 'tool')) ongroup(key); } }} />
+      <GroupTabs options={tabOptions} chosen={showingSessions ? 'sessions' : wantedGrouping} note={showingSessions || regrouping ? null : data.groupNote}
+        onchoose={(key) => { if (key === 'sessions') onview?.('sessions'); else { onview?.('cards'); if (key !== wantedGrouping) ongroup(key); } }} />
     {/if}
     {#if showingSessions && sessions}
       <div class="sessions" bind:this={sessionsBox}>
         <SessionList entry={sessions} {busy} onopen={(e) => onopen?.(e)} onchoose={(e) => onchoose?.(e)} onfit={(h) => (sessionsFit = h)} />
       </div>
     {:else}
-      {#if !cardList.length && data.providers.length}
-        <div class="no-calls">{t('此时段暂无调用')}</div>
-      {/if}
-      {#each listed as p (p.id)}
-        <ProviderCard {p} {collapsible} expanded={expanded.has(p.id)} glow={glows[p.id] ?? 0} ontoggle={() => ontoggle(p.id, !expanded.has(p.id))}
-          onopen={isGrouped(p) ? undefined : () => onopentool(p.id)} />
-      {/each}
-      {#if unlisted || folds}
-        <MoreButton open={folds} label={folds ? t('收起') : t(data.grouping === 'project' ? '查看更多 {n} 个项目' : '查看更多 {n} 个模型', { n: unlisted })}
-          onclick={() => (folds ? closeList : openList)(data.grouping ?? '')} />
-      {/if}
+      <div class="list" class:held={regrouping} inert={regrouping} aria-busy={regrouping}>
+        {#if !cardList.length && data.providers.length}
+          <div class="no-calls">{t('此时段暂无调用')}</div>
+        {/if}
+        {#each listed as p (p.id)}
+          <ProviderCard {p} {collapsible} expanded={expanded.has(p.id)} glow={glows[p.id] ?? 0} ontoggle={() => ontoggle(p.id, !expanded.has(p.id))}
+            onopen={isGrouped(p) ? undefined : () => onopentool(p.id)} />
+        {/each}
+        {#if unlisted || folds}
+          <MoreButton open={folds} label={folds ? t('收起') : t(data.grouping === 'project' ? '查看更多 {n} 个项目' : '查看更多 {n} 个模型', { n: unlisted })}
+            onclick={() => (folds ? closeList : openList)(data.grouping ?? '')} />
+        {/if}
+      </div>
     {/if}
   </div>
 </div>
@@ -359,6 +368,10 @@
   .picker.reading :global(.current) { opacity: 0.55; transition: opacity 0.2s; }
   /* A range picked and not read through yet: the old figures stay where they are (nothing jumps), dimmed, and 正在读取…
      says why; the new reading takes their place whole, never a source at a time (用户：切换时间段时有机会看到旧的信息). */
+  /* Another grouping picked: the cards on screen (the last grouping's) stay where they are, dimmed and out of reach (no
+     detail opened, nothing folded), until the picked one's take their place (GROUP-FLASH). */
+  .list { transition: opacity 0.18s ease-out; }
+  .list.held { opacity: 0.32; pointer-events: none; }
   .figure, .trend, .cards, .dashboard > :global(.heatmap) { transition: opacity 0.18s ease-out; }
   .dashboard.reading .figure, .dashboard.reading .trend, .dashboard.reading .cards, .dashboard.reading > :global(.heatmap) {
     opacity: 0.32;

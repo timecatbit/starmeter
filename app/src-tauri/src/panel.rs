@@ -39,6 +39,10 @@ pub struct Panel {
     /// A native menu or the share sheet has the pointer: a click outside is theirs, not a reason to close.
     held: AtomicBool,
     sharing: AtomicBool,
+    /// Which share menu is the latest: a closing one's late word is for its own round, not a newer menu's (macOS,
+    /// whose share menu it is).
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    share_round: AtomicU64,
     modules: AtomicBool,
     /// Where the star is, in logical screen coordinates (macOS: AppKit's, origin bottom left).
     anchor: Mutex<(f64, f64)>,
@@ -80,6 +84,7 @@ impl Panel {
             pinned: AtomicBool::new(false),
             held: AtomicBool::new(false),
             sharing: AtomicBool::new(false),
+            share_round: AtomicU64::new(0),
             modules: AtomicBool::new(false),
             anchor: Mutex::new((0.0, 0.0)),
             size: Mutex::new((360.0, 520.0)),
@@ -125,17 +130,15 @@ struct Opened {
     max_height: f64,
 }
 
-/// The tallest the panel may grow under the star before it scrolls.
+/// The tallest the panel may grow under the star before it scrolls; never under the least a page asks for (a screen
+/// that reports no height for a moment, asleep or being switched, is no reason for a panel of nothing).
 fn max_height(app: &AppHandle) -> f64 {
     let anchor = *app.state::<Panel>().anchor.lock().expect("the anchor lock");
     #[cfg(target_os = "macos")]
-    {
-        macos::max_height(anchor)
-    }
+    let tallest = macos::max_height(anchor);
     #[cfg(not(target_os = "macos"))]
-    {
-        work_area(app, anchor).map(|area| area.3 - 16.0).unwrap_or(800.0)
-    }
+    let tallest = work_area(app, anchor).map(|area| area.3 - 16.0).unwrap_or(800.0);
+    tallest.max(80.0)
 }
 
 /// The working area (without taskbar or menu bar) of the monitor under a point, logical: x, y, width, height.
@@ -231,7 +234,7 @@ fn place(app: &AppHandle, animate: bool) {
                 let x = chosen_left(&state, start.x).min(area.0 + area.2 - width).max(area.0);
                 placed_left(&state, x);
                 let y = start.y.max(area.1);
-                (x, y, height.min(area.1 + area.3 - y))
+                (x, y, height.min(area.1 + area.3 - y).max(MIN_SIZE.1))
             }
             None => {
                 let Some(area) = work_area(app, anchor) else { return };
@@ -484,10 +487,50 @@ pub fn step_aside(app: &AppHandle, aside: bool) {
     }
 }
 
-/// The share sheet (macOS) draws in another process; its clicks must not close the panel.
+/// The share sheet (macOS) draws in another process; its clicks must not close the panel. Says which round of sharing
+/// this is, for share_closed and share_dropped.
 #[cfg(target_os = "macos")]
-pub fn hold_for_share(app: &AppHandle) {
-    app.state::<Panel>().sharing.store(true, Ordering::SeqCst);
+pub fn hold_for_share(app: &AppHandle) -> u64 {
+    let state = app.state::<Panel>();
+    let round = state.share_round.fetch_add(1, Ordering::SeqCst) + 1;
+    state.sharing.store(true, Ordering::SeqCst);
+    round
+}
+
+/// The share menu of this round never came up (no window to show it on): the panel is back to closing on a click
+/// elsewhere at once.
+#[cfg(target_os = "macos")]
+pub fn share_dropped(app: &AppHandle, round: u64) {
+    let state = app.state::<Panel>();
+    if state.share_round.load(Ordering::SeqCst) == round {
+        state.sharing.store(false, Ordering::SeqCst);
+    }
+}
+
+/// The share menu closed (picked: a service was chosen). A click on another app while it was up took the focus without
+/// closing the panel (blurred stood aside for the menu) and the panel would stay up, floating, until clicked again: a
+/// moment later, once the focus has settled, the panel closes as a click elsewhere closes it. Dismissed, that is when
+/// the panel no longer has the focus; with a service picked, only when another app has it (a service may show a
+/// window of this app's own, such as AirDrop's, which takes the focus from the panel and needs it to stay).
+/// Only for its own round: a menu opened again within the moment is the newer round's to settle.
+#[cfg(target_os = "macos")]
+pub fn share_closed(app: &AppHandle, picked: bool, round: u64) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(300));
+        let handle = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            let state = handle.state::<Panel>();
+            if state.share_round.load(Ordering::SeqCst) != round || !state.sharing.swap(false, Ordering::SeqCst) {
+                return;
+            }
+            let focused = window(&handle).is_some_and(|panel| panel.is_focused().unwrap_or(false));
+            let away = if picked { !crate::macos::app_active() } else { !focused };
+            if away {
+                blurred(&handle);
+            }
+        });
+    });
 }
 
 fn set_pinned_state(app: &AppHandle, pinned: bool) {
@@ -658,7 +701,7 @@ pub fn resize_panel(app: AppHandle, width: f64, height: f64, animate: bool, resi
         return;
     }
     let limit = if free(&state) { 10_000.0 } else { max_height(&app) };
-    let size = (width.clamp(240.0, 900.0), height.clamp(80.0, limit).round());
+    let size = (width.clamp(240.0, 900.0), height.clamp(80.0, limit.max(80.0)).round());
     {
         let mut current = state.size.lock().expect("the size lock");
         if *current == size {
@@ -695,10 +738,19 @@ pub fn size_panel(app: AppHandle, width: f64, height: f64) {
         let frame = macos::free_frame(current, asked.0, asked.1);
         (frame.size.width.round(), frame.size.height.round())
     });
+    // As macOS keeps a frame on its screen: no taller than from the window's top to the bottom of its working area
+    // (place keeps the window there), so the page lays out for the size the window has, its corner on screen.
     #[cfg(not(target_os = "macos"))]
     let size = {
-        let _ = &window;
-        asked
+        let top =
+            window.outer_position().ok().zip(window.scale_factor().ok()).map(|(p, scale)| p.to_logical::<f64>(scale));
+        match top.and_then(|top| work_area(&app, (top.x + 1.0, top.y + 1.0)).map(|area| (top, area))) {
+            Some((top, area)) => {
+                let room = (area.1 + area.3 - top.y.max(area.1)).max(MIN_SIZE.1);
+                (asked.0.min(area.2.max(MIN_SIZE.0)).round(), asked.1.min(room).round())
+            }
+            None => asked,
+        }
     };
     state.sized.store(true, Ordering::SeqCst);
     {

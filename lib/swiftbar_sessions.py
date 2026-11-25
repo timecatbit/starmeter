@@ -205,12 +205,22 @@ def turn(at):
     return {'at': at, 'requests': 0, 'tokens': 0, 'cost': 0.0, 'unpriced': 0, 'tools': {}}
 
 
+def reply_tokens(model, usage):
+    """A Claude reply's tokens, or None for a line that is no request: Claude Code's own notices (model <synthetic>)
+    and lines with no tokens, as the usage leaves them out."""
+    if not isinstance(usage, dict) or not isinstance(model, str) or model in ('', '<synthetic>', 'synthetic'):return None
+    tokens = sum(number(usage.get(k)) for k in ('input_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens', 'output_tokens'))
+    return tokens or None
+
+
 def claude_turns(path, price):
     """The last turns of a Claude Code session, newest first: from one prompt to the next, its requests, tokens,
     estimated cost and the tools it called. A reply streamed over several lines counts once; a subagent's work
     (sidechain rows) belongs to the turn that started it. price(model, usage) gives a request's cost or None."""
     # A turn that began before the part read is counted from where reading starts, and marked so.
-    turns = [turn(None)]; current = turns[0]; seen = set(); own = Path(path).stem
+    # A reply streamed over several lines writes its output as it goes: counted once, in the turn of its first line,
+    # with the most any of its lines says (as the usage takes it); a line with neither id is a reply of its own.
+    turns = [turn(None)]; current = turns[0]; best = {}; own = Path(path).stem
     for row in rows_at_end(path, DETAIL):
         if copied(row, own):continue
         message = row.get('message') if isinstance(row.get('message'), dict) else {}
@@ -224,12 +234,20 @@ def claude_turns(path, price):
                 if isinstance(item, dict) and item.get('type') == 'tool_use' and item.get('name'):
                     current['tools'][item['name']] = current['tools'].get(item['name'], 0) + 1
             usage = message.get('usage'); key = message.get('id') or row.get('uuid')
-            if isinstance(usage, dict) and key not in seen:
-                seen.add(key); current['requests'] += 1
-                current['tokens'] += sum(number(usage.get(k)) for k in ('input_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens', 'output_tokens'))
-                cost = price(message.get('model'), usage)
-                if cost is None:current['unpriced'] += 1
-                else:current['cost'] += cost
+            tokens = reply_tokens(message.get('model'), usage)
+            if tokens is None:continue
+            if key is not None and key in best and tokens <= best[key][1]:continue
+            cost = price(message.get('model'), usage)
+            if key is not None and key in best:
+                where, before, was = best[key]
+                where['tokens'] += tokens - before
+                if was is None:where['unpriced'] -= 1
+                else:where['cost'] -= was
+            else:
+                where = current; where['requests'] += 1; where['tokens'] += tokens
+            if cost is None:where['unpriced'] += 1
+            else:where['cost'] += cost
+            if key is not None:best[key] = (where, tokens, cost)
     return [t for t in turns if t['at'] is not None or t['requests']][-TURNS:][::-1]
 
 
@@ -300,7 +318,7 @@ def spent(path, tool, price, zone=None, since=0, until=None):
     holds its cost by day in zone ({day: [requests, cost, unpriced]}, in the order the days come) and 'spends' each
     request since `since`: its time and cost (None when unpriced), in order. A request timed after `until` (a clock
     running ahead wrote it) counts nowhere yet, as the usage doesn't: it waits in 'later' for its time."""
-    out = {'requests': 0, 'cost': 0.0, 'unpriced': 0, 'days': {}, 'spends': [], 'later': []}; seen = set(); model = None; total = None
+    out = {'requests': 0, 'cost': 0.0, 'unpriced': 0, 'days': {}, 'spends': [], 'later': []}; model = None; total = None
     own = Path(path).stem
     def add(model, usage, at):
         cost = price(model, usage)
@@ -314,13 +332,18 @@ def spent(path, tool, price, zone=None, since=0, until=None):
         if cost is None:day[2] += 1
         else:day[1] += cost
         if at >= since:out['spends'].append((at, cost))
+    # Each Claude reply once, at its first line's time, with the most usage any of its lines gives (a reply streamed
+    # over several lines writes its output as it goes); a line with neither id is a reply of its own.
+    replies = {}
     for row in rows_at_end(path, os.path.getsize(path) + 1):
         if tool == 'Claude':
             if row.get('type') != 'assistant' or copied(row, own):continue
             message = row.get('message') if isinstance(row.get('message'), dict) else {}
-            usage = message.get('usage'); key = message.get('id') or row.get('uuid')
-            if isinstance(usage, dict) and key not in seen:
-                seen.add(key); add(message.get('model'), usage, stamp(row.get('timestamp')))
+            usage = message.get('usage'); key = message.get('id') or row.get('uuid') or object()
+            tokens = reply_tokens(message.get('model'), usage)
+            if tokens is None:continue
+            if key not in replies:replies[key] = [stamp(row.get('timestamp')), message.get('model'), usage, tokens]
+            elif tokens > replies[key][3]:replies[key][1:] = [message.get('model'), usage, tokens]
         else:
             data = row.get('payload') if isinstance(row.get('payload'), dict) else {}
             if row.get('type') == 'turn_context':model = data.get('model') or model
@@ -328,6 +351,7 @@ def spent(path, tool, price, zone=None, since=0, until=None):
                 info = data['info']; running = info.get('total_token_usage'); last = info.get('last_token_usage') or {}
                 if not last or running == total:continue
                 total = running; add(model, last, stamp(row.get('timestamp')))
+    for at, reply_model, usage, _ in replies.values():add(reply_model, usage, at)
     return out
 
 

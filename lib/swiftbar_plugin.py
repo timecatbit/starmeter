@@ -495,7 +495,8 @@ def as_option(key, value):
         return key + "=" + ("true" if value else "false")
     # SwiftBar 的属性不能跨物理行，否则 tooltip 内容会泄漏成灰色菜单项。
     text = " · ".join(part.strip() for part in str(value).replace("\r", "\n").split("\n") if part.strip())
-    if text and not any(c in text for c in ' \t"'):
+    # Quoted too with a backslash or a single quote, which the line's reader would take as an escape or a quote.
+    if text and not any(c in text for c in ' \t"\'\\'):
         return key + "=" + text
     return key + '="' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
@@ -827,7 +828,8 @@ def request(path, method="GET", body=None, timeout=4.0, auth=True):
 
 
 def deepseek_balance_direct():
-    """OpenCodex 会过滤负余额；必要时直接向 DeepSeek 查询并保留负数。"""
+    """OpenCodex 会过滤负余额；必要时直接向 DeepSeek 查询并保留负数。The report; None when no DeepSeek key is set up to ask
+    with; {'failed': why} when asking failed (said as such, not as 未配置)."""
     try:
         api_key = str(os.environ.get('DEEPSEEK_API_KEY') or '').strip()
         key_file = os.environ.get('DEEPSEEK_API_KEY_FILE')
@@ -839,20 +841,23 @@ def deepseek_balance_direct():
             with open(CONFIG_FILE, "r", encoding="utf-8") as handle: config = json.load(handle)
             provider = (config.get("providers") or {}).get("deepseek") or {}
         base_url = str(provider.get("baseUrl") or "").rstrip("/")
-        if base_url not in ("https://api.deepseek.com", "https://api.deepseek.com/v1"):
-            return None
         api_key = str(provider.get("apiKey") or "").strip()
-        if not api_key:
-            return None
-        req = urllib.request.Request(
-            "https://api.deepseek.com/user/balance",
-            headers={"Accept": "application/json", "Authorization": "Bearer " + api_key},
-        )
-        with urllib.request.build_opener(_NoRedirect).open(req, timeout=4.0) as response:
-            body = json.loads(response.read().decode("utf-8"))
     except Exception:
         return None
-    return deepseek_balance_report(body)
+    if base_url not in ("https://api.deepseek.com", "https://api.deepseek.com/v1") or not api_key:
+        return None
+    req = urllib.request.Request(
+        "https://api.deepseek.com/user/balance",
+        headers={"Accept": "application/json", "Authorization": "Bearer " + api_key},
+    )
+    try:
+        with urllib.request.build_opener(_NoRedirect).open(req, timeout=4.0) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        return {'failed': 'DeepSeek 余额查询失败（HTTP %d）' % error.code}
+    except Exception:
+        return {'failed': 'DeepSeek 余额查询失败'}
+    return deepseek_balance_report(body) or {'failed': 'DeepSeek 余额查询失败'}
 
 
 def deepseek_balance_report(body):
@@ -923,6 +928,7 @@ def provider_quotas_cached():
     def load():
         if os.environ.get('DEEPSEEK_API_KEY') or os.environ.get('DEEPSEEK_API_KEY_FILE') or not ocx_configured():
             direct = deepseek_balance_direct()
+            if direct and direct.get('failed'):return None, (0, direct['failed'], None)
             return (direct, None) if direct else (None, (0, '未配置 DeepSeek API 凭据', None))
         payload, error = request("/api/provider-quotas", timeout=4.0)
         reports = list(payload.get("reports") or []) if isinstance(payload, dict) else []
@@ -932,7 +938,7 @@ def provider_quotas_cached():
         # Only call DeepSeek when the proxy has no usable balance, including a negative balance.
         if value is None or value == 0:
             direct = deepseek_balance_direct()
-            if direct:
+            if direct and not direct.get('failed'):
                 reports = [row for row in reports if isinstance(row, dict) and
                            str(row.get("provider", "")).lower() != "deepseek"] + direct["reports"]
                 error = None
@@ -1941,8 +1947,8 @@ def reserve_level(stale=False):
 
 def reserve_week(on_reserve,limits):
     """On the reserve the value is what is left to spend; the window's share used goes under it: the bars' names say
-    it when there are two, a name under the single bar (本周 100%) when there is one window."""
-    return '%s %g%%'%(limits[0][0],round(min(100,max(0,float(limits[0][1]))),1)) if on_reserve and len(limits)==1 else None
+    it when there are two, a name under the single bar (本周已用 100%, worded as the headline's) when there is one."""
+    return '%s已用 %g%%'%(limits[0][0],round(min(100,max(0,float(limits[0][1]))),1)) if on_reserve and len(limits)==1 else None
 
 
 def reserve_share_level(on_reserve,used,stale=False):
@@ -2151,13 +2157,14 @@ def cursor_subscription_lines(data):
     failed=refresh_failed(error);percent=payload.get('percent');end=payload.get('cycleEnd');start=payload.get('cycleStart')
     # 订阅额度框架: the cycle's included usage used up with on-demand on, what is left of it is the value, in orange.
     on_demand=payload.get('onDemand') if isinstance(payload.get('onDemand'),dict) and payload['onDemand'].get('enabled') else None
-    on_reserve=percent is not None and percent>=100 and on_demand is not None
+    # Not with an unlimited plan: nothing to run out of, so no reserve and no full bar.
+    on_reserve=percent is not None and percent>=100 and on_demand is not None and not payload.get('unlimited')
     if not enabled:badge='未开启读取'
     elif payload.get('unlimited'):badge='不限量'
     elif on_reserve:badge='按需剩 $%.2f'%max(0,(on_demand['limitCents']-on_demand.get('usedCents',0))/100) if on_demand.get('limitCents') else '在用按需用量'
     elif percent is not None:badge=used_text(percent)
     else:badge='暂无套餐用量' if payload else '待同步'
-    rows=[item(service.label,badge=with_failure(badge,percent is not None,failed),**brand_icon('cursor-subscription'),
+    rows=[item(service.label,badge=with_failure(badge,percent is not None,failed),paneldetail=reserve_week(on_reserve,[('本周期',percent or 0,False)]),**brand_icon('cursor-subscription'),
                panelusagelevel=(reserve_level(failed) if on_reserve else usage_level(percent,failed)) if percent is not None else None,
                panelshare=reserve_share(on_reserve,percent),panelsharelevel=reserve_share_level(on_reserve,percent,failed)),
           item('来源 · Cursor 账户（cursor.com）',level=1,color=MUTED,size=10)]
@@ -2172,7 +2179,7 @@ def cursor_subscription_lines(data):
         rows.append(refresh_row('cursor-subscription',payload,error))
         # An encrypted desktop login: read from the keychain once the user allows it here, macOS asking them.
         keychain=view_settings()['cursorKeychain']
-        if keychain or cursor.login_encrypted(HOME):
+        if sys.platform=='darwin' and (keychain or cursor.login_encrypted(HOME)):
             detail=('用钥匙串里的“Cursor Safe Storage”解开 Cursor 的登录，令牌只在内存中使用' if keychain
                     else '这个版本的 Cursor 把登录加密存进了钥匙串；打开后 macOS 会询问是否允许，选“始终允许”')
             rows.append(item('从钥匙串读取登录',level=1,sfimage='lock',checked=keychain,paneldetail=detail,**act('set-cursor-keychain','false' if keychain else 'true')))
@@ -2518,7 +2525,7 @@ def loader_due(name):
         return time.time()>=read_cache(name).get('retryAt',0)
     if name=='service_status':
         record=read_cache(name)
-        return cache_due(record,refresh_ttl(service_status.lifetime(record.get('payload'))))
+        return cache_due(record,refresh_ttl(status_lifetime(record.get('payload'))))
     if name!='opencodex':return cache_due(read_cache(name),refresh_ttl(ttl_for(name)))
     health=read_cache('healthz')
     if cache_due(health,refresh_ttl(EXTERNAL_TTLS['healthz'])):return True
@@ -2545,7 +2552,7 @@ def external_loaders():
     if pages:
         def load_status():
             previous=read_cache('service_status').get('payload') or {}
-            return cached_fetch('service_status',lambda:(service_status.merged(previous,service_status.read_all(pages,VERSION)),None),service_status.lifetime(previous))
+            return cached_fetch('service_status',lambda:(service_status.merged(previous,service_status.read_all(pages,VERSION)),None),status_lifetime(previous))
         loaders['service_status']=load_status
     if module_enabled('cursor-subscription') and view_settings()['cursorUsage']:
         def load_cursor_plan():
@@ -2608,9 +2615,23 @@ def refresh_now(source):
         fcntl.flock(lock,fcntl.LOCK_EX)
         invalidate_caches(names)
         loaders=external_loaders()
+        # OpenCodex's endpoints (its ChatGPT accounts' among them) are all read by its one loader.
+        wanted={name for name in names if name in loaders}|({'opencodex'} if 'opencodex' in loaders and any(n in OPENCODEX_ENDPOINTS for n in names) else set())
         with ThreadPoolExecutor(max_workers=4) as pool:
-            for future in [pool.submit(loaders[name]) for name in names if name in loaders]:future.result()
+            for future in [pool.submit(loaders[name]) for name in sorted(wanted)]:future.result()
+        # As after the background's reads: a window this reading put past the line is said now, not at the next round.
+        after_reads()
     refresh_swiftbar()
+
+
+def after_reads():
+    """What follows a round of reads (the background's, or 立即刷新's): OpenCodex's own update, the update and usage
+    notices from what was read."""
+    if (DESKTOP is None or DESKTOP.local_proxy(BASE)) and ocx_configured() and (
+            module_enabled('opencodex') or auto_update_state().get('status')=='running'):
+        auto_update_opencodex()
+    if module_enabled('updates'):notify_app_updates(update_rows({}))
+    check_usage_alerts()
 
 
 def refresh_swiftbar():
@@ -2660,7 +2681,11 @@ def alert_windows(data):
     (missing, null) is no reading, not a full one (QUOTA-ALERT-1)."""
     out=[]
     known=known_share
+    moment=time.time()
     def add(source,name,window,used,resets_at,span,current):
+        # A window past its reset has filled again: what was read of it is gone, so it neither alerts nor stands in the
+        # menu bar's share (the homepage leaves ChatGPT's and MiniMax's out the same way).
+        if isinstance(resets_at,(int,float)) and not isinstance(resets_at,bool) and resets_at<=moment:return
         out.append({'id':source+'|'+window,'name':name,'window':window,'used':float(used),'resetsAt':resets_at,'span':span,'current':current})
     if module_enabled('claude-subscription'):
         payload=data.get('claude_subscription') or {}
@@ -2810,11 +2835,7 @@ def background_refresh(wait=False):
                 if pricing_due():futures.append(pool.submit(refresh_pricing))
                 for future in futures:
                     future.result()
-            if (DESKTOP is None or DESKTOP.local_proxy(BASE)) and ocx_configured() and (
-                    module_enabled('opencodex') or auto_update_state().get('status')=='running'):
-                auto_update_opencodex()
-            if module_enabled('updates'):notify_app_updates(update_rows({}))
-            check_usage_alerts()
+            after_reads()
             collect_cache_garbage()
         if futures:refresh_swiftbar()
         return 0
@@ -2823,7 +2844,7 @@ def background_refresh(wait=False):
 
 
 # Index generations in use; older generations, removed snapshots and stray temp files are dropped.
-CURRENT_INDEXES = ('claude-app-usage-v5-', 'harness-v4-', 'harness-v6-codex-', 'harness-v6-qoder-', 'harness-v6-magpie-', 'harness-gemini-v4-', 'harness-gateway-v2-')
+CURRENT_INDEXES = ('claude-app-usage-v5-', 'harness-v4-', 'harness-v6-codex-', 'harness-v6-qoder-', 'harness-v6-magpie-', 'harness-gemini-v5-', 'harness-gateway-v2-')
 # Indexes a source outgrew, under a prefix the current ones still match.
 RETIRED_INDEXES = ('harness-v4-magpie-', 'harness-v4-codex-', 'harness-v4-qoder-')
 INDEX_FILE = re.compile(r'(?:claude-app-usage|claude-usage|harness)-.+\.sqlite3(?:-journal|-wal|-shm)?')
@@ -3111,6 +3132,13 @@ def status_pages():
     return sorted({page for module,page in service_status.MODULE_PAGES.items() if module_enabled(module)})
 
 
+def status_lifetime(payload):
+    """How long the status pages read last hold: none when a page now wanted isn't among them (a module just put on the
+    homepage), so its status is read at once rather than shown as 待同步 for up to five minutes."""
+    if any(page not in (payload or {}) for page in status_pages()):return 0
+    return service_status.lifetime(payload)
+
+
 def status_lines(key,data):
     """A subscription's or API's sidebar row for its service's status page, while 服务状态 is on."""
     page=service_status.MODULE_PAGES.get(key)
@@ -3235,8 +3263,11 @@ def sessions_lines(data):
             seconds=int(max(0,time.time()-started)) if isinstance(started,(int,float)) else 0
             state='运行中 '+lasted(seconds) if seconds>=60 else '运行中'
         else:state='空闲' if ago<60 else '空闲 '+lasted(ago)
+        # A session whose record keeps no requests (the Gemini app's) counts the user's messages instead.
+        rounds=s.get('rounds')
+        rounds='%d 轮'%rounds if isinstance(rounds,int) and not isinstance(rounds,bool) and rounds>0 else ''
         detail=' · '.join(part for part in (state,model,s.get('effort') or '',
-                                              '上下文 %d%%'%round(100*s['context']) if s.get('context') is not None else '') if part)
+                                              '上下文 %d%%'%round(100*s['context']) if s.get('context') is not None else '',rounds) if part)
         # The live figure: what the session cost in the range the panel shows, as the other tabs count, rising as it
         # works; 全部 (or a reading from before ranges were kept) the whole session. This turn's tokens until the cost
         # is read. The whole session's cost heads its turns.
@@ -3246,7 +3277,7 @@ def sessions_lines(data):
         else:live=fmt_tokens(latest['tokens'])+' Token' if latest else ('运行中' if running else '空闲')
         # Two sessions can share a name: the panel tells them apart by panelkey.
         lines.append(item(name,level=1,badge=live,paneldetail=detail,panelstatus='new' if running else 'unknown',panelkey=s.get('id'),
-                          **brand_icon('claude-subscription' if s['tool']=='Claude' else 'chatgpt')))
+                          **session_icon(s['tool'],s.get('module'))))
         lines.extend(turn_lines(turns,unit,s.get('project') if s.get('title') else None,total))
     if found is not None and not found:lines.append(item(label+'没有会话',level=1,color=MUTED,size=11))
     # Which sessions are listed and what their figures count.
@@ -3258,6 +3289,18 @@ def sessions_lines(data):
     lines.append(item('这一轮完成时提醒',level=1,sfimage='bell',checked=alerts_on,paneldetail='运行中的会话这一轮完成时发通知',
                       **act('set-session-alerts','false' if alerts_on else 'true')))
     return lines
+
+
+def session_icon(tool,module):
+    """A session's logo: its tool's (Claude's, ChatGPT's), else its module's, else a terminal."""
+    if tool=='Claude':return brand_icon('claude-subscription')
+    if tool=='ChatGPT':return brand_icon('chatgpt')
+    if module=='deepseek-harness':return brand_icon('deepseek')
+    if module in MODULE_LOGOS:
+        name,template=MODULE_LOGOS[module]
+        raw=memoized(('logo',name),lambda:read_logo(os.path.join(LOGO_DIR,name)))
+        if raw:return {('templateimage' if template else 'image'):raw,'width':MENU_ICON_SIZE,'height':MENU_ICON_SIZE}
+    return {'sfimage':'terminal'}
 
 
 def komari_lines(data):
@@ -3432,7 +3475,7 @@ def chatgpt_lines(data):
 
 
 def detected_modules():
-    return discovery.detect({key:source_path(key) for key in preferences.USAGE},HOME,ocx_configured(),KOMARI_BASE_URL,app_roots=[] if DESKTOP is not None else [os.path.join(HOME,'Applications'),'/Applications'],chatgpt_home=chatgpt_home(),configured_subscriptions=view_settings()['configuredSubscriptions'])
+    return discovery.detect({key:source_path(key) for key in preferences.USAGE},HOME,ocx_configured(),KOMARI_BASE_URL,app_roots=[os.path.join(HOME,'Applications'),'/Applications'] if sys.platform=='darwin' else [],chatgpt_home=chatgpt_home(),configured_subscriptions=view_settings()['configuredSubscriptions'])
 
 
 def detection_help_entries():
@@ -3577,6 +3620,12 @@ def cursor_connection_entry(installed):
               {'label':'来源 · Cursor 桌面版与 Cursor CLI','children':[]},
               {'label':'两者同一账户，用量都在账户记录里','children':[]},
               location_entry('登录来源',[os.path.join(source_path('cursor'),'state.vscdb'),str(cursor.cli_auth(HOME))])]
+    # The keychain switch the Cursor page has, here too.
+    keychain=view_settings()['cursorKeychain']
+    if enabled and sys.platform=='darwin' and (keychain or cursor.login_encrypted(HOME)):
+        children.insert(1,{'label':'从钥匙串读取登录','detail':('用钥匙串里的“Cursor Safe Storage”解开 Cursor 的登录，令牌只在内存中使用' if keychain
+                           else '这个版本的 Cursor 把登录加密存进了钥匙串；打开后 macOS 会询问是否允许，选“始终允许”'),
+                           'symbol':'lock','checked':keychain,'action':['set-cursor-keychain','false' if keychain else 'true'],'children':[]})
     app=update_app_path('cursor')
     if app:children.append({'label':'打开 Cursor','symbol':'macwindow','href':'file://'+urllib.parse.quote(app),'children':[]})
     return {'label':'Cursor','value':'已配置' if enabled else '未配置','symbol':'key','children':children}
@@ -3587,6 +3636,11 @@ def service_connection_entry(key,data=None):
     if service and service.category=='API':
         # Same key list as the homepage, plus pointing the classic connection at a key file.
         children=panel_entries(api_lines(key,data or {}))[0]['children']
+        # Off the homepage nothing reads it in the background, so 立即刷新 would have nothing to do here.
+        if not module_enabled(key):
+            def without_refresh(rows):
+                return [dict(row,children=without_refresh(row.get('children') or [])) for row in rows if (row.get('action') or [None])[0]!='refresh-now']
+            children=without_refresh(children)
         children.insert(len(children)-1,{'label':'选择密钥文件…','action':['configure-connection',key],'children':[]})
         if not configured and key in catalog.SETUP_NOTES:children.insert(0,{'label':catalog.SETUP_NOTES[key],'children':[]})
         return {'label':service.label,'value':'已配置' if configured else '未配置','symbol':'key','children':children}
@@ -4103,7 +4157,7 @@ def balance_currencies(provider,keys,values):
     def currency(entry,value):
         if value.get('kind')=='balance':return value['currency']
         if provider=='kimi-api':
-            return accounts.MOONSHOT_HOSTS.get((entry.get('options') or {}).get('region') or os.environ.get('MOONSHOT_REGION','china'),(None,'CNY'))[1]
+            return accounts.MOONSHOT_HOSTS.get((entry.get('options') or {}).get('region') or (os.environ.get('MOONSHOT_REGION') or '').strip() or 'china',(None,'CNY'))[1]
         return catalog.BALANCE_CURRENCIES[provider]
     return list(dict.fromkeys(currency(e,v) for e,v in zip(keys,values)))
 
@@ -4125,7 +4179,7 @@ def api_lines(provider,data):
         currencies=balance_currencies(provider,keys,values);lines=view_settings()['balanceAlerts']
         for currency in currencies:
             line=lines.get(provider+'|'+currency)
-            rows.append(item('余额提醒…' if len(currencies)==1 else CURRENCY_NAMES[currency]+'余额提醒…',level=1,sfimage='bell',
+            rows.append(item('余额提醒…' if len(currencies)==1 else CURRENCY_NAMES.get(currency,currency)+'余额提醒…',level=1,sfimage='bell',
                              badge='低于 '+money_text(line,currency) if line else '关闭',**act('set-balance-alert',provider,currency)))
     rows.append(item('打开用量与账单',level=1,href=service.url,sfimage='arrow.up.right'))
     return rows
@@ -4358,15 +4412,19 @@ def heatmap_cells(key, now, used):
     def name(d):return '%d月%d日 %s'%(d.month,d.day,WEEKDAYS[d.weekday()])
     if key in HOURLY_RANGES:
         if key=='24h':
+            # The last 24 hours are 24 real hours, the rows' own (keyed by the hour they begin), labelled with the zone's
+            # clock where each begins (23:30 where the zone is half an hour off).
             base=int(now.timestamp())//3600*3600-23*3600
-            moments=[datetime.fromtimestamp(base+3600*i,zone) for i in range(24)];names=['24小时']
-        else:
-            first=day-timedelta(days={'today':0,'yesterday':1,'7d':6,'week':day.weekday()}[key])
-            # Each row is one local day of wall-clock hours.
-            rows={'today':1,'yesterday':1,'7d':7,'week':day.weekday()+1}[key]
-            moments=[(first+timedelta(days=d)).replace(hour=h) for d in range(rows) for h in range(24)]
-            names={'today':['今天'],'yesterday':['昨天']}.get(key) or [WEEKDAYS[(first+timedelta(days=d)).weekday()] for d in range(rows)]
-        return [(int(m.timestamp())//3600*3600,name(m)+' %02d:00'%m.hour,m>now) for m in moments],24,names
+            moments=[datetime.fromtimestamp(base+3600*i,zone) for i in range(24)]
+            return [(base+3600*i,name(m)+' %02d:%02d'%(m.hour,m.minute),m>now) for i,m in enumerate(moments)],24,['24小时']
+        first=day-timedelta(days={'today':0,'yesterday':1,'7d':6,'week':day.weekday()}[key])
+        # A row is one of the zone's days of its wall-clock hours, each square keyed by that day and hour (as
+        # heatmap_payload files the rows): on the day the clocks go forward its 02:00 is empty, on the day they go back
+        # its 01:00 holds both.
+        rows={'today':1,'yesterday':1,'7d':7,'week':day.weekday()+1}[key]
+        moments=[(first+timedelta(days=d)).replace(hour=h) for d in range(rows) for h in range(24)]
+        names={'today':['今天'],'yesterday':['昨天']}.get(key) or [WEEKDAYS[(first+timedelta(days=d)).weekday()] for d in range(rows)]
+        return [((m.date().isoformat(),m.hour),name(m)+' %02d:00'%m.hour,m>now) for m in moments],24,names
     if key=='30d':first,count=day-timedelta(days=29),30
     elif key=='month':first,count=day.replace(day=1),calendar.monthrange(day.year,day.month)[1]
     else:
@@ -4399,9 +4457,17 @@ def streak_text(days, today):
     return '连续 %d 天 · 最长 %d 天'%(current,longest) if current>=2 else '最长连续 %d 天'%longest
 
 
-def heatmap_payload(bundle, key, now, selected, error=None):
-    """The squares under Summary for the selected range, counted as Summary counts them."""
+def heatmap_payload(bundle, key, now, selected, error=None, start=None, end=None):
+    """The squares under Summary for the selected range, counted as Summary counts them.
+    The rows are real hours as the sources count them (each begins on the hour, UTC); the squares of a calendar range are
+    the zone's own hours. A row goes to the zone's hour most of it falls in (its middle), kept within the range [start,
+    end]: where the zone is half an hour off, the hour half before the range begins or half after it ends holds only the
+    range's part, which belongs to its first or last square."""
     hourly=key in HOURLY_RANGES;totals={};partial=False;days=set()
+    if start is None or end is None:start,end=range_bounds(key,now)
+    def local_hour(stamp):
+        at=datetime.fromtimestamp(min(max(stamp+1800,start),max(end-1,start)),now.tzinfo)
+        return (at.date().isoformat(),at.hour)
     for part in summary_usage(selected).values():
         usage=part['usage'] or {}
         days.update(str(row.get('date',''))[:10] for row in usage.get('days') or [] if float(row.get('totalTokens') or 0)>0 or int(row.get('requests') or 0)>0)
@@ -4409,7 +4475,9 @@ def heatmap_payload(bundle, key, now, selected, error=None):
         # A source whose hours couldn't be read (OpenCodex's timeline) leaves the squares short.
         if hourly and not rows and (usage.get('summary') or {}).get('requests'):partial=True
         for row in rows:
-            slot=int(row.get('timestamp') or 0)//3600*3600 if hourly else str(row.get('date',''))[:10]
+            if key=='24h':slot=int(row.get('timestamp') or 0)//3600*3600
+            elif hourly:slot=local_hour(int(row.get('timestamp') or 0)//3600*3600)
+            else:slot=str(row.get('date',''))[:10]
             t=totals.setdefault(slot,[0.0,0,0.0,0])
             t[0]+=max(0.0,float(row.get('totalTokens') or 0));t[1]+=int(row.get('requests') or 0)
             t[2]+=max(0.0,float(row.get('estimatedCostUsd') or 0));t[3]+=int(row.get('unpricedRequests') or 0)
@@ -4582,7 +4650,7 @@ def dashboard_payload(data):
             'grouping':grouping,'groupings':[{'key':k,'label':v} for k,v in GROUPINGS.items()],'cards':cards,'currency':currency_unit(data),
             'groupNote':'按客户端自己的记录' if grouping=='project' and cards is not None else None,
             'chartUnit':unit,'chartSpan':span,'period':period,'chartStatus':chart_status,'updated':updated,'fetchedAt':bundle.get('_fetchedAt'),'chartPositions':chart_positions,
-            'heatmap':heatmap_payload(bundle,key,now,selected,data.get('range_usage_error')) if module_enabled('heatmap') and selected else None,
+            'heatmap':heatmap_payload(bundle,key,now,selected,data.get('range_usage_error'),start,end) if module_enabled('heatmap') and selected else None,
             'showSummary':module_enabled('summary'),'allowCollapse':view_settings()['allowCollapse'],'expandedProviders':view_settings()['expandedProviders']}
 
 
@@ -4905,7 +4973,8 @@ def run_action(name, extra):
             if reauthorize or not view_settings()['claudeOAuthUsage']:
                 title='重新读取 Claude Code 登录？' if reauthorize else '使用 Claude Code 登录查询用量？'
                 detail='读取 Claude Code 现有登录，仅向 api.anthropic.com 查询订阅用量。无需 Cookie 或模型调用。登录过期时可启动 Code 自检续期，不发送消息。\n凭据只在内存；不写入插件配置或日志。macOS 可能询问钥匙串权限。'
-                if DESKTOP is not None:
+                # By the system, as the engine says it: on macOS the login is in the keychain and renewed through Code.
+                if sys.platform != 'darwin':
                     detail='读取 Claude Code 本机登录文件，仅向 api.anthropic.com 查询用量。不会读取 Cookie，也不会调用模型。凭据不写入插件配置或日志；登录过期时在 Claude Code 重新登录。'
                 if not confirm(title,detail,accept='重新读取' if reauthorize else '启用'):return
             preferences.update(STATE_DIR,'claude-oauth','true')
@@ -4924,7 +4993,10 @@ def run_action(name, extra):
         preferences.update(STATE_DIR,'cursor-usage',value)
         if value=='true':preferences.update(STATE_DIR,'module','cursor','true')
         else:
-            for name in [n for n in os.listdir(CACHE_DIR) if n.startswith(('cursor_usage_','cursor_subscription'))]:
+            # No cache folder yet (nothing read so far): nothing to clear.
+            try:cached=os.listdir(CACHE_DIR)
+            except OSError:cached=[]
+            for name in [n for n in cached if n.startswith(('cursor_usage_','cursor_subscription'))]:
                 try:os.unlink(os.path.join(CACHE_DIR,name))
                 except OSError:pass
         invalidate_caches([range_cache_name(),'cursor_subscription'])
@@ -4934,10 +5006,17 @@ def run_action(name, extra):
         value=extra[0] if len(extra)==1 else ''
         if value not in ('true','false'):raise ValueError('invalid Cursor keychain setting')
         preferences.update(STATE_DIR,'cursor-keychain',value)
-        invalidate_caches([range_cache_name()])
+        # The Cursor card's events and the plan read again with the new choice, not held by the last failure's backoff.
+        invalidate_caches([range_cache_name(),'cursor_usage_events','cursor_subscription'])
         if value=='true' and view_settings()['cursorUsage']:
-            try:refresh_now('cursor-subscription')
-            except ValueError:pass
+            if module_enabled('cursor-subscription'):
+                try:refresh_now('cursor-subscription')
+                except ValueError:pass
+            # The Cursor card alone (its switch is on its page too): its records are asked for now, so macOS asks about
+            # the keychain at once; the range is counted again from them in the background.
+            if module_enabled('cursor'):
+                moment=usage_now();start,end=range_bounds(selected_range(),moment)
+                cursor_range_usage(start,end,moment)
         schedule_background_refresh()
     elif name == 'set-keep-usage':
         value=extra[0] if len(extra)==1 else ''
@@ -5208,7 +5287,7 @@ def consume_panel_action():
                 allowed.append(node["action"])
                 # A persistent picker may queue another click before the previous refresh.
                 candidate=node['action']
-                if len(candidate)==2 and candidate[0] in ('set-collapse','set-reset-reminder','set-cursor-usage','set-keep-usage','set-session-alerts','set-service-status'):allowed.extend([[candidate[0],v] for v in ('true','false')])
+                if len(candidate)==2 and candidate[0] in ('set-collapse','set-reset-reminder','set-cursor-usage','set-cursor-keychain','set-keep-usage','set-session-alerts','set-service-status'):allowed.extend([[candidate[0],v] for v in ('true','false')])
                 if len(candidate)==3 and candidate[0]=='set-module' and candidate[1] in preferences.KNOWN:
                     allowed.extend([['set-module',candidate[1],value] for value in ('true','false')])
             nodes.extend(node.get("children") or [])

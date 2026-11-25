@@ -253,6 +253,8 @@ export async function action(action: string[]): Promise<ActionReceipt> {
       return { status: 'done' };
     }
     case 'set-group': state.grouping = a; changed(); return { status: 'done' };
+    // 立即刷新: as the engine does, back once the source has been read again (a moment here).
+    case 'refresh-now': await wait(600); changed(); return { status: 'done' };
     case 'set-module':
       prefs.visible = b === 'true' ? [...new Set([...prefs.visible, a])] : prefs.visible.filter((v) => v !== a);
       return saved();

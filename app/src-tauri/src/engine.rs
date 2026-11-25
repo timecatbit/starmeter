@@ -365,8 +365,9 @@ impl Host for AppHost {
 
     // The system's own pickers: the panel stays open, below them, and comes back after.
     fn choose_path(&self, message: &str, folder: bool) -> Option<String> {
+        // AppKit's own work on the main thread: this runs on a worker.
         #[cfg(target_os = "macos")]
-        macos::activate();
+        macos::on_main(&self.app, macos::activate);
         crate::panel::step_aside(&self.app, true);
         let dialog = self.app.dialog().file().set_title(message);
         let picked = if folder { dialog.blocking_pick_folder() } else { dialog.blocking_pick_file() };
@@ -375,8 +376,9 @@ impl Host for AppHost {
     }
 
     fn save_path(&self, message: &str, name: &str) -> Option<String> {
+        // AppKit's own work on the main thread: this runs on a worker.
         #[cfg(target_os = "macos")]
-        macos::activate();
+        macos::on_main(&self.app, macos::activate);
         crate::panel::step_aside(&self.app, true);
         let mut dialog = self.app.dialog().file().set_title(message).set_file_name(name);
         if let Ok(desktop) = self.app.path().desktop_dir() {

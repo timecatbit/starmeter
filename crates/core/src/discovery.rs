@@ -8,7 +8,7 @@ use std::path::Path;
 use crate::claude_usage::state_of;
 use crate::client_accounts::qoder;
 use crate::files::{self, paths};
-use crate::harness::walk;
+use crate::harness::{relative_to, walk};
 use crate::json::{Json, Object};
 use crate::opencodex::monitor_url;
 use crate::preferences::{self, Error};
@@ -26,7 +26,8 @@ fn has_records(root: Option<&str>, matches: impl Fn(&str, &str) -> bool) -> bool
         return false;
     }
     for path in walk(&base) {
-        let relative = path.get(base.len() + 1..).unwrap_or("");
+        // Below the folder however it was written (a trailing slash too: GEMINI_USAGE_DIR=/path/to/gemini/).
+        let relative = relative_to(&path, &base);
         let name = path.rsplit('/').next().unwrap_or("");
         if matches(name, relative) && state_of(Path::new(&path)).is_some_and(|state| state.size > 0) {
             return true;
@@ -274,10 +275,12 @@ impl Runtime {
             home: &self.home,
             configured_proxy: self.opencodex_configured(),
             komari_url: &komari,
-            app_roots: if self.is_desktop() {
-                Vec::new()
-            } else {
+            // By the system, not by app or plugin: the macOS app and its command line look for the apps too (they
+            // count as desktop hosts, as Windows and Linux do, which keep no .app folders).
+            app_roots: if cfg!(target_os = "macos") {
                 vec![format!("{}/Applications", self.home), "/Applications".into()]
+            } else {
+                Vec::new()
             },
             chatgpt_home: Some(self.codex_home_absolute()),
             configured_subscriptions: subscriptions,
@@ -289,8 +292,36 @@ impl Runtime {
 
 #[cfg(test)]
 mod tests {
-    use super::{Inputs, detect};
+    use super::{Inputs, detect, has_records};
     use std::collections::HashMap;
+
+    #[test]
+    fn a_folder_written_with_a_trailing_slash_finds_its_records() {
+        let root = std::env::temp_dir().join(format!("starmeter-trailing-{}", crate::runtime::random_hex(6)));
+        std::fs::create_dir_all(root.join("tmp/x/chats")).unwrap();
+        std::fs::write(root.join("tmp/x/chats/session-1.json"), b"{}").unwrap();
+        let with_slash = format!("{}/", root.to_string_lossy());
+        let chats = |_: &str, relative: &str| relative.split('/').any(|part| part == "chats");
+        assert!(has_records(Some(&with_slash), chats));
+        assert!(has_records(Some(&root.to_string_lossy()), chats));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The macOS app finds an app installed but not yet used (WorkBuddy, with no records), as the plugin does.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_apps_folder_is_looked_in_on_macos() {
+        let home = std::env::temp_dir().join(format!("starmeter-apps-detect-{}", crate::runtime::random_hex(6)));
+        std::fs::create_dir_all(home.join("Applications/WorkBuddy.app")).unwrap();
+        let environment: HashMap<String, String> = [
+            ("HOME".to_string(), home.to_string_lossy().into_owned()),
+            ("OCX_STATE_DIR".to_string(), home.join("state").to_string_lossy().into_owned()),
+        ]
+        .into();
+        let runtime = crate::runtime::Runtime::new(environment, "starmeter");
+        assert!(runtime.detected_modules().contains(&"workbuddy".to_string()));
+        let _ = std::fs::remove_dir_all(&home);
+    }
 
     #[test]
     fn antigravity_turns_on_gemini() {

@@ -73,10 +73,11 @@ const CONNECTION_ORDER: [&str; 13] = [
     "claude-api",
 ];
 
-const TOGGLES: [&str; 6] = [
+const TOGGLES: [&str; 7] = [
     "set-collapse",
     "set-reset-reminder",
     "set-cursor-usage",
+    "set-cursor-keychain",
     "set-keep-usage",
     "set-session-alerts",
     "set-service-status",
@@ -244,14 +245,16 @@ impl Runtime {
         if names.is_empty() {
             return Ok(());
         }
+        // OpenCodex's endpoints (its ChatGPT accounts' among them) are all read by its one loader.
+        let wanted = |loader: &str| {
+            names.iter().any(|name| name == loader)
+                || (loader == "opencodex"
+                    && names.iter().any(|name| ENDPOINTS.iter().any(|endpoint| endpoint.0 == name)))
+        };
         self.with_lock("refresh.lock", true, || {
             self.invalidate(&names);
-            let work: Vec<Box<dyn FnOnce() + Send + '_>> = self
-                .external_loaders()
-                .into_iter()
-                .filter(|(name, _)| names.contains(name))
-                .map(|(_, job)| job)
-                .collect();
+            let work: Vec<Box<dyn FnOnce() + Send + '_>> =
+                self.external_loaders().into_iter().filter(|(name, _)| wanted(name)).map(|(_, job)| job).collect();
             run_concurrently(work, 4);
             self.after_reads();
         });
@@ -1147,7 +1150,9 @@ impl Runtime {
                         } else {
                             "使用 Claude Code 登录查询用量？"
                         };
-                        let detail = if self.is_desktop() {
+                        // By the system, not by app or plugin: on macOS the login is in the keychain and an expired
+                        // one is renewed through Claude Code (claude_subscription::renew_with_claude), the app's too.
+                        let detail = if !cfg!(target_os = "macos") {
                             "读取 Claude Code 本机登录文件，仅向 api.anthropic.com 查询用量。不会读取 Cookie，也不会调用模型。凭据不写入插件配置或日志；登录过期时在 Claude Code 重新登录。"
                         } else {
                             "读取 Claude Code 现有登录，仅向 api.anthropic.com 查询订阅用量。无需 Cookie 或模型调用。登录过期时可启动 Code 自检续期，不发送消息。\n凭据只在内存；不写入插件配置或日志。macOS 可能询问钥匙串权限。"
@@ -1210,9 +1215,24 @@ impl Runtime {
                     return invalid("invalid Cursor keychain setting");
                 }
                 self.update("cursor-keychain", Some(&value), None)?;
-                self.invalidate(&[self.range_cache_name(None)]);
+                // The Cursor card's events and the plan read again with the new choice, not held by the last failure's
+                // backoff.
+                self.invalidate(&[
+                    self.range_cache_name(None),
+                    "cursor_usage_events".into(),
+                    "cursor_subscription".into(),
+                ]);
                 if value == "true" && self.settings().get("cursorUsage").is_some_and(Json::is_truthy) {
-                    let _ = self.refresh_now("cursor-subscription");
+                    if self.module_enabled("cursor-subscription") {
+                        let _ = self.refresh_now("cursor-subscription");
+                    }
+                    // The Cursor card alone (its switch is on its page too): its records are asked for now, so macOS
+                    // asks about the keychain at once; the range is counted again from them in the background.
+                    if self.module_enabled("cursor") {
+                        let moment = now();
+                        let (start, end) = self.range_bounds(&self.selected_range(), moment, &self.local_zone());
+                        let _ = self.cursor_range_usage_live(start, end, moment, &mut []);
+                    }
                 }
                 self.schedule_background_refresh();
             }

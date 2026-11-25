@@ -58,8 +58,9 @@ pub async fn alert(app: &AppHandle, title: &str, message: &str) {
 pub async fn save_file(app: &AppHandle, name: &str, extension: &str) -> Option<PathBuf> {
     let (app, name, extension) = (app.clone(), name.to_owned(), extension.to_owned());
     tauri::async_runtime::spawn_blocking(move || {
+        // AppKit's own work on the main thread, never this worker's.
         #[cfg(target_os = "macos")]
-        macos::activate();
+        macos::on_main(&app, macos::activate);
         let mut dialog =
             app.dialog().file().set_file_name(&name).add_filter(extension.to_uppercase(), &[extension.as_str()]);
         if let Ok(desktop) = app.path().desktop_dir() {
@@ -152,14 +153,22 @@ pub async fn share_picture(app: AppHandle, png: String, name: String, x: f64, y:
             return;
         }
         // The share sheet draws in another process; its clicks must not close the panel.
-        panel::hold_for_share(&app);
-        let _ = (x, y, width, height);
+        let round = panel::hold_for_share(&app);
         let window = app.get_webview_window(panel::PANEL);
-        let _ = app.run_on_main_thread(move || {
-            if let Some(window) = window {
-                macos::share_file(&window, &path, (x, y, width, height));
+        let (handle, closing) = (app.clone(), app.clone());
+        let shown = app.run_on_main_thread(move || {
+            let shown = window.is_some_and(|window| {
+                macos::share_file(&window, &path, (x, y, width, height), move |picked| {
+                    panel::share_closed(&closing, picked, round)
+                })
+            });
+            if !shown {
+                panel::share_dropped(&handle, round);
             }
         });
+        if shown.is_err() {
+            panel::share_dropped(&app, round);
+        }
     }
     #[cfg(not(target_os = "macos"))]
     {

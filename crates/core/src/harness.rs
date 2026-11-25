@@ -537,6 +537,12 @@ pub fn walk(root: &str) -> Vec<String> {
 }
 
 /// walk(), not going into the folders `skip` names (given each folder's path).
+/// A path found by `walk_except` under `folder`, from just below it: the folder may end with its separator (a root such
+/// as / or C:\\), which the walk drops before joining with '/'.
+pub(crate) fn relative_to<'a>(path: &'a str, folder: &str) -> &'a str {
+    path.strip_prefix(folder.trim_end_matches(['/', '\\'])).and_then(|rest| rest.strip_prefix('/')).unwrap_or(path)
+}
+
 pub fn walk_except(root: &str, skip: &dyn Fn(&str) -> bool) -> Vec<String> {
     // Joined with '/', on Windows too (which takes either separator), so a file's name and its parent folders are
     // always the parts after the last slashes.
@@ -596,7 +602,7 @@ pub(crate) fn jsonl_files(root: &str, source: &str) -> Vec<String> {
                     if !(name(&path).contains(".jsonl") && (path.ends_with(".jsonl") || path.ends_with(".jsonl.zst"))) {
                         continue;
                     }
-                    let mut relative = path[folder.len() + 1..].to_string();
+                    let mut relative = relative_to(&path, &folder).to_string();
                     if relative.ends_with(".zst") {
                         relative.truncate(relative.len() - 4);
                     }
@@ -716,7 +722,8 @@ pub fn jsonl_usage(
     archive: Option<&Path>,
 ) -> Fallible<Object> {
     let root = normalize(&paths::expand_user(root_path).to_string_lossy());
-    if !is_directory(&root) {
+    // Codex used only inside WSL (no .codex on Windows itself) is still read, from the distributions' homes.
+    if !is_directory(&root) && !(source == "codex" && !crate::wsl::codex_homes().is_empty()) {
         return Ok(object! { "error" => "未找到记录目录" });
     }
     let archive = archive.filter(|path| !path.as_os_str().is_empty());
@@ -980,7 +987,7 @@ pub(crate) fn gemini_files(root: &str) -> Vec<String> {
                 found.insert(path.clone());
             }
             // New subagents may use UUID filenames instead of session-*.
-            let relative: Vec<&str> = path[folder.len() + 1..].split('/').collect();
+            let relative: Vec<&str> = relative_to(&path, folder).split('/').collect();
             if file.ends_with(".jsonl")
                 && let Some(chats) = relative[..relative.len() - 1].iter().position(|part| *part == "chats")
                 && chats < relative.len() - 1
@@ -1016,8 +1023,8 @@ pub fn gemini_usage(
         return Ok(object! { "error" => "暂无 Gemini 用量记录" });
     }
     // v3: Antigravity's models are kept by the API model they name (antigravity_model); v4: each of its generations
-    // says how exactly its time is known (AGY-1). Older readings are read again.
-    let target = cache.join(format!("harness-gemini-v4-{}.sqlite3", root_identity(&root)));
+    // says how exactly its time is known (AGY-1); v5: its project, from its workspace. Older readings are read again.
+    let target = cache.join(format!("harness-gemini-v5-{}.sqlite3", root_identity(&root)));
     files::make_directory(cache, 0o700)?;
     let db = Database::open(&target, 10.0, Mode::ReadWrite)?;
     files::owner_only(&target);
@@ -1098,7 +1105,22 @@ pub fn gemini_usage(
             Err(_) => errors += 1,
         }
     }
-    let events = archive::merged(&db, best_timed_events(&db, start, end)?, archive, start, end);
+    let mut events = archive::merged(&db, best_timed_events(&db, start, end)?, archive, start, end);
+    // Each Antigravity conversation's project as its list says now: the index keeps the one read with the store, and a
+    // list written after (a workspace added, changed or taken away) changes no store (AGY-5).
+    let projects = antigravity_projects(&stores);
+    for event in &mut events {
+        if event.contains_key("timing")
+            && let Some(project) = event.get("session").and_then(Json::as_str).and_then(|session| projects.get(session))
+        {
+            match project {
+                Some(project) => event.insert("project", project.as_str()),
+                None => {
+                    event.remove("project");
+                }
+            }
+        }
+    }
     // Antigravity serves Claude and GPT models too: each request is priced by the model it names, as Magpie's are.
     let mut result = tally::aggregate(&events, start, end, zone, exclude_proxy, Some(&magpie_price), carriers);
     if errors > 0 {
@@ -1317,6 +1339,7 @@ fn antigravity_file(path: &str, changed: f64) -> Result<Vec<Event>, FileError> {
     let db = Database::open(Path::new(path), 2.0, Mode::ReadOnly).map_err(unreadable)?;
     db.execute("PRAGMA query_only=ON").map_err(unreadable)?;
     let conversation = Path::new(path).file_stem().map(|stem| stem.to_string_lossy().into_owned()).unwrap_or_default();
+    let project = antigravity_project(path, &conversation);
     let mut by_response: HashMap<String, f64> = HashMap::new();
     let mut by_generation: HashMap<String, f64> = HashMap::new();
     for row in db.rows("SELECT metadata FROM steps", &[]).map_err(unreadable)? {
@@ -1380,9 +1403,86 @@ fn antigravity_file(path: &str, changed: f64) -> Result<Vec<Event>, FileError> {
         event.insert("timestamp", at);
         event.insert("provider", "google");
         event.insert("timing", timing);
+        if let Some(project) = &project {
+            event.insert("project", project.as_str());
+        }
         events.push(event);
     }
     Ok(events)
+}
+
+/// The project an Antigravity conversation ran in, by name: the first workspace its own list
+/// (conversation_summaries.db beside conversations/) gives it (用户：反重力在项目里也没显示). A subagent's list row names
+/// its parent's workspace too; a conversation outside any project has none.
+/// The project each of these Antigravity stores' conversations ran in, by its session (the identity of its id), as
+/// its list (conversation_summaries.db beside conversations/) says now: one query per list. Kept by both the app and
+/// the IDE, the first list that names one.
+fn antigravity_projects(stores: &[String]) -> HashMap<String, Option<String>> {
+    let mut lists: HashMap<std::path::PathBuf, HashMap<String, String>> = HashMap::new();
+    let mut found: HashMap<String, Option<String>> = HashMap::new();
+    for store in stores {
+        let Some(list) = Path::new(store)
+            .ancestors()
+            .find(|folder| folder.file_name().is_some_and(|name| name == "conversations"))
+            .and_then(Path::parent)
+            .map(|parent| parent.join("conversation_summaries.db"))
+        else {
+            continue;
+        };
+        let rows = lists.entry(list.clone()).or_insert_with(|| {
+            if !list.is_file() {
+                return HashMap::new();
+            }
+            let uri = crate::database::file_uri(&list.to_string_lossy(), "mode=ro");
+            Database::open(Path::new(&uri), 2.0, Mode::ReadOnlyUri)
+                .and_then(|db| db.rows("SELECT conversation_id, workspace_uris FROM conversation_summaries", &[]))
+                .map(|rows| {
+                    rows.iter()
+                        .filter_map(|row| {
+                            Some((database::text(&row[0])?.to_string(), database::text(&row[1])?.to_string()))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        });
+        let conversation =
+            Path::new(store).file_stem().map(|stem| stem.to_string_lossy().into_owned()).unwrap_or_default();
+        let project = rows.get(&conversation).and_then(|uris| workspace_project(uris));
+        let session = py::identity(vec![conversation.as_str().into()]);
+        if !found.get(&session).is_some_and(Option::is_some) {
+            found.insert(session, project);
+        }
+    }
+    found
+}
+
+pub fn antigravity_project(store: &str, conversation: &str) -> Option<String> {
+    let list = Path::new(store)
+        .ancestors()
+        .find(|folder| folder.file_name().is_some_and(|name| name == "conversations"))?
+        .parent()?
+        .join("conversation_summaries.db");
+    if !list.is_file() {
+        return None;
+    }
+    let uri = crate::database::file_uri(&list.to_string_lossy(), "mode=ro");
+    let db = Database::open(Path::new(&uri), 2.0, Mode::ReadOnlyUri).ok()?;
+    let row = db
+        .first(
+            "SELECT workspace_uris FROM conversation_summaries WHERE conversation_id=?",
+            &[Value::Text(conversation.to_string())],
+        )
+        .ok()
+        .flatten()?;
+    workspace_project(database::text(row.first()?)?)
+}
+
+/// The project a conversation's workspace_uris names: the first of its JSON list (file:///Users/me/project → project),
+/// read whole, so a folder with spaces, commas or brackets in its name keeps them. 会话 names it the same way.
+pub fn workspace_project(uris: &str) -> Option<String> {
+    let uris = Json::parse(uris.as_bytes()).ok()?;
+    let first = uris.as_array()?.iter().find_map(Json::as_str)?.to_string();
+    py::project_name(Some(&Json::from(first))).as_str().map(String::from)
 }
 
 /// OpenCode's own database, read only.
@@ -1534,7 +1634,15 @@ pub fn magpie_price(event: &Event) -> Option<f64> {
 
 #[cfg(test)]
 mod tests {
-    use super::{antigravity_model, display_model};
+    use super::{antigravity_model, display_model, relative_to};
+
+    /// From just below the folder, whether or not it ends with its separator (a root such as / or C:\\).
+    #[test]
+    fn a_path_below_a_root_keeps_its_first_letter() {
+        assert_eq!(relative_to("/Users/me/.gemini/tmp/x/chats/a.jsonl", "/Users/me/.gemini"), "tmp/x/chats/a.jsonl");
+        assert_eq!(relative_to("/chats/a.jsonl", "/"), "chats/a.jsonl");
+        assert_eq!(relative_to("C:/中文/a.jsonl", "C:\\"), "中文/a.jsonl");
+    }
 
     #[test]
     fn antigravitys_ids_name_the_api_models_they_run() {

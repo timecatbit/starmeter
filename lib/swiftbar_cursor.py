@@ -18,6 +18,7 @@ import os
 from pathlib import Path
 import sqlite3
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -92,6 +93,7 @@ KEYCHAIN_DENIED = '钥匙串没有允许读取 Cursor 登录；关掉再打开�
 
 def login_encrypted(home):
     """Whether the desktop app keeps its login encrypted (what the Cursor page offers to read from the keychain for)."""
+    if sys.platform != 'darwin':return False  # the keychain read is macOS's
     token = app_token(app_root(home))
     return bool(token) and token.startswith(ENCRYPTED)
 

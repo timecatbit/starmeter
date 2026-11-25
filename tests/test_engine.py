@@ -646,7 +646,17 @@ class HarnessReaderParityTests(unittest.TestCase):
         os.utime(quiet, (self.start + 7200, self.start + 7200))
         (gemini / 'antigravity' / 'conversations' / 'empty.db').write_bytes(b'')
         (gemini / 'antigravity' / 'conversations' / 'old.pb').write_bytes(b'\x0a\x00')
+        # Its own list names the workspace a conversation ran in: its requests count under that project (用户：反重力在项目里
+        # 也没显示); the IDE's copy of the same conversation names it in its own list. The agy CLI's has no list here.
+        for app in ('antigravity', 'antigravity-ide'):
+            listing = sqlite3.connect(gemini / app / 'conversation_summaries.db')
+            listing.execute('CREATE TABLE conversation_summaries(conversation_id TEXT PRIMARY KEY, title TEXT, workspace_uris TEXT, '
+                            'parent_conversation_id TEXT, status TEXT, not_fully_idle INTEGER)')
+            listing.execute('INSERT INTO conversation_summaries VALUES (?,?,?,?,?,?)',
+                            ('c1', 'Fix the parser', '["file:///Users/demo/harbor%20app"]', None, 'CASCADE_RUN_STATUS_IDLE', 0))
+            listing.commit(); listing.close()
         result = self.compare('gemini', gemini, 'Antigravity alone')
+        self.assertEqual(sorted((p['project'] or '', p['requests']) for p in result['projects']), [('', 1), ('harbor app', 4)])
         self.assertEqual(result['summary']['requests'], 5)
         self.assertEqual(sorted(m['model'] for m in result['models']),
                          ['claude-opus-5-5', 'gemini-3.5-flash', 'gemini-3.8-flash', 'gemini-4-carbon', 'gemini-4-neon'])
@@ -664,6 +674,25 @@ class HarnessReaderParityTests(unittest.TestCase):
         (chats / 'session-1.json').write_text(json.dumps({'sessionId': 'gs1', 'messages': [{'type': 'gemini', 'id': 'g1', 'model': 'gemini-3-pro',
             'timestamp': '2026-11-18T10:00:00Z', 'tokens': {'input': 100, 'output': 10, 'cached': 20, 'thoughts': 5, 'tool': 2, 'total': 117}}]}))
         self.assertEqual(self.compare('gemini', gemini, 'with Gemini CLI')['summary']['requests'], 7)
+        # AGY-5: the lists written after the stores were read, the cache kept: the projects as the lists say now (a
+        # workspace changed, taken away, added where there was none), the totals as they were.
+        def workspace(uris, conversation='c1'):
+            for app in ('antigravity', 'antigravity-ide'):
+                listing = sqlite3.connect(gemini / app / 'conversation_summaries.db')
+                listing.execute('INSERT OR REPLACE INTO conversation_summaries VALUES (?,?,?,?,?,?)',
+                                (conversation, 'Fix the parser', uris, None, 'CASCADE_RUN_STATUS_IDLE', 0))
+                listing.commit(); listing.close()
+        def grouped(name):
+            result = self.compare('gemini', gemini, name)
+            self.assertEqual((result['summary']['requests'], result['summary']['totalTokens']), (7, before['summary']['totalTokens']), name)
+            return sorted((p['project'] or '', p['requests']) for p in result['projects'])
+        before = self.compare('gemini', gemini, 'before the lists change')
+        workspace('["file:///Users/demo/dock"]')
+        self.assertEqual(grouped('a workspace changed'), [('', 2), ('dock', 5)])
+        workspace('[]')
+        self.assertEqual(grouped('the workspace taken away'), [('', 7)])
+        workspace('["file:///Users/demo/harbor%20app"]')
+        self.assertEqual(grouped('a workspace added'), [('', 2), ('harbor app', 5)])
         # AGY-1: the app's copy knows only when its conversation began (yesterday in Shanghai), the IDE's when its step
         # ran (today): it counts once, on the IDE's day, whichever store was read first.
         for name, ide_first in (('app read first', False), ('IDE read first', True)):
@@ -858,6 +887,76 @@ class RangeParityTests(unittest.TestCase):
                     if data.get('range_usage') is ancient and 'claude' in variant.get('visible', ['claude']):
                         self.assertEqual(expected['chartStatus'], '图表展示最近 366 天')
 
+    def test_the_heatmap_squares_are_the_zones_own_hours(self):
+        # The sources count real hours from the hour (UTC); the squares of a calendar range are the zone's hours. Each
+        # source hour goes to the zone's hour most of it falls in, kept within the range: none is dropped or drawn twice
+        # where the zone is half an hour off (Kolkata) or on the days New York's clocks go forward and back.
+        import types
+        def at(zone, *wall):return datetime(*wall, tzinfo=ZoneInfo(zone)).timestamp()
+        utc = lambda *wall: datetime(*wall, tzinfo=timezone.utc).timestamp()
+        cases = [
+            # Yesterday in Kolkata (+05:30) is 11-23 00:00 to 11-24 00:00, 18:30 to 18:30 UTC. The hour from 18:00 UTC on
+            # the 22nd holds its first half hour (00:00); the one from 18:00 UTC on the 23rd its last (23:30–24:00).
+            ('Asia/Kolkata', 'yesterday', at('Asia/Kolkata', 2026, 11, 24, 12),
+             [(utc(2026, 11, 22, 18), 10), (utc(2026, 11, 23, 17), 20), (utc(2026, 11, 23, 18), 40)], {0: 10, 23: 60}),
+            ('Asia/Kathmandu', 'today', at('Asia/Kathmandu', 2026, 11, 24, 12),
+             [(utc(2026, 11, 23, 18), 5), (utc(2026, 11, 24, 5), 7)], {0: 5, 11: 7}),
+            # 2026-11-01: 01:00 EDT (05:00 UTC) and 01:00 EST (06:00 UTC) are both 01:00; 02:00 EST is 07:00 UTC.
+            ('America/New_York', 'today', at('America/New_York', 2026, 11, 1, 12),
+             [(utc(2026, 11, 1, 5), 1), (utc(2026, 11, 1, 6), 2), (utc(2026, 11, 1, 7), 4)], {1: 3, 2: 4}),
+            # 2026-03-08: 01:00 EST is 06:00 UTC, then 03:00 EDT is 07:00 UTC; there is no 02:00.
+            ('America/New_York', 'today', at('America/New_York', 2026, 3, 8, 12),
+             [(utc(2026, 3, 8, 6), 1), (utc(2026, 3, 8, 7), 2)], {1: 1, 3: 2}),
+        ]
+        for zone, key, frozen, hours, squares in cases:
+            with self.subTest(zone=zone, key=key, frozen=frozen):
+                usage = {'summary': {'requests': len(hours), 'totalTokens': sum(n for _, n in hours)},
+                         'hours': [{'timestamp': int(stamp), 'totalTokens': n, 'requests': 1} for stamp, n in hours]}
+                data = {'range_usage': {'range': key, 'claude': usage}, 'displayed_range': key}
+                common = dict(self.common, OCX_TIMEZONE=zone)
+                for engine in ('python', 'swift'):
+                    (Path(self.states[engine]['OCX_STATE_DIR']) / 'preferences.json').write_text(json.dumps(
+                        {'schema': 1, 'visible': ['summary', 'heatmap', 'claude'], 'modules': [m[0] for m in preferences.MODULES], 'range': key}))
+                with unittest.mock.patch.dict(os.environ, dict(common, **self.states['python'])):
+                    plugin = types.ModuleType('plugin_heat')
+                    exec(compile((ROOT / 'lib/swiftbar_plugin.py').read_text(), 'plugin', 'exec'), plugin.__dict__)
+                    plugin.usage_now = lambda: datetime.fromtimestamp(frozen, plugin.local_zone())
+                    expected = plugin.dashboard_payload(data)
+                environment = {k: v for k, v in os.environ.items() if k not in ('CLAUDE_CONFIG_DIR', 'XDG_CONFIG_HOME', 'CODEX_HOME', 'OCX_BASE_URL', 'TZ')}
+                environment.update(common, **self.states['swift'])
+                done = subprocess.run([PROBE], input=json.dumps({'call': 'dashboard', 'args': [data, frozen, None]}).encode(),
+                                      capture_output=True, check=True, env=environment)
+                answer = probed(done.stdout)
+                self.assertNotIn('error', answer)
+                same(self, expected, answer['result'])
+                tokens = answer['result']['heatmap']['tokens']
+                self.assertEqual({hour: n for hour, n in enumerate(tokens) if n}, squares)
+                self.assertEqual(answer['result']['heatmap']['labels'][0][-5:], '00:00')
+
+    def test_todays_chart_starts_at_the_other_computers_first_call(self):
+        # This computer's ChatGPT records defer to OpenCodex; the other computer's (多台电脑合并) count, and today's chart
+        # starts at its first call when that came first (the engine only: the plugin doesn't merge other computers).
+        zone = ZoneInfo('Asia/Shanghai')
+        frozen = datetime(2026, 11, 24, 15, 0, tzinfo=zone).timestamp()
+        def at(hour, minute=0):return datetime(2026, 11, 24, hour, minute, tzinfo=zone).timestamp()
+        hour = lambda moment: int(moment) // 3600 * 3600
+        others = {'summary': {'requests': 1, 'totalTokens': 100}, 'hours': [{'timestamp': hour(at(9, 17)), 'totalTokens': 100, 'requests': 1}],
+                  'firstActivityAt': at(9, 17)}
+        bundle = {'range': 'today', 'opencodex': {'summary': {'requests': 1, 'totalTokens': 40}, 'firstActivityAt': at(11),
+                                                  'hours': [{'timestamp': hour(at(11)), 'totalTokens': 40, 'requests': 1}]},
+                  'codex': dict(others, others=others)}
+        (Path(self.states['swift']['OCX_STATE_DIR']) / 'preferences.json').write_text(json.dumps(
+            {'schema': 1, 'visible': ['summary', 'opencodex', 'codex'], 'modules': [m[0] for m in preferences.MODULES]}))
+        environment = {k: v for k, v in os.environ.items() if k not in ('CLAUDE_CONFIG_DIR', 'XDG_CONFIG_HOME', 'CODEX_HOME', 'OCX_BASE_URL', 'TZ')}
+        environment.update(self.common, **self.states['swift'])
+        data = {'range_usage': bundle, 'displayed_range': 'today'}
+        done = subprocess.run([PROBE], input=json.dumps({'call': 'dashboard', 'args': [data, frozen, None]}).encode(),
+                              capture_output=True, check=True, env=environment)
+        result = probed(done.stdout)['result']
+        codex = next(card for card in result['providers'] if card['id'] == 'codex')
+        self.assertEqual(codex['subtitle'], '本机记录未计入 Summary')
+        self.assertEqual(result['dates'][1], '09:17')
+
     def test_range_bounds_follow_the_wall_clock(self):
         import types
         plugin = types.ModuleType('plugin_bounds')
@@ -1031,6 +1130,13 @@ class AccountParityTests(unittest.TestCase):
         self.both('grok', environment={'XAI_MANAGEMENT_API_KEY': 'k'})
         self.both('kimi-api', options={'region': 'mars'}, environment={'MOONSHOT_API_KEY': 'k'})
         self.both('minimax', environment={'MINIMAX_API_KEY': 'k', 'MINIMAX_REGION': 'moon'})
+        # A cleared connection keeps its region as empty: the default region, as none at all.
+        self.answers = {'/www.minimax.io/v1/token_plan/remains': self.ok({'base_resp': {'status_code': 0}, 'model_remains': []}),
+                        '/api.moonshot.cn/v1/users/me/balance': self.ok({'data': {'available_balance': 3}})}
+        for source, name in (('minimax', 'MINIMAX_REGION'), ('kimi-api', 'MOONSHOT_REGION')):
+            with self.subTest(source=source, region='empty'):
+                read = self.both(source, environment={'MINIMAX_API_KEY': 'k', 'MOONSHOT_API_KEY': 'k', name: ''})
+                self.assertNotIn('地区配置待检查', json.dumps(read, ensure_ascii=False))
         self.both('deepseek', '')
         self.both('claude-api', environment={'ANTHROPIC_API_KEY': ''})
 
@@ -1155,6 +1261,13 @@ class OpenCodexParityTests(unittest.TestCase):
         self.compare('provider_quotas', extra={'DEEPSEEK_API_KEY': 'sk-direct'})
         self.answers['/api.deepseek.com/user/balance'] = self.ok({'balance_infos': [{'currency': 'USD', 'granted_balance': '2', 'topped_up_balance': '5'}]})
         self.compare('provider_quotas', extra={'DEEPSEEK_API_KEY': 'sk-direct'})
+        # Asking DeepSeek with a key set up and failing is said as a failed query, not as 未配置 (no key at all still is).
+        self.answers['/api.deepseek.com/user/balance'] = (401, b'{"error": "bad key"}', {})
+        self.assertEqual(self.compare('provider_quotas', extra={'DEEPSEEK_API_KEY': 'sk-direct'})[1], 'DeepSeek 余额查询失败（HTTP 401）')
+        self.answers['/api.deepseek.com/user/balance'] = self.ok({'balance_infos': 'odd'})
+        self.assertEqual(self.compare('provider_quotas', extra={'DEEPSEEK_API_KEY': 'sk-direct'})[1], 'DeepSeek 余额查询失败')
+        self.assertEqual(self.compare('provider_quotas', extra={'DEEPSEEK_API_KEY': ' ', 'OCX_HOME': '/nonexistent', 'OCX_BASE_URL': ''})[1],
+                         '未配置 DeepSeek API 凭据')
 
     def test_komari(self):
         def rpc(path, headers):
@@ -1662,6 +1775,96 @@ class SessionParityTests(unittest.TestCase):
                     self.assertEqual(swift('sessions.turnLines', case, unit, 'ops', total), plugin.turn_lines(case, unit, 'ops', total))
 
 
+    def test_a_streamed_reply_counts_once_with_its_fullest_line(self):
+        # A Claude reply written over several lines, its output as it goes: one request with the most any line says, at
+        # its first line's time, as the usage counts it; Claude Code's own notices (<synthetic>) are none, and lines
+        # with neither id each a reply. Both engines alike, in the session's cost and its turn.
+        temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
+        root = Path(temp.name); claude, codex = root / 'projects', root / 'codex'; codex.mkdir()
+        now = time.time()
+        stamp = lambda ago: datetime.fromtimestamp(now - ago, timezone.utc).isoformat().replace('+00:00', 'Z')
+        reply = lambda ago, output, **message: {'type': 'assistant', 'timestamp': stamp(ago), 'message': dict(
+            {'model': 'claude-opus-5-5', 'usage': {'input_tokens': 100, 'output_tokens': output}}, **message)}
+        rows = [{'type': 'user', 'timestamp': stamp(120), 'message': {'content': 'go'}},
+                reply(100, 1, id='m1', content=[{'type': 'tool_use', 'name': 'Bash'}]), reply(99, 400, id='m1'), reply(98, 300, id='m1'),
+                reply(97, 0, id='n1', model='<synthetic>'), reply(96, 100), reply(95, 100, stop_reason='end_turn')]
+        path = claude / 'p' / '7a5d1c2e-0000-4000-8000-0000000000bb.jsonl'; path.parent.mkdir(parents=True)
+        path.write_text(''.join(json.dumps(row) + '\n' for row in rows)); os.utime(path, (now - 5, now - 5))
+        plugin = __import__('types').ModuleType('plugin_streamed')
+        with unittest.mock.patch.dict(os.environ, {'OCX_PLUGIN_PATH': str(ROOT / 'starmeter.30s.sh')}):
+            exec(compile((ROOT / 'lib/swiftbar_plugin.py').read_text(), 'plugin', 'exec'), plugin.__dict__)
+        from zoneinfo import ZoneInfo
+        wanted = [['24h', now - 86400, now]]
+        expected = live_sessions.active([claude], codex, now, plugin.session_prices(), {}, wanted, ZoneInfo('UTC'))
+        got = swift('sessions.active', [str(claude)], str(codex), now, True, {}, wanted, 'UTC')
+        same(self, expected, got)
+        self.assertEqual((got[0]['spent']['requests'], got[0]['spent']['ranges']['24h']['requests']), (3, 3))
+        self.assertEqual((got[0]['turns'][0]['requests'], got[0]['turns'][0]['tokens']), (3, 900))
+
+    def test_antigravitys_copies_of_a_conversation_count_each_response_once(self):
+        """AGY-6: a conversation the app and the IDE each keep, the older copy holding a response the newer lacks: the
+        session counts every response once, as the Gemini card does, whichever copy is newer, for a task listed for
+        itself and for a parent read for its subagent."""
+        def pb(*fields):
+            def varint(n):
+                out = b''
+                while True:
+                    byte = n & 0x7f; n >>= 7
+                    out += bytes([byte | (0x80 if n else 0)])
+                    if not n:return out
+            data = b''
+            for number, value in fields:
+                if isinstance(value, int):data += varint(number << 3) + varint(value)
+                else:
+                    value = value.encode() if isinstance(value, str) else value
+                    data += varint(number << 3 | 2) + varint(len(value)) + value
+            return data
+        now = time.time()
+        moment = lambda at: pb((1, int(at)), (2, 0))
+        def store(path, responses, age):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            db = sqlite3.connect(path)
+            db.executescript('CREATE TABLE steps(idx integer, step_type integer NOT NULL DEFAULT 0, status integer NOT NULL DEFAULT 0, metadata blob);'
+                             'CREATE TABLE gen_metadata(idx integer PRIMARY KEY, data blob, size integer NOT NULL DEFAULT 0);'
+                             'CREATE TABLE trajectory_metadata_blob(id text DEFAULT "main" PRIMARY KEY, data blob);')
+            for idx, response in enumerate(responses):
+                usage = pb((2, 1000), (3, 10), (10, 10), (11, response))
+                db.execute('INSERT INTO gen_metadata(idx, data) VALUES (?, ?)', (idx, pb((1, pb((3, 1427), (4, usage), (19, 'gemini-4-carbon'))))))
+                db.execute('INSERT INTO steps(idx, metadata) VALUES (?, ?)', (idx, pb((1, moment(now - 400 + idx)), (9, pb((11, response))))))
+            db.commit(); db.close()
+            os.utime(path, (now - age, now - age))
+        def listing(app, rows):
+            db = sqlite3.connect(app / 'conversation_summaries.db')
+            db.execute('CREATE TABLE IF NOT EXISTS conversation_summaries(conversation_id TEXT PRIMARY KEY, title TEXT, workspace_uris TEXT, '
+                       'parent_conversation_id TEXT, status TEXT, not_fully_idle INTEGER)')
+            for conversation, title, parent in rows:
+                db.execute('INSERT OR REPLACE INTO conversation_summaries VALUES (?,?,?,?,?,?)', (conversation, title, '[]', parent, 'CASCADE_RUN_STATUS_IDLE', 0))
+            db.commit(); db.close()
+        for newer in ('ide', 'app'):
+            with self.subTest(newer=newer):
+                temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
+                root = Path(temp.name); home = root / 'home'; (root / 'state').mkdir()
+                gemini = home / '.gemini'
+                app, ide = gemini / 'antigravity', gemini / 'antigravity-ide'
+                # The task: r1 and r2 in one copy, r1 alone in the other. A subagent of it, changed lately, in the IDE only:
+                # the task is read for it as a parent too.
+                store(app / 'conversations' / 'task.db', ['r1', 'r2'], 600 if newer == 'ide' else 60)
+                store(ide / 'conversations' / 'task.db', ['r1'], 60 if newer == 'ide' else 600)
+                store(ide / 'conversations' / 'sub.db', ['r3'], 30)
+                listing(app, [('task', 'Two copies', None)])
+                listing(ide, [('task', 'Two copies', None), ('sub', None, 'task')])
+                (root / 'state' / 'preferences.json').write_text(json.dumps({'schema': 1, 'visible': ['summary', 'gemini', 'sessions'],
+                                                                            'modules': [m[0] for m in preferences.MODULES]}))
+                environment = {'HOME': str(home), 'OCX_STATE_DIR': str(root / 'state'), 'OCX_CACHE_DIR': str(root / 'cache'),
+                               'OCX_PLUGIN_PATH': str(ROOT / 'starmeter.30s.sh')}
+                with unittest.mock.patch.dict(os.environ, environment):
+                    for name in ('CLAUDE_CONFIG_DIR', 'XDG_CONFIG_HOME', 'CODEX_HOME', 'OCX_CHATGPT_HOME', 'GEMINI_USAGE_DIR'):os.environ.pop(name, None)
+                    card = swift('range.usage', 'today', 0)['payload']['gemini']['summary']['requests']
+                    listed = [s for s in swift('runtime', 'sessions')['payload']['sessions'] if s.get('title') == 'Two copies']
+                self.assertEqual(card, 3)
+                self.assertEqual(len(listed), 1)
+                self.assertEqual(listed[0]['spent']['requests'], 3)
+
     def test_a_new_process_reads_on_from_the_session_cost_cache(self):
         """SESSION-4: the cost read so far is kept between processes, so an unchanged transcript is not read again and a
         grown one only from where the last reading stopped; SESSION-6: one written over anywhere is read again."""
@@ -1861,6 +2064,20 @@ class BackgroundParityTests(OpenCodexParityTests):
                 self.swift('wake')
                 self.assertEqual(bool(json.loads(records['swift'].read_text()).get('force')), due)
 
+    def test_a_status_page_newly_wanted_is_read_at_once(self):
+        # Cursor just put on the homepage: its page isn't in the five-minute reading yet, so the reading is due now (the
+        # panel open), not shown as 待同步 until it expires; with the page there, it keeps its five minutes.
+        self.settings(visible=['claude-subscription', 'chatgpt', 'cursor-subscription'], serviceStatus=True)
+        good = {'claude': {'indicator': 'none', 'description': 'OK'}, 'openai': {'indicator': 'none', 'description': 'OK'}}
+        for payload, due in ((good, True), (dict(good, cursor={'indicator': 'none', 'description': 'OK'}), False)):
+            with self.subTest(pages=sorted(payload)):
+                for engine in self.states.values():
+                    scope = hashlib.sha256(os.path.abspath(engine['OCX_STATE_DIR']).encode()).hexdigest()[:16]
+                    root = Path(engine['OCX_CACHE_DIR']) / ('opencodex-swiftbar-v5-%s-%s' % (os.getuid(), scope)); root.mkdir(parents=True, exist_ok=True)
+                    (root / 'service_status.json').write_text(json.dumps({'schema': 1, 'fetchedAt': time.time() - 5, 'payload': payload}))
+                    (root / 'panel-state.json').write_text(json.dumps({'schema': 1, 'visible': True, 'pid': os.getpid()}))
+                self.assertEqual((self.python('due', 'service_status'), self.swift('due', 'service_status')), (due, due))
+
     def test_a_phone_looking_keeps_the_open_panels_pace(self):
         import types
         def write(name, value):
@@ -2038,6 +2255,33 @@ class PanelParityTests(BackgroundParityTests):
         used = sorted((window['name'], window['used']) for window in got['windows'])
         self.assertEqual(used, [('ChatGPT 订阅', 100.0), ('Gemini 订阅', 100.0), ('MiniMax 订阅', 100.0)])
 
+    def test_a_window_past_its_reset_raises_no_alert_nor_stands_in_the_menu_bar(self):
+        # A window past its reset has filled again: it neither alerts nor gives the menu bar its share, as the homepage
+        # leaves it out (ChatGPT's and MiniMax's), however fresh the reading it came from; Cursor's ended cycle the same.
+        self.codex_on_path()
+        codex = Path(self.common['HOME']) / '.codex'; codex.mkdir(exist_ok=True)
+        (codex / 'auth.json').write_text(json.dumps({'auth_mode': 'chatgpt', 'tokens': {'access_token': 'x'}}))
+        self.settings(visible=['chatgpt', 'minimax', 'cursor-subscription'], cursorUsage=True, menuBar='quota', usageAlert=90)
+        now = time.time()
+        self.caches(now)
+        records = {
+            'chatgpt': {'state': '已同步', 'windows': [{'name': 'codex', 'slot': 'primary', 'remaining': 2, 'minutes': 300, 'resetsAt': now - 60},
+                                                     {'name': 'codex', 'slot': 'secondary', 'remaining': 70, 'minutes': 10080, 'resetsAt': now + 86400}]},
+            'minimax': {'windows': [{'name': '5 小时额度', 'remaining': 1, 'resetsAt': int(now) - 60}, {'name': '本周额度', 'remaining': 60, 'resetsAt': int(now) + 3600}]},
+            'cursor_subscription': {'percent': 99, 'cycleStart': now - 30 * 86400, 'cycleEnd': now - 60},
+        }
+        for engine in self.states.values():
+            scope = hashlib.sha256(os.path.abspath(engine['OCX_STATE_DIR']).encode()).hexdigest()[:16]
+            root = Path(engine['OCX_CACHE_DIR']) / ('opencodex-swiftbar-v5-%s-%s' % (os.getuid(), scope))
+            for name, payload in records.items():
+                (root / (name + '.json')).write_text(json.dumps({'schema': 1, 'fetchedAt': now - 30, 'payload': payload}, ensure_ascii=False))
+        keys = {'MINIMAX_API_KEY': 'm'}
+        expected, got = self.python('alert_inputs', extra=keys), self.swift('alert_inputs', extra=keys)
+        self.assertEqual(expected, got)
+        used = sorted((window['name'], window['used']) for window in got['windows'])
+        self.assertEqual(used, [('ChatGPT 订阅', 30.0), ('MiniMax 订阅', 40.0)])
+        self.assertEqual(got['menuBar'], '40%')
+
     def test_a_window_with_an_unknown_share_left_is_left_off_the_row(self):
         # A window whose remaining is missing or null isn't drawn as 已用 100%: the row is the windows that say.
         self.codex_on_path()
@@ -2088,7 +2332,7 @@ class PanelParityTests(BackgroundParityTests):
         row = next(entry for entry in got['entries'] if entry.get('label') == 'ChatGPT 订阅')
         # The value orange (still usable, on the reserve); the bar and its share red, as a window used up is.
         self.assertEqual((row['value'], row.get('detail'), row['usageLevel'], row['share'], row['shareLevel']),
-                         ('余 41,554 Credits', '本周 100%', 'warning', 1.0, 'critical'))
+                         ('余 41,554 Credits', '本周已用 100%', 'warning', 1.0, 'critical'))
         again = next(child for child in row['children'] if child['label'] == '立即刷新')
         self.assertEqual(again['action'], ['refresh-now', 'chatgpt'])
 
@@ -2118,6 +2362,22 @@ class PanelParityTests(BackgroundParityTests):
         card = next(p for p in got['dashboard']['providers'] if p['id'] == 'claude')
         self.assertEqual(card['serviceStatus'], {'name': 'Claude', 'note': '服务部分降级', 'detail': 'Claude for Microsoft 365 add-in missing · 正在调查',
                                                  'link': 'https://status.claude.com'})
+
+    def test_cursors_keychain_switch_is_on_its_page_and_its_settings(self):
+        # Turned on, the switch is where the message sends the user, on the plan's page and on Cursor's settings (the
+        # tool's page and the module grid); only on macOS, whose keychain it reads.
+        self.settings(visible=['cursor', 'cursor-subscription'], cursorUsage=True, cursorKeychain=True)
+        now = time.time()
+        self.caches(now)
+        expected, got = self.python('snapshot', now), self.swift('snapshot', now)
+        for key in expected:
+            self.assertEqual(expected[key], got.get(key), key)
+        def labels(entries):
+            for entry in entries:
+                yield entry.get('label')
+                yield from labels(entry.get('children') or [])
+        found = list(labels(got['entries'])) + list(labels(list((got.get('connections') or {}).values()) if isinstance(got.get('connections'), dict) else got.get('connections') or []))
+        self.assertEqual(found.count('从钥匙串读取登录') >= 1, sys.platform == 'darwin')
 
     def test_due_alerts_and_notices(self):
         now = 1795000000.0
@@ -2294,13 +2554,14 @@ class EngineRunParityTests(PanelParityTests):
         chatgpt, claude, cursor = rows['ChatGPT 订阅'], rows['Claude 订阅'], rows['Cursor 订阅']
         # What is left is the value; the week's share is named under its single bar, as paired bars name theirs.
         self.assertEqual((chatgpt['value'], chatgpt.get('fallbacks'), chatgpt.get('detail'), chatgpt.get('usageLevel')),
-                         ('余 45,934 Credits', None, '本周 100%', 'warning'))
+                         ('余 45,934 Credits', None, '本周已用 100%', 'warning'))
         children = {child['label']: child for child in chatgpt['children']}
         self.assertEqual((children['Credits']['value'], children['免费重置']['value']), ('余 45,934', '可用 2 次'))
         self.assertTrue(children['免费重置']['detail'].endswith('过期 · 在 Codex 里使用'))
         # Two windows: their bars name the week's share, so nothing under them.
         self.assertEqual((claude['value'], claude.get('detail'), claude.get('usageLevel')), ('额外用量剩 $37.50', None, 'warning'))
         self.assertEqual((chatgpt['shareLevel'], cursor['shareLevel']), ('critical', 'critical'))
+        self.assertEqual(cursor.get('detail'), '本周期已用 100%')
         self.assertEqual((cursor['value'], cursor.get('usageLevel')), ('在用按需用量', 'warning'))
 
     def test_payback_of_a_tool_off_the_homepage(self):

@@ -195,7 +195,7 @@
           </div>
         {:else}
           <div class="code">
-            {#if busy}
+            {#if busy && reach === 'public'}
               <span class="spinner" aria-label={t('生成链接')}></span>
               <span class="wait">{t('正在向 Cloudflare 要链接…')}</span>
             {:else if address}
@@ -219,7 +219,7 @@
 
         {#if view && !stopped}
           <!-- What the code is for: on the same network until 停止; the public link, while it is up, for its hour. -->
-          {#if !asking && !busy}
+          {#if !asking && !(busy && reach === 'public')}
             <p class="note">
               {reach === 'public' && view.public ? t('任何网络都能打开，链接带一次性口令，还能用 {n} 分钟', { n: minutes })
                 : t('手机和电脑连同一个网络（Wi-Fi）后扫码；第一次打开时系统可能问是否允许 Starmeter 接收连接，选允许')}

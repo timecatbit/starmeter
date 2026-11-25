@@ -424,19 +424,23 @@ impl Runtime {
     // DeepSeek through OpenCodex
 
     /// OpenCodex drops negative balances; when it has none to show, DeepSeek is asked directly and a negative kept.
-    fn deepseek_balance_direct(&self) -> Option<Object> {
+    /// The balance asked of DeepSeek itself; Err says why not: no key set up to ask with, or the asking failed (said
+    /// as such, not as 未配置).
+    fn deepseek_balance_direct(&self) -> Result<Object, String> {
+        let unset = || "未配置 DeepSeek API 凭据".to_string();
+        let failed = |why: String| format!("DeepSeek 余额查询失败{why}");
         let mut key = self.environment.get("DEEPSEEK_API_KEY").map(|key| key.trim().to_string()).unwrap_or_default();
         if key.is_empty()
             && let Some(file) = self.env("DEEPSEEK_API_KEY_FILE")
         {
-            key = std::fs::read_to_string(paths::expand_user(file)).ok()?.trim().to_string();
+            key = std::fs::read_to_string(paths::expand_user(file)).map_err(|_| unset())?.trim().to_string();
         }
         let provider = if !key.is_empty() {
             object! { "baseUrl" => "https://api.deepseek.com", "apiKey" => key }
         } else {
             let config = claude_app::read_object(&format!("{}/config.json", self.ocx_home));
             if config.is_empty() && !std::path::Path::new(&format!("{}/config.json", self.ocx_home)).exists() {
-                return None;
+                return Err(unset());
             }
             py::or(config.get("providers"), Json::Object(Object::new()))
                 .get("deepseek")
@@ -447,11 +451,11 @@ impl Runtime {
         };
         let base = py::str(Some(&py::or(provider.get("baseUrl"), Json::from("")))).trim_end_matches('/').to_string();
         if !["https://api.deepseek.com", "https://api.deepseek.com/v1"].contains(&base.as_str()) {
-            return None;
+            return Err(unset());
         }
         let secret = py::str(Some(&py::or(provider.get("apiKey"), Json::from("")))).trim().to_string();
         if secret.is_empty() {
-            return None;
+            return Err(unset());
         }
         let request = Request {
             headers: vec![("Accept", "application/json".into()), ("Authorization", format!("Bearer {secret}"))],
@@ -459,11 +463,12 @@ impl Runtime {
             follow_redirects: false,
             ..Request::default()
         };
-        let response = http::send("https://api.deepseek.com/user/balance", request).ok()?;
+        let response =
+            http::send("https://api.deepseek.com/user/balance", request).map_err(|_| failed(String::new()))?;
         if !(200..300).contains(&response.status) {
-            return None;
+            return Err(failed(format!("（HTTP {}）", response.status)));
         }
-        balance_report(&Json::parse(&response.body).ok()?)
+        Json::parse(&response.body).ok().and_then(|body| balance_report(&body)).ok_or_else(|| failed(String::new()))
     }
 
     pub fn provider_quotas(&self) -> Loaded {
@@ -473,8 +478,8 @@ impl Runtime {
                 || !self.opencodex_configured()
             {
                 return Ok(match self.deepseek_balance_direct() {
-                    Some(direct) => (Some(direct), None),
-                    None => (None, Some("未配置 DeepSeek API 凭据".into())),
+                    Ok(direct) => (Some(direct), None),
+                    Err(why) => (None, Some(why)),
                 });
             }
             let (payload, error) = self.opencodex_request("/api/provider-quotas", "GET", None, 4.0, true);
@@ -492,7 +497,7 @@ impl Runtime {
             let value = report_balance(existing.as_ref()).map(|(_, value)| value);
             // Only call DeepSeek when the proxy has no usable balance, including a negative one.
             if (value.is_none() || value == Some(0.0))
-                && let Some(direct) = self.deepseek_balance_direct()
+                && let Ok(direct) = self.deepseek_balance_direct()
             {
                 reports.retain(|row| !is_deepseek(row));
                 reports.extend(

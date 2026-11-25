@@ -19,12 +19,28 @@
     shown = key;
     if (key !== chosen) onchoose(key);
   }
+
+  // A radio group as the keyboard knows one: the arrows (and Home, End) move to the next choice and pick it, the focus
+  // with it; only the chosen one is a Tab stop, so Tab leaves the group in one step (GROUP-KEY).
+  let buttons: HTMLButtonElement[] = $state([]);
+  function keydown(event: KeyboardEvent) {
+    if (!options.length) return;
+    const at = index;
+    const to = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? (at + 1) % options.length
+      : event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? (at - 1 + options.length) % options.length
+      : event.key === 'Home' ? 0 : event.key === 'End' ? options.length - 1 : -1;
+    if (to < 0) return;
+    event.preventDefault();
+    choose(options[to].key);
+    buttons[to]?.focus();
+  }
 </script>
 
-<div class="tabs" role="radiogroup" aria-label={t('卡片分组')}>
+<div class="tabs" role="radiogroup" tabindex="-1" aria-label={t('卡片分组')} onkeydown={keydown}>
   <span class="pill" style:left="{lefts[index]}px" style:width="{widths[index]}px"></span>
   {#each options as option, i (option.key)}
     <button class="tab pressable" class:chosen={option.key === shown} style:left="{lefts[i]}px" style:width="{widths[i]}px"
+      bind:this={buttons[i]} tabindex={i === index ? 0 : -1}
       role="radio" aria-checked={option.key === shown} onclick={() => choose(option.key)}>{option.label}</button>
   {/each}
   {#if note}<span class="note" style:left="{noteLeft}px">{note}</span>{/if}

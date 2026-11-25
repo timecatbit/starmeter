@@ -219,6 +219,18 @@ class CursorPluginTests(unittest.TestCase):
         self.assertIn('只在内存中使用', ask.call_args.args[1])
         saved = preferences.read(self.m.STATE_DIR);self.assertTrue(saved['cursorUsage']);self.assertIn('cursor', saved['visible'])
 
+    def test_turning_the_keychain_on_with_only_the_card_reads_cursor_at_once(self):
+        # Only the Cursor card on the homepage (its page has the switch too): turned on, its records are asked for at
+        # once with the keychain allowed, so macOS asks then, not at the next background round.
+        preferences.update(self.m.STATE_DIR, 'cursor-usage', 'true')
+        preferences.update(self.m.STATE_DIR, 'module', 'cursor', 'true')
+        preferences.update(self.m.STATE_DIR, 'module', 'cursor-subscription', 'false')
+        with patch.object(self.m.cursor, 'refresh', side_effect=self.m.cursor.CursorError('stand-in')) as read, \
+             patch.object(self.m, 'schedule_background_refresh'):
+            self.m.run_action('set-cursor-keychain', ['true'])
+        read.assert_called_once()
+        self.assertTrue(read.call_args.kwargs['keychain'])
+
     def test_every_range_shares_one_store_and_reads_only_what_it_lacks(self):
         preferences.update(self.m.STATE_DIR, 'cursor-usage', 'true')
         start, end = self.m.range_bounds('today', self.now)

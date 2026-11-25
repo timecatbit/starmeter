@@ -118,15 +118,19 @@ fn handle_menu(app: &AppHandle, id: &str) {
             let launcher = app.autolaunch();
             let enabled = launcher.is_enabled().unwrap_or(false);
             let result = if enabled { launcher.disable() } else { launcher.enable() };
+            // The tick as it now is, failed or not: a menu that ticked itself on the click (Linux's) shows the truth.
+            refresh_star_menu(app);
             if result.is_err() {
                 let app = app.clone();
+                let how = if cfg!(target_os = "macos") {
+                    "请将 Starmeter 拖到「应用程序」后重试，或检查系统设置中的登录项。"
+                } else if cfg!(windows) {
+                    "请在「设置 › 应用 › 启动」里查看 Starmeter 是否被关闭，再重试。"
+                } else {
+                    "请确认 ~/.config/autostart 文件夹可以写入，再重试。"
+                };
                 tauri::async_runtime::spawn(async move {
-                    host::alert(
-                        &app,
-                        "操作未完成",
-                        "请将 Starmeter 拖到「应用程序」后重试，或检查系统设置中的登录项。",
-                    )
-                    .await;
+                    host::alert(&app, "操作未完成", how).await;
                 });
             }
         }
@@ -358,7 +362,12 @@ fn main() {
     #[cfg(windows)]
     win::claim_identity();
     let mut builder = tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| relaunched(app, args)))
+        // The plugin tells from a worker thread on macOS: the panel opens and closes on the main thread, where AppKit
+        // and the app it hands the focus back to (kept per thread) are.
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            let handle = app.clone();
+            let _ = app.run_on_main_thread(move || relaunched(&handle, args));
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())

@@ -160,20 +160,30 @@ fn window_share(part: &str) -> String {
 }
 
 /// Rules for the whole text, before it is split into parts.
-pub static WHOLE: [Rule; 2] = [
+pub static WHOLE: [Rule; 4] = [
     rule!(r"^已用 (.+ · .+)$", |m| format!(
         "Used: {}",
         group(m, 1).split(" · ").map(window_share).collect::<Vec<_>>().join(" · ")
     )),
     rule!(r"^更新时间：(.+)$", |m| format!("Updated {}", group(m, 1))),
+    // Whole, as the parts they'd be split into (at " · ", at "：") mean nothing alone.
+    rule!(r"^最早 (.+) 过期 · 在 Codex 里使用$", |m| format!(
+        "First expires {} · use it in Codex",
+        group(m, 1)
+    )),
+    rule!(r"^加到主页：(.+)$", |m| format!(
+        "Add to the homepage: {}",
+        group(m, 1).split('、').map(translate).collect::<Vec<_>>().join(", ")
+    )),
 ];
 
 /// One part of the engine's text.
-pub static RULES: [Rule; 92] = [
+pub static RULES: [Rule; 93] = [
     rule!(r"^已用 (\d+(?:\.\d+)?%)$", |m| format!("{} used", group(m, 1))),
     rule!(r"^已用 (\d+(?:\.\d+)?%) 截至 (.+)$", |m| format!("{} used as of {}", group(m, 1), group(m, 2))),
     rule!(r"^已用 (.+)$", |m| format!("Used: {}", translate(group(m, 1)))),
     rule!(r"^本周已用 (\d+(?:\.\d+)?%)$", |m| format!("{} used this week", group(m, 1))),
+    rule!(r"^本周期已用 (\d+(?:\.\d+)?%)$", |m| format!("{} used this cycle", group(m, 1))),
     rule!(r"^(本周|本周期|5 小时) (\d+(?:\.\d+)?%)$", |m| format!("{} {}", translate(group(m, 1)), group(m, 2))),
     rule!(r"^截至 (.+)$", |m| format!("as of {}", group(m, 1))),
     rule!(r"^(\d+) 个账户$", |m| format!("{} accounts", group(m, 1))),
@@ -201,21 +211,18 @@ pub static RULES: [Rule; 92] = [
         plural(group(m, 1), "reset", "resets")
     )),
     rule!(r"^可用 (\d+) 次$", |m| format!("{} available", group(m, 1))),
-    rule!(r"^最早 (.+) 过期 · 在 Codex 里使用$", |m| format!(
-        "First expires {} · use it in Codex",
-        group(m, 1)
-    )),
     rule!(r"^额外用量剩 (.+)$", |m| format!("{} of extra usage left", group(m, 1))),
     rule!(r"^按需剩 (.+)$", |m| format!("{} of on-demand left", group(m, 1))),
     rule!(r"^到期 (.+)$", |m| format!("Expires {}", group(m, 1))),
     rule!(r"^(.+) 订阅$", |m| format!("{} plan", translate(group(m, 1)))),
+    rule!(r"^(.+) 服务状态$", |m| format!("{} status", translate(group(m, 1)))),
     rule!(r"^需勾选 (.+)$", |m| format!("Needs {} on", translate(group(m, 1)))),
-    rule!(r"^加到主页：(.+)$", |m| format!(
-        "Add to the homepage: {}",
-        group(m, 1).split('、').map(translate).collect::<Vec<_>>().join(", ")
-    )),
     rule!(r"^Antigravity 没有给出额度（HTTP (\d+)）$", |m| format!(
         "Antigravity gave no quota (HTTP {})",
+        group(m, 1)
+    )),
+    rule!(r"^DeepSeek 余额查询失败（HTTP (\d+)）$", |m| format!(
+        "DeepSeek balance check failed (HTTP {})",
         group(m, 1)
     )),
     rule!(r"^(\d+) 分钟前更新$", |m| format!("{} min ago", group(m, 1))),
@@ -425,6 +432,8 @@ mod tests {
         }
         assert!(seen >= 20, "only {seen} statuses found: the pattern no longer matches the core");
         assert_eq!(translate("未找到 Claude 用量记录"), "No Claude usage records found");
+        assert_eq!(translate("DeepSeek 余额查询失败（HTTP 401）"), "DeepSeek balance check failed (HTTP 401)");
+        assert_eq!(translate("DeepSeek 余额查询失败"), "DeepSeek balance check failed");
     }
 
     #[test]
@@ -462,6 +471,11 @@ mod tests {
     #[test]
     fn the_engines_text_reads_as_the_panel_writes_it() {
         assert_eq!(translate("已用 本周 38% · 5 小时 12%"), "Used: this week 38% · 5 hours 12%");
+        // Whole-text rules a split at " · " or "：" used to leave unreached.
+        assert_eq!(translate("最早 12/19 过期 · 在 Codex 里使用"), "First expires 12/19 · use it in Codex");
+        assert_eq!(translate("加到主页：Claude 订阅、Gemini 订阅"), "Add to the homepage: Claude plan, Gemini plan");
+        assert_eq!(translate("Claude 服务状态"), "Claude status");
+        assert_eq!(translate("数据待更新"), "Waiting for fresh data");
         assert_eq!(translate("已用 本周 76% · Fable 41%"), "Used: this week 76% · Fable 41%");
         assert_eq!(translate("已用 Gemini 24% · Claude 和 GPT 18%"), "Used: Gemini 24% · Claude and GPT 18%");
         assert_eq!(translate("ChatGPT 订阅"), "ChatGPT plan");

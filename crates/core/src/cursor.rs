@@ -161,7 +161,9 @@ fn numeric(value: Option<&Json>) -> Option<f64> {
 
 /// Whether the desktop app keeps its login encrypted (what the Cursor page offers to read from the keychain for).
 pub fn login_encrypted(home: &str, environment: &HashMap<String, String>) -> bool {
-    app_token(&app_root(home, environment)).is_some_and(|token| token.starts_with(ENCRYPTED))
+    // The keychain read is macOS's; elsewhere there is nothing to offer for it.
+    cfg!(target_os = "macos")
+        && app_token(&app_root(home, environment)).is_some_and(|token| token.starts_with(ENCRYPTED))
 }
 
 /// Electron's safeStorage as Cursor keeps its login: `cursor-safe-storage:v1:` and base64 of `v10` and the AES-128-CBC
