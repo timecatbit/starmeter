@@ -6,7 +6,6 @@
   // pinned or not (the user looks at it; SwiftBar's figures come at its plugin's pace). Pinning turns to it.
   import { flip } from 'svelte/animate';
   import { fly } from 'svelte/transition';
-  import { onMount } from 'svelte';
   import { toolColour } from '../lib/colors';
   import { t } from '../lib/i18n.svelte';
   import { duration, PhoneLive } from '../lib/phoneLive.svelte';
@@ -15,8 +14,13 @@
 
   const live = new PhoneLive();
   let now = $state(Date.now());
-  onMount(() => {
+  // Read and ticking only while the panel is on screen (STAGE-11: closed, it went on asking every couple of seconds and
+  // counting the seconds in a hidden window). Back on screen, the minutes it missed come in at once from the app's
+  // last minutes (PhoneLive asks for them after being away), 动态 too.
+  $effect(() => {
+    if (!panel.shown) return;
     live.start();
+    now = Date.now();
     const ticking = setInterval(() => (now = Date.now()), 1000);
     return () => { live.stop(); clearInterval(ticking); };
   });

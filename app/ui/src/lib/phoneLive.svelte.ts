@@ -15,15 +15,14 @@
 import { backend } from './backend';
 import { currency, legendName, money, summaryPart, tokens as tokenText } from './format';
 import { english, localize, source, t } from './i18n.svelte';
-import { LiveFeed, readingDashboard } from './live';
+import { GAP, LiveFeed, readingDashboard } from './live';
 import type { Dashboard, Entry, LiveAnswer } from './types';
 
 /** Tokens added this recently still count as working, between requests of a turn that has no session to say so. */
 const QUIET = 40_000;
 const BUSY_EVERY = 2_000, REST_EVERY = 5_000;
-/** Readings further apart than this left a gap (the page out of sight, the computer out of reach): what changed in it
- *  happened at moments nobody saw, so it is neither this moment's speed, nor requests landing now, nor a turn just done. */
-const GAP = 15_000;
+// Readings further apart than GAP (live.ts) left a gap: what changed in it happened at moments nobody saw, so it is
+// neither this moment's speed, nor requests landing now, nor a turn just done.
 /** An amount worth saying: one that money() doesn't write as 0.00 in the computer's currency. */
 const worthSaying = (usd: number) => currency.convert(usd) >= 0.005;
 /** How much time the readings must cover before the speed means anything: until then it is —, not 0. */
@@ -167,7 +166,10 @@ export class PhoneLive {
   private lastTake = 0;
   private nextId = 1;
   private visible = () => typeof document === 'undefined' || document.visibilityState === 'visible';
-  private onVisible = () => { if (this.visible() && !this.stopped) { clearTimeout(this.timer); void this.loop(); } };
+  /** The next reading asks for the computer's last minutes too: the first, and the first after being away (out of
+   *  sight, the panel closed), so what happened meanwhile comes in at its moments rather than as a gap. */
+  private wantHistory = true;
+  private onVisible = () => { if (this.visible() && !this.stopped) { this.wantHistory = true; clearTimeout(this.timer); void this.loop(); } };
 
   constructor() {
     this.feed.history = LIVE_SPAN + LiveFeed.window + 10_000;
@@ -178,6 +180,7 @@ export class PhoneLive {
   start() {
     if (!this.stopped) return;
     this.stopped = false;
+    this.wantHistory = true;
     document.addEventListener('visibilitychange', this.onVisible);
     void this.loop();
   }
@@ -206,10 +209,12 @@ export class PhoneLive {
 
   private async read(round: number) {
     let answer: LiveAnswer;
-    // The first reading asks for the computer's last minutes too (a page opened or reloaded while the work goes on).
-    try { answer = await backend.live(this.feed.samples.length === 0); } catch { if (round === this.round) this.trouble = true; return; }
+    // The first reading asks for the computer's last minutes too (a page opened or reloaded while the work goes on), and
+    // the first after being away.
+    try { answer = await backend.live(this.wantHistory); } catch { if (round === this.round) this.trouble = true; return; }
     if (this.stopped || round !== this.round) return;
     this.trouble = false;
+    this.wantHistory = false;
     this.take(answer, Date.now());
   }
 
@@ -219,7 +224,7 @@ export class PhoneLive {
     if (Number.isFinite(answer.at)) this.skew = answer.at * 1000 - now;
     // Quiet and resting are judged on the computer's clock (the readings' own moments), not this phone's.
     const moment = Number.isFinite(answer.at) ? answer.at * 1000 : now;
-    if (!replay && answer.history?.length && !this.feed.samples.length) this.replay(answer);
+    if (!replay && answer.history?.length) this.replay(answer);
     const gap = this.lastTake > 0 && now - this.lastTake > GAP;
     this.lastTake = now;
     this.readAt = now;
@@ -325,7 +330,10 @@ export class PhoneLive {
         const rows = reading.sessions.map((row) => ({ ...row, children: (row.children ?? []).map((turn) => ({ ...turn, children: [] })) }));
         sessions = { label: '会话', children: rows } as unknown as Entry;
       }
-      this.take({ at: reading.at, dashboard: readingDashboard(template, reading), sessions, turns: {} }, reading.at * 1000 - this.skew, true);
+      // Only what came after the last reading taken here (back in sight, the panel opened again: the minutes missed).
+      const at = reading.at * 1000 - this.skew;
+      if (at <= this.lastTake + 1) continue;
+      this.take({ at: reading.at, dashboard: readingDashboard(template, reading), sessions, turns: {} }, at, true);
     }
   }
 

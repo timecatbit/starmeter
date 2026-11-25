@@ -3,6 +3,10 @@
 import { summaryPart } from './format';
 import type { Dashboard, LiveReading } from './types';
 
+/** Two readings further apart than this are either side of a gap (a page out of sight, the computer out of reach):
+ *  what was added between them happened at no moment the line knows. */
+export const GAP = 15_000;
+
 /** A reading: Summary's tokens (cache reads included, as the line and the cards count them), the output tokens the
  *  models generated, the cost, and each source's tokens and output tokens (a line of its own for each tool). `cut`: a
  *  reading not comparable with the one before (a gap, a new range): the line stood still there, and what comes after
@@ -22,8 +26,6 @@ export function readingDashboard(template: Dashboard, reading: LiveReading): Das
       tokens: then.tokens ?? 0, output: then.output ?? 0, cost: then.cost ?? null, counted } as Dashboard['providers'][number];
   }) } as Dashboard;
 }
-type Part = { tokens: number; output: number; cost: number };
-
 type Part = { tokens: number; output: number; cost: number };
 
 export class LiveFeed {
@@ -107,6 +109,20 @@ export class LiveFeed {
     if (!comparable || !this.samples.length) this.offset = LiveFeed.latest(dashboard) - sample.total;
     if (!comparable && this.samples.length) sample.cut = true;
     this.keep(sample, at);
+  }
+
+  /** The computer's last minutes, before the readings to come: each as a dashboard of `template`'s tools (on this
+   *  clock: the computer's seconds less `skew`), a reading more than `gap` after the one before it taken as after a gap
+   *  (what was added in it happened at no moment the line knows). Returns when the last one was, on this clock. */
+  replay(template: Dashboard, history: LiveReading[], skew: number, gap: number): number {
+    let last = this.samples.at(-1)?.at ?? 0;
+    for (const reading of history) {
+      const at = reading.at * 1000 - skew;
+      if (at <= last + 1) continue;
+      this.add(readingDashboard(template, reading), at, last > 0 && at - last > gap);
+      last = at;
+    }
+    return last;
   }
 
   private keep(sample: Sample, at: number) {

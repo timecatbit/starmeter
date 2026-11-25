@@ -7,7 +7,7 @@
   import { automatic, entryKey, isModule, keepsPanelOpen, opening, passive, sessionsEntry, without } from './lib/detail';
   import { currency } from './lib/format';
   import { PanelInteraction } from './lib/interaction';
-  import { LiveFeed } from './lib/live';
+  import { GAP, LiveFeed } from './lib/live';
   import { font, width as measure } from './lib/measure';
   import { pageIn, pageOut } from './lib/motion';
   import { answer as answerQuestion, ask, show as showQuestion } from './lib/ask.svelte';
@@ -337,10 +337,8 @@
     void shell.setPinned(value);
     clearInterval(liveTimer);
     if (value) {
-      const live = new LiveFeed();
-      if (snapshot?.dashboard) live.add(snapshot.dashboard);
       leaving = null;
-      feed = live;
+      void pinFeed(new LiveFeed());
       schedule();
     } else {
       liveStamp = null;
@@ -348,6 +346,20 @@
       if (animate && feed && !panel.reduceMotion) leaving = Date.now();
       else { feed = null; leaving = null; }
     }
+  }
+  /** Pinned: the live line begins with the last minutes the app kept (recent_readings), as 网页版's does, then this
+   *  reading, so the line, its speed and each tool's line are whole at once rather than starting from nothing. Asked
+   *  for at most 0.4 s (the trend stays on screen meanwhile); a gap in them, or since the last of them, is a gap. */
+  async function pinFeed(live: LiveFeed) {
+    let last = 0;
+    try {
+      const recent = await Promise.race([backend.recent(), new Promise<null>((resolve) => setTimeout(() => resolve(null), 400))]);
+      if (recent?.history.length && snapshot?.dashboard) last = live.replay(snapshot.dashboard, recent.history, recent.at * 1000 - Date.now(), GAP);
+    } catch { /* from this reading on, as before */ }
+    if (!pinned || feed) return;
+    const now = Date.now();
+    if (snapshot?.dashboard) live.add(snapshot.dashboard, now, last > 0 && now - last > GAP);
+    feed = live;
   }
   /** Pinned from the homepage, the panel follows the dashboard's height (the tab chosen, a session or card opened, the
    *  rest shown) down to just above the subscriptions, within the screen, until the user sizes it at its edges. */
@@ -706,6 +718,7 @@
   }
 
   function opened(modules: boolean, maxHeight?: number) {
+    panel.shown = true;
     if (maxHeight) info = { ...info, maxHeight };
     startOver(modules);
     // A press the closing cut short never came up: no press is on as the panel opens, and its reading is fresh.
@@ -751,6 +764,7 @@
   /** Closed: back to the homepage at once, so the next opening shows it rather than the page left open, with nothing
    *  left focused. */
   function closed() {
+    panel.shown = false;
     phoneOpen = false;
     // A tour left halfway was still seen: it starts again only from 通用 → 新手指引.
     guiding = false;

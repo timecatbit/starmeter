@@ -141,3 +141,66 @@ test('pinned, 实时 cuts no words: titles far too long for a line, an hour and 
   }
   expect(found).toEqual([]);
 });
+
+/** The last minutes the app would have kept by now (fixtureBackend's seedRecent): today's figures, each tool's output
+ *  `rise(id, secondsAgo)` lower the further back, a reading every 2 seconds over `span` seconds (none in `gap`). */
+async function seed(page: Page, span: number, rise: { id: string; tokens: number; output: number }, gap: [number, number] | null = null, jump = 0) {
+  await page.evaluate(async ({ span, rise, gap, jump }) => {
+    const f = (window as unknown as { starmeterFixtures: { today: () => Promise<import('../ui/src/lib/types').Dashboard>; seedRecent: (r: unknown[]) => void } }).starmeterFixtures;
+    const base = await f.today();
+    const now = Date.now() / 1000, readings = [];
+    for (let ago = span; ago >= 2; ago -= 2) {
+      if (gap && ago < gap[0] && ago > gap[1]) continue;
+      // Before the gap the work stood `jump` lower too: what the gap added, at moments unknown.
+      const back = ago / 2 + (gap && ago >= gap[0] ? jump : 0);
+      readings.push({ at: now - ago, date: base.date, rangeKey: base.rangeKey,
+        providers: base.providers.map((p) => ({ id: p.id, available: p.available, summaryIncluded: p.summaryIncluded, cost: p.cost,
+          tokens: p.tokens - (p.id === rise.id ? back * rise.tokens : 0), output: p.output - (p.id === rise.id ? back * rise.output : 0) })) });
+    }
+    f.seedRecent(readings);
+  }, { span, rise, gap, jump });
+}
+const asked = (page: Page) => page.evaluate(() => (window as unknown as { starmeterFixtures: { liveAsked: () => number } }).starmeterFixtures.liveAsked());
+
+test('实时 opens with what happened in the last minutes, and reads only while the panel is on screen (STAGE-11)', async ({ page }) => {
+  await open(page);
+  await seed(page, 60, { id: 'claude', tokens: 5000, output: 50 });
+  await radio(page, '实时').click();
+  const live = page.locator('.panel-live');
+  // At once, before a tick of its own: 动态 from the minutes the app kept while 实时 wasn't open.
+  await expect.poll(() => live.locator('.event').count(), { timeout: 1500 }).toBeGreaterThan(10);
+  await expect(live.locator('.event .what').first()).toHaveText(/^\+5(\.0)?K Token/);
+  // Closed: nothing more asked, the clock no longer counting.
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('panel-closed')));
+  await page.waitForTimeout(300);
+  const closed = await asked(page);
+  const clock = await live.locator('.live-session .clock').first().textContent();
+  await page.waitForTimeout(4500);
+  expect(await asked(page)).toBe(closed);
+  await expect(live.locator('.live-session .clock').first()).toHaveText(clock!);
+  // Open again: asked at once, the clock going.
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('panel-opened', { detail: { modules: false, maxHeight: 900 } })));
+  await expect.poll(() => asked(page), { timeout: 1500 }).toBeGreaterThan(closed);
+  await expect(live.locator('.live-session .clock').first()).not.toHaveText(clock!, { timeout: 2500 });
+});
+
+test('pinned, the live line opens with the last minutes the app kept: its speed at once, and a gap in them no burst', async ({ page }) => {
+  await open(page);
+  // Fifty seconds of Claude writing 25 tokens a second.
+  await seed(page, 50, { id: 'claude', tokens: 2000, output: 50 });
+  await page.getByRole('button', { name: '钉住面板', exact: true }).click();
+  const canvas = page.locator('canvas.live');
+  // The first frames already have the minutes: the readings, and a speed (not 0, not waiting a minute for it).
+  await expect.poll(async () => Number(await canvas.getAttribute('data-samples')), { timeout: 1200 }).toBeGreaterThan(20);
+  const steady = Number(await canvas.getAttribute('data-rate'));
+  expect(steady).toBeGreaterThan(10);
+  expect(steady).toBeLessThan(30);
+  await page.getByRole('button', { name: '取消钉住面板', exact: true }).click();
+  await page.waitForTimeout(800);
+  // A gap of a minute and a half, after which 600,000 more output had been written at moments unknown: not a speed.
+  await seed(page, 140, { id: 'claude', tokens: 2000, output: 50 }, [110, 20], 12_000);
+  await page.getByRole('button', { name: '钉住面板', exact: true }).click();
+  await expect.poll(async () => Number(await canvas.getAttribute('data-samples')), { timeout: 1200 }).toBeGreaterThan(10);
+  await page.waitForTimeout(300);
+  expect(Number(await canvas.getAttribute('data-rate'))).toBeLessThan(30);
+});

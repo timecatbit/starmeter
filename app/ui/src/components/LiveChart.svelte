@@ -269,6 +269,7 @@
         // What the top right says, for whatever reads the page rather than the pixels (tests among them).
         canvas.dataset.added = String(Math.round(added));
         canvas.dataset.rate = String(Math.round(rate ?? 0));
+        canvas.dataset.samples = String(samples.length);
         const unit = ' Token/s', figure = rateText(rate ?? 0);
         const lead = t('近 1 分钟 +{n} Token · 输出 ', { n: tokens(added) });
         const baseline = 11;

@@ -367,7 +367,8 @@ test('pinned, the live chart draws a line for each tool, in Token and in Token/s
   await page.getByRole('radio', { name: 'Token/s' }).click();
   // Each tool's rate line (the Token lines above say nothing of them).
   await expect.poll(async () => Object.keys(JSON.parse((await read()).toolRates ?? '{}')).length, { timeout: 20_000 }).toBeGreaterThan(1);
-  // The tools' rates make up the total's.
+  // The tools' rates make up the total's (once the top right has written its rate: after the pinning's zoom).
+  await expect.poll(async () => (await read()).rate, { timeout: 10_000 }).toBeDefined();
   const seen = await read();
   const rates = Object.values(JSON.parse(seen.toolRates ?? '{}') as Record<string, number>);
   const sum = rates.reduce((a, b) => a + b, 0);
