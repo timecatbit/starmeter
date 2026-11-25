@@ -941,9 +941,16 @@ test('on SwiftBar\'s panel, reloaded while the work goes on, the page picks up t
   await phone(page, PORTRAIT, '', { swiftbar: true, live });
   const rate = page.locator('.stage .monitor [data-figure="rate"] [data-value]');
   for (const seconds of [3, 8, 13, 18, 23, 28]) { clock.now = Date.UTC(2026, 10, 25, 2, 0, 0) + seconds * 1000; await page.waitForTimeout(2200); }
+  const said = () => page.locator('.stage .feed .event').evaluateAll((list) => list.slice(0, 6).map((e) => `${e.querySelector('.who')?.textContent} ${e.querySelector('.what')?.textContent}`));
+  const before = await said();
+  expect(before.length).toBe(6);
   await page.reload();
+  // At once as it was: the speed and the last minute, and 动态's latest six; no 正在读取, no 等下一笔请求.
   await expect(page.locator('.stage .monitor.working')).toBeVisible();
-  await expect.poll(async () => Number(await rate.getAttribute('data-value')), { timeout: 5000 }).toBeGreaterThan(0);
+  await expect.poll(async () => Number(await rate.getAttribute('data-value')), { timeout: 3000 }).toBeGreaterThan(0);
+  await expect(page.locator('.stage .monitor .tick-value').nth(1).locator('[data-value]').first()).toHaveAttribute('data-value', /^\+\d/);
+  await expect(page.locator('.stage .monitor .reading')).toHaveCount(0);
+  expect(await said()).toEqual(before);
 });
 
 test('the monitor\'s 今天 and 近 1 分钟 stand on their figures\' line, the figures alike, the sign and unit as the panel\'s, in both looks and three languages', async ({ page }) => {

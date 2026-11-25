@@ -24,10 +24,17 @@ export function phoneAnswer(data, { pathname, params, given, key = PHONE_KEY, lo
     if (params.get('history') === '1') answer.history = recent.slice();
     const last = recent.at(-1);
     if (answer.dashboard && (!last || answer.at - last.at >= 2 || answer.at < last.at)) {
-      recent.push({ at: answer.at, date: answer.dashboard.date, rangeKey: answer.dashboard.rangeKey,
+      const reading = { at: answer.at, date: answer.dashboard.date, rangeKey: answer.dashboard.rangeKey,
         providers: answer.dashboard.providers.map(({ id, available, summaryIncluded, tokens, output, cost, counted }) =>
-          ({ id, available, summaryIncluded, tokens, output, cost, ...(counted ? { counted: { tokens: counted.tokens, output: counted.output, cost: counted.cost } } : {}) })) });
-      while (recent.length && (answer.at - recent[0].at > 400 || recent[0].at > answer.at)) recent.shift();
+          ({ id, available, summaryIncluded, tokens, output, cost, ...(counted ? { counted: { tokens: counted.tokens, output: counted.output, cost: counted.cost } } : {}) })) };
+      // 会话 in short when it changed, as phone.rs keeps it (short_sessions).
+      const sessions = answer.sessions ? shortSessions(answer.sessions) : null;
+      const stood = [...recent].reverse().find((r) => r.sessions)?.sessions;
+      if (sessions && JSON.stringify(sessions) !== JSON.stringify(stood)) reading.sessions = sessions;
+      recent.push(reading);
+      let carried = null;
+      while (recent.length && (answer.at - recent[0].at > 400 || recent[0].at > answer.at)) carried = recent.shift().sessions ?? carried;
+      if (carried && recent.length && !recent[0].sessions) recent[0].sessions = carried;
     }
     const body = JSON.stringify(answer).replace(/"logo:([^"]*)"/g, (_, file) => JSON.stringify(logo(file)));
     return { status: 200, type: 'application/json', body };
@@ -53,6 +60,14 @@ export function phoneAnswer(data, { pathname, params, given, key = PHONE_KEY, lo
 }
 
 // MARK: 网页版's live view (/api/live: today's figures by tool, 会话, and when each session's turn began)
+
+/** 会话 as the readings keep it: each session's title, key, light, state and latest turn's line. */
+function shortSessions(entry) {
+  return (entry.children ?? []).filter((row) => row.statusLight !== undefined).map((row) => {
+    const turn = (row.children ?? []).find((c) => c.detail !== undefined);
+    return { label: row.label, key: row.key, statusLight: row.statusLight, detail: row.detail, children: turn ? [{ label: turn.label, detail: turn.detail }] : [] };
+  });
+}
 
 /** 会话's row as the phone has it: its sessions, no switch, nothing to do. */
 function sessionsOf(data) {

@@ -212,12 +212,13 @@ export class PhoneLive {
     this.take(answer, Date.now());
   }
 
-  /** A reading taken at `now` (this phone's clock). */
-  take(answer: LiveAnswer, now: number) {
+  /** A reading taken at `now` (this phone's clock). `replay`: one of the computer's last minutes, given with a page's
+   *  first reading, taken as it was then: its moments, its 动态; no banner, no waking, nothing landing now. */
+  take(answer: LiveAnswer, now: number, replay = false) {
     if (Number.isFinite(answer.at)) this.skew = answer.at * 1000 - now;
     // Quiet and resting are judged on the computer's clock (the readings' own moments), not this phone's.
     const moment = Number.isFinite(answer.at) ? answer.at * 1000 : now;
-    if (answer.history?.length && !this.feed.samples.length) this.seed(answer.history, moment);
+    if (!replay && answer.history?.length && !this.feed.samples.length) this.replay(answer);
     const gap = this.lastTake > 0 && now - this.lastTake > GAP;
     this.lastTake = now;
     this.readAt = now;
@@ -251,14 +252,14 @@ export class PhoneLive {
       this.beforeRange = dashboard.rangeKey;
       this.feed.add(dashboard, now, gap);
       const costs = [...now_.values()].map((p) => p.cost), total = costs.reduce((a, b) => a + b, 0);
-      if (before && !gap && this.cost !== null && worthSaying(total - this.cost)) this.costAdded = { amount: total - this.cost, at: now };
+      if (!replay && before && !gap && this.cost !== null && worthSaying(total - this.cost)) this.costAdded = { amount: total - this.cost, at: now };
       // Work went on in the gap, when exactly unknown: the last activity is what the sessions say of themselves.
       if (gap && grew) this.lastActive = null;
       this.cost = estimate(dashboard);
       this.dashboard = dashboard;
     }
     if (landings.length) { this.lastGrowth = moment; this.lastActive = now; }
-    this.landings = landings;
+    this.landings = replay ? [] : landings;
 
     // The sessions: each turn begun, its tools called, each turn done.
     const rows = (entry?.children ?? []).filter((c) => c.statusLight !== undefined);
@@ -272,7 +273,7 @@ export class PhoneLive {
       if (was.running && !s.running) {
         const took = s.began !== null ? duration(now - s.began, s.exact) : '';
         event('done', s.title, took ? t('这一轮完成 · {d}', { d: took }) : t('这一轮完成'));
-        this.done = { title: s.title, took, cost: s.turnCost, at: now };
+        if (!replay) this.done = { title: s.title, took, cost: s.turnCost, at: now };
       } else if (!was.running && s.running) {
         event('start', s.title, t('开始新一轮'));
       } else if (s.running) {
@@ -291,7 +292,7 @@ export class PhoneLive {
     // Working or resting; resting for a while and now working is waking.
     const working = sessions.some((s) => s.running) || (this.lastGrowth > 0 && moment - this.lastGrowth < QUIET);
     if (working && this.state === 'resting' && !first && !gap && this.restingSince && moment - this.restingSince >= 6_000) {
-      this.woke = now;
+      if (!replay) this.woke = now;
       const who = sessions.find((s) => s.running)?.title ?? (landings[0] ? this.before?.get(landings[0].id)?.name : null) ?? 'AI';
       event('wake', who, t('开始工作'));
     }
@@ -310,19 +311,28 @@ export class PhoneLive {
 
   private dashboardSeen = false;
 
-  /** The computer's last minutes, given with the first reading: drawn on the line as they were, on this phone's clock.
-   *  A tool that grew in the last of them is still working (QUIET), before any reading here has seen it grow. */
-  private seed(history: NonNullable<LiveAnswer['history']>, moment: number) {
-    let before: number | null = null;
-    for (const reading of history) {
-      const at = reading.at * 1000;
-      const shown = { ...reading, dates: [], providers: reading.providers.map((p) => ({ history: [], ...p })) } as unknown as Dashboard;
-      this.feed.add(shown, at - this.skew);
-      const total = shown.providers.filter((p) => p.available).reduce((s, p) => s + (summaryPart(p)?.tokens ?? 0), 0);
-      if (before !== null && total > before + 0.5 && moment - at < QUIET) this.lastGrowth = at;
-      before = total;
+  /** The computer's last minutes, given with a page's first reading: each taken as it was then (`take` with `replay`),
+   *  on this phone's clock, so the line, the speed, the last minute and 动态 are as they were before the page opened or
+   *  reloaded. A reading's tools are the answer's own with that moment's figures; 会话 as it last stood. */
+  private replay(answer: LiveAnswer) {
+    const template = answer.dashboard;
+    if (!template) return;
+    let sessions: Entry | null = null;
+    for (const reading of answer.history ?? []) {
+      if (!(reading.at < answer.at)) continue;
+      if (reading.sessions) {
+        const rows = reading.sessions.map((row) => ({ ...row, children: (row.children ?? []).map((turn) => ({ ...turn, children: [] })) }));
+        sessions = { label: '会话', children: rows } as unknown as Entry;
+      }
+      const kept = new Map(reading.providers.map((p) => [p.id, p]));
+      const dashboard = { ...template, date: reading.date, rangeKey: reading.rangeKey, providers: template.providers.map((p) => {
+        const then = kept.get(p.id);
+        if (!then) return { ...p, available: false };
+        return { ...p, available: then.available ?? p.available, summaryIncluded: then.summaryIncluded ?? p.summaryIncluded,
+          tokens: then.tokens ?? 0, output: then.output ?? 0, cost: then.cost ?? null, counted: p.counted ? { ...p.counted, ...(then.counted ?? {}) } : p.counted };
+      }) } as Dashboard;
+      this.take({ at: reading.at, dashboard, sessions, turns: {} }, reading.at * 1000 - this.skew, true);
     }
-    if (this.lastGrowth) this.lastActive = this.lastGrowth - this.skew;
   }
 
   /** The readings cover enough time for the speed to mean something. */

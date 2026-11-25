@@ -199,6 +199,13 @@ impl Engine {
     }
 
     /// The 会话 row with its figures and note in `range`, for a phone that chose another range than this computer.
+    /// 会话 for today as cached (nothing read again), none while it is off the homepage: what a phone's last minutes keep.
+    pub fn sessions_now(&self) -> Value {
+        let runtime = self.runtime();
+        let _turn = self.rendering.lock().expect("the render lock");
+        live_sessions(&runtime).0
+    }
+
     pub fn sessions_entry(&self, range: &str) -> Value {
         let runtime = self.runtime();
         let _turn = self.rendering.lock().expect("the render lock");

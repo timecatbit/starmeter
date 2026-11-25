@@ -203,7 +203,9 @@ export interface LiveAnswer {
   turns: Record<string, number>;
   /** Asked for with ?history=1: the readings of the last few minutes (the computer's seconds), each tool's figures
    *  the live line counts, for a page opened or reloaded while the work goes on. */
-  history?: { at: number; date: string; rangeKey: string; providers: Partial<ProviderUsage>[] }[];
+  history?: { at: number; date: string; rangeKey: string; providers: Partial<ProviderUsage>[];
+    /** 会话 in short, when it changed: each session's title, key, light and state, and its latest turn's line. */
+    sessions?: { label: string; key?: string; statusLight?: string; detail?: string; children?: { label: string; detail?: string }[] }[] }[];
 }
 
 /** What an action left behind: done, failed (with why) or cancelled (a dialog was dismissed). */

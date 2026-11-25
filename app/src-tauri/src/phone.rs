@@ -513,7 +513,7 @@ const RECENT_EVERY: f64 = 2.0;
 
 /// A reading kept: when, the day and range, and each tool's figures the line counts (Summary's share, what a gateway
 /// alone logged).
-fn keep_recent(recent: &mut VecDeque<Value>, moment: f64, dashboard: &Value) {
+fn keep_recent(recent: &mut VecDeque<Value>, moment: f64, dashboard: &Value, sessions: Option<&Value>) {
     let Some(providers) = dashboard.get("providers").and_then(Value::as_array) else { return };
     if recent.back().and_then(|last| last["at"].as_f64()).is_some_and(|at| moment - at < RECENT_EVERY && moment >= at) {
         return;
@@ -537,17 +537,60 @@ fn keep_recent(recent: &mut VecDeque<Value>, moment: f64, dashboard: &Value) {
             Value::Object(kept)
         })
         .collect();
-    recent.push_back(serde_json::json!({
+    let mut reading = serde_json::json!({
         "at": moment, "date": dashboard["date"], "rangeKey": dashboard["rangeKey"], "providers": short,
-    }));
-    // The clock set back, or readings too old to draw: let go.
+    });
+    // 会话 in short when it changed since the last reading kept: what a page opened late replays its 动态 from (a tool
+    // called, a turn begun or done).
+    if let Some(sessions) = sessions.map(short_sessions)
+        && last_sessions(recent).as_ref() != Some(&sessions)
+    {
+        reading["sessions"] = sessions;
+    }
+    recent.push_back(reading);
+    // The clock set back, or readings too old to draw: let go; the first one left carries 会话 as it stood.
+    let mut carried = None;
     while recent
         .front()
         .and_then(|first| first["at"].as_f64())
         .is_some_and(|at| moment - at > RECENT_FOR || at > moment)
     {
-        recent.pop_front();
+        if let Some(sessions) = recent.pop_front().and_then(|gone| gone.get("sessions").cloned()) {
+            carried = Some(sessions);
+        }
     }
+    if let (Some(sessions), Some(first)) = (carried, recent.front_mut())
+        && first.get("sessions").is_none()
+    {
+        first["sessions"] = sessions;
+    }
+}
+
+/// 会话 as the readings keep it: each session's title, key, light and state, and its latest turn's line (tokens, cost,
+/// requests and the tools called), the rest of the row left out.
+fn short_sessions(entry: &Value) -> Value {
+    let rows: Vec<Value> = entry
+        .get("children")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|row| row.get("statusLight").is_some())
+        .map(|row| {
+            let turn = row
+                .get("children")
+                .and_then(Value::as_array)
+                .and_then(|turns| turns.iter().find(|turn| turn.get("detail").is_some()))
+                .map(|turn| json!({"label": turn["label"], "detail": turn["detail"]}));
+            json!({"label": row["label"], "key": row["key"], "statusLight": row["statusLight"], "detail": row["detail"],
+                   "children": turn.into_iter().collect::<Vec<_>>()})
+        })
+        .collect();
+    Value::Array(rows)
+}
+
+/// 会话 as the readings kept last stood.
+fn last_sessions(recent: &VecDeque<Value>) -> Option<Value> {
+    recent.iter().rev().find_map(|reading| reading.get("sessions").cloned())
 }
 
 /// 网页版's live view, asked every couple of seconds while it is on screen: today's figures by tool, 会话 (its
@@ -558,21 +601,36 @@ fn live(app: &AppHandle, history: bool) -> Value {
     live_from(&app.state::<Data>(), history)
 }
 
-/// Today's figures as the source has them now, read cheaply (no logs read again, SwiftBar's snapshot only looked at,
-/// not taken as seen): what `sample` keeps.
-fn today_now(data: &Data) -> Option<Value> {
-    match data {
-        Data::Engine(engine) => Some(engine.dashboard_grouped("today", Some("tool"))),
-        Data::SwiftBar(files) => files.peek().get("dashboard").cloned(),
-        Data::Fixtures(fixtures) => Some(fixtures.lock().expect("the fixtures").dashboard("today")),
-    }
-    .filter(Value::is_object)
+/// Today's figures and 会话 as the source has them now, read cheaply (no logs read again, SwiftBar's snapshot only
+/// looked at, not taken as seen): what `sample` keeps.
+fn today_now(data: &Data) -> Option<(Value, Value)> {
+    let (dashboard, sessions) = match data {
+        Data::Engine(engine) => (engine.dashboard_grouped("today", Some("tool")), engine.sessions_now()),
+        Data::SwiftBar(files) => {
+            let snapshot = files.peek();
+            (snapshot.get("dashboard").cloned().unwrap_or(Value::Null), sessions_of(&snapshot))
+        }
+        Data::Fixtures(fixtures) => {
+            let fixtures = fixtures.lock().expect("the fixtures");
+            (fixtures.dashboard("today"), sessions_of(&fixtures.snapshot()))
+        }
+    };
+    dashboard.is_object().then_some((dashboard, sessions))
 }
 
 /// A reading kept for the last minutes, the server on and no page asking.
 fn sample(data: &Data) {
-    if let Some(dashboard) = today_now(data) {
-        keep_recent(&mut RECENT.lock().expect("the live readings"), starmeter_core::runtime::now(), &dashboard);
+    if let Some((dashboard, mut sessions)) = today_now(data) {
+        if sessions.is_object() {
+            phone_sessions(&mut sessions);
+        }
+        let sessions = sessions.is_object().then_some(&sessions);
+        keep_recent(
+            &mut RECENT.lock().expect("the live readings"),
+            starmeter_core::runtime::now(),
+            &dashboard,
+            sessions,
+        );
     }
 }
 
@@ -609,7 +667,7 @@ fn live_from(data: &Data, history: bool) -> Value {
         answer["history"] = Value::Array(recent.iter().cloned().collect());
     }
     if let (Some(at), Some(dashboard)) = (answer["at"].as_f64(), answer.get("dashboard")) {
-        keep_recent(&mut recent, at, dashboard);
+        keep_recent(&mut recent, at, dashboard, answer.get("sessions").filter(|sessions| sessions.is_object()));
     }
     answer
 }
@@ -739,22 +797,22 @@ mod tests {
             ]})
         };
         let mut recent = std::collections::VecDeque::new();
-        super::keep_recent(&mut recent, 1000.0, &dashboard(100.0));
-        super::keep_recent(&mut recent, 1001.0, &dashboard(150.0));
-        super::keep_recent(&mut recent, 1002.5, &dashboard(200.0));
+        super::keep_recent(&mut recent, 1000.0, &dashboard(100.0), None);
+        super::keep_recent(&mut recent, 1001.0, &dashboard(150.0), None);
+        super::keep_recent(&mut recent, 1002.5, &dashboard(200.0), None);
         assert_eq!(recent.len(), 2, "one a second is too often");
         let first = &recent[0];
         assert_eq!(first["date"], "2026-11-25");
         assert_eq!(first["providers"][0]["tokens"], 100.0);
         assert_eq!(first["providers"][0]["counted"], serde_json::json!({"tokens": 100.0, "output": 4.0, "cost": 1.0}));
         assert!(first["providers"][0].get("history").is_none() && first["providers"][0].get("name").is_none());
-        super::keep_recent(&mut recent, 1000.0 + super::RECENT_FOR + 2.0, &dashboard(300.0));
+        super::keep_recent(&mut recent, 1000.0 + super::RECENT_FOR + 2.0, &dashboard(300.0), None);
         assert_eq!(
             recent.iter().map(|r| r["at"].as_f64().unwrap()).collect::<Vec<_>>(),
             vec![1002.5, 1000.0 + super::RECENT_FOR + 2.0]
         );
         // The clock set back: what is now ahead of it goes.
-        super::keep_recent(&mut recent, 900.0, &dashboard(300.0));
+        super::keep_recent(&mut recent, 900.0, &dashboard(300.0), None);
         assert_eq!(recent.len(), 1);
     }
 
@@ -782,6 +840,41 @@ mod tests {
         assert_eq!(history[0]["providers"][0]["tokens"], 100.0);
         assert!(super::live_from(&data, false).get("history").is_none());
         let _ = std::fs::remove_dir_all(&folder);
+    }
+
+    /// 会话 goes with the readings in short, when it changed: a session's title, light and its latest turn's line (what
+    /// a page opened late replays its 动态 from); the first reading left after the old ones go carries it as it stood.
+    #[test]
+    fn the_sessions_go_with_the_readings_when_they_change() {
+        let dashboard = serde_json::json!({"date": "2026-11-25", "rangeKey": "today", "providers": [{"id": "claude", "available": true, "tokens": 1.0}]});
+        let sessions = |tools: &str| {
+            serde_json::json!({"label": "会话", "children": [
+                {"label": "重做设置页", "key": "s1", "statusLight": "new", "detail": "运行中 · Opus 5.5", "value": "$0.92", "image": "x",
+                 "children": [{"label": "15:36 · 2.41M Token · $0.92", "detail": tools}, {"label": "15:20 · 1K Token · $0.01", "detail": "1 次请求"}]},
+                {"label": "", "separator": true},
+            ]})
+        };
+        let mut recent = std::collections::VecDeque::new();
+        super::keep_recent(&mut recent, 1000.0, &dashboard, Some(&sessions("9 次请求 · Edit ×6")));
+        super::keep_recent(&mut recent, 1003.0, &dashboard, Some(&sessions("9 次请求 · Edit ×6")));
+        super::keep_recent(&mut recent, 1006.0, &dashboard, Some(&sessions("10 次请求 · Edit ×6 · Bash ×1")));
+        let kept: Vec<bool> = recent.iter().map(|reading| reading.get("sessions").is_some()).collect();
+        assert_eq!(kept, vec![true, false, true]);
+        assert_eq!(
+            recent[0]["sessions"],
+            serde_json::json!([{"label": "重做设置页", "key": "s1", "statusLight": "new",
+            "detail": "运行中 · Opus 5.5", "children": [{"label": "15:36 · 2.41M Token · $0.92", "detail": "9 次请求 · Edit ×6"}]}])
+        );
+        // The first two go: the one left first carries 会话 as it stood then.
+        super::keep_recent(
+            &mut recent,
+            1003.5 + super::RECENT_FOR,
+            &dashboard,
+            Some(&sessions("10 次请求 · Edit ×6 · Bash ×1")),
+        );
+        assert_eq!(recent.len(), 2);
+        assert_eq!(recent[0]["sessions"][0]["children"][0]["detail"], "10 次请求 · Edit ×6 · Bash ×1");
+        assert!(recent[1].get("sessions").is_none());
     }
 
     #[test]
