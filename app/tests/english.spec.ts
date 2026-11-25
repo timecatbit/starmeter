@@ -2,7 +2,7 @@
 // screen reader hears and the words drawn on the charts and share pictures all count. A failure lists what en.ts is
 // missing.
 import { expect, test, type Page } from '@playwright/test';
-import { PHONE_KEY, servePhone, sessionTitles } from './phone';
+import { liveWork, PHONE_KEY, servePhone, sessionTitles } from './phone';
 
 // Every page, one after another: longer than a test usually takes.
 test.describe.configure({ timeout: 120_000 });
@@ -181,11 +181,24 @@ test('English: on the phone, the homepage, its sessions and the share page', asy
 
 test('English: on the phone, 手机版 with each grouping, a card and a session open, and both ways up', async ({ page }) => {
   const left = new Leftovers();
-  await servePhone(page);
+  // Work going on a minute-long cycle: requests landing, tools called, a turn done, resting, waking.
+  const clock = { now: Date.now() };
+  await servePhone(page, PHONE_KEY, { live: liveWork({ now: () => clock.now, length: 1000, claudeEnds: 20, codexEnds: 12 }) });
   await page.setViewportSize({ width: 393, height: 852 });
   await english(page, '#k=' + PHONE_KEY + '&l=en', '.stage');
   await page.waitForTimeout(1400);
+  clock.now += 9000;
+  await expect(page.locator('.stage .feed .event').first()).toBeVisible({ timeout: 5000 });
   await left.take(page, 'phone');
+  clock.now += 12_000;
+  await expect(page.locator('.stage .turn-done')).toBeVisible({ timeout: 5000 });
+  await left.take(page, 'phone › a turn done');
+  clock.now += 60_000;
+  await expect(page.locator('.stage .monitor:not(.working)')).toBeVisible({ timeout: 7000 });
+  await left.take(page, 'phone › resting');
+  clock.now += 1000 * 1000;
+  await expect(page.locator('.stage .feed .event.wake')).toBeVisible({ timeout: 7000 });
+  await left.take(page, 'phone › waking');
   for (const name of ['Model', 'Project', 'Sessions', 'Tool']) {
     await page.getByRole('radiogroup', { name: 'Card grouping' }).getByRole('radio', { name }).click();
     await page.waitForTimeout(700);
@@ -201,7 +214,9 @@ test('English: on the phone, 手机版 with each grouping, a card and a session 
   await page.waitForTimeout(400);
   await left.take(page, 'phone › landscape');
   const titles = new Set(sessionTitles());
-  expect(left.list.filter((line) => !titles.has(line.replace(/^.*?: /, '')))).toEqual([]);
+  // Titles are the user's own words wherever they stand, a line of their own or within one (最近：<title>).
+  const untitled = (line: string) => [...titles].reduce((rest, title) => rest.split(title).join(''), line.replace(/^.*?: /, ''));
+  expect(left.list.filter((line) => CJK.test(untitled(line)))).toEqual([]);
 });
 
 test('English: the module grid and every module\'s settings', async ({ page }) => {

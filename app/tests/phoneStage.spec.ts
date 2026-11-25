@@ -1,8 +1,9 @@
-// 在手机上看 on the phone, in its own look (手机版, PhoneStage.svelte): portrait and landscape laid out within the screen,
-// the figures the computer's homepage shows, its ranges and groupings, the choice between 手机版 and 电脑版 (kept in the
+// 在手机上看 on the phone, in its own look (手机版, PhoneStage.svelte): the live monitor (working, a turn done, resting,
+// waking, asked for only while shown), portrait, landscape and a computer's window laid out within the screen, the
+// figures the computer's homepage shows, its ranges and groupings, the choice between 手机版 and 电脑版 (kept in the
 // address, a cookie and the page's storage), reduced motion, and the languages.
 import { expect, test, type Page } from '@playwright/test';
-import { PHONE_KEY, servePhone } from './phone';
+import { liveWork, PHONE_KEY, servePhone } from './phone';
 
 const errors: string[] = [];
 test.beforeEach(({ page }) => {
@@ -15,7 +16,7 @@ test.afterEach(() => expect(errors).toEqual([]));
 const PORTRAIT = { width: 393, height: 852 };
 const LANDSCAPE = { width: 852, height: 393 };
 
-async function phone(page: Page, size = PORTRAIT, hash = '', options: { swiftbar?: boolean } = {}) {
+async function phone(page: Page, size = PORTRAIT, hash = '', options: { swiftbar?: boolean; live?: (data: unknown) => unknown } = {}) {
   await page.setViewportSize(size);
   const asked = await servePhone(page, PHONE_KEY, options);
   await page.goto('/#k=' + PHONE_KEY + hash);
@@ -42,8 +43,8 @@ const box = async (page: Page, selector: string) => (await page.locator(selector
 
 test('手机版 is what a phone opens: portrait, balanced within the screen, its figures the computer\'s', async ({ page }) => {
   await phone(page);
-  // The order of importance, top to bottom: the bar, the ranges, the estimate and its figures, the trend, the shares, the cards.
-  const order = ['.stage .bar', '.stage .ranges', '.stage .amount', '.stage .figures', '.stage .trend', '.stage .shares', '.stage .tabs', '.stage .card'];
+  // The order of importance, top to bottom: the bar, now (the monitor), what is happening, then the figures for a range.
+  const order = ['.stage .bar', '.stage .monitor', '.stage .activity', '.stage .ranges', '.stage .amount', '.stage .figures', '.stage .trend', '.stage .shares', '.stage .tabs', '.stage .card'];
   let last = -1;
   for (const selector of order) {
     const { y } = await box(page, selector);
@@ -53,7 +54,7 @@ test('手机版 is what a phone opens: portrait, balanced within the screen, its
   // Nothing wider than the screen, and the column centred with even margins.
   const width = await page.evaluate(() => { const s = document.querySelector('.stage > .scroll')!; return { scroll: s.scrollWidth, client: s.clientWidth }; });
   expect(width.scroll).toBeLessThanOrEqual(width.client);
-  for (const selector of ['.stage .trend', '.stage .shares', '.stage .card', '.stage .plan']) {
+  for (const selector of ['.stage .monitor', '.stage .trend', '.stage .shares', '.stage .card', '.stage .plan']) {
     const b = await box(page, selector);
     expect(Math.abs(b.x - (PORTRAIT.width - b.x - b.width)), selector).toBeLessThanOrEqual(1);
   }
@@ -72,16 +73,16 @@ test('手机版 is what a phone opens: portrait, balanced within the screen, its
   expect(panelCards.length).toBeGreaterThan(3);
 });
 
-test('手机版 on its side: two columns inside the screen, the estimate and the trend still, the rest scrolling', async ({ page }) => {
+test('手机版 on its side: a monitor by the desk, the live view still on the left, the rest scrolling on the right', async ({ page }) => {
   for (const size of [LANDSCAPE, { width: 667, height: 375 }]) {
     await phone(page, size);
     const lead = await box(page, '.stage .lead'), rest = await box(page, '.stage .rest');
-    // Side by side, the left column's foot within the screen; the trend has room to read.
+    // Side by side, the left column's foot within the screen; the curve has room to read.
     expect(lead.x + lead.width).toBeLessThanOrEqual(rest.x);
     expect(lead.y + lead.height).toBeLessThanOrEqual(size.height + 1);
-    const trend = await box(page, '.stage .trend');
-    expect(trend.y + trend.height).toBeLessThanOrEqual(size.height);
-    expect((await box(page, '.stage .chart')).height).toBeGreaterThan(90);
+    const curve = await box(page, '.stage .lead .curve');
+    expect(curve.y + curve.height).toBeLessThanOrEqual(size.height);
+    expect(curve.height).toBeGreaterThan(90);
     expect(rest.x + rest.width).toBeLessThanOrEqual(size.width);
     // The right column scrolls on its own; the left stays.
     const scrolled = await page.evaluate(() => {
@@ -101,7 +102,7 @@ test('手机版 on its side: two columns inside the screen, the estimate and the
   // Turned back upright, one column again.
   await page.setViewportSize(PORTRAIT);
   await expect(page.locator('.stage.wide')).toHaveCount(0);
-  expect((await box(page, '.stage .rest')).y).toBeGreaterThan((await box(page, '.stage .trend')).y);
+  expect((await box(page, '.stage .rest')).y).toBeGreaterThan((await box(page, '.stage .monitor')).y);
 });
 
 test('手机版: the ranges and groupings are the phone\'s own, the figures read for them as the computer reads them', async ({ page }) => {
@@ -148,12 +149,13 @@ test('手机版: the ranges and groupings are the phone\'s own, the figures read
 
 test('手机版: the trend reads under a finger, the share page opens and comes back, a new reading lights the tool that grew', async ({ page }) => {
   await phone(page);
-  const chart = await box(page, '.stage .chart');
+  await page.locator('.stage .trend .chart').scrollIntoViewIfNeeded();
+  const chart = await box(page, '.stage .trend .chart');
   await page.mouse.move(chart.x + chart.width * 0.5, chart.y + chart.height / 2);
-  await expect(page.locator('.stage .bubble .when')).toHaveText(/\d\d:\d\d/);
-  await expect(page.locator('.stage .bubble .part').first()).toBeVisible();
+  await expect(page.locator('.stage .trend .bubble .when')).toHaveText(/\d\d:\d\d/);
+  await expect(page.locator('.stage .trend .bubble .part').first()).toBeVisible();
   await page.mouse.move(chart.x + chart.width * 0.5, chart.y - 60);
-  await expect(page.locator('.stage .bubble')).toHaveCount(0);
+  await expect(page.locator('.stage .trend .bubble')).toHaveCount(0);
   // The share page, as on the panel's phone page, and back to 手机版 where it was.
   await page.getByRole('button', { name: '分享用量图' }).click();
   await expect(page.locator('.share-page .stage img')).toBeVisible();
@@ -235,7 +237,7 @@ test('手机版 in English and in 繁體中文: laid out within the screen, both
       await phone(page, size, hash);
       const text = await page.locator('.stage').innerText();
       for (const word of words) expect(text, `${hash} ${size.width}`).toContain(word);
-      const wide = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('.stage > .scroll, .stage .rest')].every((e) => e.scrollWidth <= e.clientWidth));
+      const wide = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('.stage > .scroll, .stage.wide .rest')].every((e) => e.scrollWidth <= e.clientWidth));
       expect(wide).toBe(true);
       // The tabs' labels and the figures' labels fit on their line.
       for (const selector of ['.stage .tabs .choice', '.stage .figure-label']) {
@@ -246,7 +248,7 @@ test('手机版 in English and in 繁體中文: laid out within the screen, both
   }
 });
 
-test('手机版 without Summary on the homepage: the cards and plans only, as the panel shows it, one column on its side too', async ({ page }) => {
+test('手机版 without Summary on the homepage: the figures for a range are the cards and plans only, as the panel shows it', async ({ page }) => {
   await page.setViewportSize(LANDSCAPE);
   await servePhone(page);
   await page.route('**/api/snapshot**', async (route) => {
@@ -260,6 +262,120 @@ test('手机版 without Summary on the homepage: the cards and plans only, as th
   await page.goto('/#k=' + PHONE_KEY);
   await expect(page.locator('.stage .card').first()).toBeVisible();
   await expect(page.locator('.stage .hero, .stage .trend, .stage .shares')).toHaveCount(0);
-  await expect(page.locator('.stage.wide')).toHaveCount(0);
+  // The live monitor stays: it is today's, whatever the homepage shows.
+  await expect(page.locator('.stage .monitor')).toBeVisible();
   await expect(page.getByRole('radiogroup', { name: '统计范围' })).toBeVisible();
+});
+
+
+/** A clock the test moves: the made-up work (liveWork) and the computer's moments in each reading follow it. */
+function scripted() {
+  const clock = { now: Date.UTC(2026, 10, 25, 2, 0, 0) };
+  const live = liveWork({ now: () => clock.now, length: 1000, claudeEnds: 20, codexEnds: 12 });
+  return { clock, live, at: (seconds: number) => { clock.now = Date.UTC(2026, 10, 25, 2, 0, 0) + seconds * 1000; } };
+}
+
+test('the live view working: how fast, today rolling up, the sessions running with their clocks and tools, what happened', async ({ page }) => {
+  const work = scripted();
+  const asked = await phone(page, PORTRAIT, '', { live: work.live });
+  // At the turn's start: Claude Code's session running, Codex's not yet.
+  await expect(page.locator('.stage .monitor.working')).toBeVisible();
+  await expect(page.locator('.stage .monitor .state')).toHaveText('正在工作 · 1 个会话运行中');
+  await expect(page.locator('.stage .monitor [data-figure="rate"]')).toBeVisible();
+  await expect(page.locator('.stage .monitor .unit')).toHaveText('输出 Token/s');
+  // Nine seconds on: three of Claude's requests and one of Codex's have landed, both sessions run.
+  work.at(9);
+  await expect.poll(() => page.locator('.stage .activity .session').count(), { timeout: 5000 }).toBe(2);
+  await expect(page.locator('.stage .monitor .state')).toHaveText('正在工作 · 2 个会话运行中');
+  const first = page.locator('.stage .activity .session').first();
+  await expect(first.locator('.title')).toHaveText('重做设置页的分段控件');
+  await expect(first.locator('.timer')).toHaveText(/^0:\d\d$/);
+  // The clock goes second by second, as the turn does.
+  const shown = await first.locator('.timer').textContent();
+  await expect(first.locator('.timer')).not.toHaveText(shown!, { timeout: 2500 });
+  await expect(first.locator('.chip').first()).toHaveText(/^(Edit|Bash|Read) ×\d+$/);
+  await expect(first.locator('.turn-figures')).toHaveText(/^本轮 [\d.]+K Token · \$0\.\d\d$/);
+  await expect(page.locator('.stage .feed .event.usage').first()).toContainText(/(Claude|ChatGPT)\s*\+[\d.]+K Token/);
+  await expect(page.locator('.stage .feed .event.tool').first()).toContainText('调用');
+  // The curve is the live one, and today's estimate under the speed is the live reading's.
+  await expect(page.locator('.stage .monitor .live-chart canvas')).toBeVisible();
+  await expect(page.locator('.stage .monitor .tick-value[data-figure="today"] [data-value]')).toHaveAttribute('data-value', /^\$2\d\.\d\d$/);
+  // Asked for every couple of seconds while working.
+  const before = asked.filter((path) => path.startsWith('/api/live')).length;
+  await page.waitForTimeout(4300);
+  expect(asked.filter((path) => path.startsWith('/api/live')).length - before).toBeGreaterThanOrEqual(2);
+});
+
+test('the live view: a turn done is said at the top, then resting, then waking when work comes again', async ({ page }) => {
+  const work = scripted();
+  await phone(page, PORTRAIT, '', { live: work.live });
+  work.at(9);
+  await expect.poll(() => page.locator('.stage .activity .session').count(), { timeout: 5000 }).toBe(2);
+  // Both turns end (Codex at 12 s, Claude at 20 s): each is said in what happened, the last at the top with its time.
+  work.at(21);
+  await expect(page.locator('.stage .turn-done')).toContainText('这一轮完成', { timeout: 5000 });
+  await expect(page.locator('.stage .turn-done .done-detail')).toContainText(/重做设置页的分段控件|harbor-api/);
+  await expect(page.locator('.stage .feed .event.done')).toHaveCount(2);
+  await expect(page.locator('.stage .activity .session')).toHaveCount(0);
+  // Requests landed just now: still working for a while, with no session running.
+  await expect(page.locator('.stage .monitor .state')).toHaveText('正在工作');
+  // Nothing for a minute: resting, the headline today's estimate and the curve today's trend.
+  work.at(80);
+  await expect(page.locator('.stage .monitor:not(.working)')).toBeVisible({ timeout: 5000 });
+  await expect(page.locator('.stage .monitor .state')).toHaveText(/休息中/);
+  await expect(page.locator('.stage .monitor [data-figure="today"]').first()).toBeVisible();
+  await expect(page.locator('.stage .monitor .live-chart')).toHaveCount(0);
+  await expect(page.locator('.stage .monitor .chart')).toBeVisible();
+  await expect(page.locator('.stage .activity .quiet').first()).toContainText('没有在运行的会话');
+  // A new turn: the page wakes, says so first, and the speed is the headline again.
+  work.at(1001);
+  await expect(page.locator('.stage .feed .event').first()).toHaveClass(/wake/, { timeout: 7000 });
+  await expect(page.locator('.stage .feed .event.wake .what')).toHaveText('开始工作');
+  await expect(page.locator('.stage .monitor.working [data-figure="rate"]')).toBeVisible();
+});
+
+test('the live view is asked for only while the page shows', async ({ page }) => {
+  const work = scripted();
+  const asked = await phone(page, PORTRAIT, '', { live: work.live });
+  const live = () => asked.filter((path) => path.startsWith('/api/live')).length;
+  await expect.poll(live).toBeGreaterThan(0);
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await page.waitForTimeout(300);
+  const hidden = live();
+  await page.waitForTimeout(4500);
+  expect(live()).toBe(hidden);
+  // Back in sight: asked at once.
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect.poll(live, { timeout: 1500 }).toBeGreaterThan(hidden);
+});
+
+test('手机版 in a computer\'s window: the monitor large beside what is happening, the figures under both, a page that scrolls', async ({ page }) => {
+  for (const size of [{ width: 1440, height: 900 }, { width: 1280, height: 800 }, { width: 1024, height: 768 }]) {
+    const work = scripted();
+    await phone(page, size, '', { live: work.live });
+    await expect(page.locator('.stage.desk')).toBeVisible();
+    const monitor = await box(page, '.stage .lead'), activity = await box(page, '.stage .activity-box');
+    expect(monitor.x + monitor.width).toBeLessThanOrEqual(activity.x);
+    expect(Math.abs(monitor.y - activity.y)).toBeLessThanOrEqual(1);
+    const a = await box(page, '.stage .stats-a'), b = await box(page, '.stage .stats-b');
+    expect(Math.min(a.y, b.y)).toBeGreaterThan(Math.max(monitor.y + monitor.height, activity.y + activity.height));
+    expect(a.x + a.width).toBeLessThanOrEqual(b.x);
+    // Centred, at most 1320 wide, nothing wider than the window.
+    const frame = await box(page, '.stage .frame');
+    expect(frame.width).toBeLessThanOrEqual(1320);
+    expect(Math.abs(frame.x - (size.width - frame.x - frame.width))).toBeLessThanOrEqual(1);
+    expect(await page.evaluate(() => { const s = document.querySelector('.stage > .scroll')!; return s.scrollWidth <= s.clientWidth; })).toBe(true);
+    // A pointer reads the figures' trend on hover.
+    await page.locator('.stage .trend .chart').scrollIntoViewIfNeeded();
+    const trend = await box(page, '.stage .trend .chart');
+    await page.mouse.move(trend.x + trend.width / 2, trend.y + trend.height / 2);
+    await expect(page.locator('.stage .trend .bubble')).toBeVisible();
+    await page.mouse.move(0, 0);
+  }
 });

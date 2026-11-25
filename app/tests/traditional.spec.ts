@@ -3,7 +3,7 @@
 // the charts and share pictures all count; the languages' own names are meant to stay.
 import { expect, test, type Page } from '@playwright/test';
 import { toHant } from '../ui/src/lib/hant';
-import { PHONE_KEY, servePhone } from './phone';
+import { liveWork, PHONE_KEY, servePhone } from './phone';
 
 test.describe.configure({ timeout: 120_000 });
 
@@ -85,11 +85,20 @@ test('繁體中文: the homepage, its pages, the groupings and 會話', async ({
 
 test('繁體中文 on the phone: 手機版 with each grouping, a card and a session open, both ways up', async ({ page }) => {
   const left = new Leftovers();
-  await servePhone(page);
+  const clock = { now: Date.now() };
+  await servePhone(page, PHONE_KEY, { live: liveWork({ now: () => clock.now, length: 1000, claudeEnds: 20, codexEnds: 12 }) });
   await page.setViewportSize({ width: 393, height: 852 });
   await traditional(page, '#k=' + PHONE_KEY + '&l=zh-Hant', '.stage');
   await page.waitForTimeout(1400);
+  clock.now += 9000;
+  await expect(page.locator('.stage .feed .event').first()).toBeVisible({ timeout: 5000 });
   await left.take(page, 'phone');
+  clock.now += 12_000;
+  await expect(page.locator('.stage .turn-done')).toBeVisible({ timeout: 5000 });
+  await left.take(page, 'phone › 這一輪完成');
+  clock.now += 60_000;
+  await expect(page.locator('.stage .monitor:not(.working)')).toBeVisible({ timeout: 7000 });
+  await left.take(page, 'phone › 休息中');
   for (const name of ['模型', '項目', '會話', '工具']) {
     await page.getByRole('radiogroup', { name: '卡片分組' }).getByRole('radio', { name }).click();
     await page.waitForTimeout(700);
