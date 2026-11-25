@@ -23,8 +23,9 @@ function longTitles(data: { snapshot: { entries: Row[] } }) {
 const hhmm = (seconds: number) => { const d = new Date(seconds * 1000); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 
 /** The scripted work, three sessions running (a third woken), every turn an hour and 23 minutes in: the first to the
- *  second (its clock 1:23:17), the others only by the minute their turn began (no start from the computer, as
- *  SwiftBar's panel sends them: 1 小时 23 分钟, the longest way the time is written). */
+ *  second (its clock 1:23:17), the second only by the minute its turn began (no start from the computer, as SwiftBar's
+ *  panel sends them: 1 小时 23 分钟, the longest way the time is written), the third begun before the logs read (its
+ *  line 更早开始, no minutes said: its clock says 运行中, never nothing). */
 function longWork() {
   const base = liveWork({ now: () => Date.now(), length: 99_999, claudeEnds: 99_998, codexEnds: 99_998 });
   return (data: unknown) => {
@@ -33,8 +34,13 @@ function longWork() {
     const third = rows.find((s) => s.key !== 'session-1' && s.key !== 'session-2');
     if (third) third.statusLight = 'new';
     for (const s of rows) {
-      if (s.statusLight === 'new') s.detail = (s.detail ?? '').replace(/^(运行中|空闲)( \d+ 分钟)?/, '运行中 83 分钟');
       const turn = s.children.find((c) => c.detail !== undefined);
+      if (s === third) {
+        s.detail = (s.detail ?? '').replace(/^(运行中|空闲)( \d+ 分钟)?/, '运行中');
+        if (turn) turn.label = turn.label.replace(/^\d\d:\d\d/, '更早开始');
+        continue;
+      }
+      if (s.statusLight === 'new') s.detail = (s.detail ?? '').replace(/^(运行中|空闲)( \d+ 分钟)?/, '运行中 83 分钟');
       if (turn) turn.label = turn.label.replace(/^\d\d:\d\d/, hhmm(answer.at - 83 * 60 - 17));
     }
     answer.turns = { 'session-1': answer.at - 83 * 60 - 17 };
@@ -82,13 +88,16 @@ for (const [size, viewport, seen] of SIZES) {
         await expect(tab.locator('.stage .activity .title').first()).toHaveText(language === 'zh-Hant' ? toHant(LONG['session-1']) : LONG['session-1']);
         await expect(tab.locator('.stage .activity .timer-figure').first()).toHaveText(/^1:23:\d\d$/);
         await expect(tab.locator('.stage .activity .timer').nth(1)).toHaveText(/^1\s*(小时|小時|hr)\s*2\d\s*(分钟|分鐘|min)$/);
+        // Begun before the logs read: no start known, and said to be running rather than left empty (it vanished).
+        await expect(tab.locator('.stage .activity .timer').nth(2)).toHaveText(/^(运行中|運行中|Running)$/);
         // Each clock whole in its card, right of its title (cut short before it), never under it.
         const clocks = await tab.locator('.stage .activity .session').evaluateAll((cards) => cards.map((card) => {
           const box = card.getBoundingClientRect(), title = card.querySelector('.title')!.getBoundingClientRect(), timer = card.querySelector('.timer')!;
           const time = timer.getBoundingClientRect();
-          return { inside: time.left >= box.left && time.right <= box.right + 0.5 && time.width > 0, apart: time.left >= title.right - 0.5, whole: timer.scrollWidth <= timer.clientWidth + 0.5 };
+          return { inside: time.left >= box.left && time.right <= box.right + 0.5 && time.width > 4, apart: time.left >= title.right - 0.5,
+            whole: timer.scrollWidth <= timer.clientWidth + 0.5, said: (timer.textContent ?? '').trim().length > 0 };
         }));
-        expect(clocks, `${language} ${look}`).toEqual(clocks.map(() => ({ inside: true, apart: true, whole: true })));
+        expect(clocks, `${language} ${look}`).toEqual(clocks.map(() => ({ inside: true, apart: true, whole: true, said: true })));
       }
       const tabs = tab.locator('.stage .tabs [role="radio"]');
       const count = await tabs.count();
@@ -127,5 +136,49 @@ for (const [size, viewport, seen] of SIZES) {
       // A curve, not a sliver under its legend: the plot at least 40 points.
       expect(height - 38, where).toBeGreaterThanOrEqual(40);
     }
+  });
+}
+
+/** Each running card's title made exactly as long as its room (the most characters that fit whole), then one character
+ *  longer (cut short): both times the clock beside it is there, whole, wider than nothing, right of the title, inside the
+ *  card. A title that just fit once pushed the clock out of sight. Run in the page: the next reading writes the titles
+ *  back. */
+async function clocksAtTheEdge(page: Page, card: string, title: string, clock: string, letter: string) {
+  return page.evaluate(({ card, title, clock, letter }) => {
+    const seen: string[] = [];
+    for (const row of document.querySelectorAll(card)) {
+      const name = row.querySelector<HTMLElement>(title)!, time = row.querySelector<HTMLElement>(clock)!;
+      const fits = (n: number) => { name.textContent = letter.repeat(n); return name.scrollWidth <= name.clientWidth + 0.5; };
+      let n = 1;
+      while (fits(n + 1) && n < 400) n++;
+      for (const [length, how] of [[n, 'just fits'], [n + 1, 'just over']] as const) {
+        name.textContent = letter.repeat(length);
+        const box = row.getBoundingClientRect(), named = name.getBoundingClientRect(), at = time.getBoundingClientRect();
+        const ok = at.width > 4 && at.left >= named.right - 0.5 && at.right <= box.right + 0.5 && time.scrollWidth <= time.clientWidth + 0.5 && (time.textContent ?? '').trim() !== '';
+        if (!ok) seen.push(`${how} (${length}): clock ${Math.round(at.left)}–${Math.round(at.right)}, title to ${Math.round(named.right)}, card to ${Math.round(box.right)}, "${time.textContent}"`);
+      }
+    }
+    return seen;
+  }, { card, title, clock, letter });
+}
+
+for (const [language, letter] of [['zh', '国'], ['en', 'm'], ['zh-Hant', '國']] as const) {
+  test(`网页版 and 实时: a running card's clock stays whole beside a title that just fits and one just over, in ${language}`, async ({ page }) => {
+    for (const viewport of [{ width: 393, height: 852 }, { width: 320, height: 568 }]) {
+      const tab = await page.context().newPage();
+      await tab.setViewportSize(viewport);
+      await servePhone(tab, PHONE_KEY, { live: longWork(), edit: longTitles });
+      await tab.goto(`/#k=${PHONE_KEY}&l=${language}`);
+      await expect(tab.locator('.stage .activity .session')).toHaveCount(3);
+      expect(await clocksAtTheEdge(tab, '.stage .activity .session', '.title', '.timer', letter), `${viewport.width}`).toEqual([]);
+      await tab.close();
+    }
+    // The pinned panel's 实时, narrow.
+    await page.addInitScript((lang) => localStorage.setItem('starmeter.language', lang), language);
+    await page.goto('/');
+    await expect(page.locator('.dashboard')).toBeVisible();
+    await page.getByRole('button', { name: /^(钉住面板|Pin the panel|釘住面板)$/ }).click();
+    await expect(page.locator('.panel-live .live-session').first()).toBeVisible();
+    expect(await clocksAtTheEdge(page, '.panel-live .live-session', '.title', '.clock', letter), 'pinned').toEqual([]);
   });
 }

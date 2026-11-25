@@ -33,7 +33,8 @@
   const clock = (at: number) => { const d = new Date(at); return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
   /** This turn's clock: m:ss when the computer gave its start to the second, else its minutes. */
   function timer(began: number | null, exact: boolean): string {
-    if (began === null) return '';
+    // No start known (a turn begun before the logs read): it is running, said so, never an empty space.
+    if (began === null) return t('运行中');
     const seconds = Math.max(0, Math.floor((now - began) / 1000));
     if (!exact) return duration(seconds * 1000, false);
     const h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60), s = seconds % 60;

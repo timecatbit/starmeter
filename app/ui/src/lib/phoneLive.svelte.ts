@@ -83,17 +83,22 @@ function readSession(e: Entry, turns: Record<string, number>, skew: number, befo
   const tools = [...(turnSaid?.detail ?? '').matchAll(/([^\s·×]+) ×(\d+)/g)].map((m) => [m[1], Number(m[2])] as [string, number]);
   const requests = /(\d+) 次请求/.exec(turnSaid?.detail ?? '');
   // The turn's start: the computer's second when it says, else the minute the turn's line begins with, on the
-  // computer's clock (this phone's moved by the difference), the day before when that minute is still to come there.
+  // computer's clock (this phone's moved by the difference), the day before when that minute is still to come there;
+  // else, running, the minutes the session says it has run (运行中 12 分钟). A turn begun before the logs the computer
+  // reads (its line says 更早开始) has none of these: its clock says 运行中 rather than nothing (it vanished).
   const key = e.key ?? e.label;
   let began: number | null = null, exact = false;
   if (turns[key] !== undefined) { began = turns[key] * 1000 - skew; exact = true; }
   else {
     const hm = /^(\d{1,2}):(\d{2})/.exec(turnSaid?.label ?? '');
+    const minutes = running ? /^运行中 (\d+) 分钟/.exec(detail) : null;
     if (hm) {
       const there = now + skew, d = new Date(there);
       d.setHours(Number(hm[1]), Number(hm[2]), 0, 0);
       if (d.getTime() > there + 60_000) d.setDate(d.getDate() - 1);
       began = d.getTime() - skew;
+    } else if (minutes) {
+      began = now - Number(minutes[1]) * 60_000;
     }
   }
   const called = { ...(before?.called ?? {}) };

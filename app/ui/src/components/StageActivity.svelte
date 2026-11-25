@@ -22,7 +22,8 @@
   /** A turn's clock: m:ss to the second when the computer gave its start, else its minutes, the figure in the figures'
    *  face and the word in the text's (4 分钟). */
   const timer = (began: number | null, exact: boolean): { figure: string; words: string } => {
-    if (began === null) return { figure: '', words: '' };
+    // No start known (a turn begun before the logs read): it is running, said so, never an empty space.
+    if (began === null) return { figure: '', words: t('运行中') };
     const seconds = Math.max(0, Math.floor((now - began) / 1000));
     if (!exact) {
       const said = duration(seconds * 1000, false), found = /^(\D*)(\d+)(.*)$/.exec(said);
