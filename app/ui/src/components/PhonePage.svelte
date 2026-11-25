@@ -7,7 +7,7 @@
   import { language, t } from '../lib/i18n.svelte';
   import { style } from '../lib/style.svelte';
   import { shell } from '../lib/backend';
-  import { phone, secondsLeft, setPhone } from '../lib/phone.svelte';
+  import { keepStopped, phone, secondsLeft, setPhone } from '../lib/phone.svelte';
   import { grabWindow, panel } from '../lib/ui.svelte';
   import HintButton from './HintButton.svelte';
   import Icon from './Icon.svelte';
@@ -42,7 +42,8 @@
   const minutes = $derived(view ? Math.max(1, Math.round(secondsLeft() / 60)) : 0);
   /** The choices: Tailscale between the two while this computer is on a tailnet (or while it is the one chosen, so the
    *  page can say it went), each a third of the bar then. */
-  const choices = $derived<('local' | 'tailnet' | 'public')[]>(view?.tailnet || reach === 'tailnet' ? ['local', 'tailnet', 'public'] : ['local', 'public']);
+  const choices = $derived<('local' | 'tailnet' | 'public')[]>(view?.tailnet || (!view && phone.tailnet) || reach === 'tailnet'
+    ? ['local', 'tailnet', 'public'] : ['local', 'public']);
   const chosenIndex = $derived(Math.max(0, choices.indexOf(reach)));
 
   /** Each start (opening the page, 重新开始) begins a round, and 停止 or leaving the page ends it. What a step of an
@@ -64,14 +65,18 @@
     }
   }
   /** A start that fails (its port taken for a moment) stays in the code's place with its reason and 重试, instead of
-   *  leaving a page with neither a code nor a way on. */
+   *  leaving a page with neither a code nor a way on. Started by hand, it is no longer kept stopped. */
   async function begin() {
     stopped = false;
+    keepStopped(false);
     if (!(await start())) stopped = true;
   }
   let tick: ReturnType<typeof setInterval> | undefined;
   onMount(() => {
-    void begin();
+    // Opened again after 停止: it stays off, as it was left, until started by hand (a choice, or 重新开始); on, or
+    // never stopped, the page starts it (or finds it running).
+    if (phone.stopped && !phone.view) stopped = true;
+    else void begin();
     // Asked after while the page is open: a public link whose cloudflared has ended is taken down, and said so.
     tick = setInterval(async () => {
       if (stopped) return;
@@ -90,6 +95,9 @@
    *  away or open the question under the wrong radio. */
   let choosing = 0;
   async function choose(next: 'local' | 'tailnet' | 'public') {
+    // Stopped, a choice starts it again, on that network: a choice made by hand.
+    if (stopped) await begin();
+    if (stopped) return;
     const mine = ++choosing;
     // A new choice starts afresh: the last one's failure is not left under it.
     failed = null;
@@ -141,6 +149,7 @@
   async function stop() {
     round++;
     busy = false;
+    keepStopped(true);
     await shell.phoneStop();
     setPhone(null);
     choosing++;
@@ -184,10 +193,11 @@
   <div class="scroll">
     <Scroller onswipeback={onback}>
       <div class="content" bind:this={body}>
-        <div class="reach" class:off={stopped} role="radiogroup" aria-label={t('手机在哪')} aria-disabled={stopped}>
+        <!-- Stopped, the choices stay, each a way to start it again on that network. -->
+        <div class="reach" role="radiogroup" aria-label={t('手机在哪')}>
           <span class="pill" style:width="calc({100 / choices.length}% - {4 / choices.length}px)" style:transform="translateX({chosenIndex * 100}%)"></span>
           {#each choices as choice (choice)}
-            <button class="choice pressable" class:chosen={reach === choice} role="radio" aria-checked={reach === choice} disabled={stopped}
+            <button class="choice pressable" class:chosen={reach === choice} role="radio" aria-checked={reach === choice}
               onclick={() => choose(choice)}>{choice === 'tailnet' ? 'Tailscale' : t(choice === 'local' ? '同一个网络' : '任何网络')}</button>
           {/each}
         </div>
@@ -202,7 +212,7 @@
             </div>
           </div>
           {#if failed}<p class="failed">{t(failed)}</p>
-          {:else}<p class="note">{t('原来的二维码和链接已失效。点“重新开始”生成新的二维码，手机再扫一次就能看。')}</p>{/if}
+          {:else}<p class="note">{t('原来的二维码和链接已失效。点“重新开始”或上面的网络，生成新的二维码，手机再扫一次就能看。')}</p>{/if}
           <div class="actions">
             <button class="action primary pressable" onclick={begin}>{t(failed ? '重试' : '重新开始')}</button>
           </div>
@@ -323,7 +333,6 @@
   .stopped-glyph { opacity: 0.7; margin-bottom: 4px; }
   .stopped-title { font-size: 14px; font-weight: 600; color: var(--label); padding: 0 12px; text-align: center; }
   .stopped-detail { font-size: 11px; line-height: 1.4; padding: 0 16px; text-align: center; }
-  .reach.off { opacity: 0.45; }
   .wait { font-size: 11.5px; color: var(--secondary); }
   .wait-detail { max-width: 240px; font-size: 10.5px; line-height: 1.4; color: var(--tertiary); text-align: center; text-wrap: balance; }
   .address {

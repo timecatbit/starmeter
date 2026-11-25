@@ -1355,8 +1355,9 @@ test('在手机上看: a code for the same network, a public link only after a y
   await expect(phone.getByRole('status')).toContainText('已停止');
   await expect(phone.locator('svg.qr')).toHaveCount(0);
   await expect(phone.locator('.address')).toHaveCount(0);
-  await expect(phone.locator('.note')).toHaveText(['原来的二维码和链接已失效。点“重新开始”生成新的二维码，手机再扫一次就能看。']);
-  await expect(page.getByRole('radio', { name: '任何网络' })).toBeDisabled();
+  await expect(phone.locator('.note')).toHaveText(['原来的二维码和链接已失效。点“重新开始”或上面的网络，生成新的二维码，手机再扫一次就能看。']);
+  // The choices stay, each a way to start it again (用户：停止之后三个页面全没了).
+  await expect(page.getByRole('radio', { name: '任何网络' })).toBeEnabled();
   await expect(button(page, '停止')).toHaveCount(0);
   await button(page, '重新开始').click();
   await expect(phone.locator('svg.qr')).toBeVisible();
@@ -1374,6 +1375,60 @@ const panelShell = `(async () => {
   const loaded = performance.getEntriesByType('resource').map((entry) => entry.name).filter((name) => name.includes('/src/lib/backend.ts'));
   return (await import(/* @vite-ignore */ loaded.at(-1) ?? '/src/lib/backend.ts')).shell;
 })()`;
+
+test('在手机上看: stopped, it stays stopped when the page is opened again, the app started again too, until started by hand; its choices stay', async ({ page }) => {
+  // 用户：点击停止之后……重新点进来自动就开了，不合理。停了要手动打开。
+  await open(page, '?tailnet');
+  await page.evaluate(async (source) => {
+    const shell = await eval(source);
+    const w = window as unknown as { starts: number };
+    w.starts = 0;
+    const start = shell.phoneStart;
+    shell.phoneStart = () => { w.starts++; return start(); };
+  }, panelShell);
+  const starts = () => page.evaluate(() => (window as unknown as { starts: number }).starts);
+  await button(page, '主页模块与设置').click();
+  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  const phone = page.locator('.phone-page');
+  // Never stopped: opening the page starts it.
+  await expect(phone.locator('svg.qr')).toBeVisible();
+  expect(await starts()).toBe(1);
+  await button(page, '停止').click();
+  await expect(phone.getByRole('status')).toContainText('已停止');
+  // The three choices stay, none disabled.
+  await expect(phone.getByRole('radio')).toHaveText(['同一个网络', 'Tailscale', '任何网络']);
+  for (const choice of await phone.getByRole('radio').all()) await expect(choice).toBeEnabled();
+  // Left and opened again: still stopped, nothing started.
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  await expect(phone.getByRole('status')).toContainText('已停止');
+  await expect(phone.locator('svg.qr')).toHaveCount(0);
+  await expect(phone.getByRole('radio')).toHaveText(['同一个网络', 'Tailscale', '任何网络']);
+  expect(await starts()).toBe(1);
+  // The app started again (the page loaded afresh): still stopped.
+  await page.reload();
+  await settled(page);
+  await page.evaluate(async (source) => {
+    const shell = await eval(source);
+    const w = window as unknown as { starts: number };
+    w.starts = 0;
+    const start = shell.phoneStart;
+    shell.phoneStart = () => { w.starts++; return start(); };
+  }, panelShell);
+  await button(page, '主页模块与设置').click();
+  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  await expect(phone.getByRole('status')).toContainText('已停止');
+  expect(await starts()).toBe(0);
+  // A choice, by hand, starts it on that network.
+  await page.getByRole('radio', { name: 'Tailscale' }).click();
+  await expect(phone.locator('.address')).toHaveText('http://100.76.55.73:51234/');
+  await expect(page.getByRole('radio', { name: 'Tailscale' })).toHaveAttribute('aria-checked', 'true');
+  expect(await starts()).toBe(1);
+  // Started by hand, it is no longer kept stopped: opened again, it is on.
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  await expect(phone.locator('svg.qr')).toBeVisible();
+});
 
 test('在手机上看: a public link still being made when 停止 is pressed leaves the next start alone (PHONE-3)', async ({ page }) => {
   await open(page);

@@ -239,7 +239,7 @@ export const phrases: Record<string, string> = {
   手机上的页面已断开: "The phone's page is disconnected",
   没能开启: "Couldn't start", '原因在下面，可以再试一次': 'See why below, then try again', 重试: 'Try again',
   '中国大陆部分地区打不开 Cloudflare 的链接。手机和电脑能连同一个 Wi-Fi 时，用“同一个网络”更稳。': 'In parts of mainland China, Cloudflare links don\'t open. When the phone can join the same Wi-Fi, Same network is more reliable.',
-  '原来的二维码和链接已失效。点“重新开始”生成新的二维码，手机再扫一次就能看。': 'The old code and link no longer open. Start again for a new code, and scan it once more.',
+  '原来的二维码和链接已失效。点“重新开始”或上面的网络，生成新的二维码，手机再扫一次就能看。': 'The old code and link no longer open. Start again, or pick a network above, for a new code, and scan it once more.',
   先打开手机查看: 'Turn on the phone view first', 手机查看已经关闭: 'The phone view was stopped',
   这台电脑的系统没有对应的: 'No cloudflared for this system', '连不上 GitHub，没能下载 cloudflared': 'Couldn\'t reach GitHub to download cloudflared',
   'GitHub 的发布信息读不懂': 'GitHub\'s release information couldn\'t be read', '最新发布里没有这台电脑用的 cloudflared': 'The latest release has no cloudflared for this computer',
