@@ -1404,6 +1404,99 @@ test('a tap on the sky sends stars out from there and a ring, pushing what float
   await expect.poll(async () => (await read()).frames).toBeGreaterThan(frames + 10);
 });
 
+test('a tap anywhere but a control answers: the figure hops, the curve lights up there, a running session\'s mark turns, a row or a pane sends stars over it; the controls only their own, a long press or a scroll nothing', async ({ page }) => {
+  const work = scripted();
+  await phone(page, PORTRAIT, '', { live: work.live });
+  work.at(9);
+  await expect(page.locator('.stage .activity .session')).toHaveCount(1, { timeout: 5000 });
+  await expect.poll(() => page.locator('.stage .feed li').count(), { timeout: 5000 }).toBeGreaterThan(0);
+  const drift = page.locator('.stage .sky canvas.drift');
+  const read = () => drift.evaluate((c) => ({ pokes: Number(c.dataset.pokes), tap: c.dataset.tap ?? '', overlay: c.dataset.overlay }));
+  /** A mouse click in the middle of the element, scrolled to first; the pokes after it. */
+  const click = async (selector: string, at?: { x: number; y: number }) => {
+    const target = page.locator(selector).first();
+    await target.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(150);
+    const box = (await target.boundingBox())!;
+    await page.mouse.click(box.x + (at?.x ?? box.width / 2), box.y + (at?.y ?? box.height / 2));
+  };
+  let pokes = (await read()).pokes;
+  const answered = async (kind: string) => {
+    pokes++;
+    await expect.poll(async () => (await read()).pokes).toBe(pokes);
+    expect((await read()).tap).toBe(kind);
+  };
+  // The big figure hops (its class while it does), and the stars are drawn over the page, not behind the panes.
+  await click('.stage .monitor .big');
+  await answered('hop');
+  await expect(page.locator('.stage .monitor .big.tapped')).toHaveCount(1);
+  await expect.poll(async () => (await read()).overlay).toBe('true');
+  // The live curve lights up where it was tapped.
+  await click('.stage .monitor .live-chart .plot');
+  await answered('beam');
+  // A running session's card, away from anything in it to press: its mark turns once.
+  await click('.stage .activity .session', { x: 200, y: 50 });
+  await answered('turn');
+  await expect(page.locator('.stage .activity .session.tapped')).toHaveCount(1);
+  // A row of 动态, a pane's words, the statistics' figures: stars, nothing of their own.
+  await click('.stage .feed li');
+  await expect.poll(async () => (await read()).pokes).toBe(++pokes);
+  await click('.stage .stats-head');
+  await expect.poll(async () => (await read()).pokes).toBe(++pokes);
+  await click('.stage .figure');
+  await expect.poll(async () => (await read()).pokes).toBe(++pokes);
+  // The controls take their taps, and the sky none: a choice, a card's head, the sun.
+  await page.getByRole('radio', { name: '模型' }).click();
+  await expect(page.getByRole('radio', { name: '模型' })).toHaveAttribute('aria-checked', 'true');
+  await click('.stage .card .head');
+  await expect(page.locator('.stage .card .head').first()).toHaveAttribute('aria-expanded', 'true');
+  await page.getByRole('button', { name: '保持亮屏' }).click();
+  await page.waitForTimeout(300);
+  expect((await read()).pokes).toBe(pokes);
+  // A long press (a word chosen) and a finger moved on (a scroll): no tap.
+  await page.locator('.stage .figure').first().scrollIntoViewIfNeeded();
+  await page.waitForTimeout(150);
+  const figure = (await page.locator('.stage .figure').first().boundingBox())!;
+  await page.mouse.move(figure.x + 10, figure.y + 10);
+  await page.mouse.down(); await page.waitForTimeout(900); await page.mouse.up();
+  await page.mouse.move(figure.x + 10, figure.y + 10);
+  await page.mouse.down(); await page.mouse.move(figure.x + 10, figure.y + 40, { steps: 4 }); await page.mouse.up();
+  await page.waitForTimeout(200);
+  expect((await read()).pokes).toBe(pokes);
+  // A finger too, on a pane.
+  await page.evaluate(([px, py]) => {
+    const target = document.elementFromPoint(px, py)!;
+    for (const kind of ['pointerdown', 'pointerup']) target.dispatchEvent(new PointerEvent(kind, { bubbles: true, isPrimary: true, pointerId: 9, pointerType: 'touch', clientX: px, clientY: py }));
+  }, [figure.x + 10, figure.y + 10]);
+  await expect.poll(async () => (await read()).pokes).toBe(++pokes);
+  // Taps coming fast on the panes: every frame still drawn in time.
+  await page.locator('.stage .monitor').scrollIntoViewIfNeeded();
+  await page.waitForTimeout(150);
+  const box = (await page.locator('.stage .monitor').boundingBox())!;
+  const frames = page.evaluate(() => new Promise<number[]>((resolve) => {
+    const times: number[] = [];
+    const step = (time: number) => { times.push(time); if (times.length < 120) requestAnimationFrame(step); else resolve(times); };
+    requestAnimationFrame(step);
+  }));
+  for (let i = 0; i < 12; i++) await page.mouse.click(box.x + 40 + i * 20, box.y + 60);
+  const times = await frames;
+  const gaps = times.slice(1).map((time, i) => time - times[i]).sort((x, y) => x - y);
+  expect(gaps[Math.floor(gaps.length / 2)], 'the middle frame').toBeLessThan(20);
+});
+
+test('with reduced motion a tap on a pane does nothing to it either', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const work = scripted();
+  await phone(page, PORTRAIT, '', { live: work.live });
+  work.at(9);
+  await expect(page.locator('.stage .monitor .big')).toBeVisible();
+  const box = (await page.locator('.stage .monitor .big').boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await page.waitForTimeout(300);
+  expect(await page.locator('.stage .sky canvas.drift').evaluate((c) => Number(c.dataset.pokes))).toBe(0);
+  await expect(page.locator('.stage .tapped')).toHaveCount(0);
+});
+
 test('with reduced motion a tap on the sky does nothing to it', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await phone(page, PORTRAIT, '', { live: resting() });

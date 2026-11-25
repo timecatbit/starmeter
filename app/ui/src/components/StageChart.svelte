@@ -95,7 +95,7 @@
   const bubbleLeft = $derived(picked ? Math.min(Math.max(0, picked.x - 70), Math.max(0, width - 140)) : 0);
 </script>
 
-<div class="chart" bind:this={box} style:height="{height}px" role="img" aria-label={t('用量趋势图')}
+<div class="chart" bind:this={box} style:height="{height}px" role="img" aria-label={t('用量趋势图')} data-tap="beam"
   onpointerdown={down} onpointermove={move} onpointerup={up} onpointercancel={up} onpointerleave={up}>
   {#if width > 0}
     <svg {width} {height} aria-hidden="true">

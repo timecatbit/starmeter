@@ -77,10 +77,10 @@
     {#key working}
       <div class="figure-block" class:enter={!panel.reduceMotion && live.woke > 0}>
         {#if working}
-          <span class="big num" class:unknown={rate === null} data-figure="rate"><StageNumber value={rate === null ? '—' : rateText(rate)} count={intro} /></span>
+          <span class="big num" class:unknown={rate === null} data-figure="rate" data-tap="hop"><StageNumber value={rate === null ? '—' : rateText(rate)} count={intro} /></span>
           <span class="unit">{t('输出 Token/s')}{#if rate === null}<span class="reading">· {t('正在读取…')}</span>{/if}</span>
         {:else}
-          <span class="big num" data-figure="today"><StageNumber value={amount} count={intro} /></span>
+          <span class="big num" data-figure="today" data-tap="hop"><StageNumber value={amount} count={intro} /></span>
           <span class="unit">{ofToday ? t('今天 · API 估算') : t('{range} · API 估算', { range: rangeWord })}</span>
         {/if}
       </div>
@@ -148,6 +148,9 @@
   .unit { font-size: 12px; color: var(--ink-2); margin-top: 2px; }
   /* No speed to say yet (a page just opened): a quiet dash, not a figure. */
   .big.unknown, :global(.light) .working .big.unknown { color: var(--ink-3); filter: none; }
+  /* Tapped (StageDrift): a little hop. */
+  .big:global(.tapped) { transform-origin: 0 100%; animation: hop 0.42s cubic-bezier(0.3, 1.5, 0.5, 1); }
+  @keyframes hop { 40% { transform: translateY(-5px) scale(1.04); } }
   /* A dash, not a bar: half the headline's size on the headline's line (nothing moves when the speed comes). */
   .big.unknown :global(.number) { font-size: 0.5em; }
   .reading { margin-left: 0.4em; color: var(--ink-3); }

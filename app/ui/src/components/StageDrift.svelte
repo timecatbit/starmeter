@@ -17,10 +17,13 @@
   import type { PhoneLive } from '../lib/phoneLive.svelte';
 
   type Look = 'light' | 'dark' | 'sketch-light' | 'sketch-dark';
-  let { live, look, still = false, asleep = false, burst = 0 }: {
+  let { live, look, still = false, asleep = false, burst = 0, overlay }: {
     live: PhoneLive; look: Look; still?: boolean; asleep?: boolean;
     /** A turn done (its moment): a small burst under the banner, once each. */
     burst?: number;
+    /** Over the page (PhoneStage places it, above the panes, letting every touch through): a tap's stars, its ring and
+     *  the light on a curve are drawn there, so a tap on a card or the figures shows over them, not behind. */
+    overlay?: HTMLCanvasElement;
   } = $props();
 
   let canvas: HTMLCanvasElement | undefined = $state();
@@ -174,11 +177,18 @@
     twinkle: number; turn: number; spin: number; shown: number; mark: string; pen: number;
     /** Pushed by a tap: how far off its course, and how fast it is moving there; and a star's glint by the mouse. */
     ox: number; oy: number; vx: number; vy: number; glint: number }
-  interface Spark { x: number; y: number; vx: number; vy: number; born: number; life: number; size: number; pen: number; turn: number; spin: number }
+  interface Spark { x: number; y: number; vx: number; vy: number; born: number; life: number; size: number; pen: number; turn: number; spin: number;
+    /** A tap's, on the overlay over the page; a turn's, in the sky. */
+    top: boolean }
   interface Ripple { x: number; y: number; born: number }
+  /** A tap on a curve: a light up it there, from the plot's top to its foot, fading. */
+  interface Beam { x: number; top: number; bottom: number; born: number }
   let things: Thing[] = [];
   let sparks: Spark[] = [];
   let ripples: Ripple[] = [];
+  let beams: Beam[] = [];
+  /** Something was drawn on the overlay last frame (it is cleared once when it is over). */
+  let overlayDrawn = false;
   let current: Mark[] = [{ key: 'starmeter' }];
   /** How busy the sky is, 0 (resting) to 1 (writing fast), eased towards the work's own. */
   let energy = 0.1;
@@ -211,6 +221,7 @@
     const next = Math.min(2, window.devicePixelRatio || 1);
     if (next !== ratio) { ratio = next; clearSprites(); }
     canvas.width = Math.round(width * ratio); canvas.height = Math.round(height * ratio);
+    if (overlay) { overlay.width = canvas.width; overlay.height = canvas.height; overlayDrawn = false; }
     const stars = things.filter((t) => t.kind === 'star'), logos = things.filter((t) => t.kind === 'logo');
     while (stars.length < starsFor()) stars.push(thing('star', true));
     while (logos.length < logosFor()) logos.push(thing('logo', true));
@@ -306,17 +317,43 @@
           drawn.push(t.mark === 'starmeter' ? 'starmeter' : 'tool');
       }
     }
-    // Bursts (a turn done, a tap): stars out, slowing and fading; a tap's faint ring spreading.
+    // Bursts (a turn done in the sky; a tap's over the page): stars out, slowing and fading; a tap's faint ring
+    // spreading, and on a curve a light up it.
     sparks = sparks.filter((s) => now - s.born < s.life);
+    ripples = ripples.filter((r) => now - r.born < 0.9);
+    beams = beams.filter((b) => now - b.born < 0.7);
+    const top = overlay?.getContext('2d') ?? null;
+    if (top && (overlayDrawn || sparks.some((s) => s.top) || ripples.length || beams.length)) {
+      top.setTransform(1, 0, 0, 1, 0, 0);
+      top.clearRect(0, 0, overlay!.width, overlay!.height);
+      overlayDrawn = false;
+    }
     for (const s of sparks) {
       const age = now - s.born, slow = Math.exp(-age * 2.4), left = 1 - age / s.life;
       s.x += s.vx * slow * dt; s.y += s.vy * slow * dt + 6 * dt; s.turn += s.spin * dt;
-      stamp(ctx, starSprite(burstInk(s.pen), s.pen % 3), s.x, s.y, s.turn, (s.size / POINT) * STAR, Math.min(1, STARS[look] * 1.5) * left * left);
+      const on = s.top && top ? top : ctx;
+      // Over the panes a little stronger than in the sky, to be seen on them.
+      const strength = Math.min(1, STARS[look] * (on === ctx ? 1.5 : 2.4));
+      if (stamp(on, starSprite(burstInk(s.pen), s.pen % 3), s.x, s.y, s.turn, (s.size / POINT) * STAR, strength * left * left) && on !== ctx) overlayDrawn = true;
     }
-    ripples = ripples.filter((r) => now - r.born < 0.9);
     for (const r of ripples) {
       const k = (now - r.born) / 0.9;
-      stamp(ctx, ringSprite(), r.x, r.y, 0, 12 + 110 * (1 - Math.pow(1 - k, 3)), (sketchy() ? 0.5 : 0.4) * (1 - k));
+      if (stamp(top ?? ctx, ringSprite(), r.x, r.y, 0, 12 + 110 * (1 - Math.pow(1 - k, 3)), (sketchy() ? 0.55 : 0.45) * (1 - k)) && top) overlayDrawn = true;
+    }
+    if (top) {
+      for (const b of beams) {
+        const k = (now - b.born) / 0.7, ink = pens()?.[0] ?? INK[look];
+        top.setTransform(ratio, 0, 0, ratio, 0, 0);
+        top.globalAlpha = 1;
+        const light = top.createLinearGradient(0, b.top, 0, b.bottom);
+        light.addColorStop(0, `rgba(${ink}, 0)`); light.addColorStop(0.5, `rgba(${ink}, ${0.5 * (1 - k)})`); light.addColorStop(1, `rgba(${ink}, 0)`);
+        top.fillStyle = light;
+        const w = 1.5 + 10 * k;
+        top.fillRect(b.x - w / 2, b.top, w, b.bottom - b.top);
+        overlayDrawn = true;
+      }
+      top.setTransform(1, 0, 0, 1, 0, 0);
+      top.globalAlpha = 1;
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = 1;
@@ -328,6 +365,8 @@
     d.bursts = String(sparks.length);
     d.ripples = String(ripples.length);
     d.pokes = String(pokes);
+    d.tap = lastTap;
+    d.overlay = String(overlayDrawn);
     // A logo halfway deep: how fast it rises now, points a second.
     d.rise = ((RISE.logo[0] + RISE.logo[1] / 2) * pace).toFixed(1);
     d.pushed = pushed.toFixed(1);
@@ -346,37 +385,59 @@
     frame = requestAnimationFrame(tick);
   }
 
-  /** Stars out from (x, y): a turn's burst, or a tap's. */
-  function scatter(x: number, y: number, count: number, speed: [number, number], squash: number) {
+  /** Stars out from (x, y): a turn's burst (in the sky), or a tap's (`top`: over the page). */
+  function scatter(x: number, y: number, count: number, speed: [number, number], squash: number, top = false) {
     const now = performance.now() / 1000;
     for (let i = 0; i < count; i++) {
       const a = (i / count) * Math.PI * 2 + random(-0.2, 0.2), v = random(...speed);
       sparks.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v * squash, born: now, life: random(0.9, 1.5), size: random(1.8, 3.6),
-        pen: i % 4, turn: random(0, 6), spin: random(-3, 3) });
+        pen: i % 4, turn: random(0, 6), spin: random(-3, 3), top });
     }
     if (sparks.length > SPARKS) sparks = sparks.slice(sparks.length - SPARKS);
   }
 
   // MARK: Touch
 
-  /** What a tap goes to instead: a control, or a pane (its own taps, or none). */
-  const OWNED = ['button', 'a', 'input', 'select', 'textarea', 'label', 'summary', '[tabindex]:not([tabindex="-1"])',
-    ...['button', 'radio', 'radiogroup', 'tab', 'link', 'switch', 'checkbox', 'menuitem', 'option', 'slider', 'status'].map((role) => `[role="${role}"]`),
-    '.card', '.session', '.plan', '.tile', '.feed', '.panel', '.monitor', '.figure', '.trend', '.turn-done', '.bar', '.foot', '.live-chart'].join(', ');
+  /** What does its own thing with a tap, and nothing more: the controls (a card's or a session's head that opens it,
+   *  the choices, the buttons and links). Everything else is the sky's to answer: the sky itself, a pane's blank and its
+   *  words, the figures, the curves, a running session's card, 动态's rows (the user: 鼠标能点击的地方好少，只有空白处). */
+  const OWNED = ['button', 'a', 'input', 'select', 'textarea', 'label', 'summary', '[contenteditable]', '[tabindex]:not([tabindex="-1"])',
+    ...['button', 'radio', 'radiogroup', 'tab', 'link', 'switch', 'checkbox', 'menuitem', 'option', 'slider'].map((role) => `[role="${role}"]`)].join(', ');
   let press: { id: number; x: number; y: number; at: number } | null = null;
   function onSky(target: EventTarget | null) {
     const element = target instanceof Element ? target : null;
     return !!element && !!canvas && !!element.closest('.stage') && !element.closest(OWNED);
   }
-  /** A tap on the sky at (x, y) on the screen: a little burst there, a faint ring, the logos near it pushed away. */
-  function poke(clientX: number, clientY: number) {
+  /** Played once again on an element (its CSS answers `.tapped`): the class off, a reflow, on, off when it is over. */
+  function replay(element: Element) {
+    element.classList.remove('tapped');
+    void (element as HTMLElement).offsetWidth;
+    element.classList.add('tapped');
+    const off = () => element.classList.remove('tapped');
+    element.addEventListener('animationend', off, { once: true });
+    setTimeout(off, 1200);
+  }
+  /** A tap at (x, y) on the screen: a little burst there over the page, a faint ring, the logos near it pushed away; and
+   *  where the tap fell says a little more of itself (`data-tap`): the big figure hops, a curve lights up where it was
+   *  tapped, a running session's mark turns once. */
+  function poke(clientX: number, clientY: number, target: Element | null = null) {
     if (!canvas || still) return;
     const box = canvas.getBoundingClientRect();
     const x = clientX - box.left, y = clientY - box.top;
     pokes++;
-    scatter(x, y, 12, [50, 130], 1);
+    scatter(x, y, 12, [50, 130], 1, !!overlay);
     ripples.push({ x, y, born: performance.now() / 1000 });
     if (ripples.length > 6) ripples.shift();
+    const own = target?.closest<HTMLElement>('[data-tap]');
+    if (own) {
+      const kind = own.dataset.tap;
+      if (kind === 'beam') {
+        const plot = own.getBoundingClientRect();
+        beams.push({ x, top: plot.top - box.top, bottom: plot.bottom - box.top, born: performance.now() / 1000 });
+        if (beams.length > 4) beams.shift();
+      } else replay(own);
+      lastTap = kind ?? '';
+    }
     for (const t of things) {
       const dx = t.x + t.ox - x, dy = t.y + t.oy - y, d = Math.hypot(dx, dy), reach = t.kind === 'logo' ? 160 : 110;
       if (d >= reach || d < 0.5) continue;
@@ -385,6 +446,8 @@
     }
     queue();
   }
+  /** The kind of the last tap's own answer, for the tests. */
+  let lastTap = '';
   function down(event: PointerEvent) {
     // The main button only: a right-click (its menu) or a middle one is no tap on the sky.
     if (still || !event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0) || !onSky(event.target)) { press = null; return; }
@@ -393,9 +456,11 @@
   function up(event: PointerEvent) {
     const p = press;
     press = null;
-    // A tap, not a scroll or a drag: let go where it went down, soon.
+    // A tap, not a scroll or a drag: let go where it went down, soon (a long press selects words, and is no tap); and no
+    // words left selected by it.
     if (!p || p.id !== event.pointerId || Math.hypot(event.clientX - p.x, event.clientY - p.y) > 10 || performance.now() - p.at > 700) return;
-    poke(event.clientX, event.clientY);
+    if ((window.getSelection()?.toString() ?? '').trim()) return;
+    poke(event.clientX, event.clientY, event.target instanceof Element ? event.target : null);
   }
   function move(event: PointerEvent) {
     if (event.pointerType !== 'mouse' || still || !canvas) { pointer = null; return; }
@@ -431,7 +496,7 @@
     void asleep; void still; void look;
     untrack(() => {
       last = 0;
-      if (still) { cancelAnimationFrame(frame); running = false; energy = 0.1; sparks = []; ripples = []; requestAnimationFrame((time) => tick(time)); }
+      if (still) { cancelAnimationFrame(frame); running = false; energy = 0.1; sparks = []; ripples = []; beams = []; requestAnimationFrame((time) => tick(time)); }
       else if (asleep) { cancelAnimationFrame(frame); running = false; }
       else queue();
     });
@@ -449,6 +514,8 @@
       if (still && canvas) requestAnimationFrame((time) => tick(time));
     });
   });
+  // The overlay placed: as large as the sky.
+  $effect(() => { void overlay; untrack(() => size()); });
   // The look changed: the pictures drawn again in its way.
   $effect(() => { void look; untrack(() => clearSprites()); });
   let burstSeen = 0;

@@ -31,7 +31,7 @@
   {#if running.length}
     <div class="sessions">
       {#each running as s (s.key)}
-        <div class="session" in:fly={{ y: 10, duration: motion(400) }}>
+        <div class="session" in:fly={{ y: 10, duration: motion(400) }} data-tap="turn">
           <div class="top">
             <span class="mark"><span class="orbit" aria-hidden="true"></span><Glyph image={s.image} template={s.template} symbol={s.symbol ?? 'terminal'} size={17} {tint} /></span>
             <span class="title">{s.title}</span>
@@ -115,6 +115,9 @@
   :global(.asleep) .session::after { animation-play-state: paused; }
   :global(.still) .session::after { animation: none; opacity: 0; }
   .top { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  /* Tapped (StageDrift): its mark turns once. */
+  .session:global(.tapped) .mark { animation: turn-once 0.8s cubic-bezier(0.3, 0.7, 0.2, 1); }
+  @keyframes turn-once { to { transform: rotate(360deg); } }
   .mark { position: relative; flex: none; width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--glass-strong); }
   /* Turning while the session works: an arc of light round its mark. */
   .orbit {

@@ -273,7 +273,7 @@
       {#each named as n (n.id)}<li class:idle={n.idle}><span class="swatch" style:background={toolColour(n.id, panel.dark)}></span>{n.name}</li>{/each}
     </ul>
   {/if}
-  <div class="plot" role="img" aria-label={t('实时用量图')}>
+  <div class="plot" role="img" aria-label={t('实时用量图')} data-tap="beam">
     <canvas bind:this={canvas} style:width="{width}px" style:height="{plotHeight}px"></canvas>
     <span class="tip" class:still={panel.reduceMotion} bind:this={tip} aria-hidden="true"></span>
   </div>

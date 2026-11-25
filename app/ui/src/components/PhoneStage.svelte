@@ -126,6 +126,8 @@
   // The browser's bars take the sky's own edges (its top band and its foot are flat for them), in the computer's theme,
   // look and background.
   let stageBox: HTMLDivElement | undefined = $state();
+  /** Over the page: where a tap's stars and the light on a curve are drawn (StageDrift), over the panes. */
+  let tapLayer: HTMLCanvasElement | undefined = $state();
   const sketch = $derived(style.current === 'sketch');
   const driftLook = $derived(sketch ? (panel.dark ? 'sketch-dark' : 'sketch-light') : panel.dark ? 'dark' : 'light');
   const pane = $derived(material === 'frosted' || material === 'glass' ? material : 'solid');
@@ -370,7 +372,7 @@
       {/each}
     </div>
     <!-- Things floating in the sky, more and faster as the models write (StageDrift.svelte). -->
-    <StageDrift {live} look={driftLook} still={panel.reduceMotion} {asleep} burst={live.done && doneShown === live.done.at ? live.done.at : 0} />
+    <StageDrift {live} look={driftLook} still={panel.reduceMotion} {asleep} burst={live.done && doneShown === live.done.at ? live.done.at : 0} overlay={tapLayer} />
   </div>
   <!-- What is fixed at the screen's edges, in the edges' colour: Safari 26 tints its bars from it. -->
   <div class="edge top" aria-hidden="true"></div>
@@ -437,7 +439,7 @@
                   <span>{partial ? t('已知 API 估算') : t('API 估算')}</span>
                   {#if data.devices}<span class="devices">{t('含 {n} 台电脑', { n: data.devices + 1 })}</span>{/if}
                 </div>
-                <div class="amount"><StageNumber value={amount} count={intro} /></div>
+                <div class="amount" data-tap="hop"><StageNumber value={amount} count={intro} /></div>
                 <div class="figures">
                   {#each figures as figure, i (i)}
                     <div class="figure" style:--order={i}>
@@ -529,6 +531,8 @@
       </section>
     </div>
   </div>
+  <!-- A tap's stars and ring, over everything and in the way of nothing (StageDrift draws them). -->
+  <canvas class="taps" bind:this={tapLayer} aria-hidden="true"></canvas>
 </div>
 
 <style>
@@ -615,6 +619,7 @@
     -webkit-mask-image: linear-gradient(180deg, transparent 0, transparent 40px, #000 150px, #000 calc(100% - 160px), transparent calc(100% - 60px));
   }
   .edge { position: absolute; left: 0; right: 0; z-index: 6; pointer-events: none; }
+  .taps { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 35; pointer-events: none; }
   .edge.top { top: 0; height: max(1px, env(safe-area-inset-top)); background: var(--edge-top); }
   .edge.bottom { bottom: 0; height: max(1px, env(safe-area-inset-bottom)); background: var(--edge-bottom); }
   .aurora {
@@ -907,6 +912,9 @@
   .range { color: var(--ink); font-weight: 600; }
   .sep { opacity: 0.5; }
   .devices { padding: 1px 8px; border-radius: 999px; font-size: 11px; background: var(--glass-strong); }
+  /* Tapped (StageDrift): a little hop, as the monitor's figure does. */
+  .amount:global(.tapped) { transform-origin: 0 100%; animation: hop 0.42s cubic-bezier(0.3, 1.5, 0.5, 1); }
+  @keyframes hop { 40% { transform: translateY(-4px) scale(1.035); } }
   .amount {
     margin: 2px 0 0 -1px;
     font-family: var(--rounded);
