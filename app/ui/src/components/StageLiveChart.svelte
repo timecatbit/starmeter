@@ -1,17 +1,18 @@
 <script lang="ts">
-  // 网页版's live curve: how fast the models are writing (output tokens a second over the last minute, as the pinned
-  // panel's Token/s reads it) over the last five minutes, flowing left as time runs: the total's glowing line, and each
-  // tool's own line in its colour (as the pinned panel draws them), a tool writing nothing lying along the bottom under
-  // the total's line, the ones writing over it; their ends step aside, and a tool ending where the total does is the
-  // total's dot. Named in a legend over it. Each request that lands drops in from above onto the curve's end, ripples there, and
-  // says what it added (+12.3K) as it rises and fades: the AI's work arriving, one request at a time. Reduced motion:
-  // drawn again at each reading, nothing falling or flowing.
+  // 网页版's live curve: how fast the models are writing (output tokens a second, the last minute's eased as the pinned
+  // panel's Token/s is: LiveFeed.smoothRates) over the last five minutes, flowing left as time runs, in the live line's
+  // one look (liveLines.ts): the total the line the eye follows, a soft area under it and its end a dot whose halo
+  // breathes; each tool thin in its colour where it writes; one writing alone is the total (no second line on it).
+  // Named in a legend over it. The plot is the monitor's whole width: the end's halo in its own room at the right,
+  // 现在 under it at the edge. Each request that lands drops in from above onto the end, ripples there, and says what
+  // it added (+12.3K) as it rises and fades. Reduced motion: drawn again at each reading, nothing falling or flowing.
   import { onDestroy, untrack } from 'svelte';
-  import { monotoneCurve, tracePath } from '../lib/chart';
+  import { monotoneCurve, tracePath, type Point } from '../lib/chart';
   import { alpha, summaryColour, toolColour } from '../lib/colors';
   import { style } from '../lib/style.svelte';
   import { t } from '../lib/i18n.svelte';
   import { nice, rateText } from '../lib/live';
+  import { drawLines, gridLine, LINE } from '../lib/liveLines';
   import { LIVE_SPAN, type PhoneLive } from '../lib/phoneLive.svelte';
   import { legendName, tokens } from '../lib/format';
   import { panel } from '../lib/ui.svelte';
@@ -28,6 +29,8 @@
 
   let box: HTMLDivElement | undefined = $state();
   let canvas: HTMLCanvasElement | undefined = $state();
+  /** The total's halo, breathing on the page (a CSS animation, not a canvas drawn every frame). */
+  let tip: HTMLSpanElement | undefined = $state();
   let width = $state(0);
   $effect(() => {
     if (!box) return;
@@ -37,11 +40,15 @@
     return () => observer.disconnect();
   });
 
-  /** The curve's points, worked out at each reading (not each frame): each tool's rate at each sample's moment. */
-  type Point = { at: number; rates: number[] };
+  /** The curve worked out at each reading (not each frame): the total's rate and each tool's, a point a second. */
   let ids: string[] = [];
-  let points: Point[] = [];
-  let top = 2000;
+  let times: number[] = [];
+  let totals: number[] = [];
+  let rates: number[][] = [];
+  let top = 4;
+  /** When the last reading was, and how many seconds past it the curve is worked out. */
+  let readingAt = 0;
+  const AHEAD = 4;
   type Drop = { id: string; tokens: number; born: number };
   let drops: Drop[] = [];
   /** As a request lands, a few sparks rise off the curve's end and fade. */
@@ -53,20 +60,30 @@
   $effect(() => {
     void live.version;
     untrack(() => {
-      const samples = live.feed.samples, now = Date.now();
+      const feed = live.feed, samples = feed.samples, now = Date.now();
       const seen = new Set<string>();
       for (const s of samples) for (const id of Object.keys(s.outputs ?? {})) seen.add(id);
-      // The busiest first (the legend in that order; drawn last, over the others).
+      // The busiest first (the legend in that order).
       const last = samples.at(-1);
       ids = [...seen].sort((a, b) => (last?.outputs?.[b] ?? 0) - (last?.outputs?.[a] ?? 0));
-      points = samples.filter((s) => now - s.at <= LIVE_SPAN + 5000).map((s) => ({ at: s.at, rates: ids.map((id) => live.feed.rateAt(s.at, id) ?? 0) }));
-      // Named in the legend; a tool that wrote nothing in these minutes quieter there (its line along the bottom).
+      // A point a second from the first reading (or five minutes back) to the last, and on a few seconds past it as
+      // the rate eases with nothing new (the curve runs on to now between readings, not flat for the last two).
+      times = [];
+      readingAt = last?.at ?? 0;
+      if (samples.length) {
+        const from = Math.max(samples[0].at, last!.at - LIVE_SPAN - 5000);
+        for (let at = last!.at; at >= from; at -= 1000) times.unshift(at);
+        for (let k = 1; k <= AHEAD; k++) times.push(last!.at + k * 1000);
+      }
+      totals = feed.smoothRates(times);
+      rates = ids.map((id) => feed.smoothRates(times, id));
+      // Named in the legend; a tool that wrote nothing in these minutes quieter there (and barely there on the curve).
       const names = new Map((live.dashboard?.providers ?? []).map((p) => [p.id, legendName(p)]));
-      const next = ids.map((id, k) => ({ id, name: names.get(id) ?? id, idle: points.every((p) => p.rates[k] <= 0) }));
+      const next = ids.map((id, k) => ({ id, name: names.get(id) ?? id, idle: rates[k].every((r) => r <= 0.05) }));
       const key = (list: typeof named) => list.map((n) => `${n.id}${n.name}${n.idle}`).join();
       if (key(next) !== key(named)) named = next;
-      highest = Math.max(0, ...points.map((p) => p.rates.reduce((a, b) => a + b, 0)));
-      top = nice(Math.max(4, highest * 1.18));
+      highest = Math.max(0, ...totals.slice(0, totals.length - AHEAD));
+      top = nice(Math.max(4, highest * LINE.headroom));
       for (const landing of live.landings) {
         drops.push({ id: landing.id, tokens: landing.tokens, born: now });
         for (let i = 0; i < 4; i++) sparks.push({ id: landing.id, born: now + DROP, dx: (Math.random() - 0.5) * 26, rise: 18 + Math.random() * 22, size: 1.2 + Math.random() * 0.9 });
@@ -78,13 +95,13 @@
     });
   });
 
-  // The scale eases down to a new top instead of jumping; up, never behind what is drawn (the line's end, its dot and its
-  // glow ran past the canvas's top while the scale caught up with a burst).
-  let shownTop = 2000;
+  // The scale eases to a new top (a third of a second, up or down) instead of jumping; never under what is drawn.
+  let shownTop = 4;
   /** The highest the line reaches now. */
   let highest = 0;
   let frame = 0;
   let running = false;
+  let lastDrawn = 0;
   /** The next drawing while nothing on the curve moves but its flow left (a timer, not every frame). */
   let later: ReturnType<typeof setTimeout> | undefined;
   /** How many times drawn (for the tests: every frame only while something moves). */
@@ -122,119 +139,77 @@
     const ctx = canvas.getContext('2d')!;
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     ctx.clearRect(0, 0, W, H);
-    const now = Date.now(), still = panel.reduceMotion;
-    shownTop = still ? top : Math.max(highest * 1.04, shownTop + (top - shownTop) * 0.12);
+    const now = Date.now(), still = panel.reduceMotion, dt = lastDrawn ? Math.min(250, now - lastDrawn) : 1000;
+    lastDrawn = now;
+    shownTop = still ? top : Math.max(highest * 1.04, shownTop + (top - shownTop) * (1 - Math.exp(-dt / 120)));
     if (Math.abs(top - shownTop) < top * 0.002) shownTop = top;
-    const padTop = 18, padBottom = 20, right = W - 30, plotH = H - padTop - padBottom, base = padTop + plotH;
+    // The plot the whole width: the end's halo (8) and a reading's ripple in LINE.end at the right; the top's rate written
+    // over its grid line inside, the times under the bottom.
+    const padTop = 16, padBottom = 18, right = W - LINE.end, plotH = H - padTop - padBottom, base = padTop + plotH;
     // The right edge is now; a reading is placed at its moment, so the curve flows left between readings.
-    const end = still ? (points.at(-1)?.at ?? now) : now;
+    const end = still ? readingAt || now : now;
     // A minute at first, widening to five as the readings come in: the curve fills the width from the start.
     const first = live.feed.samples[0]?.at ?? end;
     const span = Math.min(LIVE_SPAN, Math.max(60_000, end - first + 15_000));
     const x = (at: number) => right - ((end - at) / span) * right;
-    // Within the plot whatever comes: the end's dot (3.5) and the line's glow (12) stay inside the canvas, with padTop and
-    // padBottom over and under it and 30 to its right.
     const y = (v: number) => Math.min(base, Math.max(padTop, base - (v / shownTop) * plotH));
     const sketch = style.current === 'sketch';
     const ink = (amount: number) => alpha(faces.ink, amount);
 
-    // Marks: a faint line at half and at the top, the top's rate written above it.
-    ctx.lineWidth = 1;
-    ctx.setLineDash([2, 4]);
-    ctx.strokeStyle = ink(0.1);
-    for (const f of [0.5, 1]) { ctx.beginPath(); ctx.moveTo(0, y(shownTop * f)); ctx.lineTo(right, y(shownTop * f)); ctx.stroke(); }
-    ctx.setLineDash([]);
-    ctx.strokeStyle = ink(0.2);
+    // The grid: dotted at half and at the top, the bottom a faint rule.
+    for (const f of [0.5, 1]) gridLine(ctx, y(shownTop * f), 0, right, faces.ink);
+    ctx.strokeStyle = ink(0.16); ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(0, base + 0.5); ctx.lineTo(right, base + 0.5); ctx.stroke();
-    ctx.fillStyle = ink(0.45);
-    ctx.font = `10px ${faces.text}`;
+    ctx.fillStyle = ink(0.42);
+    ctx.font = `9.5px ${faces.text}`;
     ctx.textBaseline = 'alphabetic';
     ctx.textAlign = 'left';
-    // The top's rate, once there is a speed to scale (a page just opened has none: no "4 Token/s" over nothing).
-    if (live.ready()) ctx.fillText(`${rateText(shownTop)} Token/s`, 2, padTop - 6);
+    // The top's rate over its line, once there is a speed to scale (a page just opened has none: no "4 Token/s" over
+    // nothing).
+    if (live.ready()) ctx.fillText(`${rateText(shownTop)} Token/s`, 0, y(shownTop) - 4);
     const ago = Math.round(span / 60_000);
-    ctx.fillText(t('{n} 分钟前', { n: ago }), 2, H - 4);
+    ctx.fillText(t('{n} 分钟前', { n: ago }), 0, H - 3);
     ctx.textAlign = 'right';
-    ctx.fillText(t('现在'), right, H - 4);
+    ctx.fillText(t('现在'), W, H - 3);
 
-    // The lines run on to now at their last height.
-    const shown = points.filter((p) => x(p.at) >= -40);
-    const ends: Record<string, number> = {};
-    const under: string[] = [];
-    if (shown.length) {
-      const tail = { at: end, rates: shown.at(-1)!.rates };
-      const line = [...shown, tail];
-      const totals = line.map((p) => p.rates.reduce((a, b) => a + b, 0));
-      const values = ids.map((_, k) => line.map((p) => p.rates[k] ?? 0));
-      const path = (of: number[]) => {
-        // A smooth curve through the readings that goes no further than them (never under zero, no peak not read).
-        const xy = line.map((p, i) => [x(p.at), y(of[i] ?? 0)] as [number, number]);
-        tracePath(ctx, monotoneCurve(xy));
-        return xy;
+    // The lines up to now, the last point between the two seconds either side of it.
+    const shownAt = times.map((at, i) => [at, i] as const).filter(([at]) => x(at) >= -40 && at <= end);
+    let drawn: ReturnType<typeof drawLines> | null = null;
+    if (shownAt.length) {
+      const [lastAt, lastIndex] = shownAt.at(-1)!, after = times[lastIndex + 1];
+      // Past the seconds worked out (nothing read for a while): on flat.
+      const f = after !== undefined && after > lastAt ? Math.min(1, (end - lastAt) / (after - lastAt)) : 0;
+      const line = (of: number[]): Point[] => {
+        const points = shownAt.map(([at, i]): Point => [x(at), y(of[i] ?? 0)]);
+        if (end > lastAt) points.push([x(end), y((of[lastIndex] ?? 0) + ((of[lastIndex + 1] ?? of[lastIndex] ?? 0) - (of[lastIndex] ?? 0)) * f)]);
+        return points;
       };
       const total = sketch ? summaryColour(panel.dark) : panel.dark ? 'rgba(240, 245, 255, 0.95)' : 'rgba(14, 29, 76, 0.85)';
-      // Under the total's line, a faint glow of it down to zero.
-      ctx.beginPath();
-      const area = path(totals);
-      ctx.lineTo(area[area.length - 1][0], base);
-      ctx.lineTo(area[0][0], base);
-      ctx.closePath();
-      const fill = ctx.createLinearGradient(0, padTop, 0, base);
-      fill.addColorStop(0, alpha(summaryColour(panel.dark), sketch ? 0.14 : panel.dark ? 0.3 : 0.2));
-      fill.addColorStop(1, alpha(summaryColour(panel.dark), 0));
-      ctx.fillStyle = fill;
-      ctx.fill();
       // 手绘: a line drawn twice by the hand, the second a touch off and lighter (as the panel's strokes are), here in the
       // drawing itself: the wobble filter over a canvas drawn again and again would be worked out each time.
-      const again = (xy: [number, number][]) => {
-        if (!sketch) return;
+      const again = sketch ? (points: Point[]) => {
         ctx.save();
         ctx.globalAlpha *= 0.45; ctx.lineWidth *= 0.8;
-        ctx.beginPath(); tracePath(ctx, monotoneCurve(xy.map(([px, py]) => [px + 0.8, Math.min(base, py + 0.7)]))); ctx.stroke();
+        ctx.beginPath(); tracePath(ctx, monotoneCurve(points.map(([px, py]) => [px + 0.8, Math.min(base, py + 0.7)]))); ctx.stroke();
         ctx.restore();
-      };
-      const toolLine = (k: number) => {
-        ctx.beginPath();
-        const xy = path(values[k]);
-        ctx.lineWidth = 1.6; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-        ctx.strokeStyle = toolColour(ids[k], panel.dark);
-        ctx.stroke();
-        again(xy);
-        ends[ids[k]] = xy[xy.length - 1][1];
-      };
-      const idle = (k: number) => values[k].every((v) => v <= 0);
-      // The idle tools along the bottom, under the total's line.
-      ids.forEach((_, k) => { if (idle(k)) toolLine(k); });
-      ctx.save();
-      // The total's line: starlight with its glow, or by hand the coral pen, plain.
-      ctx.shadowColor = sketch ? 'transparent' : panel.dark ? 'rgba(196, 216, 255, 0.85)' : 'rgba(80, 100, 220, 0.45)';
-      ctx.shadowBlur = 12;
-      ctx.strokeStyle = total;
-      ctx.lineWidth = 2;
-      ctx.lineJoin = 'round';
-      ctx.beginPath();
-      const xy = path(totals);
-      ctx.stroke();
-      ctx.restore();
-      again(xy);
-      // The tools writing, over it, the busiest last.
-      for (let k = ids.length - 1; k >= 0; k--) if (!idle(k)) toolLine(k);
-      const [ex, ey] = xy[xy.length - 1];
-      // Each tool's end, a small dot of its colour: none for one ending where the total does (the total's dot is that
-      // point), one for several ending together (the idle ones along the bottom).
-      const marks = ids.filter((id) => { if (Math.abs(ends[id] - ey) < 6) { under.push(id); return false; } return true; });
-      const dots = marks.filter((id, i) => !marks.slice(i + 1).some((later) => Math.abs(ends[later] - ends[id]) < 4.5));
-      for (const id of dots) {
-        ctx.fillStyle = toolColour(id, panel.dark);
-        ctx.beginPath(); ctx.arc(ex, ends[id], 2.5, 0, Math.PI * 2); ctx.fill();
-      }
-      // Now: the total's dot at its end.
+      } : undefined;
+      drawn = drawLines(ctx, {
+        total: line(totals), base, plotTop: padTop, totalColour: total, areaColour: summaryColour(panel.dark), dark: panel.dark,
+        tools: ids.map((id, k) => ({ id, points: line(rates[k]), colour: toolColour(id, panel.dark) })),
+        // Starlight on the total at night; by day and by hand, none.
+        glow: !sketch && panel.dark ? 'rgba(196, 216, 255, 0.7)' : null, again,
+      });
+      const [ex, ey] = drawn.end;
+      // Now: the total's dot at its end (its halo breathes on the page over it).
       ctx.fillStyle = sketch ? summaryColour(panel.dark) : panel.dark ? '#F5F8FF' : '#0E1D4C';
-      ctx.beginPath(); ctx.arc(ex, ey, 3.5, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(ex, ey, LINE.dot, 0, Math.PI * 2); ctx.fill();
+      if (tip) { tip.style.translate = `${ex}px ${ey}px`; tip.style.opacity = '1'; tip.style.color = ctx.fillStyle as string; }
       canvas.dataset.lines = String(ids.length);
       canvas.dataset.end = `${Math.round(ex * 10) / 10},${Math.round(ey * 10) / 10},${W},${H}`;
-      canvas.dataset.dots = JSON.stringify(Object.fromEntries(dots.map((id) => [id, Math.round(ends[id] * 10) / 10])));
-      canvas.dataset.under = under.join(',');
+      canvas.dataset.dots = JSON.stringify(Object.fromEntries(drawn.dots.map((id) => [id, Math.round(drawn!.ends[id] * 10) / 10])));
+      canvas.dataset.under = drawn.under.join(',');
+      canvas.dataset.top = String(Math.round(shownTop * 10) / 10);
+      canvas.dataset.highest = String(Math.round(highest * 10) / 10);
       {
         // Sparks off the end as each lands, rising and fading.
         for (const s of sparks) {
@@ -275,7 +250,7 @@
           }
         }
       }
-    }
+    } else if (tip) tip.style.opacity = '0';
     canvas.dataset.hand = sketch ? 'twice' : '';
     canvas.dataset.draws = String(++draws);
     // Keep flowing while the page shows it; reduced motion draws only at readings. Every frame while something moves on
@@ -298,12 +273,27 @@
       {#each named as n (n.id)}<li class:idle={n.idle}><span class="swatch" style:background={toolColour(n.id, panel.dark)}></span>{n.name}</li>{/each}
     </ul>
   {/if}
-  <div class="plot" role="img" aria-label={t('实时用量图')}><canvas bind:this={canvas} style:width="{width}px" style:height="{plotHeight}px"></canvas></div>
+  <div class="plot" role="img" aria-label={t('实时用量图')}>
+    <canvas bind:this={canvas} style:width="{width}px" style:height="{plotHeight}px"></canvas>
+    <span class="tip" class:still={panel.reduceMotion} bind:this={tip} aria-hidden="true"></span>
+  </div>
 </div>
 
 <style>
   .live-chart { position: relative; display: flex; flex-direction: column; }
   canvas { display: block; }
+  .plot { position: relative; }
+  /* The total's halo round its dot, breathing (the panel's on its canvas: liveLines.ts, the same sizes and time). */
+  .tip {
+    position: absolute; left: 0; top: 0; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%;
+    background: currentColor; opacity: 0; pointer-events: none; transition: opacity 0.4s;
+  }
+  .tip:not(.still) { animation: breathe 2.4s ease-in-out infinite; }
+  .tip.still { transform: scale(0.78); filter: opacity(0.21); }
+  @keyframes breathe {
+    0%, 100% { transform: scale(0.5625); filter: opacity(0.32); }
+    50% { transform: scale(1); filter: opacity(0.1); }
+  }
   /* The room under the legend inside it (padding, not margin): its height, measured, is what the plot leaves, and a
      margin outside it would push the plot's foot, its 1 分钟前 · 现在, 4 points past the curve's box (cut off). */
   .legend { display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 0; padding: 0 0 4px; list-style: none; font-size: 11px; line-height: 16px; color: var(--ink-2); }

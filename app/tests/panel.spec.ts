@@ -391,7 +391,7 @@ test('pinned, tools far apart in size put the live chart on a log scale, every l
   await page.getByRole('radio', { name: 'Token', exact: true }).click();
 });
 
-test('pinned, every tool on the homepage has its line, one not used in the last minute lying along the bottom with its own dot', async ({ page }) => {
+test('pinned, every tool on the homepage has its line, one not used in the last minute barely there along the bottom with no dot', async ({ page }) => {
   test.setTimeout(60_000);
   // Only Claude adds anything; the homepage's other tools sit idle.
   await open(page, '?live-grow=claude:20000');
@@ -403,14 +403,11 @@ test('pinned, every tool on the homepage has its line, one not used in the last 
   const lines = (seen.lines ?? '').split(',').filter(Boolean);
   expect(lines).toContain('claude');
   expect(lines.length).toBeGreaterThan(2);
-  // Claude, adding all of it, ends at the total's own dot and draws none beside it (it read as a dot trailing behind).
-  // The idle tools, all ending at the bottom, are one dot there, not a row of dots behind the line; every dot whole,
-  // inside the canvas rather than cut in half at the plot's edge.
+  // Claude, adding all of it, is the total: its line and its dot would lie on the total's, so it draws neither (it read
+  // as a dot trailing behind). The idle tools have no dot: dots only at the ends of lines that are moving.
   expect((seen.under ?? '').split(',')).toEqual(['claude']);
   const ends = Object.values(JSON.parse(seen.ends ?? '{}') as Record<string, [number, number]>);
-  expect(ends.length).toBe(1);
-  const room = await canvas.evaluate((c) => (c as HTMLCanvasElement).getBoundingClientRect().width);
-  for (const [x] of ends) expect(x + 2).toBeLessThanOrEqual(room);
+  expect(ends.length).toBe(0);
   // In Token/s too: a line for each, the idle ones at zero.
   await page.getByRole('radio', { name: 'Token/s' }).click();
   await expect.poll(async () => Object.keys(JSON.parse((await read()).toolRates ?? '{}')).length, { timeout: 20_000 }).toBe(lines.length);

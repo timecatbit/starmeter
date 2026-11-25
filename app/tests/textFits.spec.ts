@@ -115,7 +115,7 @@ for (const [size, viewport, seen] of SIZES) {
 }
 
 for (const [size, viewport, seen] of SIZES) {
-  test(`网页版's live chart keeps its end whole, its dot and glow inside the canvas, the curve no sliver: ${size}`, async ({ page }) => {
+  test(`网页版's live chart keeps its end whole at the right, its dot and halo inside the canvas, the curve no sliver: ${size}`, async ({ page }) => {
     if (seen) await page.addInitScript((height) => {
       const view = Object.assign(new EventTarget(), { height, width: innerWidth, offsetTop: 0, offsetLeft: 0, scale: 1, pageTop: 0, pageLeft: 0 });
       Object.defineProperty(window, 'visualViewport', { configurable: true, value: view });
@@ -125,16 +125,18 @@ for (const [size, viewport, seen] of SIZES) {
     await page.goto(`/#k=${PHONE_KEY}`);
     const canvas = page.locator('.stage .live-chart canvas');
     await expect(canvas).toBeVisible();
-    // A few seconds of readings landing (the scale moving with them): the end's dot (3.5) and the line's glow (12) inside.
+    // A few seconds of readings landing (the scale moving with them): the end's dot and its halo (8) inside, the end at
+    // the plot's right (the chart the monitor's whole width: it stopped 30 points short, and looked pushed left).
     for (let i = 0; i < 16; i++) {
       await page.waitForTimeout(250);
       const end = await canvas.getAttribute('data-end');
       if (!end) continue;
       const [x, y, width, height] = end.split(',').map(Number);
       const where = `${size} at ${i}: ${end}`;
-      expect(y - 3.5 - 12, where).toBeGreaterThanOrEqual(0);
-      expect(y + 3.5 + 12, where).toBeLessThanOrEqual(height);
-      expect(x + 3.5 + 12, where).toBeLessThanOrEqual(width);
+      expect(y - 8, where).toBeGreaterThanOrEqual(0);
+      expect(y + 8, where).toBeLessThanOrEqual(height);
+      expect(x + 8, where).toBeLessThanOrEqual(width);
+      expect(x, where).toBeGreaterThanOrEqual(width - 12);
       // A curve, not a sliver under its legend: the plot at least 40 points.
       expect(height - 38, where).toBeGreaterThanOrEqual(40);
     }

@@ -6,6 +6,9 @@ import type { Dashboard, LiveReading } from './types';
 /** Two readings further apart than this are either side of a gap (a page out of sight, the computer out of reach):
  *  what was added between them happened at no moment the line knows. */
 export const GAP = 15_000;
+/** How long the rate takes to come round to a change (an exponential moving average's time constant): the lines and
+ *  the Token/s figures alike, so a dot and its figure agree. */
+export const EASE = 15_000;
 
 /** A reading: Summary's tokens (cache reads included, as the line and the cards count them), the output tokens the
  *  models generated, the cost, and each source's tokens and output tokens (a line of its own for each tool). `cut`: a
@@ -153,11 +156,12 @@ export class LiveFeed {
    *  over its 60 seconds, so a burst eases off as the window moves past it. Over 60 seconds in the first minute after
    *  pinning too: a request is logged whole when it finishes, with output written long before, and over the few seconds
    *  since pinning it read as thousands a second for a moment. Not all tokens: each request re-reads its whole context
-   *  from the cache, so those run to tens of thousands a second and say nothing about speed. */
-  rate(now: number): number | null { return this.rateAt(now); }
+   *  from the cache, so those run to tens of thousands a second and say nothing about speed. Eased as the lines are
+   *  (smoothRates), so the figure is the height of the line's end. */
+  rate(now: number): number | null { return this.samples.length ? this.smoothRates([now])[0] : null; }
 
-  /** The same rate as it stood at an earlier moment, from the readings up to then: the Token/s line is drawn from it;
-   *  with a source, that source's own (its line beside the total's). */
+  /** The last minute's rate as it stood at an earlier moment, from the readings up to then, before it is eased; with a
+   *  source, that source's own. */
   rateAt(at: number, id?: string): number | null {
     const upto = this.samples.filter((s) => s.at <= at), last = upto.at(-1);
     if (!last) return null;
@@ -165,6 +169,42 @@ export class LiveFeed {
     const from = [...upto].reverse().find((s) => s.at <= start) ?? upto[0];
     const output = (sample: Sample) => (id === undefined ? sample.output : sample.outputs?.[id] ?? 0);
     return Math.max(0, output(last) - output(from)) / (LiveFeed.window / 1000);
+  }
+
+  /** The rate as the lines draw it and the figures say it, at each of `times` (rising): the last minute's (rateAt),
+   *  eased over EASE (an exponential moving average, begun EASE × 3 earlier so it has settled by the first). A request
+   *  landing rises and settles as a curve, and leaves the minute the same way, not as a step up and a cliff a minute
+   *  later: drawn as a step function, the smooth curve through it was straight plateaus and sharp corners. */
+  smoothRates(times: number[], id?: string): number[] {
+    if (!times.length) return [];
+    const warm: number[] = [];
+    for (let at = times[0] - EASE * 3; at < times[0]; at += 1000) warm.push(at);
+    const all = [...warm, ...times], raw = this.rateSeries(all, id), out: number[] = [];
+    let eased: number | null = null, previous = all[0];
+    for (let i = 0; i < all.length; i++) {
+      const r = raw[i];
+      if (r !== null) {
+        eased = eased === null ? r : eased + (r - eased) * (1 - Math.exp(-Math.max(0, all[i] - previous) / EASE));
+        previous = all[i];
+      }
+      if (i >= warm.length) out.push(eased ?? 0);
+    }
+    return out;
+  }
+
+  /** rateAt at each of `times` (rising) in one pass over the readings; null before the first. */
+  private rateSeries(times: number[], id?: string): (number | null)[] {
+    const list = this.samples, output = (s: Sample) => (id === undefined ? s.output : s.outputs?.[id] ?? 0);
+    const out: (number | null)[] = [];
+    let last = -1, from = 0;
+    for (const at of times) {
+      while (last + 1 < list.length && list[last + 1].at <= at) last++;
+      if (last < 0) { out.push(null); continue; }
+      while (from + 1 <= last && list[from + 1].at <= at - LiveFeed.window) from++;
+      const first = list[from].at <= at - LiveFeed.window ? list[from] : list[0];
+      out.push(Math.max(0, output(list[last]) - output(first)) / (LiveFeed.window / 1000));
+    }
+    return out;
   }
 }
 
