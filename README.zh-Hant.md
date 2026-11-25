@@ -26,7 +26,7 @@ Starmeter 是 macOS 菜單欄（獨立 App 或 SwiftBar 插件）和 Windows、L
 - **工具 Token 用量**：Claude（桌面 App 和 VS Code、JetBrains、終端裡的 Claude Code）、ChatGPT（Codex）、OpenCodex、Magpie、OpenCode、DeepSeek Harness、WorkBuddy、Qoder（國內版 Qoder CN）、Gemini（Gemini CLI 和 Antigravity）、Cursor（桌面版和 Cursor CLI）。顯示 Token、請求、緩存命中、模型分布、趨勢圖和用量熱力圖，並按模型官方價估算 API 等值費用。範圍可選今天、昨天、近 24 小時、近 7/30 天、本週、本月或全部；卡片按用量從多到少排，可以按工具、按模型或按項目（會話所在的項目文件夾）查看。網關（Magpie、OpenCodex）和經過它的客戶端會各記一遍同一請求，Summary 只算一次。工具自己清理掉的舊記錄（Claude Code 默認只留 30 天）仍會計入，可以關閉。在 Windows 上，正在運行的 WSL 發行版裡的 Claude Code 和 Codex 也一起統計。Gemini 桌面版在本機不記 Token，裝了它時 Gemini 卡片會注明不含它的用量。
 - **訂閱額度**：ChatGPT、Claude、MiniMax、Cursor、Gemini 顯示已用百分比和重置時間，70% 起變橙、90% 起變紅，並寫出比勻速多用還是少用。ChatGPT、Claude 在主頁並排畫出 5 小時和本週兩根條，Gemini 分成 Gemini 模型和 Claude、GPT 模型兩行，各帶自己的標誌，名稱右邊寫本週已用多少（Gemini 是 Gemini 模型自己的本週，沒有本週窗口的寫最緊的那個）。窗口用完後，名稱右邊改寫還能接著花的餘額（橙色）：ChatGPT 的 Credits、Claude 的額外用量、Cursor 的按需用量，已用多少寫在條下，如“餘 41,521 Credits”下面的“本週已用 100%”（Cursor 是“本週期已用”）；ChatGPT 還能免費重置幾次寫在它的詳情頁裡。Gemini 的額度來自本機運行的 Antigravity App，Qoder 讀取 Qoder CN App 本機記錄的 Credits 用量；Grok、Kimi 可以手動標記。填上每月訂閱價後，側欄寫本月用量值訂閱價的幾倍（按 API 官方價估算）。
 - **API 餘額與花費**：DeepSeek、Kimi、Grok 顯示餘額；Qoder 用組織 API Key（團隊版/企業版）顯示組織共享的加購 Credits；Claude 顯示本月花費（需要管理員 Key）；ChatGPT、Gemini 可以測試 Key 是否可用。每個 API 可以保存多把 Key，主頁顯示合計和 Key 數量，如“餘額 ¥12.00 (3)”。
-- **會話**：工具 / 模型 / 項目旁的第四個標籤，列出所選統計範圍裡活動過的會話，正在運行的和最新活躍的在前，先列 5 個，其餘點“查看更多”。首頁上所有在本機留有會話記錄的工具都會列出：Claude Code、Codex、Gemini CLI、Antigravity 與 Gemini 桌面版、OpenCode、Qoder、WorkBuddy、DeepSeek Harness（Gemini 桌面版只有緩存裡最近打開過的對話，沒有 Token 和金額，只寫輪次和是否在運行；Magpie 是網關，Cursor 的用量來自 cursor.com，都沒有會話）。每個會話一張卡：這個會話在所選統計範圍裡花了多少（和其他標籤同一口徑，釘住時實時跳動）、是否正在運行、這一輪用了多少 Token、上下文用了多少，點開看整個會話的累計花費和最近幾輪各用了多少 Token、費用和工具；可選在一輪完成時提醒。
+- **會話**：工具 / 模型 / 項目旁的第四個標籤，列出所選統計範圍裡活動過的會話，正在運行的和最新活躍的在前，先列 5 個，其餘點“查看更多”，展開後末尾可以“收起”。首頁上所有在本機留有會話記錄的工具都會列出：Claude Code、Codex、Gemini CLI、Antigravity 與 Gemini 桌面版、OpenCode、Qoder、WorkBuddy、DeepSeek Harness（Gemini 桌面版只有緩存裡最近打開過的對話，沒有 Token 和金額，只寫輪次和是否在運行；Magpie 是網關，Cursor 的用量來自 cursor.com，都沒有會話）。Antigravity 的子代理並入發起它的任務，只算一個會話。每個會話一張卡：這個會話在所選統計範圍裡花了多少（和其他標籤同一口徑，釘住時實時跳動）、是否正在運行、這一輪用了多少 Token、上下文用了多少，點開看整個會話的累計花費和最近幾輪各用了多少 Token、費用和工具；可選在一輪完成時提醒。
 - **釘住實時看**：點標題旁的圖釘，面板浮在其他窗口之上，可以挪動、拉大；趨勢圖換成近 1 分鐘的實時圖，每個工具一條自己顏色的線（可切換新增 Token 或每秒輸出的 Token/s；各工具量級相差很多時，縱軸自動換成對數刻度），下面自動切到正在跑的會話，每 1–5 秒按本機日誌刷新。
 - **分享圖**：卡片、終端、手繪、報刊、夜空、地鐵、織物、收據、藍圖、霓虹十種風格，每種都有淺色和深色，先預覽，再複製或保存（Mac 還能直接分享）。圖裡只有 Summary 計入的用量，不含訂閱、餘額和 Key。
 - **外觀與語言**：淺色、深色或跟隨系統，實色、磨砂或玻璃背景；也可以換成手繪風格（白天是點格紙上的彩色墨水，夜裡是黑板上的粉筆，排版不變）。界面有簡體中文、繁體中文和 English。
@@ -169,7 +169,7 @@ starmeter usage 30d --json     # 給腳本用的 JSON
 - 本機日誌只讀取，只記錄用量數字；項目只記文件夾名。不保存對話內容。
 - Key 只保存在本機，文件只有你自己能讀，界面上不顯示 Key 內容。
 - Claude 訂閱用量只在你啟用後，用本機 Claude Code 的登錄向 Anthropic 的用量接口查詢；令牌只在內存裡，不刷新、不寫回。
-- Cursor 的用量讀取默認關閉。開啟後只讀取本機已保存的 Cursor 登錄，令牌只在內存裡、只發往 cursor.com 查詢本賬戶的用量記錄，不保存、不刷新、不改寫。
+- Cursor 的用量讀取默認關閉。開啟後只讀取本機已保存的 Cursor 登錄（新版 Cursor 把它加密存進了鑰匙串，要在 Cursor 訂閱頁另外打開“從鑰匙串讀取登錄”，macOS 詢問時由你允許），令牌只在內存裡、只發往 cursor.com 查詢本賬戶的用量記錄，不保存、不刷新、不改寫。
 - Gemini 訂閱的額度只向這台電腦上正在運行的 Antigravity App 詢問（127.0.0.1），用它在本機記下的臨時令牌，令牌只用於這次請求，不保存。
 - 只向你啟用的服務的官方接口查詢。另外每天從 GitHub 檢查一次價格表和插件新版本，請求不帶 Cookie 或任何標識；不需要的話，在 `config.local.sh` 加 `export OCX_PRICING_UPDATES=0` 或 `export OCX_SELF_UPDATES=0` 即可關閉。GitHub 連不上時，檢查和下載改經公共鏡像（ghfast.top 等，也可用 `STARMETER_GITHUB_MIRRORS` 指定自己的），安裝包仍按 GitHub 公佈的 SHA-256 校驗。服務狀態頁和人民幣匯率只在你開啟後才讀取。
 - 多台電腦合併只寫到你自己選的同步文件夾，由你的網盤同步，Starmeter 不經過任何服務器；文件裡只有電腦名稱、工具、模型和用量數字，沒有路徑、項目、對話或 Key。
