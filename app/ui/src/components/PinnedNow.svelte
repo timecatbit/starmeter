@@ -73,7 +73,7 @@
       {/if}
     </div>
     {#each running.slice(0, SHOWN) as s (s.key)}
-      <div class="session">
+      <div class="pinned-session">
         <span class="mark"><Glyph image={s.image} template={s.template} symbol={s.symbol ?? 'terminal'} size={11} {tint} /></span>
         <span class="title">{s.title}</span>
         {#if s.turnTokens}<span class="spent num">{s.turnTokens}{s.turnCost ? ' · ' + s.turnCost : ''}</span>{/if}
@@ -85,7 +85,7 @@
       <div class="quiet">{t('没有在运行的会话 · 最近：{title}{idle}', { title: latest.title, idle: latest.idle ? ' · ' + latest.idle : '' })}</div>
     {/if}
     {#each events as e (e.id)}
-      <div class="event {e.kind}">
+      <div class="pinned-event {e.kind}">
         <span class="when num">{clock(e.at)}</span>
         <span class="dot" style:background={e.tool ? toolColour(e.tool, panel.dark) : e.kind === 'wake' || e.kind === 'done' ? 'var(--green)' : 'var(--accent)'}></span>
         <span class="who">{e.who}</span>
@@ -105,16 +105,16 @@
   .toggle:hover { background: var(--hover); }
   .toggle svg { fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; transform: rotate(-90deg); transition: transform 0.18s ease-out; }
   .toggle[aria-expanded='true'] svg { transform: none; }
-  .session, .event { display: flex; align-items: center; gap: 6px; height: 20px; min-width: 0; }
+  .pinned-session, .pinned-event { display: flex; align-items: center; gap: 6px; height: 20px; min-width: 0; }
   .mark { flex: none; width: 16px; height: 16px; border-radius: 5px; display: flex; align-items: center; justify-content: center; background: var(--hover); }
   .title { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .spent { flex: none; color: var(--secondary); }
   .clock { flex: none; min-width: 30px; text-align: right; font-family: var(--rounded); font-weight: 600; color: var(--green); }
   .more, .quiet { height: 20px; line-height: 20px; color: var(--secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .event { color: var(--secondary); }
+  .pinned-event { color: var(--secondary); }
   .when { flex: none; font-size: 10px; color: var(--tertiary); }
   .dot { flex: none; width: 6px; height: 6px; border-radius: 50%; }
   .who { flex: none; max-width: 45%; font-weight: 600; color: var(--label); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .what { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .event.done .what, .event.wake .what { color: var(--green); font-weight: 600; }
+  .pinned-event.done .what, .pinned-event.wake .what { color: var(--green); font-weight: 600; }
 </style>
