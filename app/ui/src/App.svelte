@@ -744,7 +744,8 @@
     window.addEventListener('pointerdown', down, true);
     window.addEventListener('pointerup', up, true);
     window.addEventListener('pointercancel', up, true);
-    const stops = [backend.onSnapshot(() => void reload()), shell.onOpened(opened), shell.onClosed(closed),
+    // A phone link without its key reads nothing: there is no computer behind it to ask (PHONE-13).
+    const stops = [...(keyless ? [] : [backend.onSnapshot(() => void reload())]), shell.onOpened(opened), shell.onClosed(closed),
       shell.onResized((width, height) => {
         if (!pinned) return;
         // On a page the height is that page's; the width is the panel's everywhere.
@@ -760,7 +761,7 @@
     restoreLanguage();
     void shell.info().then((value) => {
       info = value;
-      opened(value.modules);
+      if (!keyless) opened(value.modules);
     });
     return () => {
       stops.forEach((stop) => stop());

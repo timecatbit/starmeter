@@ -1495,6 +1495,12 @@ test('on the phone: a link without its key says so in the panel\'s place, not an
   await expect(page.getByRole('status')).toContainText('链接不完整');
   await expect(page.getByRole('status')).toContainText('# 后面的一次性口令');
   await expect(page.locator('.dashboard')).toHaveCount(0);
+  // Nothing behind the page is asked for: a release build has nothing there to answer, and its refusal went unheard
+  // into the console (PHONE-13).
+  await page.waitForTimeout(600);
+  const asked = await page.evaluate(() => performance.getEntriesByType('resource').map((entry) => entry.name)
+    .filter((name) => /fixtureBackend|phoneBackend/.test(name)));
+  expect(asked).toEqual([]);
 });
 
 test('on the phone: a key no longer the server\'s, at the first reading, says so in the panel\'s place', async ({ page }) => {

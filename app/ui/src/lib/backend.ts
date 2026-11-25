@@ -39,7 +39,8 @@ export const backend = {
       return () => void stop.then((f) => f());
     }
     let off = () => {};
-    void browser().then((f) => (off = f.onChange(changed)));
+    // Outside the app with nothing behind the page (a release build opened elsewhere), there is nothing to hear.
+    void browser().then((f) => (off = f.onChange(changed))).catch(() => {});
     return () => off();
   },
 };
