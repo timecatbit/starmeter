@@ -7,6 +7,8 @@
   export function replayIntro() { played = false; kept = 0; }
   /** The live view's readings and what happened, kept while the share page is on screen (asked for only while this page is). */
   const live = new PhoneLive();
+  /** The last turn done said at the top: said once, not again each time 手机版 comes back (from the share page, 电脑版). */
+  let doneSaid = 0;
 </script>
 
 <script lang="ts">
@@ -141,7 +143,8 @@
   let doneShown = $state<number | null>(null);
   $effect(() => {
     const done = live.done;
-    if (!done) return;
+    if (!done || done.at <= doneSaid) return;
+    doneSaid = done.at;
     doneShown = done.at;
     const timer = setTimeout(() => { if (doneShown === done.at) doneShown = null; }, 4500);
     return () => clearTimeout(timer);

@@ -619,3 +619,36 @@ test('one reading loop at a time: a reading two loops waited for is taken once, 
     expect(takes).toBe(distinct);
   }
 });
+
+test('a turn done is said at the top once, not again when 手机版 comes back from 电脑版 or the share page (STAGE-7)', async ({ page }) => {
+  const work = scripted();
+  await phone(page, PORTRAIT, '', { live: work.live });
+  work.at(9);
+  await expect.poll(() => page.locator('.stage .activity .session').count(), { timeout: 5000 }).toBe(2);
+  work.at(21);
+  const toast = page.locator('.stage .turn-done');
+  await expect(toast).toBeVisible({ timeout: 5000 });
+  await toast.locator('.done-body').click();
+  await expect(toast).toHaveCount(0);
+  // To 电脑版 and back, then to the share page and back: the turn is not said done again.
+  await page.getByRole('radio', { name: '电脑版' }).click();
+  await expect(page.locator('.dashboard')).toBeVisible();
+  const back = page.locator('.look-foot').getByRole('radio', { name: '手机版' });
+  await back.scrollIntoViewIfNeeded();
+  await back.click();
+  await expect(page.locator('.stage')).toBeVisible();
+  await never(toast);
+  await page.getByRole('button', { name: '分享用量图' }).click();
+  await expect(page.locator('.share-page .stage img')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.stage .monitor')).toBeVisible();
+  await never(toast);
+});
+
+/** Not there at any look over a second and a half. */
+async function never(locator: ReturnType<Page['locator']>) {
+  for (let i = 0; i < 15; i++) {
+    expect(await locator.count()).toBe(0);
+    await locator.page().waitForTimeout(100);
+  }
+}
