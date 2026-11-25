@@ -1204,6 +1204,69 @@ test('网页版 in 手绘 sends nothing that moves through the wobble filter (wo
   expect(await page.locator('.stage .live-chart canvas').evaluate((c) => (c as HTMLCanvasElement).dataset.hand)).toBe('twice');
 });
 
+/** A point on 网页版's sky itself (not on a control or a pane), found on a grid over the screen. */
+async function skyPoint(page: Page): Promise<{ x: number; y: number }> {
+  const found = await page.evaluate(() => {
+    const owned = 'button, a, input, [role="radio"], [role="radiogroup"], [role="button"], [role="status"], .card, .session, .plan, .tile, .feed, .panel, .monitor, .figure, .trend, .bar, .foot, .live-chart';
+    for (let y = 160; y < innerHeight - 170; y += 12) for (let x = 12; x < innerWidth - 12; x += 12) {
+      const e = document.elementFromPoint(x, y);
+      if (e && e.closest('.stage') && !e.closest(owned)) return { x, y };
+    }
+    return null;
+  });
+  expect(found, 'a bare piece of sky').not.toBeNull();
+  return found!;
+}
+
+test('a tap on the sky sends stars out from there and a ring, pushing what floats near; a tap on a control is only the control\'s', async ({ page }) => {
+  const work = scripted();
+  await phone(page, PORTRAIT, '', { live: work.live });
+  const drift = page.locator('.stage .sky canvas.drift');
+  const read = () => drift.evaluate((c) => ({ pokes: Number(c.dataset.pokes), bursts: Number(c.dataset.bursts), ripples: Number(c.dataset.ripples), pushed: Number(c.dataset.pushed), frames: Number(c.dataset.frames) }));
+  const { x, y } = await skyPoint(page);
+  await page.mouse.click(x, y);
+  await expect.poll(async () => (await read()).pokes).toBe(1);
+  const after = await read();
+  expect(after.bursts).toBeGreaterThanOrEqual(8);
+  expect(after.ripples).toBe(1);
+  await expect.poll(async () => (await read()).pushed).toBeGreaterThan(2);
+  // Back on course after a few seconds, the burst gone.
+  await expect.poll(async () => (await read()).pushed, { timeout: 8000 }).toBe(0);
+  await expect.poll(async () => (await read()).bursts).toBe(0);
+  // A control takes its tap at once, and the sky none.
+  await page.getByRole('radio', { name: '模型' }).click();
+  await expect(page.getByRole('radio', { name: '模型' })).toHaveAttribute('aria-checked', 'true');
+  // A card, too.
+  await page.locator('.stage .card').first().click({ position: { x: 30, y: 10 } });
+  expect((await read()).pokes).toBe(1);
+  // A finger on the sky: a tap is one; a finger moved on (a scroll) is none.
+  const finger = (kind: string, px: number, py: number) => page.evaluate(([kind, px, py]) => {
+    const target = document.elementFromPoint(px as number, py as number)!;
+    target.dispatchEvent(new PointerEvent(kind as string, { bubbles: true, isPrimary: true, pointerId: 7, pointerType: 'touch', clientX: px as number, clientY: py as number }));
+  }, [kind, px, py] as const);
+  await finger('pointerdown', x, y); await finger('pointerup', x, y);
+  await expect.poll(async () => (await read()).pokes).toBe(2);
+  await finger('pointerdown', x, y); await finger('pointerup', x, y + 40);
+  await page.waitForTimeout(200);
+  expect((await read()).pokes).toBe(2);
+  // Taps as fast as they come: the bursts' stars capped, the sky still drawing.
+  for (let i = 0; i < 25; i++) await page.mouse.click(x, y);
+  const frames = (await read()).frames;
+  await expect.poll(async () => (await read()).pokes).toBe(27);
+  expect((await read()).bursts).toBeLessThanOrEqual(140);
+  await expect.poll(async () => (await read()).frames).toBeGreaterThan(frames + 10);
+});
+
+test('with reduced motion a tap on the sky does nothing to it', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await phone(page, PORTRAIT, '', { live: resting() });
+  const drift = page.locator('.stage .sky canvas.drift');
+  const { x, y } = await skyPoint(page);
+  await page.mouse.click(x, y);
+  await page.waitForTimeout(300);
+  expect(await drift.evaluate((c) => [c.dataset.pokes, c.dataset.bursts])).toEqual(['0', '0']);
+});
+
 test('with reduced motion the one still frame has the logos of the tools at work in it', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   const work = scripted();
