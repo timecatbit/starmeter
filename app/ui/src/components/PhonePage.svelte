@@ -219,6 +219,8 @@
             {#if busy && reach === 'public'}
               <span class="spinner" aria-label={t('生成链接')}></span>
               <span class="wait">{t('正在向 Cloudflare 要链接…')}</span>
+              <!-- PHONE-11: shown once it opens from outside, so a phone scanning it never meets a name not there yet. -->
+              <span class="wait-detail">{t('确认手机能打开后再显示，通常十几秒')}</span>
             {:else if reach === 'tailnet' && view && !view.tailnet}
               <!-- Tailscale chosen and gone (turned off, signed out): said in the code's place, the same network a click away. -->
               <div class="stopped" role="status">
@@ -263,6 +265,10 @@
           <!-- What the code is for: on the same network until 停止; the public link, while it is up, for its hour. -->
           {#if !asking && !(busy && reach === 'public')}
             <!-- On 任何网络 without its link, nothing about the same network's code: it isn't the one on screen. -->
+            {#if reach === 'public' && view.public && view.publicChecked === false}
+              <!-- The wait for it to open ran out: shown all the same, with what to do if it doesn't open yet. -->
+              <p class="note caution">{t('还没确认手机能打开：扫码打不开就等一分钟再试')}</p>
+            {/if}
             {#if reach === 'local' || (reach === 'public' && view.public) || (reach === 'tailnet' && view.tailnet)}
               <p class="note">
                 {reach === 'public' ? t('任何网络都能打开，链接带一次性口令，还能用 {n} 分钟', { n: minutes })
@@ -313,6 +319,7 @@
   .stopped-detail { font-size: 11px; line-height: 1.4; padding: 0 16px; text-align: center; }
   .reach.off { opacity: 0.45; }
   .wait { font-size: 11.5px; color: var(--secondary); }
+  .wait-detail { max-width: 240px; font-size: 10.5px; line-height: 1.4; color: var(--tertiary); text-align: center; text-wrap: balance; }
   .address {
     --press-scale: 0.98; align-self: center; max-width: 100%; padding: 4px 8px; border-radius: 7px; font-size: 11px;
     color: var(--secondary); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; overflow: clip visible; text-overflow: ellipsis;
@@ -324,6 +331,7 @@
     color: var(--label); background: color-mix(in srgb, var(--label) 6%, transparent); user-select: text; -webkit-user-select: text;
   }
   .note { margin: 0; font-size: 11px; line-height: 1.5; color: var(--secondary); }
+  .note.caution { color: var(--orange); }
   .failed { margin: 0; padding: 8px 10px; border-radius: 8px; font-size: 11.5px; color: var(--label); background: color-mix(in srgb, var(--orange) 18%, transparent); }
   .ask { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--label) 5%, transparent); }
   .ask-title { margin: 0; font-size: 12.5px; font-weight: 600; }

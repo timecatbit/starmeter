@@ -1377,6 +1377,34 @@ test('在手机上看: a public link that drops stays on 任何网络, with 重�
   await expect(button(page, '改用同一个网络')).toBeVisible();
 });
 
+test('在手机上看: the public link shows once a phone can open it, its wait saying so, and a wait run out says to give it a minute (PHONE-11)', async ({ page }) => {
+  for (const query of ['', '?unchecked']) {
+    await open(page, query);
+    await button(page, '主页模块与设置').click();
+    await page.getByRole('button', { name: /^在手机上看/ }).click();
+    const phone = page.locator('.phone-page');
+    await expect(phone.locator('svg.qr')).toBeVisible();
+    // The host answers once the link is seen to open (or the wait for it is over): held here to look at the wait.
+    await page.evaluate(async (source) => {
+      const shell = await eval(source);
+      const w = window as unknown as { letGo: () => void };
+      const made = shell.phonePublic;
+      shell.phonePublic = () => new Promise((done) => (w.letGo = () => done(made())));
+    }, panelShell);
+    await page.getByRole('radio', { name: '任何网络' }).click();
+    await button(page, '生成链接').click();
+    await expect(phone.locator('.wait')).toHaveText('正在向 Cloudflare 要链接…');
+    await expect(phone.locator('.wait-detail')).toHaveText('确认手机能打开后再显示，通常十几秒');
+    await expect(phone.locator('svg.qr')).toHaveCount(0);
+    await page.evaluate(() => (window as unknown as { letGo: () => void }).letGo());
+    await expect(phone.locator('.address')).toHaveText('https://quiet-river-1234.trycloudflare.com/');
+    await expect(phone.locator('svg.qr')).toBeVisible();
+    await expect(phone.locator('.wait-detail')).toHaveCount(0);
+    // Seen to open: nothing more said. Not seen in time: shown all the same, with what to do.
+    await expect(phone.locator('.note.caution')).toHaveText(query ? ['还没确认手机能打开：扫码打不开就等一分钟再试'] : []);
+  }
+});
+
 test('在手机上看: on a tailnet, Tailscale is a choice of its own, its code the computer\'s Tailscale address', async ({ page }) => {
   await open(page, '?tailnet');
   await button(page, '主页模块与设置').click();

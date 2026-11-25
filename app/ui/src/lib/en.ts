@@ -228,6 +228,8 @@ export const phrases: Record<string, string> = {
   '第一次要从 Cloudflare 的 GitHub 发布页下载 cloudflared（约 20 MB），校验后存在 App 的数据文件夹。':
     'The first time, cloudflared (about 20 MB) is downloaded from Cloudflare\'s GitHub releases, checked, and kept in the app\'s data folder.',
   下载并生成: 'Download and make it', 生成链接: 'Make the link', '正在向 Cloudflare 要链接…': 'Asking Cloudflare for a link…',
+  '确认手机能打开后再显示，通常十几秒': 'Shown once a phone can open it, usually within 20 seconds',
+  '还没确认手机能打开：扫码打不开就等一分钟再试': "Not yet seen to open: if the phone can't open it, try again in a minute",
   手机扫这个二维码: 'Scan this with your phone', 这台电脑没有连上网络: 'This computer isn\'t on a network', 正在开启: 'Starting',
   已复制链接: 'Link copied', '任何网络都能打开，链接带一次性口令，还能用 {n} 分钟': 'Opens from any network with its one-time key; {n} min left',
   '手机和电脑连同一个网络（Wi-Fi）后扫码；第一次打开时系统可能问是否允许 Starmeter 接收连接，选允许':
