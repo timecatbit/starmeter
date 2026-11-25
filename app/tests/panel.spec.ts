@@ -1351,91 +1351,46 @@ test('在手机上看 the first time says cloudflared is downloaded first', asyn
   await expect(button(page, '下载并生成')).toBeVisible();
 });
 
-test('on the phone: the homepage read-only, its figures asked for with the key, a range of its own', async ({ page }) => {
-  const asked = await servePhone(page);
-  await page.goto('/#k=' + PHONE_KEY + '&v=panel');
-  await expect(page.locator('.dashboard')).toBeVisible();
-  await expect(page.locator('.window.phone')).toBeVisible();
-  // No pin or settings on the phone; the range and share are there.
-  await expect(button(page, '钉住面板')).toHaveCount(0);
-  await expect(button(page, '主页模块与设置')).toHaveCount(0);
-  await expect(button(page, '分享用量图')).toBeVisible();
-  await expect(page.locator('.card').first()).toBeVisible();
-  // The rows read as they do on the computer, their usage bars too, and don't open: their insides stay there.
-  const plan = page.locator('button.row', { hasText: 'Claude 订阅' });
-  await expect(plan).toBeDisabled();
-  await expect(plan).toHaveClass(/tall/);
-  await expect(plan.locator('.title')).toHaveAttribute('style', /var\(--label\)/);
-  await expect(plan.locator('.gauge')).toHaveCount(2);
-  await expect(plan.locator('.gauge-name')).toHaveText(['5 小时 22%', '本周 76%']);
-  await expect(page.locator('button.row', { hasText: 'Komari 监控' }).locator('.value')).toHaveAttribute('style', /var\(--label\)/);
-  // 会话 is the fourth tab, as on the computer, without the computer's switch.
-  await page.getByRole('radio', { name: '会话' }).click();
-  await expect(page.getByText('重做设置页的分段控件')).toBeVisible();
-  await expect(page.getByText('这一轮完成时提醒')).toHaveCount(0);
-  // The cards grouped by model or project on the phone itself: asked for, drawn, and the computer's choice untouched.
-  await page.getByRole('radio', { name: '模型' }).click();
-  await expect.poll(() => asked.some((path) => path.includes('group=model'))).toBe(true);
-  await expect(page.locator('.card .name').first()).toHaveText('Claude Opus 5.5');
-  await expect(page.getByRole('radio', { name: '模型' })).toHaveAttribute('aria-checked', 'true');
-  await page.getByRole('radio', { name: '项目' }).click();
-  await expect(page.locator('.card .name').first()).toHaveText('starmeter');
-  await page.getByRole('radio', { name: '工具' }).click();
-  await expect(page.locator('.card .name').first()).not.toHaveText('starmeter');
-  await page.getByRole('button', { name: /^统计范围/ }).click();
-  await page.getByRole('option', { name: '近 7 天' }).click();
-  await expect.poll(() => asked.some((path) => path.includes('range=7d'))).toBe(true);
-  await expect(page.getByRole('button', { name: /^统计范围/ })).toContainText('近 7 天');
-  // The share picture on the phone: drawn from the phone's own range, saved as a download (the browser's way).
-  await button(page, '分享用量图').click();
-  await expect(page.locator('.share-page .title')).toHaveText('分享用量图近 7 天');
-  await expect(page.locator('.share-page .stage img')).toBeVisible();
-  await expect(page.getByText('长按图片也能存到相册')).toBeVisible();
-  const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: '保存图片' }).click();
-  // WebKit on Linux hands the name over with its spaces as underscores.
-  expect((await download).suggestedFilename()).toMatch(/^Starmeter[ _].+[ _]卡片\.png$/);
-  await page.keyboard.press('Escape');
-  await expect(page.locator('.dashboard')).toBeVisible();
-});
-
 test('on the phone: a slow reading of the range before never takes the page back', async ({ page }) => {
   await servePhone(page);
-  await page.goto('/#k=' + PHONE_KEY + '&v=panel');
-  await expect(page.locator('.dashboard')).toBeVisible();
+  await page.goto('/#k=' + PHONE_KEY);
+  await expect(page.locator('.stage .monitor')).toBeVisible();
   // Today's next reading is held back; the week is picked meanwhile and arrives at once.
   let release = () => {};
   const held = new Promise<void>((resolve) => { release = resolve; });
   await page.route('**/api/snapshot', async (route) => { await held; await route.fallback(); });
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
-  await page.getByRole('button', { name: /^统计范围/ }).click();
-  await page.getByRole('option', { name: '近 7 天' }).click();
-  await expect(page.locator('.summary .reading')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: /^统计范围/ })).toContainText('近 7 天');
-  const week = await page.locator('.figure').first().textContent();
+  const ranges = page.getByRole('radiogroup', { name: '统计范围' });
+  await ranges.getByRole('radio', { name: '近 7 天' }).click();
+  await expect(page.locator('.stage .hero .range')).toHaveText('近 7 天');
+  const amount = page.locator('.stage .hero .amount [data-value]');
+  await page.waitForTimeout(600);
+  const week = await amount.getAttribute('data-value');
   release();
   await page.waitForTimeout(600);
-  await expect(page.getByRole('button', { name: /^统计范围/ })).toContainText('近 7 天');
-  await expect(page.locator('.figure').first()).toHaveText(week!);
+  await expect(ranges.getByRole('radio', { name: '近 7 天' })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.locator('.stage .hero .range')).toHaveText('近 7 天');
+  expect(await amount.getAttribute('data-value')).toBe(week);
 });
 
 test('on the phone: one reading at a time, and a computer out of reach or a stale link said at the foot', async ({ page }) => {
   const asked = await servePhone(page);
-  await page.goto('/#k=' + PHONE_KEY + '&v=panel');
-  await expect(page.locator('.dashboard')).toBeVisible();
+  await page.goto('/#k=' + PHONE_KEY);
+  await expect(page.locator('.stage .monitor')).toBeVisible();
   // A slow computer: asking again while a reading is on its way sends nothing more.
   let slow = 0;
   await page.route('**/api/snapshot**', async (route) => { slow++; await new Promise((r) => setTimeout(r, 1500)); await route.fallback(); });
-  const before = asked.length;
+  const snapshots = () => asked.filter((path) => path.startsWith('/api/snapshot')).length;
+  const before = snapshots();
   for (let i = 0; i < 4; i++) await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
-  await expect.poll(() => asked.length).toBe(before + 1);
+  await expect.poll(snapshots).toBe(before + 1);
   expect(slow).toBe(1);
   await page.unroute('**/api/snapshot**');
   // Out of reach: said at the foot, the figures on screen kept.
   await page.route('**/api/snapshot**', (route) => route.abort('connectionrefused'));
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
   await expect(page.locator('.phone-problem')).toContainText('连不上电脑');
-  await expect(page.locator('.card').first()).toBeVisible();
+  await expect(page.locator('.stage .card').first()).toBeVisible();
   await page.unroute('**/api/snapshot**');
   // A key the computer no longer has: scan again.
   await page.route('**/api/snapshot**', (route) => route.fulfill({ status: 403, body: 'key needed' }));

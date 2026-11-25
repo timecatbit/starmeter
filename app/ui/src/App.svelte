@@ -16,7 +16,6 @@
   import { chooseStyle, followStyle, restoreStyle, style } from './lib/style.svelte';
   import { phoneStatus } from './lib/phone.svelte';
   import { keepTheme, keptTheme, paintEdges } from './lib/edges';
-  import { choosePhoneLook, phoneLook, type PhoneLook } from './lib/phoneLook.svelte';
   import { chooseShortcut, restoreShortcut, shortcut } from './lib/shortcut.svelte';
   import { grabWindow, panel } from './lib/ui.svelte';
   import type { Dashboard as DashboardData, Entry, ShellInfo, Snapshot } from './lib/types';
@@ -24,8 +23,8 @@
   import DetailPage from './components/DetailPage.svelte';
   import Guide, { type GuideState } from './components/Guide.svelte';
   import PhonePage from './components/PhonePage.svelte';
-  import PhoneStage, { replayIntro } from './components/PhoneStage.svelte';
-  import Segments from './components/Segments.svelte';
+  import PhoneStage from './components/PhoneStage.svelte';
+  import StageWaiting from './components/StageWaiting.svelte';
   import HomePage from './components/HomePage.svelte';
   import InlineAsk from './components/InlineAsk.svelte';
   import ModulesPage from './components/ModulesPage.svelte';
@@ -119,14 +118,15 @@
   }
   /** On a phone: why the figures on screen are not fresh, until a reading comes through. */
   let phoneProblem = $state<string | null>(null);
-  /** On a phone, its own look (网页版) rather than the computer's homepage (电脑版): phoneLook.svelte.ts. */
-  const staged = $derived(onPhone && phoneLook.current === 'stage');
-  /** The phone's look picked at the foot of either page: the other fades in over it, 网页版 with its opening. */
-  function chooseLook(next: PhoneLook) {
-    if (next === phoneLook.current) return;
-    if (next === 'stage') replayIntro();
-    dir = 2;
-    choosePhoneLook(next);
+  // A phone sees 网页版 only. It once could choose the computer's homepage instead (电脑版), kept in the address
+  // (…&v=panel), a cookie and the page's storage: that choice is let go of, nobody kept on a page with no way back.
+  if (onPhone) {
+    try {
+      const fragment = new URLSearchParams(location.hash.slice(1));
+      if (fragment.has('v')) { fragment.delete('v'); history.replaceState(history.state, '', '#' + fragment.toString()); }
+      localStorage.removeItem('starmeter-phone-look');
+      document.cookie = 'starmeter-phone-look=; max-age=0; path=/; samesite=strict';
+    } catch { /* nothing kept */ }
   }
   /** A tool's page, opened from its card: its usage and its settings. */
   let toolId = $state<string | null>(null);
@@ -151,19 +151,20 @@
     if (target) push(target);
   }
   const toolSettings = $derived(toolId ? (snapshot?.moduleOptions ?? []).find((e) => e.action?.[0] === 'set-module' && e.action[1] === toolId) ?? null : null);
-  /** 网页版 chosen and something to show in it: with no figures from the computer yet (SwiftBar's plugin not written,
-   *  no tool on the homepage) the homepage shows as it is, laid out as 电脑版 lays it out. */
-  const stageReady = $derived.by(() => staged && !!(waiting ? shown : snapshot?.dashboard));
-  const viewKey = $derived(phoneOpen ? 'phone' : sharing ? 'share' : toolId ? 'tool:' + toolId : pageEntry ? (managerOnly ? 'grid:' : 'home:') + pagePath.join('/') : managerOnly ? 'grid' : stageReady ? 'stage' : 'home');
-  /** 网页版 on screen: the whole screen is its, both ways up; the other pages keep the panel's width in the middle. */
-  const stageShown = $derived(viewKey === 'stage');
-  /** 网页版 chosen on a phone and the computer not yet answered: the window lets the last load's sky show through. */
-  const awaitingStage = $derived(onPhone && staged && !snapshot);
-  // On a phone, the browser's bars take the page's colour (网页版 paints its own sky's edges): 电脑版's background, in
-  // the theme and look the computer chose.
+  /** 网页版's figures to show: with none from the computer yet (SwiftBar's plugin not written, no tool on the homepage)
+   *  网页版 waits in its own sky, saying what for (StageWaiting.svelte). */
+  const stageReady = $derived.by(() => onPhone && !!(waiting ? shown : snapshot?.dashboard));
+  const viewKey = $derived(phoneOpen ? 'phone' : sharing ? 'share' : toolId ? 'tool:' + toolId : pageEntry ? (managerOnly ? 'grid:' : 'home:') + pagePath.join('/') : managerOnly ? 'grid' : stageReady ? 'stage' : onPhone && snapshot ? 'waiting' : 'home');
+  /** 网页版 on screen (or waiting for its figures): the whole screen is its, both ways up; the other pages keep the
+   *  panel's width in the middle. */
+  const stageShown = $derived(viewKey === 'stage' || viewKey === 'waiting');
+  /** On a phone, the computer not yet answered: the window lets the last load's sky show through. */
+  const awaitingStage = $derived(onPhone && !snapshot);
+  // On a phone, the browser's bars take the page's colour (网页版 paints its own sky's edges): a page of the panel's
+  // (the share page, a row's page), its background in the theme and look the computer chose.
   $effect(() => {
-    // Waiting for the computer's first answer with 网页版 chosen, the colours of the last load stay (first-frame.js
-    // painted them, and they are kept): neither painted over nor kept as 电脑版's (STAGE-9).
+    // Waiting for the computer's first answer, the colours of the last load stay (first-frame.js painted them, and they
+    // are kept): neither painted over nor kept as the panel's (STAGE-9).
     if (!onPhone || stageShown || awaitingStage || !windowBox) return;
     void panel.dark; void style.current; void snapshot?.theme;
     const box = windowBox;
@@ -278,7 +279,7 @@
       revealing = requestAnimationFrame(step);
     }
     // 网页版 rolls its own figures (StageNumber) and lights its own cards: the panel's blend frame by frame is not drawn.
-    if (!old || old.rangeKey !== next.rangeKey || old.grouping !== next.grouping || panel.reduceMotion || staged) { shown = next; glows = {}; summaryGlow = 0; return; }
+    if (!old || old.rangeKey !== next.rangeKey || old.grouping !== next.grouping || panel.reduceMotion || onPhone) { shown = next; glows = {}; summaryGlow = 0; return; }
     const grew: Record<string, number> = {};
     for (const p of next.cards ?? next.providers) {
       const before = (old.cards ?? old.providers).find((q) => q.id === p.id);
@@ -824,7 +825,7 @@
   style:width={inTauri ? '100vw' : onPhone ? null : `${panelWidth}px`} style:height={inTauri ? '100vh' : onPhone ? null : `${panelHeight}px`}>
   {#key viewKey}
     <!-- On a phone the pages keep the panel's width in the middle of the screen; 网页版 has all of it. -->
-    <div class="view" class:centred={onPhone && viewKey !== 'stage'} style:--page-width={onPhone ? `${panelWidth}px` : null} in:pageIn={{ dir }} out:pageOut={{ dir }}>
+    <div class="view" class:centred={onPhone && !stageShown} style:--page-width={onPhone ? `${panelWidth}px` : null} in:pageIn={{ dir }} out:pageOut={{ dir }}>
       {#if phoneOpen}
         <PhonePage onback={back} onheight={(h) => (wanted.phone = h)} />
       {:else if sharing && snapshot?.dashboard}
@@ -843,10 +844,12 @@
         <!-- 网页版: the figures as they came in (held, as the panel holds them, while a range picked is read). -->
         <PhoneStage data={(waiting ? shown : snapshot.dashboard)!} {rangeOptions} reading={waiting} grouping={pickedGroup} {regrouping} {sessions} view={view === 'live' ? 'cards' : view}
           entries={without(snapshot.entries, sessions)} problem={phoneProblem} material={snapshot.appearance} onrange={perform} ongroup={(key) => perform(['set-group', key])}
-          onview={chooseView} onshare={openShare} onlook={chooseLook} />
+          onview={chooseView} onshare={openShare} />
+      {:else if snapshot && onPhone}
+        <StageWaiting />
       {:else if snapshot}
         <HomePage entries={shown ? without(snapshot.entries, sessions) : snapshot.entries} dashboard={shown ? dashboardView : null} bind:scrollTop={homeScroll} onactivate={activate}
-          onmove={perform} onheight={(h) => (wanted.home = h)} foot={onPhone ? lookFoot : null} />
+          onmove={perform} onheight={(h) => (wanted.home = h)} />
       {/if}
     </div>
   {/key}
@@ -877,15 +880,6 @@
     <div class="ask-sheet"><InlineAsk question={ask.current.question} sheet /></div>
   {/if}
 </div>
-
-{#snippet lookFoot()}
-  <!-- On a phone, at the homepage's foot as at 网页版's: the phone's choice of look. -->
-  <div class="look-foot">
-    <Segments entries={[{ label: t('网页版'), checked: staged, action: ['phone-look', 'stage'], children: [] }, { label: t('电脑版'), checked: !staged, action: ['phone-look', 'panel'], children: [] }]}
-      onchoose={(e) => chooseLook(e.action?.[1] === 'stage' ? 'stage' : 'panel')} />
-    {#if staged}<p class="look-note">{t('电脑还没有读到用量，网页版会在有数字后出现')}</p>{/if}
-  </div>
-{/snippet}
 
 {#snippet dashboardView()}
   {#if shown && snapshot}
@@ -919,8 +913,6 @@
   .window.phone::after { display: none; }
   .window.staged { background: transparent; }
   .view.centred { left: 50%; right: auto; width: var(--page-width); margin-left: calc(var(--page-width) / -2); }
-  .look-foot { width: 168px; margin: 18px auto calc(14px + env(safe-area-inset-bottom)); }
-  .look-note { width: 240px; margin: 8px 0 0 -36px; font-size: 11px; line-height: 1.45; text-align: center; color: var(--secondary); }
   .window.browser {
     margin: 24px;
     box-shadow: 0 18px 50px rgba(0, 0, 0, 0.22), 0 0 0 0.5px rgba(0, 0, 0, 0.12);

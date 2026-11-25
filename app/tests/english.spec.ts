@@ -162,10 +162,10 @@ test('English: the phone view and its public link', async ({ page }) => {
   expect(left.list).toEqual([]);
 });
 
-test('English: on the phone, the homepage, its sessions and the share page', async ({ page }) => {
+test('English: on the phone, 网页版 with its sessions, and the share page', async ({ page }) => {
   const left = new Leftovers();
   await servePhone(page);
-  await english(page, '#k=' + PHONE_KEY + '&l=en&v=panel');
+  await english(page, '#k=' + PHONE_KEY + '&l=en', '.stage');
   await expect(page.locator('.window.phone')).toBeVisible();
   await left.take(page, 'phone');
   await page.getByRole('radio', { name: 'Sessions' }).click();

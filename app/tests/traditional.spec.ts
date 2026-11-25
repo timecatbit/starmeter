@@ -112,10 +112,6 @@ test('繁體中文 on the phone: 手機版 with each grouping, a card and a sess
   await page.setViewportSize({ width: 852, height: 393 });
   await page.waitForTimeout(400);
   await left.take(page, 'phone › landscape');
-  // 電腦版 at the foot, and back.
-  await page.getByRole('radio', { name: '電腦版' }).click();
-  await expect(page.locator('.dashboard')).toBeVisible();
-  await left.take(page, 'phone › 電腦版');
   expect(left.list).toEqual([]);
 });
 

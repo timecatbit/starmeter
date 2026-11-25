@@ -1,13 +1,11 @@
 <script lang="ts" module>
   import { PhoneLive } from '../lib/phoneLive.svelte';
-  /** The opening plays once a page load (and again when the phone switches to this look): back from the share page,
-   *  the page is simply there, where it was left. */
+  /** The opening plays once a page load: back from the share page, the page is simply there, where it was left. */
   let played = false;
   let kept = 0;
-  export function replayIntro() { played = false; kept = 0; }
   /** The live view's readings and what happened, kept while the share page is on screen (asked for only while this page is). */
   const live = new PhoneLive();
-  /** The last turn done said at the top: said once, not again each time 网页版 comes back (from the share page, 电脑版). */
+  /** The last turn done said at the top: said once, not again each time 网页版 comes back (from the share page). */
   let doneSaid = 0;
 </script>
 
@@ -38,7 +36,6 @@
   import { t } from '../lib/i18n.svelte';
   import { rateText } from '../lib/live';
   import { closeList, listOpen, openList, sessionOpen, toggleSession } from '../lib/expanded.svelte';
-  import type { PhoneLook } from '../lib/phoneLook.svelte';
   import { panel } from '../lib/ui.svelte';
   import { paintEdges } from '../lib/edges';
   import { ScreenLock } from '../lib/screenLock';
@@ -57,7 +54,7 @@
   import StageSession from './StageSession.svelte';
 
   let { data, today = null, rangeOptions, reading = false, grouping = null, regrouping = false, sessions = null, view = 'cards', entries, problem = null,
-    material = 'solid', onrange, ongroup, onview, onshare, onlook }: {
+    material = 'solid', onrange, ongroup, onview, onshare }: {
     data: Dashboard;
     /** The computer's background (实色, 磨砂, 玻璃): the panes' material here, over the sky. */
     material?: string;
@@ -68,7 +65,7 @@
     /** Why the figures on screen are not fresh. */
     problem?: string | null;
     onrange: (action: string[]) => void; ongroup: (key: string) => void; onview: (view: 'cards' | 'sessions') => void;
-    onshare: () => void; onlook: (look: PhoneLook) => void;
+    onshare: () => void;
   } = $props();
 
   const intro = !played;
@@ -174,7 +171,7 @@
   });
 
   // Keeping the screen on (a monitor by the desk): only where the browser offers it (an https page, iOS 16.4 on). One
-  // lock at most, let go when the switch goes off or this page goes away (to 电脑版, to the share page).
+  // lock at most, let go when the switch goes off or this page goes away (to the share page).
   const lockable = ScreenLock.offered();
   const screenLock = lockable ? ScreenLock.browser() : null;
   let awake = $state(false);
@@ -516,7 +513,6 @@
         {/snippet}
 
         <footer class="foot">
-          <StagePills options={[{ value: 'stage', label: t('网页版') }, { value: 'panel', label: t('电脑版') }]} chosen="stage" label={t('手机上的样式')} onpick={(v) => onlook(v as PhoneLook)} small />
           <p class="read-only">{t('只读：实时数字每 2 秒从电脑上的 Starmeter 读一次，休息时每 5 秒')}</p>
         </footer>
       </section>

@@ -1,7 +1,7 @@
 // 在手机上看 on the phone, in its own look (网页版, PhoneStage.svelte): the live monitor (working, a turn done, resting,
 // waking, asked for only while shown), portrait, landscape and a computer's window laid out within the screen, the
-// figures the computer's homepage shows, its ranges and groupings, the choice between 网页版 and 电脑版 (kept in the
-// address, a cookie and the page's storage), reduced motion, and the languages.
+// figures the computer's homepage shows, its ranges and groupings, no other look to choose (a choice of 电脑版 kept from
+// before let go of), a wait of its own before the computer has figures, reduced motion, and the languages.
 import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { liveWork, PHONE_KEY, servePhone } from './phone';
@@ -35,9 +35,24 @@ async function stageFigures(page: Page) {
   const rest = await page.locator('.stage .figure [data-value]').evaluateAll((list) => list.map((e) => e.getAttribute('data-value')));
   return [amount, rest[0], rest[1]].map(plain);
 }
-/** 电脑版's: the homepage's three figures. */
-async function panelFigures(page: Page) {
-  return (await page.locator('.dashboard .summary > .figure').allTextContents()).map(plain);
+/** The computer's own homepage (the panel, from the same fixtures) in a page beside: its three figures, for a range. */
+async function panelFigures(page: Page, range = '今天') {
+  const computer = await page.context().newPage();
+  await computer.goto('/');
+  await expect(computer.locator('.dashboard')).toBeVisible();
+  const read = async () => (await computer.locator('.dashboard .summary > .figure').allTextContents()).map(plain);
+  if (range !== '今天') {
+    const today = await read();
+    await computer.getByRole('button', { name: /^统计范围/ }).click();
+    await computer.getByRole('option', { name: range }).click();
+    await expect(computer.getByRole('button', { name: /^统计范围/ })).toContainText(range);
+    // The panel keeps today's figures (dimmed) until the range's are read through.
+    await expect.poll(async () => (await read())[0]).not.toBe(today[0]);
+    await expect(computer.locator('.summary .reading')).toHaveCount(0);
+  }
+  const figures = await read();
+  await computer.close();
+  return figures;
 }
 /** Boxes of what the page lays out, in the screen's coordinates. */
 const box = async (page: Page, selector: string) => (await page.locator(selector).first().boundingBox())!;
@@ -63,15 +78,10 @@ test('网页版 is what a phone opens: portrait, balanced within the screen, its
   const tiles = await page.locator('.stage .figure').evaluateAll((list) => list.map((e) => { const r = e.getBoundingClientRect(); return [r.top, r.width]; }));
   expect(new Set(tiles.map(([top]) => Math.round(top))).size).toBe(1);
   expect(Math.max(...tiles.map(([, w]) => w)) - Math.min(...tiles.map(([, w]) => w))).toBeLessThan(1);
-  // The same estimate, tokens and requests as the homepage the computer shows (电脑版).
+  // The same estimate, tokens and requests as the homepage the computer shows.
   const stage = await stageFigures(page);
   expect(stage[0]).toMatch(/^\$\d/);
-  await page.getByRole('radio', { name: '电脑版' }).click();
-  await expect(page.locator('.dashboard')).toBeVisible();
   expect(await panelFigures(page)).toEqual(stage);
-  // Each tool's amount on its card is its card's on the computer.
-  const panelCards = await page.locator('.dashboard .card .name').allTextContents();
-  expect(panelCards.length).toBeGreaterThan(3);
 });
 
 test('网页版 on its side: a monitor by the desk, the live view still on the left, the rest scrolling on the right', async ({ page }) => {
@@ -142,10 +152,8 @@ test('网页版: the ranges and groupings are the phone\'s own, the figures read
   await page.keyboard.press('ArrowRight');
   await expect(tabs.getByRole('radio', { name: '模型' })).toBeFocused();
   await expect(tabs.getByRole('radio', { name: '模型' })).toHaveAttribute('aria-checked', 'true');
-  // The week's figures are the computer's for the week: 电脑版 keeps the range the phone picked.
-  await page.getByRole('radio', { name: '电脑版' }).click();
-  await expect(page.getByRole('button', { name: /^统计范围/ })).toContainText('近 7 天');
-  expect(await panelFigures(page)).toEqual(week);
+  // The week's figures are the computer's for the week.
+  expect(await panelFigures(page, '近 7 天')).toEqual(week);
 });
 
 test('网页版: the trend reads under a finger, the share page opens and comes back, a new reading lights the tool that grew', async ({ page }) => {
@@ -157,9 +165,15 @@ test('网页版: the trend reads under a finger, the share page opens and comes 
   await expect(page.locator('.stage .trend .bubble .part').first()).toBeVisible();
   await page.mouse.move(chart.x + chart.width * 0.5, chart.y - 60);
   await expect(page.locator('.stage .trend .bubble')).toHaveCount(0);
-  // The share page, as on the panel's phone page, and back to 网页版 where it was.
+  // The share page, and back to 网页版 where it was. On a phone the picture is saved as a download (the browser's way),
+  // and can be held to keep in the photos.
   await page.getByRole('button', { name: '分享用量图' }).click();
   await expect(page.locator('.share-page .stage img')).toBeVisible();
+  await expect(page.getByText('长按图片也能存到相册')).toBeVisible();
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: '保存图片' }).click();
+  // WebKit on Linux hands the name over with its spaces as underscores.
+  expect((await download).suggestedFilename()).toMatch(/^Starmeter[ _].+[ _]卡片\.png$/);
   await page.keyboard.press('Escape');
   await expect(page.locator('.stage .hero .amount')).toBeVisible();
   // The next reading has Claude further on: its card glows, the estimate rolls to the new amount.
@@ -183,30 +197,26 @@ test('网页版: the trend reads under a finger, the share page opens and comes 
   errors.splice(0, errors.length, ...errors.filter((line) => !/Failed to load resource|Could not connect/.test(line)));
 });
 
-test('网页版 and 电脑版: picked on the phone, at either page\'s foot, and kept through a reload and a new address', async ({ page }) => {
-  await phone(page);
-  await expect(page.getByRole('radiogroup', { name: '手机上的样式' }).getByRole('radio', { name: '网页版' })).toHaveAttribute('aria-checked', 'true');
-  await page.getByRole('radio', { name: '电脑版' }).click();
-  await expect(page.locator('.dashboard')).toBeVisible();
-  await expect(page.locator('.stage')).toHaveCount(0);
-  expect(new URL(page.url()).hash).toContain('v=panel');
-  expect(new URL(page.url()).hash).toContain('k=' + PHONE_KEY);
-  // A reload keeps it, and so does the address the computer gives next time (no look in it): its cookie, even with the
-  // page's storage gone (a new port is a new page to the browser, not to its cookies).
-  await page.reload();
-  await expect(page.locator('.dashboard')).toBeVisible();
-  await page.evaluate(() => localStorage.clear());
-  await page.goto('/#k=' + PHONE_KEY);
-  await page.reload();
-  await expect(page.locator('.dashboard')).toBeVisible();
-  await expect(page.locator('.stage')).toHaveCount(0);
-  // Back at 电脑版's foot: 网页版, its opening again.
-  const back = page.locator('.look-foot').getByRole('radio', { name: '网页版' });
-  await back.scrollIntoViewIfNeeded();
-  await back.click();
+test('a phone opens 网页版 only: a choice of 电脑版 kept from before (in the address, a cookie, the page\'s storage) is let go of', async ({ page }) => {
+  await page.setViewportSize(PORTRAIT);
+  await servePhone(page);
+  await page.addInitScript(() => {
+    localStorage.setItem('starmeter-phone-look', 'panel');
+    document.cookie = 'starmeter-phone-look=panel; path=/';
+  });
+  await page.goto('/#k=' + PHONE_KEY + '&v=panel');
   await expect(page.locator('.stage')).toBeVisible();
-  expect(new URL(page.url()).hash).toContain('v=stage');
-  expect(await page.evaluate(() => document.cookie)).toContain('starmeter-phone-look=stage');
+  await expect(page.locator('.dashboard')).toHaveCount(0);
+  // Nothing to pick between, and nothing of the old choice left behind.
+  await expect(page.getByRole('radio', { name: '电脑版' })).toHaveCount(0);
+  await expect(page.getByRole('radiogroup', { name: '手机上的样式' })).toHaveCount(0);
+  const hash = new URL(page.url()).hash;
+  expect(hash).toContain('k=' + PHONE_KEY);
+  expect(hash).not.toContain('v=');
+  expect(await page.evaluate(() => [localStorage.getItem('starmeter-phone-look'), document.cookie.includes('starmeter-phone-look')])).toEqual([null, false]);
+  // Reloaded: 网页版 again.
+  await page.reload();
+  await expect(page.locator('.stage')).toBeVisible();
 });
 
 test('网页版 with reduced motion: everything simply there, nothing drifting or counting', async ({ page }) => {
@@ -231,7 +241,7 @@ test('网页版 for SwiftBar\'s panel: the computer\'s range and grouping only, 
 });
 
 test('网页版 in English and in 繁體中文: laid out within the screen, both ways up', async ({ context }) => {
-  for (const [hash, words] of [['&l=en', ['Share by tool', 'Plans and services', 'Web', 'Desktop', 'Hourly tokens']], ['&l=zh-Hant', ['工具佔比', '訂閱與服務', '網頁版', '電腦版']]] as const) {
+  for (const [hash, words] of [['&l=en', ['Share by tool', 'Plans and services', 'Hourly tokens']], ['&l=zh-Hant', ['工具佔比', '訂閱與服務']]] as const) {
     for (const size of [PORTRAIT, LANDSCAPE]) {
       // A page of its own each time: only the address's fragment would change, and the page keeps its language.
       const page = await context.newPage();
@@ -474,7 +484,7 @@ test('网页版\'s figures and words keep the panel\'s rules: figures rounded at
   expect(sign.weight).toBe('500');
 });
 
-test('on a phone the browser\'s bars take the page\'s colours: 网页版\'s sky edges, 电脑版\'s background, as the theme changes', async ({ page }) => {
+test('on a phone the browser\'s bars take the page\'s colours: 网页版\'s sky edges, a page of the panel\'s its background, as the theme changes', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'dark' });
   await phone(page);
   expect(await page.locator('meta[name="viewport"]').getAttribute('content')).toContain('viewport-fit=cover');
@@ -483,7 +493,7 @@ test('on a phone the browser\'s bars take the page\'s colours: 网页版\'s sky 
   expect(window).toEqual({ x: 0, y: 0, width: PORTRAIT.width, height: PORTRAIT.height });
   expect(await page.locator('.window.phone').evaluate((e) => getComputedStyle(e).position)).toBe('fixed');
   const edges = () => page.evaluate(() => {
-    const stage = document.querySelector('.stage'), css = stage ? getComputedStyle(stage) : null;
+    const stage = document.querySelector('.window > .view > .stage'), css = stage ? getComputedStyle(stage) : null;
     return { meta: document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.content, html: getComputedStyle(document.documentElement).backgroundColor,
       top: css?.getPropertyValue('--edge-top').trim(), bottom: css ? getComputedStyle(document.querySelector('.stage .edge.bottom')!).backgroundColor : null,
       topStrip: css ? getComputedStyle(document.querySelector('.stage .edge.top')!).backgroundColor : null };
@@ -500,9 +510,9 @@ test('on a phone the browser\'s bars take the page\'s colours: 网页版\'s sky 
   const light = await edges();
   expect(light.meta).toBe(light.top);
   expect(light.html).toBe(light.bottom);
-  // 电脑版: its own background, top and bottom.
-  await page.getByRole('radio', { name: '电脑版' }).click();
-  await expect(page.locator('.dashboard')).toBeVisible();
+  // The share page (the panel's page, in the middle of the screen): its background, top and bottom.
+  await page.getByRole('button', { name: '分享用量图' }).click();
+  await expect(page.locator('.share-page')).toBeVisible();
   await expect.poll(async () => (await edges()).html).toBe(await page.locator('.window.phone').evaluate((e) => getComputedStyle(e).backgroundColor));
 });
 
@@ -541,11 +551,11 @@ test('保持亮屏 holds one lock at most, and lets it go when switched off or w
   await button.click();
   await page.waitForTimeout(500);
   expect((await held()).held).toBe(0);
-  // On, then to 电脑版: this page gone, nothing held.
+  // On, then to the share page: this page gone, nothing held.
   await button.click();
   await expect.poll(async () => (await held()).held).toBe(1);
-  await page.getByRole('radio', { name: '电脑版' }).click();
-  await expect(page.locator('.dashboard')).toBeVisible();
+  await page.getByRole('button', { name: '分享用量图' }).click();
+  await expect(page.locator('.share-page')).toBeVisible();
   await expect.poll(async () => (await held()).held).toBe(0);
 });
 
@@ -658,7 +668,7 @@ test('one reading loop at a time: a reading two loops waited for is taken once, 
   }
 });
 
-test('a turn done is said at the top once, not again when 网页版 comes back from 电脑版 or the share page (STAGE-7)', async ({ page }) => {
+test('a turn done is said at the top once, not again when 网页版 comes back from the share page (STAGE-7)', async ({ page }) => {
   const work = scripted();
   await phone(page, PORTRAIT, '', { live: work.live });
   work.at(9);
@@ -668,14 +678,7 @@ test('a turn done is said at the top once, not again when 网页版 comes back f
   await expect(toast).toBeVisible({ timeout: 5000 });
   await toast.locator('.done-body').click();
   await expect(toast).toHaveCount(0);
-  // To 电脑版 and back, then to the share page and back: the turn is not said done again.
-  await page.getByRole('radio', { name: '电脑版' }).click();
-  await expect(page.locator('.dashboard')).toBeVisible();
-  const back = page.locator('.look-foot').getByRole('radio', { name: '网页版' });
-  await back.scrollIntoViewIfNeeded();
-  await back.click();
-  await expect(page.locator('.stage')).toBeVisible();
-  await never(toast);
+  // To the share page and back: the turn is not said done again.
   await page.getByRole('button', { name: '分享用量图' }).click();
   await expect(page.locator('.share-page .stage img')).toBeVisible();
   await page.keyboard.press('Escape');
@@ -812,25 +815,23 @@ test('a plan\'s window with a long name in a narrow column keeps its share whole
   }
 });
 
-test('with no figures from the computer yet, a phone that chose 网页版 sees the homepage as it is, and can still choose (STAGE-8 · 8)', async ({ page }) => {
+test('with no figures from the computer yet, 网页版 waits in its own sky, saying what for, and shows them when they come (STAGE-8 · 8)', async ({ page }) => {
   await page.setViewportSize(PORTRAIT);
   await servePhone(page, PHONE_KEY);
   await snapshotAs(page, (snapshot) => { snapshot.dashboard = null; });
   await page.goto('/#k=' + PHONE_KEY);
-  await expect(page.locator('.look-foot')).toBeVisible();
-  // The homepage laid out as 电脑版 lays it out, not 网页版's screen-wide frame.
-  await expect(page.locator('.window')).not.toHaveClass(/staged/);
-  await expect(page.locator('.stage')).toHaveCount(0);
-  const foot = page.locator('.look-foot');
-  await expect(foot.getByRole('radio', { name: '网页版' })).toHaveAttribute('aria-checked', 'true');
-  await expect(foot.locator('.look-note')).toBeVisible();
-  await foot.getByRole('radio', { name: '电脑版' }).click();
-  await expect(foot.getByRole('radio', { name: '电脑版' })).toHaveAttribute('aria-checked', 'true');
-  await expect(foot.locator('.look-note')).toHaveCount(0);
-  expect(new URL(page.url()).hash).toContain('v=panel');
-  await foot.getByRole('radio', { name: '网页版' }).click();
-  await expect(foot.getByRole('radio', { name: '网页版' })).toHaveAttribute('aria-checked', 'true');
-  expect(new URL(page.url()).hash).toContain('v=stage');
+  // Not the panel's homepage: 网页版's wait, the whole screen, the bars in its sky's colours.
+  const waiting = page.locator('.window.staged .waiting');
+  await expect(waiting).toBeVisible();
+  await expect(waiting.locator('.title')).toHaveText('等电脑读到用量');
+  await expect(page.locator('.dashboard')).toHaveCount(0);
+  expect(await box(page, '.waiting')).toEqual({ x: 0, y: 0, width: PORTRAIT.width, height: PORTRAIT.height });
+  await expect.poll(() => page.evaluate(() => document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.content)).toMatch(/^#(1F3A7A|DCE3FF)$/);
+  // The figures come: 网页版.
+  await page.unroute('**/api/snapshot**');
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await expect(page.locator('.stage .monitor')).toBeVisible({ timeout: 8000 });
+  await expect(waiting).toHaveCount(0);
 });
 
 test('reloaded on a phone in dark mode, the page and the bars are the computer\'s light colours before it answers (the first frame)', async ({ page }) => {
@@ -851,7 +852,7 @@ test('reloaded on a phone in dark mode, the page and the bars are the computer\'
   await expect.poll(colours).toEqual(lit);
   expect(await page.evaluate(() => document.documentElement.dataset.theme)).toBe('light');
   // Then the page, waiting for the computer: the last load's sky shows through and stays, neither painted over with
-  // 电脑版's background nor kept as it (STAGE-9).
+  // the panel's background nor kept as it (STAGE-9).
   await page.unroute(main);
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.locator('.window.phone')).toBeVisible();
