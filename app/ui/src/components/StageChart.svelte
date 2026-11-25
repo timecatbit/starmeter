@@ -3,7 +3,8 @@
   // when a range first shows (so the eye follows it), its latest point breathing while the range is still running. A
   // finger on the chart (or a pointer) reads it: a line at the nearest slot and a bubble with its time, the total and
   // the tools that made most of it. Vertical swipes still scroll the page.
-  import { accent, alpha, totalColor } from '../lib/colors';
+  import { alpha, summaryColour, toolColour } from '../lib/colors';
+  import { style } from '../lib/style.svelte';
   import { chartAxis, chartPositions, seriesOf, smoothCurves, summaryProviders, svgPath } from '../lib/chart';
   import { legendName, tokens } from '../lib/format';
   import { t } from '../lib/i18n.svelte';
@@ -40,7 +41,9 @@
   const empty = $derived(waiting || totals.every((v) => v === 0));
   /** The range still running (today, this week…): its last point is now, and breathes. Yesterday's is over. */
   const running = $derived(data.rangeKey !== 'yesterday');
-  const colour = $derived(totalColor(panel.dark));
+  // The total as the panel draws it: the night's soft teal, or by hand the coral pen (no glow then).
+  const colour = $derived(summaryColour(panel.dark));
+  const sketch = $derived(style.current === 'sketch');
   const glow = $derived(panel.dark ? '#C4D8FF' : '#5B6BD6');
   const middle = $derived.by(() => {
     let best: number | null = null;
@@ -116,7 +119,7 @@
         {#key data.rangeKey}
           <g class:drawn={drawing}>
             <path class="area" d={area} fill="url(#{id}-fill)" />
-            <path class="glow" d={line} pathLength="1" stroke={glow} filter="url(#{id}-blur)" />
+            {#if !sketch}<path class="glow" d={line} pathLength="1" stroke={glow} filter="url(#{id}-blur)" />{/if}
             <path class="line" d={line} pathLength="1" stroke="url(#{id}-line)" />
             <g class="end" style:transform="translate({x(n - 1)}px, {y(totals[n - 1])}px)">
               {#if running}<circle class="pulse" r="9" fill={alpha(colour, 0.35)} />{/if}
@@ -142,7 +145,7 @@
         <div class="when num">{picked.label}</div>
         <div class="sum num">{t('{n} Token', { n: tokens(picked.total) })}</div>
         {#each picked.parts as part (part.id)}
-          <div class="part"><span class="dot" style:background={accent(part.id, panel.dark)}></span><span class="who">{part.name}</span><span class="num">{tokens(part.value)}</span></div>
+          <div class="part"><span class="dot" style:background={toolColour(part.id, panel.dark)}></span><span class="who">{part.name}</span><span class="num">{tokens(part.value)}</span></div>
         {/each}
       </div>
     {/if}
@@ -214,7 +217,7 @@
     color: var(--ink);
   }
   .when { color: var(--ink-3); font-size: 10px; }
-  .sum { font-family: var(--rounded); font-size: 14px; font-weight: 700; margin: 1px 0 3px; }
+  .sum { font-family: var(--rounded); font-size: 14px; font-weight: 600; margin: 1px 0 3px; }
   .part { display: flex; align-items: center; gap: 6px; height: 16px; color: var(--ink-2); }
   .part .who { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }

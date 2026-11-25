@@ -4,7 +4,7 @@
   // the legend lights that tool and puts its own figures in the middle; another tap, or a tap on the middle, lets go.
   // The first five keep their arcs; the rest are one, 其他工具.
   import { onDestroy } from 'svelte';
-  import { accent } from '../lib/colors';
+  import { toolColour } from '../lib/colors';
   import { legendName, money, share, summaryPart, tokens } from '../lib/format';
   import { t } from '../lib/i18n.svelte';
   import { panel } from '../lib/ui.svelte';
@@ -19,7 +19,7 @@
       .sort((a, b) => b!.tokens - a!.tokens) as NonNullable<ReturnType<typeof summaryPart>>[];
     const listed = counted.slice(0, counted.length > SHOWN + 1 ? SHOWN : SHOWN + 1);
     const rest = counted.slice(listed.length);
-    const out: Slice[] = listed.map((p) => ({ id: p.id, name: legendName(p), tokens: p.tokens, cost: p.cost, colour: accent(p.id, panel.dark) }));
+    const out: Slice[] = listed.map((p) => ({ id: p.id, name: legendName(p), tokens: p.tokens, cost: p.cost, colour: toolColour(p.id, panel.dark) }));
     if (rest.length) {
       const costs = rest.map((p) => p.cost).filter((c): c is number => c !== null);
       out.push({ id: 'other', name: t('其他工具'), tokens: rest.reduce((s, p) => s + p.tokens, 0), cost: costs.length ? costs.reduce((a, b) => a + b, 0) : null,
@@ -156,7 +156,7 @@
     text-align: center;
     gap: 2px;
   }
-  .big { font-family: var(--rounded); font-size: 20px; font-weight: 700; color: var(--ink); }
+  .big { font-family: var(--rounded); font-size: var(--fig-l, 20px); font-weight: 600; color: var(--ink); }
   .small { font-size: 11px; color: var(--ink-2); max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .legend { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
   .entry {

@@ -89,6 +89,8 @@ export const shell = {
    *  browser, the page's own storage stands in. */
   guideShown: (): Promise<boolean> => (inTauri ? invoke<boolean>('guide_shown').catch(() => false) : Promise.resolve(localGuide())),
   markGuideShown: () => (inTauri ? invoke<void>('mark_guide_shown').catch(() => {}) : quiet().then(() => { try { localStorage.setItem('starmeter.guide', '1'); } catch { /* shown again */ } })),
+  /** The panel's look ('standard' or 'sketch'), for a phone (在手机上看) to follow. */
+  setStyle: (look: string) => (inTauri ? invoke<void>('set_style', { style: look }).catch(() => {}) : quiet()),
   /** The panel's language ('zh' or 'en'), for the shell's own words: the star's right-click menu. */
   setLanguage: (language: string) => (inTauri ? invoke<void>('set_language', { language }).catch(() => {}) : quiet()),
   /** 在手机上看: the read-only server for a phone, started (or its hour started again), asked after, and stopped; the

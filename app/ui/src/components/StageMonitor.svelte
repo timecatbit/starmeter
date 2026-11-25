@@ -71,9 +71,9 @@
     {#if working}
       <span class="tick"><span class="tick-label">{t('今天')}</span> <span class="tick-value num" data-figure="today"><StageNumber value={amount} /></span>
         {#if added}{#key added.at}<span class="added num">+{currency.symbol}{grouped(added.amount)}</span>{/key}{/if}</span>
-      <span class="tick"><span class="tick-label">{t('近 1 分钟')}</span> <span class="tick-value num">+{tokens(minute)}</span></span>
+      <span class="tick"><span class="tick-label">{t('近 1 分钟')}</span> <span class="tick-value num"><StageNumber value={'+' + tokens(minute)} /></span></span>
     {:else if data}
-      <span class="tick"><span class="tick-label">{t('今天')}</span> <span class="tick-value num">{tokens(data.providers.reduce((s, p) => s + (p.available && p.summaryIncluded !== false ? (p.counted?.tokens ?? p.tokens) : 0), 0))} Token</span></span>
+      <span class="tick"><span class="tick-label">{t('今天')}</span> <span class="tick-value num"><StageNumber value={tokens(data.providers.reduce((s, p) => s + (p.available && p.summaryIncluded !== false ? (p.counted?.tokens ?? p.tokens) : 0), 0))} /></span><span class="tick-label">Token</span></span>
     {/if}
   </div>
   <div class="curve" bind:clientHeight={room}>
@@ -115,7 +115,7 @@
   .big {
     font-family: var(--rounded);
     font-size: var(--big, 64px);
-    font-weight: 700;
+    font-weight: 600;
     letter-spacing: -0.02em;
     line-height: 1.1;
     color: #F5F8FF;
@@ -128,7 +128,7 @@
   .unit { font-size: 12px; color: var(--ink-2); margin-top: 2px; }
   .ticker { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 6px 0 10px; font-size: 13px; color: var(--ink-2); min-height: 20px; }
   .tick { position: relative; display: inline-flex; align-items: baseline; gap: 6px; }
-  .tick-value { font-family: var(--rounded); font-size: 16px; font-weight: 700; color: var(--ink); }
+  .tick-value { font-family: var(--rounded); font-size: var(--fig-m, 17px); font-weight: 600; color: var(--ink); }
   .added {
     position: absolute;
     left: 100%;
@@ -137,7 +137,7 @@
     white-space: nowrap;
     font-family: var(--rounded);
     font-size: 12px;
-    font-weight: 700;
+    font-weight: 600;
     color: var(--good);
     animation: rise 2.4s ease-out forwards;
     pointer-events: none;

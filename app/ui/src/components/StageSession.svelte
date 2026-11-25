@@ -75,10 +75,11 @@
     flex: none; width: 28px; height: 28px; border-radius: 9px; display: flex; align-items: center; justify-content: center;
     background: var(--glass-strong);
   }
-  .title { flex: 1; min-width: 0; font-size: 14.5px; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .title { flex: 1; min-width: 0; font-size: var(--type-title, 15px); font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .value { flex: none; white-space: nowrap; color: var(--ink); }
-  .figure { font-family: var(--rounded); font-size: 17px; font-weight: 700; }
-  .sign { font-size: 0.62em; opacity: 0.62; vertical-align: 0.42em; margin-right: 0.04em; }
+  .figure { font-family: var(--rounded); font-size: var(--fig-m, 17px); font-weight: 600; }
+  /* As the panel's figures: the sign smaller, lighter and raised. */
+  .sign { font-size: 0.62em; font-weight: 500; color: var(--ink-2); vertical-align: 0.48em; margin-right: 0.04em; }
   .unit { font-size: 0.74em; }
   .words { font-size: 11px; color: var(--ink-2); }
   .words + .figure { margin-left: 3px; }

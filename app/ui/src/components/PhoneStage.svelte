@@ -37,6 +37,8 @@
   import { closeList, listOpen, openList, sessionOpen, toggleSession } from '../lib/expanded.svelte';
   import type { PhoneLook } from '../lib/phoneLook.svelte';
   import { panel } from '../lib/ui.svelte';
+  import { paintEdges } from '../lib/edges';
+  import { style } from '../lib/style.svelte';
   import type { Dashboard, Entry } from '../lib/types';
   import Icon from './Icon.svelte';
   import StageActivity from './StageActivity.svelte';
@@ -50,8 +52,10 @@
   import StageSession from './StageSession.svelte';
 
   let { data, today = null, rangeOptions, reading = false, grouping = null, regrouping = false, sessions = null, view = 'cards', entries, problem = null,
-    onrange, ongroup, onview, onshare, onlook }: {
+    material = 'solid', onrange, ongroup, onview, onshare, onlook }: {
     data: Dashboard;
+    /** The computer's background (实色, 磨砂, 玻璃): the panes' material here, over the sky. */
+    material?: string;
     /** Today's figures from the homepage, for the monitor until the live view has its own. */
     today?: Dashboard | null;
     rangeOptions: Entry[]; reading?: boolean; grouping?: string | null; regrouping?: boolean;
@@ -105,13 +109,20 @@
     scrolled = scroller.scrollTop;
     kept = scrolled;
   }
-  // The browser's bars take the sky's colour.
+  // The browser's bars take the sky's own edges (its top band and its foot are flat for them), in the computer's theme,
+  // look and background.
+  let stageBox: HTMLDivElement | undefined = $state();
+  const sketch = $derived(style.current === 'sketch');
+  const pane = $derived(material === 'frosted' || material === 'glass' ? material : 'solid');
   $effect(() => {
-    const colour = panel.dark ? '#0C1A45' : '#EEF1FF';
-    let meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
-    if (!meta) { meta = document.createElement('meta'); meta.name = 'theme-color'; document.head.append(meta); }
-    meta.content = colour;
-    return () => meta?.remove();
+    void panel.dark; void sketch; void pane;
+    const box = stageBox;
+    if (!box) return;
+    const frame = requestAnimationFrame(() => {
+      const css = getComputedStyle(box);
+      paintEdges(css.getPropertyValue('--edge-top').trim(), css.getPropertyValue('--edge-bottom').trim());
+    });
+    return () => cancelAnimationFrame(frame);
   });
 
   // MARK: Live
@@ -274,16 +285,22 @@
 
 <svelte:window bind:innerWidth={screenW} bind:innerHeight={screenH} />
 
-<div class="stage {layout}" class:light={!panel.dark} class:wide class:still={panel.reduceMotion} class:asleep class:working class:waking>
+<div class="stage {layout} {pane}" class:light={!panel.dark} class:sketch class:wide class:still={panel.reduceMotion} class:asleep class:working class:waking bind:this={stageBox}>
   <div class="sky" aria-hidden="true">
-    <div class="aurora one"></div>
-    <div class="aurora two"></div>
-    <div class="dots"></div>
-    {#each STARS as star, i (i)}
-      <span class="star" style:left="{star.x}%" style:top="{star.y}%" style:width="{star.size}px" style:height="{star.size}px"
-        style:animation-delay="{star.wait}s" style:animation-duration="{star.length}s"></span>
-    {/each}
+    <!-- The lights fade out at the top and the foot, so the edges stay the flat colour the browser's bars take. -->
+    <div class="lights">
+      <div class="aurora one"></div>
+      <div class="aurora two"></div>
+      <div class="dots"></div>
+      {#each STARS as star, i (i)}
+        <span class="star" style:left="{star.x}%" style:top="{star.y}%" style:width="{star.size}px" style:height="{star.size}px"
+          style:animation-delay="{star.wait}s" style:animation-duration="{star.length}s"></span>
+      {/each}
+    </div>
   </div>
+  <!-- What is fixed at the screen's edges, in the edges' colour: Safari 26 tints its bars from it. -->
+  <div class="edge top" aria-hidden="true"></div>
+  <div class="edge bottom" aria-hidden="true"></div>
   {#if waking}<div class="sweep" aria-hidden="true"></div>{/if}
   {#if live.done && doneShown === live.done.at}
     <div class="turn-done" role="status"><button class="done-body" onclick={() => (doneShown = null)}>
@@ -437,12 +454,23 @@
     --sky-low: #050A24;
     --dot: rgba(255, 255, 255, 0.07);
     --halo: rgba(196, 216, 255, 0.32);
+    /* The edges' colours: the sky's top and its foot, flat, for the browser's bars to take. */
+    --edge-top: var(--sky-top);
+    --edge-bottom: var(--sky-low);
+    /* One scale for the page, as the panel's: figures in the rounded face (Figure.svelte), at 600; words in the panel's
+       own face (system, PingFang SC or TC by language; by hand in 手绘). */
+    --text-face: inherit;
+    --fig-l: 20px;
+    --fig-m: 17px;
+    --type-title: 15px;
+    --type-head: 13px;
+    --type-caption: 12px;
+    --type-small: 11px;
     position: absolute;
     inset: 0;
     overflow: hidden;
     color: var(--ink);
-    background: var(--sky-low);
-    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', system-ui, sans-serif;
+    background: var(--edge-bottom);
     -webkit-tap-highlight-color: transparent;
   }
   .stage.light {
@@ -463,9 +491,9 @@
     --on-star: #fff;
     --warn: rgb(214, 104, 0);
     --good: rgb(22, 163, 74);
-    --sky-top: #DDE4FF;
+    --sky-top: #DCE3FF;
     --sky-mid: #EEF0FF;
-    --sky-low: #FAF9FF;
+    --sky-low: #F7F6FF;
     --dot: rgba(14, 29, 76, 0.07);
     --halo: rgba(120, 140, 255, 0.22);
   }
@@ -475,9 +503,19 @@
     position: absolute;
     inset: 0;
     overflow: hidden;
-    background: linear-gradient(165deg, var(--sky-top) 0%, var(--sky-mid) 42%, var(--sky-low) 100%);
+    /* Flat at the top (the status bar's band) and at the foot (the toolbar's), the night between. */
+    background: linear-gradient(180deg, var(--edge-top) 0, var(--sky-top) 72px, var(--sky-mid) 48%, var(--sky-low) calc(100% - 90px), var(--edge-bottom) 100%);
     pointer-events: none;
   }
+  .lights {
+    position: absolute;
+    inset: 0;
+    mask-image: linear-gradient(180deg, transparent 0, transparent 40px, #000 150px, #000 calc(100% - 160px), transparent calc(100% - 60px));
+    -webkit-mask-image: linear-gradient(180deg, transparent 0, transparent 40px, #000 150px, #000 calc(100% - 160px), transparent calc(100% - 60px));
+  }
+  .edge { position: absolute; left: 0; right: 0; z-index: 6; pointer-events: none; }
+  .edge.top { top: 0; height: max(1px, env(safe-area-inset-top)); background: var(--edge-top); }
+  .edge.bottom { bottom: 0; height: max(1px, env(safe-area-inset-bottom)); background: var(--edge-bottom); }
   .aurora {
     position: absolute;
     width: 120vmax;
@@ -556,7 +594,7 @@
   .still .tick path { animation: none; stroke-dashoffset: 0; }
   @keyframes draw-tick { to { stroke-dashoffset: 0; } }
   .done-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-  .done-title { font-size: 15px; font-weight: 700; }
+  .done-title { font-size: var(--type-title); font-weight: 600; }
   .done-detail { font-size: 12px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
   /* MARK: Layout */
@@ -571,7 +609,8 @@
   .frame {
     max-width: 600px;
     margin: 0 auto;
-    padding: 0 max(18px, env(safe-area-inset-right)) calc(28px + env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
+    /* The foot clears Safari's floating toolbar, which the page now runs on under. */
+    padding: 0 max(18px, env(safe-area-inset-right)) calc(76px + env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
     display: flex;
     flex-direction: column;
   }
@@ -579,7 +618,7 @@
   .rest { margin-top: 18px; }
   .stats, .stats-a, .stats-b { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
   .stats { margin-top: 10px; }
-  .stats-head { margin: 8px 2px -4px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
+  .stats-head { margin: 8px 2px -4px; font-size: var(--type-head); font-weight: 600; color: var(--ink-2); }
 
   /* A phone on its side: the monitor held still on the left, the rest scrolling on the right. */
   .side .scroll { overflow: hidden; }
@@ -637,8 +676,9 @@
     padding: env(safe-area-inset-top) 18px 0;
     transition: background-color 0.3s, box-shadow 0.3s;
   }
+  /* Scrolled, the bar is the status bar's own colour carried down: one band at the top of the screen. */
   .bar.raised {
-    background: color-mix(in srgb, var(--sky-mid) 86%, transparent);
+    background: color-mix(in srgb, var(--edge-top) 88%, transparent);
     backdrop-filter: blur(18px) saturate(1.5);
     -webkit-backdrop-filter: blur(18px) saturate(1.5);
     box-shadow: 0 0.5px 0 var(--glass-edge);
@@ -661,11 +701,11 @@
     white-space: nowrap;
     transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.3s;
   }
-  .word { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; }
+  .word { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
   .word.away { transform: translateY(-100%); opacity: 0; }
-  .compact { font-family: var(--rounded); font-size: 17px; font-weight: 700; transform: translateY(100%); opacity: 0; }
+  .compact { font-family: var(--rounded); font-size: var(--fig-m); font-weight: 600; transform: translateY(100%); opacity: 0; }
   .compact.shown { transform: none; opacity: 1; }
-  .compact-range { margin-left: 8px; font-family: -apple-system, system-ui, sans-serif; font-size: 12px; font-weight: 500; color: var(--ink-2); }
+  .compact-range { margin-left: 8px; font-family: var(--text-face); font-size: var(--type-caption); font-weight: 500; color: var(--ink-2); }
   .live { flex: none; display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-2); }
   /* Blinks at each reading: the page is in touch with the computer. */
   .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--good); animation: blink 0.9s ease-out; }
@@ -711,8 +751,8 @@
   .amount {
     margin: 2px 0 0 -1px;
     font-family: var(--rounded);
-    font-size: 40px;
-    font-weight: 700;
+    font-size: 34px;
+    font-weight: 600;
     letter-spacing: -0.02em;
     color: var(--ink);
     line-height: 1.1;
@@ -726,7 +766,7 @@
     min-width: 0;
   }
   .figure-label { display: block; font-size: 11px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .figure-value { display: block; margin-top: 3px; font-family: var(--rounded); font-size: 20px; font-weight: 700; color: var(--ink); }
+  .figure-value { display: block; margin-top: 3px; font-family: var(--rounded); font-size: var(--fig-l); font-weight: 600; color: var(--ink); }
 
   /* MARK: Panels */
   .trend, .panel {
@@ -736,7 +776,7 @@
     box-shadow: inset 0 0 0 0.5px var(--glass-edge), var(--lift);
     transition: opacity 0.35s;
   }
-  .trend-head, .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 8px; font-size: 13px; font-weight: 600; }
+  .trend-head, .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 8px; font-size: var(--type-head); font-weight: 600; }
   .span, .quiet { font-size: 11px; font-weight: 500; color: var(--ink-3); }
   .tabs { display: flex; justify-content: center; margin-top: 4px; }
   .desk .tabs { justify-content: flex-start; margin-top: 30px; }
@@ -755,11 +795,91 @@
     background: var(--glass);
     box-shadow: inset 0 0 0 0.5px var(--glass-edge);
   }
-  .plans-head { margin: 10px 2px -4px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
+  .plans-head { margin: 10px 2px -4px; font-size: var(--type-head); font-weight: 600; color: var(--ink-2); }
   .foot { margin-top: 18px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
   .read-only { margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--ink-3); text-align: center; max-width: 34em; }
   @media (hover: hover) {
     .more:hover { background: var(--glass-strong); }
     .stage :global(.card .head:hover), .stage :global(.session .head:hover) { opacity: 0.86; }
+  }
+
+  /* MARK: The computer's background as the panes' material. 实色 (the default): panes of their own faint tint, as above.
+     磨砂: frosted panes, the sky blurred through them. 玻璃: clear glass, a bright rim and a light along its top edge. */
+  .stage.frosted { --glass: rgba(255, 255, 255, 0.09); --glass-edge: rgba(255, 255, 255, 0.14); --pane-blur: blur(22px) saturate(1.5); }
+  .stage.frosted.light { --glass: rgba(255, 255, 255, 0.5); --glass-edge: rgba(255, 255, 255, 0.7); }
+  .stage.glass {
+    --glass: rgba(255, 255, 255, 0.03);
+    --glass-edge: rgba(255, 255, 255, 0.24);
+    --pane-blur: blur(8px) saturate(1.8);
+    --lift: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 18px 40px -22px rgba(0, 0, 0, 0.75);
+  }
+  .stage.glass.light {
+    --glass: rgba(255, 255, 255, 0.26);
+    --glass-edge: rgba(255, 255, 255, 0.8);
+    --lift: inset 0 1px 0 rgba(255, 255, 255, 0.95), 0 14px 32px -20px rgba(40, 60, 140, 0.35);
+  }
+  .stage:is(.frosted, .glass) :is(.trend, .panel, .figure, .turn-done),
+  .stage:is(.frosted, .glass) :global(:is(.card, .session, .plan, .tile, .feed)) {
+    backdrop-filter: var(--pane-blur);
+    -webkit-backdrop-filter: var(--pane-blur);
+  }
+
+  /* MARK: 手绘, as the panel draws it (sketch.css): coloured markers on dotted ivory paper by day, coloured chalk on a
+     blackboard by night, in the hand's letters (the page inherits them); panes outlined by hand, never filled; the
+     lines (curves, rings, bars) wobble a little, the words never do; the lit choice ringed in coral. */
+  .stage.sketch {
+    --sky-top: var(--paper);
+    --sky-mid: var(--paper);
+    --sky-low: var(--paper);
+    --ink: var(--label);
+    --ink-2: var(--secondary);
+    --ink-3: var(--tertiary);
+    --glass: transparent;
+    --glass-strong: var(--hover);
+    --glass-edge: var(--separator);
+    --line: var(--separator);
+    --line-faint: var(--track);
+    --lift: 0 0 0 0 transparent;
+    --pill: transparent;
+    --pill-glow: transparent;
+    --shine: rgba(240, 86, 90, 0.22);
+    --bubble: var(--paper);
+    --star: var(--accent);
+    --on-star: var(--on-accent);
+    --good: #37b24d;
+    --warn: #e8590c;
+    --halo: transparent;
+  }
+  .stage.sketch:not(.light) { --good: #8ce99a; --warn: #ffa94d; }
+  .stage.sketch .sky {
+    background-color: var(--paper);
+    background-image: var(--grain), var(--glow), var(--shade), radial-gradient(circle, var(--dots) 0.75px, transparent 1.1px);
+    background-size: 180px 180px, 100% 100%, 100% 100%, 15px 15px;
+  }
+  .stage.sketch .lights, .stage.sketch .sweep { display: none; }
+  .stage.sketch :is(.trend, .panel, .figure, .turn-done),
+  .stage.sketch :global(:is(.card, .session, .plan, .tile, .feed)) {
+    box-shadow: inset 0 0 0 1.3px var(--separator);
+    border-radius: 18px 7px 17px 8px / 8px 17px 7px 18px;
+  }
+  .stage.sketch .turn-done { background: var(--paper); }
+  .stage.sketch .bar.raised { background: color-mix(in srgb, var(--paper) 92%, transparent); box-shadow: inset 0 -1px var(--separator); }
+  .stage.sketch :global(:is(.chart svg, .live-chart canvas, .ring svg, .dial svg, .bar .fill, .model-fill, .window-fill, .context span)) { filter: url(#hand); }
+  .stage.sketch :global(.pills .pill) {
+    background: transparent;
+    box-shadow: inset 0 0 0 1.4px var(--coral);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    filter: url(#hand);
+  }
+  /* The figures in the picture's pens: the headline blue, today green, the minute violet; each card's amount its tool's. */
+  .stage.sketch :global(.monitor .big) { color: var(--accent); filter: none; }
+  .stage.sketch :global(.tick-value[data-figure='today']) { color: #37b24d; }
+  .stage.sketch:not(.light) :global(.tick-value[data-figure='today']) { color: #8ce99a; }
+  .stage.sketch :global(.card .amount) { color: var(--tint); }
+  .stage.sketch .amount :global(.drawn) {
+    text-decoration: underline var(--highlight);
+    text-decoration-thickness: 0.42em;
+    text-underline-offset: -0.34em;
+    text-decoration-skip-ink: none;
   }
 </style>

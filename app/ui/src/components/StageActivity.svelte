@@ -6,7 +6,7 @@
   // each sliding in at the top: a request landing (+12.3K Token from Claude), a tool called, a turn begun or done.
   import { flip } from 'svelte/animate';
   import { fly } from 'svelte/transition';
-  import { accent } from '../lib/colors';
+  import { toolColour } from '../lib/colors';
   import { t } from '../lib/i18n.svelte';
   import { duration, type PhoneLive } from '../lib/phoneLive.svelte';
   import { panel } from '../lib/ui.svelte';
@@ -19,13 +19,17 @@
   const events = $derived(live.events.slice(0, shown));
   const pad = (n: number) => String(n).padStart(2, '0');
   const clock = (at: number) => { const d = new Date(at); return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
-  /** A turn's clock: m:ss to the second when the computer gave its start, else its minutes. */
-  const timer = (began: number | null, exact: boolean) => {
-    if (began === null) return '';
+  /** A turn's clock: m:ss to the second when the computer gave its start, else its minutes, the figure in the figures'
+   *  face and the word in the text's (4 分钟). */
+  const timer = (began: number | null, exact: boolean): { figure: string; words: string } => {
+    if (began === null) return { figure: '', words: '' };
     const seconds = Math.max(0, Math.floor((now - began) / 1000));
-    if (!exact) return duration(seconds * 1000, false);
+    if (!exact) {
+      const said = duration(seconds * 1000, false), found = /^(\D*)(\d+)(.*)$/.exec(said);
+      return found ? { figure: found[2], words: (found[1] + found[3]).trim() } : { figure: '', words: said };
+    }
     const h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60), s = seconds % 60;
-    return h ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+    return { figure: h ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`, words: '' };
   };
   const motion = (ms: number) => (panel.reduceMotion ? 0 : ms);
   const tint = $derived(panel.dark ? 'rgb(235, 238, 255)' : 'rgb(30, 40, 80)');
@@ -40,7 +44,8 @@
           <div class="top">
             <span class="mark"><span class="orbit" aria-hidden="true"></span><Glyph image={s.image} template={s.template} symbol={s.symbol ?? 'terminal'} size={17} {tint} /></span>
             <span class="title">{s.title}</span>
-            <span class="timer num" title={t('本轮用时')}>{timer(s.began, s.exact)}</span>
+            <span class="timer" title={t('本轮用时')}><span class="timer-figure num">{timer(s.began, s.exact).figure}</span>{#if timer(s.began, s.exact).words}<span
+                class="timer-words">{timer(s.began, s.exact).words}</span>{/if}</span>
           </div>
           {#if s.about}
             <div class="about">
@@ -70,7 +75,7 @@
           {#if e.kind === 'done'}
             <svg class="sign" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5.5" fill="var(--good)" /><path d="M3.4 6.1 5.2 7.9 8.6 4.3" fill="none" stroke="#06281A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
           {:else}
-            <span class="dot" style:background={e.tool ? accent(e.tool, panel.dark) : e.kind === 'wake' ? 'var(--good)' : 'var(--star)'}></span>
+            <span class="dot" style:background={e.tool ? toolColour(e.tool, panel.dark) : e.kind === 'wake' ? 'var(--good)' : 'var(--star)'}></span>
           {/if}
           <span class="who">{e.who}</span>
           <span class="what num">{e.what}</span>
@@ -84,7 +89,7 @@
 
 <style>
   .activity { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-  .head { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--ink-2); margin: 4px 2px -2px; }
+  .head { display: flex; align-items: center; gap: 8px; font-size: var(--type-head, 13px); font-weight: 600; color: var(--ink-2); margin: 4px 2px -2px; }
   .feed-head { margin-top: 10px; }
   .count { min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box; border-radius: 9px; font-size: 11px; line-height: 18px; text-align: center; color: #06281A; background: var(--good); }
   .sessions { display: flex; flex-direction: column; gap: 10px; }
@@ -111,8 +116,10 @@
   }
   @keyframes orbit { to { transform: rotate(360deg); } }
   :global(.still) .orbit { animation: none; background: conic-gradient(var(--good) 0deg 360deg); opacity: 0.6; }
-  .title { flex: 1; min-width: 0; font-size: 15px; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .timer { flex: none; font-family: var(--rounded); font-size: 19px; font-weight: 700; color: var(--good); }
+  .title { flex: 1; min-width: 0; font-size: var(--type-title, 15px); font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .timer { flex: none; display: inline-flex; align-items: baseline; gap: 3px; color: var(--good); }
+  .timer-figure { font-family: var(--rounded); font-size: var(--fig-m, 17px); font-weight: 600; }
+  .timer-words { font-size: var(--type-small, 11px); font-weight: 500; }
   .about { display: flex; align-items: center; gap: 10px; padding-left: 44px; font-size: 11.5px; color: var(--ink-2); min-width: 0; }
   .about-text { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .context { flex: none; width: 46px; height: 4px; border-radius: 2px; background: var(--line-faint); overflow: hidden; }

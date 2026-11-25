@@ -5,7 +5,8 @@
   // says what it added (+12.3K) as it rises and fades: the AI's work arriving, one request at a time. Reduced motion:
   // drawn again at each reading, nothing falling or flowing.
   import { onDestroy, untrack } from 'svelte';
-  import { accent } from '../lib/colors';
+  import { alpha, summaryColour, toolColour } from '../lib/colors';
+  import { style } from '../lib/style.svelte';
   import { t } from '../lib/i18n.svelte';
   import { nice, rateText } from '../lib/live';
   import { LIVE_SPAN, type PhoneLive } from '../lib/phoneLive.svelte';
@@ -62,7 +63,18 @@
     running = true;
     frame = requestAnimationFrame(draw);
   }
-  $effect(() => { void width; void height; void panel.dark; untrack(queue); });
+  /** The page's own faces and ink, as it shows them (by hand in 手绘): read again when the look changes. */
+  let faces = { text: 'system-ui, sans-serif', figure: 'ui-rounded, system-ui, sans-serif', ink: 'rgb(214, 222, 255)' };
+  $effect(() => {
+    void width; void height; void panel.dark; void style.current;
+    untrack(() => {
+      if (canvas) {
+        const css = getComputedStyle(canvas);
+        faces = { text: css.fontFamily, figure: css.getPropertyValue('--rounded').trim() || css.fontFamily, ink: css.getPropertyValue('--ink').trim() || css.color };
+      }
+      queue();
+    });
+  });
   onDestroy(() => { cancelAnimationFrame(frame); running = false; });
 
   const ease = (x: number) => 1 - Math.pow(1 - Math.min(1, Math.max(0, x)), 3);
@@ -89,18 +101,19 @@
     const span = Math.min(LIVE_SPAN, Math.max(60_000, end - first + 15_000));
     const x = (at: number) => right - ((end - at) / span) * right;
     const y = (v: number) => base - (v / shownTop) * plotH;
-    const ink = panel.dark ? '214, 222, 255' : '14, 29, 76';
+    const sketch = style.current === 'sketch';
+    const ink = (amount: number) => alpha(faces.ink, amount);
 
     // Marks: a faint line at half and at the top, the top's rate written above it.
     ctx.lineWidth = 1;
     ctx.setLineDash([2, 4]);
-    ctx.strokeStyle = `rgba(${ink}, 0.1)`;
+    ctx.strokeStyle = ink(0.1);
     for (const f of [0.5, 1]) { ctx.beginPath(); ctx.moveTo(0, y(shownTop * f)); ctx.lineTo(right, y(shownTop * f)); ctx.stroke(); }
     ctx.setLineDash([]);
-    ctx.strokeStyle = `rgba(${ink}, 0.2)`;
+    ctx.strokeStyle = ink(0.2);
     ctx.beginPath(); ctx.moveTo(0, base + 0.5); ctx.lineTo(right, base + 0.5); ctx.stroke();
-    ctx.fillStyle = `rgba(${ink}, 0.45)`;
-    ctx.font = '10px -apple-system, system-ui, sans-serif';
+    ctx.fillStyle = ink(0.45);
+    ctx.font = `10px ${faces.text}`;
     ctx.textBaseline = 'alphabetic';
     ctx.textAlign = 'left';
     ctx.fillText(`${rateText(shownTop)} Token/s`, 2, padTop - 6);
@@ -124,15 +137,15 @@
         return xy;
       };
       for (let k = ids.length - 1; k >= 0; k--) {
-        const colour = accent(ids[k], panel.dark);
+        const colour = toolColour(ids[k], panel.dark);
         ctx.beginPath();
         const xy = curve(k);
         ctx.lineTo(xy[xy.length - 1][0], base);
         ctx.lineTo(xy[0][0], base);
         ctx.closePath();
         const fill = ctx.createLinearGradient(0, padTop, 0, base);
-        fill.addColorStop(0, colour.replace('rgb(', 'rgba(').replace(')', panel.dark ? ', 0.55)' : ', 0.45)'));
-        fill.addColorStop(1, colour.replace('rgb(', 'rgba(').replace(')', ', 0.06)'));
+        fill.addColorStop(0, alpha(colour, sketch ? 0.3 : panel.dark ? 0.55 : 0.45));
+        fill.addColorStop(1, alpha(colour, sketch ? 0.04 : 0.06));
         ctx.fillStyle = fill;
         ctx.fill();
       }
@@ -140,9 +153,10 @@
       const k = ids.length - 1;
       if (k >= 0) {
         ctx.save();
-        ctx.shadowColor = panel.dark ? 'rgba(196, 216, 255, 0.85)' : 'rgba(80, 100, 220, 0.45)';
+        // The total's line: starlight with its glow, or by hand the coral pen, plain.
+        ctx.shadowColor = sketch ? 'transparent' : panel.dark ? 'rgba(196, 216, 255, 0.85)' : 'rgba(80, 100, 220, 0.45)';
         ctx.shadowBlur = 12;
-        ctx.strokeStyle = panel.dark ? 'rgba(240, 245, 255, 0.95)' : 'rgba(14, 29, 76, 0.85)';
+        ctx.strokeStyle = sketch ? summaryColour(panel.dark) : panel.dark ? 'rgba(240, 245, 255, 0.95)' : 'rgba(14, 29, 76, 0.85)';
         ctx.lineWidth = 2;
         ctx.lineJoin = 'round';
         ctx.beginPath();
@@ -151,16 +165,16 @@
         ctx.restore();
         // Now: a dot at the curve's end.
         const [ex, ey] = xy[xy.length - 1];
-        ctx.fillStyle = panel.dark ? '#F5F8FF' : '#0E1D4C';
+        ctx.fillStyle = sketch ? summaryColour(panel.dark) : panel.dark ? '#F5F8FF' : '#0E1D4C';
         ctx.beginPath(); ctx.arc(ex, ey, 3.5, 0, Math.PI * 2); ctx.fill();
         // The requests landing: each falls onto the end, ripples, and says what it added as it rises away.
         let lift = 0;
         for (const d of drops) {
-          const age = now - d.born, colour = accent(d.id, panel.dark);
+          const age = now - d.born, colour = toolColour(d.id, panel.dark);
           if (age < DROP) {
             const fy = padTop - 6 + (ey - padTop + 6) * bounce(age / DROP);
             ctx.fillStyle = colour;
-            ctx.shadowColor = colour; ctx.shadowBlur = 10;
+            ctx.shadowColor = sketch ? 'transparent' : colour; ctx.shadowBlur = 10;
             ctx.beginPath(); ctx.arc(ex, fy, 4.5, 0, Math.PI * 2); ctx.fill();
             ctx.shadowBlur = 0;
           } else {
@@ -173,7 +187,7 @@
             if (after < RISE) {
               ctx.globalAlpha = Math.max(0, 1 - after / RISE);
               ctx.fillStyle = colour;
-              ctx.font = '600 12px ui-rounded, -apple-system, system-ui, sans-serif';
+              ctx.font = `600 12px ${faces.figure}`;
               ctx.textAlign = 'right';
               ctx.fillText('+' + tokens(d.tokens), ex - 8, ey - 10 - 26 * ease(after / RISE) - lift);
               ctx.globalAlpha = 1;

@@ -6,18 +6,19 @@
   // that tool is at work now.
   import { untrack } from 'svelte';
   import { slide } from 'svelte/transition';
-  import { accent, alpha } from '../lib/colors';
+  import { alpha, toolColour } from '../lib/colors';
   import { clientLine, colourOf, headline, modelAmount, modelName, notes, share, statsForms, tokenLine } from '../lib/format';
   import { t } from '../lib/i18n.svelte';
   import { pageCurve } from '../lib/motion';
   import { panel } from '../lib/ui.svelte';
   import type { ProviderUsage } from '../lib/types';
   import Glyph from './Glyph.svelte';
+  import StageNumber from './StageNumber.svelte';
 
   let { p, part, open = false, glow = false, order = 0, enter = true, ontoggle }:
     { p: ProviderUsage; part: number; open?: boolean; glow?: boolean; order?: number; enter?: boolean; ontoggle: () => void } = $props();
 
-  const colour = $derived(accent(colourOf(p), panel.dark));
+  const colour = $derived(toolColour(colourOf(p), panel.dark));
   const amount = $derived(p.available ? headline(p) : '—');
   /** What changes how to read the card (unpriced requests, counted by a gateway, a problem): a warning in orange. */
   const said = $derived(notes(p));
@@ -29,7 +30,7 @@
   const reveal = (node: Element) => slide(node, { duration: panel.reduceMotion ? 0 : 320, easing: pageCurve });
 </script>
 
-<div class="card" class:open class:glow class:off={!p.available} class:enter={entering} style:--tint={colour}
+<div class="card" class:open class:glow class:off={!p.available} class:enter={entering} style:--tint={colour} style:--pen={colour}
   style:--halo={alpha(colour, panel.dark ? 0.22 : 0.16)} style:--order={order}>
   <button class="head" aria-expanded={open} onclick={ontoggle}>
     <span class="mark">{#if p.image || p.symbol}<Glyph image={p.image} template={p.template} symbol={p.symbol} size={18} tint={colour} />{:else}<span
@@ -38,7 +39,7 @@
       <span class="name">{p.name}</span>
       {#if said.length}<span class="notes">{#each said as [text, warning], i (i)}<span class="note" class:warning>{text}</span>{/each}</span>{/if}
     </span>
-    <span class="amount num">{amount}</span>
+    <span class="amount num"><StageNumber value={amount} /></span>
     <svg class="chevron" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M3 2l3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
   </button>
   {#if p.available}
@@ -97,13 +98,13 @@
     background: var(--halo);
     box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--tint) 40%, transparent);
   }
-  .initial { font-family: var(--rounded); font-size: 15px; font-weight: 700; color: var(--tint); text-transform: uppercase; }
+  .initial { font-family: var(--rounded); font-size: 15px; font-weight: 600; color: var(--tint); text-transform: uppercase; }
   .who { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-  .name { font-size: 15px; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .name { font-size: var(--type-title, 15px); font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .notes { display: flex; gap: 6px; min-width: 0; font-size: 11px; white-space: nowrap; overflow: hidden; }
   .note { color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; }
   .note.warning { color: var(--warn); }
-  .amount { font-family: var(--rounded); font-size: 19px; font-weight: 700; color: var(--ink); white-space: nowrap; }
+  .amount { font-family: var(--rounded); font-size: var(--fig-m, 17px); font-weight: 600; color: var(--ink); white-space: nowrap; }
   .chevron { flex: none; color: var(--ink-3); transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1); }
   .open .chevron { transform: rotate(90deg); }
   .line { display: flex; align-items: baseline; gap: 8px; padding-left: 44px; font-size: 12px; }

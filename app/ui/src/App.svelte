@@ -13,8 +13,9 @@
   import { answer as answerQuestion, ask, show as showQuestion } from './lib/ask.svelte';
   import { chooseLanguage, localize, reads, restoreLanguage, source, t } from './lib/i18n.svelte';
   import { chooseUpdateHints, markUpdatesSeen, pendingUpdates, updateHints } from './lib/updateHints.svelte';
-  import { chooseStyle } from './lib/style.svelte';
+  import { chooseStyle, followStyle, restoreStyle, style } from './lib/style.svelte';
   import { phoneStatus } from './lib/phone.svelte';
+  import { paintEdges } from './lib/edges';
   import { choosePhoneLook, phoneLook, type PhoneLook } from './lib/phoneLook.svelte';
   import { chooseShortcut, restoreShortcut, shortcut } from './lib/shortcut.svelte';
   import { grabWindow, panel } from './lib/ui.svelte';
@@ -153,6 +154,15 @@
   const viewKey = $derived(phoneOpen ? 'phone' : sharing ? 'share' : toolId ? 'tool:' + toolId : pageEntry ? (managerOnly ? 'grid:' : 'home:') + pagePath.join('/') : managerOnly ? 'grid' : staged ? 'stage' : 'home');
   /** 手机版 on screen: the whole screen is its, both ways up; the other pages keep the panel's width in the middle. */
   const stageShown = $derived(viewKey === 'stage');
+  // On a phone, the browser's bars take the page's colour (手机版 paints its own sky's edges): 电脑版's background, in
+  // the theme and look the computer chose.
+  $effect(() => {
+    if (!onPhone || stageShown || !windowBox) return;
+    void panel.dark; void style.current; void snapshot?.theme;
+    const box = windowBox;
+    const frame = requestAnimationFrame(() => { const colour = getComputedStyle(box).backgroundColor; paintEdges(colour, colour); });
+    return () => cancelAnimationFrame(frame);
+  });
 
   // MARK: The window
 
@@ -421,6 +431,8 @@
   function take(answer: Snapshot) {
     interaction.source = answer;
     phoneProblem = null;
+    // A phone follows the computer's look (标准, 手绘) as it follows its theme and background.
+    if (onPhone) followStyle(answer.style);
     if (pinned && interaction.source.dashboard) {
       feed?.add(interaction.source.dashboard);
       const now = new Date();
@@ -746,7 +758,8 @@
   }
 
   onMount(() => {
-    if (!inTauri) document.body.classList.add('preview');
+    // The browser preview's desktop behind the panel; a phone's page is the screen itself.
+    if (!inTauri && !onPhone) document.body.classList.add('preview');
     const down = () => { pressing = true; document.documentElement.classList.remove('keyboard'); };
     // Focus rings belong to moving through the panel with Tab.
     const tabbing = (event: KeyboardEvent) => { if (event.key === 'Tab') document.documentElement.classList.add('keyboard'); };
@@ -769,6 +782,7 @@
     // The shell starts with no global shortcut; the one chosen is handed over again, and the language for its menu.
     void restoreShortcut();
     restoreLanguage();
+    if (inTauri) restoreStyle();
     void shell.info().then((value) => {
       info = value;
       opened(value.modules);
@@ -793,7 +807,7 @@
 
 <div class="window" bind:this={windowBox} class:solid={!glass} class:browser={!inTauri && !onPhone} class:phone={onPhone} class:staged={stageShown} oncontextmenu={contextmenu} role="application" aria-label={t('AI 用量面板')}
   onpointermove={() => { if (pinned) showChrome(); }} onpointerleave={() => { if (pinned && !cornerFrom) showChrome(700); }}
-  style:width={inTauri || onPhone ? '100vw' : `${panelWidth}px`} style:height={inTauri ? '100vh' : onPhone ? '100dvh' : `${panelHeight}px`}>
+  style:width={inTauri ? '100vw' : onPhone ? null : `${panelWidth}px`} style:height={inTauri ? '100vh' : onPhone ? null : `${panelHeight}px`}>
   {#key viewKey}
     <!-- On a phone the pages keep the panel's width in the middle of the screen; 手机版 has all of it. -->
     <div class="view" class:centred={onPhone && viewKey !== 'stage'} style:--page-width={onPhone ? `${panelWidth}px` : null} in:pageIn={{ dir }} out:pageOut={{ dir }}>
@@ -814,7 +828,7 @@
       {:else if snapshot && staged && (waiting ? shown : snapshot.dashboard)}
         <!-- 手机版: the figures as they came in (held, as the panel holds them, while a range picked is read). -->
         <PhoneStage data={(waiting ? shown : snapshot.dashboard)!} {rangeOptions} reading={waiting} grouping={pickedGroup} {regrouping} {sessions} {view}
-          entries={without(snapshot.entries, sessions)} problem={phoneProblem} onrange={perform} ongroup={(key) => perform(['set-group', key])}
+          entries={without(snapshot.entries, sessions)} problem={phoneProblem} material={snapshot.appearance} onrange={perform} ongroup={(key) => perform(['set-group', key])}
           onview={chooseView} onshare={openShare} onlook={chooseLook} />
       {:else if snapshot}
         <HomePage entries={shown ? without(snapshot.entries, sessions) : snapshot.entries} dashboard={shown ? dashboardView : null} bind:scrollTop={homeScroll} onactivate={activate}
@@ -885,8 +899,8 @@
     pointer-events: none;
   }
   .window.solid { background: var(--solid); }
-  /* On a phone the page is the screen: no edge, no shadow, the width centred on a wide one. */
-  .window.phone { margin: 0 auto; border-radius: 0; background: var(--solid); }
+  /* On a phone the page is the screen, under the browser's bars too (viewport-fit=cover): no edge, no shadow. */
+  .window.phone { position: fixed; inset: 0; border-radius: 0; background: var(--solid); }
   .window.phone::after { display: none; }
   .window.staged { background: transparent; }
   .view.centred { left: 50%; right: auto; width: var(--page-width); margin-left: calc(var(--page-width) / -2); }

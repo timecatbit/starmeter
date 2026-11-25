@@ -2,6 +2,7 @@
 // dotted journal paper, by night chalk on a blackboard; every line a little unsteady (an SVG filter on the lines only,
 // so the words stay sharp), the figures in a hand's letters. A choice of this panel's own, kept in the web view's
 // storage like the language; a phone opened from 在手机上看 starts in the computer's (…&s=sketch in its address).
+import { shell } from './backend';
 import type { Entry } from './types';
 
 export type Style = 'standard' | 'sketch';
@@ -31,6 +32,17 @@ export function chooseStyle(next: string) {
   style.current = next === 'sketch' ? 'sketch' : 'standard';
   markPage();
   try { localStorage.setItem(KEY, style.current); } catch { /* the choice lasts this session */ }
+  void shell.setStyle(style.current);
+}
+
+/** The shell is told the look as the panel loads, so a phone follows the computer's (its snapshot carries it). */
+export function restoreStyle() {
+  void shell.setStyle(style.current);
+}
+
+/** On a phone: the computer's look, as its snapshot says, taken at once (the phone's own storage keeps it too). */
+export function followStyle(look: string | undefined) {
+  if ((look === 'sketch' || look === 'standard') && look !== style.current) chooseStyle(look);
 }
 
 /** 外观 with its 风格 choice, after the background's: 标准 / 手绘. */

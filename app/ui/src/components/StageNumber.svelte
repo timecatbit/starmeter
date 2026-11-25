@@ -63,16 +63,19 @@
   }
   .digits > span, .mark { height: 1.1em; line-height: 1.1em; display: block; text-align: center; }
   .mark { display: inline-block; }
+  /* As the panel's figures (Figure.svelte): the sign smaller, lighter and raised, the unit smaller, both beside the
+     digits in the same rounded face (by hand in 手绘). */
   .sign {
-    font-size: 0.5em;
-    font-weight: 600;
-    opacity: 0.62;
+    font-size: 0.62em;
+    font-weight: 500;
+    line-height: 1;
+    color: var(--ink-2, var(--secondary));
     align-self: flex-start;
-    margin: 0.16em 0.06em 0 0;
+    margin: 0.1em 0.04em 0 0;
   }
   .unit {
-    font-size: 0.62em;
+    font-size: 0.74em;
     line-height: 1;
-    margin: 0 0 0.2em 0.04em;
+    margin: 0 0 0.07em 0.02em;
   }
 </style>

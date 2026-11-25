@@ -131,9 +131,10 @@
   .dial-mark { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
   .plan-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
   .plan-top { display: flex; align-items: baseline; gap: 8px; }
-  .plan-name { flex: 1; min-width: 0; font-size: 14.5px; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .plan-value { flex: none; font-family: var(--rounded); font-size: 17px; font-weight: 700; white-space: nowrap; }
-  .said { font-family: system-ui, -apple-system, sans-serif; font-size: 11px; font-weight: 500; color: var(--ink-2); }
+  .plan-name { flex: 1; min-width: 0; font-size: var(--type-title, 15px); font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .plan-value { flex: none; font-family: var(--rounded); font-size: var(--fig-m, 17px); font-weight: 600; white-space: nowrap; }
+  /* The words around the share in the text's own face. */
+  .said { font-family: var(--text-face); font-size: var(--type-small, 11px); font-weight: 500; color: var(--ink-2); }
   .said.lead { margin-right: 4px; }
   .said.tail { margin-left: 4px; }
   .plan-detail { font-size: 11.5px; color: var(--ink-2); white-space: pre-line; line-height: 1.4; }

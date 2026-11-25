@@ -189,6 +189,8 @@ export interface Snapshot {
   moduleOptions?: Entry[];
   appearance?: string;
   theme?: string;
+  /** On a phone: the computer's look (外观 → 风格), for 手机版 and 电脑版 to follow. */
+  style?: 'standard' | 'sketch';
   preferences?: PresentationPreferences;
 }
 
