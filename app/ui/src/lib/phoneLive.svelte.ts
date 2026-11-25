@@ -108,6 +108,12 @@ function counted(d: Dashboard) {
     .filter(([, v]) => v.part !== null).map(([id, v]) => [id, { name: legendName(v.p), tokens: v.part!.tokens, cost: v.part!.cost ?? 0 }]));
 }
 
+/** Today's estimate as the monitor writes it: Summary's tools' costs, none (—) when no tool it counts has one. */
+export function estimate(d: Dashboard): number | null {
+  const parts = [...counted(d).values()];
+  return d.providers.some((p) => p.available && summaryPart(p)?.cost != null) ? parts.reduce((s, p) => s + p.cost, 0) : null;
+}
+
 /** "4 分 12 秒", "38 秒": how long a turn took. */
 export function duration(ms: number, exact = true): string {
   const seconds = Math.max(0, Math.round(ms / 1000)), minutes = Math.floor(seconds / 60);
@@ -234,7 +240,7 @@ export class PhoneLive {
       if (comparable && !gap && this.cost !== null && worthSaying(total - this.cost)) this.costAdded = { amount: total - this.cost, at: now };
       // Work went on in the gap, when exactly unknown: the last activity is what the sessions say of themselves.
       if (gap && grew) this.lastActive = null;
-      this.cost = dashboard.providers.some((p) => p.available && summaryPart(p)?.cost != null) ? total : null;
+      this.cost = estimate(dashboard);
       this.dashboard = dashboard;
     }
     if (landings.length) { this.lastGrowth = moment; this.lastActive = now; }

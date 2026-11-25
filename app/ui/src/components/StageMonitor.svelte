@@ -7,7 +7,7 @@
   import { currency, grouped, tokens } from '../lib/format';
   import { t } from '../lib/i18n.svelte';
   import { rateText } from '../lib/live';
-  import type { PhoneLive } from '../lib/phoneLive.svelte';
+  import { estimate, type PhoneLive } from '../lib/phoneLive.svelte';
   import { panel } from '../lib/ui.svelte';
   import type { Dashboard } from '../lib/types';
   import StageChart from './StageChart.svelte';
@@ -43,7 +43,9 @@
     const from = [...samples].reverse().find((s) => s.at <= last.at - 60_000) ?? samples[0];
     return Math.max(0, last.total - from.total);
   });
-  const amount = $derived(live.cost === null ? '—' : currency.symbol + grouped(live.cost));
+  /** Today's estimate: the live view's once it has read the computer, the homepage's figures for today until then. */
+  const cost = $derived(live.dashboard ? live.cost : today ? estimate(today) : null);
+  const amount = $derived(cost === null ? '—' : currency.symbol + grouped(cost));
   const since = $derived(live.lastActive === null ? null : Math.max(0, Math.round((now - live.lastActive) / 60_000)));
   const stateLine = $derived(working
     ? (running ? t('正在工作 · {n} 个会话运行中', { n: running }) : t('正在工作'))
