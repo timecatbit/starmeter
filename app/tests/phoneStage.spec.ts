@@ -1,0 +1,1919 @@
+// 在手机上看 on the phone, in its own look (网页版, PhoneStage.svelte): the live monitor (working, a turn done, resting,
+// waking, asked for only while shown), portrait, landscape and a computer's window laid out within the screen, the
+// figures the computer's homepage shows, its ranges and groupings, no other look to choose (a choice of 电脑版 kept from
+// before let go of), a wait of its own before the computer has figures, reduced motion, and the languages.
+import { readFileSync } from 'node:fs';
+import { expect, test, type Page } from '@playwright/test';
+import { liveWork, PHONE_KEY, servePhone } from './phone';
+
+const errors: string[] = [];
+test.beforeEach(({ page }) => {
+  errors.length = 0;
+  page.on('pageerror', (error) => errors.push(String(error)));
+  page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
+});
+test.afterEach(() => expect(errors).toEqual([]));
+
+const PORTRAIT = { width: 393, height: 852 };
+const LANDSCAPE = { width: 852, height: 393 };
+
+async function phone(page: Page, size = PORTRAIT, hash = '', options: { swiftbar?: boolean; live?: (data: unknown) => unknown } = {}) {
+  await page.setViewportSize(size);
+  const asked = await servePhone(page, PHONE_KEY, options);
+  await page.goto('/#k=' + PHONE_KEY + hash);
+  await expect(page.locator('.stage')).toBeVisible();
+  // The opening (the figures counting up, the cards rising) is over.
+  await page.waitForTimeout(1600);
+  return asked;
+}
+
+/** A figure as written, without the thousands' commas the phone's look adds. */
+const plain = (text: string | null) => (text ?? '').replace(/,/g, '').trim();
+/** 网页版's estimate, tokens, requests. */
+async function stageFigures(page: Page) {
+  const amount = await page.locator('.stage .hero .amount [data-value]').getAttribute('data-value');
+  const rest = await page.locator('.stage .figure [data-value]').evaluateAll((list) => list.map((e) => e.getAttribute('data-value')));
+  return [amount, rest[0], rest[1]].map(plain);
+}
+/** The computer's own homepage (the panel, from the same fixtures) in a page beside: its three figures, for a range. */
+async function panelFigures(page: Page, range = '今天') {
+  const computer = await page.context().newPage();
+  await computer.goto('/');
+  await expect(computer.locator('.dashboard')).toBeVisible();
+  const read = async () => (await computer.locator('.dashboard .summary > .figure').allTextContents()).map(plain);
+  if (range !== '今天') {
+    const today = await read();
+    await computer.getByRole('button', { name: /^统计范围/ }).click();
+    await computer.getByRole('option', { name: range }).click();
+    await expect(computer.getByRole('button', { name: /^统计范围/ })).toContainText(range);
+    // The panel keeps today's figures (dimmed) until the range's are read through.
+    await expect.poll(async () => (await read())[0]).not.toBe(today[0]);
+    await expect(computer.locator('.summary .reading')).toHaveCount(0);
+  }
+  const figures = await read();
+  await computer.close();
+  return figures;
+}
+/** Boxes of what the page lays out, in the screen's coordinates. */
+const box = async (page: Page, selector: string) => (await page.locator(selector).first().boundingBox())!;
+
+test('网页版 is what a phone opens: portrait, balanced within the screen, its figures the computer\'s', async ({ page }) => {
+  await phone(page);
+  // The order of importance, top to bottom: the bar, now (the monitor), what is happening, then the figures for a range.
+  const order = ['.stage .bar', '.stage .monitor', '.stage .activity', '.stage .ranges', '.stage .amount', '.stage .figures', '.stage .trend', '.stage .shares', '.stage .tabs', '.stage .card'];
+  let last = -1;
+  for (const selector of order) {
+    const { y } = await box(page, selector);
+    expect(y, selector).toBeGreaterThan(last);
+    last = y;
+  }
+  // Nothing wider than the screen, and the column centred with even margins.
+  const width = await page.evaluate(() => { const s = document.querySelector('.stage > .scroll')!; return { scroll: s.scrollWidth, client: s.clientWidth }; });
+  expect(width.scroll).toBeLessThanOrEqual(width.client);
+  for (const selector of ['.stage .monitor', '.stage .trend', '.stage .shares', '.stage .card', '.stage .plan']) {
+    const b = await box(page, selector);
+    expect(Math.abs(b.x - (PORTRAIT.width - b.x - b.width)), selector).toBeLessThanOrEqual(1);
+  }
+  // The three figures side by side, as wide as each other.
+  const tiles = await page.locator('.stage .figure').evaluateAll((list) => list.map((e) => { const r = e.getBoundingClientRect(); return [r.top, r.width]; }));
+  expect(new Set(tiles.map(([top]) => Math.round(top))).size).toBe(1);
+  expect(Math.max(...tiles.map(([, w]) => w)) - Math.min(...tiles.map(([, w]) => w))).toBeLessThan(1);
+  // The same estimate, tokens and requests as the homepage the computer shows.
+  const stage = await stageFigures(page);
+  expect(stage[0]).toMatch(/^\$\d/);
+  expect(await panelFigures(page)).toEqual(stage);
+});
+
+test('网页版 on its side: a monitor by the desk, the live view still on the left, the rest scrolling on the right', async ({ page: first }) => {
+  // Each size in a page of its own: going to the page again while a reading is on its way aborts that reading, and
+  // WebKit reports it as an error (on a busy machine, now and then).
+  let page = first;
+  for (const size of [LANDSCAPE, { width: 667, height: 375 }]) {
+    if (size !== LANDSCAPE) {
+      page = await first.context().newPage();
+      page.on('pageerror', (error) => errors.push(String(error)));
+      page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
+    }
+    await phone(page, size);
+    const lead = await box(page, '.stage .lead'), rest = await box(page, '.stage .rest');
+    // Side by side, the left column's foot within the screen; the curve has room to read.
+    expect(lead.x + lead.width).toBeLessThanOrEqual(rest.x);
+    expect(lead.y + lead.height).toBeLessThanOrEqual(size.height + 1);
+    const curve = await box(page, '.stage .lead .curve');
+    expect(curve.y + curve.height).toBeLessThanOrEqual(size.height);
+    expect(curve.height).toBeGreaterThan(90);
+    expect(rest.x + rest.width).toBeLessThanOrEqual(size.width);
+    // The right column scrolls on its own; the left stays.
+    const scrolled = await page.evaluate(() => {
+      const right = document.querySelector<HTMLElement>('.stage .rest')!, left = document.querySelector<HTMLElement>('.stage .lead')!;
+      const before = left.getBoundingClientRect().top;
+      right.scrollTop = 400;
+      return { right: right.scrollTop, moved: left.getBoundingClientRect().top - before, wide: right.scrollWidth <= right.clientWidth };
+    });
+    expect(scrolled.right).toBeGreaterThan(0);
+    expect(scrolled.moved).toBe(0);
+    expect(scrolled.wide).toBe(true);
+    // Every legend name of the shares readable: none cut to nothing.
+    for (const name of await page.locator('.stage .legend .name').all()) {
+      expect(await name.evaluate((e) => e.scrollWidth - e.clientWidth)).toBeLessThanOrEqual(2);
+    }
+  }
+  // Turned back upright, one column again.
+  await page.setViewportSize(PORTRAIT);
+  await expect(page.locator('.stage.wide')).toHaveCount(0);
+  expect((await box(page, '.stage .rest')).y).toBeGreaterThan((await box(page, '.stage .monitor')).y);
+  await page.close();
+});
+
+test('网页版: the ranges and groupings are the phone\'s own, the figures read for them as the computer reads them', async ({ page }) => {
+  const asked = await phone(page);
+  const ranges = page.getByRole('radiogroup', { name: '统计范围' });
+  await expect(ranges.getByRole('radio')).toHaveText(['今天', '昨天', '近 24 小时', '近 7 天', '近 30 天', '本周', '本月', '全部']);
+  const today = await stageFigures(page);
+  await ranges.getByRole('radio', { name: '近 7 天' }).click();
+  await expect.poll(() => asked.some((path) => path.includes('range=7d'))).toBe(true);
+  await expect(ranges.getByRole('radio', { name: '近 7 天' })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.locator('.stage .hero .range')).toHaveText('近 7 天');
+  await expect(page.locator('.stage .trend-head')).toContainText('每天 Token');
+  await expect.poll(async () => (await stageFigures(page))[0]).not.toBe(today[0]);
+  const week = await stageFigures(page);
+  // The cards grouped by model, by project, and 会话, each asked for.
+  const tabs = page.getByRole('radiogroup', { name: '卡片分组' });
+  await tabs.getByRole('radio', { name: '模型' }).click();
+  await expect.poll(() => asked.some((path) => path.includes('group=model'))).toBe(true);
+  await expect(page.locator('.stage .card .name').first()).toHaveText('Claude Opus 5.5');
+  await tabs.getByRole('radio', { name: '项目' }).click();
+  await expect(page.locator('.stage .card .name').first()).toHaveText('starmeter');
+  await expect(page.locator('.stage p.note').first()).toHaveText('按客户端自己的记录');
+  await tabs.getByRole('radio', { name: '会话' }).click();
+  await expect(page.locator('.stage .session').first()).toContainText('重做设置页的分段控件');
+  await expect(page.getByText('这一轮完成时提醒')).toHaveCount(0);
+  // A session opens in place to its turns.
+  await page.locator('.stage .session .head').first().click();
+  await expect(page.locator('.stage .session .turns').first()).toContainText('最近 3 轮');
+  await tabs.getByRole('radio', { name: '工具' }).click();
+  await expect(page.locator('.stage .card .name').first()).toHaveText('Claude');
+  // A card opens in place to its counts and models.
+  await page.locator('.stage .card .head').first().click();
+  await expect(page.locator('.stage .card .more').first()).toContainText('Opus 5.5');
+  // The arrow keys move along the grouping and pick, as on the panel.
+  await tabs.getByRole('radio', { name: '工具' }).focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(tabs.getByRole('radio', { name: '模型' })).toBeFocused();
+  await expect(tabs.getByRole('radio', { name: '模型' })).toHaveAttribute('aria-checked', 'true');
+  // The week's figures are the computer's for the week.
+  expect(await panelFigures(page, '近 7 天')).toEqual(week);
+});
+
+test('网页版: the trend reads under a finger, the share page opens and comes back, a new reading lights the tool that grew', async ({ page }) => {
+  await phone(page);
+  await page.locator('.stage .trend .chart').scrollIntoViewIfNeeded();
+  const chart = await box(page, '.stage .trend .chart');
+  await page.mouse.move(chart.x + chart.width * 0.5, chart.y + chart.height / 2);
+  await expect(page.locator('.stage .trend .bubble .when')).toHaveText(/\d\d:\d\d/);
+  await expect(page.locator('.stage .trend .bubble .part').first()).toBeVisible();
+  await page.mouse.move(chart.x + chart.width * 0.5, chart.y - 60);
+  await expect(page.locator('.stage .trend .bubble')).toHaveCount(0);
+  // The share page, and back to 网页版 where it was. On a phone the picture is saved as a download (the browser's way),
+  // and can be held to keep in the photos.
+  await page.getByRole('button', { name: '分享用量图' }).click();
+  await expect(page.locator('.share-page .stage img')).toBeVisible();
+  await expect(page.getByText('长按图片也能存到相册')).toBeVisible();
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: '保存图片' }).click();
+  // WebKit on Linux hands the name over with its spaces as underscores.
+  expect((await download).suggestedFilename()).toMatch(/^Starmeter[ _].+[ _]卡片\.png$/);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.stage .hero .amount')).toBeVisible();
+  // The next reading has Claude further on: its card glows, the estimate rolls to the new amount.
+  const before = (await stageFigures(page))[0];
+  await page.route('**/api/snapshot**', async (route) => {
+    const answer = await route.fetch();
+    const body = await answer.json();
+    for (const p of body.dashboard.providers) if (p.id === 'claude') { p.tokens += 5_000_000; p.cost += 3; }
+    await route.fulfill({ response: answer, json: body });
+  });
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await expect(page.locator('.stage .card.glow .name')).toHaveText('Claude');
+  await expect.poll(async () => (await stageFigures(page))[0]).not.toBe(before);
+  // The computer out of reach: said over the page, the figures kept.
+  await page.unroute('**/api/snapshot**');
+  await page.route('**/api/snapshot**', (route) => route.abort('connectionrefused'));
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await expect(page.locator('.phone-problem.staged')).toContainText('连不上电脑');
+  await expect(page.locator('.stage .live.trouble')).toBeVisible();
+  await expect(page.locator('.stage .hero .amount')).toBeVisible();
+  errors.splice(0, errors.length, ...errors.filter((line) => !/Failed to load resource|Could not connect/.test(line)));
+});
+
+test('the ranges scrolled by hand stay where they were as the figures come; a range picked comes into view', async ({ page }) => {
+  await phone(page, PORTRAIT, '', { live: liveWork({ now: () => Date.now(), length: 99_999, claudeEnds: 99_998, codexEnds: 99_998 }) });
+  const row = page.locator('.stage .ranges .pills');
+  await row.evaluate((r) => { r.scrollLeft = r.scrollWidth; });
+  const end = await row.evaluate((r) => r.scrollLeft);
+  expect(end).toBeGreaterThan(50);
+  // Readings come in (a reading every couple of seconds while working): the row stays scrolled.
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await page.waitForTimeout(5000);
+  expect(await row.evaluate((r) => r.scrollLeft)).toBe(end);
+  // 全部 picked: it is in view; then 今天 picked: the row slides back to it.
+  await page.getByRole('radio', { name: '全部' }).click();
+  await page.getByRole('radio', { name: '今天' }).click();
+  await expect.poll(() => row.evaluate((r) => r.scrollLeft)).toBeLessThan(5);
+});
+
+test('a phone opens 网页版 only: a choice of 电脑版 kept from before (in the address, a cookie, the page\'s storage) is let go of', async ({ page }) => {
+  await page.setViewportSize(PORTRAIT);
+  await servePhone(page);
+  await page.addInitScript(() => {
+    localStorage.setItem('starmeter-phone-look', 'panel');
+    document.cookie = 'starmeter-phone-look=panel; path=/';
+  });
+  await page.goto('/#k=' + PHONE_KEY + '&v=panel');
+  await expect(page.locator('.stage')).toBeVisible();
+  await expect(page.locator('.dashboard')).toHaveCount(0);
+  // Nothing to pick between, and nothing of the old choice left behind.
+  await expect(page.getByRole('radio', { name: '电脑版' })).toHaveCount(0);
+  await expect(page.getByRole('radiogroup', { name: '手机上的样式' })).toHaveCount(0);
+  const hash = new URL(page.url()).hash;
+  expect(hash).toContain('k=' + PHONE_KEY);
+  expect(hash).not.toContain('v=');
+  expect(await page.evaluate(() => [localStorage.getItem('starmeter-phone-look'), document.cookie.includes('starmeter-phone-look')])).toEqual([null, false]);
+  // Reloaded: 网页版 again.
+  await page.reload();
+  await expect(page.locator('.stage')).toBeVisible();
+});
+
+test('网页版 with reduced motion: everything simply there, nothing drifting or counting', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.setViewportSize(PORTRAIT);
+  await servePhone(page);
+  await page.goto('/#k=' + PHONE_KEY);
+  await expect(page.locator('.stage.still')).toBeVisible();
+  // At once, without the opening: the estimate's first wheel already on its digit (not 0), the sky and the cards still.
+  const turned = await page.locator('.stage .amount .wheel .digits').first().evaluate((e) => new DOMMatrix(getComputedStyle(e).transform).m42);
+  expect(turned).toBeLessThan(0);
+  expect(await page.locator('.stage .aurora').first().evaluate((e) => getComputedStyle(e).animationName)).toBe('none');
+  await expect(page.locator('.stage .card.enter')).toHaveCount(0);
+  await expect(page.locator('.stage .chart .drawn')).toHaveCount(0);
+});
+
+test('网页版 for SwiftBar\'s panel: the computer\'s range and grouping only, with 会话', async ({ page }) => {
+  await phone(page, PORTRAIT, '', { swiftbar: true });
+  await expect(page.getByRole('radiogroup', { name: '统计范围' })).toHaveCount(0);
+  await expect(page.locator('.stage .hero .range')).toHaveText('今天');
+  await expect(page.getByRole('radiogroup', { name: '卡片分组' }).getByRole('radio')).toHaveText(['工具', '会话']);
+});
+
+test('网页版 in English and in 繁體中文: laid out within the screen, both ways up', async ({ context }) => {
+  for (const [hash, words] of [['&l=en', ['Share by tool', 'Plans and services', 'Hourly tokens']], ['&l=zh-Hant', ['工具佔比', '訂閱與服務']]] as const) {
+    for (const size of [PORTRAIT, LANDSCAPE]) {
+      // A page of its own each time: only the address's fragment would change, and the page keeps its language.
+      const page = await context.newPage();
+      await phone(page, size, hash);
+      const text = await page.locator('.stage').innerText();
+      for (const word of words) expect(text, `${hash} ${size.width}`).toContain(word);
+      const wide = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('.stage > .scroll, .stage.wide .rest')].every((e) => e.scrollWidth <= e.clientWidth));
+      expect(wide).toBe(true);
+      // The tabs' labels and the figures' labels fit on their line.
+      for (const selector of ['.stage .tabs .choice', '.stage .figure-label']) {
+        for (const item of await page.locator(selector).all()) expect(await item.evaluate((e) => e.scrollWidth - e.clientWidth), selector).toBeLessThanOrEqual(1);
+      }
+      await page.close();
+    }
+  }
+});
+
+test('网页版 without Summary on the homepage: the figures for a range are the cards and plans only, as the panel shows it', async ({ page }) => {
+  await page.setViewportSize(LANDSCAPE);
+  await servePhone(page);
+  await page.route('**/api/snapshot**', async (route) => {
+    const answer = await route.fetch();
+    const body = await answer.json();
+    // As the engine sends it with Summary left off the homepage: the module gone from the choices, and the dashboard's flag.
+    body.dashboard.showSummary = false;
+    if (body.preferences) body.preferences.visible = body.preferences.visible.filter((m: string) => m !== 'summary');
+    await route.fulfill({ response: answer, json: body });
+  });
+  await page.goto('/#k=' + PHONE_KEY);
+  await expect(page.locator('.stage .card').first()).toBeVisible();
+  await expect(page.locator('.stage .hero, .stage .trend, .stage .shares')).toHaveCount(0);
+  // The live monitor stays: it is today's, whatever the homepage shows.
+  await expect(page.locator('.stage .monitor')).toBeVisible();
+  await expect(page.getByRole('radiogroup', { name: '统计范围' })).toBeVisible();
+});
+
+
+/** A clock the test moves: the made-up work (liveWork) and the computer's moments in each reading follow it. */
+function scripted() {
+  const clock = { now: Date.UTC(2026, 10, 25, 2, 0, 0) };
+  const live = liveWork({ now: () => clock.now, length: 1000, claudeEnds: 20, codexEnds: 12 });
+  return { clock, live, at: (seconds: number) => { clock.now = Date.UTC(2026, 10, 25, 2, 0, 0) + seconds * 1000; } };
+}
+
+test('the live view working: how fast, today rolling up, the sessions running with their clocks and tools, what happened', async ({ page }) => {
+  const work = scripted();
+  const asked = await phone(page, PORTRAIT, '', { live: work.live });
+  // At the turn's start: Claude Code's session running, Codex's not yet.
+  await expect(page.locator('.stage .monitor.working')).toBeVisible();
+  await expect(page.locator('.stage .monitor .state')).toHaveText('正在工作 · 1 个会话运行中');
+  await expect(page.locator('.stage .monitor [data-figure="rate"]')).toBeVisible();
+  await expect(page.locator('.stage .monitor .unit')).toHaveText(/^输出 Token\/s/);
+  // Nine seconds on: three of Claude's requests and one of Codex's have landed, both sessions run.
+  work.at(9);
+  await expect.poll(() => page.locator('.stage .activity .session').count(), { timeout: 5000 }).toBe(2);
+  await expect(page.locator('.stage .monitor .state')).toHaveText('正在工作 · 2 个会话运行中');
+  const first = page.locator('.stage .activity .session').first();
+  await expect(first.locator('.title')).toHaveText('重做设置页的分段控件');
+  await expect(first.locator('.timer')).toHaveText(/^0:\d\d$/);
+  // The clock goes second by second, as the turn does.
+  const shown = await first.locator('.timer').textContent();
+  await expect(first.locator('.timer')).not.toHaveText(shown!, { timeout: 2500 });
+  await expect(first.locator('.chip').first()).toHaveText(/^(Edit|Bash|Read) ×\d+$/);
+  await expect(first.locator('.turn-figures')).toHaveText(/^本轮 [\d.]+K Token · \$0\.\d\d$/);
+  await expect(page.locator('.stage .feed .event.usage').first()).toContainText(/(Claude|ChatGPT)\s*\+[\d.]+K Token/);
+  await expect(page.locator('.stage .feed .event.tool').first()).toContainText('调用');
+  // The curve is the live one, and today's estimate under the speed is the live reading's.
+  await expect(page.locator('.stage .monitor .live-chart canvas')).toBeVisible();
+  await expect(page.locator('.stage .monitor .tick-value[data-figure="today"] [data-value]')).toHaveAttribute('data-value', /^\$2\d\.\d\d$/);
+  // Asked for every couple of seconds while working.
+  const before = asked.filter((path) => path.startsWith('/api/live')).length;
+  await page.waitForTimeout(4300);
+  expect(asked.filter((path) => path.startsWith('/api/live')).length - before).toBeGreaterThanOrEqual(2);
+});
+
+test('the live view: a turn done is said at the top, then resting, then waking when work comes again', async ({ page }) => {
+  const work = scripted();
+  await phone(page, PORTRAIT, '', { live: work.live });
+  work.at(9);
+  await expect.poll(() => page.locator('.stage .activity .session').count(), { timeout: 5000 }).toBe(2);
+  // Both turns end (Codex at 12 s, Claude at 20 s): each is said in what happened, the last at the top with its time.
+  work.at(21);
+  await expect(page.locator('.stage .turn-done')).toContainText('这一轮完成', { timeout: 5000 });
+  await expect(page.locator('.stage .turn-done .done-detail')).toContainText(/重做设置页的分段控件|harbor-api/);
+  await expect(page.locator('.stage .feed .event.done')).toHaveCount(2);
+  await expect(page.locator('.stage .activity .session')).toHaveCount(0);
+  // Requests landed just now: still working for a while, with no session running.
+  await expect(page.locator('.stage .monitor .state')).toHaveText('正在工作');
+  // Nothing for a minute: resting, the headline today's estimate and the curve today's trend.
+  work.at(80);
+  await expect(page.locator('.stage .monitor:not(.working)')).toBeVisible({ timeout: 5000 });
+  await expect(page.locator('.stage .monitor .state')).toHaveText(/休息中/);
+  await expect(page.locator('.stage .monitor [data-figure="today"]').first()).toBeVisible();
+  await expect(page.locator('.stage .monitor .live-chart')).toHaveCount(0);
+  await expect(page.locator('.stage .monitor .chart')).toBeVisible();
+  await expect(page.locator('.stage .activity .quiet').first()).toContainText('没有在运行的会话');
+  // A new turn: the page wakes, says so first, and the speed is the headline again.
+  work.at(1001);
+  await expect(page.locator('.stage .feed .event').first()).toHaveClass(/wake/, { timeout: 7000 });
+  await expect(page.locator('.stage .feed .event.wake .what')).toHaveText('开始工作');
+  await expect(page.locator('.stage .monitor.working [data-figure="rate"]')).toBeVisible();
+});
+
+test('the live view is asked for only while the page shows', async ({ page }) => {
+  const work = scripted();
+  const asked = await phone(page, PORTRAIT, '', { live: work.live });
+  const live = () => asked.filter((path) => path.startsWith('/api/live')).length;
+  await expect.poll(live).toBeGreaterThan(0);
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await page.waitForTimeout(300);
+  const hidden = live();
+  await page.waitForTimeout(4500);
+  expect(live()).toBe(hidden);
+  // Back in sight: asked at once.
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect.poll(live, { timeout: 1500 }).toBeGreaterThan(hidden);
+});
+
+test('网页版 in a computer\'s window: the monitor large beside what is happening, the figures under both, a page that scrolls', async ({ context }) => {
+  for (const size of [{ width: 1440, height: 900 }, { width: 1280, height: 800 }, { width: 1024, height: 768 }]) {
+    // A page of its own for each size: loading another address in the same page cancels a live read on its way, which
+    // the browser logs as an error.
+    const page = await context.newPage();
+    page.on('pageerror', (error) => errors.push(String(error)));
+    const work = scripted();
+    await phone(page, size, '', { live: work.live });
+    await expect(page.locator('.stage.desk')).toBeVisible();
+    const monitor = await box(page, '.stage .lead'), activity = await box(page, '.stage .activity-box');
+    expect(monitor.x + monitor.width).toBeLessThanOrEqual(activity.x);
+    expect(Math.abs(monitor.y - activity.y)).toBeLessThanOrEqual(1);
+    const a = await box(page, '.stage .stats-a'), b = await box(page, '.stage .stats-b');
+    expect(Math.min(a.y, b.y)).toBeGreaterThan(Math.max(monitor.y + monitor.height, activity.y + activity.height));
+    expect(a.x + a.width).toBeLessThanOrEqual(b.x);
+    // Centred, at most 1320 wide, nothing wider than the window.
+    const frame = await box(page, '.stage .frame');
+    expect(frame.width).toBeLessThanOrEqual(1320);
+    expect(Math.abs(frame.x - (size.width - frame.x - frame.width))).toBeLessThanOrEqual(1);
+    expect(await page.evaluate(() => { const s = document.querySelector('.stage > .scroll')!; return s.scrollWidth <= s.clientWidth; })).toBe(true);
+    // A pointer reads the figures' trend on hover.
+    await page.locator('.stage .trend .chart').scrollIntoViewIfNeeded();
+    const trend = await box(page, '.stage .trend .chart');
+    await page.mouse.move(trend.x + trend.width / 2, trend.y + trend.height / 2);
+    await expect(page.locator('.stage .trend .bubble')).toBeVisible();
+    await page.mouse.move(0, 0);
+    await page.close();
+  }
+});
+
+
+/** The phone's snapshot as the computer would send it with these choices (theme, background, look). */
+async function computerChose(page: Page, chosen: { theme?: string; appearance?: string; style?: string }) {
+  await page.unroute('**/api/snapshot**').catch(() => {});
+  await page.route('**/api/snapshot**', async (route) => {
+    const answer = await route.fetch();
+    const body = await answer.json();
+    // The theme and background are the computer's saved preferences too, which the panel reads first.
+    const preferences = { ...body.preferences, ...(chosen.theme ? { theme: chosen.theme } : {}), ...(chosen.appearance ? { appearance: chosen.appearance } : {}) };
+    await route.fulfill({ response: answer, json: { ...body, ...chosen, preferences } });
+  });
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+}
+
+test('网页版 follows the computer\'s look: its theme, its background as the panes\' material, 标准 or 手绘', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' });
+  await phone(page);
+  await expect(page.locator('.stage.light.solid')).toBeVisible();
+  // Dark on the computer: dark here, whatever the phone's own scheme.
+  await computerChose(page, { theme: 'dark' });
+  await expect(page.locator('.stage:not(.light)')).toBeVisible();
+  // Its background as the panes' material.
+  await computerChose(page, { theme: 'dark', appearance: 'frosted' });
+  await expect(page.locator('.stage.frosted')).toBeVisible();
+  expect(await page.locator('.stage .feed, .stage .card').first().evaluate((e) => getComputedStyle(e).backdropFilter || getComputedStyle(e).getPropertyValue('-webkit-backdrop-filter'))).toContain('blur');
+  await computerChose(page, { theme: 'dark', appearance: 'glass' });
+  await expect(page.locator('.stage.glass')).toBeVisible();
+  // 手绘: the page in the hand's letters and on paper, its lines by hand; back to 标准 as the computer goes back.
+  await computerChose(page, { theme: 'light', style: 'sketch' });
+  await expect(page.locator('.stage.sketch.light')).toBeVisible();
+  await expect(page.locator('html')).toHaveAttribute('data-style', 'sketch');
+  expect(await page.locator('.stage .state-text').evaluate((e) => getComputedStyle(e).fontFamily)).toMatch(/^"?Starmeter Hand/);
+  expect(await page.locator('.stage .monitor .big').evaluate((e) => getComputedStyle(e).fontFamily)).toMatch(/^"?Starmeter Hand/);
+  // The lines by hand: the trend through the wobble filter, the live chart's drawn twice by the hand itself.
+  const lead = page.locator('.stage .lead .chart svg, .stage .live-chart canvas').first();
+  expect(await lead.evaluate((e) => (e.tagName === 'CANVAS' ? (e as HTMLCanvasElement).dataset.hand : getComputedStyle(e).filter))).toMatch(/hand|twice/);
+  await computerChose(page, { theme: 'light', style: 'standard' });
+  await expect(page.locator('.stage.sketch')).toHaveCount(0);
+  await expect(page.locator('html')).not.toHaveAttribute('data-style', 'sketch');
+});
+
+test('网页版 in 手绘 lays its panes as sheets of the computer\'s background: paper for 实色, cold-pressed for 磨砂, tracing paper for 玻璃', async ({ page }) => {
+  await phone(page);
+  const pane = page.locator('.stage .card').first();
+  const read = () => pane.evaluate((e) => {
+    const css = getComputedStyle(e);
+    return { image: css.backgroundImage, blur: css.backdropFilter || css.getPropertyValue('-webkit-backdrop-filter'), shadow: css.boxShadow, colour: css.backgroundColor };
+  });
+  // 实色: the paper itself under each pane, nothing laid on it, nothing behind blurred.
+  await computerChose(page, { theme: 'light', style: 'sketch', appearance: 'solid' });
+  await expect(page.locator('.stage.sketch.solid')).toBeVisible();
+  let shown = await read();
+  expect(shown.image).toBe('none');
+  expect(shown.blur).toMatch(/^(none)?$/);
+  expect(shown.colour).not.toBe('rgba(0, 0, 0, 0)');
+  // 磨砂: a patch of cold-pressed paper (its clouds, the turbulence at 0.016), what floats behind blurred away.
+  await computerChose(page, { theme: 'light', style: 'sketch', appearance: 'frosted' });
+  await expect(page.locator('.stage.sketch.frosted')).toBeVisible();
+  shown = await read();
+  expect(shown.image).toContain('0.016');
+  expect(shown.blur).toContain('blur(10px)');
+  // 玻璃: tracing paper (its fibres, 0.035 0.5, and a sheen), what floats behind softly through, the sheet's shadow.
+  await computerChose(page, { theme: 'dark', style: 'sketch', appearance: 'glass' });
+  await expect(page.locator('.stage.sketch.glass:not(.light)')).toBeVisible();
+  shown = await read();
+  expect(shown.image).toContain('0.035');
+  expect(shown.image).toContain('linear-gradient');
+  expect(shown.blur).toContain('blur(1.5px)');
+  // (The panes' shadow eases to its new one.)
+  await expect.poll(async () => (await read()).shadow).toContain('-16px');
+});
+
+test('网页版\'s figures and words keep the panel\'s rules: figures rounded at 600, words in the panel\'s own face', async ({ page }) => {
+  const work = scripted();
+  await phone(page, PORTRAIT, '', { live: work.live });
+  work.at(9);
+  await expect.poll(() => page.locator('.stage .activity .session').count(), { timeout: 5000 }).toBe(2);
+  const rounded = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--rounded').split(',')[0].trim().replace(/"/g, ''));
+  const text = await page.evaluate(() => getComputedStyle(document.documentElement).fontFamily.split(',')[0].trim().replace(/"/g, ''));
+  for (const selector of ['.stage .monitor .big', '.stage .tick-value', '.stage .timer-figure', '.stage .card .amount', '.stage .figure-value', '.stage .hero .amount']) {
+    const face = await page.locator(selector).first().evaluate((e) => { const css = getComputedStyle(e); return { family: css.fontFamily.split(',')[0].trim().replace(/"/g, ''), weight: css.fontWeight }; });
+    expect(face, selector).toEqual({ family: rounded, weight: '600' });
+  }
+  for (const selector of ['.stage .state-text', '.stage .activity .title', '.stage .card .name', '.stage .feed .when', '.stage .unit', '.stage .tick-label']) {
+    expect(await page.locator(selector).first().evaluate((e) => getComputedStyle(e).fontFamily.split(',')[0].trim().replace(/"/g, '')), selector).toBe(text);
+  }
+  // Nothing on the page heavier than 600, and the sign of an amount as the panel sets it: smaller, lighter, raised.
+  expect(await page.locator('.stage').evaluate((root) => [...root.querySelectorAll('*')].filter((e) => Number(getComputedStyle(e).fontWeight) > 600).length)).toBe(0);
+  const sign = await page.locator('.stage .tick-value .sign').first().evaluate((e) => ({ size: parseFloat(getComputedStyle(e).fontSize), of: parseFloat(getComputedStyle(e.closest('.tick-value')!).fontSize), weight: getComputedStyle(e).fontWeight }));
+  expect(sign.size / sign.of).toBeCloseTo(0.62, 2);
+  expect(sign.weight).toBe('500');
+});
+
+test('on a phone the browser\'s bars take the page\'s colours: 网页版\'s sky edges, a page of the panel\'s its background, as the theme changes', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await phone(page);
+  expect(await page.locator('meta[name="viewport"]').getAttribute('content')).toContain('viewport-fit=cover');
+  // The page is the whole screen, fixed to its edges (under the bars too), not a band that stops short of them.
+  const window = await box(page, '.window.phone');
+  expect(window).toEqual({ x: 0, y: 0, width: PORTRAIT.width, height: PORTRAIT.height });
+  expect(await page.locator('.window.phone').evaluate((e) => getComputedStyle(e).position)).toBe('fixed');
+  const edges = () => page.evaluate(() => {
+    const stage = document.querySelector('.window > .view > .stage'), css = stage ? getComputedStyle(stage) : null;
+    return { meta: document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.content, html: getComputedStyle(document.documentElement).backgroundColor,
+      top: css?.getPropertyValue('--edge-top').trim(), bottom: css ? getComputedStyle(document.querySelector('.stage .edge.bottom')!).backgroundColor : null,
+      topStrip: css ? getComputedStyle(document.querySelector('.stage .edge.top')!).backgroundColor : null };
+  });
+  const dark = await edges();
+  expect(dark.meta).toBe(dark.top);
+  expect(dark.html).toBe(dark.bottom);
+  // The top of the sky is flat in the status bar's colour, under the bar and the light.
+  expect(dark.topStrip).not.toBe(dark.bottom);
+  // The computer turns light: so do the bars.
+  await computerChose(page, { theme: 'light' });
+  await expect(page.locator('.stage.light')).toBeVisible();
+  await expect.poll(async () => (await edges()).meta).not.toBe(dark.meta);
+  const light = await edges();
+  expect(light.meta).toBe(light.top);
+  expect(light.html).toBe(light.bottom);
+  // The share page (the panel's page, in the middle of the screen): its background, top and bottom.
+  await page.getByRole('button', { name: '分享用量图' }).click();
+  await expect(page.locator('.share-page')).toBeVisible();
+  await expect.poll(async () => (await edges()).html).toBe(await page.locator('.window.phone').evaluate((e) => getComputedStyle(e).backgroundColor));
+});
+
+/** What Safari 26 would read for its bars (as far as a browser here can tell): at the middle of the top and bottom
+ *  edges, the frontmost fixed element (the samplers take no taps: they are let take them for the asking) and its
+ *  background colour; where it is; and the page's own colour at that edge. */
+async function barSamples(page: Page) {
+  return page.evaluate(() => {
+    const read = (y: number) => {
+      const samplers = [...document.querySelectorAll<HTMLElement>('.bar-tint')];
+      samplers.forEach((s) => (s.style.pointerEvents = 'auto'));
+      const hit = document.elementFromPoint(innerWidth / 2, y) as HTMLElement | null;
+      samplers.forEach((s) => (s.style.pointerEvents = ''));
+      const css = hit ? getComputedStyle(hit) : null, box = hit?.getBoundingClientRect();
+      return { sampler: hit?.className ?? '', colour: css?.backgroundColor ?? '', position: css?.position ?? '', left: box?.left, width: box?.width, height: box?.height };
+    };
+    const edge = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return { top: read(3), bottom: read(innerHeight - 3), wanted: { top: edge('--bar-top'), bottom: edge('--bar-bottom') } };
+  });
+}
+const rgb = (hex: string) => { const n = parseInt(hex.slice(1), 16); return `rgb(${n >> 16}, ${(n >> 8) & 255}, ${n & 255})`; };
+
+test('Safari 26\'s bars: at the middle of each edge the frontmost thing is a fixed sampler as wide as the screen, in the page\'s edge colour, scrolled or not, both ways up, on another page, read again when it changes', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await phone(page);
+  await page.evaluate(() => {
+    const seen: string[] = [];
+    (window as unknown as { refreshes: string[] }).refreshes = seen;
+    new MutationObserver(() => seen.push(document.documentElement.className)).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+  });
+  const check = async (top: string, bottom: string, where: string) => {
+    // (Not in the middle of being read again: 12 points for two frames.)
+    await expect.poll(() => page.evaluate(() => document.documentElement.classList.contains('bar-refresh'))).toBe(false);
+    const seen = await barSamples(page);
+    expect(seen.top, where).toMatchObject({ sampler: 'bar-tint top', colour: rgb(top), position: 'fixed', left: 0, width: await page.evaluate(() => innerWidth), height: 11 });
+    expect(seen.bottom, where).toMatchObject({ sampler: 'bar-tint bottom', colour: rgb(bottom), position: 'fixed', left: 0, height: 11 });
+  };
+  // The night sky's edges, at rest and scrolled down (the bar raised under the top's).
+  await check('#1F3A7A', '#050A24', 'dark');
+  await page.locator('.stage > .scroll').evaluate((s) => { s.scrollTop = 600; });
+  await page.waitForTimeout(400);
+  await check('#1F3A7A', '#050A24', 'scrolled');
+  expect(await page.locator('.stage .bar.raised').evaluate((b) => getComputedStyle(b).backgroundColor)).toBe(rgb('#1F3A7A'));
+  // The computer turns light: the samplers follow, and are read again (12 points for a moment).
+  const before = (await page.evaluate(() => (window as unknown as { refreshes: string[] }).refreshes.length));
+  await computerChose(page, { theme: 'light' });
+  await expect(page.locator('.stage.light')).toBeVisible();
+  await expect.poll(async () => (await barSamples(page)).top.colour).toBe(rgb('#DCE3FF'));
+  await check('#DCE3FF', '#F7F6FF', 'light');
+  const refreshes = (await page.evaluate(() => (window as unknown as { refreshes: string[] }).refreshes)).slice(before);
+  expect(refreshes.some((c) => c.includes('bar-refresh'))).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.classList.contains('bar-refresh'))).toBe(false);
+  // On its side.
+  await page.setViewportSize(LANDSCAPE);
+  await page.waitForTimeout(500);
+  await check('#DCE3FF', '#F7F6FF', 'on its side');
+  // Another page (the share page): its own background at both edges.
+  await page.getByRole('button', { name: '分享用量图' }).click();
+  await expect(page.locator('.share-page')).toBeVisible();
+  const ground = await page.locator('.window.phone').evaluate((e) => getComputedStyle(e).backgroundColor);
+  await expect.poll(async () => (await barSamples(page)).top.colour).toBe(ground);
+  expect((await barSamples(page)).bottom.colour).toBe(ground);
+});
+
+test('in the bands Safari 26 keeps for its bars, the page\'s ground is the sky\'s own: its top\'s colour above, its foot\'s below', async ({ page, browser }) => {
+  // As the user's iPhone laid it out: the page between the status bar's band (47 points) and the toolbar's (80), the
+  // page's ground shown in both. It was the sky's foot's colour (near white by day) in both.
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await phone(page);
+    await page.addStyleTag({ content: 'html { margin-top: 47px !important; height: 725px !important; min-height: 0 !important } .window.phone { top: 47px !important; bottom: 80px !important }' });
+    await page.waitForTimeout(400);
+    const shot = (await page.screenshot()).toString('base64');
+    const reader = await browser.newPage();
+    const [above, below] = await reader.evaluate(async (data) => {
+      const image = new Image();
+      image.src = 'data:image/png;base64,' + data;
+      await image.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = image.width; canvas.height = image.height;
+      const c = canvas.getContext('2d')!;
+      c.drawImage(image, 0, 0);
+      const at = (y: number) => [...c.getImageData(Math.round(image.width / 2), y, 1, 1).data.slice(0, 3)];
+      return [at(20), at(image.height - 30)];
+    }, shot);
+    await reader.close();
+    const near = (seen: number[], hex: string) => { const n = parseInt(hex.slice(1), 16); return Math.max(...[n >> 16, (n >> 8) & 255, n & 255].map((v, i) => Math.abs(v - seen[i]))) <= 3; };
+    const sky = scheme === 'light' ? ['#DCE3FF', '#F7F6FF'] : ['#1F3A7A', '#050A24'];
+    expect(near(above, sky[0]), `${scheme} above: ${above}`).toBe(true);
+    expect(near(below, sky[1]), `${scheme} below: ${below}`).toBe(true);
+  }
+});
+
+test('Safari 26\'s bar samplers paint nothing: the page shows through them, whatever their colour', async ({ page, browser }) => {
+  await phone(page);
+  // Red samplers: not one red pixel in the strips they cover.
+  await page.evaluate(() => { document.documentElement.style.setProperty('--bar-top', 'rgb(255, 0, 0)'); document.documentElement.style.setProperty('--bar-bottom', 'rgb(255, 0, 0)'); });
+  await page.waitForTimeout(200);
+  const strips = [await page.screenshot({ clip: { x: 0, y: 0, width: PORTRAIT.width, height: 12 } }), await page.screenshot({ clip: { x: 0, y: PORTRAIT.height - 12, width: PORTRAIT.width, height: 12 } })];
+  const reader = await browser.newPage();
+  for (const strip of strips) {
+    const red = await reader.evaluate(async (data) => {
+      const image = new Image();
+      image.src = 'data:image/png;base64,' + data;
+      await image.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = image.width; canvas.height = image.height;
+      const c = canvas.getContext('2d')!;
+      c.drawImage(image, 0, 0);
+      const pixels = c.getImageData(0, 0, canvas.width, canvas.height).data;
+      let n = 0;
+      for (let i = 0; i < pixels.length; i += 4) if (pixels[i] > 200 && pixels[i + 1] < 60 && pixels[i + 2] < 60) n++;
+      return n;
+    }, strip.toString('base64'));
+    expect(red).toBe(0);
+  }
+  await reader.close();
+});
+
+test('保持亮屏 holds one lock at most, and lets it go when switched off or when the page goes away (STAGE-2)', async ({ page }) => {
+  // A browser's wake lock, slow to answer: the locks held, and how many requests went out.
+  await page.addInitScript(() => {
+    const state = { held: 0, asked: 0 };
+    (window as unknown as { lockState: typeof state }).lockState = state;
+    Object.defineProperty(navigator, 'wakeLock', {
+      configurable: true,
+      value: {
+        request: () => new Promise((resolve) => {
+          state.asked++;
+          setTimeout(() => {
+            state.held++;
+            let released = false;
+            resolve({ release: async () => { if (!released) { released = true; state.held--; } }, addEventListener: () => {} });
+          }, 300);
+        }),
+      },
+    });
+  });
+  await phone(page, LANDSCAPE);
+  const held = () => page.evaluate(() => (window as unknown as { lockState: { held: number; asked: number } }).lockState);
+  const button = page.getByRole('button', { name: '保持亮屏' });
+  await button.click();
+  await expect(button).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(async () => (await held()).held).toBe(1);
+  await page.waitForTimeout(500);
+  expect(await held()).toEqual({ held: 1, asked: 1 });
+  // Off: nothing held.
+  await button.click();
+  await expect.poll(async () => (await held()).held).toBe(0);
+  // Off again before the lock arrives: the lock that comes is let go.
+  await button.click();
+  await button.click();
+  await page.waitForTimeout(500);
+  expect((await held()).held).toBe(0);
+  // On, then to the share page: this page gone, nothing held.
+  await button.click();
+  await expect.poll(async () => (await held()).held).toBe(1);
+  await page.getByRole('button', { name: '分享用量图' }).click();
+  await expect(page.locator('.share-page')).toBeVisible();
+  await expect.poll(async () => (await held()).held).toBe(0);
+});
+
+/** The page out of sight for `seconds` on the phone's clock (its Date moved on), the computer's clock at `computer`. */
+async function away(page: Page, work: ReturnType<typeof scripted>, seconds: number, computer: number) {
+  const visibility = (state: string) => page.evaluate((state) => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+    document.dispatchEvent(new Event('visibilitychange'));
+  }, state);
+  await visibility('hidden');
+  await page.waitForTimeout(300);
+  work.at(computer);
+  // Date.now as it stands (moved on already, if it was) plus the time away.
+  await page.evaluate((ms) => { const was = Date.now.bind(Date); Date.now = () => was() + ms; }, seconds * 1000);
+  await visibility('visible');
+}
+
+test('back after a while out of sight, what went on meanwhile is not this moment\'s speed, nor a turn just done (STAGE-3)', async ({ page }) => {
+  const work = scripted();
+  await phone(page, PORTRAIT, '', { live: work.live });
+  work.at(3);
+  await expect(page.locator('.stage .monitor.working')).toBeVisible();
+  const rate = page.locator('.stage .monitor [data-figure="rate"] [data-value]');
+  await expect.poll(() => rate.getAttribute('data-value'), { timeout: 5000 }).not.toBeNull();
+  await page.waitForTimeout(2500);
+  const before = await rate.getAttribute('data-value');
+  const events = await page.locator('.stage .feed .event').count();
+  // Locked for 100 s while both sessions worked on (the computer at 9 s, seven requests landed meanwhile): still working,
+  // but what was written while locked is not spread over the last minute, nor dropped on the curve as landing now.
+  await away(page, work, 100, 9);
+  await expect.poll(() => page.locator('.stage .activity .session').count(), { timeout: 5000 }).toBe(2);
+  await page.waitForTimeout(2500);
+  await expect(page.locator('.stage .monitor.working')).toBeVisible();
+  // (Nothing seen written in the last minute: the speed is nothing yet, never what the locked minutes added over 60 s.)
+  expect(['—', '0']).toContain(await rate.getAttribute('data-value'));
+  void before;
+  expect(await page.locator('.stage .feed .event.usage').count()).toBeLessThanOrEqual(events);
+  // Locked for three minutes while both turns ended: resting, no turn said done now with the locked minutes as its time.
+  await away(page, work, 180, 200);
+  await expect(page.locator('.stage .monitor .state')).toHaveText(/休息中/, { timeout: 5000 });
+  await page.waitForTimeout(2500);
+  await expect(page.locator('.stage .turn-done')).toHaveCount(0);
+  await expect(page.locator('.stage .feed .event.done')).toHaveCount(0);
+});
+
+test('on SwiftBar\'s panel the live figures are the computer\'s range, said as such, and its picking another is no usage (STAGE-4)', async ({ page }) => {
+  // The plugin's snapshot: today, then the computer picks 近 30 天 (far more), then today again.
+  let range = 'today';
+  const data = JSON.parse(readFileSync(new URL('../ui/fixtures/default.json', import.meta.url), 'utf8'));
+  const live = () => ({ at: Date.now() / 1000, dashboard: structuredClone(data.dashboards[range]), sessions: null, turns: {} });
+  await phone(page, PORTRAIT, '', { swiftbar: true, live });
+  await expect(page.locator('.stage .monitor .figure-block > .unit')).toHaveText('今天 · API 估算');
+  range = '30d';
+  await expect(page.locator('.stage .monitor .figure-block > .unit')).toHaveText('近 30 天 · API 估算', { timeout: 7000 });
+  await page.waitForTimeout(800);
+  // Not tokens landing now: no request in what happened, not working, nothing added to the estimate.
+  await expect(page.locator('.stage .feed .event')).toHaveCount(0);
+  await expect(page.locator('.stage .monitor.working')).toHaveCount(0);
+  await expect(page.locator('.stage .monitor .added')).toHaveCount(0);
+  // Scrolled, the bar says that range too beside the estimate (STAGE-10).
+  await page.locator('.stage > .scroll').evaluate((s) => (s.scrollTop = 700));
+  await expect(page.locator('.stage .bar .compact-range')).toHaveText('近 30 天');
+  await page.locator('.stage > .scroll').evaluate((s) => (s.scrollTop = 0));
+  range = 'today';
+  await expect(page.locator('.stage .monitor .figure-block > .unit')).toHaveText('今天 · API 估算', { timeout: 7000 });
+  await page.waitForTimeout(800);
+  await expect(page.locator('.stage .feed .event')).toHaveCount(0);
+});
+
+test('today\'s estimate with no priced tool counted in Summary is —, not $0.00, whatever a tool left out of it cost (STAGE-5)', async ({ page }) => {
+  const data = JSON.parse(readFileSync(new URL('../ui/fixtures/default.json', import.meta.url), 'utf8'));
+  // Every tool Summary counts unpriced, and one left out of Summary (主页 · 未计入 Summary) with a cost of its own.
+  const live = () => {
+    const dashboard = structuredClone(data.dashboards.today);
+    dashboard.providers.forEach((p: { cost: number | null; counted?: unknown; summaryIncluded?: boolean }, i: number) => {
+      p.counted = undefined;
+      if (i === 0) { p.summaryIncluded = false; p.cost = 5; } else p.cost = null;
+    });
+    return { at: Date.now() / 1000, dashboard, sessions: null, turns: {} };
+  };
+  await phone(page, PORTRAIT, '', { live });
+  await expect(page.locator('.stage .monitor:not(.working)')).toBeVisible();
+  await expect(page.locator('.stage .monitor [data-figure="today"] [data-value]').first()).toHaveAttribute('data-value', '—');
+});
+
+test('one reading loop at a time: a reading two loops waited for is taken once, the page back in sight or 网页版 back on screen (STAGE-6)', async ({ page }) => {
+  await phone(page);
+  // The computer slow to answer, so the page comes back (or 网页版 does) while a reading is on its way.
+  await page.route('**/api/live**', async (route) => { await new Promise((resolve) => setTimeout(resolve, 600)); await route.fallback(); });
+  const taken = await page.evaluate(async () => {
+    const { PhoneLive } = await import('/src/lib/phoneLive.svelte.ts');
+    const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    const results: { takes: number; distinct: number }[] = [];
+    for (const comeBack of ['visible', 'restart']) {
+      const live = new PhoneLive(), answers: unknown[] = [], take = live.take.bind(live);
+      live.take = (answer, now) => { answers.push(answer); take(answer, now); };
+      live.start();
+      await wait(150);
+      if (comeBack === 'visible') document.dispatchEvent(new Event('visibilitychange'));
+      else { live.stop(); live.start(); }
+      await wait(1000);
+      live.stop();
+      results.push({ takes: answers.length, distinct: new Set(answers).size });
+    }
+    return results;
+  });
+  for (const { takes, distinct } of taken) {
+    expect(takes).toBeGreaterThan(0);
+    expect(takes).toBe(distinct);
+  }
+});
+
+test('a turn done is said at the top once, not again when 网页版 comes back from the share page (STAGE-7)', async ({ page }) => {
+  const work = scripted();
+  await phone(page, PORTRAIT, '', { live: work.live });
+  work.at(9);
+  await expect.poll(() => page.locator('.stage .activity .session').count(), { timeout: 5000 }).toBe(2);
+  work.at(21);
+  const toast = page.locator('.stage .turn-done');
+  await expect(toast).toBeVisible({ timeout: 5000 });
+  await toast.locator('.done-body').click();
+  await expect(toast).toHaveCount(0);
+  // To the share page and back: the turn is not said done again.
+  await page.getByRole('button', { name: '分享用量图' }).click();
+  await expect(page.locator('.share-page .stage img')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.stage .monitor')).toBeVisible();
+  await never(toast);
+});
+
+/** Not there at any look over a second and a half. */
+async function never(locator: ReturnType<Page['locator']>) {
+  for (let i = 0; i < 15; i++) {
+    expect(await locator.count()).toBe(0);
+    await locator.page().waitForTimeout(100);
+  }
+}
+
+// MARK: STAGE-8's small points
+
+const fixtureData = () => JSON.parse(readFileSync(new URL('../ui/fixtures/default.json', import.meta.url), 'utf8'));
+/** 会话's row as the phone has it, from the fixtures. */
+const sessionsRow = (data: { snapshot: { entries: { onOpenAction?: string[]; children: { action?: unknown; separator?: boolean }[] }[] } }) => {
+  const entry = structuredClone(data.snapshot.entries.find((e) => e.onOpenAction?.[1] === 'sessions')!);
+  entry.children = entry.children.filter((c) => !c.action).filter((c, i, all) => !(c.separator && i === all.length - 1));
+  delete entry.onOpenAction;
+  return entry;
+};
+
+/** Today standing still, nothing running: resting. */
+const resting = (data = fixtureData()) => () => ({ at: Date.now() / 1000, dashboard: structuredClone(data.dashboards.today), sessions: null, turns: {} });
+
+test('resting, the bar says when the computer was last read, not the time now (STAGE-8 · 1)', async ({ page }) => {
+  await phone(page, PORTRAIT, '', { live: resting() });
+  const said = page.locator('.stage .bar .live .num');
+  await expect(said).toHaveText(/^\d\d:\d\d$/);
+  const read = await said.textContent();
+  // The computer stops answering (a reading on its way for ever), and five minutes pass on the phone.
+  await page.route('**/api/live**', () => {});
+  await page.waitForTimeout(5500);
+  await page.evaluate(() => { const was = Date.now.bind(Date); Date.now = () => was() + 5 * 60_000; });
+  await page.waitForTimeout(1300);
+  await expect(said).toHaveText(read!);
+});
+
+test('in English, resting, today\'s tokens are Tokens (STAGE-8 · 2)', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('starmeter.language', 'en'));
+  await phone(page, PORTRAIT, '', { live: resting() });
+  await expect(page.locator('.stage .monitor .ticker .tick-label').last()).toHaveText('Tokens');
+});
+
+test('a request costing less than a cent says no $0.00, neither in what happened nor rising off the estimate (STAGE-8 · 3)', async ({ page }) => {
+  const data = fixtureData();
+  let n = 0;
+  const live = () => {
+    const dashboard = structuredClone(data.dashboards.today), p = dashboard.providers.find((x: { id: string }) => x.id === 'claude');
+    p.tokens += n * 2000; p.output += n * 20; p.cost += n * 0.002; p.requests += n;
+    if (p.counted) { p.counted.tokens += n * 2000; p.counted.output = (p.counted.output ?? 0) + n * 20; p.counted.cost += n * 0.002; p.counted.requests += n; }
+    n++;
+    return { at: Date.now() / 1000, dashboard, sessions: null, turns: {} };
+  };
+  await phone(page, PORTRAIT, '', { live });
+  await expect.poll(() => page.locator('.stage .feed .event.usage').count(), { timeout: 8000 }).toBeGreaterThan(1);
+  for (const text of await page.locator('.stage .feed .event.usage .what').allTextContents()) expect(text).not.toContain('$0.00');
+  await never(page.locator('.stage .monitor .added'));
+});
+
+test('before the live view\'s first reading, the monitor shows the homepage\'s estimate for today, not — (STAGE-8 · 5)', async ({ page }) => {
+  await page.setViewportSize(PORTRAIT);
+  await servePhone(page, PHONE_KEY);
+  await page.route('**/api/live**', () => {});
+  await page.goto('/#k=' + PHONE_KEY);
+  await expect(page.locator('.stage')).toBeVisible();
+  const homepage = await page.locator('.stage .hero .amount [data-value]').getAttribute('data-value');
+  expect(homepage).toMatch(/^\$\d/);
+  await expect(page.locator('.stage .monitor [data-figure="today"] [data-value]').first()).toHaveAttribute('data-value', homepage!);
+});
+
+test('a turn\'s minute from 会话 (no second from the computer) begun before midnight on the computer\'s clock reads its minutes (STAGE-8 · 6)', async ({ page }) => {
+  const data = fixtureData();
+  // The computer's clock two hours ahead of the phone's and a minute past its midnight; the turn began at 23:58.
+  const offset = 2 * 3600_000;
+  const live = () => {
+    const there = new Date(Date.now() + offset);
+    const midnight = new Date(there); midnight.setHours(0, 0, 0, 0);
+    const at = midnight.getTime() + 60_000;
+    const sessions = sessionsRow(data);
+    const row = sessions.children.find((c: { statusLight?: string }) => c.statusLight !== undefined) as { statusLight: string; detail: string; children: { label: string; detail?: string }[] };
+    row.statusLight = 'new';
+    row.detail = row.detail.replace(/^[^·]*·/, '运行中 3 分钟 ·');
+    const turn = row.children.find((c) => c.detail !== undefined)!;
+    turn.label = '23:58 · 12.0K Token · $0.05';
+    turn.detail = '1 次请求 · Bash ×1';
+    return { at: at / 1000, dashboard: structuredClone(data.dashboards.today), sessions, turns: {} };
+  };
+  await phone(page, PORTRAIT, '', { live });
+  await expect(page.locator('.stage .activity .session').first().locator('.timer')).toHaveText('3分钟');
+});
+
+test('the computer back on dollars, the live figures are in dollars again (STAGE-8 · 7)', async ({ page }) => {
+  const data = fixtureData();
+  let yuan = true;
+  const live = () => ({ at: Date.now() / 1000, dashboard: { ...structuredClone(data.dashboards.today), currency: yuan ? { code: 'CNY', symbol: '¥', rate: 7.2 } : null }, sessions: null, turns: {} });
+  await phone(page, PORTRAIT, '', { live });
+  const today = page.locator('.stage .monitor [data-figure="today"] [data-value]').first();
+  await expect(today).toHaveAttribute('data-value', /^¥/, { timeout: 7000 });
+  yuan = false;
+  await expect(today).toHaveAttribute('data-value', /^\$/, { timeout: 7000 });
+});
+
+/** The snapshot the phone is sent, changed by `change`. */
+async function snapshotAs(page: Page, change: (snapshot: Record<string, unknown> & { entries: { gauges?: { label: string }[] }[] }) => void) {
+  await page.route('**/api/snapshot**', async (route) => {
+    const answer = await route.fetch();
+    const body = await answer.json();
+    change(body);
+    await route.fulfill({ response: answer, json: body });
+  });
+}
+
+test('a plan\'s window with a long name in a narrow column keeps its share whole, the name giving way (STAGE-8 · 4)', async ({ page }) => {
+  await page.setViewportSize({ width: 667, height: 375 });
+  await servePhone(page, PHONE_KEY);
+  await snapshotAs(page, (snapshot) => {
+    for (const entry of snapshot.entries) for (const g of entry.gauges ?? []) g.label = g.label + ' 编程工具与网页共用的额度';
+  });
+  await page.goto('/#k=' + PHONE_KEY);
+  await expect(page.locator('.stage .plan').first()).toBeVisible();
+  const windows = await page.locator('.stage .window-name').evaluateAll((list) => list.map((name) => {
+    const box = name.getBoundingClientRect(), share = name.querySelector('.num')!.getBoundingClientRect();
+    return { name: box.right, share: share.right, width: share.width, text: name.querySelector('.num')!.textContent };
+  }));
+  expect(windows.length).toBeGreaterThan(0);
+  for (const w of windows) {
+    expect(w.width, w.text!).toBeGreaterThan(0);
+    expect(w.share, w.text!).toBeLessThanOrEqual(w.name + 0.5);
+  }
+});
+
+test('with no figures from the computer yet, 网页版 waits in its own sky, saying what for, and shows them when they come (STAGE-8 · 8)', async ({ page }) => {
+  await page.setViewportSize(PORTRAIT);
+  await servePhone(page, PHONE_KEY);
+  await snapshotAs(page, (snapshot) => { snapshot.dashboard = null; });
+  await page.goto('/#k=' + PHONE_KEY);
+  // Not the panel's homepage: 网页版's wait, the whole screen, the bars in its sky's colours.
+  const waiting = page.locator('.window.staged .waiting');
+  await expect(waiting).toBeVisible();
+  await expect(waiting.locator('.title')).toHaveText('等电脑读到用量');
+  await expect(page.locator('.dashboard')).toHaveCount(0);
+  expect(await box(page, '.waiting')).toEqual({ x: 0, y: 0, width: PORTRAIT.width, height: PORTRAIT.height });
+  await expect.poll(() => page.evaluate(() => document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.content)).toMatch(/^#(1F3A7A|DCE3FF)$/);
+  // The figures come: 网页版.
+  await page.unroute('**/api/snapshot**');
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await expect(page.locator('.stage .monitor')).toBeVisible({ timeout: 8000 });
+  await expect(waiting).toHaveCount(0);
+});
+
+test('reloaded on a phone in dark mode, the page and the bars are the computer\'s light colours before it answers (the first frame)', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await phone(page);
+  await computerChose(page, { theme: 'light' });
+  await expect(page.locator('.stage.light')).toBeVisible();
+  const lit = await page.evaluate(() => ({ meta: document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.content, html: getComputedStyle(document.documentElement).backgroundColor }));
+  // Reloaded, the computer slow to answer: what is drawn meanwhile is in its colours, not the phone's dark.
+  await page.unroute('**/api/snapshot**');
+  await page.route('**/api/snapshot**', () => {});
+  await page.route('**/api/live**', () => {});
+  // Before the page's own script: the colours of the last load, and its theme.
+  const main = /\/src\/main\.ts(\?|$)/;
+  await page.route(main, () => {});
+  await page.reload({ waitUntil: 'commit' });
+  const colours = () => page.evaluate(() => ({ meta: document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.content, html: getComputedStyle(document.documentElement).backgroundColor }));
+  await expect.poll(colours).toEqual(lit);
+  expect(await page.evaluate(() => document.documentElement.dataset.theme)).toBe('light');
+  // Then the page, waiting for the computer: the last load's sky shows through and stays, neither painted over with
+  // the panel's background nor kept as it (STAGE-9).
+  await page.unroute(main);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.locator('.window.phone')).toBeVisible();
+  await page.waitForTimeout(800);
+  expect(await colours()).toEqual(lit);
+  expect(await page.locator('.window.phone').evaluate((e) => getComputedStyle(e).backgroundColor)).toBe('rgba(0, 0, 0, 0)');
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('starmeter.edges')!).top)).toBe(lit.meta);
+});
+
+test('reloaded while the work goes on, the page has the computer\'s last minutes: the speed at once, not 0; opened fresh, — until it has its own', async ({ page }) => {
+  const clock = { now: Date.UTC(2026, 10, 25, 2, 0, 0) };
+  const live = liveWork({ now: () => clock.now, length: 1000, claudeEnds: 300, codexEnds: 300 });
+  const at = (seconds: number) => { clock.now = Date.UTC(2026, 10, 25, 2, 0, 0) + seconds * 1000; };
+  await phone(page, PORTRAIT, '', { live });
+  const rate = page.locator('.stage .monitor [data-figure="rate"] [data-value]');
+  const minute = page.locator('.stage .monitor .tick').nth(1).locator('[data-value]').first();
+  // Just opened, the sessions running: no speed to say yet, and not 0.
+  await expect(page.locator('.stage .monitor.working')).toBeVisible();
+  await expect(rate).toHaveAttribute('data-value', '—');
+  await expect(minute).toHaveAttribute('data-value', '—');
+  // Watched a while (the computer's readings kept as it goes), then reloaded.
+  for (const seconds of [3, 8, 13, 18, 23, 28]) { at(seconds); await page.waitForTimeout(2200); }
+  await page.reload();
+  await expect(page.locator('.stage .monitor.working')).toBeVisible();
+  await expect.poll(async () => Number(await rate.getAttribute('data-value')), { timeout: 5000 }).toBeGreaterThan(0);
+  await expect(minute).toHaveAttribute('data-value', /^\+\d/);
+});
+
+test('on its side under Safari\'s bars, the monitor held still fits what is seen of the page, its curve\'s foot too', async ({ page }) => {
+  // Safari on its side with the tab bar: 852 × 393 of window, 286 of it seen below the bars.
+  await page.addInitScript(() => {
+    const view = Object.assign(new EventTarget(), { height: 286, width: 852, offsetTop: 0, offsetLeft: 0, scale: 1, pageTop: 0, pageLeft: 0 });
+    Object.defineProperty(window, 'visualViewport', { configurable: true, value: view });
+  });
+  await phone(page, LANDSCAPE);
+  const seen = await page.evaluate(() => {
+    const lead = document.querySelector('.stage .lead')!, curve = document.querySelector('.stage .monitor .curve')!;
+    return { lead: lead.getBoundingClientRect().bottom, curve: curve.getBoundingClientRect().height, scroll: lead.scrollHeight - lead.clientHeight };
+  });
+  expect(seen.lead).toBeLessThanOrEqual(286.5);
+  expect(seen.curve).toBeGreaterThanOrEqual(63);
+  // Shorter still: the monitor scrolls in its column, its curve's foot (1 分钟前 · 现在) reachable, nothing cut.
+  await page.evaluate(() => { Object.assign(window.visualViewport!, { height: 200 }); window.visualViewport!.dispatchEvent(new Event('resize')); });
+  await expect.poll(() => page.evaluate(() => document.querySelector('.stage .lead')!.getBoundingClientRect().bottom)).toBeLessThanOrEqual(200.5);
+  const scrolled = await page.evaluate(() => {
+    const lead = document.querySelector('.stage .lead')!;
+    lead.scrollTop = lead.scrollHeight;
+    return { gap: lead.scrollHeight - lead.clientHeight, curve: document.querySelector('.stage .monitor .curve')!.getBoundingClientRect().bottom, bottom: lead.getBoundingClientRect().bottom };
+  });
+  expect(scrolled.gap).toBeGreaterThan(0);
+  expect(scrolled.curve).toBeLessThanOrEqual(scrolled.bottom + 0.5);
+});
+
+test('网页版 on a computer\'s screen: the monitor as tall as what is beside it, the two columns of figures ending close together, centred, in both languages', async ({ page }) => {
+  for (const [hash, size] of [['', { width: 1440, height: 900 }], ['&l=en', { width: 1440, height: 900 }], ['', { width: 1920, height: 1080 }]] as const) {
+    await phone(page, size, hash, { live: liveWork({ length: 1000, claudeEnds: 300, codexEnds: 300 }) });
+    await expect(page.locator('.stage .feed')).toBeVisible({ timeout: 8000 });
+    const seen = await page.evaluate(() => {
+      const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+      const last = (selector: string) => [...document.querySelectorAll(selector)].map((e) => e.getBoundingClientRect().bottom).reduce((a, b) => Math.max(a, b), 0);
+      const tiles = document.querySelector('.stage .tiles')?.closest('.part')?.getBoundingClientRect().height ?? 0;
+      return { lead: box('.stage .lead').bottom, activity: box('.stage .activity-box').bottom, feed: box('.stage .activity > :last-child').bottom,
+        left: last('.stage .stats-a > *'), right: last('.stage .stats-b > *'), tiles, frame: box('.stage .frame'), width: innerWidth };
+    });
+    // Side by side, the monitor and what happened end on one line.
+    expect(Math.abs(seen.lead - seen.activity), hash).toBeLessThanOrEqual(1);
+    expect(Math.abs(seen.feed - seen.lead), hash).toBeLessThanOrEqual(1);
+    // The figures' two columns end within the last block placed of each other (none could be moved to do better).
+    expect(Math.abs(seen.left - seen.right), hash).toBeLessThanOrEqual(seen.tiles);
+    // At most 1320 wide, in the middle.
+    expect(seen.frame.width).toBeLessThanOrEqual(1320);
+    expect(Math.abs(seen.frame.left - (seen.width - seen.frame.right))).toBeLessThanOrEqual(1);
+  }
+});
+
+test('the live curve has a line for each tool beside the total\'s, named in a legend, their ends apart, both ways up, on a computer\'s screen and in 手绘', async ({ page }) => {
+  test.setTimeout(90_000);
+  for (const [size, look] of [[PORTRAIT, ''], [LANDSCAPE, ''], [{ width: 1440, height: 900 }, ''], [PORTRAIT, 'sketch']] as const) {
+    // Each in a tab of its own (a page left mid-reading reports the reading it gave up as an error).
+    const tab = size === PORTRAIT && !look ? page : await page.context().newPage();
+    const work = scripted();
+    await phone(tab, size, look ? '&s=sketch' : '', { live: work.live });
+    for (const seconds of [3, 6, 9]) { work.at(seconds); await tab.waitForTimeout(2100); }
+    const chart = tab.locator('.stage .monitor .live-chart');
+    // The total's line, then each tool's: Claude and ChatGPT (the fixtures' Codex work) among them, in their colours.
+    await expect(chart.locator('.legend li').first()).toHaveText('总量');
+    const names = await chart.locator('.legend li').allTextContents();
+    expect(names).toContain('Claude');
+    expect(names).toContain('ChatGPT');
+    // The ones writing plain, the idle ones quieter.
+    await expect(chart.locator('.legend li', { hasText: 'Claude' })).not.toHaveClass(/idle/);
+    await expect(chart.locator('.legend li.idle').first()).toBeVisible();
+    const drawn = await chart.locator('canvas').evaluate((c) => ({ lines: Number(c.dataset.lines), dots: JSON.parse(c.dataset.dots ?? '{}') as Record<string, number>, under: c.dataset.under }));
+    expect(drawn.lines, JSON.stringify(size)).toBeGreaterThanOrEqual(2);
+    const ys = Object.values(drawn.dots).sort((a, b) => a - b);
+    for (let i = 1; i < ys.length; i++) expect(ys[i] - ys[i - 1]).toBeGreaterThanOrEqual(4.5);
+    // The legend within the monitor, on one or two lines.
+    const legend = (await chart.locator('.legend').boundingBox())!, box = (await chart.boundingBox())!;
+    expect(legend.x + legend.width).toBeLessThanOrEqual(box.x + box.width + 0.5);
+    expect(legend.height).toBeLessThanOrEqual(40);
+    if (tab !== page) await tab.close();
+  }
+});
+
+test('figures that change only now and then (SwiftBar\'s plugin) make a speed that rises over the stretch, not steps', async ({ page }) => {
+  await phone(page);
+  const samples = await page.evaluate(async () => {
+    const { LiveFeed } = await import('/src/lib/live.ts');
+    const feed = new LiveFeed();
+    feed.spread = 30_000;
+    const reading = (tokens: number, output: number) => ({ rangeKey: 'today', date: '2026-11-25', dates: [],
+      providers: [{ id: 'claude', available: true, tokens, output, cost: tokens / 1e6, history: [] }] });
+    // Read every two seconds; the figures move at 0 s and at 30 s only.
+    for (let s = 0; s <= 30; s += 2) feed.add(reading(s < 30 ? 1000 : 61000, s < 30 ? 10 : 610) as never, s * 1000);
+    return feed.samples.map((x) => x.output);
+  });
+  // Between the two, the output climbs evenly, not flat then a jump.
+  expect(samples.at(-1)! - samples[0]).toBe(600);
+  for (let i = 1; i < samples.length; i++) expect(samples[i]).toBeGreaterThan(samples[i - 1]);
+});
+
+test('on SwiftBar\'s panel, reloaded while the work goes on, the page picks up the computer\'s last minutes', async ({ page }) => {
+  const clock = { now: Date.UTC(2026, 10, 25, 2, 0, 0) };
+  const live = liveWork({ now: () => clock.now, length: 1000, claudeEnds: 300, codexEnds: 300 });
+  await phone(page, PORTRAIT, '', { swiftbar: true, live });
+  const rate = page.locator('.stage .monitor [data-figure="rate"] [data-value]');
+  for (const seconds of [3, 8, 13, 18, 23, 28]) { clock.now = Date.UTC(2026, 10, 25, 2, 0, 0) + seconds * 1000; await page.waitForTimeout(2200); }
+  const said = () => page.locator('.stage .feed .event').evaluateAll((list) => list.slice(0, 5).map((e) => `${e.querySelector('.who')?.textContent} ${e.querySelector('.what')?.textContent}`));
+  const before = await said();
+  expect(before.length).toBe(5);
+  await page.reload();
+  // At once as it was: the speed and the last minute, and 动态's latest five; no 正在读取, no 等下一笔请求.
+  await expect(page.locator('.stage .monitor.working')).toBeVisible();
+  await expect.poll(async () => Number(await rate.getAttribute('data-value')), { timeout: 3000 }).toBeGreaterThan(0);
+  await expect(page.locator('.stage .monitor .tick-value').nth(1).locator('[data-value]').first()).toHaveAttribute('data-value', /^\+\d/);
+  await expect(page.locator('.stage .monitor .reading')).toHaveCount(0);
+  expect(await said()).toEqual(before);
+});
+
+test('the monitor\'s 今天 and 近 1 分钟 stand on their figures\' line, the figures alike, the sign and unit as the panel\'s, in both looks and three languages', async ({ page }) => {
+  test.setTimeout(90_000);
+  // The four at once, each watched long enough for the last minute to be said (twenty seconds of readings).
+  const hashes = ['', '&l=zh-Hant&s=sketch', '&l=en', '&l=en&s=sketch'];
+  const tabs = await Promise.all(hashes.map(async (hash) => {
+    const tab = hash ? await page.context().newPage() : page;
+    const work = scripted();
+    await phone(tab, PORTRAIT, hash, { live: work.live });
+    return { tab, work, hash };
+  }));
+  for (let seconds = 2; seconds <= 26; seconds += 2) { for (const { work } of tabs) work.at(seconds); await page.waitForTimeout(2000); }
+  for (const { tab, hash } of tabs) {
+    await expect(tab.locator('.stage .monitor .ticker .tick-value .wheel').first()).toBeVisible();
+    await expect.poll(() => tab.locator('.stage .monitor .ticker .tick-value').nth(1).locator('.wheel').count(), { timeout: 10_000 }).toBeGreaterThan(0);
+    const seen = await tab.evaluate(() => {
+      // A probe with no height stands on the line it is in: its top is that line's baseline.
+      const baseline = (inside: Element) => {
+        const probe = document.createElement('span');
+        probe.style.cssText = 'display:inline-block;width:0;height:0';
+        inside.append(probe);
+        const y = probe.getBoundingClientRect().top;
+        probe.remove();
+        return y;
+      };
+      const ticker = document.querySelector('.stage .monitor .ticker')!;
+      const labels = [...ticker.querySelectorAll('.tick-label')].map(baseline);
+      const figures = [...ticker.querySelectorAll('.tick-value .number')].map((n) => ({
+        // A wheel's digit stands where its line is within the wheel, whichever digit the wheel has turned to.
+        line: baseline(n.querySelector('.ghost .body')!), digit: (() => {
+          const wheel = n.querySelector('.wheel')!, first = wheel.querySelector('.digits > span')!;
+          return wheel.getBoundingClientRect().top + baseline(first) - first.getBoundingClientRect().top;
+        })(),
+        size: getComputedStyle(n).fontSize, weight: getComputedStyle(n).fontWeight,
+        sign: n.querySelector('.ghost .sign') ? getComputedStyle(n.querySelector('.ghost .sign')!).fontSize : null,
+        unit: n.querySelector('.ghost .unit') ? getComputedStyle(n.querySelector('.ghost .unit')!).fontSize : null,
+      }));
+      return { labels, figures };
+    });
+    const line = seen.figures[0].line;
+    for (const y of seen.labels) expect(Math.abs(y - line), hash).toBeLessThanOrEqual(0.5);
+    for (const f of seen.figures) {
+      expect(Math.abs(f.line - line), hash).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(f.digit - line), hash).toBeLessThanOrEqual(0.5);
+      expect([f.size, f.weight]).toEqual([seen.figures[0].size, seen.figures[0].weight]);
+    }
+    // $ at 0.62 and K/M at 0.74 of the figure, as Figure.svelte draws them.
+    const px = (v: string | null) => Number.parseFloat(v ?? 'NaN');
+    expect(px(seen.figures[0].sign) / px(seen.figures[0].size)).toBeCloseTo(0.62, 2);
+    expect(px(seen.figures[1].unit) / px(seen.figures[1].size)).toBeCloseTo(0.74, 2);
+    if (tab !== page) await tab.close();
+  }
+});
+
+test('opened with nothing kept yet, 网页版 waits quietly: a faint dash in the figures\' face (not a pen\'s bar in 手绘), no scale over an empty curve', async ({ page }) => {
+  await page.addInitScript(() => {
+    const drawn: string[] = [];
+    (window as unknown as { drawn: string[] }).drawn = drawn;
+    const fill = CanvasRenderingContext2D.prototype.fillText;
+    CanvasRenderingContext2D.prototype.fillText = function (text: string, ...rest: [number, number, number?]) { drawn.push(String(text)); return fill.call(this, text, ...rest); };
+  });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  const work = scripted();
+  await phone(page, PORTRAIT, '&s=sketch', { live: work.live });
+  await expect(page.locator('.stage.sketch .monitor.working')).toBeVisible();
+  const big = page.locator('.stage .monitor .big.unknown');
+  await expect(big).toBeVisible();
+  const colours = await big.evaluate((e) => ({ big: getComputedStyle(e).color, faint: getComputedStyle(e.closest('.stage')!).getPropertyValue('--ink-3').trim() }));
+  const probe = await page.evaluate((faint) => { const s = document.createElement('span'); s.style.color = faint; document.body.append(s); const c = getComputedStyle(s).color; s.remove(); return c; }, colours.faint);
+  expect(colours.big).toBe(probe);
+  expect(await page.evaluate(() => (window as unknown as { drawn: string[] }).drawn.filter((text) => /Token\/s$/.test(text)))).toEqual([]);
+});
+
+test('the computer\'s last minutes with a gap in them, or ended a while ago, are no speed now nor work now (STAGE-3)', async ({ page }) => {
+  await phone(page, PORTRAIT, '', { live: resting() });
+  const seen = await page.evaluate(async (key) => {
+    const { PhoneLive } = await import('/src/lib/phoneLive.svelte.ts');
+    const template = await (await fetch('/api/live', { headers: { 'X-Starmeter-Key': key } })).json();
+    const now = 1_800_000_000_000, at = now / 1000;
+    // Claude's figures at a moment `back` seconds ago: `tokens` and a hundredth of them written.
+    const reading = (back: number, tokens: number) => ({ at: at - back, date: template.dashboard.date, rangeKey: 'today',
+      providers: [{ id: 'claude', available: true, tokens, output: tokens / 100, cost: tokens / 1e6 }] });
+    const answer = (history: unknown[], tokens: number) => {
+      const dashboard = structuredClone(template.dashboard);
+      const claude = dashboard.providers.find((p: { id: string }) => p.id === 'claude');
+      Object.assign(claude, { tokens, output: tokens / 100, cost: tokens / 1e6, counted: undefined });
+      return { at, dashboard, sessions: null, turns: {}, history };
+    };
+    const run = (history: unknown[], tokens: number) => {
+      const live = new PhoneLive();
+      live.take(answer(history, tokens) as never, now);
+      // What the history said happened stays at its moments; nothing of the gap is said as happening now.
+      return { rate: live.rate(now), ready: live.ready(), state: live.state, usage: live.events.filter((e: { kind: string; at: number }) => e.kind === 'usage' && e.at >= now).length };
+    };
+    const steady = (from: number, to: number, base: number, step: number) => {
+      const list = [];
+      for (let back = from, i = 0; back >= to; back -= 2, i++) list.push(reading(back, base + i * step));
+      return list;
+    };
+    return {
+      // Readings that ended 100 s ago, a million tokens added since: nothing to say of now.
+      ended: run(steady(130, 100, 1e6, 1000), 2e6),
+      // A run, a minute's gap, then ten seconds: the last run too short to say a speed.
+      gapped: run([...steady(120, 90, 1e6, 1000), ...steady(10, 2, 3e6, 1000)], 3e6 + 5000),
+      // Forty seconds unbroken, growing: a speed, and working.
+      steady: run(steady(40, 2, 1e6, 20000), 1e6 + 20 * 20000),
+    };
+  }, PHONE_KEY);
+  expect(seen.ended).toEqual({ rate: null, ready: false, state: 'resting', usage: 0 });
+  expect(seen.gapped.ready).toBe(false);
+  expect(seen.gapped.rate).toBeNull();
+  expect(seen.steady.ready).toBe(true);
+  expect(seen.steady.rate).toBeGreaterThan(0);
+  expect(seen.steady.state).toBe('working');
+});
+
+test('保持亮屏 refused on coming back (low power mode) goes off, not lit and holding nothing (STAGE-10)', async ({ page }) => {
+  await page.addInitScript(() => {
+    const state = { refuse: false, release: null as null | (() => void) };
+    (window as unknown as { lockState: typeof state }).lockState = state;
+    Object.defineProperty(navigator, 'wakeLock', { configurable: true, value: {
+      request: () => state.refuse ? Promise.reject(new Error('NotAllowedError')) : Promise.resolve({
+        release: async () => {}, addEventListener: (_: string, listener: () => void) => { state.release = listener; } }) } });
+  });
+  await phone(page, LANDSCAPE, '', { live: resting() });
+  const button = page.getByRole('button', { name: '保持亮屏' });
+  await button.click();
+  await expect(button).toHaveAttribute('aria-pressed', 'true');
+  // Hidden: the system lets go of it. Back, the browser refuses it now.
+  await page.evaluate(() => {
+    const state = (window as unknown as { lockState: { refuse: boolean; release: (() => void) | null } }).lockState;
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
+    state.release?.();
+    state.refuse = true;
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect(button).toHaveAttribute('aria-pressed', 'false');
+});
+
+test('the sky\'s floating things answer the work: busier as the models write, few and slow resting, a burst for a turn done, still while hidden', async ({ page }) => {
+  test.setTimeout(60_000);
+  const work = scripted();
+  await phone(page, PORTRAIT, '', { live: work.live });
+  const drift = page.locator('.stage .sky canvas.drift');
+  const read = () => drift.evaluate((c) => ({ energy: Number(c.dataset.energy), active: Number(c.dataset.active), frames: Number(c.dataset.frames), bursts: Number(c.dataset.bursts), rise: Number(c.dataset.rise) }));
+  // Working: the energy climbs (smoothly) and more of them show; never more than the screen's few dozen.
+  for (const seconds of [3, 6, 9]) { work.at(seconds); await page.waitForTimeout(2000); }
+  await expect.poll(async () => (await read()).energy, { timeout: 8000 }).toBeGreaterThan(0.3);
+  const busy = await read();
+  expect(busy.active).toBeLessThanOrEqual(56);
+  // Faster while writing (a logo halfway deep, points a second: user: 漂浮物可以动的快一些).
+  expect(busy.rise).toBeGreaterThan(22);
+  // A turn done: a burst under its banner.
+  work.at(21);
+  await expect(page.locator('.stage .turn-done')).toBeVisible({ timeout: 5000 });
+  await expect.poll(async () => (await read()).bursts).toBeGreaterThan(0);
+  // Resting: few and slow.
+  work.at(80);
+  await expect(page.locator('.stage .monitor:not(.working)')).toBeVisible({ timeout: 5000 });
+  await expect.poll(async () => (await read()).energy, { timeout: 10_000 }).toBeLessThan(0.15);
+  expect((await read()).active).toBeLessThan(busy.active);
+  // Resting, still plainly drifting: not the 4 points a second it was.
+  expect((await read()).rise).toBeGreaterThan(12);
+  // Hidden: nothing drawn.
+  await page.evaluate(() => { Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' }); document.dispatchEvent(new Event('visibilitychange')); });
+  await page.waitForTimeout(300);
+  const hidden = (await read()).frames;
+  await page.waitForTimeout(1000);
+  expect((await read()).frames).toBe(hidden);
+});
+
+test('the sky floats the logos of the tools at work, the Starmeter mark when nothing runs, and with reduced motion still shows them', async ({ page }) => {
+  test.setTimeout(60_000);
+  const work = scripted();
+  await phone(page, PORTRAIT, '', { live: work.live });
+  const drift = page.locator('.stage .sky canvas.drift');
+  const read = () => drift.evaluate((c) => ({ marks: c.dataset.marks, drawn: c.dataset.drawn, count: Number(c.dataset.drawnCount) }));
+  // Claude Code's session at work: its logo floats, a few at once, and the Starmeter mark has gone.
+  work.at(3);
+  await expect.poll(async () => (await read()).marks, { timeout: 5000 }).toBe('tool');
+  await expect.poll(async () => (await read()).drawn, { timeout: 8000 }).toBe('tool');
+  expect((await read()).count).toBeGreaterThanOrEqual(2);
+  // (Both sessions' logos are the one blank stand-in here, so one mark: tools' own logos are told apart by their pictures.)
+  // Nothing running: the Starmeter mark, faded in where it is (not a minute's float up from the foot).
+  // (The computer's clock moved on a few seconds a reading, as it is: a jump past 15 seconds is a gap, and a turn ended
+  // in a gap is not announced.)
+  for (const seconds of [6, 9]) { work.at(seconds); await page.waitForTimeout(2000); }
+  work.at(21);
+  await expect(page.locator('.stage .turn-done')).toBeVisible({ timeout: 5000 });
+  work.at(80);
+  await expect(page.locator('.stage .monitor:not(.working)')).toBeVisible({ timeout: 5000 });
+  await expect.poll(async () => (await read()).marks, { timeout: 5000 }).toBe('starmeter');
+  await expect.poll(async () => (await read()).drawn, { timeout: 12_000 }).toBe('starmeter');
+  expect((await read()).count).toBeGreaterThanOrEqual(1);
+});
+
+test('网页版 in 手绘 sends nothing that moves through the wobble filter (worked out again each time it is drawn)', async ({ page }) => {
+  // The filter over a canvas drawn every frame, or over something that keeps moving, cost a 1440-wide screen 180 ms a
+  // frame: here, while working, nothing filtered holds a canvas or an endless animation.
+  const work = scripted();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await servePhone(page, PHONE_KEY, { live: work.live });
+  await page.goto('/#k=' + PHONE_KEY + '&s=sketch');
+  await expect(page.locator('.stage.sketch .monitor.working')).toBeVisible();
+  await page.waitForTimeout(1600);
+  const moving = await page.evaluate(() => {
+    const filtered = [...document.querySelectorAll('.stage *')].filter((e) => getComputedStyle(e).filter.includes('hand'));
+    const endless = document.getAnimations().filter((a) => a.effect?.getComputedTiming().iterations === Infinity && a.playState === 'running')
+      .map((a) => (a.effect as KeyframeEffect).target).filter((e): e is Element => !!e);
+    return filtered.flatMap((f) => [...endless.filter((e) => f.contains(e)), ...f.querySelectorAll('canvas'), ...(f.tagName === 'CANVAS' ? [f] : [])])
+      .map((e) => `${e.tagName}.${(e.getAttribute('class') ?? '').split(' ')[0]}`);
+  });
+  expect(moving).toEqual([]);
+  expect(await page.locator('.stage .live-chart canvas').evaluate((c) => (c as HTMLCanvasElement).dataset.hand)).toBe('twice');
+});
+
+/** A point on 网页版's sky itself (not on a control or a pane), found on a grid over the screen. */
+async function skyPoint(page: Page): Promise<{ x: number; y: number }> {
+  const found = await page.evaluate(() => {
+    const owned = 'button, a, input, [role="radio"], [role="radiogroup"], [role="button"], [role="status"], .card, .session, .plan, .tile, .feed, .panel, .monitor, .figure, .trend, .bar, .foot, .live-chart';
+    for (let y = 160; y < innerHeight - 170; y += 12) for (let x = 12; x < innerWidth - 12; x += 12) {
+      const e = document.elementFromPoint(x, y);
+      if (e && e.closest('.stage') && !e.closest(owned)) return { x, y };
+    }
+    return null;
+  });
+  expect(found, 'a bare piece of sky').not.toBeNull();
+  return found!;
+}
+
+test('a tap on the sky sends stars out from there and a ring, pushing what floats near; a tap on a control is only the control\'s', async ({ page }) => {
+  // What floats where, the same each run (things are placed at random): something is near the tap.
+  await page.addInitScript(() => {
+    let seed = 42;
+    Math.random = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+  });
+  const work = scripted();
+  await phone(page, PORTRAIT, '', { live: work.live });
+  const drift = page.locator('.stage .sky canvas.drift');
+  const read = () => drift.evaluate((c) => ({ pokes: Number(c.dataset.pokes), bursts: Number(c.dataset.bursts), ripples: Number(c.dataset.ripples), pushed: Number(c.dataset.pushed), frames: Number(c.dataset.frames) }));
+  const { x, y } = await skyPoint(page);
+  await page.mouse.click(x, y);
+  await expect.poll(async () => (await read()).pokes).toBe(1);
+  const after = await read();
+  expect(after.bursts).toBeGreaterThanOrEqual(8);
+  expect(after.ripples).toBe(1);
+  await expect.poll(async () => (await read()).pushed).toBeGreaterThan(2);
+  // Back on course after a few seconds, the burst gone.
+  await expect.poll(async () => (await read()).pushed, { timeout: 8000 }).toBe(0);
+  await expect.poll(async () => (await read()).bursts).toBe(0);
+  // A control takes its tap at once, and the sky none.
+  await page.getByRole('radio', { name: '模型' }).click();
+  await expect(page.getByRole('radio', { name: '模型' })).toHaveAttribute('aria-checked', 'true');
+  // A card, too.
+  await page.locator('.stage .card').first().click({ position: { x: 30, y: 10 } });
+  expect((await read()).pokes).toBe(1);
+  // A finger on the sky: a tap is one; a finger moved on (a scroll) is none.
+  const finger = (kind: string, px: number, py: number) => page.evaluate(([kind, px, py]) => {
+    const target = document.elementFromPoint(px as number, py as number)!;
+    target.dispatchEvent(new PointerEvent(kind as string, { bubbles: true, isPrimary: true, pointerId: 7, pointerType: 'touch', clientX: px as number, clientY: py as number }));
+  }, [kind, px, py] as const);
+  await finger('pointerdown', x, y); await finger('pointerup', x, y);
+  await expect.poll(async () => (await read()).pokes).toBe(2);
+  await finger('pointerdown', x, y); await finger('pointerup', x, y + 40);
+  await page.waitForTimeout(200);
+  expect((await read()).pokes).toBe(2);
+  // Taps as fast as they come: the bursts' stars capped, the sky still drawing.
+  for (let i = 0; i < 25; i++) await page.mouse.click(x, y);
+  const frames = (await read()).frames;
+  await expect.poll(async () => (await read()).pokes).toBe(27);
+  expect((await read()).bursts).toBeLessThanOrEqual(140);
+  await expect.poll(async () => (await read()).frames).toBeGreaterThan(frames + 10);
+});
+
+test('a tap anywhere but a control answers: the figure hops, the curve lights up there, a running session\'s mark turns, a row or a pane sends stars over it; the controls only their own, a long press or a scroll nothing', async ({ page }) => {
+  const work = scripted();
+  await phone(page, PORTRAIT, '', { live: work.live });
+  work.at(9);
+  await expect(page.locator('.stage .activity .session')).toHaveCount(1, { timeout: 5000 });
+  await expect.poll(() => page.locator('.stage .feed li').count(), { timeout: 5000 }).toBeGreaterThan(0);
+  const drift = page.locator('.stage .sky canvas.drift');
+  const read = () => drift.evaluate((c) => ({ pokes: Number(c.dataset.pokes), tap: c.dataset.tap ?? '', overlay: c.dataset.overlay }));
+  /** A mouse click in the middle of the element, scrolled to first; the pokes after it. */
+  const click = async (selector: string, at?: { x: number; y: number }) => {
+    const target = page.locator(selector).first();
+    await target.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(150);
+    const box = (await target.boundingBox())!;
+    await page.mouse.click(box.x + (at?.x ?? box.width / 2), box.y + (at?.y ?? box.height / 2));
+  };
+  let pokes = (await read()).pokes;
+  const answered = async (kind: string) => {
+    pokes++;
+    await expect.poll(async () => (await read()).pokes).toBe(pokes);
+    expect((await read()).tap).toBe(kind);
+  };
+  // The big figure hops (its class while it does), and the stars are drawn over the page, not behind the panes.
+  await click('.stage .monitor .big');
+  await answered('hop');
+  await expect(page.locator('.stage .monitor .big.tapped')).toHaveCount(1);
+  await expect.poll(async () => (await read()).overlay).toBe('true');
+  // The live curve lights up where it was tapped.
+  await click('.stage .monitor .live-chart .plot');
+  await answered('beam');
+  // A running session's card, away from anything in it to press: its mark turns once.
+  await click('.stage .activity .session', { x: 200, y: 50 });
+  await answered('turn');
+  await expect(page.locator('.stage .activity .session.tapped')).toHaveCount(1);
+  // A row of 动态, a pane's words, the statistics' figures: stars, nothing of their own.
+  await click('.stage .feed li');
+  await expect.poll(async () => (await read()).pokes).toBe(++pokes);
+  await click('.stage .stats-head');
+  await expect.poll(async () => (await read()).pokes).toBe(++pokes);
+  await click('.stage .figure');
+  await expect.poll(async () => (await read()).pokes).toBe(++pokes);
+  // The controls take their taps, and the sky none: a choice, a card's head, the sun.
+  await page.getByRole('radio', { name: '模型' }).click();
+  await expect(page.getByRole('radio', { name: '模型' })).toHaveAttribute('aria-checked', 'true');
+  await click('.stage .card .head');
+  await expect(page.locator('.stage .card .head').first()).toHaveAttribute('aria-expanded', 'true');
+  await page.getByRole('button', { name: '保持亮屏' }).click();
+  await page.waitForTimeout(300);
+  expect((await read()).pokes).toBe(pokes);
+  // A long press (a word chosen) and a finger moved on (a scroll): no tap.
+  await page.locator('.stage .figure').first().scrollIntoViewIfNeeded();
+  await page.waitForTimeout(150);
+  const figure = (await page.locator('.stage .figure').first().boundingBox())!;
+  await page.mouse.move(figure.x + 10, figure.y + 10);
+  await page.mouse.down(); await page.waitForTimeout(900); await page.mouse.up();
+  await page.mouse.move(figure.x + 10, figure.y + 10);
+  await page.mouse.down(); await page.mouse.move(figure.x + 10, figure.y + 40, { steps: 4 }); await page.mouse.up();
+  await page.waitForTimeout(200);
+  expect((await read()).pokes).toBe(pokes);
+  // A finger too, on a pane.
+  await page.evaluate(([px, py]) => {
+    const target = document.elementFromPoint(px, py)!;
+    for (const kind of ['pointerdown', 'pointerup']) target.dispatchEvent(new PointerEvent(kind, { bubbles: true, isPrimary: true, pointerId: 9, pointerType: 'touch', clientX: px, clientY: py }));
+  }, [figure.x + 10, figure.y + 10]);
+  await expect.poll(async () => (await read()).pokes).toBe(++pokes);
+  // Taps coming fast on the panes: every frame still drawn in time.
+  await page.locator('.stage .monitor').scrollIntoViewIfNeeded();
+  await page.waitForTimeout(150);
+  const box = (await page.locator('.stage .monitor').boundingBox())!;
+  const frames = page.evaluate(() => new Promise<number[]>((resolve) => {
+    const times: number[] = [];
+    const step = (time: number) => { times.push(time); if (times.length < 120) requestAnimationFrame(step); else resolve(times); };
+    requestAnimationFrame(step);
+  }));
+  for (let i = 0; i < 12; i++) await page.mouse.click(box.x + 40 + i * 20, box.y + 60);
+  const times = await frames;
+  const gaps = times.slice(1).map((time, i) => time - times[i]).sort((x, y) => x - y);
+  expect(gaps[Math.floor(gaps.length / 2)], 'the middle frame').toBeLessThan(20);
+});
+
+test('网页版\'s 动态 shows its newest five, the rest behind 查看更多, folded again with 收起, as the panel\'s', async ({ page }) => {
+  const work = scripted();
+  await phone(page, PORTRAIT, '', { live: work.live });
+  for (const seconds of [3, 6, 9, 12, 15]) { work.at(seconds); await page.waitForTimeout(2100); }
+  const activity = page.locator('.stage .activity');
+  const more = activity.getByRole('button', { name: /^查看更多 \d+ 条动态$/ });
+  await expect(more).toBeVisible();
+  await expect(activity.locator('.feed li')).toHaveCount(5);
+  await more.click();
+  await expect.poll(() => activity.locator('.feed li').count()).toBeGreaterThan(5);
+  await activity.getByRole('button', { name: '收起' }).click();
+  await expect(activity.locator('.feed li')).toHaveCount(5);
+  // Folded, what comes in keeps it at five.
+  work.at(18);
+  await page.waitForTimeout(2500);
+  await expect(activity.locator('.feed li')).toHaveCount(5);
+});
+
+test('with reduced motion a tap on a pane does nothing to it either', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const work = scripted();
+  await phone(page, PORTRAIT, '', { live: work.live });
+  work.at(9);
+  await expect(page.locator('.stage .monitor .big')).toBeVisible();
+  const box = (await page.locator('.stage .monitor .big').boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await page.waitForTimeout(300);
+  expect(await page.locator('.stage .sky canvas.drift').evaluate((c) => Number(c.dataset.pokes))).toBe(0);
+  await expect(page.locator('.stage .tapped')).toHaveCount(0);
+});
+
+test('with reduced motion a tap on the sky does nothing to it', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await phone(page, PORTRAIT, '', { live: resting() });
+  const drift = page.locator('.stage .sky canvas.drift');
+  const { x, y } = await skyPoint(page);
+  await page.mouse.click(x, y);
+  await page.waitForTimeout(300);
+  expect(await drift.evaluate((c) => [c.dataset.pokes, c.dataset.bursts])).toEqual(['0', '0']);
+});
+
+test('with reduced motion the one still frame has the logos of the tools at work in it', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const work = scripted();
+  work.at(8);
+  await phone(page, PORTRAIT, '', { live: work.live });
+  const drift = page.locator('.stage .sky canvas.drift');
+  // The logos' pictures come in after the first frame: the still frame drawn again with them, and then left alone.
+  await expect.poll(() => drift.evaluate((c) => c.dataset.drawn), { timeout: 5000 }).toBe('tool');
+  expect(Number(await drift.evaluate((c) => c.dataset.drawnCount))).toBeGreaterThanOrEqual(1);
+  const frames = async () => Number(await drift.evaluate((c) => c.dataset.frames ?? '0'));
+  const settled = await frames();
+  await page.waitForTimeout(1500);
+  expect(await frames()).toBe(settled);
+});
+
+test('with reduced motion the sky is one still frame; in 手绘 its things are the pen\'s doodles on the paper', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await phone(page, PORTRAIT, '&s=sketch', { live: resting() });
+  const drift = page.locator('.stage.sketch .sky canvas.drift');
+  await expect(drift).toHaveCount(1);
+  const frames = async () => Number(await drift.evaluate((c) => c.dataset.frames ?? '0'));
+  await page.waitForTimeout(500);
+  const first = await frames();
+  expect(first).toBeLessThanOrEqual(2);
+  await page.waitForTimeout(1000);
+  expect(await frames()).toBe(first);
+});
+
+test('保持亮屏 says what it did: on, off, or why the browser would not (the sun alone told nothing on a phone)', async ({ page }) => {
+  await page.addInitScript(() => {
+    const state = { refuse: false };
+    (window as unknown as { lockState: typeof state }).lockState = state;
+    Object.defineProperty(navigator, 'wakeLock', { configurable: true, value: {
+      request: () => state.refuse ? Promise.reject(Object.assign(new Error('not now'), { name: 'NotAllowedError' }))
+        : Promise.resolve({ release: async () => {}, addEventListener: () => {} }) } });
+  });
+  await phone(page, LANDSCAPE, '', { live: resting() });
+  const button = page.getByRole('button', { name: '保持亮屏' }), notice = page.locator('.stage .notice');
+  await button.click();
+  await expect(notice).toHaveText('屏幕会保持常亮，离开这一页就恢复自动锁屏');
+  await expect(button).toHaveAttribute('aria-pressed', 'true');
+  await expect(button).toHaveAttribute('title', '屏幕保持常亮，点按恢复自动锁屏');
+  await button.click();
+  await expect(notice).toHaveText('已恢复自动锁屏');
+  await expect(button).toHaveAttribute('aria-pressed', 'false');
+  // Refused (Low Power Mode): it says so, and the switch stays off.
+  await page.evaluate(() => { (window as unknown as { lockState: { refuse: boolean } }).lockState.refuse = true; });
+  await button.click();
+  await expect(notice).toHaveText('没能保持亮屏：浏览器没有允许（低电量模式下会这样）');
+  await expect(button).toHaveAttribute('aria-pressed', 'false');
+  // Said for a moment, then gone.
+  await expect(notice).toHaveCount(0, { timeout: 5000 });
+});
+
+test('保持亮屏 on an http page (the same network, Tailscale): the sun there all the same, fainter, saying it needs the https link', async ({ page }) => {
+  // An http page: no secure context, so no wake lock in the browser.
+  await page.addInitScript(() => {
+    Object.defineProperty(window, 'isSecureContext', { configurable: true, value: false });
+    delete (Navigator.prototype as unknown as { wakeLock?: unknown }).wakeLock;
+    delete (navigator as unknown as { wakeLock?: unknown }).wakeLock;
+  });
+  await phone(page, PORTRAIT, '', { live: resting() });
+  expect(await page.evaluate(() => 'wakeLock' in navigator)).toBe(false);
+  const button = page.getByRole('button', { name: '保持亮屏' }), notice = page.locator('.stage .notice');
+  await expect(button).toBeVisible();
+  await expect(button).toHaveClass(/unoffered/);
+  await button.click();
+  await expect(notice).toHaveText('保持亮屏要用 https 链接：在电脑上选“任何网络”，用它生成的链接打开就能用');
+  await expect(button).toHaveAttribute('aria-pressed', 'false');
+  // Said whole within the screen, a little longer than the switch's own words, then gone.
+  const said = await notice.boundingBox();
+  expect(said!.x).toBeGreaterThanOrEqual(0);
+  expect(said!.x + said!.width).toBeLessThanOrEqual(PORTRAIT.width);
+  await page.waitForTimeout(3600);
+  await expect(notice).toBeVisible();
+  await expect(notice).toHaveCount(0, { timeout: 3000 });
+});
+
+test('the computer gone from 手绘 dark to 标准 dark, the phone reloaded: its first frame is the sky\'s, not the blackboard kept from before', async ({ page }) => {
+  // Served as the phone server serves it: the page carries the computer's look as it is now.
+  let look = { theme: 'dark', style: 'sketch' };
+  await page.route((url) => url.pathname === '/', async (route) => {
+    const answer = await route.fetch();
+    const html = (await answer.text()).replace('<script src="/first-frame.js"', `<script>window.STARMETER_LOOK=${JSON.stringify(look)};</script><script src="/first-frame.js"`);
+    await route.fulfill({ response: answer, body: html, headers: { ...answer.headers(), 'content-type': 'text/html' } });
+  });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await phone(page);
+  await computerChose(page, { theme: 'dark', style: 'sketch' });
+  await expect(page.locator('.stage.sketch')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('starmeter.edges') ?? '{}').top)).toBe('#1f2924');
+  // The computer turns 标准: the next load's first frame (before the page's own script) is the night sky.
+  look = { theme: 'dark', style: 'standard' };
+  await computerChose(page, { theme: 'dark', style: 'standard' });
+  const main = /\/src\/main\.ts(\?|$)/;
+  await page.route(main, () => {});
+  await page.reload({ waitUntil: 'commit' });
+  const colours = () => page.evaluate(() => ({ meta: document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.content, html: getComputedStyle(document.documentElement).backgroundColor }));
+  await expect.poll(colours).toEqual({ meta: '#1F3A7A', html: 'rgb(5, 10, 36)' });
+  expect(await page.evaluate(() => localStorage.getItem('starmeter.style'))).toBe('standard');
+  // Safari 26's samplers too, from the first frame (index.html, coloured by first-frame.js).
+  expect(await page.evaluate(() => [...document.querySelectorAll('.bar-tint')].map((s) => getComputedStyle(s).backgroundColor))).toEqual(['rgb(31, 58, 122)', 'rgb(5, 10, 36)']);
+  // The sky's two colours over the whole screen in one piece (with no height the page's ground repeated in stripes).
+  expect(await page.evaluate(() => document.documentElement.getBoundingClientRect().height)).toBeGreaterThanOrEqual(PORTRAIT.height - 1);
+  // And the page, drawn, keeps them.
+  await page.unroute(main);
+  await page.reload();
+  await expect(page.locator('.stage:not(.sketch)')).toBeVisible();
+  await expect.poll(colours).toEqual({ meta: '#1F3A7A', html: 'rgb(5, 10, 36)' });
+});
+
+test('a reading of the last minutes has a gateway\'s part only where it had one then (STAGE-12)', async ({ page }) => {
+  await phone(page, PORTRAIT, '', { live: resting() });
+  const seen = await page.evaluate(async () => {
+    const { readingDashboard } = await import('/src/lib/live.ts');
+    const tool = { id: 'chatgpt', name: 'ChatGPT', available: true, summaryIncluded: true, tokens: 900, output: 90, cost: 9, requests: 3, history: [], models: [] };
+    const template = (counted: boolean) => ({ date: '2026-11-25', rangeKey: 'today', dates: [], providers: [{ ...tool, ...(counted ? { counted: { tokens: 400, output: 40, cost: 4, requests: 1, history: [] } } : {}) }] });
+    const reading = (counted: boolean) => ({ at: 1, date: '2026-11-25', rangeKey: 'today',
+      providers: [{ id: 'chatgpt', available: true, summaryIncluded: true, tokens: 500, output: 50, cost: 5, ...(counted ? { counted: { tokens: 200, output: 20, cost: 2 } } : {}) }] });
+    const part = (t: boolean, r: boolean) => (readingDashboard(template(t) as never, reading(r) as never).providers[0] as { counted?: { tokens: number; output: number } }).counted ?? null;
+    // A gateway now but not then: none of its part in the older reading; then but not now: its part as it was then.
+    return { cameLater: part(true, false), wentSince: part(false, true), both: part(true, true) };
+  });
+  expect(seen.cameLater).toBeNull();
+  expect(seen.wentSince).toMatchObject({ tokens: 200, output: 20 });
+  expect(seen.both).toMatchObject({ tokens: 200, output: 20 });
+});
+
+test('a change spread over the quiet stretch before it never reaches back over a gap or a new range (STAGE-13)', async ({ page }) => {
+  await phone(page, PORTRAIT, '', { live: resting() });
+  const outputs = await page.evaluate(async () => {
+    const { LiveFeed } = await import('/src/lib/live.ts');
+    const feed = new LiveFeed();
+    feed.spread = 30_000;
+    const at = (tokens: number, output: number) => ({ date: '2026-11-25', rangeKey: 'today', dates: [],
+      providers: [{ id: 'claude', name: 'Claude', available: true, summaryIncluded: true, tokens, output, cost: 0, requests: 0, history: [], models: [] }] });
+    feed.add(at(1000, 100) as never, 0);
+    feed.add(at(1000, 100) as never, 2_000);
+    // A gap: 900 more output came at moments unknown. The line stands still there.
+    feed.add(at(5000, 1000) as never, 20_000, true);
+    // Then 60 more over four seconds: spread back over its own quiet stretch, not over the gap.
+    feed.add(at(5600, 1060) as never, 24_000);
+    return feed.samples.map((s) => Math.round(s.output));
+  });
+  expect(outputs[0]).toBe(outputs[1]);
+  expect(outputs[2]).toBe(outputs[1]);
+  expect(outputs[3]).toBe(outputs[2] + 60);
+});
+
+test('the minutes given again with a later answer are new from the last one taken on the computer clock, however long the answer took (STAGE-18)', async ({ page }) => {
+  await phone(page, PORTRAIT, '', { live: resting() });
+  const seen = await page.evaluate(async () => {
+    const { PhoneLive } = await import('/src/lib/phoneLive.svelte.ts');
+    const { readingDashboard } = await import('/src/lib/live.ts');
+    const template = { date: '2026-11-25', rangeKey: 'today', dates: [],
+      providers: [{ id: 'claude', name: 'Claude', available: true, summaryIncluded: true, tokens: 0, output: 0, cost: 0, requests: 0, history: [], models: [] }] };
+    const reading = (at: number, tokens: number) => ({ at, date: '2026-11-25', rangeKey: 'today', providers: [{ id: 'claude', tokens, output: tokens / 10, cost: 0 }] });
+    const answer = (at: number, tokens: number, history: number[][]) => ({ at, dashboard: readingDashboard(template as never, reading(at, tokens) as never),
+      sessions: null, turns: {}, history: history.map(([s, n]) => reading(s, n)) });
+    const T = 1_795_600_000, live = new PhoneLive();
+    // The first answer: the computer's minutes before it, on its way no time at all.
+    live.take(answer(T, 1000, [[T - 6, 400], [T - 4, 600], [T - 2, 800]]) as never, T * 1000);
+    // Four seconds on, the minutes given again (back in sight), and this answer three seconds longer on its way.
+    live.take(answer(T + 4, 1400, [[T - 6, 400], [T - 4, 600], [T - 2, 800], [T, 1000], [T + 2, 1200]]) as never, (T + 4) * 1000 + 3000);
+    return live.feed.samples.map((s) => ({ total: Math.round(s.total), cut: !!s.cut }));
+  });
+  // Each reading once, in order: none taken twice, nothing going back, no gap or new range made of it.
+  expect(seen.map((s) => s.total - seen[0].total)).toEqual([0, 200, 400, 600, 800, 1000]);
+  expect(seen.some((s) => s.cut)).toBe(false);
+});
+
+test('a reading that takes the place of the one just before keeps its cut: the next rise spreads not over the gap (STAGE-18)', async ({ page }) => {
+  await phone(page, PORTRAIT, '', { live: resting() });
+  const outputs = await page.evaluate(async () => {
+    const { LiveFeed } = await import('/src/lib/live.ts');
+    const feed = new LiveFeed();
+    feed.spread = 30_000;
+    const at = (tokens: number, output: number) => ({ date: '2026-11-25', rangeKey: 'today', dates: [],
+      providers: [{ id: 'claude', name: 'Claude', available: true, summaryIncluded: true, tokens, output, cost: 0, requests: 0, history: [], models: [] }] });
+    feed.add(at(1000, 100) as never, 0);
+    feed.add(at(1000, 100) as never, 2_000);
+    // A gap, and within half a second another reading: it takes the gap's place.
+    feed.add(at(5000, 1000) as never, 20_000, true);
+    feed.add(at(5000, 1000) as never, 20_300);
+    // Then 60 more over four seconds: not spread back over the gap.
+    feed.add(at(5600, 1060) as never, 24_300);
+    return { outputs: feed.samples.map((s) => Math.round(s.output)), cut: feed.samples.map((s) => !!s.cut) };
+  });
+  expect(outputs.cut).toEqual([false, false, true, false]);
+  expect(outputs.outputs[2]).toBe(outputs.outputs[1]);
+  expect(outputs.outputs[3]).toBe(outputs.outputs[2] + 60);
+});
+
+test('with reduced motion the one still frame is drawn, by day and on paper too (STAGE-13)', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'light' });
+  for (const hash of ['', '&s=sketch']) {
+    await phone(page, PORTRAIT, hash, { live: resting() });
+    await page.waitForTimeout(400);
+    const painted = await page.locator('.stage .sky canvas.drift').evaluate((c) => {
+      const canvas = c as HTMLCanvasElement, data = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
+      let n = 0;
+      for (let i = 3; i < data.length; i += 4) if (data[i] > 8) n++;
+      return n;
+    });
+    expect(painted, hash || 'standard').toBeGreaterThan(200);
+  }
+});
+
+test('a request landed and the computer then quiet: the curve no longer drawn every frame once the drop is over (STAGE-19)', async ({ page }) => {
+  const work = scripted();
+  await phone(page, PORTRAIT, '', { live: work.live });
+  work.at(9);
+  await page.waitForTimeout(2600);
+  work.at(10);
+  await expect.poll(() => page.locator('.stage .monitor .added').count(), { timeout: 5000 }).toBeGreaterThan(0);
+  // The computer gone quiet: its answers never come.
+  await page.route('**/api/live**', () => {});
+  await page.waitForTimeout(3200);
+  const canvas = page.locator('.stage .live-chart canvas');
+  const before = Number(await canvas.getAttribute('data-draws'));
+  await page.waitForTimeout(1000);
+  expect(Number(await canvas.getAttribute('data-draws')) - before).toBeLessThan(20);
+});
+
+test('a right-click on the sky is no tap: no sparks, nothing pushed (STAGE-19)', async ({ page }) => {
+  await phone(page, { width: 1280, height: 800 }, '', { live: resting() });
+  const drift = page.locator('.stage .sky canvas.drift');
+  const pokes = Number(await drift.getAttribute('data-pokes'));
+  // Somewhere on the sky clear of the panes: its left edge, halfway down.
+  await page.mouse.click(6, 400, { button: 'right' });
+  await page.mouse.click(6, 400, { button: 'middle' });
+  await page.waitForTimeout(300);
+  expect(Number(await drift.getAttribute('data-pokes'))).toBe(pokes);
+  await page.mouse.click(6, 400);
+  await expect.poll(async () => Number(await drift.getAttribute('data-pokes'))).toBe(pokes + 1);
+});
+
+test('保持亮屏 switched off before the lock comes says it is off, not that the screen stays on (STAGE-19)', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'wakeLock', { configurable: true, value: {
+      request: () => new Promise((resolve) => setTimeout(() => resolve({ release: async () => {}, addEventListener: () => {} }), 400)) } });
+  });
+  await phone(page, LANDSCAPE);
+  const button = page.getByRole('button', { name: '保持亮屏' });
+  await button.click();
+  await button.click();
+  await expect(button).toHaveAttribute('aria-pressed', 'false');
+  await page.waitForTimeout(700);
+  await expect(page.locator('.stage .notice')).toHaveText('已恢复自动锁屏');
+  // On, off and on again before it comes: on, and said so once it has.
+  await button.click();
+  await button.click();
+  await button.click();
+  await page.waitForTimeout(700);
+  await expect(button).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.stage .notice')).toHaveText('屏幕会保持常亮，离开这一页就恢复自动锁屏');
+});
+
+/** Every state the page is in from its very start (each change to it and each frame): whether 网页版's monitor is
+ *  there, at work, and whether it says anything of resting (休息中, no session running). */
+async function recordStates(page: Page) {
+  await page.addInitScript(() => {
+    const seen: { working: boolean; resting: boolean; line: string }[] = [];
+    (window as unknown as { seenStates: typeof seen }).seenStates = seen;
+    const look = () => {
+      const monitor = document.querySelector('.stage .monitor');
+      if (!monitor) return;
+      const text = document.querySelector('.stage')?.textContent ?? '';
+      const line = monitor.querySelector('.state-text')?.textContent ?? '';
+      seen.push({ working: monitor.classList.contains('working'), resting: /休息中|没有在运行的会话|一有动静就会出现在这里/.test(text), line });
+    };
+    new MutationObserver(look).observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+    const frame = () => { look(); requestAnimationFrame(frame); };
+    requestAnimationFrame(frame);
+  });
+}
+const statesSeen = (page: Page) => page.evaluate(() => (window as unknown as { seenStates: { working: boolean; resting: boolean; line: string }[] }).seenStates);
+/** The computer slow with its first live answer (the history): the page's first frames come before it. */
+const slowLive = (page: Page, ms = 1200) => page.route('**/api/live**', async (route) => { await new Promise((r) => setTimeout(r, ms)); await route.fallback(); });
+
+test('reloaded while the AI works, the page is at work from its first frame: never a flash of resting (as the computer told it, or as it last saw)', async ({ page }) => {
+  // As the phone server gives the page: it writes in that the AI is at work, two sessions running (phone.rs).
+  await page.route((url) => url.pathname === '/', async (route) => {
+    const answer = await route.fetch();
+    const html = (await answer.text()).replace('<script src="/first-frame.js"', '<script>window.STARMETER_LIVE={"working":true,"running":2};</script><script src="/first-frame.js"');
+    await route.fulfill({ response: answer, body: html, headers: { ...answer.headers(), 'content-type': 'text/html' } });
+  });
+  await recordStates(page);
+  const work = scripted();
+  await page.setViewportSize(PORTRAIT);
+  await servePhone(page, PHONE_KEY, { live: work.live });
+  work.at(9);
+  await slowLive(page);
+  await page.goto('/#k=' + PHONE_KEY);
+  await expect(page.locator('.stage .activity .session')).toHaveCount(2, { timeout: 6000 });
+  let seen = await statesSeen(page);
+  expect(seen.length).toBeGreaterThan(10);
+  expect(seen.filter((s) => !s.working || s.resting).slice(0, 3)).toEqual([]);
+  expect(seen[0].line).toBe('正在工作 · 2 个会话运行中');
+  // Reloaded with nothing written in (an older app, a page kept): as the page last saw it, a moment ago.
+  await page.unroute((url) => url.pathname === '/');
+  await page.reload();
+  await expect(page.locator('.stage .activity .session')).toHaveCount(2, { timeout: 6000 });
+  seen = await statesSeen(page);
+  expect(seen.length).toBeGreaterThan(10);
+  expect(seen.filter((s) => !s.working || s.resting).slice(0, 3)).toEqual([]);
+});
+
+test('opened with nothing known of the work yet, the page says it is reading, not resting, until its first answer', async ({ page }) => {
+  await recordStates(page);
+  const work = scripted();
+  await page.setViewportSize(PORTRAIT);
+  await servePhone(page, PHONE_KEY, { live: work.live });
+  work.at(9);
+  await slowLive(page);
+  await page.goto('/#k=' + PHONE_KEY);
+  await expect(page.locator('.stage .monitor.working')).toBeVisible({ timeout: 6000 });
+  const seen = await statesSeen(page);
+  const before = seen.slice(0, seen.findIndex((s) => s.working));
+  expect(before.length).toBeGreaterThan(0);
+  expect(before.filter((s) => s.resting || s.line !== '正在读取…').slice(0, 3)).toEqual([]);
+});
+
+/** The page as the phone server serves it, with the computer's look written in (phone.rs). */
+async function servedWithLook(page: Page, look: { theme: string; style: string }) {
+  await page.route((url) => url.pathname === '/', async (route) => {
+    const answer = await route.fetch();
+    const html = (await answer.text()).replace('<script src="/first-frame.js"', `<script>window.STARMETER_LOOK=${JSON.stringify(look)};</script><script src="/first-frame.js"`);
+    await route.fulfill({ response: answer, body: html, headers: { ...answer.headers(), 'content-type': 'text/html' } });
+  });
+}
+
+test('before the computer answers, the look written into the page goes before the last visit\'s and the address\'s (STAGE-15)', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.setViewportSize(PORTRAIT);
+  await servePhone(page);
+  await servedWithLook(page, { theme: 'dark', style: 'standard' });
+  // The last visit: light and 手绘; the address from the scan says 手绘 too. The computer: dark, 标准 now.
+  await page.addInitScript(() => {
+    localStorage.setItem('starmeter.edges', JSON.stringify({ theme: 'light', top: '#fdfaf4', bottom: '#fdfaf4' }));
+    localStorage.setItem('starmeter.style', 'sketch');
+  });
+  await page.route('**/api/snapshot**', () => {});
+  await page.goto('/#k=' + PHONE_KEY + '&s=sketch');
+  await page.waitForTimeout(1200);
+  expect(await page.evaluate(() => ({ theme: document.documentElement.dataset.theme, style: document.documentElement.dataset.style ?? 'standard',
+    bar: getComputedStyle(document.querySelector('.bar-tint.top')!).backgroundColor }))).toEqual({ theme: 'dark', style: 'standard', bar: 'rgb(31, 58, 122)' });
+});
+
+test('the first frame is painted with the computer\'s look even when the page\'s storage is refused (STAGE-15)', async ({ page }) => {
+  await page.setViewportSize(PORTRAIT);
+  await servePhone(page);
+  await servedWithLook(page, { theme: 'dark', style: 'standard' });
+  await page.addInitScript(() => {
+    Storage.prototype.getItem = () => { throw new DOMException('refused', 'SecurityError'); };
+    Storage.prototype.setItem = () => { throw new DOMException('refused', 'SecurityError'); };
+  });
+  await page.route(/\/src\/main\.ts(\?|$)/, () => {});
+  await page.goto('/#k=' + PHONE_KEY, { waitUntil: 'commit' });
+  await expect.poll(() => page.evaluate(() => ({ html: getComputedStyle(document.documentElement).backgroundColor,
+    bar: document.documentElement.style.getPropertyValue('--bar-top') }))).toEqual({ html: 'rgb(5, 10, 36)', bar: '#1F3A7A' });
+});
+
+test('the live lines are smooth curves that go no further than their readings: never under zero, no peak not read, flat stays flat', async ({ page }) => {
+  await phone(page, PORTRAIT, '', { live: resting() });
+  const curve = await page.evaluate(async () => {
+    const { monotoneCurve } = await import('/src/lib/chart.ts');
+    // Screen points (y down): a plateau, a fall, a plateau, a rise, down to zero (the bottom at 200).
+    return monotoneCurve([[0, 100], [10, 100], [20, 160], [30, 160], [40, 120], [50, 200], [50, 190], [60, 200]]);
+  });
+  expect(curve.segments.length).toBe(6);
+  let from = curve.start;
+  for (const [a, b, end] of curve.segments) {
+    const lo = Math.min(from[1], end[1]) - 1e-9, hi = Math.max(from[1], end[1]) + 1e-9;
+    // A cubic stays within its control points: these within the piece's own two readings.
+    for (const y of [a[1], b[1]]) { expect(y).toBeGreaterThanOrEqual(lo); expect(y).toBeLessThanOrEqual(hi); }
+    expect(a[0]).toBeGreaterThan(from[0]);
+    expect(b[0]).toBeLessThan(end[0]);
+    if (from[1] === end[1]) expect([a[1], b[1]]).toEqual([from[1], end[1]]);
+    from = end;
+  }
+  expect(curve.end).toEqual([60, 200]);
+});

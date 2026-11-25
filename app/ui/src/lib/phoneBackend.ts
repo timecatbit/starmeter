@@ -2,7 +2,7 @@
 // fragment (#k=…, never sent by the browser on its own), the homepage's figures. Read-only: a range picked here is the
 // phone's own (the computer keeps its own), as is the cards' grouping, and nothing else is done from the phone. The figures are asked for again
 // every 15 seconds while the page is in view.
-import type { ActionReceipt, Dashboard, Snapshot } from './types';
+import type { ActionReceipt, Dashboard, LiveAnswer, Snapshot } from './types';
 
 const key = new URLSearchParams(location.hash.slice(1)).get('k') ?? '';
 let range: string | null = null;
@@ -47,6 +47,10 @@ const query = (pairs: [string, string | null][]) => {
 };
 export const snapshot = () => once<Snapshot>('/api/snapshot' + query([['range', range], ['group', group]]));
 export const dashboard = (asked: string) => once<Dashboard>('/api/dashboard' + query([['range', asked], ['group', group]]));
+/** 网页版's live view, asked every couple of seconds while it is on screen (today's figures, 会话, the turns' starts). */
+export const live = (history = false) => once<LiveAnswer>('/api/live' + (history ? '?history=1' : ''));
+/** The computer's last minutes (with a live answer: the phone server keeps no other way to ask). */
+export const recent = async () => { const answer = await live(true); return { at: answer.at, history: answer.history ?? [] }; };
 
 export async function action(asked: string[]): Promise<ActionReceipt> {
   if (asked[0] === 'set-range' && asked[1]) {

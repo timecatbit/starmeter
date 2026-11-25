@@ -7,14 +7,15 @@
   import { automatic, entryKey, isModule, keepsPanelOpen, opening, passive, sessionsEntry, without } from './lib/detail';
   import { currency } from './lib/format';
   import { PanelInteraction } from './lib/interaction';
-  import { LiveFeed } from './lib/live';
+  import { GAP, LiveFeed } from './lib/live';
   import { font, width as measure } from './lib/measure';
   import { pageIn, pageOut } from './lib/motion';
   import { answer as answerQuestion, ask, show as showQuestion } from './lib/ask.svelte';
   import { chooseLanguage, localize, reads, restoreLanguage, source, t } from './lib/i18n.svelte';
   import { chooseUpdateHints, markUpdatesSeen, pendingUpdates, updateHints } from './lib/updateHints.svelte';
-  import { chooseStyle } from './lib/style.svelte';
+  import { chooseStyle, followStyle, restoreStyle, style } from './lib/style.svelte';
   import { phoneStatus } from './lib/phone.svelte';
+  import { keepTheme, keptTheme, paintEdges } from './lib/edges';
   import { chooseShortcut, restoreShortcut, shortcut } from './lib/shortcut.svelte';
   import { grabWindow, panel } from './lib/ui.svelte';
   import type { Dashboard as DashboardData, Entry, ShellInfo, Snapshot } from './lib/types';
@@ -22,6 +23,8 @@
   import DetailPage from './components/DetailPage.svelte';
   import Guide, { type GuideState } from './components/Guide.svelte';
   import PhonePage from './components/PhonePage.svelte';
+  import PhoneStage from './components/PhoneStage.svelte';
+  import StageWaiting from './components/StageWaiting.svelte';
   import HomePage from './components/HomePage.svelte';
   import InlineAsk from './components/InlineAsk.svelte';
   import ModulesPage from './components/ModulesPage.svelte';
@@ -107,6 +110,16 @@
   }
   /** On a phone: why the figures on screen are not fresh, until a reading comes through. */
   let phoneProblem = $state<string | null>(null);
+  // A phone sees 网页版 only. It once could choose the computer's homepage instead (电脑版), kept in the address
+  // (…&v=panel), a cookie and the page's storage: that choice is let go of, nobody kept on a page with no way back.
+  if (onPhone) {
+    try {
+      const fragment = new URLSearchParams(location.hash.slice(1));
+      if (fragment.has('v')) { fragment.delete('v'); history.replaceState(history.state, '', '#' + fragment.toString()); }
+      localStorage.removeItem('starmeter-phone-look');
+      document.cookie = 'starmeter-phone-look=; max-age=0; path=/; samesite=strict';
+    } catch { /* nothing kept */ }
+  }
   /** A tool's page, opened from its card: its usage and its settings. */
   let toolId = $state<string | null>(null);
   const tool = $derived(toolId ? snapshot?.dashboard?.providers.find((p) => p.id === toolId) ?? null : null);
@@ -130,21 +143,30 @@
     if (target) push(target);
   }
   const toolSettings = $derived(toolId ? (snapshot?.moduleOptions ?? []).find((e) => e.action?.[0] === 'set-module' && e.action[1] === toolId) ?? null : null);
-  const viewKey = $derived(phoneOpen ? 'phone' : sharing ? 'share' : toolId ? 'tool:' + toolId : pageEntry ? (managerOnly ? 'grid:' : 'home:') + pagePath.join('/') : managerOnly ? 'grid' : 'home');
 
   // MARK: The window
 
   let pinned = $state(false);
-  // 会话 sits beside 工具 / 模型 / 项目 when its module is on the homepage, instead of among the other rows. Pinning
-  // turns to it (a pinned panel is for watching work as it happens) and unpinning turns back.
+  // 会话 sits beside 工具 / 模型 / 项目 when its module is on the homepage, instead of among the other rows, and 实时
+  // (what the AI is doing now) last. Pinning turns to 实时 (a pinned panel is for watching work as it happens) and
+  // unpinning turns back, unless another was picked meanwhile. Not kept from one opening to the next: the panel opens
+  // on the homepage's 工具 (homeOnTools).
   const sessions = $derived(snapshot ? sessionsEntry(snapshot.entries) : null);
-  const VIEW = 'starmeter.homeView';
-  let view = $state<'cards' | 'sessions'>(typeof localStorage !== 'undefined' && localStorage.getItem(VIEW) === 'sessions' ? 'sessions' : 'cards');
-  let viewBeforePin: 'cards' | 'sessions' | null = null;
-  function chooseView(next: 'cards' | 'sessions') {
+  type View = 'cards' | 'sessions' | 'live';
+  let view = $state<View>('cards');
+  let viewBeforePin: View | null = null;
+  function chooseView(next: View) {
     view = next;
     viewBeforePin = null;
-    if (typeof localStorage !== 'undefined') localStorage.setItem(VIEW, next);
+  }
+  /** Opened from the star or the shortcut: the homepage, its cards by tool, whatever was shown when it last closed
+   *  (another tab or grouping, a row's or a tool's page, the settings, the share page; the user: 电脑上默认点开主页，直接
+   *  看工具，无论上次停留在哪里). Picked again while it is open, a tab or grouping holds until it closes. The grouping is
+   *  the computer's own (set-group, kept in its preferences: the cards are read for it), so it is set back to 工具 when it
+   *  is another; a phone's 网页版 keeps its own. */
+  function homeOnTools() {
+    const shown = snapshot?.dashboard;
+    if (shown && groupShown(shown) !== 'tool' && interaction.latest('set-group') === null) perform(['set-group', 'tool']);
   }
   /** The size the user gave the pinned panel at its edges: the homepage and the pages take it (the module grid keeps
    *  its own) until unpinned. */
@@ -186,11 +208,15 @@
   // Transparency), and otherwise the page paints the solid colour.
   let glass = $state(false);
   $effect(() => {
-    const theme = snapshot?.theme ?? 'system', material = snapshot?.appearance ?? 'solid';
+    // A phone keeps the computer's theme for its next load: until the computer answers, that one, not the phone's own.
+    if (onPhone && snapshot?.theme) keepTheme(snapshot.theme);
+    const theme = snapshot?.theme ?? (onPhone ? keptTheme() : 'system'), material = snapshot?.appearance ?? 'solid';
     panel.theme = theme;
     if (theme === 'system') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = theme;
     void shell.setLook(theme, material).then((shown) => (glass = shown));
   });
+  /** The material under the window where it shows (for 手绘's papers, sketch.css); a phone's page has none under it. */
+  const windowMaterial = $derived(glass && !onPhone ? (snapshot?.appearance ?? 'solid') : 'solid');
 
   // MARK: The figures on screen: they roll from the last reading to the next, and a new range draws its trend in
 
@@ -217,6 +243,28 @@
   let glows = $state<Record<string, number>>({});
   let summaryGlow = $state(0);
   let motion = 0, revealing = 0;
+
+  // 网页版's view: declared after the figures on screen (`shown`), which it reads.
+  /** 网页版's figures to show: with none from the computer yet (SwiftBar's plugin not written, no tool on the homepage)
+   *  网页版 waits in its own sky, saying what for (StageWaiting.svelte). */
+  const stageReady = $derived.by(() => onPhone && !!(waiting || groupHeld ? shown : snapshot?.dashboard));
+  const viewKey = $derived(phoneOpen ? 'phone' : sharing ? 'share' : toolId ? 'tool:' + toolId : pageEntry ? (managerOnly ? 'grid:' : 'home:') + pagePath.join('/') : managerOnly ? 'grid' : stageReady ? 'stage' : onPhone && snapshot ? 'waiting' : 'home');
+  /** 网页版 on screen (or waiting for its figures): the whole screen is its, both ways up; the other pages keep the
+   *  panel's width in the middle. */
+  const stageShown = $derived(viewKey === 'stage' || viewKey === 'waiting');
+  /** On a phone, the computer not yet answered: the window lets the last load's sky show through. */
+  const awaitingStage = $derived(onPhone && !snapshot);
+  // On a phone, the browser's bars take the page's colour (网页版 paints its own sky's edges): a page of the panel's
+  // (the share page, a row's page), its background in the theme and look the computer chose.
+  $effect(() => {
+    // Waiting for the computer's first answer, the colours of the last load stay (first-frame.js painted them, and they
+    // are kept): neither painted over nor kept as the panel's (STAGE-9).
+    if (!onPhone || stageShown || awaitingStage || !windowBox) return;
+    void panel.dark; void style.current; void snapshot?.theme;
+    const box = windowBox;
+    const frame = requestAnimationFrame(() => { const colour = getComputedStyle(box).backgroundColor; paintEdges(colour, colour); });
+    return () => cancelAnimationFrame(frame);
+  });
 
   function mix(a: DashboardData, b: DashboardData, t: number): DashboardData {
     const lerp = (x: number, y: number) => x + (y - x) * t;
@@ -249,7 +297,8 @@
       reveal = 0;
       revealing = requestAnimationFrame(step);
     }
-    if (!old || old.rangeKey !== next.rangeKey || old.grouping !== next.grouping || panel.reduceMotion) { shown = next; glows = {}; summaryGlow = 0; return; }
+    // 网页版 rolls its own figures (StageNumber) and lights its own cards: the panel's blend frame by frame is not drawn.
+    if (!old || old.rangeKey !== next.rangeKey || old.grouping !== next.grouping || panel.reduceMotion || onPhone) { shown = next; glows = {}; summaryGlow = 0; return; }
     const grew: Record<string, number> = {};
     for (const p of next.cards ?? next.providers) {
       const before = (old.cards ?? old.providers).find((q) => q.id === p.id);
@@ -294,24 +343,25 @@
     pinned = value;
     panel.pinned = value;
     // Unpinned, the panel goes back under the star at its pages' own size, and to the cards it showed. Pinned from the
-    // homepage, it turns to 会话 and fits the dashboard: down to just above the subscriptions, whatever is chosen.
+    // homepage, it turns to 实时 and fits the dashboard: down to just above the subscriptions, whatever is chosen.
     fitting = false;
     if (!value) {
       free = null;
       if (viewBeforePin !== null) view = viewBeforePin;
       viewBeforePin = null;
     } else if (!free && !managerOnly && !pageEntry && !sharing && !toolId) {
-      if (sessions && view !== 'sessions') { viewBeforePin = view; view = 'sessions'; }
+      if (view !== 'live') { viewBeforePin = view; view = 'live'; }
       homeScroll = 0;
       fitting = true;
     }
     void shell.setPinned(value);
     clearInterval(liveTimer);
     if (value) {
-      const live = new LiveFeed();
-      if (snapshot?.dashboard) live.add(snapshot.dashboard);
+      // Pinned again while the chart still zooms out: it zooms back in on the line it has (STAGE-16: a new feed was
+      // dropped for the old one, which then let go, and the panel stayed pinned with the trend).
+      const back = leaving !== null && feed !== null;
       leaving = null;
-      feed = live;
+      if (!back) void pinFeed(new LiveFeed());
       schedule();
     } else {
       liveStamp = null;
@@ -319,6 +369,22 @@
       if (animate && feed && !panel.reduceMotion) leaving = Date.now();
       else { feed = null; leaving = null; }
     }
+  }
+  /** Pinned: the live line begins with the last minutes the app kept (recent_readings), as 网页版's does, then this
+   *  reading, so the line, its speed and each tool's line are whole at once rather than starting from nothing. Asked
+   *  for at most 0.4 s (the trend stays on screen meanwhile); a gap in them, or since the last of them, is a gap. The
+   *  minutes kept are today's: a range that doesn't run to now (昨天) has none of them, its line begins flat (STAGE-17:
+   *  today's rises were drawn on yesterday's line for its first minute). */
+  async function pinFeed(live: LiveFeed) {
+    let last = 0;
+    if (snapshot?.dashboard?.rangeKey !== 'yesterday') try {
+      const recent = await Promise.race([backend.recent(), new Promise<null>((resolve) => setTimeout(() => resolve(null), 400))]);
+      if (recent?.history.length && snapshot?.dashboard) last = live.replay(snapshot.dashboard, recent.history, recent.at * 1000 - Date.now(), GAP);
+    } catch { /* from this reading on, as before */ }
+    if (!pinned || feed) return;
+    const now = Date.now();
+    if (snapshot?.dashboard) live.add(snapshot.dashboard, now, last > 0 && now - last > GAP);
+    feed = live;
   }
   /** Pinned from the homepage, the panel follows the dashboard's height (the tab chosen, a session or card opened, the
    *  rest shown) down to just above the subscriptions, within the screen, until the user sizes it at its edges. */
@@ -417,6 +483,8 @@
   function take(answer: Snapshot) {
     interaction.source = answer;
     phoneProblem = null;
+    // A phone follows the computer's look (标准, 手绘) as it follows its theme and background.
+    if (onPhone) followStyle(answer.style);
     if (pinned && interaction.source.dashboard) {
       feed?.add(interaction.source.dashboard);
       const now = new Date();
@@ -675,12 +743,17 @@
   }
 
   function opened(modules: boolean, maxHeight?: number) {
+    panel.shown = true;
     if (maxHeight) info = { ...info, maxHeight };
     startOver(modules);
     // A press the closing cut short never came up: no press is on as the panel opens, and its reading is fresh.
     pressing = false;
     held = null;
-    void reload();
+    // On the homepage's 工具 (a star's click on an open panel closes it, unpinning it: this is never a pinned one);
+    // the grouping set back at once from the figures on hand, and again from those just read if they say otherwise.
+    const home = !modules && !pinned;
+    if (home) { view = 'cards'; viewBeforePin = null; homeOnTools(); }
+    void reload().then(() => { if (home && panel.shown && !pinned) homeOnTools(); });
     // A shortcut another app held: tried again each time the panel opens, so quitting that app is enough.
     if (shortcut.taken) void restoreShortcut();
     if (modules) void phoneStatus();
@@ -720,6 +793,7 @@
   /** Closed: back to the homepage at once, so the next opening shows it rather than the page left open, with nothing
    *  left focused. */
   function closed() {
+    panel.shown = false;
     phoneOpen = false;
     // A tour left halfway was still seen: it starts again only from 通用 → 新手指引.
     guiding = false;
@@ -742,7 +816,8 @@
   }
 
   onMount(() => {
-    if (!inTauri) document.body.classList.add('preview');
+    // The browser preview's desktop behind the panel; a phone's page is the screen itself.
+    if (!inTauri && !onPhone) document.body.classList.add('preview');
     const down = () => { pressing = true; document.documentElement.classList.remove('keyboard'); };
     // Focus rings belong to moving through the panel with Tab.
     const tabbing = (event: KeyboardEvent) => { if (event.key === 'Tab') document.documentElement.classList.add('keyboard'); };
@@ -765,9 +840,13 @@
     // The shell starts with no global shortcut; the one chosen is handed over again, and the language for its menu.
     void restoreShortcut();
     restoreLanguage();
+    if (inTauri) restoreStyle();
     void shell.info().then((value) => {
       info = value;
-      opened(value.modules);
+      // Started hidden (the app's start, at login): the figures are read, the panel is not taken as opened; the app
+      // says when it is (STAGE-11).
+      if (value.visible === false) void reload();
+      else opened(value.modules);
     });
     return () => {
       stops.forEach((stop) => stop());
@@ -787,11 +866,12 @@
 
 <svelte:window onkeydown={keydown} onresize={() => (screenWidth = window.innerWidth)} />
 
-<div class="window" bind:this={windowBox} class:solid={!glass} class:browser={!inTauri && !onPhone} class:phone={onPhone} oncontextmenu={contextmenu} role="application" aria-label={t('AI 用量面板')}
+<div class="window" bind:this={windowBox} data-material={windowMaterial} class:solid={!glass} class:browser={!inTauri && !onPhone} class:phone={onPhone} class:staged={stageShown || awaitingStage} oncontextmenu={contextmenu} role="application" aria-label={t('AI 用量面板')}
   onpointermove={() => { if (pinned) showChrome(); }} onpointerleave={() => { if (pinned && !cornerFrom) showChrome(700); }}
-  style:width={inTauri ? '100vw' : `${panelWidth}px`} style:height={inTauri ? '100vh' : onPhone ? '100dvh' : `${panelHeight}px`}>
+  style:width={inTauri ? '100vw' : onPhone ? null : `${panelWidth}px`} style:height={inTauri ? '100vh' : onPhone ? null : `${panelHeight}px`}>
   {#key viewKey}
-    <div class="view" in:pageIn={{ dir }} out:pageOut={{ dir }}>
+    <!-- On a phone the pages keep the panel's width in the middle of the screen; 网页版 has all of it. -->
+    <div class="view" class:centred={onPhone && !stageShown} style:--page-width={onPhone ? `${panelWidth}px` : null} in:pageIn={{ dir }} out:pageOut={{ dir }}>
       {#if phoneOpen}
         <PhonePage onback={back} onheight={(h) => (wanted.phone = h)} />
       {:else if sharing && snapshot?.dashboard}
@@ -806,6 +886,13 @@
       {:else if snapshot && managerOnly}
         <ModulesPage entries={snapshot.moduleOptions ?? []} {leading} fromHome={settingsFromHome} bind:scrollTop={gridScroll}
           onback={finishModules} ondone={finishModules} onaction={perform} onopen={push} onheight={(h) => (wanted.grid = h)} />
+      {:else if snapshot && stageReady}
+        <!-- 网页版: the figures as they came in (held, as the panel holds them, while a range picked is read). -->
+        <PhoneStage data={(waiting || groupHeld ? shown : snapshot.dashboard)!} {rangeOptions} reading={waiting} grouping={pickedGroup} {regrouping} {sessions} view={view === 'live' ? 'cards' : view}
+          entries={without(snapshot.entries, sessions)} problem={phoneProblem} material={snapshot.appearance} onrange={perform} ongroup={(key) => perform(['set-group', key])}
+          onview={chooseView} onshare={openShare} />
+      {:else if snapshot && onPhone}
+        <StageWaiting />
       {:else if snapshot}
         <HomePage entries={shown ? without(snapshot.entries, sessions) : snapshot.entries} dashboard={shown ? dashboardView : null} bind:scrollTop={homeScroll} onactivate={activate}
           onmove={perform} onheight={(h) => (wanted.home = h)} />
@@ -813,7 +900,7 @@
     </div>
   {/key}
   {#if onPhone && phoneProblem}
-    <p class="phone-problem" role="status">{t(phoneProblem)}</p>
+    <p class="phone-problem" class:staged={stageShown} role="status">{t(phoneProblem)}</p>
   {/if}
   {#if hint}
     <span class="hint-bubble" role="tooltip" style:left="{hint.left}px" style:top="{hint.top}px">{hint.text}</span>
@@ -842,7 +929,7 @@
 
 {#snippet dashboardView()}
   {#if shown && snapshot}
-    <Dashboard data={shown} {rangeOptions} reading={waiting} onprefetch={prefetchRanges} {updateMark} {updateSaid} onupdates={openUpdates} {reveal} {glows} {summaryGlow} live={pinned || leaving !== null ? feed : null} {leaving} onleft={() => { leaving = null; feed = null; }} {liveStamp} {pinned}
+    <Dashboard data={shown} {rangeOptions} reading={waiting} onprefetch={prefetchRanges} {updateMark} {updateSaid} onupdates={openUpdates} {reveal} {glows} {summaryGlow} live={pinned || leaving !== null ? feed : null} {leaving} onleft={() => { if (pinned) return; leaving = null; feed = null; }} {liveStamp} {pinned}
       {pinInterval} onrange={perform} onshare={openShare}
       onpin={() => { panel.hint = null; setPinned(!pinned); if (pinned) perform(['refresh-live']); }} onsettings={openSettings}
       onopentool={openTool} grouping={pickedGroup} {regrouping} ongroup={(key) => perform(['set-group', key])} {sessions} {view} onview={chooseView} busy={busyNow}
@@ -867,9 +954,11 @@
     pointer-events: none;
   }
   .window.solid { background: var(--solid); }
-  /* On a phone the page is the screen: no edge, no shadow, the width centred on a wide one. */
-  .window.phone { margin: 0 auto; border-radius: 0; background: var(--solid); }
+  /* On a phone the page is the screen, under the browser's bars too (viewport-fit=cover): no edge, no shadow. */
+  .window.phone { position: fixed; inset: 0; border-radius: 0; background: var(--solid); }
   .window.phone::after { display: none; }
+  .window.staged { background: transparent; }
+  .view.centred { left: 50%; right: auto; width: var(--page-width); margin-left: calc(var(--page-width) / -2); }
   .window.browser {
     margin: 24px;
     box-shadow: 0 18px 50px rgba(0, 0, 0, 0.22), 0 0 0 0.5px rgba(0, 0, 0, 0.12);
@@ -955,5 +1044,20 @@
     color: var(--label);
     background: color-mix(in srgb, var(--orange) 22%, var(--solid));
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+  }
+  /* Over 网页版: a pane of its glass, tinted by the warning, within the notch's safe area. */
+  .phone-problem.staged {
+    left: max(16px, env(safe-area-inset-left));
+    right: max(16px, env(safe-area-inset-right));
+    max-width: 560px;
+    margin: 0 auto;
+    padding: 11px 14px;
+    border-radius: 16px;
+    color: #fff;
+    background: rgba(150, 80, 20, 0.72);
+    backdrop-filter: blur(16px) saturate(1.4);
+    -webkit-backdrop-filter: blur(16px) saturate(1.4);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3), inset 0 0 0 0.5px rgba(255, 255, 255, 0.18);
+    z-index: 20;
   }
 </style>

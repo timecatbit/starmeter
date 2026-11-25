@@ -592,6 +592,9 @@ pub struct ShellInfo {
     version: &'static str,
     max_height: f64,
     modules: bool,
+    /** The window on screen as the page asks: hidden at the app's start (as at login), the page doesn't take itself as
+     * opened (STAGE-11: it did, and 实时 read the logs in the background until the panel was opened and closed). */
+    visible: bool,
 }
 
 #[tauri::command]
@@ -609,6 +612,7 @@ pub fn shell_info(app: AppHandle) -> ShellInfo {
         version: starmeter_core::VERSION,
         max_height: max_height(&app),
         modules: state.modules.load(Ordering::SeqCst),
+        visible: visible(&app),
     }
 }
 

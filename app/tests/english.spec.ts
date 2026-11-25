@@ -2,7 +2,7 @@
 // screen reader hears and the words drawn on the charts and share pictures all count. A failure lists what en.ts is
 // missing.
 import { expect, test, type Page } from '@playwright/test';
-import { PHONE_KEY, servePhone, sessionTitles } from './phone';
+import { liveWork, PHONE_KEY, servePhone, sessionTitles } from './phone';
 
 // Every page, one after another: longer than a test usually takes.
 test.describe.configure({ timeout: 120_000 });
@@ -11,7 +11,7 @@ test.describe.configure({ timeout: 120_000 });
 const KEPT = new Set(['中文', '简体中文', '繁體中文']);
 const CJK = /[㐀-鿿（-？、-。]/;
 
-async function english(page: Page, query = '') {
+async function english(page: Page, query = '', shown = '.dashboard') {
   await page.addInitScript(() => {
     localStorage.setItem('starmeter.language', 'en');
     const drawn = new Set<string>();
@@ -23,7 +23,7 @@ async function english(page: Page, query = '') {
     };
   });
   await page.goto('/' + query);
-  await expect(page.locator('.dashboard')).toBeVisible();
+  await expect(page.locator(shown)).toBeVisible();
   await page.waitForTimeout(300);
 }
 
@@ -188,10 +188,10 @@ test('English: the phone view and its public link', async ({ page }) => {
   expect(left.list).toEqual([]);
 });
 
-test('English: on the phone, the homepage, its sessions and the share page', async ({ page }) => {
+test('English: on the phone, 网页版 with its sessions, and the share page', async ({ page }) => {
   const left = new Leftovers();
   await servePhone(page);
-  await english(page, '#k=' + PHONE_KEY + '&l=en');
+  await english(page, '#k=' + PHONE_KEY + '&l=en', '.stage');
   await expect(page.locator('.window.phone')).toBeVisible();
   await left.take(page, 'phone');
   await page.getByRole('radio', { name: 'Sessions' }).click();
@@ -203,6 +203,46 @@ test('English: on the phone, the homepage, its sessions and the share page', asy
   // Session titles are the user's own words, never translated; the fixtures' English for them is the dev server's only.
   const titles = new Set(sessionTitles());
   expect(left.list.filter((line) => !titles.has(line.replace(/^.*?: /, '')))).toEqual([]);
+});
+
+test('English: on the phone, 网页版 with each grouping, a card and a session open, and both ways up', async ({ page }) => {
+  const left = new Leftovers();
+  // Work going on a minute-long cycle: requests landing, tools called, a turn done, resting, waking.
+  const clock = { now: Date.now() };
+  await servePhone(page, PHONE_KEY, { live: liveWork({ now: () => clock.now, length: 1000, claudeEnds: 20, codexEnds: 12 }) });
+  await page.setViewportSize({ width: 393, height: 852 });
+  await english(page, '#k=' + PHONE_KEY + '&l=en', '.stage');
+  await page.waitForTimeout(1400);
+  clock.now += 9000;
+  await expect(page.locator('.stage .feed .event').first()).toBeVisible({ timeout: 5000 });
+  await left.take(page, 'phone');
+  clock.now += 12_000;
+  await expect(page.locator('.stage .turn-done')).toBeVisible({ timeout: 5000 });
+  await left.take(page, 'phone › a turn done');
+  clock.now += 60_000;
+  await expect(page.locator('.stage .monitor:not(.working)')).toBeVisible({ timeout: 7000 });
+  await left.take(page, 'phone › resting');
+  clock.now += 1000 * 1000;
+  await expect(page.locator('.stage .feed .event.wake')).toBeVisible({ timeout: 7000 });
+  await left.take(page, 'phone › waking');
+  for (const name of ['Model', 'Project', 'Sessions', 'Tool']) {
+    await page.getByRole('radiogroup', { name: 'Card grouping' }).getByRole('radio', { name }).click();
+    await page.waitForTimeout(700);
+    if (name === 'Sessions') await page.locator('.stage .session .head').first().click();
+    if (name === 'Tool') await page.locator('.stage .card .head').first().click();
+    await page.waitForTimeout(400);
+    await left.take(page, 'phone › ' + name);
+  }
+  const chart = (await page.locator('.stage .chart').boundingBox())!;
+  await page.mouse.move(chart.x + chart.width / 2, chart.y + chart.height / 2);
+  await left.take(page, 'phone › the trend read');
+  await page.setViewportSize({ width: 852, height: 393 });
+  await page.waitForTimeout(400);
+  await left.take(page, 'phone › landscape');
+  const titles = new Set(sessionTitles());
+  // Titles are the user's own words wherever they stand, a line of their own or within one (最近：<title>).
+  const untitled = (line: string) => [...titles].reduce((rest, title) => rest.split(title).join(''), line.replace(/^.*?: /, ''));
+  expect(left.list.filter((line) => CJK.test(untitled(line)))).toEqual([]);
 });
 
 test('English: the module grid and every module\'s settings', async ({ page }) => {

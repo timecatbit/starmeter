@@ -38,6 +38,7 @@ export function pageOut(node: HTMLElement, { dir }: { dir: number }): Transition
   if (!dir) return { duration: 0 };
   // The old page leaves the flow so the new one takes its place at once.
   node.style.position = 'absolute';
-  node.style.inset = '0';
+  // A page kept to the panel's width in the middle of a phone's screen (App.svelte's .centred) stays where it is.
+  if (!node.classList.contains('centred')) node.style.inset = '0';
   return { duration: quick(220), easing: pageCurve, css: (t, u) => `opacity: ${t}; transform: translateX(${-dir * 43 * u}px)` };
 }

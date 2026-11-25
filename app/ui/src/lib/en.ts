@@ -249,7 +249,7 @@ export const phrases: Record<string, string> = {
     'This computer\'s usage file leaves the synced folder, so the others stop counting it, and this computer stops counting theirs.',
   打开主页模块: 'Open Home modules', 稍后: 'Later', 尚未勾选工具: 'No tools chosen yet',
   复制图片: 'Copy picture', 已复制: 'Copied', 复制失败: 'Copy failed', '保存…': 'Save…', 已保存: 'Saved',
-  '查看更多 {n} 个会话': 'Show {n} more', 收起: 'Show fewer', '打开 {name} 状态页': 'Open the {name} status page', '查看更多 {n} 个模型': 'Show {n} more', '查看更多 {n} 个项目': 'Show {n} more', '分享…': 'Share…', 少一个: 'One fewer', 多一个: 'One more', 保存图片: 'Save picture', 长按图片也能存到相册: 'or long-press the picture to save it to Photos', 没能画出来: 'Couldn\'t draw it', 正在生成: 'Drawing', 卡片: 'Card', 终端: 'Terminal', 手绘: 'Sketch', 报刊: 'Paper',
+  '查看更多 {n} 个会话': 'Show {n} more', '查看更多 {n} 条动态': 'Show {n} more', 收起: 'Show fewer', '打开 {name} 状态页': 'Open the {name} status page', '查看更多 {n} 个模型': 'Show {n} more', '查看更多 {n} 个项目': 'Show {n} more', '分享…': 'Share…', 少一个: 'One fewer', 多一个: 'One more', 保存图片: 'Save picture', 长按图片也能存到相册: 'or long-press the picture to save it to Photos', 没能画出来: 'Couldn\'t draw it', 正在生成: 'Drawing', 卡片: 'Card', 终端: 'Terminal', 手绘: 'Sketch', 报刊: 'Paper',
   夜空: 'Night sky', 地铁: 'Metro', 织物: 'Knit', 收据: 'Receipt', 蓝图: 'Blueprint', 霓虹: 'Neon',
   // Questions
   取消: 'Cancel', 确定: 'OK', 好: 'OK', 继续: 'Continue',
@@ -258,7 +258,27 @@ export const phrases: Record<string, string> = {
   '{style}风格的用量图预览': 'Usage picture preview, {style} style', 时间范围: 'Range', 像素: 'pixels', '其他 {n} 个模型': '{n} more models', '其他 {n} 个模型|1': '1 more model',
   含未定价: 'some unpriced', '占 {n}': '{n} of all', 其他工具: 'Other tools', '{range} AI 用量': 'AI usage · {range}', 今日: 'Today',
   昨日: 'Yesterday', 累计: 'All time', '已知 API 等值估算': 'Known API-equivalent estimate', 'API 等值估算': 'API-equivalent estimate',
-  缓存命中: 'Cache hits', '等 {n} 个': 'and {n} more', '图 1 · ': 'Fig. 1 · ', 总量: 'Total',
+  缓存命中: 'Cache hits',
+  // 在手机上看 on the phone: 网页版, and the choice between it and the homepage as the computer shows it
+  等电脑读到用量: 'Waiting for the computer\'s usage',
+  '保持亮屏要用 https 链接：在电脑上选“任何网络”，用它生成的链接打开就能用':
+    'Keeping the screen on needs an https link: choose Any network on the computer and open the link it makes',
+  '这个浏览器不支持保持亮屏（iPhone 需要 iOS 16.4 以上）': 'This browser can\'t keep the screen on (an iPhone needs iOS 16.4 or later)',
+  '网页右上角的太阳可让手机屏幕保持常亮，适合放在桌边一直看；要用“任何网络”的 https 链接打开才能用':
+    'The sun at the top right of the page keeps the phone\'s screen on, to watch from beside the desk; it needs the https link from Any network',
+  '电脑上的 Starmeter 还没有今天的数字（SwiftBar 插件还没写入，或主页上还没有勾选工具）。一读到，这里就是实时用量。':
+    'Starmeter on the computer has no figures for today yet (SwiftBar\'s plugin hasn\'t written them, or no tool is on the homepage). As soon as it has, live usage shows here.',
+  工具占比: 'Share by tool', '按 Token': 'by tokens',
+  订阅与服务: 'Plans and services', '还有 {n} 个会话在运行': '{n} more running', 服务: 'Services', 统计: 'Figures', 保持亮屏: 'Keep the screen on', '屏幕会保持常亮，离开这一页就恢复自动锁屏': 'The screen stays on; leave this page and it locks as usual', '已恢复自动锁屏': 'The screen locks as usual again', '没能保持亮屏：浏览器没有允许（低电量模式下会这样）': 'Couldn\'t keep the screen on: the browser said no (as in Low Power Mode)', '没能保持亮屏：这个浏览器不支持': 'Couldn\'t keep the screen on: this browser can\'t', '屏幕保持常亮，点按恢复自动锁屏': 'The screen stays on; tap to let it lock', '保持亮屏：屏幕不自动锁定': 'Keep the screen on: no auto-lock', 连不上电脑: 'Can\'t reach the computer',
+  '只读：实时数字每 2 秒从电脑上的 Starmeter 读一次，休息时每 5 秒': 'Read-only: the live figures come from Starmeter on your computer every 2 seconds, every 5 while it rests',
+  // 网页版's live view: working or resting, how fast, what happened
+  正在工作: 'Working', '正在工作 · {n} 个会话运行中': 'Working · {n} sessions running', '正在工作 · {n} 个会话运行中|1': 'Working · 1 session running',
+  休息中: 'Resting', '休息中 · 刚刚还在工作': 'Resting · working a moment ago', '休息中 · 上次活动 {n} 分钟前': 'Resting · last active {n} min ago',
+  '输出 Token/s': 'Output tokens/s', '今天 · API 估算': 'Today · API estimate', '{range} · API 估算': '{range} · API estimate', '近 1 分钟': 'Last minute', '{n} 分钟前': '{n} min ago',
+  '{n} 分钟': '{n} min', '{m} 分 {s} 秒': '{m} min {s} s', '{s} 秒': '{s} s', '{h} 小时 {m} 分钟': '{h} hr {m} min', '{h} 小时 {m} 分': '{h} hr {m} min', '+{n} Token': '+{n} tokens', 这一轮完成: 'Turn done',
+  '这一轮完成 · {d}': 'Turn done · {d}', 开始新一轮: 'New turn', '调用 {tools}': 'Called {tools}', 开始工作: 'Started working', 正在运行: 'Running',
+  本轮用时: 'This turn so far', '上下文 {n}%': 'Context {n}%', 没有在运行的会话: 'No session running', '没有在运行的会话 · 最近：{title}{idle}': 'No session running · last: {title}{idle}',
+  动态: 'Activity', '等下一笔请求…': 'Waiting for the next request…', 一有动静就会出现在这里: 'What happens shows up here', '等 {n} 个': 'and {n} more', '图 1 · ': 'Fig. 1 · ', 总量: 'Total',
   // The panel's own labels
   '近 1 分钟 +{n} Token · 输出 ': 'Last min +{n} · output ', '收起 {name} 明细': 'Fold {name}', '展开 {name} 明细': 'Unfold {name}',
   '{name} 详情': '{name} details', 此时段暂无模型调用: 'No model calls in this range', '全部来自 {name}': 'All from {name}',

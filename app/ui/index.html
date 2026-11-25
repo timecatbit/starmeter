@@ -2,8 +2,27 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Starmeter</title>
+    <!-- On a phone, the colours of the last load before the first frame (src/lib/edges.ts). -->
+    <script src="/first-frame.js"></script>
+    <!-- 在手机上看: what Safari 26 colours its bars from. It ignores theme-color, and a full-screen fixed layer (the page's
+         window) is to it an overlay over a colour it keeps: it reads a fixed element along the top or bottom edge, as
+         wide as the screen, frontmost, with a solid background colour, and carries that colour into the bar. These two
+         are such elements, at the page's edge colours (first-frame.js, then src/lib/edges.ts), painting nothing:
+         clipped to their text, and they have none. 11 points: over WebKit's 10 for reading the colour directly; 12 for
+         two frames when the colour changes, so Safari reads it again. -->
+    <style>
+      .bar-tint { display: none; }
+      :root.phone-page .bar-tint {
+        display: block; position: fixed; left: 0; right: 0; height: 11px; z-index: 2147483647; pointer-events: none;
+        border: 0; outline: 0; box-shadow: none; transition: none; color: transparent;
+        background-clip: text; -webkit-background-clip: text;
+      }
+      :root.phone-page .bar-tint.top { top: 0; background-color: var(--bar-top, transparent); }
+      :root.phone-page .bar-tint.bottom { bottom: 0; background-color: var(--bar-bottom, transparent); }
+      :root.phone-page.bar-refresh .bar-tint { height: 12px; }
+    </style>
   </head>
   <body>
     <!-- 手绘 (sketch.css): the hand's unsteady line, for the lines that look draws; never the words. -->
@@ -14,6 +33,8 @@
       </filter>
     </svg>
     <div id="app"></div>
+    <div class="bar-tint top" aria-hidden="true"></div>
+    <div class="bar-tint bottom" aria-hidden="true"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

@@ -1,18 +1,48 @@
 // Pinned, the panel is watched while the user works, so the chart zooms in on now: what Summary's tools added in the
 // last minute, read every couple of seconds. The feed keeps the readings; LiveChart.svelte draws them.
 import { summaryPart } from './format';
-import type { Dashboard } from './types';
+import type { Dashboard, LiveReading } from './types';
+
+/** Two readings further apart than this are either side of a gap (a page out of sight, the computer out of reach):
+ *  what was added between them happened at no moment the line knows. */
+export const GAP = 15_000;
+/** How long the rate takes to come round to a change (an exponential moving average's time constant): the lines and
+ *  the Token/s figures alike, so a dot and its figure agree. */
+export const EASE = 15_000;
 
 /** A reading: Summary's tokens (cache reads included, as the line and the cards count them), the output tokens the
- *  models generated, the cost, and each source's tokens and output tokens (a line of its own for each tool). */
-export interface Sample { at: number; total: number; output: number; cost: number; parts: Record<string, number>; outputs: Record<string, number> }
+ *  models generated, the cost, and each source's tokens and output tokens (a line of its own for each tool). `cut`: a
+ *  reading not comparable with the one before (a gap, a new range): the line stood still there, and what comes after
+ *  is never spread back over it. */
+export interface Sample { at: number; total: number; output: number; cost: number; parts: Record<string, number>; outputs: Record<string, number>; cut?: boolean }
+
+/** One of the computer's last minutes (a kept reading) as a dashboard: the tools of `template` (the latest figures, for
+ *  their names and shares), each with that moment's own figures, and a gateway's part only where that reading had one
+ *  (STAGE-12: a gateway that came or went within the minutes took the latest reading's part into every older one). */
+export function readingDashboard(template: Dashboard, reading: LiveReading): Dashboard {
+  const kept = new Map(reading.providers.map((p) => [p.id, p]));
+  return { ...template, date: reading.date, rangeKey: reading.rangeKey, providers: template.providers.map((p) => {
+    const then = kept.get(p.id);
+    if (!then) return { ...p, available: false };
+    const counted = then.counted ? { requests: 0, history: [], ...p.counted, ...then.counted, cost: then.counted.cost ?? null } : undefined;
+    return { ...p, available: then.available ?? p.available, summaryIncluded: then.summaryIncluded ?? p.summaryIncluded,
+      tokens: then.tokens ?? 0, output: then.output ?? 0, cost: then.cost ?? null, counted } as Dashboard['providers'][number];
+  }) } as Dashboard;
+}
 type Part = { tokens: number; output: number; cost: number };
 
 export class LiveFeed {
   /** The window on screen: always the last minute, so the line flows at one steady speed and the rate reads true. */
   static readonly window = 60_000;
   samples: Sample[] = [];
+  /** How far back the readings are kept: two windows for the panel's minute; a phone's live view draws five minutes. */
+  history = 2 * LiveFeed.window;
   started = Date.now();
+  /** How far back a change is spread (0, the panel's own: not at all). Figures that change only now and then (SwiftBar's
+   *  plugin runs every half minute) would draw the speed as steps, flat between readings and jumping at each: a change
+   *  is spread evenly over the quiet stretch before it, up to this long, as the work was (a request's output is written
+   *  over its time, and logged when it ends). */
+  spread = 0;
   /** The pinning zoom plays once per pin, not each time the homepage comes back. */
   zoomed = false;
   private rangeKey: string | null = null;
@@ -39,7 +69,9 @@ export class LiveFeed {
   private shifts = new Map<string, Part>();
   private shifted = new Map<string, Part>();
 
-  add(dashboard: Dashboard, at = Date.now()) {
+  /** `fresh`: a reading after a long gap (a phone's page out of sight, the computer out of reach): what was added while
+   *  nobody looked happened at no moment the line knows, so it adds nothing, as a new range doesn't. */
+  add(dashboard: Dashboard, at = Date.now(), fresh = false) {
     const raw = new Map<string, Part>();
     for (const p of dashboard.providers) {
       const part = summaryPart(p);
@@ -55,7 +87,7 @@ export class LiveFeed {
     if (!raw.size) return;
     const newRange = dashboard.rangeKey !== this.rangeKey;
     this.rangeKey = dashboard.rangeKey;
-    const comparable = !newRange && this.raw.size > 0 && raw.size === this.raw.size && [...raw].every(([id, now]) => {
+    const comparable = !fresh && !newRange && this.raw.size > 0 && raw.size === this.raw.size && [...raw].every(([id, now]) => {
       const before = this.raw.get(id);
       return !!before && now.tokens >= before.tokens - 0.5 && now.output >= before.output - 0.5 && now.cost >= before.cost - 1e-9;
     });
@@ -78,13 +110,44 @@ export class LiveFeed {
       parts: Object.fromEntries([...shifted].map(([id, part]) => [id, part.tokens])),
       outputs: Object.fromEntries([...shifted].map(([id, part]) => [id, part.output])) };
     if (!comparable || !this.samples.length) this.offset = LiveFeed.latest(dashboard) - sample.total;
+    if (!comparable && this.samples.length) sample.cut = true;
     this.keep(sample, at);
   }
 
+  /** The computer's last minutes, before the readings to come: each as a dashboard of `template`'s tools (on this
+   *  clock: the computer's seconds less `skew`), a reading more than `gap` after the one before it taken as after a gap
+   *  (what was added in it happened at no moment the line knows). Returns when the last one was, on this clock. */
+  replay(template: Dashboard, history: LiveReading[], skew: number, gap: number): number {
+    let last = this.samples.at(-1)?.at ?? 0;
+    for (const reading of history) {
+      const at = reading.at * 1000 - skew;
+      if (at <= last + 1) continue;
+      this.add(readingDashboard(template, reading), at, last > 0 && at - last > gap);
+      last = at;
+    }
+    return last;
+  }
+
   private keep(sample: Sample, at: number) {
-    if (this.samples.length && Math.abs(at - this.samples.at(-1)!.at) < 500) this.samples[this.samples.length - 1] = sample;
-    else this.samples.push(sample);
-    this.samples = this.samples.filter((s) => at - s.at <= 2 * LiveFeed.window);
+    // Within half a second of the last, it takes the last's place; a cut there stays one (STAGE-18: the next rise
+    // otherwise spread back over the gap or the new range).
+    if (this.samples.length && Math.abs(at - this.samples.at(-1)!.at) < 500) {
+      if (this.samples.at(-1)!.cut) sample.cut = true;
+      this.samples[this.samples.length - 1] = sample;
+    }
+    else { this.spreadOut(sample); this.samples.push(sample); }
+    this.samples = this.samples.filter((s) => at - s.at <= this.history);
+  }
+
+  /** The readings since the line last moved (within `spread`), raised evenly towards this one, which moved it; never
+   *  back over a gap or a new range (a cut: the line stood still there, STAGE-13). */
+  private spreadOut(sample: Sample) {
+    const list = this.samples, last = list.at(-1);
+    if (!this.spread || !last || sample.cut || same(last, sample) || sample.at <= last.at) return;
+    let from = list.length - 1;
+    while (from > 0 && !list[from].cut && same(list[from - 1], last) && sample.at - list[from - 1].at <= this.spread) from--;
+    const anchor = list[from], length = sample.at - anchor.at;
+    for (let i = from + 1; i < list.length; i++) list[i] = between(anchor, sample, (list[i].at - anchor.at) / length, list[i].at);
   }
 
   span() { return LiveFeed.window; }
@@ -93,11 +156,12 @@ export class LiveFeed {
    *  over its 60 seconds, so a burst eases off as the window moves past it. Over 60 seconds in the first minute after
    *  pinning too: a request is logged whole when it finishes, with output written long before, and over the few seconds
    *  since pinning it read as thousands a second for a moment. Not all tokens: each request re-reads its whole context
-   *  from the cache, so those run to tens of thousands a second and say nothing about speed. */
-  rate(now: number): number | null { return this.rateAt(now); }
+   *  from the cache, so those run to tens of thousands a second and say nothing about speed. Eased as the lines are
+   *  (smoothRates), so the figure is the height of the line's end. */
+  rate(now: number): number | null { return this.samples.length ? this.smoothRates([now])[0] : null; }
 
-  /** The same rate as it stood at an earlier moment, from the readings up to then: the Token/s line is drawn from it;
-   *  with a source, that source's own (its line beside the total's). */
+  /** The last minute's rate as it stood at an earlier moment, from the readings up to then, before it is eased; with a
+   *  source, that source's own. */
   rateAt(at: number, id?: string): number | null {
     const upto = this.samples.filter((s) => s.at <= at), last = upto.at(-1);
     if (!last) return null;
@@ -106,6 +170,55 @@ export class LiveFeed {
     const output = (sample: Sample) => (id === undefined ? sample.output : sample.outputs?.[id] ?? 0);
     return Math.max(0, output(last) - output(from)) / (LiveFeed.window / 1000);
   }
+
+  /** The rate as the lines draw it and the figures say it, at each of `times` (rising): the last minute's (rateAt),
+   *  eased over EASE (an exponential moving average, begun EASE × 3 earlier so it has settled by the first). A request
+   *  landing rises and settles as a curve, and leaves the minute the same way, not as a step up and a cliff a minute
+   *  later: drawn as a step function, the smooth curve through it was straight plateaus and sharp corners. */
+  smoothRates(times: number[], id?: string): number[] {
+    if (!times.length) return [];
+    const warm: number[] = [];
+    for (let at = times[0] - EASE * 3; at < times[0]; at += 1000) warm.push(at);
+    const all = [...warm, ...times], raw = this.rateSeries(all, id), out: number[] = [];
+    let eased: number | null = null, previous = all[0];
+    for (let i = 0; i < all.length; i++) {
+      const r = raw[i];
+      if (r !== null) {
+        eased = eased === null ? r : eased + (r - eased) * (1 - Math.exp(-Math.max(0, all[i] - previous) / EASE));
+        previous = all[i];
+      }
+      if (i >= warm.length) out.push(eased ?? 0);
+    }
+    return out;
+  }
+
+  /** rateAt at each of `times` (rising) in one pass over the readings; null before the first. */
+  private rateSeries(times: number[], id?: string): (number | null)[] {
+    const list = this.samples, output = (s: Sample) => (id === undefined ? s.output : s.outputs?.[id] ?? 0);
+    const out: (number | null)[] = [];
+    let last = -1, from = 0;
+    for (const at of times) {
+      while (last + 1 < list.length && list[last + 1].at <= at) last++;
+      if (last < 0) { out.push(null); continue; }
+      while (from + 1 <= last && list[from + 1].at <= at - LiveFeed.window) from++;
+      const first = list[from].at <= at - LiveFeed.window ? list[from] : list[0];
+      out.push(Math.max(0, output(list[last]) - output(first)) / (LiveFeed.window / 1000));
+    }
+    return out;
+  }
+}
+
+/** Two readings the same: nothing added between them. */
+function same(a: Sample, b: Sample): boolean {
+  return Math.abs(a.total - b.total) < 0.5 && Math.abs(a.output - b.output) < 0.5 && Math.abs(a.cost - b.cost) < 1e-9;
+}
+
+/** The reading `f` of the way from `a` to `b`, at `at`. */
+function between(a: Sample, b: Sample, f: number, at: number): Sample {
+  const mix = (x: number, y: number) => x + (y - x) * f;
+  const each = (from: Record<string, number>, to: Record<string, number>) =>
+    Object.fromEntries([...new Set([...Object.keys(from), ...Object.keys(to)])].map((id) => [id, mix(from[id] ?? 0, to[id] ?? 0)]));
+  return { at, total: mix(a.total, b.total), output: mix(a.output, b.output), cost: mix(a.cost, b.cost), parts: each(a.parts, b.parts), outputs: each(a.outputs ?? {}, b.outputs ?? {}) };
 }
 
 /** A rate as the header writes it: 1.2K, 340, 12, 3.4, 0. */

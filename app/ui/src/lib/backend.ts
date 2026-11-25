@@ -11,7 +11,7 @@
 // same fixtures through fixtureBackend.ts, and the shell calls do nothing.
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { ActionReceipt, Dashboard, Question, ShellInfo, Snapshot } from './types';
+import type { ActionReceipt, Dashboard, LiveAnswer, LiveReading, Question, ShellInfo, Snapshot } from './types';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 /** On a phone (在手机上看): the computer's app served this page, with its key in the address's fragment. */
@@ -24,10 +24,24 @@ let fixtures: Promise<Fixtures> | null = null;
 const browser = () => (fixtures ??= onPhone ? import('./phoneBackend')
   : import.meta.env.DEV ? import('./fixtureBackend') : Promise.reject(new Error('no backend outside the app')));
 
+/** A window event standing in for one of the app's (in a browser, where there is no app): its detail to `then`. */
+function windowEvent(name: string, then: (detail: { modules?: boolean; maxHeight?: number } | null) => void): () => void {
+  if (typeof window === 'undefined') return () => {};
+  const listener = (event: Event) => then((event as CustomEvent).detail ?? null);
+  window.addEventListener(name, listener);
+  return () => window.removeEventListener(name, listener);
+}
+
 export const backend = {
   snapshot: (): Promise<Snapshot> => (inTauri ? invoke('snapshot') : browser().then((f) => f.snapshot())),
   dashboard: (range: string): Promise<Dashboard> => (inTauri ? invoke('dashboard', { range }) : browser().then((f) => f.dashboard(range))),
   action: (action: string[]): Promise<ActionReceipt> => (inTauri ? invoke('action', { action }) : browser().then((f) => f.action(action))),
+  /** 网页版's live view (on a phone, what the computer read a moment ago), and the pinned panel's 正在运行 and 动态. */
+  live: (history = false): Promise<LiveAnswer> => (inTauri ? invoke('live_now', { history }) : onPhone ? import('./phoneBackend').then((f) => f.live(history)) : browser().then((f) => f.live(history))),
+  /** The computer's last minutes of live readings only, at once (nothing read again): the panel pinned draws its live
+   *  line from them before its first tick. */
+  recent: (): Promise<{ at: number; history: LiveReading[] }> =>
+    (inTauri ? invoke('recent_readings') : browser().then((f) => f.recent())),
   onSnapshot(changed: () => void): () => void {
     if (inTauri) {
       const stop = listen('snapshot-changed', changed);
@@ -64,7 +78,7 @@ const base64 = (bytes: Uint8Array) => {
 export const shell = {
   info: (): Promise<ShellInfo> => (inTauri ? invoke('shell_info')
     : Promise.resolve({ platform: 'browser', mode: 'browser', version: '6.0.0', maxHeight: Math.max(400, window.innerHeight - 16),
-      modules: new URLSearchParams(location.search).has('modules') })),
+      modules: new URLSearchParams(location.search).has('modules'), visible: !new URLSearchParams(location.search).has('hidden') })),
   /** Esc or the star hand the focus back to the app used before; a click elsewhere leaves it where it went. */
   close: (returnFocus = true) => (inTauri ? invoke<void>('close_panel', { returnFocus }) : quiet()),
   /** The panel's size; the top stays under the star (or, moved by the user, where they put it). Animated, it eases
@@ -87,6 +101,8 @@ export const shell = {
    *  browser, the page's own storage stands in. */
   guideShown: (): Promise<boolean> => (inTauri ? invoke<boolean>('guide_shown').catch(() => false) : Promise.resolve(localGuide())),
   markGuideShown: () => (inTauri ? invoke<void>('mark_guide_shown').catch(() => {}) : quiet().then(() => { try { localStorage.setItem('starmeter.guide', '1'); } catch { /* shown again */ } })),
+  /** The panel's look ('standard' or 'sketch'), for a phone (在手机上看) to follow. */
+  setStyle: (look: string) => (inTauri ? invoke<void>('set_style', { style: look }).catch(() => {}) : quiet()),
   /** The panel's language ('zh' or 'en'), for the shell's own words: the star's right-click menu. */
   setLanguage: (language: string) => (inTauri ? invoke<void>('set_language', { language }).catch(() => {}) : quiet()),
   /** 在手机上看: the read-only server for a phone, started (or its hour started again), asked after, and stopped; the
@@ -122,12 +138,13 @@ export const shell = {
   sharePicture: (png: Uint8Array, name: string, rect: { x: number; y: number; width: number; height: number }) =>
     (inTauri ? invoke<void>('share_picture', { png: base64(png), name, ...rect }) : quiet()),
   onOpened(opened: (modules: boolean, maxHeight: number) => void): () => void {
-    if (!inTauri) return () => {};
+    // In a browser, the same as a window event (the tests open and close the panel so).
+    if (!inTauri) return windowEvent('panel-opened', (detail) => opened(!!detail?.modules, detail?.maxHeight ?? 0));
     const stop = listen<{ modules: boolean; maxHeight: number }>('panel-opened', (event) => opened(event.payload.modules, event.payload.maxHeight));
     return () => void stop.then((f) => f());
   },
   onClosed(closed: () => void): () => void {
-    if (!inTauri) return () => {};
+    if (!inTauri) return windowEvent('panel-closed', () => closed());
     const stop = listen('panel-closed', closed);
     return () => void stop.then((f) => f());
   },

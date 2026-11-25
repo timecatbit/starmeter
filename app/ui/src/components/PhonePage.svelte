@@ -225,6 +225,7 @@
                 : t('手机和电脑连同一个网络（Wi-Fi）后扫码；第一次打开时系统可能问是否允许 Starmeter 接收连接，选允许')}
             </p>
             <p class="note">{t('只读：手机上只能看主页和工具页，不能改设置。点“停止”或退出 App 前一直开着。')}</p>
+            <p class="note">{t('网页右上角的太阳可让手机屏幕保持常亮，适合放在桌边一直看；要用“任何网络”的 https 链接打开才能用')}</p>
           {/if}
           <div class="actions">
             {#if view.public}<button class="action pressable" onclick={closePublic}>{t('关闭外网链接')}</button>{/if}

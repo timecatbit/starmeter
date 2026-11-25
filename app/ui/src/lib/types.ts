@@ -189,7 +189,30 @@ export interface Snapshot {
   moduleOptions?: Entry[];
   appearance?: string;
   theme?: string;
+  /** On a phone: the computer's look (外观 → 风格), for 网页版 to follow. */
+  style?: 'standard' | 'sketch';
   preferences?: PresentationPreferences;
+}
+
+/** 网页版's live view (/api/live): today's figures by tool as the computer read them a moment ago, 会话 (its sessions
+ *  only), and when each session's latest turn began (in the computer's seconds, as `at` is). */
+export interface LiveAnswer {
+  at: number;
+  dashboard: Dashboard | null;
+  sessions: Entry | null;
+  turns: Record<string, number>;
+  /** Asked for with ?history=1 (the panel: live_now's `history`): the readings of the last few minutes, for a page
+   *  opened or reloaded while the work goes on. */
+  history?: LiveReading[];
+}
+
+/** One of the last minutes' readings the computer keeps (the computer's seconds): each tool's figures the live line
+ *  counts (what a gateway alone logged as `counted`, when it did). */
+export interface LiveReading {
+  at: number; date: string; rangeKey: string;
+  providers: (Partial<Omit<ProviderUsage, 'counted'>> & { id: string; counted?: { tokens?: number; output?: number; cost?: number | null } })[];
+  /** 会话 in short, when it changed: each session's title, key, light and state, and its latest turn's line. */
+  sessions?: { label: string; key?: string; statusLight?: string; detail?: string; children?: { label: string; detail?: string }[] }[];
 }
 
 /** What an action left behind: done, failed (with why) or cancelled (a dialog was dismissed). */
@@ -209,6 +232,8 @@ export interface ShellInfo {
   maxHeight: number;
   /** Opened from the star's right-click menu: the module list is the whole panel. */
   modules: boolean;
+  /** The window on screen as the page loads; hidden at the app's start (absent outside the app: shown). */
+  visible?: boolean;
 }
 
 /** A question the core asks while an action runs, answered in the panel: confirm (true/false), text (the line typed),

@@ -301,8 +301,12 @@ test('header buttons take clicks, and pinning turns the trend live', async ({ pa
   await expect(page.locator('.grabber')).not.toHaveClass(/faded/);
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('panel-hover', { detail: false })));
   await expect(page.locator('.grabber')).toHaveClass(/faded/);
-  // Pinned, the panel turns to 会话 and fits down to the end of the third session; the rest is below, to scroll to or
+  // Pinned, the panel turns to 实时: what the AI is doing now.
+  await expect(page.getByRole('radio', { name: '实时' })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.locator('.panel-live')).toBeVisible();
+  // 会话 picked while pinned stays, and fits down to the end of the third session; the rest is below, to scroll to or
   // to make the panel taller for.
+  await page.getByRole('radio', { name: '会话' }).click();
   await expect(page.getByRole('radio', { name: '会话' })).toHaveAttribute('aria-checked', 'true');
   await expect(page.locator('.session')).toHaveCount(5);
   const gap = async () => {
@@ -330,8 +334,8 @@ test('header buttons take clicks, and pinning turns the trend live', async ({ pa
   await button(page, '取消钉住面板').click();
   await expect(page.getByLabel('实时用量图')).toHaveCount(0);
   await expect(page.locator('.grabber')).toHaveCount(0);
-  // Unpinned, the cards it showed come back.
-  await expect(page.getByRole('radio', { name: '工具' })).toHaveAttribute('aria-checked', 'true');
+  // Unpinned, 会话 stays: picked while pinned, it is the user's.
+  await expect(page.getByRole('radio', { name: '会话' })).toHaveAttribute('aria-checked', 'true');
 });
 
 test('a new range while pinned carries the live line on instead of starting it over', async ({ page }) => {
@@ -374,7 +378,8 @@ test('pinned, the live chart draws a line for each tool, in Token and in Token/s
   await page.getByRole('radio', { name: 'Token/s' }).click();
   // Each tool's rate line (the Token lines above say nothing of them).
   await expect.poll(async () => Object.keys(JSON.parse((await read()).toolRates ?? '{}')).length, { timeout: 20_000 }).toBeGreaterThan(1);
-  // The tools' rates make up the total's.
+  // The tools' rates make up the total's (once the top right has written its rate: after the pinning's zoom).
+  await expect.poll(async () => (await read()).rate, { timeout: 10_000 }).toBeDefined();
   const seen = await read();
   const rates = Object.values(JSON.parse(seen.toolRates ?? '{}') as Record<string, number>);
   const sum = rates.reduce((a, b) => a + b, 0);
@@ -397,7 +402,7 @@ test('pinned, tools far apart in size put the live chart on a log scale, every l
   await page.getByRole('radio', { name: 'Token', exact: true }).click();
 });
 
-test('pinned, every tool on the homepage has its line, one not used in the last minute lying along the bottom with its own dot', async ({ page }) => {
+test('pinned, every tool on the homepage has its line, one not used in the last minute barely there along the bottom with no dot', async ({ page }) => {
   test.setTimeout(60_000);
   // Only Claude adds anything; the homepage's other tools sit idle.
   await open(page, '?live-grow=claude:20000');
@@ -409,19 +414,18 @@ test('pinned, every tool on the homepage has its line, one not used in the last 
   const lines = (seen.lines ?? '').split(',').filter(Boolean);
   expect(lines).toContain('claude');
   expect(lines.length).toBeGreaterThan(2);
-  // Claude, adding all of it, ends at the total's own dot and draws none beside it (it read as a dot trailing behind).
-  // The idle tools, all ending at the bottom, are one dot there, not a row of dots behind the line; every dot whole,
-  // inside the canvas rather than cut in half at the plot's edge.
+  // Claude, adding all of it, is the total: its line and its dot would lie on the total's, so it draws neither (it read
+  // as a dot trailing behind). The idle tools have no dot: dots only at the ends of lines that are moving.
   expect((seen.under ?? '').split(',')).toEqual(['claude']);
   const ends = Object.values(JSON.parse(seen.ends ?? '{}') as Record<string, [number, number]>);
-  expect(ends.length).toBe(1);
-  const room = await canvas.evaluate((c) => (c as HTMLCanvasElement).getBoundingClientRect().width);
-  for (const [x] of ends) expect(x + 2).toBeLessThanOrEqual(room);
+  expect(ends.length).toBe(0);
   // In Token/s too: a line for each, the idle ones at zero.
   await page.getByRole('radio', { name: 'Token/s' }).click();
   await expect.poll(async () => Object.keys(JSON.parse((await read()).toolRates ?? '{}')).length, { timeout: 20_000 }).toBe(lines.length);
-  const rates = JSON.parse((await read()).toolRates ?? '{}') as Record<string, number>;
-  expect(Object.entries(rates).filter(([, r]) => r > 0).map(([id]) => id)).toEqual(['claude']);
+  // The rate eases in over 15 seconds (liveLines.ts): Claude's comes up from 0 in the moments after a reading lands, so
+  // it is waited for, not read once (read just after a reading it was still 0.0 on a busy machine); the others stay 0.
+  const writing = async () => Object.entries(JSON.parse((await read()).toolRates ?? '{}') as Record<string, number>).filter(([, r]) => r > 0).map(([id]) => id);
+  await expect.poll(writing, { timeout: 20_000 }).toEqual(['claude']);
   await page.getByRole('radio', { name: 'Token', exact: true }).click();
 });
 
@@ -547,9 +551,51 @@ test('会话 sits beside the groupings: running first, what each cost in the ran
   await expect(cards.first().locator('.turn')).toHaveCount(3);
   await expect(cards.first().locator('.turn-heading')).toHaveText('starmeter · 最近 3 轮 · 累计 $6.90');
   await expect(page.getByRole('switch', { name: /这一轮完成时提醒/ })).toBeVisible();
-  // The choice is remembered.
+  // Not kept for the next opening: the panel opens on the homepage's 工具.
   await page.reload();
-  await expect(page.getByRole('radio', { name: '会话' })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByRole('radio', { name: '工具' })).toHaveAttribute('aria-checked', 'true');
+});
+
+test('opened again, the panel is on the homepage with its cards by tool, wherever it was left; a tab picked holds while it is open', async ({ page }) => {
+  await open(page);
+  const tab = (name: string) => page.getByRole('radiogroup', { name: '卡片分组' }).getByRole('radio', { name, exact: true });
+  /** Closed (a click elsewhere, Esc, the star) and opened again from the star. */
+  const reopen = async () => {
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent('panel-closed')));
+    await page.waitForTimeout(150);
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent('panel-opened', { detail: { modules: false, maxHeight: 900 } })));
+  };
+  const onTools = async (where: string) => {
+    await expect(page.locator('.dashboard'), where).toBeVisible();
+    await expect(page.locator('.page'), where).toHaveCount(0);
+    await expect(tab('工具'), where).toHaveAttribute('aria-checked', 'true');
+    await expect(page.locator('.list .card .name').first(), where).toHaveText('Claude');
+  };
+  // Left on 会话.
+  await tab('会话').click();
+  await expect(tab('会话')).toHaveAttribute('aria-checked', 'true');
+  await reopen();
+  await onTools('会话');
+  // Left on 项目 (the computer's grouping, in its preferences): set back to 工具.
+  await tab('项目').click();
+  await expect(tab('项目')).toHaveAttribute('aria-checked', 'true');
+  await expect(page.locator('.list .card .name').first()).not.toHaveText('Claude');
+  await reopen();
+  await onTools('项目');
+  // Left on a row's page, and in the settings.
+  await page.locator('.row', { hasText: 'ChatGPT 订阅' }).click();
+  await expect(page.locator('.page h2.title')).toHaveText('ChatGPT 订阅');
+  await reopen();
+  await onTools('a row\'s page');
+  await button(page, '主页模块与设置').click();
+  await expect(page.locator('.modules')).toBeVisible();
+  await reopen();
+  await expect(page.locator('.modules')).toHaveCount(0);
+  await onTools('the settings');
+  // Picked while it is open, a tab holds: 模型 stays 模型 for as long as the panel is open.
+  await tab('模型').click();
+  await page.waitForTimeout(2500);
+  await expect(tab('模型')).toHaveAttribute('aria-checked', 'true');
 });
 
 test('a pinned panel resized at its edges lays its pages out at that width, and unpinning gives the size back', async ({ page }) => {
@@ -569,7 +615,7 @@ test('a pinned panel resized at its edges lays its pages out at that width, and 
   const edge = await right('.dashboard');
   expect(edge - (await right('.figure'))).toBeLessThan(16);
   expect(edge - (await right('.live'))).toBeLessThan(16);
-  expect(edge - (await right('.session .value'))).toBeLessThan(16);
+  expect(edge - (await right('.panel-live .clock'))).toBeLessThan(16);
   // The corner handle follows the pointer: no wider than 480 (wider only adds air), no narrower than 360.
   const corner = async () => (await page.getByRole('separator', { name: '拖动调整大小' }).boundingBox())!;
   const drag = async (dx: number, dy: number) => {
@@ -1276,8 +1322,10 @@ test('在手机上看: a code for the same network, a public link only after a y
   await expect(phone.locator('svg[role="img"]')).toBeVisible();
   // The address without its key, which stays in the code; on the same network no time limit, until 停止.
   await expect(phone.locator('.address')).toHaveText('http://192.168.1.20:51234/');
-  await expect(phone.locator('.note').last()).toContainText('一直开着');
+  await expect(phone.locator('.note', { hasText: '只读' })).toContainText('一直开着');
   await expect(phone.locator('.note')).not.toContainText(['分钟']);
+  // What the sun on the phone's page is for, said before the scan: it needs the https link (any network).
+  await expect(phone.locator('.note', { hasText: '太阳' })).toHaveText('网页右上角的太阳可让手机屏幕保持常亮，适合放在桌边一直看；要用“任何网络”的 https 链接打开才能用');
   // Any network: asked first, nothing opened until the yes, and no note about a link not made yet.
   await page.getByRole('radio', { name: '任何网络' }).click();
   await expect(phone.locator('.ask')).toContainText('经 Cloudflare 生成外网链接？');
@@ -1466,91 +1514,46 @@ test('在手机上看 the first time says cloudflared is downloaded first', asyn
   await expect(button(page, '下载并生成')).toBeVisible();
 });
 
-test('on the phone: the homepage read-only, its figures asked for with the key, a range of its own', async ({ page }) => {
-  const asked = await servePhone(page);
-  await page.goto('/#k=' + PHONE_KEY);
-  await expect(page.locator('.dashboard')).toBeVisible();
-  await expect(page.locator('.window.phone')).toBeVisible();
-  // No pin or settings on the phone; the range and share are there.
-  await expect(button(page, '钉住面板')).toHaveCount(0);
-  await expect(button(page, '主页模块与设置')).toHaveCount(0);
-  await expect(button(page, '分享用量图')).toBeVisible();
-  await expect(page.locator('.card').first()).toBeVisible();
-  // The rows read as they do on the computer, their usage bars too, and don't open: their insides stay there.
-  const plan = page.locator('button.row', { hasText: 'Claude 订阅' });
-  await expect(plan).toBeDisabled();
-  await expect(plan).toHaveClass(/tall/);
-  await expect(plan.locator('.title')).toHaveAttribute('style', /var\(--label\)/);
-  await expect(plan.locator('.gauge')).toHaveCount(2);
-  await expect(plan.locator('.gauge-name')).toHaveText(['5 小时 22%', '本周 76%']);
-  await expect(page.locator('button.row', { hasText: 'Komari 监控' }).locator('.value')).toHaveAttribute('style', /var\(--label\)/);
-  // 会话 is the fourth tab, as on the computer, without the computer's switch.
-  await page.getByRole('radio', { name: '会话' }).click();
-  await expect(page.getByText('重做设置页的分段控件')).toBeVisible();
-  await expect(page.getByText('这一轮完成时提醒')).toHaveCount(0);
-  // The cards grouped by model or project on the phone itself: asked for, drawn, and the computer's choice untouched.
-  await page.getByRole('radio', { name: '模型' }).click();
-  await expect.poll(() => asked.some((path) => path.includes('group=model'))).toBe(true);
-  await expect(page.locator('.card .name').first()).toHaveText('Claude Opus 5.5');
-  await expect(page.getByRole('radio', { name: '模型' })).toHaveAttribute('aria-checked', 'true');
-  await page.getByRole('radio', { name: '项目' }).click();
-  await expect(page.locator('.card .name').first()).toHaveText('starmeter');
-  await page.getByRole('radio', { name: '工具' }).click();
-  await expect(page.locator('.card .name').first()).not.toHaveText('starmeter');
-  await page.getByRole('button', { name: /^统计范围/ }).click();
-  await page.getByRole('option', { name: '近 7 天' }).click();
-  await expect.poll(() => asked.some((path) => path.includes('range=7d'))).toBe(true);
-  await expect(page.getByRole('button', { name: /^统计范围/ })).toContainText('近 7 天');
-  // The share picture on the phone: drawn from the phone's own range, saved as a download (the browser's way).
-  await button(page, '分享用量图').click();
-  await expect(page.locator('.share-page .title')).toHaveText('分享用量图近 7 天');
-  await expect(page.locator('.share-page .stage img')).toBeVisible();
-  await expect(page.getByText('长按图片也能存到相册')).toBeVisible();
-  const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: '保存图片' }).click();
-  // WebKit on Linux hands the name over with its spaces as underscores.
-  expect((await download).suggestedFilename()).toMatch(/^Starmeter[ _].+[ _]卡片\.png$/);
-  await page.keyboard.press('Escape');
-  await expect(page.locator('.dashboard')).toBeVisible();
-});
-
 test('on the phone: a slow reading of the range before never takes the page back', async ({ page }) => {
   await servePhone(page);
   await page.goto('/#k=' + PHONE_KEY);
-  await expect(page.locator('.dashboard')).toBeVisible();
+  await expect(page.locator('.stage .monitor')).toBeVisible();
   // Today's next reading is held back; the week is picked meanwhile and arrives at once.
   let release = () => {};
   const held = new Promise<void>((resolve) => { release = resolve; });
   await page.route('**/api/snapshot', async (route) => { await held; await route.fallback(); });
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
-  await page.getByRole('button', { name: /^统计范围/ }).click();
-  await page.getByRole('option', { name: '近 7 天' }).click();
-  await expect(page.locator('.summary .reading')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: /^统计范围/ })).toContainText('近 7 天');
-  const week = await page.locator('.figure').first().textContent();
+  const ranges = page.getByRole('radiogroup', { name: '统计范围' });
+  await ranges.getByRole('radio', { name: '近 7 天' }).click();
+  await expect(page.locator('.stage .hero .range')).toHaveText('近 7 天');
+  const amount = page.locator('.stage .hero .amount [data-value]');
+  await page.waitForTimeout(600);
+  const week = await amount.getAttribute('data-value');
   release();
   await page.waitForTimeout(600);
-  await expect(page.getByRole('button', { name: /^统计范围/ })).toContainText('近 7 天');
-  await expect(page.locator('.figure').first()).toHaveText(week!);
+  await expect(ranges.getByRole('radio', { name: '近 7 天' })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.locator('.stage .hero .range')).toHaveText('近 7 天');
+  expect(await amount.getAttribute('data-value')).toBe(week);
 });
 
 test('on the phone: one reading at a time, and a computer out of reach or a stale link said at the foot', async ({ page }) => {
   const asked = await servePhone(page);
   await page.goto('/#k=' + PHONE_KEY);
-  await expect(page.locator('.dashboard')).toBeVisible();
+  await expect(page.locator('.stage .monitor')).toBeVisible();
   // A slow computer: asking again while a reading is on its way sends nothing more.
   let slow = 0;
   await page.route('**/api/snapshot**', async (route) => { slow++; await new Promise((r) => setTimeout(r, 1500)); await route.fallback(); });
-  const before = asked.length;
+  const snapshots = () => asked.filter((path) => path.startsWith('/api/snapshot')).length;
+  const before = snapshots();
   for (let i = 0; i < 4; i++) await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
-  await expect.poll(() => asked.length).toBe(before + 1);
+  await expect.poll(snapshots).toBe(before + 1);
   expect(slow).toBe(1);
   await page.unroute('**/api/snapshot**');
   // Out of reach: said at the foot, the figures on screen kept.
   await page.route('**/api/snapshot**', (route) => route.abort('connectionrefused'));
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
   await expect(page.locator('.phone-problem')).toContainText('连不上电脑');
-  await expect(page.locator('.card').first()).toBeVisible();
+  await expect(page.locator('.stage .card').first()).toBeVisible();
   await page.unroute('**/api/snapshot**');
   // A key the computer no longer has: scan again.
   await page.route('**/api/snapshot**', (route) => route.fulfill({ status: 403, body: 'key needed' }));
@@ -1680,6 +1683,8 @@ test('pinned, a row\'s page fits its own rows, and the homepage keeps its size',
   await button(page, '钉住面板').click();
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('panel-resized', { detail: { width: 400, height: 760 } })));
   await expect(page.locator('.window')).toHaveCSS('height', '760px');
+  // Pinned, 实时 comes in with its first reading.
+  await expect(page.locator('.panel-live')).toBeVisible();
   await page.locator('.row', { hasText: 'Kimi API' }).first().click();
   await expect(page.locator('.page h2.title')).toHaveText('Kimi API');
   // Its own height, not the 760 the homepage was sized to; the width stays the panel's.
@@ -2472,6 +2477,40 @@ test('在手机上看: a status answer from before 停止 and 重新开始 leave
   await page.waitForTimeout(200);
   await expect(phone.locator('.address')).toHaveText('http://192.168.1.20:49002/');
   await expect(phone.locator('svg.qr')).toBeVisible();
+});
+
+test('手绘 lays its paper on the computer\'s background: opaque for 实色, cold-pressed and translucent for 磨砂, tracing paper for 玻璃', async ({ page }) => {
+  await open(page);
+  await button(page, '主页模块与设置').click();
+  await button(page, '外观').click();
+  await page.getByRole('radio', { name: '手绘' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-style', 'sketch');
+  const paper = () => page.locator('.window').evaluate((w) => {
+    const css = getComputedStyle(w), seen = css.backgroundColor.match(/\/\s*([\d.]+)\)|rgba\([^)]*,\s*([\d.]+)\)/);
+    return { material: w.dataset.material, alpha: seen ? Number(seen[1] ?? seen[2]) : 1, image: css.backgroundImage };
+  });
+  // 实色: the drawing paper, opaque and finely dotted.
+  let shown = await paper();
+  expect(shown.material).toBe('solid');
+  expect(shown.alpha).toBe(1);
+  // 磨砂: heavy cold-pressed paper, its clouds (the turbulence at 0.016) and tooth, the desktop's frost faintly through.
+  await page.getByRole('radio', { name: '磨砂' }).click();
+  await expect.poll(async () => (await paper()).material).toBe('frosted');
+  shown = await paper();
+  expect(shown.alpha).toBeGreaterThan(0.75);
+  expect(shown.alpha).toBeLessThan(0.9);
+  expect(shown.image).toContain('0.016');
+  // 玻璃: tracing paper, plainly translucent, its fibres (0.035 0.5) and a sheen across it.
+  await page.getByRole('radio', { name: '玻璃' }).click();
+  await expect.poll(async () => (await paper()).material).toBe('glass');
+  shown = await paper();
+  expect(shown.alpha).toBeGreaterThan(0.45);
+  expect(shown.alpha).toBeLessThan(0.65);
+  expect(shown.image).toContain('0.035');
+  expect(shown.image).toContain('linear-gradient');
+  // Back to 实色: opaque again.
+  await page.getByRole('radio', { name: '实色' }).click();
+  await expect.poll(async () => (await paper()).alpha).toBe(1);
 });
 
 test('外观 → 风格 draws the panel by hand, in faces scaled to the usual width, kept across a reload, and back', async ({ page }) => {

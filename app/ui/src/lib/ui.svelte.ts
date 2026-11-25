@@ -1,6 +1,6 @@
 // Panel-wide state the components share: light or dark, reduced motion, the header hint bubble, the layout width and
 // whether the panel is pinned.
-import { shell } from './backend';
+import { inTauri, shell } from './backend';
 
 const media = (query: string) => (typeof matchMedia === 'function' ? matchMedia(query) : null);
 const darkQuery = media('(prefers-color-scheme: dark)');
@@ -22,6 +22,9 @@ class PanelState {
   pinned = $state(false);
   /** The user has moved or resized a pinned panel: the hint saying how is no longer needed. */
   arranged = $state(false);
+  /** The panel on screen (the app's window opened, not yet gone again): what reads live figures for it stops while it
+   *  is away. Outside the app (the browser preview, a phone) always. */
+  shown = $state(!inTauri && !(typeof location !== 'undefined' && new URLSearchParams(location.search).has('hidden')));
 
   constructor() {
     darkQuery?.addEventListener('change', (e) => (this.systemDark = e.matches));

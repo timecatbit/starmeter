@@ -86,6 +86,33 @@ export function smoothCurves(series: number[][], positions: number[], plot: { x:
 
 export const svgPath = (c: Curve) => `M${c.start[0]},${c.start[1]}` + c.segments.map(([a, b, e]) => `C${a[0]},${a[1]} ${b[0]},${b[1]} ${e[0]},${e[1]}`).join('');
 
+/** A smooth curve through points already on the screen (x rising): monotone cubic pieces (Fritsch and Carlson), each
+ *  between its two points and no further, so a line never goes past its readings (below zero, or a peak that was
+ *  never read) and a flat stretch stays flat. For the live lines, a straight line from point to point before. */
+export function monotoneCurve(given: Point[]): Curve {
+  // Each point right of the last one kept (not of the one before it in the list, which may have been left out).
+  const points: Point[] = [];
+  for (const p of given) if (!points.length || p[0] > points[points.length - 1][0] + 0.01) points.push(p);
+  const n = points.length;
+  if (n < 2) return { start: points[0] ?? [0, 0], segments: [], end: points[0] ?? [0, 0] };
+  const dx = points.slice(1).map((p, i) => p[0] - points[i][0]);
+  const d = points.slice(1).map((p, i) => (p[1] - points[i][1]) / dx[i]);
+  const m = points.map((_, i) => (i === 0 ? d[0] : i === n - 1 ? d[n - 2] : d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2));
+  for (let i = 0; i < n - 1; i++) {
+    if (d[i] === 0) { m[i] = 0; m[i + 1] = 0; continue; }
+    const a = m[i] / d[i], b = m[i + 1] / d[i], s = a * a + b * b;
+    if (a < 0) m[i] = 0;
+    if (b < 0) m[i + 1] = 0;
+    if (s > 9) { const k = 3 / Math.sqrt(s); m[i] = k * a * d[i]; m[i + 1] = k * b * d[i]; }
+  }
+  const segments: [Point, Point, Point][] = [];
+  for (let i = 0; i < n - 1; i++) {
+    const [x0, y0] = points[i], [x1, y1] = points[i + 1], h = dx[i] / 3;
+    segments.push([[x0 + h, y0 + m[i] * h], [x1 - h, y1 - m[i + 1] * h], [x1, y1]]);
+  }
+  return { start: points[0], segments, end: points[n - 1] };
+}
+
 export function tracePath(ctx: CanvasRenderingContext2D, c: Curve, move = true) {
   if (move) ctx.moveTo(c.start[0], c.start[1]); else ctx.lineTo(c.start[0], c.start[1]);
   for (const [a, b, e] of c.segments) ctx.bezierCurveTo(a[0], a[1], b[0], b[1], e[0], e[1]);

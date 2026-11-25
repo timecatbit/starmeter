@@ -1,16 +1,18 @@
 <script lang="ts">
-  // The pinned chart: what Summary's tools added in the last minute, read every couple of seconds. The line steps up at
-  // each reading from 0 at the window's left edge (what was added since, not the running total: the user asked for the
-  // change itself), flowing left at 30 frames a second over a fixed one-minute axis. Pinning zooms into now: the trend stretches away from its end and
+  // The pinned chart: what Summary's tools added in the last minute, read every couple of seconds. The line rises
+  // through each reading from 0 at the window's left edge, a smooth curve (what was added since, not the running total:
+  // the user asked for the change itself), flowing left at 30 frames a second over a fixed one-minute axis, in the live
+  // line's one look with 网页版 (liveLines.ts). Pinning zooms into now: the trend stretches away from its end and
   // fades, its end dot settles where the live line ends, and the live line opens out leftward from that dot while the
   // live marks come in. Unpinning plays the same in reverse and hands back to the trend. A new reading lands with a
   // ripple, 实时 breathes, and the last minute's rate reads at the top right in Token/s. Beside 实时, Token / Token/s
   // turns the line into that rate over the last minute (remembered): how fast the models are writing, rising and easing.
   import { accent, alpha, label as labelColour, starAccent, toolColour, summaryColour } from '../lib/colors';
   import { t } from '../lib/i18n.svelte';
-  import { chartAxis, chartPositions, seriesOf, smoothCurves, summaryProviders, tracePath } from '../lib/chart';
+  import { chartAxis, chartPositions, seriesOf, smoothCurves, summaryProviders, tracePath, type Point } from '../lib/chart';
   import { tokens } from '../lib/format';
-  import { compact, nice, rateText, scaleFor, type LiveFeed, type Sample, type Scale } from '../lib/live';
+  import { compact, nice, rateText, type LiveFeed, type Sample, type Scale } from '../lib/live';
+  import { drawLines, gridLine, halo, LINE } from '../lib/liveLines';
   import { font, ROUNDED, SANS, width } from '../lib/measure';
   import { untrack } from 'svelte';
   import { panel } from '../lib/ui.svelte';
@@ -96,6 +98,8 @@
       last = time;
       if (canvas.width !== Math.round((W + PAD) * scale)) canvas.width = Math.round((W + PAD) * scale);
       const now = Date.now(), dark = panel.dark;
+      // Pinned again while zooming out (or just as it ended): back in from wherever it stands, the same feed (STAGE-16).
+      if (leavingAt === null && zoom && zoom.to === 0) { left = false; zoom = { from: progress, to: 1, start: now, trend: zoom.trend }; }
       // Unpinning: zoom back out from wherever the chart stands, then hand back to the trend.
       if (leavingAt !== null && !left && (!zoom || zoom.to !== 0)) {
         if (panel.reduceMotion) { left = true; onleft?.(); return; }
@@ -126,14 +130,16 @@
       const rates: [number, number][] = [];
       const times: number[] = [];
       if (rating) {
-        for (let t = Math.floor(start / 1000) * 1000; t <= now; t += 1000) times.push(t);
+        for (let t = Math.floor(start / 1000) * 1000; t < now; t += 1000) times.push(t);
         times.push(now);
-        for (const t of times) rates.push([t, feed.rateAt(t) ?? 0]);
+        // Eased (smoothRates): a request rises and settles as a curve; the figure at the top right is the end's height.
+        const eased = feed.smoothRates(times);
+        times.forEach((t, i) => rates.push([t, eased[i]]));
       }
       // Each tool's own rate, a line of its own under the total's: every tool on the homepage, one not writing anything
-      // lying along zero (a tool used now and then is still there to see, and to see idle).
+      // barely there along zero (a tool used now and then is still there to see, and to see idle).
       const toolRates = rating
-        ? order.map((id) => ({ id, points: times.map((t): [number, number] => [t, feed.rateAt(t, id) ?? 0]) }))
+        ? order.map((id) => { const eased = feed.smoothRates(times, id); return { id, points: times.map((t, i): [number, number] => [t, eased[i]]) }; })
         : [];
       // The tools far apart (the most twenty times the least of those moving): a log scale, every line clear of the
       // bottom; back to a straight one under ten times, the gap between the two keeping it from flickering.
@@ -145,8 +151,9 @@
       if (!logNow && spread >= 20) { logNow = true; shown = null; }
       else if (logNow && spread < 10) { logNow = false; shown = null; }
       canvas.dataset.scale = logNow ? 'log' : 'linear';
-      const target = rating ? { lo: 0, height: nice(Math.max(5, ...rates.map(([, r]) => r * 1.15))) }
-        : scaleFor(0, Math.max(0, ...points.map((s) => feed.value(s) - from)));
+      // Room over the highest the line reaches (LINE.headroom), so a rise is never at the top edge.
+      const target = rating ? { lo: 0, height: nice(Math.max(5, ...rates.map(([, r]) => r * LINE.headroom))) }
+        : { lo: 0, height: nice(Math.max(2000, ...points.map((s) => (feed.value(s) - from) * LINE.headroom))) };
       // While zooming the live scale stands still; afterwards it eases to each new window.
       const range: Scale = zoom || !shown ? target
         : { lo: shown.lo + (target.lo - shown.lo) * 0.12, height: shown.height + (target.height - shown.height) * 0.12 };
@@ -236,7 +243,9 @@
           const level = y(value);
           if (level < plot.y - 12 || level > bottom + 12) return;
           if (labelStrength > 0.01) { ctx.globalAlpha = liveAlpha * labelStrength; text(label, 0, level - 5, 8, secondary); ctx.globalAlpha = liveAlpha; }
-          grid(level, isBottom, 1);
+          // The bottom a faint rule, the marks over it dotted (the live line's grid, as 网页版's).
+          if (isBottom) grid(level, true, 1);
+          else gridLine(ctx, level, plot.x, plot.x + plot.w, labelColour(dark, 1));
         };
         const apart = Math.min(1, Math.max(0, (Math.abs(y(range.lo) - y(range.lo + range.height / 2)) - 8) / 6));
         if (logNow) {
@@ -269,6 +278,7 @@
         // What the top right says, for whatever reads the page rather than the pixels (tests among them).
         canvas.dataset.added = String(Math.round(added));
         canvas.dataset.rate = String(Math.round(rate ?? 0));
+        canvas.dataset.samples = String(samples.length);
         const unit = ' Token/s', figure = rateText(rate ?? 0);
         const lead = t('近 1 分钟 +{n} Token · 输出 ', { n: tokens(added) });
         const baseline = 11;
@@ -288,127 +298,42 @@
       }
       if (!base && !rating) return;
 
-      const x = (t: number) => plot.x + ((t - start) / span) * plot.w;
+      // The live line ends LINE.end inside the right edge: its halo and a reading's ring in the chart's own room, 现在
+      // under the edge.
+      const liveRight = plot.x + plot.w - LINE.end;
+      const x = (t: number) => plot.x + ((t - start) / span) * (liveRight - plot.x);
       const clamped = (value: number) => bottom - Math.min(1.08, share(value)) * plot.h;
       // (Only drawn with a first reading: Token/s alone goes on without one, along zero.)
       const added = (id: string, sample: Sample) => (sample.parts[id] ?? 0) - (base!.parts[id] ?? 0);
-      // Each tool a line of its own, as on the trend: from where the window starts, up by what that tool added since, the
-      // total's line over them all. Every tool on the homepage, one that added nothing lying along the bottom; the
-      // biggest drawn first, so a small one isn't hidden under it.
-      const drawn = base ? [...order] : [];
-      const newestPoint = points.at(-1);
-      if (newestPoint) drawn.sort((a, b) => added(b, newestPoint) - added(a, newestPoint));
       // What the total and each tool added since the window's left edge: the axis runs from 0.
       const level = (id: string | null, sample: Sample) => (id === null ? feed.value(sample) - from : added(id, sample));
+      const latest = base ? [...samples].reverse().find((s) => s.at <= now) ?? base : null;
+      // Token: a point at each reading (the window's left edge at the first), on to now at the last, a smooth curve
+      // through them: what a reading added rises over the seconds before it, not in a step (it was a staircase).
+      const readingLine = (id: string | null): Point[] => [
+        [plot.x, clamped(level(id, base!))], ...points.map((s): Point => [x(s.at), clamped(level(id, s))]), [liveRight, clamped(level(id, latest!))]];
+      const totalLine: Point[] = rating ? rates.map(([at, r]): Point => [x(at), clamped(r)]) : readingLine(null);
+      const toolLines = (rating
+        ? toolRates.map((tool) => ({ id: tool.id, points: tool.points.map(([at, r]): Point => [x(at), clamped(r)]) }))
+        : order.map((id) => ({ id, points: readingLine(id) }))).map((tool) => ({ ...tool, colour: toolColour(tool.id, dark) }));
       // Which lines are drawn, and each tool's rate now, for whatever reads the page rather than the pixels (tests).
-      canvas.dataset.lines = (rating ? toolRates.map((tool) => tool.id) : drawn).join(',');
+      canvas.dataset.lines = toolLines.map((tool) => tool.id).join(',');
       canvas.dataset.toolRates = JSON.stringify(Object.fromEntries(toolRates.map((tool) => [tool.id, Math.round(tool.points.at(-1)![1] * 10) / 10])));
-      type Step = { kind: 'line'; to: [number, number] } | { kind: 'curve'; c1: [number, number]; c2: [number, number]; to: [number, number] };
-      // Steps: a line holds its value until the next reading, then rises to it.
-      const steps = (valueOf: (sample: Sample) => number): { from: [number, number]; steps: Step[] } => {
-        let previous = valueOf(base!);
-        const from: [number, number] = [plot.x, clamped(previous)];
-        const out: Step[] = [];
-        for (const s of points) {
-          const next = valueOf(s);
-          if (next !== previous) {
-            out.push({ kind: 'line', to: [x(s.at) - 6, clamped(previous)] });
-            out.push({ kind: 'curve', c1: [x(s.at) - 3, clamped(previous)], c2: [x(s.at) - 3, clamped(next)], to: [x(s.at), clamped(next)] });
-          }
-          previous = next;
-        }
-        out.push({ kind: 'line', to: [plot.x + plot.w, clamped(previous)] });
-        return { from, steps: out };
-      };
-      const forward = (line: ReturnType<typeof steps>) => {
-        for (const step of line.steps) {
-          if (step.kind === 'line') ctx.lineTo(...step.to);
-          else ctx.bezierCurveTo(...step.c1, ...step.c2, ...step.to);
-        }
-      };
-      // A tool's line ends in a small dot of its colour. Dots are drawn after the clip that opens the lines out, so one on
-      // the right edge is whole (it was cut in half); several ending at one point (the idle tools, all along the bottom)
-      // are one dot, in the colour of the line drawn over the others (stepped aside, they read as dots behind a line).
-      const ends: Record<string, [number, number]> = {};
-      const marks: { id: string; at: number }[] = [];
-      const totalEnd = rating ? clamped(rates.at(-1)?.[1] ?? 0) : clamped(level(null, [...samples].reverse().find((s) => s.at <= now) ?? base!));
-      // A tool ending where the total does (the one adding nearly all of it) draws no dot of its own: the total's dot is
-      // that point.
-      const under: string[] = [];
-      const toolEnd = (id: string, at: number) => {
-        if (Math.abs(at - totalEnd) < 6) under.push(id);
-        else marks.push({ id, at });
-      };
-      const path = (id: string | null) => {
-        const line = steps((s) => level(id, s));
-        ctx.beginPath(); ctx.moveTo(...line.from); forward(line);
-      };
-      const rateTip = rates.at(-1);
-      if (rating && reach > 0.001) {
-        ctx.save();
-        ctx.globalAlpha = trend ? ramp(0.3, 0.7, p) : 1;
-        const opened = plot.w * reach;
-        ctx.beginPath(); ctx.rect(plot.x + plot.w - opened, plot.y - 6, opened, plot.h + 12); ctx.clip();
-        if (rates.length > 1) {
-          const trace = () => { ctx.beginPath(); rates.forEach(([t, r], i) => (i ? ctx.lineTo(x(t), clamped(r)) : ctx.moveTo(x(t), clamped(r)))); };
-          const idle = (tool: (typeof toolRates)[number]) => tool.points.every(([, r]) => r <= 0);
-          const toolLine = (tool: (typeof toolRates)[number]) => {
-            ctx.beginPath(); tool.points.forEach(([t, r], i) => (i ? ctx.lineTo(x(t), clamped(r)) : ctx.moveTo(x(t), clamped(r))));
-            ctx.lineWidth = 1.4; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.strokeStyle = toolColour(tool.id, dark); ctx.stroke();
-            toolEnd(tool.id, clamped(tool.points.at(-1)![1]));
-          };
-          // The idle tools under the total's line, which stays on top along zero; the ones writing over it.
-          toolRates.filter(idle).forEach(toolLine);
-          trace();
-          ctx.lineTo(x(rates.at(-1)![0]), bottom); ctx.lineTo(x(rates[0][0]), bottom); ctx.closePath();
-          const fill = ctx.createLinearGradient(0, plot.y, 0, bottom);
-          fill.addColorStop(0, alpha(total, dark ? 0.28 : 0.18)); fill.addColorStop(1, alpha(total, 0));
-          ctx.fillStyle = fill; ctx.fill();
-          trace(); ctx.lineWidth = 1.8; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.strokeStyle = total; ctx.stroke();
-          toolRates.filter((tool) => !idle(tool)).forEach(toolLine);
-        }
-        ctx.restore();
-      } else if (reach > 0.001) {
-        // The live line opens out leftward from the end dot as the zoom finishes.
-        ctx.save();
-        ctx.globalAlpha = trend ? ramp(0.3, 0.7, p) : 1;
-        const opened = plot.w * reach;
-        ctx.beginPath(); ctx.rect(plot.x + plot.w - opened, plot.y - 6, opened, plot.h + 12); ctx.clip();
-        const latest = [...samples].reverse().find((s) => s.at <= now) ?? base!;
-        const toolLine = (id: string) => {
-          path(id);
-          ctx.lineWidth = 1.4; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.strokeStyle = toolColour(id, dark); ctx.stroke();
-          toolEnd(id, clamped(level(id, latest)));
-        };
-        // The tools that added nothing lie under the total's line, which stays on top along the bottom.
-        const idle = (id: string) => points.every((s) => added(id, s) <= 0);
-        drawn.filter(idle).forEach(toolLine);
-        path(null);
-        ctx.lineTo(plot.x + plot.w, bottom); ctx.lineTo(plot.x, bottom); ctx.closePath();
-        const fill = ctx.createLinearGradient(0, plot.y, 0, bottom);
-        fill.addColorStop(0, alpha(total, dark ? 0.28 : 0.18)); fill.addColorStop(1, alpha(total, 0));
-        ctx.fillStyle = fill; ctx.fill();
-        path(null); ctx.lineWidth = 1.8; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.strokeStyle = total; ctx.stroke();
-        // The tools adding over the total's line, so the one adding most shows in its colour where it runs along it.
-        drawn.filter((id) => !idle(id)).forEach(toolLine);
-        ctx.restore();
-      }
+      let liveTip: Point = [liveRight, totalLine.at(-1)?.[1] ?? bottom];
       if (reach > 0.001) {
+        // The live line opens out leftward from the end dot as the zoom finishes: in the live line's one look
+        // (liveLines.ts), quietly (no glow).
         ctx.save();
         ctx.globalAlpha = trend ? ramp(0.3, 0.7, p) : 1;
-        const shown = marks.filter((mark, i) => !marks.slice(i + 1).some((later) => Math.abs(later.at - mark.at) < 4.5));
-        for (const { id, at } of shown) {
-          ends[id] = [plot.x + plot.w, at];
-          ctx.fillStyle = toolColour(id, dark); ctx.beginPath(); ctx.arc(plot.x + plot.w, at, 2, 0, Math.PI * 2); ctx.fill();
-        }
+        const opened = (liveRight - plot.x) * reach;
+        ctx.beginPath(); ctx.rect(liveRight - opened, plot.y - 10, opened + LINE.end, plot.h + 20); ctx.clip();
+        const drawn = drawLines(ctx, { total: totalLine, tools: toolLines, base: bottom, plotTop: plot.y, totalColour: total, areaColour: total, dark });
+        liveTip = drawn.end;
         ctx.restore();
+        canvas.dataset.under = drawn.under.join(',');
+        canvas.dataset.ends = JSON.stringify(Object.fromEntries(drawn.dots.map((id) => [id, [Math.round(liveRight * 10) / 10, Math.round(drawn.ends[id] * 10) / 10]])));
       }
-      canvas.dataset.under = under.join(',');
-      canvas.dataset.ends = JSON.stringify(Object.fromEntries(Object.entries(ends).map(([id, [ex, ey]]) => [id, [Math.round(ex * 10) / 10, Math.round(ey * 10) / 10]])));
       // The end dot carries the eye between the charts: from the trend's newest point to the live line's end.
-      const liveTip: [number, number] = rating
-        ? [plot.x + plot.w, clamped(rateTip ? rateTip[1] : 0)]
-        : [plot.x + plot.w, clamped(level(null, [...samples].reverse().find((s) => s.at <= now) ?? base!))];
       const move = trendEnd ? ramp(0.1, 0.8, p) : 1;
       const tip: [number, number] = trendEnd
         ? [trendEnd[0] + (liveTip[0] - trendEnd[0]) * move, trendEnd[1] + (liveTip[1] - trendEnd[1]) * move]
@@ -418,8 +343,12 @@
         ctx.strokeStyle = alpha(total, 0.6 * (1 - t)); ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.arc(tip[0], tip[1], radius, 0, Math.PI * 2); ctx.stroke();
       }
-      ctx.fillStyle = alpha(total, 0.2); ctx.beginPath(); ctx.arc(tip[0], tip[1], 5, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = total; ctx.beginPath(); ctx.arc(tip[0], tip[1], 2.5, 0, Math.PI * 2); ctx.fill();
+      // Its halo breathing out and back (as 网页版's), still while the zoom plays or with reduced motion.
+      const breath = halo(now, panel.reduceMotion || !!zoom);
+      ctx.fillStyle = alpha(total, breath.strength); ctx.beginPath(); ctx.arc(tip[0], tip[1], breath.radius, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = total; ctx.beginPath(); ctx.arc(tip[0], tip[1], LINE.dot, 0, Math.PI * 2); ctx.fill();
+      // Where the end is, and the canvas around it: for the tests, which ask its halo be whole.
+      canvas.dataset.tip = `${Math.round(tip[0] * 10) / 10},${Math.round(tip[1] * 10) / 10},${W + PAD},${H}`;
     };
     frame = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(frame);

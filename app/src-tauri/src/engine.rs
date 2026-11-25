@@ -21,6 +21,45 @@ use crate::host as shell;
 #[cfg(target_os = "macos")]
 use crate::macos;
 
+/// 会话's row with its figures in `range`, as the panel draws it.
+fn sessions_row(runtime: &Runtime, range: &str) -> Json {
+    runtime.render(|| {
+        let data = runtime.cached_data();
+        let lines = runtime.sessions_lines_in(&data, &runtime.currency_unit(&data), range);
+        starmeter_core::panel_snapshot::panel_entries(&lines).into_iter().next().unwrap_or(Json::Null)
+    })
+}
+
+/// 会话 on /api/live: today's row, and when each session's latest turn began. Nothing at all while 会话 is off the
+/// homepage: its cache keeps the last reading, so a session last seen running would run on the phone for ever and its
+/// title, project and cost go out though the user turned 会话 off (STAGE-1).
+fn live_sessions(runtime: &Runtime) -> (Value, serde_json::Map<String, Value>) {
+    let mut turns = serde_json::Map::new();
+    if !runtime.module_enabled("sessions") {
+        return (Value::Null, turns);
+    }
+    if let Some(sessions) = runtime
+        .read_cache("sessions")
+        .get("payload")
+        .and_then(|payload| payload.get("sessions"))
+        .and_then(Json::as_array)
+    {
+        for session in sessions {
+            let id = session.get("id").and_then(Json::as_str);
+            let began = session
+                .get("turns")
+                .and_then(Json::as_array)
+                .and_then(|turns| turns.first())
+                .and_then(|turn| turn.get("at"))
+                .and_then(Json::number);
+            if let (Some(id), Some(began)) = (id, began) {
+                turns.insert(id.to_string(), serde_json::json!(began));
+            }
+        }
+    }
+    (to_value(sessions_row(runtime, "today")), turns)
+}
+
 /// Whether the panel is on screen, for the core's refresh cadence.
 pub static PANEL_OPEN: AtomicBool = AtomicBool::new(false);
 /// When a phone last read the homepage (在手机上看), in seconds: for a minute after, the core keeps the open panel's
@@ -144,6 +183,28 @@ impl Engine {
         to_value(Json::Object(value))
     }
 
+    /// Today's figures for the last minutes' live readings (phone.rs keeps them from the start), from the cache only:
+    /// never a read of the logs, rendered only when today's cache was written again since `seen` (its fetchedAt), and
+    /// none while a render is under way (a refresh, the panel's own drawing: the reading waits for the next turn, it
+    /// doesn't hold them up). STAGE-14.
+    pub fn today_cached(&self, seen: &mut f64) -> Option<Value> {
+        let runtime = self.runtime();
+        let _turn = self.rendering.try_lock().ok()?;
+        today_from_cache(&runtime, seen)
+    }
+
+    /// 会话 as cached, when the render lock is free (Some(Null) while it is off the homepage), for the same readings.
+    pub fn sessions_if_free(&self) -> Option<Value> {
+        let runtime = self.runtime();
+        let _turn = self.rendering.try_lock().ok()?;
+        Some(live_sessions(&runtime).0)
+    }
+
+    /// Whether 会话 is on the homepage: the last minutes given carry its sessions only then.
+    pub fn sessions_on(&self) -> bool {
+        self.runtime().module_enabled("sessions")
+    }
+
     /// One range's dashboard without changing the one on screen; reads it if the cache has none.
     pub fn dashboard(&self, range: &str) -> Value {
         self.dashboard_grouped(range, None)
@@ -160,15 +221,49 @@ impl Engine {
     }
 
     /// The 会话 row with its figures and note in `range`, for a phone that chose another range than this computer.
+    /// 会话 for today as cached (nothing read again), none while it is off the homepage: what a phone's last minutes keep.
+    pub fn sessions_now(&self) -> Value {
+        let runtime = self.runtime();
+        let _turn = self.rendering.lock().expect("the render lock");
+        live_sessions(&runtime).0
+    }
+
     pub fn sessions_entry(&self, range: &str) -> Value {
         let runtime = self.runtime();
         let _turn = self.rendering.lock().expect("the render lock");
-        let entry = runtime.render(|| {
-            let data = runtime.cached_data();
-            let lines = runtime.sessions_lines_in(&data, &runtime.currency_unit(&data), range);
-            starmeter_core::panel_snapshot::panel_entries(&lines).into_iter().next().unwrap_or(Json::Null)
-        });
-        to_value(entry)
+        to_value(sessions_row(&runtime, range))
+    }
+
+    /// A phone watching 网页版's live view: today's usage read again from the local logs, and the sessions, as a pinned
+    /// panel's tick reads them (refresh_live), at most every `LIVE_EVERY` whoever asks, so two phones share a reading;
+    /// then today's figures by tool, 会话 for today, and when each session's latest turn began (its clock on the phone).
+    pub fn live(&self) -> Value {
+        static LAST: AtomicU64 = AtomicU64::new(0);
+        let runtime = self.runtime();
+        let moment = now();
+        let millis = (moment * 1000.0) as u64;
+        let last = LAST.load(Ordering::SeqCst);
+        if millis.saturating_sub(last) >= LIVE_EVERY.as_millis() as u64
+            && LAST.compare_exchange(last, millis, Ordering::SeqCst, Ordering::SeqCst).is_ok()
+        {
+            // Busy with another read of the ranges (a refresh, the panel's own tick): what is cached serves.
+            let _ = runtime.with_lock("range-refresh.lock", false, || {
+                runtime.range_usage(Some("today"), Some(0.0));
+            });
+            if runtime.module_enabled("sessions") {
+                runtime.sessions_cached(Some(0.0));
+            }
+        }
+        let (sessions, turns) = {
+            let _turn = self.rendering.lock().expect("the render lock");
+            live_sessions(&runtime)
+        };
+        serde_json::json!({
+            "at": moment,
+            "dashboard": self.dashboard_grouped("today", Some("tool")),
+            "sessions": sessions,
+            "turns": turns,
+        })
     }
 
     pub fn menu_bar_text(&self) -> String {
@@ -261,6 +356,9 @@ impl Engine {
         }
     }
 }
+
+/// The live view's reads on a phone come at most this often, however many phones ask and however often.
+const LIVE_EVERY: Duration = Duration::from_millis(1500);
 
 /// Actions whose receipt carries the display preferences (5.x's RECEIPT_ACTIONS).
 const PREFERENCE_ACTIONS: [&str; 9] = [
@@ -673,9 +771,106 @@ fn online() -> bool {
     true
 }
 
+/// Today's dashboard from today's range cache as it stands (its figures and other computers'), if it was written again
+/// since `seen`: nothing read from the logs, nothing fetched when there is no cache.
+fn today_from_cache(runtime: &Runtime, seen: &mut f64) -> Option<Value> {
+    let record = runtime.read_cache(&runtime.range_cache_name(Some("today")));
+    let stamp = record.get("fetchedAt").and_then(Json::python_float)?;
+    if stamp == *seen {
+        return None;
+    }
+    let bundle = record.get("payload").and_then(Json::as_object).cloned()?;
+    let merged = runtime.with_devices("today", starmeter_core::object! { "payload" => bundle });
+    let loaded = (merged.get("payload").and_then(Json::as_object).cloned(), None);
+    let value = runtime.render(|| runtime.range_dashboard("today", Some("tool"), loaded, now()));
+    *seen = stamp;
+    Some(to_value(Json::Object(value)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// STAGE-14: the live readings' today comes from the cache only. No cache: nothing, and nothing fetched (the logs
+    /// not read: no cache written). A cache: its dashboard; the same cache again: nothing to render; written again:
+    /// rendered again.
+    #[test]
+    fn the_readings_today_comes_from_the_cache_alone() {
+        let home = std::env::temp_dir().join(format!("starmeter-today-{}", starmeter_core::runtime::random_hex(6)));
+        let (state, cache) = (home.join("state"), home.join("cache"));
+        std::fs::create_dir_all(&state).unwrap();
+        std::fs::create_dir_all(&cache).unwrap();
+        std::fs::write(state.join("preferences.json"), r#"{"schema":1,"visible":["summary","claude"]}"#).unwrap();
+        let environment: HashMap<String, String> = [
+            ("HOME", home.to_string_lossy().into_owned()),
+            ("OCX_STATE_DIR", state.to_string_lossy().into_owned()),
+            ("OCX_CACHE_DIR", cache.to_string_lossy().into_owned()),
+            ("PATH", home.join("bin").to_string_lossy().into_owned()),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value))
+        .collect();
+        let runtime = Runtime::new(environment, "starmeter");
+        let path = runtime.cache_path(&runtime.range_cache_name(Some("today")));
+        let mut seen = 0.0;
+        assert!(today_from_cache(&runtime, &mut seen).is_none());
+        assert!(!Path::new(&path).exists(), "fetched: {path}");
+        let write = |at: f64| {
+            let record = serde_json::json!({"schema": 1, "fetchedAt": at, "day": starmeter_core::runtime::today(),
+                "payload": {"range": "today", "start": at - 3600.0, "end": at}});
+            std::fs::create_dir_all(Path::new(&path).parent().unwrap()).unwrap();
+            std::fs::write(&path, record.to_string()).unwrap();
+        };
+        write(now() - 5.0);
+        let dashboard = today_from_cache(&runtime, &mut seen).expect("today's dashboard");
+        assert_eq!(dashboard["rangeKey"], "today", "{dashboard}");
+        assert!(today_from_cache(&runtime, &mut seen).is_none(), "the same cache rendered again");
+        write(now());
+        assert!(today_from_cache(&runtime, &mut seen).is_some());
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// STAGE-1: a session last read running, still in 会话's cache, goes to a phone's live view only while 会话 is on
+    /// the homepage; turned off, nothing of it does (no row, no turn's start).
+    #[test]
+    fn the_live_view_has_no_sessions_while_they_are_off_the_homepage() {
+        let home = std::env::temp_dir().join(format!("starmeter-live-{}", starmeter_core::runtime::random_hex(6)));
+        let (state, cache) = (home.join("state"), home.join("cache"));
+        std::fs::create_dir_all(&state).unwrap();
+        std::fs::create_dir_all(&cache).unwrap();
+        let moment = now();
+        let record = serde_json::json!({
+            "schema": 1, "fetchedAt": moment,
+            "payload": {"sessions": [{
+                "id": "s1", "title": "重做设置页", "tool": "claude", "state": "running", "at": moment,
+                "turns": [{"at": moment - 30.0, "requests": 1}],
+            }]},
+        });
+        let environment: HashMap<String, String> = [
+            ("HOME", home.to_string_lossy().into_owned()),
+            ("OCX_STATE_DIR", state.to_string_lossy().into_owned()),
+            ("OCX_CACHE_DIR", cache.to_string_lossy().into_owned()),
+            ("PATH", home.join("bin").to_string_lossy().into_owned()),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value))
+        .collect();
+        let read = |visible: &str| {
+            std::fs::write(state.join("preferences.json"), format!(r#"{{"schema":1,"visible":[{visible}]}}"#)).unwrap();
+            let runtime = Runtime::new(environment.clone(), "starmeter");
+            let path = runtime.cache_path("sessions");
+            std::fs::create_dir_all(Path::new(&path).parent().unwrap()).unwrap();
+            std::fs::write(&path, record.to_string()).unwrap();
+            live_sessions(&runtime)
+        };
+        let (entry, turns) = read(r#""claude","sessions""#);
+        assert_eq!(entry["label"], "会话", "{entry}");
+        assert_eq!(turns.get("s1").and_then(Value::as_f64), Some(moment - 30.0));
+        let (entry, turns) = read(r#""claude""#);
+        assert!(entry.is_null(), "{entry}");
+        assert!(turns.is_empty(), "{turns:?}");
+        let _ = std::fs::remove_dir_all(&home);
+    }
 
     /// Two-second looks from `from` to `to`, each answered by `online`; the moments the clock read, and how.
     fn run(clock: &mut Clock, from: f64, to: f64, online: impl Fn(f64) -> bool) -> Vec<(f64, Tick)> {

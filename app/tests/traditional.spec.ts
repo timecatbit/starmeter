@@ -3,12 +3,13 @@
 // the charts and share pictures all count; the languages' own names are meant to stay.
 import { expect, test, type Page } from '@playwright/test';
 import { toHant } from '../ui/src/lib/hant';
+import { liveWork, PHONE_KEY, servePhone } from './phone';
 
 test.describe.configure({ timeout: 120_000 });
 
 const KEPT = new Set(['简体中文']);
 
-async function traditional(page: Page, query = '') {
+async function traditional(page: Page, query = '', shown = '.dashboard') {
   await page.addInitScript(() => {
     localStorage.setItem('starmeter.language', 'zh-Hant');
     const drawn = new Set<string>();
@@ -20,7 +21,7 @@ async function traditional(page: Page, query = '') {
     };
   });
   await page.goto('/' + query);
-  await expect(page.locator('.dashboard')).toBeVisible();
+  await expect(page.locator(shown)).toBeVisible();
   await page.waitForTimeout(300);
 }
 
@@ -55,12 +56,14 @@ test('繁體中文: the homepage, its pages, the groupings and 會話', async ({
   await left.take(page, 'home');
   // The cards' groupings, each character converted.
   const tabs = page.getByRole('radiogroup', { name: '卡片分組' }).getByRole('radio');
-  await expect(tabs).toHaveText(['工具', '模型', '項目', '會話']);
+  await expect(tabs).toHaveText(['工具', '模型', '項目', '會話', '實時']);
   for (const tab of await tabs.all()) {
     await tab.click();
     await page.waitForTimeout(400);
     await left.take(page, `home › ${await tab.textContent()}`);
   }
+  // 會話 (the last tab now is 實時).
+  await tabs.nth(3).click();
   await expect(page.locator('.session-list .empty')).toHaveText('今天活動過的會話 · 金額只算今天');
   await (await tabs.all())[0].click();
   const pages = page.locator('.home .row.tall', { has: page.locator('.arrow') });
@@ -79,6 +82,36 @@ test('繁體中文: the homepage, its pages, the groupings and 會話', async ({
   await page.waitForTimeout(450);
   await expect(page.locator('.page')).toContainText('語言 Language');
   await left.take(page, 'general');
+  expect(left.list).toEqual([]);
+});
+
+test('繁體中文 on the phone: 手機版 with each grouping, a card and a session open, both ways up', async ({ page }) => {
+  const left = new Leftovers();
+  const clock = { now: Date.now() };
+  await servePhone(page, PHONE_KEY, { live: liveWork({ now: () => clock.now, length: 1000, claudeEnds: 20, codexEnds: 12 }) });
+  await page.setViewportSize({ width: 393, height: 852 });
+  await traditional(page, '#k=' + PHONE_KEY + '&l=zh-Hant', '.stage');
+  await page.waitForTimeout(1400);
+  clock.now += 9000;
+  await expect(page.locator('.stage .feed .event').first()).toBeVisible({ timeout: 5000 });
+  await left.take(page, 'phone');
+  clock.now += 12_000;
+  await expect(page.locator('.stage .turn-done')).toBeVisible({ timeout: 5000 });
+  await left.take(page, 'phone › 這一輪完成');
+  clock.now += 60_000;
+  await expect(page.locator('.stage .monitor:not(.working)')).toBeVisible({ timeout: 7000 });
+  await left.take(page, 'phone › 休息中');
+  for (const name of ['模型', '項目', '會話', '工具']) {
+    await page.getByRole('radiogroup', { name: '卡片分組' }).getByRole('radio', { name }).click();
+    await page.waitForTimeout(700);
+    if (name === '會話') await page.locator('.stage .session .head').first().click();
+    if (name === '工具') await page.locator('.stage .card .head').first().click();
+    await page.waitForTimeout(400);
+    await left.take(page, 'phone › ' + name);
+  }
+  await page.setViewportSize({ width: 852, height: 393 });
+  await page.waitForTimeout(400);
+  await left.take(page, 'phone › landscape');
   expect(left.list).toEqual([]);
 });
 
