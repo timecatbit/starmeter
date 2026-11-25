@@ -889,6 +889,35 @@ test('网页版 on a computer\'s screen: the monitor as tall as what is beside i
   }
 });
 
+test('the live curve has a line for each tool beside the total\'s, named in a legend, their ends apart, both ways up, on a computer\'s screen and in 手绘', async ({ page }) => {
+  test.setTimeout(90_000);
+  for (const [size, look] of [[PORTRAIT, ''], [LANDSCAPE, ''], [{ width: 1440, height: 900 }, ''], [PORTRAIT, 'sketch']] as const) {
+    // Each in a tab of its own (a page left mid-reading reports the reading it gave up as an error).
+    const tab = size === PORTRAIT && !look ? page : await page.context().newPage();
+    const work = scripted();
+    await phone(tab, size, look ? '&s=sketch' : '', { live: work.live });
+    for (const seconds of [3, 6, 9]) { work.at(seconds); await tab.waitForTimeout(2100); }
+    const chart = tab.locator('.stage .monitor .live-chart');
+    // The total's line, then each tool's: Claude and ChatGPT (the fixtures' Codex work) among them, in their colours.
+    await expect(chart.locator('.legend li').first()).toHaveText('总量');
+    const names = await chart.locator('.legend li').allTextContents();
+    expect(names).toContain('Claude');
+    expect(names).toContain('ChatGPT');
+    // The ones writing plain, the idle ones quieter.
+    await expect(chart.locator('.legend li', { hasText: 'Claude' })).not.toHaveClass(/idle/);
+    await expect(chart.locator('.legend li.idle').first()).toBeVisible();
+    const drawn = await chart.locator('canvas').evaluate((c) => ({ lines: Number(c.dataset.lines), dots: JSON.parse(c.dataset.dots ?? '{}') as Record<string, number>, under: c.dataset.under }));
+    expect(drawn.lines, JSON.stringify(size)).toBeGreaterThanOrEqual(2);
+    const ys = Object.values(drawn.dots).sort((a, b) => a - b);
+    for (let i = 1; i < ys.length; i++) expect(ys[i] - ys[i - 1]).toBeGreaterThanOrEqual(4.5);
+    // The legend within the monitor, on one or two lines.
+    const legend = (await chart.locator('.legend').boundingBox())!, box = (await chart.boundingBox())!;
+    expect(legend.x + legend.width).toBeLessThanOrEqual(box.x + box.width + 0.5);
+    expect(legend.height).toBeLessThanOrEqual(40);
+    if (tab !== page) await tab.close();
+  }
+});
+
 test('figures that change only now and then (SwiftBar\'s plugin) make a speed that rises over the stretch, not steps', async ({ page }) => {
   await phone(page);
   const samples = await page.evaluate(async () => {

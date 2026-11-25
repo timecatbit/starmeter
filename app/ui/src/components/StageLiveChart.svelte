@@ -1,7 +1,9 @@
 <script lang="ts">
-  // 网页版's live curve: how fast each tool's models are writing (output tokens a second over the last minute, as the
-  // pinned panel's Token/s reads it), stacked a band per tool over the last five minutes, flowing left as time runs, a
-  // glowing line along the top. Each request that lands drops in from above onto the curve's end, ripples there, and
+  // 网页版's live curve: how fast the models are writing (output tokens a second over the last minute, as the pinned
+  // panel's Token/s reads it) over the last five minutes, flowing left as time runs: the total's glowing line, and each
+  // tool's own line in its colour (as the pinned panel draws them), a tool writing nothing lying along the bottom under
+  // the total's line, the ones writing over it; their ends step aside, and a tool ending where the total does is the
+  // total's dot. Named in a legend over it. Each request that lands drops in from above onto the curve's end, ripples there, and
   // says what it added (+12.3K) as it rises and fades: the AI's work arriving, one request at a time. Reduced motion:
   // drawn again at each reading, nothing falling or flowing.
   import { onDestroy, untrack } from 'svelte';
@@ -10,10 +12,15 @@
   import { t } from '../lib/i18n.svelte';
   import { nice, rateText } from '../lib/live';
   import { LIVE_SPAN, type PhoneLive } from '../lib/phoneLive.svelte';
-  import { tokens } from '../lib/format';
+  import { legendName, tokens } from '../lib/format';
   import { panel } from '../lib/ui.svelte';
 
   let { live, height }: { live: PhoneLive; height: number } = $props();
+
+  /** The lines named: the total's, then each tool's as drawn (the busiest first). */
+  let named = $state<{ id: string; name: string; idle: boolean }[]>([]);
+  let legendHeight = $state(0);
+  const plotHeight = $derived(Math.max(40, height - legendHeight));
 
   let box: HTMLDivElement | undefined = $state();
   let canvas: HTMLCanvasElement | undefined = $state();
@@ -41,10 +48,15 @@
       const samples = live.feed.samples, now = Date.now();
       const seen = new Set<string>();
       for (const s of samples) for (const id of Object.keys(s.outputs ?? {})) seen.add(id);
-      // The busiest at the bottom, so the bands above it are the smaller ones.
+      // The busiest first (the legend in that order; drawn last, over the others).
       const last = samples.at(-1);
       ids = [...seen].sort((a, b) => (last?.outputs?.[b] ?? 0) - (last?.outputs?.[a] ?? 0));
       points = samples.filter((s) => now - s.at <= LIVE_SPAN + 5000).map((s) => ({ at: s.at, rates: ids.map((id) => live.feed.rateAt(s.at, id) ?? 0) }));
+      // Named in the legend; a tool that wrote nothing in these minutes quieter there (its line along the bottom).
+      const names = new Map((live.dashboard?.providers ?? []).map((p) => [p.id, legendName(p)]));
+      const next = ids.map((id, k) => ({ id, name: names.get(id) ?? id, idle: points.every((p) => p.rates[k] <= 0) }));
+      const key = (list: typeof named) => list.map((n) => `${n.id}${n.name}${n.idle}`).join();
+      if (key(next) !== key(named)) named = next;
       const highest = Math.max(0, ...points.map((p) => p.rates.reduce((a, b) => a + b, 0)));
       top = nice(Math.max(4, highest * 1.18));
       for (const landing of live.landings) drops.push({ id: landing.id, tokens: landing.tokens, born: now });
@@ -66,7 +78,7 @@
   /** The page's own faces and ink, as it shows them (by hand in 手绘): read again when the look changes. */
   let faces = { text: 'system-ui, sans-serif', figure: 'ui-rounded, system-ui, sans-serif', ink: 'rgb(214, 222, 255)' };
   $effect(() => {
-    void width; void height; void panel.dark; void style.current;
+    void width; void plotHeight; void panel.dark; void style.current;
     untrack(() => {
       if (canvas) {
         const css = getComputedStyle(canvas);
@@ -83,7 +95,7 @@
   function draw() {
     running = false;
     if (!canvas || width <= 0) return;
-    const ratio = window.devicePixelRatio || 1, W = width, H = height;
+    const ratio = window.devicePixelRatio || 1, W = width, H = plotHeight;
     if (canvas.width !== Math.round(W * ratio) || canvas.height !== Math.round(H * ratio)) {
       canvas.width = Math.round(W * ratio); canvas.height = Math.round(H * ratio);
     }
@@ -122,51 +134,75 @@
     ctx.textAlign = 'right';
     ctx.fillText(t('现在'), right, H - 4);
 
-    // The bands, bottom up, each tool's rate on top of the ones under it; the curve runs on to now at its last height.
+    // The lines run on to now at their last height.
     const shown = points.filter((p) => x(p.at) >= -40);
+    const ends: Record<string, number> = {};
+    const under: string[] = [];
     if (shown.length) {
       const tail = { at: end, rates: shown.at(-1)!.rates };
       const line = [...shown, tail];
-      const stack = line.map((p) => { let sum = 0; return p.rates.map((r) => (sum += r)); });
-      const curve = (k: number) => {
+      const totals = line.map((p) => p.rates.reduce((a, b) => a + b, 0));
+      const values = ids.map((_, k) => line.map((p) => p.rates[k] ?? 0));
+      const path = (of: number[]) => {
         // A smooth path through the points: midpoints joined by quadratic curves.
-        const xy = line.map((p, i) => [x(p.at), y(stack[i][k] ?? 0)] as const);
+        const xy = line.map((p, i) => [x(p.at), y(of[i] ?? 0)] as const);
         ctx.moveTo(xy[0][0], xy[0][1]);
         for (let i = 1; i < xy.length - 1; i++) { const mx = (xy[i][0] + xy[i + 1][0]) / 2, my = (xy[i][1] + xy[i + 1][1]) / 2; ctx.quadraticCurveTo(xy[i][0], xy[i][1], mx, my); }
         ctx.lineTo(xy[xy.length - 1][0], xy[xy.length - 1][1]);
         return xy;
       };
-      for (let k = ids.length - 1; k >= 0; k--) {
-        const colour = toolColour(ids[k], panel.dark);
+      const total = sketch ? summaryColour(panel.dark) : panel.dark ? 'rgba(240, 245, 255, 0.95)' : 'rgba(14, 29, 76, 0.85)';
+      // Under the total's line, a faint glow of it down to zero.
+      ctx.beginPath();
+      const area = path(totals);
+      ctx.lineTo(area[area.length - 1][0], base);
+      ctx.lineTo(area[0][0], base);
+      ctx.closePath();
+      const fill = ctx.createLinearGradient(0, padTop, 0, base);
+      fill.addColorStop(0, alpha(summaryColour(panel.dark), sketch ? 0.14 : panel.dark ? 0.3 : 0.2));
+      fill.addColorStop(1, alpha(summaryColour(panel.dark), 0));
+      ctx.fillStyle = fill;
+      ctx.fill();
+      const toolLine = (k: number) => {
         ctx.beginPath();
-        const xy = curve(k);
-        ctx.lineTo(xy[xy.length - 1][0], base);
-        ctx.lineTo(xy[0][0], base);
-        ctx.closePath();
-        const fill = ctx.createLinearGradient(0, padTop, 0, base);
-        fill.addColorStop(0, alpha(colour, sketch ? 0.3 : panel.dark ? 0.55 : 0.45));
-        fill.addColorStop(1, alpha(colour, sketch ? 0.04 : 0.06));
-        ctx.fillStyle = fill;
-        ctx.fill();
-      }
-      // The total's line, glowing, over the bands.
-      const k = ids.length - 1;
-      if (k >= 0) {
-        ctx.save();
-        // The total's line: starlight with its glow, or by hand the coral pen, plain.
-        ctx.shadowColor = sketch ? 'transparent' : panel.dark ? 'rgba(196, 216, 255, 0.85)' : 'rgba(80, 100, 220, 0.45)';
-        ctx.shadowBlur = 12;
-        ctx.strokeStyle = sketch ? summaryColour(panel.dark) : panel.dark ? 'rgba(240, 245, 255, 0.95)' : 'rgba(14, 29, 76, 0.85)';
-        ctx.lineWidth = 2;
-        ctx.lineJoin = 'round';
-        ctx.beginPath();
-        const xy = curve(k);
+        const xy = path(values[k]);
+        ctx.lineWidth = 1.6; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+        ctx.strokeStyle = toolColour(ids[k], panel.dark);
         ctx.stroke();
-        ctx.restore();
-        // Now: a dot at the curve's end.
-        const [ex, ey] = xy[xy.length - 1];
-        ctx.fillStyle = sketch ? summaryColour(panel.dark) : panel.dark ? '#F5F8FF' : '#0E1D4C';
-        ctx.beginPath(); ctx.arc(ex, ey, 3.5, 0, Math.PI * 2); ctx.fill();
+        ends[ids[k]] = xy[xy.length - 1][1];
+      };
+      const idle = (k: number) => values[k].every((v) => v <= 0);
+      // The idle tools along the bottom, under the total's line.
+      ids.forEach((_, k) => { if (idle(k)) toolLine(k); });
+      ctx.save();
+      // The total's line: starlight with its glow, or by hand the coral pen, plain.
+      ctx.shadowColor = sketch ? 'transparent' : panel.dark ? 'rgba(196, 216, 255, 0.85)' : 'rgba(80, 100, 220, 0.45)';
+      ctx.shadowBlur = 12;
+      ctx.strokeStyle = total;
+      ctx.lineWidth = 2;
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      const xy = path(totals);
+      ctx.stroke();
+      ctx.restore();
+      // The tools writing, over it, the busiest last.
+      for (let k = ids.length - 1; k >= 0; k--) if (!idle(k)) toolLine(k);
+      const [ex, ey] = xy[xy.length - 1];
+      // Each tool's end, a small dot of its colour: none for one ending where the total does (the total's dot is that
+      // point), one for several ending together (the idle ones along the bottom).
+      const marks = ids.filter((id) => { if (Math.abs(ends[id] - ey) < 6) { under.push(id); return false; } return true; });
+      const dots = marks.filter((id, i) => !marks.slice(i + 1).some((later) => Math.abs(ends[later] - ends[id]) < 4.5));
+      for (const id of dots) {
+        ctx.fillStyle = toolColour(id, panel.dark);
+        ctx.beginPath(); ctx.arc(ex, ends[id], 2.5, 0, Math.PI * 2); ctx.fill();
+      }
+      // Now: the total's dot at its end.
+      ctx.fillStyle = sketch ? summaryColour(panel.dark) : panel.dark ? '#F5F8FF' : '#0E1D4C';
+      ctx.beginPath(); ctx.arc(ex, ey, 3.5, 0, Math.PI * 2); ctx.fill();
+      canvas.dataset.lines = String(ids.length);
+      canvas.dataset.dots = JSON.stringify(Object.fromEntries(dots.map((id) => [id, Math.round(ends[id] * 10) / 10])));
+      canvas.dataset.under = under.join(',');
+      {
         // The requests landing: each falls onto the end, ripples, and says what it added as it rises away.
         let lift = 0;
         for (const d of drops) {
@@ -202,11 +238,24 @@
   }
 </script>
 
-<div class="live-chart" bind:this={box} style:height="{height}px" role="img" aria-label={t('实时用量图')}>
-  <canvas bind:this={canvas} style:width="{width}px" style:height="{height}px"></canvas>
+<div class="live-chart" bind:this={box} style:height="{height}px">
+  {#if named.length}
+    <!-- What each line is: the total's, then each tool's in its colour. -->
+    <ul class="legend" bind:offsetHeight={legendHeight}>
+      <li><span class="swatch total"></span>{t('总量')}</li>
+      {#each named as n (n.id)}<li class:idle={n.idle}><span class="swatch" style:background={toolColour(n.id, panel.dark)}></span>{n.name}</li>{/each}
+    </ul>
+  {/if}
+  <div class="plot" role="img" aria-label={t('实时用量图')}><canvas bind:this={canvas} style:width="{width}px" style:height="{plotHeight}px"></canvas></div>
 </div>
 
 <style>
-  .live-chart { position: relative; }
+  .live-chart { position: relative; display: flex; flex-direction: column; }
   canvas { display: block; }
+  .legend { display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 0 0 4px; padding: 0; list-style: none; font-size: 11px; line-height: 16px; color: var(--ink-2); }
+  .legend li { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; transition: opacity 0.4s; }
+  .legend li.idle { opacity: 0.45; }
+  .swatch { width: 10px; height: 2.5px; border-radius: 2px; }
+  .swatch.total { height: 3px; background: var(--ink); box-shadow: 0 0 6px var(--halo); }
+  :global(.sketch) .swatch.total { background: var(--coral); box-shadow: none; }
 </style>
