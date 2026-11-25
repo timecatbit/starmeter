@@ -205,9 +205,12 @@
   $effect(() => {
     void version;
     if (!pickedGroup) return;
-    // Let go once the grouping picked is the one on screen, with no other on its way: come in while a range picked is
-    // still read, the cards on screen are the old range's, still the grouping before it (GROUP-PICK).
-    const drawn = !!shown && groupShown(shown) === pickedGroup && interaction.latest('set-group') === null;
+    // Let go once the grouping picked is the one on screen and the one read, with no other on its way: come in while a
+    // range picked is still read, the cards on screen are the old range's, still the grouping before it (GROUP-PICK);
+    // its action done while the reading in hand is still the one before (工具, 模型, 工具), the cards of that reading
+    // would be drawn the moment it is let go, until the next reading came (R7-1).
+    const drawn = !!shown && groupShown(shown) === pickedGroup && !!snapshot?.dashboard
+      && groupShown(snapshot.dashboard) === pickedGroup && interaction.latest('set-group') === null;
     if (drawn || groupWaitedOut >= groupPickedAt) pickedGroup = null;
   });
   let reveal = $state(1);

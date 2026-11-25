@@ -893,6 +893,33 @@ test('工具, 模型, 项目: the grouping between is never drawn, the tool card
   expect(new Set(back.map((frame) => frame.card))).toEqual(new Set([tools]));
 });
 
+test('工具, 模型, 工具 with the readings slow to come: the models\' cards are never drawn in between (R7-1)', async ({ page }) => {
+  await open(page);
+  // 工具 is clicked while 模型's action is on its way (600 ms); each reading of the whole panel takes 250 ms, as the
+  // app's can over IPC. The reading asked once 模型's action is done (after 工具 was clicked, so it counts) answers 模型's
+  // cards; 工具's action is then done before the reading after it comes, and its receipt (carrying the preferences, as
+  // a module's or a theme's does) has the page look again at once.
+  await page.evaluate(async () => {
+    const loaded = performance.getEntriesByType('resource').map((entry) => entry.name).filter((name) => name.includes('/src/lib/backend.ts'));
+    const { backend } = await import(/* @vite-ignore */ loaded.at(-1) ?? '/src/lib/backend.ts');
+    const action = backend.action, snapshot = backend.snapshot;
+    backend.action = async (asked: string[]) => {
+      if (asked[0] !== 'set-group') return action(asked);
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      const receipt = await action(asked);
+      return { ...receipt, preferences: (await snapshot()).preferences };
+    };
+    backend.snapshot = async () => { const shot = await snapshot(); await new Promise((resolve) => setTimeout(resolve, 250)); return shot; };
+  });
+  const tools = (await page.locator('.card .name').first().textContent())!.trim();
+  await page.getByRole('radio', { name: '模型' }).click();
+  await page.waitForTimeout(30);
+  await page.getByRole('radio', { name: '工具' }).click();
+  const seen = await frames(page, 2000);
+  expect(new Set(seen.map((frame) => frame.card))).toEqual(new Set([tools]));
+  expect(new Set(seen.map((frame) => frame.lit))).toEqual(new Set(['工具']));
+});
+
 test('the grouping tabs move with the arrow keys, and Tab leaves them (GROUP-KEY)', async ({ page }) => {
   await open(page);
   const tool = page.getByRole('radio', { name: '工具' });
