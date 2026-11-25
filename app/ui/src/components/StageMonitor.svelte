@@ -45,7 +45,8 @@
   });
   /** Today's estimate: the live view's once it has read the computer, the homepage's figures for today until then. */
   const cost = $derived(live.dashboard ? live.cost : today ? estimate(today) : null);
-  const amount = $derived(cost === null ? '—' : currency.symbol + grouped(cost));
+  // Written again at each reading: the computer's currency comes with it (currency is no state of its own).
+  const amount = $derived.by(() => { void live.version; return cost === null ? '—' : currency.symbol + grouped(cost); });
   const since = $derived(live.lastActive === null ? null : Math.max(0, Math.round((now - live.lastActive) / 60_000)));
   const stateLine = $derived(working
     ? (running ? t('正在工作 · {n} 个会话运行中', { n: running }) : t('正在工作'))

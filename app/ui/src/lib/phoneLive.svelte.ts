@@ -222,7 +222,7 @@ export class PhoneLive {
     // What each tool added since the last reading of the same day: a request (or a few) landing.
     const landings: Landing[] = [];
     if (dashboard) {
-      currency.unit = dashboard.currency ?? currency.unit;
+      currency.unit = dashboard.currency ?? null;
       const now_ = counted(dashboard), day = dashboard.date;
       // Only figures for the same day and range compare: the computer picking 近 30 天 on SwiftBar's panel is no usage.
       const comparable = !!this.before && this.beforeDay === day && this.beforeRange === dashboard.rangeKey;
