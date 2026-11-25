@@ -19,9 +19,10 @@ const blank = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>').toString(
 
 /** Serves /api/ for the phone page; what it was asked, as path and query, goes into the list returned. `swiftbar`
  *  answers as SwiftBar's panel does: the computer's range and grouping only. `live` answers /api/live (liveWork on a
- *  clock the test moves); without it, today stands still. */
-export async function servePhone(page: Page, key = PHONE_KEY, { swiftbar = false, live = null as ((data: unknown) => unknown) | null } = {}): Promise<string[]> {
+ *  clock the test moves); without it, today stands still. `edit` changes the fixtures first (both answers read them). */
+export async function servePhone(page: Page, key = PHONE_KEY, { swiftbar = false, live = null as ((data: unknown) => unknown) | null, edit = null as ((data: any) => void) | null } = {}): Promise<string[]> {
   const data = fixture();
+  edit?.(data);
   const asked: string[] = [];
   await page.route('**/api/**', async (route) => {
     const request = route.request();

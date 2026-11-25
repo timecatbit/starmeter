@@ -2,6 +2,8 @@
 // as 网页版 has it. Pinning turns to it and unpinning turns back (unless another was picked meanwhile); the five tabs
 // on one line in every language and look; the keyboard walks all five; unpinned it is never blank.
 import { expect, test, type Page } from '@playwright/test';
+import { toHant } from '../ui/src/lib/hant';
+import { cutWords } from './textFits';
 
 const errors: string[] = [];
 test.beforeEach(({ page }) => {
@@ -103,4 +105,39 @@ test('unpinned, 实时 is never blank: the sessions running, and what happened o
   // Remembered as the homepage's tab.
   await page.reload();
   await expect(radio(page, '实时')).toHaveAttribute('aria-checked', 'true');
+});
+
+test('pinned, 实时 cuts no words: titles far too long for a line, an hour and more into their turns, in every language and look, narrow and wide', async ({ page }) => {
+  test.setTimeout(180_000);
+  const long = { zh: '重新设计设置页里的分段控件，补齐键盘导航、读屏标签以及深浅两种主题下的对比度检查', en: 'Rework the settings page segmented control with keyboard navigation, screen reader labels and contrast checks' };
+  const found: string[] = [];
+  for (const lang of ['zh', 'en', 'zh-Hant']) for (const style of ['standard', 'sketch']) for (const width of [360, 480]) {
+    const tab = await page.context().newPage();
+    tab.on('pageerror', (error) => errors.push(String(error)));
+    // Two sessions with long titles (one in Chinese, one in English), every running turn 83 minutes in.
+    await tab.route('**/fixtures/default.json*', async (route) => {
+      const response = await route.fetch();
+      const text = (await response.text()).replaceAll('重做设置页的分段控件', long.zh).replaceAll('修订论文的评估章节', long.en)
+        .replace(/运行中( \d+ 分钟)?/g, '运行中 83 分钟');
+      await route.fulfill({ response, body: text });
+    });
+    await open(tab, { lang, style });
+    await tab.getByRole('button', { name: /^(钉住面板|Pin the panel|釘住面板)$/ }).click();
+    await expect(tab.locator('.panel-live .live-session')).toHaveCount(3);
+    await tab.evaluate((w) => window.dispatchEvent(new CustomEvent('panel-resized', { detail: { width: w, height: 760 } })), width);
+    await tab.waitForTimeout(600);
+    const where = `${lang} ${style} ${width}`;
+    await expect(tab.locator('.panel-live .live-session .title').first(), where).toHaveText(lang === 'zh-Hant' ? toHant(long.zh) : long.zh);
+    await expect(tab.locator('.panel-live .live-session .clock').first(), where).toHaveText(/^1:23:\d\d$/);
+    // Each clock whole, right of its title (cut short before it), never under it.
+    const clocks = await tab.locator('.panel-live .live-session').evaluateAll((rows) => rows.map((row) => {
+      const box = row.getBoundingClientRect(), title = row.querySelector('.title')!.getBoundingClientRect(), clock = row.querySelector('.clock')!;
+      const time = clock.getBoundingClientRect();
+      return { inside: time.left >= box.left && time.right <= box.right + 0.5 && time.width > 0, apart: time.left >= title.right - 0.5, whole: clock.scrollWidth <= clock.clientWidth + 0.5 };
+    }));
+    expect(clocks, where).toEqual(clocks.map(() => ({ inside: true, apart: true, whole: true })));
+    found.push(...(await cutWords(tab, '.panel-live')).map((line) => `${where} · ${line}`));
+    await tab.close();
+  }
+  expect(found).toEqual([]);
 });

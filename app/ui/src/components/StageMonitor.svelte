@@ -81,7 +81,7 @@
   <div class="ticker">
     {#if working}
       <span class="tick"><span class="tick-label">{rangeWord}</span> <span class="tick-value num" data-figure="today"><StageNumber value={amount} /></span>
-        {#if added}{#key added.at}<span class="added num">+{currency.symbol}{grouped(added.amount)}</span>{/key}{/if}</span>
+        {#if added}{#key added.at}<span class="added num" data-passing>+{currency.symbol}{grouped(added.amount)}</span>{/key}{/if}</span>
       <span class="tick"><span class="tick-label">{t('近 1 分钟')}</span> <span class="tick-value num"><StageNumber value={ready ? '+' + tokens(minute) : '—'} /></span></span>
     {:else if data}
       <span class="tick"><span class="tick-label">{rangeWord}</span> <span class="tick-value num"><StageNumber value={tokens(data.providers.reduce((s, p) => s + (p.available && p.summaryIncluded !== false ? (p.counted?.tokens ?? p.tokens) : 0), 0))} /></span><span class="tick-label">{t('Token')}</span></span>
@@ -104,7 +104,7 @@
   .filling .curve { overflow: hidden; }
   .filling .curve > :global(*) { position: absolute; left: 0; right: 0; top: 0; }
   .state { display: flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 600; color: var(--ink); min-height: 24px; }
-  .beat { position: relative; flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--ink-3); }
+  .beat { position: relative; flex: none; pointer-events: none; width: 10px; height: 10px; border-radius: 50%; background: var(--ink-3); }
   .working .beat { background: var(--good); }
   /* The working light beats: a ring goes out from it, again and again. */
   .working .beat::after {
