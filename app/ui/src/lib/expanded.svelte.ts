@@ -30,7 +30,7 @@ function save() {
   }
 }
 
-/** A list shown whole: `model`, `project` or `sessions`. */
+/** A list shown whole: `model`, `project`, `sessions`, or `feed` (实时's 动态, on the panel and on 网页版). */
 export const listOpen = (name: string) => expanded.lists.includes(name);
 
 export function openList(name: string) {

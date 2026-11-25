@@ -421,7 +421,7 @@
       </section>
 
       <section class="rest">
-        <div class="activity-box"><StageActivity {live} {now} shown={layout === 'desk' ? 8 : 6} /></div>
+        <div class="activity-box"><StageActivity {live} {now} /></div>
 
         <div class="stats">
           <div class="stats-a" class:placing={!placed}>

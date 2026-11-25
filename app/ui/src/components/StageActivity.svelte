@@ -7,16 +7,21 @@
   import { flip } from 'svelte/animate';
   import { fly } from 'svelte/transition';
   import { toolColour } from '../lib/colors';
+  import { closeList, listOpen, openList } from '../lib/expanded.svelte';
   import { t } from '../lib/i18n.svelte';
   import { turnClock, type PhoneLive } from '../lib/phoneLive.svelte';
   import { panel } from '../lib/ui.svelte';
   import Glyph from './Glyph.svelte';
 
-  let { live, now, shown = 6 }: { live: PhoneLive; now: number; shown?: number } = $props();
+  let { live, now }: { live: PhoneLive; now: number } = $props();
+  /** 动态 shows its newest five, the rest behind 查看更多 (as the panel's 实时, and the sessions' list: kept open or
+   *  folded, expanded.svelte.ts); folded, what comes in keeps it at five. */
+  const SHOWN = 5;
+  const feedOpen = $derived(listOpen('feed'));
 
   const running = $derived(live.sessions.filter((s) => s.running));
   const latest = $derived(live.sessions.find((s) => !s.running) ?? null);
-  const events = $derived(live.events.slice(0, shown));
+  const events = $derived(feedOpen ? live.events : live.events.slice(0, SHOWN));
   const pad = (n: number) => String(n).padStart(2, '0');
   const clock = (at: number) => { const d = new Date(at); return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
   /** A turn's clock (turnClock, as the panel's 实时 writes it): each figure in the figures' face, each word in the
@@ -77,6 +82,10 @@
         </li>
       {/each}
     </ol>
+    {#if live.events.length > SHOWN}
+      <button class="more" aria-expanded={feedOpen} onclick={() => (feedOpen ? closeList : openList)('feed')}>
+        {feedOpen ? t('收起') : t('查看更多 {n} 条动态', { n: live.events.length - SHOWN })}</button>
+    {/if}
   {:else}
     <p class="quiet">{!live.answered ? t('正在读取…') : live.state === 'working' ? t('等下一笔请求…') : t('一有动静就会出现在这里')}</p>
   {/if}
@@ -154,6 +163,12 @@
   /* Just called: lit, then easing back. */
   .chip.lit { background: color-mix(in srgb, var(--good) 30%, transparent); color: var(--ink); box-shadow: 0 0 12px -2px var(--good); transition: none; }
   .quiet { margin: 0 2px; font-size: 12.5px; color: var(--ink-3); line-height: 1.5; }
+  /* As the statistics' 查看更多 (PhoneStage): a pill in the middle under the list. */
+  .more {
+    align-self: center; height: 34px; padding: 0 18px; border-radius: 999px; font-size: 13px; font-weight: 600;
+    color: var(--star); background: var(--glass); box-shadow: inset 0 0 0 0.5px var(--glass-edge);
+  }
+  @media (hover: hover) { .more:hover { background: var(--glass-strong); } }
   .feed { list-style: none; margin: 0; padding: 4px 14px; border-radius: 20px; background: var(--glass); box-shadow: inset 0 0 0 0.5px var(--glass-edge), var(--lift); }
   .event { display: grid; grid-template-columns: auto auto minmax(0, auto) minmax(0, 1fr); align-items: center; gap: 8px; min-height: 34px; font-size: 12.5px; border-bottom: 0.5px solid var(--line-faint); }
   .event:last-child { border-bottom: 0; }

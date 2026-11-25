@@ -1126,11 +1126,11 @@ test('on SwiftBar\'s panel, reloaded while the work goes on, the page picks up t
   await phone(page, PORTRAIT, '', { swiftbar: true, live });
   const rate = page.locator('.stage .monitor [data-figure="rate"] [data-value]');
   for (const seconds of [3, 8, 13, 18, 23, 28]) { clock.now = Date.UTC(2026, 10, 25, 2, 0, 0) + seconds * 1000; await page.waitForTimeout(2200); }
-  const said = () => page.locator('.stage .feed .event').evaluateAll((list) => list.slice(0, 6).map((e) => `${e.querySelector('.who')?.textContent} ${e.querySelector('.what')?.textContent}`));
+  const said = () => page.locator('.stage .feed .event').evaluateAll((list) => list.slice(0, 5).map((e) => `${e.querySelector('.who')?.textContent} ${e.querySelector('.what')?.textContent}`));
   const before = await said();
-  expect(before.length).toBe(6);
+  expect(before.length).toBe(5);
   await page.reload();
-  // At once as it was: the speed and the last minute, and 动态's latest six; no 正在读取, no 等下一笔请求.
+  // At once as it was: the speed and the last minute, and 动态's latest five; no 正在读取, no 等下一笔请求.
   await expect(page.locator('.stage .monitor.working')).toBeVisible();
   await expect.poll(async () => Number(await rate.getAttribute('data-value')), { timeout: 3000 }).toBeGreaterThan(0);
   await expect(page.locator('.stage .monitor .tick-value').nth(1).locator('[data-value]').first()).toHaveAttribute('data-value', /^\+\d/);
@@ -1491,6 +1491,24 @@ test('a tap anywhere but a control answers: the figure hops, the curve lights up
   const times = await frames;
   const gaps = times.slice(1).map((time, i) => time - times[i]).sort((x, y) => x - y);
   expect(gaps[Math.floor(gaps.length / 2)], 'the middle frame').toBeLessThan(20);
+});
+
+test('网页版\'s 动态 shows its newest five, the rest behind 查看更多, folded again with 收起, as the panel\'s', async ({ page }) => {
+  const work = scripted();
+  await phone(page, PORTRAIT, '', { live: work.live });
+  for (const seconds of [3, 6, 9, 12, 15]) { work.at(seconds); await page.waitForTimeout(2100); }
+  const activity = page.locator('.stage .activity');
+  const more = activity.getByRole('button', { name: /^查看更多 \d+ 条动态$/ });
+  await expect(more).toBeVisible();
+  await expect(activity.locator('.feed li')).toHaveCount(5);
+  await more.click();
+  await expect.poll(() => activity.locator('.feed li').count()).toBeGreaterThan(5);
+  await activity.getByRole('button', { name: '收起' }).click();
+  await expect(activity.locator('.feed li')).toHaveCount(5);
+  // Folded, what comes in keeps it at five.
+  work.at(18);
+  await page.waitForTimeout(2500);
+  await expect(activity.locator('.feed li')).toHaveCount(5);
 });
 
 test('with reduced motion a tap on a pane does nothing to it either', async ({ page }) => {
