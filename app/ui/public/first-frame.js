@@ -34,6 +34,9 @@
     meta.content = top;
     document.head.appendChild(meta);
     root.style.backgroundColor = bottom;
+    // The two colours over the whole screen in one piece: before the stylesheet (height: 100%) the page has no height,
+    // and its background would repeat in thin stripes.
+    root.style.minHeight = '100%';
     root.style.backgroundImage = 'linear-gradient(' + top + ' 0 50%, ' + bottom + ' 50% 100%)';
   } catch (e) { /* the page paints them itself in a moment */ }
 })();

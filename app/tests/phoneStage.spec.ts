@@ -1254,6 +1254,8 @@ test('the computer gone from 手绘 dark to 标准 dark, the phone reloaded: its
   const colours = () => page.evaluate(() => ({ meta: document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.content, html: getComputedStyle(document.documentElement).backgroundColor }));
   await expect.poll(colours).toEqual({ meta: '#1F3A7A', html: 'rgb(5, 10, 36)' });
   expect(await page.evaluate(() => localStorage.getItem('starmeter.style'))).toBe('standard');
+  // The sky's two colours over the whole screen in one piece (with no height the page's ground repeated in stripes).
+  expect(await page.evaluate(() => document.documentElement.getBoundingClientRect().height)).toBeGreaterThanOrEqual(PORTRAIT.height - 1);
   // And the page, drawn, keeps them.
   await page.unroute(main);
   await page.reload();
