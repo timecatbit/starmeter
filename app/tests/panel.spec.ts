@@ -1297,20 +1297,84 @@ test('在手机上看: a start that fails once says why and offers 重试, which
   await expect(button(page, '停止')).toBeVisible();
 });
 
-test('在手机上看: a public link that fails goes back to the same network and says why, until the next try', async ({ page }) => {
+test('在手机上看: a public link that fails stays on 任何网络, says why in the code\'s place, with 重试 and 改用同一个网络', async ({ page }) => {
+  await open(page);
+  // Cloudflare not answering: twice (the first is asked again on its own), then the link as it comes.
+  await page.evaluate(async (source) => {
+    const shell = await eval(source);
+    const real = shell.phonePublic;
+    const w = window as unknown as { asked: number };
+    w.asked = 0;
+    shell.phonePublic = () => (++w.asked <= 2 ? Promise.reject('Cloudflare 这次没有连上，稍后再试') : real());
+  }, panelShell);
+  const asked = () => page.evaluate(() => (window as unknown as { asked: number }).asked);
+  await button(page, '主页模块与设置').click();
+  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  const phone = page.locator('.phone-page');
+  await page.getByRole('radio', { name: '任何网络' }).click();
+  await button(page, '生成链接').click();
+  // 用户：在所有网络失败，应该停留在所有网络的页面，而不是返回到同一网络显示错误.
+  await expect(phone.getByRole('status')).toContainText('没能生成外网链接');
+  await expect(page.getByRole('radio', { name: '任何网络' })).toHaveAttribute('aria-checked', 'true');
+  await expect(phone.locator('.failed')).toContainText('Cloudflare 这次没有连上');
+  expect(await asked()).toBe(2);
+  // No code, and nothing about the same network's: neither is what is chosen.
+  await expect(phone.locator('svg.qr')).toHaveCount(0);
+  await expect(phone.locator('.address')).toHaveCount(0);
+  await expect(phone.locator('.note', { hasText: '同一个网络（Wi-Fi）' })).toHaveCount(0);
+  // 重试: the link this time, on 任何网络 still.
+  await button(page, '重试').click();
+  await expect(phone.locator('.address')).toContainText('trycloudflare.com');
+  await expect(phone.locator('svg.qr')).toBeVisible();
+  await expect(phone.locator('.failed')).toHaveCount(0);
+  await expect(page.getByRole('radio', { name: '任何网络' })).toHaveAttribute('aria-checked', 'true');
+});
+
+test('在手机上看: 改用同一个网络 from a failed public link shows the same network\'s code at once', async ({ page }) => {
   await open(page, '?tunnel-fails');
   await button(page, '主页模块与设置').click();
   await page.getByRole('button', { name: /^在手机上看/ }).click();
   const phone = page.locator('.phone-page');
   await page.getByRole('radio', { name: '任何网络' }).click();
   await button(page, '生成链接').click();
-  await expect(phone.locator('.failed')).toContainText('Cloudflare 这次没有连上');
+  await expect(phone.getByRole('status')).toContainText('没能生成外网链接');
+  await button(page, '改用同一个网络').click();
   await expect(page.getByRole('radio', { name: '同一个网络' })).toHaveAttribute('aria-checked', 'true');
-  await expect(phone.locator('svg[role="img"]')).toBeVisible();
+  await expect(phone.locator('svg.qr')).toBeVisible();
+  await expect(phone.locator('.failed')).toHaveCount(0);
   // Trying again starts afresh: the question, without the last failure under it.
   await page.getByRole('radio', { name: '任何网络' }).click();
   await expect(phone.locator('.ask')).toBeVisible();
   await expect(phone.locator('.failed')).toHaveCount(0);
+});
+
+test('在手机上看: a public link that drops stays on 任何网络, with 重新生成 in the code\'s place', async ({ page }) => {
+  await open(page);
+  await page.evaluate(async (source) => {
+    const shell = await eval(source);
+    const real = shell.phoneStatus;
+    const w = window as unknown as { dropped: boolean };
+    w.dropped = false;
+    // Once dropped, the status says the server is up and its public link gone (its cloudflared ended).
+    shell.phoneStatus = async () => {
+      const view = await real();
+      return w.dropped && view ? { ...view, public: null, secondsLeft: 0 } : view;
+    };
+  }, panelShell);
+  await page.clock.install();
+  await button(page, '主页模块与设置').click();
+  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  const phone = page.locator('.phone-page');
+  await page.getByRole('radio', { name: '任何网络' }).click();
+  await button(page, '生成链接').click();
+  await expect(phone.locator('.address')).toContainText('trycloudflare.com');
+  await page.evaluate(() => { (window as unknown as { dropped: boolean }).dropped = true; });
+  await page.clock.fastForward(10_500);
+  await expect(phone.getByRole('status')).toContainText('外网链接断开了');
+  await expect(page.getByRole('radio', { name: '任何网络' })).toHaveAttribute('aria-checked', 'true');
+  await expect(phone.locator('svg.qr')).toHaveCount(0);
+  await expect(button(page, '重新生成')).toBeVisible();
+  await expect(button(page, '改用同一个网络')).toBeVisible();
 });
 
 test('在手机上看: 已复制链接 only once the clipboard took it; refused, the whole link to copy by hand', async ({ page }) => {

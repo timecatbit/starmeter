@@ -19,6 +19,10 @@
   /** 同一网络 or 任何网络: which address the code holds. */
   let reach = $state<'local' | 'public'>('local');
   let failed = $state<string | null>(null);
+  /** 任何网络 chosen and its link not there: it couldn't be made, or it dropped. The choice stays, and the code's place
+   *  says so, with 重试 (or 重新生成) and 改用同一个网络: the page doesn't go back to the same network on its own
+   *  (用户：在所有网络失败，应该停留在所有网络的页面，而不是返回到同一网络显示错误). */
+  let lost = $state<null | 'failed' | 'dropped'>(null);
   let busy = $state(false);
   /** 停止 pressed: the server is off and its code no longer opens, until 重新开始. */
   let stopped = $state(false);
@@ -72,7 +76,7 @@
       const status = await shell.phoneStatus().catch(() => phone.view);
       if (mine !== round) return;
       setPhone(status);
-      if (had && !phone.view?.public && reach === 'public') { reach = 'local'; failed = '外网链接断开了，可以重新生成'; }
+      if (had && !phone.view?.public && reach === 'public') { failed = null; lost = 'dropped'; }
     }, 10_000);
   });
   onDestroy(() => { round++; clearInterval(tick); clearTimeout(copiedTimer); });
@@ -85,6 +89,7 @@
     const mine = ++choosing;
     // A new choice starts afresh: the last one's failure is not left under it.
     failed = null;
+    lost = null;
     reach = next;
     // A link already on its way (任何网络 chosen again while it is made) is waited for, not asked for again (TUNNEL-1).
     if (next !== 'public' || view?.public || busy) { asking = null; return; }
@@ -92,20 +97,28 @@
     if (mine !== choosing) return;
     asking = { download: !ready };
   }
+  /** Cloudflare not answering this once is often over by the next try: asked again once, quietly, before saying so. */
+  const passing = (error: unknown) => String(error).includes('这次没有连上');
   async function openPublic() {
     choosing++;
     const mine = round;
     asking = null;
     busy = true;
     failed = null;
-    try {
-      const opened = await shell.phonePublic();
-      if (mine !== round) return;
-      setPhone(opened);
-    } catch (error) {
-      if (mine !== round) return;
-      failed = String(error);
-      reach = 'local';
+    lost = null;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const opened = await shell.phonePublic();
+        if (mine !== round) return;
+        setPhone(opened);
+        break;
+      } catch (error) {
+        if (mine !== round) return;
+        if (attempt === 0 && passing(error)) continue;
+        failed = String(error);
+        lost = 'failed';
+        break;
+      }
     }
     busy = false;
   }
@@ -114,6 +127,7 @@
     const closed = await shell.phonePrivate().catch(() => phone.view);
     if (mine !== round) return;
     setPhone(closed);
+    lost = null;
     reach = 'local';
   }
   async function stop() {
@@ -124,6 +138,7 @@
     choosing++;
     asking = null;
     failed = null;
+    lost = null;
     reach = 'local';
     stopped = true;
   }
@@ -198,6 +213,17 @@
             {#if busy && reach === 'public'}
               <span class="spinner" aria-label={t('生成链接')}></span>
               <span class="wait">{t('正在向 Cloudflare 要链接…')}</span>
+            {:else if reach === 'public' && lost}
+              <!-- In the code's place, on 任何网络 still: what happened, and the two ways on. -->
+              <div class="stopped" role="status">
+                <span class="stopped-glyph"><Icon name="iphone" size={22} /></span>
+                <span class="stopped-title">{t(lost === 'dropped' ? '外网链接断开了' : '没能生成外网链接')}</span>
+                <span class="stopped-detail">{t(lost === 'dropped' ? '可以重新生成一个新链接' : '原因在下面，可以再试一次')}</span>
+              </div>
+              <div class="ask-actions">
+                <button class="button pressable" onclick={() => choose('local')}>{t('改用同一个网络')}</button>
+                <button class="button primary pressable" onclick={openPublic}>{t(lost === 'dropped' ? '重新生成' : '重试')}</button>
+              </div>
             {:else if address}
               <QrCode text={address} size={188} label={t('手机扫这个二维码')} />
             {:else if view && !view.local && reach === 'local'}
@@ -220,10 +246,13 @@
         {#if view && !stopped}
           <!-- What the code is for: on the same network until 停止; the public link, while it is up, for its hour. -->
           {#if !asking && !(busy && reach === 'public')}
-            <p class="note">
-              {reach === 'public' && view.public ? t('任何网络都能打开，链接带一次性口令，还能用 {n} 分钟', { n: minutes })
-                : t('手机和电脑连同一个网络（Wi-Fi）后扫码；第一次打开时系统可能问是否允许 Starmeter 接收连接，选允许')}
-            </p>
+            <!-- On 任何网络 without its link, nothing about the same network's code: it isn't the one on screen. -->
+            {#if reach === 'local' || view.public}
+              <p class="note">
+                {reach === 'public' ? t('任何网络都能打开，链接带一次性口令，还能用 {n} 分钟', { n: minutes })
+                  : t('手机和电脑连同一个网络（Wi-Fi）后扫码；第一次打开时系统可能问是否允许 Starmeter 接收连接，选允许')}
+              </p>
+            {/if}
             <p class="note">{t('只读：手机上只能看主页和工具页，不能改设置。点“停止”或退出 App 前一直开着。')}</p>
           {/if}
           <div class="actions">
@@ -264,7 +293,7 @@
     color: var(--secondary);
   }
   .stopped-glyph { opacity: 0.7; margin-bottom: 4px; }
-  .stopped-title { font-size: 14px; font-weight: 600; color: var(--label); }
+  .stopped-title { font-size: 14px; font-weight: 600; color: var(--label); padding: 0 12px; text-align: center; }
   .stopped-detail { font-size: 11px; line-height: 1.4; padding: 0 16px; text-align: center; }
   .reach.off { opacity: 0.45; }
   .wait { font-size: 11.5px; color: var(--secondary); }

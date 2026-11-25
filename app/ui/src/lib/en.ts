@@ -207,7 +207,8 @@ export const phrases: Record<string, string> = {
   // 在手机上看
   // Short enough for its cell in the module grid.
   在手机上看: 'Phone view', 扫码在手机浏览器里看: 'Scan with your phone',
-  '外网链接断开了，可以重新生成': 'The public link dropped; you can make a new one',
+  外网链接断开了: 'The public link dropped', 没能生成外网链接: "Couldn't make the link", 可以重新生成一个新链接: 'You can make a new one',
+  改用同一个网络: 'Use the same network', 重新生成: 'Make a new one',
   '这个网络的 DNS 查不到 Cloudflare 隧道的地址（常见于代理或 VPN），换个网络或关掉代理再试':
     'This network\'s DNS can\'t find Cloudflare\'s tunnel servers (common behind a proxy or VPN); try another network or turn the proxy off',
   'Cloudflare 暂时不给新的临时链接，稍后再试': 'Cloudflare isn\'t giving out new temporary links right now; try again later',
