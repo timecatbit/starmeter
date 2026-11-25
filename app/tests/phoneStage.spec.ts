@@ -1005,3 +1005,22 @@ test('the monitor\'s 今天 and 近 1 分钟 stand on their figures\' line, the 
     if (tab !== page) await tab.close();
   }
 });
+
+test('opened with nothing kept yet, 网页版 waits quietly: a faint dash in the figures\' face (not a pen\'s bar in 手绘), no scale over an empty curve', async ({ page }) => {
+  await page.addInitScript(() => {
+    const drawn: string[] = [];
+    (window as unknown as { drawn: string[] }).drawn = drawn;
+    const fill = CanvasRenderingContext2D.prototype.fillText;
+    CanvasRenderingContext2D.prototype.fillText = function (text: string, ...rest: [number, number, number?]) { drawn.push(String(text)); return fill.call(this, text, ...rest); };
+  });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  const work = scripted();
+  await phone(page, PORTRAIT, '&s=sketch', { live: work.live });
+  await expect(page.locator('.stage.sketch .monitor.working')).toBeVisible();
+  const big = page.locator('.stage .monitor .big.unknown');
+  await expect(big).toBeVisible();
+  const colours = await big.evaluate((e) => ({ big: getComputedStyle(e).color, faint: getComputedStyle(e.closest('.stage')!).getPropertyValue('--ink-3').trim() }));
+  const probe = await page.evaluate((faint) => { const s = document.createElement('span'); s.style.color = faint; document.body.append(s); const c = getComputedStyle(s).color; s.remove(); return c; }, colours.faint);
+  expect(colours.big).toBe(probe);
+  expect(await page.evaluate(() => (window as unknown as { drawn: string[] }).drawn.filter((text) => /Token\/s$/.test(text)))).toEqual([]);
+});

@@ -974,6 +974,8 @@
   }
   /* The figures in the picture's pens: the headline blue, today green, the minute violet; each card's amount its tool's. */
   .stage.sketch :global(.monitor .big) { color: var(--accent); filter: none; }
+  /* No speed yet: a quiet dash in the figures' face, never a pen's colour (it read as a bar). */
+  .stage.sketch :global(.monitor .big.unknown) { color: var(--ink-3); }
   .stage.sketch :global(.tick-value[data-figure='today']) { color: #37b24d; }
   .stage.sketch:not(.light) :global(.tick-value[data-figure='today']) { color: #8ce99a; }
   .stage.sketch :global(.card .amount) { color: var(--tint); }

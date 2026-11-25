@@ -128,7 +128,8 @@
     ctx.font = `10px ${faces.text}`;
     ctx.textBaseline = 'alphabetic';
     ctx.textAlign = 'left';
-    ctx.fillText(`${rateText(shownTop)} Token/s`, 2, padTop - 6);
+    // The top's rate, once there is a speed to scale (a page just opened has none: no "4 Token/s" over nothing).
+    if (live.ready()) ctx.fillText(`${rateText(shownTop)} Token/s`, 2, padTop - 6);
     const ago = Math.round(span / 60_000);
     ctx.fillText(t('{n} 分钟前', { n: ago }), 2, H - 4);
     ctx.textAlign = 'right';
