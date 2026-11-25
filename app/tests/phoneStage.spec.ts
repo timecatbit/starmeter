@@ -576,3 +576,19 @@ test('on SwiftBar\'s panel the live figures are the computer\'s range, said as s
   await page.waitForTimeout(800);
   await expect(page.locator('.stage .feed .event')).toHaveCount(0);
 });
+
+test('today\'s estimate with no priced tool counted in Summary is —, not $0.00, whatever a tool left out of it cost (STAGE-5)', async ({ page }) => {
+  const data = JSON.parse(readFileSync(new URL('../ui/fixtures/default.json', import.meta.url), 'utf8'));
+  // Every tool Summary counts unpriced, and one left out of Summary (主页 · 未计入 Summary) with a cost of its own.
+  const live = () => {
+    const dashboard = structuredClone(data.dashboards.today);
+    dashboard.providers.forEach((p: { cost: number | null; counted?: unknown; summaryIncluded?: boolean }, i: number) => {
+      p.counted = undefined;
+      if (i === 0) { p.summaryIncluded = false; p.cost = 5; } else p.cost = null;
+    });
+    return { at: Date.now() / 1000, dashboard, sessions: null, turns: {} };
+  };
+  await phone(page, PORTRAIT, '', { live });
+  await expect(page.locator('.stage .monitor:not(.working)')).toBeVisible();
+  await expect(page.locator('.stage .monitor [data-figure="today"] [data-value]').first()).toHaveAttribute('data-value', '—');
+});

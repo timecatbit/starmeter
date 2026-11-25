@@ -222,7 +222,7 @@ export class PhoneLive {
       if (comparable && !gap && this.cost !== null && total > this.cost + 0.00005) this.costAdded = { amount: total - this.cost, at: now };
       // Work went on in the gap, when exactly unknown: the last activity is what the sessions say of themselves.
       if (gap && grew) this.lastActive = null;
-      this.cost = dashboard.providers.some((p) => p.available && summaryPart(p)?.cost !== null) ? total : null;
+      this.cost = dashboard.providers.some((p) => p.available && summaryPart(p)?.cost != null) ? total : null;
       this.dashboard = dashboard;
     }
     if (landings.length) { this.lastGrowth = moment; this.lastActive = now; }
