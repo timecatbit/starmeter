@@ -1,10 +1,11 @@
 <script lang="ts">
-  // 网页版's sky, alive: things floating in it, faint, behind everything. In the light the sky's soft glows; at night
-  // the website's stars (points that twinkle, now and then the logo's four-pointed sparkle); in 手绘 the pen's doodles
-  // on the paper or the board (little stars, sparks, circles), drawn by an unsteady hand. They answer the work: while
-  // the models write, more of them and faster, as the speed rises and falls (smoothly, never a jump); resting, a few
-  // drifting slowly; a turn done, a small burst under its banner. One canvas, a few dozen at most, drawn only while the
-  // page shows; with reduced motion, one still frame.
+  // 网页版's sky, alive: behind everything, faint, the logos of the tools at work now (the sessions running), floating
+  // at different depths (the nearer larger, a little faster, the farther smaller and fainter), and the Starmeter mark
+  // when nothing runs; among them many small four-pointed stars, twinkling. They answer the work: while the models
+  // write, more of the logos and faster, as the speed rises and falls (eased, never a jump); resting, a few drifting
+  // slowly; a turn done, a small burst of stars under its banner. In the night the logos in their own colours, in the
+  // light a little softer, in 手绘 in the pen's colours with a ring drawn by an unsteady hand. One canvas, a few dozen
+  // things at most, drawn only while the page shows; with reduced motion, one still frame.
   import { onDestroy, onMount, untrack } from 'svelte';
   import type { PhoneLive } from '../lib/phoneLive.svelte';
 
@@ -17,126 +18,167 @@
 
   let canvas: HTMLCanvasElement | undefined = $state();
   let width = 0, height = 0;
+  const ratio = () => Math.min(2, (typeof window !== 'undefined' && window.devicePixelRatio) || 1);
+  const sketchy = () => look.startsWith('sketch');
+  const dark = () => look === 'dark' || look === 'sketch-dark';
 
-  // Palettes: the sky's own light colours, the website's starlight, the 手绘 picture's pens.
-  const PALETTES: Record<Look, string[]> = {
-    light: ['140, 150, 255', '110, 205, 185', '190, 150, 255', '255, 170, 205'],
-    dark: ['235, 242, 255', '196, 216, 255', '170, 185, 255'],
+  // The pens of the 手绘 picture, and each look's ink for the stars and the one-colour logos.
+  const PENS: Record<'sketch-light' | 'sketch-dark', string[]> = {
     'sketch-light': ['59, 91, 219', '232, 89, 12', '55, 178, 77', '132, 94, 247'],
     'sketch-dark': ['145, 167, 255', '255, 146, 43', '140, 233, 154', '177, 151, 252'],
   };
+  const INK: Record<Look, string> = { light: '60, 72, 150', dark: '226, 234, 255', 'sketch-light': '59, 91, 219', 'sketch-dark': '226, 232, 222' };
 
-  type Kind = 'glow' | 'point' | 'sparkle' | 'star' | 'spark' | 'ring';
-  interface Mote { x: number; y: number; size: number; rise: number; sway: number; phase: number; twinkle: number; colour: number; kind: Kind; turn: number; spin: number; shown: number; wobble: number[] }
-  interface Burst { x: number; y: number; vx: number; vy: number; born: number; colour: number; kind: Kind; size: number; turn: number }
-  let motes: Mote[] = [];
+  // MARK: The logos
+
+  /** The Starmeter mark: the app's dots (24 × 24). */
+  const DOTS: [number, number, number][] = [[12, 2.67, 1.58], [7.33, 7.33, 0.95], [12, 7.33, 2.15], [16.67, 7.33, 0.95], [2.67, 12, 1.58], [7.33, 12, 2.15],
+    [12, 12, 2.15], [16.67, 12, 2.15], [21.33, 12, 1.58], [7.33, 16.67, 0.95], [12, 16.67, 2.15], [16.67, 16.67, 0.95], [12, 21.33, 1.58]];
+  interface Mark { key: string; image?: string; template?: boolean }
+  /** The marks floating now: each running session's tool, once each; the Starmeter mark when none runs. */
+  function marks(): Mark[] {
+    const seen = new Map<string, Mark>();
+    for (const s of live.sessions) {
+      if (!s.running || !s.image) continue;
+      const key = s.image.slice(0, 64) + s.image.length;
+      if (!seen.has(key)) seen.set(key, { key, image: s.image, template: s.template });
+    }
+    return seen.size ? [...seen.values()] : [{ key: 'starmeter' }];
+  }
+  /** Each mark drawn once (64 pt square) in the look's way, stamped thereafter. Template logos and 手绘 take a colour. */
+  const SPRITE = 64;
+  const sprites = new Map<string, HTMLCanvasElement | null>();
+  function sprite(mark: Mark, tint: string | null): HTMLCanvasElement | null {
+    const key = `${mark.key}|${tint ?? ''}`;
+    if (sprites.has(key)) return sprites.get(key)!;
+    sprites.set(key, null);
+    const made = document.createElement('canvas');
+    made.width = made.height = Math.round(SPRITE * ratio());
+    const c = made.getContext('2d')!;
+    c.scale(ratio(), ratio());
+    if (!mark.image) {
+      c.fillStyle = `rgb(${tint ?? INK[look]})`;
+      for (const [cx, cy, r] of DOTS) { c.beginPath(); c.arc((cx / 24) * SPRITE, (cy / 24) * SPRITE, (r / 24) * SPRITE, 0, Math.PI * 2); c.fill(); }
+      sprites.set(key, made);
+      return made;
+    }
+    const image = new Image();
+    const type = mark.image.startsWith('iVBOR') ? 'image/png' : mark.image.startsWith('/9j/') ? 'image/jpeg' : 'image/svg+xml';
+    image.onload = () => {
+      c.drawImage(image, 6, 6, SPRITE - 12, SPRITE - 12);
+      if (tint || mark.template) {
+        c.globalCompositeOperation = 'source-in';
+        c.fillStyle = `rgb(${tint ?? INK[look]})`;
+        c.fillRect(0, 0, SPRITE, SPRITE);
+      }
+      sprites.set(key, made);
+      // The one still frame (reduced motion) drawn again with it.
+      if (still) requestAnimationFrame((time) => tick(time));
+    };
+    // An SVG with only a viewBox has no size of its own, and WebKit draws such an image as nothing: given one.
+    let source = mark.image;
+    if (type === 'image/svg+xml') {
+      try {
+        const text = atob(source);
+        if (!/<svg[^>]*\swidth=/.test(text)) source = btoa(text.replace(/<svg(?=[\s>])/, `<svg width="${SPRITE * 2}" height="${SPRITE * 2}"`));
+      } catch { /* drawn as it is */ }
+    }
+    image.src = `data:${type};base64,${source}`;
+    return null;
+  }
+
+  // MARK: What floats
+
+  interface Thing { kind: 'logo' | 'star'; x: number; y: number; depth: number; size: number; sway: number; phase: number;
+    twinkle: number; turn: number; spin: number; shown: number; mark: string; pen: number; wobble: number[] }
+  interface Burst { x: number; y: number; vx: number; vy: number; born: number; size: number; pen: number; turn: number }
+  let things: Thing[] = [];
   let bursts: Burst[] = [];
+  let current: Mark[] = [{ key: 'starmeter' }];
   /** How busy the sky is, 0 (resting) to 1 (writing fast), eased towards the work's own. */
   let energy = 0.1;
+  let markTurn = 0;
 
   const random = (a: number, b: number) => a + Math.random() * (b - a);
-  const sketchy = () => look.startsWith('sketch');
-  function kindFor(): Kind {
-    if (sketchy()) return (['star', 'spark', 'ring'] as const)[Math.floor(Math.random() * 3)];
-    if (look === 'dark') return Math.random() < 0.12 ? 'sparkle' : 'point';
-    return 'glow';
+  /** A new thing: anywhere on the screen (at the start, faded in where it stands when the marks change), or at the foot
+   *  (one that floated off the top). */
+  function thing(kind: Thing['kind'], anywhere: boolean, fade = false): Thing {
+    const depth = random(0, 1);
+    const size = kind === 'logo' ? 18 + 26 * depth : random(1.4, 3.6);
+    const mark = kind === 'logo' ? current[markTurn++ % current.length].key : '';
+    return { kind, x: random(0, width), y: anywhere ? random(0, height) : height + random(20, 60), depth, size, sway: random(4, 12),
+      phase: random(0, Math.PI * 2), twinkle: random(0.5, 1.6), turn: random(-0.25, 0.25), spin: random(-0.08, 0.08), shown: anywhere && !fade ? 1 : 0,
+      mark, pen: Math.floor(random(0, 4)), wobble: Array.from({ length: 12 }, () => random(-0.1, 0.1)) };
   }
-  function mote(anywhere: boolean): Mote {
-    const kind = kindFor();
-    const size = kind === 'glow' ? random(7, 20) : kind === 'point' ? random(0.7, 1.6) : kind === 'sparkle' ? random(3, 5) : random(4, 7);
-    return { x: random(0, width), y: anywhere ? random(0, height) : height + random(10, 40), size, rise: random(5, 14), sway: random(4, 14),
-      phase: random(0, Math.PI * 2), twinkle: random(0.5, 1.6), colour: Math.floor(Math.random() * 8), kind, turn: random(0, Math.PI * 2),
-      spin: random(-0.35, 0.35), shown: 0, wobble: Array.from({ length: 12 }, () => random(-0.12, 0.12)) };
-  }
-  /** As many as the screen holds, a few dozen at most. */
-  const most = () => Math.max(14, Math.min(56, Math.round((width * height) / 14_000)));
+  /** As many as the screen holds: stars a few dozen, logos a handful (a dozen on a computer's screen). */
+  const starsFor = () => Math.max(22, Math.min(44, Math.round((width * height) / 9_000)));
+  const logosFor = () => (width >= 1000 ? 18 : width > height ? 14 : 12);
 
   function size() {
     if (!canvas) return;
     const box = canvas.getBoundingClientRect();
     width = box.width; height = box.height;
-    const ratio = Math.min(2, window.devicePixelRatio || 1);
-    canvas.width = Math.round(width * ratio); canvas.height = Math.round(height * ratio);
-    canvas.getContext('2d')!.setTransform(ratio, 0, 0, ratio, 0, 0);
-    const want = most();
-    if (motes.length > want) motes.length = want;
-    while (motes.length < want) motes.push(mote(true));
+    canvas.width = Math.round(width * ratio()); canvas.height = Math.round(height * ratio());
+    canvas.getContext('2d')!.setTransform(ratio(), 0, 0, ratio(), 0, 0);
+    const stars = things.filter((t) => t.kind === 'star'), logos = things.filter((t) => t.kind === 'logo');
+    while (stars.length < starsFor()) stars.push(thing('star', true));
+    while (logos.length < logosFor()) logos.push(thing('logo', true));
+    things = [...stars.slice(0, starsFor()), ...logos.slice(0, logosFor())];
   }
 
   // MARK: Drawing
 
-  /** A glow or a sparkle's halo drawn once into a small image and stamped thereafter: a gradient made each frame for
-   *  each of them cost a phone its smoothness and its power. */
-  const sprites = new Map<string, HTMLCanvasElement>();
-  function halo(rgb: string, radius: number): HTMLCanvasElement {
-    const r = Math.max(2, Math.round(radius)), key = `${rgb}|${r}`;
-    let sprite = sprites.get(key);
-    if (!sprite) {
-      sprite = document.createElement('canvas');
-      const ratio = Math.min(2, window.devicePixelRatio || 1);
-      sprite.width = sprite.height = Math.ceil(r * 2 * ratio);
-      const c = sprite.getContext('2d')!;
-      c.scale(ratio, ratio);
-      const light = c.createRadialGradient(r, r, 0, r, r, r);
-      light.addColorStop(0, `rgba(${rgb}, 1)`); light.addColorStop(1, `rgba(${rgb}, 0)`);
-      c.fillStyle = light; c.fillRect(0, 0, r * 2, r * 2);
-      sprites.set(key, sprite);
-    }
-    return sprite;
-  }
-  function stamp(ctx: CanvasRenderingContext2D, rgb: string, x: number, y: number, radius: number, alpha: number) {
-    const r = Math.max(2, Math.round(radius));
-    ctx.globalAlpha = alpha;
-    ctx.drawImage(halo(rgb, r), x - r, y - r, r * 2, r * 2);
-    ctx.globalAlpha = 1;
-  }
-
-  function draw(ctx: CanvasRenderingContext2D, kind: Kind, x: number, y: number, size: number, rgb: string, alpha: number, turn: number, wobble?: number[]) {
+  /** The small four-pointed star: four points; in 手绘 two crossed strokes of the pen. */
+  function star(ctx: CanvasRenderingContext2D, t: Pick<Thing, 'x' | 'y' | 'size' | 'turn' | 'wobble'>, alpha: number, rgb: string) {
     if (alpha <= 0.004) return;
-    if (kind === 'glow') { stamp(ctx, rgb, x, y, size, alpha); return; }
-    if (kind === 'point') {
-      ctx.fillStyle = `rgba(${rgb}, ${alpha})`; ctx.beginPath(); ctx.arc(x, y, size, 0, Math.PI * 2); ctx.fill();
+    if (sketchy()) {
+      ctx.save(); ctx.translate(t.x, t.y); ctx.rotate(t.turn);
+      ctx.strokeStyle = `rgba(${rgb}, ${alpha})`; ctx.lineWidth = 1; ctx.lineCap = 'round';
+      const r = t.size * 1.6, w = t.wobble;
+      ctx.beginPath();
+      ctx.moveTo(-r * (1 + w[0]), 0); ctx.lineTo(r * (1 + w[1]), w[2] * r);
+      ctx.moveTo(w[3] * r, -r * (1 + w[4])); ctx.lineTo(0, r * (1 + w[5]));
+      ctx.stroke(); ctx.restore();
       return;
     }
-    if (kind === 'sparkle') {
-      // The logo's star: four points over a soft glow.
-      stamp(ctx, rgb, x, y, size * 3, alpha * 0.35);
-      ctx.fillStyle = `rgba(${rgb}, ${alpha})`; ctx.beginPath();
-      for (let i = 0; i < 8; i++) {
-        const r = i % 2 ? size * 0.22 : size, a = (i * Math.PI) / 4 + turn * 0.2;
-        if (i) ctx.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r); else ctx.moveTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
-      }
-      ctx.closePath(); ctx.fill();
-      return;
-    }
-    // 手绘's doodles, in pen, each line a little off as a hand draws it.
-    const w = (i: number) => 1 + (wobble?.[i % 12] ?? 0);
-    ctx.save();
-    ctx.translate(x, y); ctx.rotate(turn);
-    ctx.strokeStyle = `rgba(${rgb}, ${alpha})`; ctx.lineWidth = 1.2; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    const r = t.size;
+    ctx.fillStyle = `rgba(${rgb}, ${alpha})`;
     ctx.beginPath();
-    if (kind === 'star') {
-      for (let i = 0; i <= 10; i++) {
-        const r = (i % 2 ? size * 0.45 : size) * w(i), a = (i * Math.PI) / 5 - Math.PI / 2;
-        if (i) ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); else ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r);
-      }
-    } else if (kind === 'spark') {
-      for (let i = 0; i < 4; i++) {
-        const a = (i * Math.PI) / 4, r = size * w(i);
-        ctx.moveTo(-Math.cos(a) * r * 0.9, -Math.sin(a) * r * 0.9); ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
-      }
-    } else {
-      for (let i = 0; i <= 12; i++) {
-        const a = (i / 12) * Math.PI * 2.05, r = size * 0.8 * w(i);
-        if (i) ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); else ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r);
-      }
+    for (let i = 0; i < 8; i++) {
+      const a = (i * Math.PI) / 4 + t.turn, d = i % 2 ? r * 0.28 : r;
+      if (i) ctx.lineTo(t.x + Math.cos(a) * d, t.y + Math.sin(a) * d); else ctx.moveTo(t.x + Math.cos(a) * d, t.y + Math.sin(a) * d);
     }
-    ctx.stroke();
+    ctx.closePath(); ctx.fill();
+  }
+  /** One logo drawn; whether it was (its picture may still be loading). */
+  function logo(ctx: CanvasRenderingContext2D, t: Thing, alpha: number): boolean {
+    if (alpha <= 0.004) return false;
+    const mark = current.find((m) => m.key === t.mark) ?? (t.mark === 'starmeter' ? { key: 'starmeter' } : null);
+    if (!mark) return false;
+    const pen = sketchy() ? PENS[look as 'sketch-light' | 'sketch-dark'][t.pen] : null;
+    const image = sprite(mark, pen);
+    if (!image) return false;
+    const s = t.size;
+    ctx.save();
+    ctx.translate(t.x, t.y); ctx.rotate(t.turn);
+    ctx.globalAlpha = alpha;
+    ctx.drawImage(image, -s / 2, -s / 2, s, s);
+    if (pen) {
+      // 手绘: a ring round it, drawn by hand.
+      ctx.strokeStyle = `rgb(${pen})`; ctx.lineWidth = 1; ctx.beginPath();
+      for (let i = 0; i <= 12; i++) {
+        const a = (i / 12) * Math.PI * 2.04, r = s * 0.62 * (1 + t.wobble[i % 12]);
+        if (i) ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); else ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+      }
+      ctx.stroke();
+    }
     ctx.restore();
+    return true;
   }
 
   /** How strong each look's things are: faint, under the figures. */
-  const STRENGTH: Record<Look, number> = { light: 0.16, dark: 0.75, 'sketch-light': 0.2, 'sketch-dark': 0.24 };
+  const LOGO: Record<Look, number> = { light: 0.22, dark: 0.28, 'sketch-light': 0.24, 'sketch-dark': 0.26 };
+  const STAR: Record<Look, number> = { light: 0.3, dark: 0.75, 'sketch-light': 0.35, 'sketch-dark': 0.4 };
 
   let last = 0, frame = 0, running = false, frames = 0;
   function tick(time: number) {
@@ -148,33 +190,61 @@
     const rate = live.rate();
     const target = live.state === 'working' ? (rate === null ? 0.45 : Math.min(1, Math.max(0.3, 0.3 + Math.log10(1 + rate) / 3.2))) : 0.06;
     energy += (target - energy) * (1 - Math.exp(-dt / 1.6));
+    // The marks floating: the tools at work now, or the Starmeter mark; a logo no longer among them fades and comes back
+    // as one that is.
+    const marksNow = marks();
+    if (marksNow.map((m) => m.key).join() !== current.map((m) => m.key).join()) current = marksNow;
     const ctx = canvas.getContext('2d')!;
     ctx.clearRect(0, 0, width, height);
-    const palette = PALETTES[look], strength = STRENGTH[look];
-    const active = Math.round(motes.length * (0.3 + 0.7 * energy)), pace = 0.25 + 1.6 * energy;
+    const ink = INK[look], pens = sketchy() ? PENS[look as 'sketch-light' | 'sketch-dark'] : null;
+    const logos = things.filter((t) => t.kind === 'logo');
+    const active = Math.round(logos.length * (0.35 + 0.65 * energy)), pace = 0.25 + 1.6 * energy;
     const now = time / 1000;
-    motes.forEach((m, i) => {
-      // Those beyond what the work asks for fade out, and back in as it picks up: never a pop.
-      m.shown += ((i < active ? 1 : 0) - m.shown) * (1 - Math.exp(-dt / 1.2));
-      m.y -= m.rise * pace * dt;
-      m.x += Math.sin(now * 0.35 + m.phase) * m.sway * dt * 0.6;
-      m.turn += m.spin * pace * dt;
-      if (m.y < -30) Object.assign(m, mote(false), { shown: m.shown });
-      const glint = m.kind === 'point' || m.kind === 'sparkle' ? 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(now * m.twinkle * 2 + m.phase)) : 0.75 + 0.25 * Math.sin(now * m.twinkle + m.phase);
-      draw(ctx, m.kind, m.x, m.y, m.size, palette[m.colour % palette.length], strength * m.shown * glint, m.turn, m.wobble);
-    });
-    // A turn done: out from under the banner, slowing and fading.
+    let shownLogos = 0, drawn: string[] = [];
+    for (const t of things) {
+      const index = t.kind === 'logo' ? logos.indexOf(t) : -1;
+      const atWork = t.kind === 'star' || current.some((m) => m.key === t.mark);
+      const wanted = t.kind === 'star' ? 1 : index < active && atWork ? 1 : 0;
+      // Faded in and out over a second; in the one still frame, as they are.
+      t.shown += (wanted - t.shown) * (still ? 1 : 1 - Math.exp(-dt / 1.2));
+      // Nearer, faster: the logos rise at their depth's pace, the stars barely.
+      const rise = t.kind === 'logo' ? 6 + 12 * t.depth : 1.5 + 2 * t.depth;
+      t.y -= rise * pace * dt;
+      t.x += Math.sin(now * 0.3 + t.phase) * t.sway * dt * 0.5;
+      t.turn += t.spin * pace * dt;
+      // Gone off the top: back in at the foot. Faded out with a mark no longer at work: one that is, faded in somewhere
+      // on the screen (from the foot it would take a minute to be seen).
+      if (t.y < -40) Object.assign(t, thing(t.kind, false));
+      else if (!atWork && t.shown < 0.02) Object.assign(t, thing(t.kind, true, !still));
+      if (t.kind === 'star') {
+        const glint = 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(now * t.twinkle * (1 + energy) + t.phase));
+        star(ctx, t, STAR[look] * glint * (0.5 + 0.5 * t.depth), pens ? pens[t.pen] : ink);
+      } else {
+        if (t.shown > 0.5) shownLogos++;
+        const clear = t.y > 150 && t.y < height - 160;
+        if (logo(ctx, t, LOGO[look] * t.shown * (0.55 + 0.45 * t.depth)) && clear && t.shown > 0.5) drawn.push(t.mark === 'starmeter' ? 'starmeter' : 'tool');
+      }
+    }
+    // A turn done: stars out from under the banner, slowing and fading.
     bursts = bursts.filter((b) => now - b.born < 1.6);
     for (const b of bursts) {
       const age = now - b.born, slow = Math.exp(-age * 2.2);
       b.x += b.vx * slow * dt; b.y += b.vy * slow * dt; b.turn += dt * 2;
-      draw(ctx, b.kind, b.x, b.y, b.size, palette[b.colour % palette.length], Math.min(1, strength * 2.2) * (1 - age / 1.6), b.turn);
+      star(ctx, { x: b.x, y: b.y, size: b.size, turn: b.turn, wobble: [0, 0, 0, 0, 0, 0] },
+        Math.min(1, STAR[look] * 1.4) * (1 - age / 1.6), pens ? pens[b.pen] : dark() ? '255, 236, 170' : '232, 89, 12');
     }
     frames++;
     canvas.dataset.energy = energy.toFixed(2);
     canvas.dataset.active = String(active);
     canvas.dataset.frames = String(frames);
     canvas.dataset.bursts = String(bursts.length);
+    canvas.dataset.marks = current.map((m) => (m.image ? 'tool' : 'starmeter')).join(',');
+    canvas.dataset.logos = String(shownLogos);
+    // The logos seen this frame (drawn, faded in, on the sky's clear middle, not under its faded top or foot), by kind:
+    // a tool's, or the Starmeter mark.
+    canvas.dataset.drawn = [...new Set(drawn)].sort().join(',');
+    canvas.dataset.drawnCount = String(drawn.length);
+    canvas.dataset.stars = String(things.filter((t) => t.kind === 'star').length);
     queue();
   }
   /** Resting, half the frames: the sky barely moves, the phone saves its power. */
@@ -205,8 +275,21 @@
       else queue();
     });
   });
-  // The look changed: its own things.
-  $effect(() => { void look; untrack(() => { motes = motes.map(() => mote(true)); }); });
+  // The tools at work changed: in the one still frame (reduced motion), drawn again with theirs.
+  let marksSeen = '';
+  $effect(() => {
+    const now = marks().map((m) => m.key).join();
+    untrack(() => {
+      if (now === marksSeen) return;
+      // The first time, the still frame is being drawn anyway.
+      const first = !marksSeen;
+      marksSeen = now;
+      if (first) return;
+      if (still && canvas) requestAnimationFrame((time) => tick(time));
+    });
+  });
+  // The look changed: the marks drawn again in its way.
+  $effect(() => { void look; untrack(() => sprites.clear()); });
   let burstSeen = 0;
   $effect(() => {
     const at = burst;
@@ -214,9 +297,9 @@
       if (!at || at === burstSeen || still) return;
       burstSeen = at;
       const now = performance.now() / 1000, x = width / 2, y = Math.min(110, height * 0.15);
-      for (let i = 0; i < 16; i++) {
-        const a = (i / 16) * Math.PI * 2 + random(-0.15, 0.15), speed = random(70, 150);
-        bursts.push({ x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed * 0.7 + 20, born: now, colour: i, kind: sketchy() ? (i % 2 ? 'spark' : 'star') : look === 'dark' ? 'sparkle' : 'glow', size: sketchy() ? random(4, 6) : look === 'dark' ? random(3, 4.5) : random(6, 10), turn: random(0, 6) });
+      for (let i = 0; i < 18; i++) {
+        const a = (i / 18) * Math.PI * 2 + random(-0.15, 0.15), speed = random(70, 150);
+        bursts.push({ x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed * 0.7 + 20, born: now, size: random(2.5, 4.5), pen: i % 4, turn: random(0, 6) });
       }
       queue();
     });

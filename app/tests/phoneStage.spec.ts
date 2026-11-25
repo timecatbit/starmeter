@@ -1126,6 +1126,43 @@ test('the sky\'s floating things answer the work: busier as the models write, fe
   expect((await read()).frames).toBe(hidden);
 });
 
+test('the sky floats the logos of the tools at work, the Starmeter mark when nothing runs, and with reduced motion still shows them', async ({ page }) => {
+  test.setTimeout(60_000);
+  const work = scripted();
+  await phone(page, PORTRAIT, '', { live: work.live });
+  const drift = page.locator('.stage .sky canvas.drift');
+  const read = () => drift.evaluate((c) => ({ marks: c.dataset.marks, drawn: c.dataset.drawn, count: Number(c.dataset.drawnCount) }));
+  // Claude Code's session at work: its logo floats, a few at once, and the Starmeter mark has gone.
+  work.at(3);
+  await expect.poll(async () => (await read()).marks, { timeout: 5000 }).toBe('tool');
+  await expect.poll(async () => (await read()).drawn, { timeout: 8000 }).toBe('tool');
+  expect((await read()).count).toBeGreaterThanOrEqual(2);
+  // (Both sessions' logos are the one blank stand-in here, so one mark: tools' own logos are told apart by their pictures.)
+  // Nothing running: the Starmeter mark, faded in where it is (not a minute's float up from the foot).
+  for (const seconds of [6, 9, 12, 15, 18, 21]) { work.at(seconds); await page.waitForTimeout(600); }
+  await expect(page.locator('.stage .turn-done')).toBeVisible({ timeout: 5000 });
+  work.at(80);
+  await expect(page.locator('.stage .monitor:not(.working)')).toBeVisible({ timeout: 5000 });
+  await expect.poll(async () => (await read()).marks, { timeout: 5000 }).toBe('starmeter');
+  await expect.poll(async () => (await read()).drawn, { timeout: 12_000 }).toBe('starmeter');
+  expect((await read()).count).toBeGreaterThanOrEqual(1);
+});
+
+test('with reduced motion the one still frame has the logos of the tools at work in it', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const work = scripted();
+  work.at(8);
+  await phone(page, PORTRAIT, '', { live: work.live });
+  const drift = page.locator('.stage .sky canvas.drift');
+  // The logos' pictures come in after the first frame: the still frame drawn again with them, and then left alone.
+  await expect.poll(() => drift.evaluate((c) => c.dataset.drawn), { timeout: 5000 }).toBe('tool');
+  expect(Number(await drift.evaluate((c) => c.dataset.drawnCount))).toBeGreaterThanOrEqual(1);
+  const frames = async () => Number(await drift.evaluate((c) => c.dataset.frames ?? '0'));
+  const settled = await frames();
+  await page.waitForTimeout(1500);
+  expect(await frames()).toBe(settled);
+});
+
 test('with reduced motion the sky is one still frame; in 手绘 its things are the pen\'s doodles on the paper', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await phone(page, PORTRAIT, '&s=sketch', { live: resting() });
