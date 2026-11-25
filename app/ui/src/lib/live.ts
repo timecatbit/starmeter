@@ -12,6 +12,8 @@ export class LiveFeed {
   /** The window on screen: always the last minute, so the line flows at one steady speed and the rate reads true. */
   static readonly window = 60_000;
   samples: Sample[] = [];
+  /** How far back the readings are kept: two windows for the panel's minute; a phone's live view draws five minutes. */
+  history = 2 * LiveFeed.window;
   started = Date.now();
   /** The pinning zoom plays once per pin, not each time the homepage comes back. */
   zoomed = false;
@@ -84,7 +86,7 @@ export class LiveFeed {
   private keep(sample: Sample, at: number) {
     if (this.samples.length && Math.abs(at - this.samples.at(-1)!.at) < 500) this.samples[this.samples.length - 1] = sample;
     else this.samples.push(sample);
-    this.samples = this.samples.filter((s) => at - s.at <= 2 * LiveFeed.window);
+    this.samples = this.samples.filter((s) => at - s.at <= this.history);
   }
 
   span() { return LiveFeed.window; }

@@ -11,7 +11,7 @@
 // same fixtures through fixtureBackend.ts, and the shell calls do nothing.
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { ActionReceipt, Dashboard, Question, ShellInfo, Snapshot } from './types';
+import type { ActionReceipt, Dashboard, LiveAnswer, Question, ShellInfo, Snapshot } from './types';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 /** On a phone (在手机上看): the computer's app served this page, with its key in the address's fragment. */
@@ -28,6 +28,8 @@ export const backend = {
   snapshot: (): Promise<Snapshot> => (inTauri ? invoke('snapshot') : browser().then((f) => f.snapshot())),
   dashboard: (range: string): Promise<Dashboard> => (inTauri ? invoke('dashboard', { range }) : browser().then((f) => f.dashboard(range))),
   action: (action: string[]): Promise<ActionReceipt> => (inTauri ? invoke('action', { action }) : browser().then((f) => f.action(action))),
+  /** On a phone, 手机版's live view: what the computer read a moment ago. Nowhere else. */
+  live: (): Promise<LiveAnswer> => (onPhone ? import('./phoneBackend').then((f) => f.live()) : Promise.reject(new Error('the live view is a phone\'s'))),
   onSnapshot(changed: () => void): () => void {
     if (inTauri) {
       const stop = listen('snapshot-changed', changed);

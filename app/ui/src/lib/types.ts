@@ -192,6 +192,15 @@ export interface Snapshot {
   preferences?: PresentationPreferences;
 }
 
+/** 手机版's live view (/api/live): today's figures by tool as the computer read them a moment ago, 会话 (its sessions
+ *  only), and when each session's latest turn began (in the computer's seconds, as `at` is). */
+export interface LiveAnswer {
+  at: number;
+  dashboard: Dashboard | null;
+  sessions: Entry | null;
+  turns: Record<string, number>;
+}
+
 /** What an action left behind: done, failed (with why) or cancelled (a dialog was dismissed). */
 export interface ActionReceipt {
   status: 'done' | 'failed' | 'cancelled';

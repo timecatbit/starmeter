@@ -118,8 +118,6 @@
   }
   /** On a phone: why the figures on screen are not fresh, until a reading comes through. */
   let phoneProblem = $state<string | null>(null);
-  /** On a phone: when the last reading came in (手机版's ring counts the 15 seconds to the next from it). */
-  let phoneReadAt = $state(0);
   /** On a phone, its own look (手机版) rather than the computer's homepage (电脑版): phoneLook.svelte.ts. */
   const staged = $derived(onPhone && phoneLook.current === 'stage');
   /** The phone's look picked at the foot of either page: the other fades in over it, 手机版 with its opening. */
@@ -423,7 +421,6 @@
   function take(answer: Snapshot) {
     interaction.source = answer;
     phoneProblem = null;
-    if (onPhone) phoneReadAt = Date.now();
     if (pinned && interaction.source.dashboard) {
       feed?.add(interaction.source.dashboard);
       const now = new Date();
@@ -817,7 +814,7 @@
       {:else if snapshot && staged && (waiting ? shown : snapshot.dashboard)}
         <!-- 手机版: the figures as they came in (held, as the panel holds them, while a range picked is read). -->
         <PhoneStage data={(waiting ? shown : snapshot.dashboard)!} {rangeOptions} reading={waiting} grouping={pickedGroup} {regrouping} {sessions} {view}
-          entries={without(snapshot.entries, sessions)} readAt={phoneReadAt} problem={phoneProblem} onrange={perform} ongroup={(key) => perform(['set-group', key])}
+          entries={without(snapshot.entries, sessions)} problem={phoneProblem} onrange={perform} ongroup={(key) => perform(['set-group', key])}
           onview={chooseView} onshare={openShare} onlook={chooseLook} />
       {:else if snapshot}
         <HomePage entries={shown ? without(snapshot.entries, sessions) : snapshot.entries} dashboard={shown ? dashboardView : null} bind:scrollTop={homeScroll} onactivate={activate}

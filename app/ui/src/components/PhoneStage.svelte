@@ -1,52 +1,61 @@
 <script lang="ts" module>
+  import { PhoneLive } from '../lib/phoneLive.svelte';
   /** The opening plays once a page load (and again when the phone switches to this look): back from the share page,
    *  the page is simply there, where it was left. */
   let played = false;
   let kept = 0;
   export function replayIntro() { played = false; kept = 0; }
+  /** The live view's readings and what happened, kept while the share page is on screen (asked for only while this page is). */
+  const live = new PhoneLive();
 </script>
 
 <script lang="ts">
-  // 在手机上看, the phone's own look (手机版): the computer's homepage drawn for a phone, under the night of the app's
-  // icon. Read-only; the figures are the panel's, counted the same way (Summary's estimate, tokens and requests, the
-  // share picture's cache hits), from the same readings App.svelte asks for every 15 seconds.
+  // 在手机上看, the phone's own look (手机版): a live monitor of the AI working on the computer, under the night of the
+  // app's icon. Someone looks at their phone when they are away from the computer (or it runs a long job): is it working,
+  // how hard, what has it spent, when will the turn be done. So the top is now (StageMonitor: working or resting, how
+  // fast the models write, today's estimate rolling up, the live curve), then what it is doing (StageActivity: the
+  // running sessions with their turn's clock and tools, and what happened), and under them the figures for a range as
+  // the homepage has them (the estimate and its three figures, the trend, the shares, the cards, the plans), the choice
+  // of look at the foot. Read-only; the figures are the panel's (phoneLive.svelte.ts for the live view).
   //
-  // Portrait: one column, top to bottom by importance: the range, the estimate with its three figures, the trend, the
-  // tools' shares (星环), the cards (工具 / 模型 / 项目 / 会话), the plans, and at the foot the choice of look. Once the
-  // estimate scrolls away it waits in the bar at the top, so the one number that matters stays in sight.
-  // Landscape: two columns, the range, the estimate and the trend held still on the left, the rest scrolling on the
-  // right, both inside the notch's safe area.
+  // Three layouts. A phone upright: one column. A phone on its side: a monitor by the desk, the live view held still on
+  // the left and the rest scrolling on the right, inside the notch's safe area (and on an https link, a switch keeping
+  // the screen on). A computer's or a tablet's window (the link opened there): the page scrolls as a page, at most 1320
+  // wide; the monitor large on the left with the sessions and what happened beside it, the figures under both in two
+  // columns, a pointer reading the curves on hover.
   //
-  // Motion, each for a reason: the opening counts the estimate up from 0 (how large it is), draws the trend in from the
-  // left (time runs that way), sweeps the shares round (they fill a whole), and raises the cards one after another (in
-  // the order they matter). A new reading rolls only the digits that changed and lights the card whose tool grew. The
-  // ring round the time fills over the 15 seconds to the next reading. While a range picked is being read, the old
-  // figures dim and the star's dots ripple. The sky drifts slowly, and stops while the page is hidden. Reduced motion:
-  // everything simply shows.
+  // Motion, each for a reason: the opening counts the figures up (how large), draws the trend in from the left (time),
+  // sweeps the shares round (a whole). Working, the curve flows and each request lands on it; a turn done is said at the
+  // top with a tick; waking, a light runs down the page and the headline turns from the estimate to the speed. The sky
+  // drifts, and stops while the page is hidden. Reduced motion: everything simply shows.
   import { onMount, untrack } from 'svelte';
   import { byUsage } from '../lib/order';
   import { currency, grouped, summaryPart, tokens } from '../lib/format';
   import { summaryProviders } from '../lib/chart';
   import { t } from '../lib/i18n.svelte';
+  import { rateText } from '../lib/live';
   import { closeList, listOpen, openList, sessionOpen, toggleSession } from '../lib/expanded.svelte';
   import type { PhoneLook } from '../lib/phoneLook.svelte';
   import { panel } from '../lib/ui.svelte';
   import type { Dashboard, Entry } from '../lib/types';
   import Icon from './Icon.svelte';
+  import StageActivity from './StageActivity.svelte';
   import StageCard from './StageCard.svelte';
   import StageChart from './StageChart.svelte';
+  import StageMonitor from './StageMonitor.svelte';
   import StageNumber from './StageNumber.svelte';
   import StagePills from './StagePills.svelte';
   import StagePlans from './StagePlans.svelte';
   import StageRing from './StageRing.svelte';
   import StageSession from './StageSession.svelte';
 
-  let { data, rangeOptions, reading = false, grouping = null, regrouping = false, sessions = null, view = 'cards', entries, readAt, problem = null,
+  let { data, today = null, rangeOptions, reading = false, grouping = null, regrouping = false, sessions = null, view = 'cards', entries, problem = null,
     onrange, ongroup, onview, onshare, onlook }: {
-    data: Dashboard; rangeOptions: Entry[]; reading?: boolean; grouping?: string | null; regrouping?: boolean;
+    data: Dashboard;
+    /** Today's figures from the homepage, for the monitor until the live view has its own. */
+    today?: Dashboard | null;
+    rangeOptions: Entry[]; reading?: boolean; grouping?: string | null; regrouping?: boolean;
     sessions?: Entry | null; view?: 'cards' | 'sessions'; entries: Entry[];
-    /** When the last reading came in: the ring round the time fills from then to the next. */
-    readAt: number;
     /** Why the figures on screen are not fresh. */
     problem?: string | null;
     onrange: (action: string[]) => void; ongroup: (key: string) => void; onview: (view: 'cards' | 'sessions') => void;
@@ -54,35 +63,43 @@
   } = $props();
 
   const intro = !played;
-  onMount(() => { played = true; });
+  onMount(() => {
+    played = true;
+    live.start();
+    return () => live.stop();
+  });
 
   // MARK: The screen
 
   let screenW = $state(typeof window === 'undefined' ? 390 : window.innerWidth);
   let screenH = $state(typeof window === 'undefined' ? 844 : window.innerHeight);
-  /** Turned sideways (or a wide screen): two columns. */
-  /** Summary on the homepage (主页模块): the estimate, its figures, the trend and the shares. Without it, as on the panel,
-   *  the page is the cards and the plans, one column whichever way up. */
+  /** A computer's or tablet's window; a phone on its side; a phone upright (or a narrow window). */
+  const layout = $derived<'desk' | 'side' | 'narrow'>(screenW >= 1000 && screenH >= 600 ? 'desk' : screenW >= 600 && screenW > screenH * 1.15 ? 'side' : 'narrow');
+  const wide = $derived(layout === 'side');
+  /** Summary on the homepage (主页模块): the estimate, its figures, the trend and the shares; without it, as on the
+   *  panel, the figures for a range are the cards and the plans. */
   const summary = $derived(data.showSummary !== false);
-  const wide = $derived(summary && screenW >= 600 && screenW > screenH * 1.15);
   let scroller: HTMLDivElement | undefined = $state();
   let scrolled = $state(0);
-  let hero: HTMLDivElement | undefined = $state();
-  let heroAway = $state(false);
+  let headline: HTMLDivElement | undefined = $state();
+  let headlineAway = $state(false);
   $effect(() => {
-    if (!hero || !scroller || wide) { heroAway = false; return; }
-    const observer = new IntersectionObserver(([entry]) => (heroAway = !entry.isIntersecting), { root: scroller, rootMargin: '-56px 0px 0px 0px' });
-    observer.observe(hero);
+    if (!headline || !scroller || wide) { headlineAway = false; return; }
+    const observer = new IntersectionObserver(([entry]) => (headlineAway = !entry.isIntersecting), { root: scroller, rootMargin: '-56px 0px 0px 0px' });
+    observer.observe(headline);
     return () => observer.disconnect();
   });
+  let asleep = $state(false);
+  /** The clock the turns' timers and "6 分钟前" read: each second while the page shows. */
+  let now = $state(Date.now());
   onMount(() => {
     if (scroller && kept) scroller.scrollTop = kept;
-    // The sky stands still while the page is out of sight.
-    const visibility = () => (asleep = document.visibilityState !== 'visible');
+    // The sky stands still while the page is out of sight, and the clock with it.
+    const visibility = () => { asleep = document.visibilityState !== 'visible'; now = Date.now(); };
     document.addEventListener('visibilitychange', visibility);
-    return () => { document.removeEventListener('visibilitychange', visibility); };
+    const ticking = setInterval(() => { if (!asleep) now = Date.now(); }, 1000);
+    return () => { document.removeEventListener('visibilitychange', visibility); clearInterval(ticking); };
   });
-  let asleep = $state(false);
   function onscroll() {
     if (!scroller) return;
     scrolled = scroller.scrollTop;
@@ -96,6 +113,46 @@
     meta.content = colour;
     return () => meta?.remove();
   });
+
+  // MARK: Live
+
+  const working = $derived(live.state === 'working');
+  /** Waking: for a moment after the page turned from resting to working. */
+  const waking = $derived(live.woke > 0 && now - live.woke < 1600 && !panel.reduceMotion);
+  /** The bar's headline once the monitor's has scrolled away: the speed while working, else today's estimate. */
+  const compact = $derived.by(() => {
+    void live.version;
+    if (working) return `${rateText(live.rate(now) ?? 0)} Token/s`;
+    return live.cost === null ? '' : currency.symbol + grouped(live.cost);
+  });
+  /** A turn just done, said at the top for a few seconds; a tap lets it go. */
+  let doneShown = $state<number | null>(null);
+  $effect(() => {
+    const done = live.done;
+    if (!done) return;
+    doneShown = done.at;
+    const timer = setTimeout(() => { if (doneShown === done.at) doneShown = null; }, 4500);
+    return () => clearTimeout(timer);
+  });
+  const lastRead = $derived.by(() => {
+    void live.version;
+    const d = new Date(now);
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  });
+
+  // Keeping the screen on (a monitor by the desk): only where the browser offers it (an https page, iOS 16.4 on).
+  const lockable = typeof navigator !== 'undefined' && 'wakeLock' in navigator;
+  let awake = $state(false);
+  let lock: { release: () => Promise<void> } | null = null;
+  async function holdScreen(on: boolean) {
+    awake = on;
+    try {
+      if (on) lock = await (navigator as unknown as { wakeLock: { request: (kind: string) => Promise<{ release: () => Promise<void> }> } }).wakeLock.request('screen');
+      else { await lock?.release(); lock = null; }
+    } catch { awake = false; lock = null; }
+  }
+  // The system lets go of it when the page is hidden: taken again when it comes back.
+  $effect(() => { if (awake && !asleep && !lock) untrack(() => void holdScreen(true)); if (asleep) lock = null; });
 
   // MARK: Summary
 
@@ -117,15 +174,9 @@
     { label: t('请求'), value: valid.length ? requestSum.toLocaleString('en-US') : '—' },
     { label: t('缓存命中'), value: valid.length ? cache : '—' },
   ]);
-  /** The estimate as large as the width lets it be. */
-  const heroSize = $derived.by(() => {
-    // Landscape: beside the three figures, in the left column (43% of the screen, at least 300pt).
-    const room = wide ? Math.max(300, screenW * 0.43) - 40 - 150 : Math.min(560, screenW) - 48;
-    return Math.round(Math.max(wide ? 30 : 36, Math.min(wide ? 50 : 66, room / (Math.max(4, [...amount].length) * 0.6))));
-  });
-  const time = $derived(/\d{1,2}:\d{2}/.exec(data.updated ?? '')?.[0] ?? '');
-  /** The room the trend has in landscape, measured. */
-  let chartRoom = $state(0);
+  /** The monitor's headline and curve, as large as the layout lets them be. */
+  const big = $derived(layout === 'desk' ? 80 : layout === 'side' ? 50 : 64);
+  const chartHeight = $derived(layout === 'desk' ? 300 : layout === 'side' ? null : 196);
 
   // MARK: Choices
 
@@ -223,7 +274,7 @@
 
 <svelte:window bind:innerWidth={screenW} bind:innerHeight={screenH} />
 
-<div class="stage" class:light={!panel.dark} class:wide class:still={panel.reduceMotion} class:asleep>
+<div class="stage {layout}" class:light={!panel.dark} class:wide class:still={panel.reduceMotion} class:asleep class:working class:waking>
   <div class="sky" aria-hidden="true">
     <div class="aurora one"></div>
     <div class="aurora two"></div>
@@ -233,109 +284,129 @@
         style:animation-delay="{star.wait}s" style:animation-duration="{star.length}s"></span>
     {/each}
   </div>
+  {#if waking}<div class="sweep" aria-hidden="true"></div>{/if}
+  {#if live.done && doneShown === live.done.at}
+    <div class="turn-done" role="status"><button class="done-body" onclick={() => (doneShown = null)}>
+      <svg class="tick" width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><circle cx="15" cy="15" r="13" /><path d="M9 15.5 13.2 19.6 21.4 11" /></svg>
+      <span class="done-text">
+        <span class="done-title">{t('这一轮完成')}</span>
+        <span class="done-detail">{live.done.title}{#if live.done.took} · {live.done.took}{/if}{#if live.done.cost} · {live.done.cost}{/if}</span>
+      </span>
+    </button></div>
+  {/if}
   <div class="scroll" bind:this={scroller} {onscroll}>
     <div class="frame">
       <header class="bar" class:raised={!wide && scrolled > 6}>
         <span class="brand">
-          <svg class="mark" class:reading viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+          <svg class="mark" class:reading={reading || live.trouble} viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
             {#each DOTS as [cx, cy, r], i (i)}
               <circle {cx} {cy} {r} style:--d={Math.hypot(cx - 12, cy - 12) / 4.67} />
             {/each}
           </svg>
           <span class="titles">
-            <span class="word" class:away={heroAway}>Starmeter</span>
-            <span class="compact num" class:shown={heroAway} aria-hidden={!heroAway}>{amount}<span class="compact-range">{data.rangeLabel}</span></span>
+            <span class="word" class:away={headlineAway && !!compact}>Starmeter</span>
+            <span class="compact num" class:shown={headlineAway && !!compact} aria-hidden={!headlineAway}>{compact}<span class="compact-range">{working ? t('正在工作') : t('今天')}</span></span>
           </span>
         </span>
-        <span class="live" class:trouble={!!problem} title={problem ?? data.updated ?? ''}>
-          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-            <circle cx="8" cy="8" r="6.5" class="live-track" />
-            {#key readAt}<circle cx="8" cy="8" r="6.5" class="live-ring" transform="rotate(-90 8 8)" />{/key}
-            <circle cx="8" cy="8" r="2.6" class="live-dot" />
-          </svg>
-          <span class="num">{time}</span>
+        {#if lockable}
+          <button class="awake" class:on={awake} aria-pressed={awake} aria-label={t('保持亮屏')} title={t('保持亮屏')} onclick={() => holdScreen(!awake)}>
+            <svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3.4" /><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4" /></svg>
+          </button>
+        {/if}
+        <span class="live" class:trouble={live.trouble || !!problem} title={problem ?? ''}>
+          {#key live.version}<span class="live-dot" aria-hidden="true"></span>{/key}
+          <span class="num">{live.trouble ? t('连不上电脑') : working ? t('实时') : lastRead}</span>
         </span>
         <button class="share" onclick={onshare} aria-label={t('分享用量图')}><Icon name="square.and.arrow.up" size={18} /></button>
       </header>
 
-      <section class="lead">
-        {#if rangeChoices.length > 1}
-          <div class="ranges"><StagePills options={rangeChoices} chosen={chosenRange} label={t('统计范围')} onpick={pickRange} busy={reading} scroll bare /></div>
-        {/if}
-        {#if summary}
-        <div class="hero" class:reading bind:this={hero}>
-          <div class="halo" aria-hidden="true"></div>
-          <div class="hero-label">
-            <!-- The range these figures are of: while another range picked is read, still this one. -->
-            <span class="range">{data.rangeLabel}</span>
-            <span class="sep">·</span>
-            <span>{partial ? t('已知 API 估算') : t('API 估算')}</span>
-            {#if data.devices}<span class="devices">{t('含 {n} 台电脑', { n: data.devices + 1 })}</span>{/if}
-          </div>
-          <div class="amount" style:font-size="{heroSize}px"><StageNumber value={amount} count={intro} /></div>
-          <div class="figures" class:column={wide}>
-            {#each figures as figure, i (i)}
-              <div class="figure" style:--order={i}>
-                <span class="figure-label">{figure.label}</span>
-                <span class="figure-value"><StageNumber value={figure.value} count={intro} delay={120 + i * 80} /></span>
-              </div>
-            {/each}
-          </div>
+      <section class="lead" style:--big="{big}px">
+        <div class="monitor-box" bind:this={headline}>
+          <StageMonitor {live} today={today ?? (data.rangeKey === 'today' ? data : null)} {now} {chartHeight} {intro} />
         </div>
-        <div class="trend" class:reading>
-          <div class="trend-head"><span>{t('{unit} Token', { unit: data.chartUnit })}</span><span class="span num">{data.chartSpan}</span></div>
-          <div class="trend-body" bind:clientHeight={chartRoom}>
-            <StageChart {data} height={wide ? Math.max(70, chartRoom) : 156} draw={intro} />
-          </div>
-        </div>
-        {/if}
       </section>
 
       <section class="rest">
-        {#if summary && counted.some((p) => p.available && p.tokens > 0)}
-          <div class="panel shares" class:reading>
-            <div class="panel-head"><span>{t('工具占比')}</span><span class="quiet">{t('按 Token')}</span></div>
-            <StageRing {data} draw={intro} size={128} />
-          </div>
-        {/if}
+        <div class="activity-box"><StageActivity {live} {now} shown={layout === 'desk' ? 8 : 6} /></div>
 
-        {#if tabs.length > 1}
-          <div class="tabs"><StagePills options={tabs} chosen={showingSessions ? 'sessions' : wantedGrouping} label={t('卡片分组')} onpick={pickTab} small /></div>
-        {/if}
-        {#if !showingSessions && !regrouping && data.groupNote}<p class="note">{data.groupNote}</p>{/if}
-
-        {#if showingSessions && sessions}
-          <div class="list" style:--lead={lead}>
-            {#each sessionsListed as s, i (sessionKey(s, i))}
-              <StageSession {s} order={i} enter={entering} open={sessionOpen(sessionKey(s, i))} ontoggle={() => toggleSession(sessionKey(s, i))} />
-            {/each}
-            {#if sessionRows.length > SHOWN}
-              <button class="more" onclick={() => (everySession ? closeList : openList)('sessions')}>
-                {everySession ? t('收起') : t('查看更多 {n} 个会话', { n: sessionRows.length - sessionsListed.length })}</button>
+        <div class="stats">
+          <div class="stats-a">
+            <div class="stats-head">{t('统计')}</div>
+            {#if rangeChoices.length > 1}
+              <div class="ranges"><StagePills options={rangeChoices} chosen={chosenRange} label={t('统计范围')} onpick={pickRange} busy={reading} scroll bare /></div>
             {/if}
-            {#each sessionNotes as note, i (i)}<p class="note">{note.label}</p>{/each}
-          </div>
-        {:else}
-          <div class="list" class:held={regrouping} inert={regrouping} aria-busy={regrouping} style:--lead={lead}>
-            {#if !cardList.length && data.providers.length}<p class="note center">{t('此时段暂无调用')}</p>{/if}
-            {#each listed as p, i (p.id)}
-              <StageCard {p} part={parts.get(p.id) ?? 0} order={i} enter={entering} open={opened.has(p.id)} glow={glowing.has(p.id)} ontoggle={() => toggleCard(p.id)} />
-            {/each}
-            {#if unlisted || folds}
-              <button class="more" onclick={() => (folds ? closeList : openList)(data.grouping ?? '')}>
-                {folds ? t('收起') : t(data.grouping === 'project' ? '查看更多 {n} 个项目' : '查看更多 {n} 个模型', { n: unlisted })}</button>
+            {#if summary}
+              <div class="hero" class:reading>
+                <div class="hero-label">
+                  <!-- The range these figures are of: while another range picked is read, still this one. -->
+                  <span class="range">{data.rangeLabel}</span>
+                  <span class="sep">·</span>
+                  <span>{partial ? t('已知 API 估算') : t('API 估算')}</span>
+                  {#if data.devices}<span class="devices">{t('含 {n} 台电脑', { n: data.devices + 1 })}</span>{/if}
+                </div>
+                <div class="amount"><StageNumber value={amount} count={intro} /></div>
+                <div class="figures">
+                  {#each figures as figure, i (i)}
+                    <div class="figure" style:--order={i}>
+                      <span class="figure-label">{figure.label}</span>
+                      <span class="figure-value"><StageNumber value={figure.value} count={intro} delay={120 + i * 80} /></span>
+                    </div>
+                  {/each}
+                </div>
+              </div>
+              <div class="trend" class:reading>
+                <div class="trend-head"><span>{t('{unit} Token', { unit: data.chartUnit })}</span><span class="span num">{data.chartSpan}</span></div>
+                <StageChart {data} height={layout === 'desk' ? 190 : 156} draw={intro} />
+              </div>
+              {#if counted.some((p) => p.available && p.tokens > 0)}
+                <div class="panel shares" class:reading>
+                  <div class="panel-head"><span>{t('工具占比')}</span><span class="quiet">{t('按 Token')}</span></div>
+                  <StageRing {data} draw={intro} size={128} />
+                </div>
+              {/if}
             {/if}
           </div>
-        {/if}
 
-        {#if entries.some((e) => !e.separator && e.label)}
-          <div class="plans-head">{t('订阅与服务')}</div>
-          <StagePlans {entries} enter={intro} />
-        {/if}
+          <div class="stats-b">
+            {#if tabs.length > 1}
+              <div class="tabs"><StagePills options={tabs} chosen={showingSessions ? 'sessions' : wantedGrouping} label={t('卡片分组')} onpick={pickTab} small /></div>
+            {/if}
+            {#if !showingSessions && !regrouping && data.groupNote}<p class="note">{data.groupNote}</p>{/if}
+
+            {#if showingSessions && sessions}
+              <div class="list" style:--lead={lead}>
+                {#each sessionsListed as s, i (sessionKey(s, i))}
+                  <StageSession {s} order={i} enter={entering} open={sessionOpen(sessionKey(s, i))} ontoggle={() => toggleSession(sessionKey(s, i))} />
+                {/each}
+                {#if sessionRows.length > SHOWN}
+                  <button class="more" onclick={() => (everySession ? closeList : openList)('sessions')}>
+                    {everySession ? t('收起') : t('查看更多 {n} 个会话', { n: sessionRows.length - sessionsListed.length })}</button>
+                {/if}
+                {#each sessionNotes as note, i (i)}<p class="note">{note.label}</p>{/each}
+              </div>
+            {:else}
+              <div class="list" class:held={regrouping} inert={regrouping} aria-busy={regrouping} style:--lead={lead}>
+                {#if !cardList.length && data.providers.length}<p class="note center">{t('此时段暂无调用')}</p>{/if}
+                {#each listed as p, i (p.id)}
+                  <StageCard {p} part={parts.get(p.id) ?? 0} order={i} enter={entering} open={opened.has(p.id)} glow={glowing.has(p.id)} ontoggle={() => toggleCard(p.id)} />
+                {/each}
+                {#if unlisted || folds}
+                  <button class="more" onclick={() => (folds ? closeList : openList)(data.grouping ?? '')}>
+                    {folds ? t('收起') : t(data.grouping === 'project' ? '查看更多 {n} 个项目' : '查看更多 {n} 个模型', { n: unlisted })}</button>
+                {/if}
+              </div>
+            {/if}
+
+            {#if entries.some((e) => !e.separator && e.label)}
+              <div class="plans-head">{t('订阅与服务')}</div>
+              <StagePlans {entries} enter={intro} />
+            {/if}
+          </div>
+        </div>
 
         <footer class="foot">
           <StagePills options={[{ value: 'stage', label: t('手机版') }, { value: 'panel', label: t('电脑版') }]} chosen="stage" label={t('手机上的样式')} onpick={(v) => onlook(v as PhoneLook)} small />
-          <p class="read-only">{t('只读：数字来自电脑上的 Starmeter，每 15 秒更新一次')}</p>
+          <p class="read-only">{t('只读：实时数字每 2 秒从电脑上的 Starmeter 读一次，休息时每 5 秒')}</p>
         </footer>
       </section>
     </div>
@@ -399,7 +470,7 @@
     --halo: rgba(120, 140, 255, 0.22);
   }
 
-  /* MARK: The sky */
+  /* MARK: The sky: brighter, and its light quicker, while the AI works; still while it rests. */
   .sky {
     position: absolute;
     inset: 0;
@@ -413,17 +484,20 @@
     height: 120vmax;
     border-radius: 50%;
     will-change: transform;
+    opacity: 0.7;
+    transition: opacity 1.2s;
     animation: drift 38s ease-in-out infinite alternate;
   }
+  .working .aurora { opacity: 1; }
   .aurora.one { left: -40vmax; top: -62vmax; background: radial-gradient(closest-side, rgba(120, 150, 255, 0.34), transparent); }
-  .aurora.two { right: -55vmax; top: -20vmax; background: radial-gradient(closest-side, rgba(196, 120, 255, 0.16), transparent); animation-duration: 47s; animation-direction: alternate-reverse; }
+  .aurora.two { right: -55vmax; top: -20vmax; background: radial-gradient(closest-side, rgba(110, 230, 190, 0.14), transparent); animation-duration: 47s; animation-direction: alternate-reverse; }
   .light .aurora.one { background: radial-gradient(closest-side, rgba(150, 170, 255, 0.45), transparent); }
-  .light .aurora.two { background: radial-gradient(closest-side, rgba(255, 180, 220, 0.3), transparent); }
+  .light .aurora.two { background: radial-gradient(closest-side, rgba(120, 220, 190, 0.3), transparent); }
+  .stage:not(.working) .aurora { animation-play-state: paused; }
   @keyframes drift {
     from { transform: translate3d(0, 0, 0) rotate(0deg); }
     to { transform: translate3d(8vmax, 6vmax, 0) rotate(25deg); }
   }
-  /* The icon's dot grid, faint, brightest near the top. */
   .dots {
     position: absolute;
     inset: 0;
@@ -442,8 +516,48 @@
   }
   .light .star { display: none; }
   @keyframes twinkle { 50% { opacity: 0.85; } }
-  .still .aurora, .still .star, .asleep .aurora, .asleep .star { animation-play-state: paused; }
+  .asleep .aurora, .asleep .star { animation-play-state: paused; }
   .still .aurora, .still .star { animation: none; }
+  /* Waking: a light runs down the page. */
+  .sweep {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 60%;
+    z-index: 30;
+    pointer-events: none;
+    background: radial-gradient(ellipse 70% 60% at 50% 50%, rgba(140, 255, 200, 0.28), transparent 70%);
+    animation: sweep 1.5s cubic-bezier(0.3, 0.6, 0.2, 1) forwards;
+  }
+  .light .sweep { background: radial-gradient(ellipse 70% 60% at 50% 50%, rgba(40, 200, 130, 0.22), transparent 70%); }
+  @keyframes sweep { from { transform: translateY(-60%); opacity: 0; } 25% { opacity: 1; } to { transform: translateY(170%); opacity: 0; } }
+
+  /* MARK: A turn done */
+  .turn-done {
+    position: absolute;
+    left: 50%;
+    top: calc(12px + env(safe-area-inset-top));
+    z-index: 40;
+    transform: translateX(-50%);
+    width: min(440px, calc(100% - 28px));
+    border-radius: 20px;
+    color: var(--ink);
+    background: color-mix(in srgb, var(--sky-mid) 80%, transparent);
+    backdrop-filter: blur(20px) saturate(1.6);
+    -webkit-backdrop-filter: blur(20px) saturate(1.6);
+    box-shadow: 0 14px 40px -10px rgba(0, 0, 0, 0.55), inset 0 0 0 1px color-mix(in srgb, var(--good) 45%, transparent);
+    animation: drop-in 0.55s cubic-bezier(0.22, 1.3, 0.36, 1);
+  }
+  .done-body { width: 100%; display: flex; align-items: center; gap: 12px; padding: 12px 16px; text-align: left; }
+  @keyframes drop-in { from { opacity: 0; transform: translate(-50%, -24px) scale(0.96); } }
+  .tick circle { fill: var(--good); }
+  .tick path { fill: none; stroke: #06281A; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 20; stroke-dashoffset: 20; animation: draw-tick 0.5s ease-out 0.25s forwards; }
+  .still .tick path { animation: none; stroke-dashoffset: 0; }
+  @keyframes draw-tick { to { stroke-dashoffset: 0; } }
+  .done-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .done-title { font-size: 15px; font-weight: 700; }
+  .done-detail { font-size: 12px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
   /* MARK: Layout */
   .scroll {
@@ -463,20 +577,26 @@
   }
   .lead, .rest { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
   .rest { margin-top: 18px; }
-  .wide .scroll { overflow: hidden; }
-  .wide .frame {
+  .stats, .stats-a, .stats-b { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  .stats { margin-top: 10px; }
+  .stats-head { margin: 8px 2px -4px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
+
+  /* A phone on its side: the monitor held still on the left, the rest scrolling on the right. */
+  .side .scroll { overflow: hidden; }
+  .side .frame {
     max-width: none;
     height: 100%;
     box-sizing: border-box;
     padding: env(safe-area-inset-top) max(20px, env(safe-area-inset-right)) 0 max(20px, env(safe-area-inset-left));
     display: grid;
-    grid-template-columns: minmax(300px, 43%) minmax(0, 1fr);
+    grid-template-columns: minmax(320px, 56%) minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr);
     column-gap: 22px;
   }
-  .wide .bar { grid-column: 1; grid-row: 1; }
-  .wide .lead { grid-column: 1; grid-row: 2; gap: 10px; padding-bottom: max(14px, env(safe-area-inset-bottom)); min-height: 0; }
-  .wide .rest {
+  .side .bar { grid-column: 1; grid-row: 1; }
+  .side .lead { grid-column: 1; grid-row: 2; padding-bottom: max(12px, env(safe-area-inset-bottom)); min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); }
+  .side .monitor-box { grid-row: 1; grid-column: 1; min-height: 0; height: 100%; }
+  .side .rest {
     grid-column: 2;
     grid-row: 1 / span 2;
     margin: 0;
@@ -485,7 +605,24 @@
     padding: 14px 2px calc(24px + env(safe-area-inset-bottom));
     scrollbar-width: none;
   }
-  .wide .rest::-webkit-scrollbar { display: none; }
+  .side .rest::-webkit-scrollbar { display: none; }
+
+  /* A computer's or a tablet's window: a page, the monitor large beside what is happening, the figures under both. */
+  .desk .frame {
+    max-width: 1320px;
+    box-sizing: border-box;
+    padding: 0 40px 40px;
+    display: grid;
+    grid-template-columns: minmax(0, 1.6fr) minmax(340px, 1fr);
+    column-gap: 28px;
+    align-items: start;
+  }
+  .desk .bar { grid-column: 1 / -1; margin: 0 -40px; padding: 0 40px; height: 64px; }
+  .desk .lead { grid-column: 1; padding: 22px 26px 18px; border-radius: 28px; background: var(--glass); box-shadow: inset 0 0 0 0.5px var(--glass-edge), var(--lift); margin-top: 6px; }
+  .desk .rest { display: contents; }
+  .desk .activity-box { grid-column: 2; margin-top: 6px; }
+  .desk .stats { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 28px; align-items: start; margin-top: 30px; }
+  .desk .foot { grid-column: 1 / -1; margin-top: 30px; }
 
   /* MARK: The bar */
   .bar {
@@ -506,7 +643,7 @@
     -webkit-backdrop-filter: blur(18px) saturate(1.5);
     box-shadow: 0 0.5px 0 var(--glass-edge);
   }
-  .wide .bar { position: relative; margin: 0; padding: 0; height: 50px; }
+  .side .bar { position: relative; margin: 0; padding: 0; height: 50px; }
   .brand { flex: 1; min-width: 0; display: flex; align-items: center; gap: 9px; }
   .mark { flex: none; fill: var(--ink); filter: drop-shadow(0 0 6px var(--halo)); }
   .mark circle { transform-box: fill-box; transform-origin: center; }
@@ -530,86 +667,57 @@
   .compact.shown { transform: none; opacity: 1; }
   .compact-range { margin-left: 8px; font-family: -apple-system, system-ui, sans-serif; font-size: 12px; font-weight: 500; color: var(--ink-2); }
   .live { flex: none; display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-2); }
-  .live svg { display: block; }
-  .live-track { fill: none; stroke: var(--line-faint); stroke-width: 1.6; }
-  .live-ring {
-    fill: none;
-    stroke: var(--good);
-    stroke-width: 1.6;
-    stroke-linecap: round;
-    stroke-dasharray: 40.84;
-    stroke-dashoffset: 40.84;
-    animation: countdown 15s linear forwards;
-  }
-  @keyframes countdown { to { stroke-dashoffset: 0; } }
-  .still .live-ring { animation: none; stroke-dashoffset: 0; opacity: 0.5; }
-  .live-dot { fill: var(--good); }
-  .trouble .live-dot { fill: var(--warn); }
-  .trouble .live-ring { display: none; }
-  .share {
+  /* Blinks at each reading: the page is in touch with the computer. */
+  .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--good); animation: blink 0.9s ease-out; }
+  @keyframes blink { from { box-shadow: 0 0 0 0 color-mix(in srgb, var(--good) 80%, transparent); transform: scale(1.5); } to { box-shadow: 0 0 0 6px transparent; transform: scale(1); } }
+  .trouble .live-dot { background: var(--warn); animation: none; }
+  .stage:not(.working) .live-dot { background: var(--ink-3); }
+  .awake, .share {
     flex: none;
     width: 36px;
     height: 36px;
-    margin-right: -6px;
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
     color: var(--ink);
-    transition: background-color 0.2s, transform 0.2s;
+    transition: background-color 0.2s, transform 0.2s, color 0.2s;
   }
-  .share:active { background: var(--glass-strong); transform: scale(0.92); }
+  .share { margin-right: -6px; }
+  .awake svg { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
+  .awake svg circle { fill: none; }
+  .awake.on { color: #FFD66B; background: rgba(255, 214, 107, 0.16); }
+  .awake.on svg circle { fill: currentColor; }
+  .awake:active, .share:active { background: var(--glass-strong); transform: scale(0.92); }
+  @media (hover: hover) {
+    .awake:hover, .share:hover { background: var(--glass-strong); }
+  }
 
-  /* MARK: The estimate */
-  /* The ranges run to the screen's edges and fade there, so a range past the edge reads as one to scroll to. */
+  /* MARK: The figures for a range */
   .ranges {
-    margin: 4px -18px 0;
+    margin: 0 -18px;
     mask-image: linear-gradient(90deg, transparent, #000 18px, #000 calc(100% - 28px), transparent);
     -webkit-mask-image: linear-gradient(90deg, transparent, #000 18px, #000 calc(100% - 28px), transparent);
   }
   .ranges :global(.pills) { max-width: none; width: 100%; padding: 3px 18px; }
-  .wide .ranges { margin: 0 -20px 0 -20px; }
-  .wide .ranges :global(.pills) { padding: 3px 20px; }
-  .hero { position: relative; padding: 10px 0 2px; transition: opacity 0.35s; }
-  /* Landscape: the estimate and its three figures side by side, so the trend under them has the height. */
-  .wide .hero {
-    padding: 2px 0 0;
-    display: grid;
-    grid-template-columns: auto minmax(130px, 1fr);
-    grid-template-rows: auto auto;
-    column-gap: 16px;
-    align-items: end;
-  }
-  .wide .hero-label { grid-column: 1 / -1; }
+  .side .ranges, .desk .ranges { margin: 0; mask-image: none; -webkit-mask-image: none; }
+  .side .ranges :global(.pills), .desk .ranges :global(.pills) { padding: 3px 0; }
+  .hero { position: relative; padding: 4px 0 2px; transition: opacity 0.35s; }
   .reading { opacity: 0.45; }
-  .halo {
-    position: absolute;
-    left: -10%;
-    top: -30%;
-    width: 80%;
-    height: 140%;
-    background: radial-gradient(closest-side, var(--halo), transparent);
-    pointer-events: none;
-    z-index: -1;
-  }
   .hero-label { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 13px; color: var(--ink-2); }
   .range { color: var(--ink); font-weight: 600; }
   .sep { opacity: 0.5; }
   .devices { padding: 1px 8px; border-radius: 999px; font-size: 11px; background: var(--glass-strong); }
-  /* The estimate in starlight: near-white with the icon's glow round it (by day, the icon's navy). */
   .amount {
-    margin: -2px 0 -4px -2px;
+    margin: 2px 0 0 -1px;
     font-family: var(--rounded);
+    font-size: 40px;
     font-weight: 700;
     letter-spacing: -0.02em;
-    color: #F5F8FF;
+    color: var(--ink);
     line-height: 1.1;
-    /* The glow round the digits as drawn (each wheel clips its own text, so a text shadow would show as boxes). */
-    filter: drop-shadow(0 0 16px rgba(196, 216, 255, 0.5));
   }
-  .light .amount { color: #0E1D4C; filter: drop-shadow(0 0 14px rgba(120, 140, 255, 0.28)); }
-  .figures { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
-  .figures.column { grid-template-columns: none; gap: 2px; margin: 0 0 6px; padding: 6px 12px; border-radius: 14px; background: var(--glass); box-shadow: inset 0 0 0 0.5px var(--glass-edge); }
+  .figures { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
   .figure {
     padding: 10px 12px 11px;
     border-radius: 16px;
@@ -617,10 +725,8 @@
     box-shadow: inset 0 0 0 0.5px var(--glass-edge);
     min-width: 0;
   }
-  .column .figure { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 0; background: none; box-shadow: none; border-radius: 0; }
   .figure-label { display: block; font-size: 11px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .figure-value { display: block; margin-top: 3px; font-family: var(--rounded); font-size: 21px; font-weight: 700; color: var(--ink); }
-  .column .figure-value { margin: 0; font-size: 15px; }
+  .figure-value { display: block; margin-top: 3px; font-family: var(--rounded); font-size: 20px; font-weight: 700; color: var(--ink); }
 
   /* MARK: Panels */
   .trend, .panel {
@@ -630,12 +736,10 @@
     box-shadow: inset 0 0 0 0.5px var(--glass-edge), var(--lift);
     transition: opacity 0.35s;
   }
-  .wide .trend { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 10px 12px 8px; }
   .trend-head, .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 8px; font-size: 13px; font-weight: 600; }
   .span, .quiet { font-size: 11px; font-weight: 500; color: var(--ink-3); }
-  .trend-body { position: relative; }
-  .wide .trend-body { flex: 1; min-height: 0; overflow: visible; }
   .tabs { display: flex; justify-content: center; margin-top: 4px; }
+  .desk .tabs { justify-content: flex-start; margin-top: 30px; }
   .note { margin: -6px 0 0; font-size: 11.5px; color: var(--ink-3); text-align: center; }
   .note.center { margin: 8px 0; }
   .list { display: flex; flex-direction: column; gap: 10px; transition: opacity 0.3s; }
@@ -654,4 +758,8 @@
   .plans-head { margin: 10px 2px -4px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
   .foot { margin-top: 18px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
   .read-only { margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--ink-3); text-align: center; max-width: 34em; }
+  @media (hover: hover) {
+    .more:hover { background: var(--glass-strong); }
+    .stage :global(.card .head:hover), .stage :global(.session .head:hover) { opacity: 0.86; }
+  }
 </style>

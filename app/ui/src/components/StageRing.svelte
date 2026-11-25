@@ -87,7 +87,7 @@
 </script>
 
 {#if slices.length}
-  <div class="ring-block">
+  <div class="ring-room"><div class="ring-block">
     <div class="ring" style:width="{size}px" style:height="{size}px">
       <svg width={size} height={size} viewBox="0 0 {size} {size}" aria-hidden="true">
         <circle class="track" cx={size / 2} cy={size / 2} r={radius} stroke-width={stroke} />
@@ -121,13 +121,17 @@
         </li>
       {/each}
     </ul></div>
-  </div>
+  </div></div>
 {/if}
 
 <style>
   /* Narrow (a small phone on its side), the costs give way; narrower still, the legend goes under the ring. */
-  .ring-block { display: flex; align-items: center; gap: 18px; container-type: inline-size; }
+  /* Narrow (a phone on its side, its right column), the legend goes under the ring, the whole width; narrow beside the
+     ring, the costs give way first. */
+  .ring-room { container-type: inline-size; }
+  .ring-block { display: flex; align-items: center; gap: 18px; }
   .legend-room { flex: 1; min-width: 0; container-type: inline-size; }
+  @container (max-width: 330px) { .ring-block { flex-direction: column; gap: 12px; } .legend-room { width: 100%; } }
   @container (max-width: 170px) { .cost { display: none; } }
   .ring { position: relative; flex: none; }
   svg { display: block; overflow: visible; }

@@ -261,7 +261,16 @@ export const phrases: Record<string, string> = {
   缓存命中: 'Cache hits',
   // 在手机上看 on the phone: 手机版, and the choice between it and the homepage as the computer shows it
   手机版: 'Phone', 电脑版: 'Desktop', 手机上的样式: 'Layout on this phone', 工具占比: 'Share by tool', '按 Token': 'by tokens',
-  订阅与服务: 'Plans and services', '只读：数字来自电脑上的 Starmeter，每 15 秒更新一次': 'Read-only: the figures come from Starmeter on your computer, every 15 seconds', '等 {n} 个': 'and {n} more', '图 1 · ': 'Fig. 1 · ', 总量: 'Total',
+  订阅与服务: 'Plans and services', 统计: 'Figures', 保持亮屏: 'Keep the screen on', 连不上电脑: 'Can\'t reach the computer',
+  '只读：实时数字每 2 秒从电脑上的 Starmeter 读一次，休息时每 5 秒': 'Read-only: the live figures come from Starmeter on your computer every 2 seconds, every 5 while it rests',
+  // 手机版's live view: working or resting, how fast, what happened
+  正在工作: 'Working', '正在工作 · {n} 个会话运行中': 'Working · {n} sessions running', '正在工作 · {n} 个会话运行中|1': 'Working · 1 session running',
+  休息中: 'Resting', '休息中 · 刚刚还在工作': 'Resting · working a moment ago', '休息中 · 上次活动 {n} 分钟前': 'Resting · last active {n} min ago',
+  '输出 Token/s': 'Output tokens/s', '今天 · API 估算': 'Today · API estimate', '近 1 分钟': 'Last minute', '{n} 分钟前': '{n} min ago',
+  '{n} 分钟': '{n} min', '{m} 分 {s} 秒': '{m} min {s} s', '{s} 秒': '{s} s', '+{n} Token': '+{n} tokens', 这一轮完成: 'Turn done',
+  '这一轮完成 · {d}': 'Turn done · {d}', 开始新一轮: 'New turn', '调用 {tools}': 'Called {tools}', 开始工作: 'Started working', 正在运行: 'Running',
+  本轮用时: 'This turn so far', 没有在运行的会话: 'No session running', '没有在运行的会话 · 最近：{title}{idle}': 'No session running · last: {title}{idle}',
+  动态: 'Activity', '等下一笔请求…': 'Waiting for the next request…', 一有动静就会出现在这里: 'What happens shows up here', '等 {n} 个': 'and {n} more', '图 1 · ': 'Fig. 1 · ', 总量: 'Total',
   // The panel's own labels
   '近 1 分钟 +{n} Token · 输出 ': 'Last min +{n} · output ', '收起 {name} 明细': 'Fold {name}', '展开 {name} 明细': 'Unfold {name}',
   '{name} 详情': '{name} details', 此时段暂无模型调用: 'No model calls in this range', '全部来自 {name}': 'All from {name}',
