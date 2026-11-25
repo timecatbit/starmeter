@@ -565,6 +565,8 @@ test('Safari 26\'s bars: at the middle of each edge the frontmost thing is a fix
     new MutationObserver(() => seen.push(document.documentElement.className)).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
   });
   const check = async (top: string, bottom: string, where: string) => {
+    // (Not in the middle of being read again: 12 points for two frames.)
+    await expect.poll(() => page.evaluate(() => document.documentElement.classList.contains('bar-refresh'))).toBe(false);
     const seen = await barSamples(page);
     expect(seen.top, where).toMatchObject({ sampler: 'bar-tint top', colour: rgb(top), position: 'fixed', left: 0, width: await page.evaluate(() => innerWidth), height: 11 });
     expect(seen.bottom, where).toMatchObject({ sampler: 'bar-tint bottom', colour: rgb(bottom), position: 'fixed', left: 0, height: 11 });
