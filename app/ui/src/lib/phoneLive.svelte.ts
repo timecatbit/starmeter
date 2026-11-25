@@ -122,10 +122,11 @@ export function estimate(d: Dashboard): number | null {
   return d.providers.some((p) => p.available && summaryPart(p)?.cost != null) ? parts.reduce((s, p) => s + p.cost, 0) : null;
 }
 
-/** "4 分 12 秒", "38 秒": how long a turn took. */
+/** "4 分 12 秒", "38 秒", "1 小时 23 分": how long a turn took; by the minute only, "4 分钟", "1 小时 23 分钟". */
 export function duration(ms: number, exact = true): string {
-  const seconds = Math.max(0, Math.round(ms / 1000)), minutes = Math.floor(seconds / 60);
-  if (!exact) return t('{n} 分钟', { n: Math.max(1, minutes) });
+  const seconds = Math.max(0, Math.round(ms / 1000)), minutes = Math.floor(seconds / 60), hours = Math.floor(minutes / 60);
+  if (!exact) return hours ? t('{h} 小时 {m} 分钟', { h: hours, m: minutes % 60 }) : t('{n} 分钟', { n: Math.max(1, minutes) });
+  if (hours) return t('{h} 小时 {m} 分', { h: hours, m: minutes % 60 });
   return minutes ? t('{m} 分 {s} 秒', { m: minutes, s: seconds % 60 }) : t('{s} 秒', { s: seconds });
 }
 
