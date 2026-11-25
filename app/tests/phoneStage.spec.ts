@@ -283,7 +283,7 @@ test('the live view working: how fast, today rolling up, the sessions running wi
   await expect(page.locator('.stage .monitor.working')).toBeVisible();
   await expect(page.locator('.stage .monitor .state')).toHaveText('正在工作 · 1 个会话运行中');
   await expect(page.locator('.stage .monitor [data-figure="rate"]')).toBeVisible();
-  await expect(page.locator('.stage .monitor .unit')).toHaveText('输出 Token/s');
+  await expect(page.locator('.stage .monitor .unit')).toHaveText(/^输出 Token\/s/);
   // Nine seconds on: three of Claude's requests and one of Codex's have landed, both sessions run.
   work.at(9);
   await expect.poll(() => page.locator('.stage .activity .session').count(), { timeout: 5000 }).toBe(2);
@@ -807,13 +807,14 @@ test('reloaded on a phone in dark mode, the page and the bars are the computer\'
   await page.route('**/api/snapshot**', () => {});
   await page.route('**/api/live**', () => {});
   // Before the page's own script: the colours of the last load, and its theme.
-  await page.route('**/src/main.ts', () => {});
+  const main = /\/src\/main\.ts(\?|$)/;
+  await page.route(main, () => {});
   await page.reload({ waitUntil: 'commit' });
   const colours = () => page.evaluate(() => ({ meta: document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.content, html: getComputedStyle(document.documentElement).backgroundColor }));
   await expect.poll(colours).toEqual(lit);
   expect(await page.evaluate(() => document.documentElement.dataset.theme)).toBe('light');
   // Then the page, waiting for the computer: in the computer's light theme, the bars with it.
-  await page.unroute('**/src/main.ts');
+  await page.unroute(main);
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.locator('.window.phone')).toBeVisible();
   const light = (colour: string) => colour.match(/\d+(\.\d+)?/g)!.slice(0, 3).map(Number).reduce((a, b) => a + b, 0) > 600;
@@ -864,4 +865,26 @@ test('on its side under Safari\'s bars, the monitor held still fits what is seen
   });
   expect(scrolled.gap).toBeGreaterThan(0);
   expect(scrolled.curve).toBeLessThanOrEqual(scrolled.bottom + 0.5);
+});
+
+test('网页版 on a computer\'s screen: the monitor as tall as what is beside it, the two columns of figures ending close together, centred, in both languages', async ({ page }) => {
+  for (const [hash, size] of [['', { width: 1440, height: 900 }], ['&l=en', { width: 1440, height: 900 }], ['', { width: 1920, height: 1080 }]] as const) {
+    await phone(page, size, hash, { live: liveWork({ length: 1000, claudeEnds: 300, codexEnds: 300 }) });
+    await expect(page.locator('.stage .feed')).toBeVisible({ timeout: 8000 });
+    const seen = await page.evaluate(() => {
+      const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+      const last = (selector: string) => [...document.querySelectorAll(selector)].map((e) => e.getBoundingClientRect().bottom).reduce((a, b) => Math.max(a, b), 0);
+      const tiles = document.querySelector('.stage .tiles')?.closest('.part')?.getBoundingClientRect().height ?? 0;
+      return { lead: box('.stage .lead').bottom, activity: box('.stage .activity-box').bottom, feed: box('.stage .activity > :last-child').bottom,
+        left: last('.stage .stats-a > *'), right: last('.stage .stats-b > *'), tiles, frame: box('.stage .frame'), width: innerWidth };
+    });
+    // Side by side, the monitor and what happened end on one line.
+    expect(Math.abs(seen.lead - seen.activity), hash).toBeLessThanOrEqual(1);
+    expect(Math.abs(seen.feed - seen.lead), hash).toBeLessThanOrEqual(1);
+    // The figures' two columns end within the last block placed of each other (none could be moved to do better).
+    expect(Math.abs(seen.left - seen.right), hash).toBeLessThanOrEqual(seen.tiles);
+    // At most 1320 wide, in the middle.
+    expect(seen.frame.width).toBeLessThanOrEqual(1320);
+    expect(Math.abs(seen.frame.left - (seen.width - seen.frame.right))).toBeLessThanOrEqual(1);
+  }
 });

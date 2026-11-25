@@ -34,6 +34,7 @@
   import { byUsage } from '../lib/order';
   import { currency, grouped, summaryPart, tokens } from '../lib/format';
   import { summaryProviders } from '../lib/chart';
+  import { usageShare } from '../lib/detail';
   import { t } from '../lib/i18n.svelte';
   import { rateText } from '../lib/live';
   import { closeList, listOpen, openList, sessionOpen, toggleSession } from '../lib/expanded.svelte';
@@ -83,6 +84,7 @@
   /** A computer's or tablet's window; a phone on its side; a phone upright (or a narrow window). */
   const layout = $derived<'desk' | 'side' | 'narrow'>(screenW >= 1000 && screenH >= 600 ? 'desk' : screenW >= 600 && screenW > screenH * 1.15 ? 'side' : 'narrow');
   const wide = $derived(layout === 'side');
+  const desk = $derived(layout === 'desk');
   /** Summary on the homepage (主页模块): the estimate, its figures, the trend and the shares; without it, as on the
    *  panel, the figures for a range are the cards and the plans. */
   const summary = $derived(data.showSummary !== false);
@@ -202,7 +204,8 @@
   ]);
   /** The monitor's headline and curve, as large as the layout lets them be. */
   const big = $derived(layout === 'desk' ? 80 : layout === 'side' ? 50 : 64);
-  const chartHeight = $derived(layout === 'desk' ? 300 : layout === 'side' ? null : 196);
+  /** On a computer's screen and on its side the curve fills the monitor (as tall as what is beside it); upright, its own. */
+  const chartHeight = $derived(layout === 'narrow' ? 196 : null);
 
   // MARK: Choices
 
@@ -221,6 +224,32 @@
     onview('cards');
     if (key !== wantedGrouping) ongroup(key);
   }
+
+  // MARK: A computer's screen: two columns of figures, even
+  // Under the monitor, the figures for a range (left) and the cards (right); the plans, and the other rows' tiles, go
+  // each to the column that is shorter, so the two end close together. Placed when the screen or what there is to
+  // place changes, not as a card opens or a grouping is picked (nothing moves under the pointer); hidden till placed.
+  const heights = $state({ a: 0, b: 0, plans: 0, tiles: 0 });
+  let place = $state<{ plans: 'left' | 'right'; tiles: 'left' | 'right' }>({ plans: 'right', tiles: 'right' });
+  let placed = $state(false);
+  const shownRows = $derived(entries.filter((e) => !e.separator && !e.section && e.label));
+  const hasPlans = $derived(shownRows.some((e) => usageShare(e) !== null));
+  const hasTiles = $derived(shownRows.some((e) => usageShare(e) === null));
+  /** The plans and the tiles in different columns: each its own heading. */
+  const apart = $derived(hasPlans && hasTiles && place.plans !== place.tiles);
+  const shape = $derived(`${layout}|${screenW}|${shownRows.map((e) => e.label).join('·')}|${data.providers.length}|${summary}|${showingSessions}`);
+  $effect(() => {
+    void shape;
+    if (!desk) { placed = true; return; }
+    const frame = requestAnimationFrame(() => untrack(() => {
+      let left = heights.a, right = heights.b;
+      const plans = left <= right ? 'left' : 'right';
+      if (plans === 'left') left += heights.plans; else right += heights.plans;
+      place = { plans, tiles: left <= right ? 'left' : 'right' };
+      placed = true;
+    }));
+    return () => cancelAnimationFrame(frame);
+  });
 
   // MARK: Cards
 
@@ -355,7 +384,7 @@
 
       <section class="lead" style:--big="{big}px">
         <div class="monitor-box" bind:this={headline}>
-          <StageMonitor {live} today={today ?? (data.rangeKey === 'today' ? data : null)} {now} {chartHeight} {intro} />
+          <StageMonitor {live} today={today ?? (data.rangeKey === 'today' ? data : null)} {now} {chartHeight} least={desk ? 280 : 64} {intro} />
         </div>
       </section>
 
@@ -363,7 +392,8 @@
         <div class="activity-box"><StageActivity {live} {now} shown={layout === 'desk' ? 8 : 6} /></div>
 
         <div class="stats">
-          <div class="stats-a">
+          <div class="stats-a" class:placing={!placed}>
+            <div class="part" bind:offsetHeight={heights.a}>
             <div class="stats-head">{t('统计')}</div>
             {#if rangeChoices.length > 1}
               <div class="ranges"><StagePills options={rangeChoices} chosen={chosenRange} label={t('统计范围')} onpick={pickRange} busy={reading} scroll bare /></div>
@@ -398,9 +428,13 @@
                 </div>
               {/if}
             {/if}
+            </div>
+            {#if desk && place.plans === 'left'}{@render plansBlock()}{/if}
+            {#if desk && place.tiles === 'left'}{@render tilesBlock()}{/if}
           </div>
 
-          <div class="stats-b">
+          <div class="stats-b" class:placing={!placed}>
+            <div class="part" bind:offsetHeight={heights.b}>
             {#if tabs.length > 1}
               <div class="tabs"><StagePills options={tabs} chosen={showingSessions ? 'sessions' : wantedGrouping} label={t('卡片分组')} onpick={pickTab} small /></div>
             {/if}
@@ -430,12 +464,34 @@
               </div>
             {/if}
 
-            {#if entries.some((e) => !e.separator && e.label)}
-              <div class="plans-head">{t('订阅与服务')}</div>
-              <StagePlans {entries} enter={intro} />
+            </div>
+            {#if !desk}
+              {#if entries.some((e) => !e.separator && e.label)}
+                <div class="plans-head">{t('订阅与服务')}</div>
+                <StagePlans {entries} enter={intro} />
+              {/if}
+            {:else}
+              {#if place.plans === 'right'}{@render plansBlock()}{/if}
+              {#if place.tiles === 'right'}{@render tilesBlock()}{/if}
             {/if}
           </div>
         </div>
+        {#snippet plansBlock()}
+          {#if hasPlans}
+            <div class="part" bind:offsetHeight={heights.plans}>
+              <div class="plans-head">{t(apart ? '订阅' : '订阅与服务')}</div>
+              <StagePlans {entries} enter={intro} only="plans" />
+            </div>
+          {/if}
+        {/snippet}
+        {#snippet tilesBlock()}
+          {#if hasTiles}
+            <div class="part" bind:offsetHeight={heights.tiles}>
+              {#if apart || !hasPlans}<div class="plans-head">{t(apart ? '服务' : '订阅与服务')}</div>{/if}
+              <StagePlans {entries} enter={intro} only="tiles" />
+            </div>
+          {/if}
+        {/snippet}
 
         <footer class="foot">
           <StagePills options={[{ value: 'stage', label: t('网页版') }, { value: 'panel', label: t('电脑版') }]} chosen="stage" label={t('手机上的样式')} onpick={(v) => onlook(v as PhoneLook)} small />
@@ -685,10 +741,27 @@
     align-items: start;
   }
   .desk .bar { grid-column: 1 / -1; margin: 0 -40px; padding: 0 40px; height: 64px; }
-  .desk .lead { grid-column: 1; padding: 22px 26px 18px; border-radius: 28px; background: var(--glass); box-shadow: inset 0 0 0 0.5px var(--glass-edge), var(--lift); margin-top: 6px; }
+  /* The monitor as tall as what is beside it, its curve filling it; what happened reaching down to the same line. */
+  .desk .lead {
+    grid-column: 1;
+    align-self: stretch;
+    display: flex;
+    flex-direction: column;
+    padding: 22px 26px 18px;
+    border-radius: 28px;
+    background: var(--glass);
+    box-shadow: inset 0 0 0 0.5px var(--glass-edge), var(--lift);
+    margin-top: 6px;
+  }
+  .desk .monitor-box { flex: 1; display: flex; flex-direction: column; }
+  .desk .monitor-box > :global(.monitor) { flex: 1; }
   .desk .rest { display: contents; }
-  .desk .activity-box { grid-column: 2; margin-top: 6px; }
-  .desk .stats { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 28px; align-items: start; margin-top: 30px; }
+  .desk .activity-box { grid-column: 2; align-self: stretch; display: flex; flex-direction: column; margin-top: 6px; }
+  .desk .activity-box > :global(.activity) { flex: 1; }
+  .desk .activity-box :global(.feed) { flex: 1; }
+  .desk .stats { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 28px; align-items: start; margin-top: 22px; }
+  .part { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  .placing { visibility: hidden; }
   .desk .foot { grid-column: 1 / -1; margin-top: 30px; }
 
   /* MARK: The bar */

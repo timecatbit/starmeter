@@ -14,7 +14,7 @@
   import StageLiveChart from './StageLiveChart.svelte';
   import StageNumber from './StageNumber.svelte';
 
-  let { live, today, now, chartHeight, intro = true }: {
+  let { live, today, now, chartHeight, least = 64, intro = true }: {
     live: PhoneLive;
     /** Today's figures when the live view has none yet (the homepage's, from the snapshot). */
     today: Dashboard | null;
@@ -22,13 +22,13 @@
     now: number;
     /** The curve's height; null: as tall as the room left under the words (a phone on its side). */
     chartHeight: number | null;
+    /** Filling, the least the curve is given (more on a computer's screen). */
+    least?: number;
     intro?: boolean;
   } = $props();
 
   let room = $state(0);
-  /** The least the curve is given, filling: under it, the monitor scrolls in its column instead. */
-  const CURVE_LEAST = 64;
-  const curveHeight = $derived(chartHeight ?? Math.max(CURVE_LEAST, room));
+  const curveHeight = $derived(chartHeight ?? Math.max(least, room));
 
   const working = $derived(live.state === 'working');
   const running = $derived(live.sessions.filter((s) => s.running).length);
@@ -60,7 +60,7 @@
   const added = $derived(live.costAdded && now - live.costAdded.at < 2500 ? live.costAdded : null);
 </script>
 
-<div class="monitor" class:working class:trouble={live.trouble} class:fill={chartHeight === null}>
+<div class="monitor" class:working class:trouble={live.trouble} class:fill={chartHeight === null} style:--least="{least}px">
   <div class="state" role="status">
     <span class="beat" aria-hidden="true"></span>
     <span class="state-text">{stateLine}</span>
@@ -69,8 +69,8 @@
     {#key working}
       <div class="figure-block" class:enter={!panel.reduceMotion && live.woke > 0}>
         {#if working}
-          <span class="big num" data-figure="rate"><StageNumber value={rate === null ? '—' : rateText(rate)} count={intro} /></span>
-          <span class="unit">{t('输出 Token/s')}</span>
+          <span class="big num" class:unknown={rate === null} data-figure="rate"><StageNumber value={rate === null ? '—' : rateText(rate)} count={intro} /></span>
+          <span class="unit">{t('输出 Token/s')}{#if rate === null}<span class="reading">· {t('正在读取…')}</span>{/if}</span>
         {:else}
           <span class="big num" data-figure="today"><StageNumber value={amount} count={intro} /></span>
           <span class="unit">{ofToday ? t('今天 · API 估算') : t('{range} · API 估算', { range: rangeWord })}</span>
@@ -137,6 +137,9 @@
   .working .big { color: #F2FFF8; filter: drop-shadow(0 0 18px rgba(110, 255, 190, 0.38)); }
   :global(.light) .working .big { color: #0B3B2E; filter: drop-shadow(0 0 14px rgba(40, 180, 120, 0.25)); }
   .unit { font-size: 12px; color: var(--ink-2); margin-top: 2px; }
+  /* No speed to say yet (a page just opened): a quiet dash, not a figure. */
+  .big.unknown, :global(.light) .working .big.unknown { color: var(--ink-3); filter: none; }
+  .reading { margin-left: 0.4em; color: var(--ink-3); }
   .ticker { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 6px 0 10px; font-size: 13px; color: var(--ink-2); min-height: 20px; }
   .tick { position: relative; display: inline-flex; align-items: baseline; gap: 6px; }
   .tick-value { font-family: var(--rounded); font-size: var(--fig-m, 17px); font-weight: 600; color: var(--ink); }
@@ -155,6 +158,6 @@
   }
   @keyframes rise { from { opacity: 0; transform: translateY(8px); } 15% { opacity: 1; } to { opacity: 0; transform: translateY(-18px); } }
   .curve { position: relative; flex: 1; min-height: 0; }
-  .fill .curve { min-height: 64px; }
+  .fill .curve { min-height: var(--least, 64px); }
   .resting-chart { opacity: 0.78; }
 </style>

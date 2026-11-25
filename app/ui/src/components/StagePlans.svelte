@@ -11,11 +11,15 @@
   import type { Entry } from '../lib/types';
   import Glyph from './Glyph.svelte';
 
-  let { entries, enter = true }: { entries: Entry[]; enter?: boolean } = $props();
+  let { entries, enter = true, only = null }: {
+    entries: Entry[]; enter?: boolean;
+    /** The plans alone or the tiles alone (a computer's screen places each in the shorter column). */
+    only?: 'plans' | 'tiles' | null;
+  } = $props();
 
   const rows = $derived(entries.filter((e) => !e.separator && !e.section && e.label));
-  const plans = $derived(rows.filter((e) => usageShare(e) !== null));
-  const tiles = $derived(rows.filter((e) => usageShare(e) === null));
+  const plans = $derived(only === 'tiles' ? [] : rows.filter((e) => usageShare(e) !== null));
+  const tiles = $derived(only === 'plans' ? [] : rows.filter((e) => usageShare(e) === null));
   const R = 22, C = 2 * Math.PI * R;
   /** The dials and bars fill to their shares once the tiles have risen in (at once without the opening). */
   let filled = $state(false);
