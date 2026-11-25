@@ -129,6 +129,8 @@ export class PhoneLive {
   lastActive = $state<number | null>(null);
   /** The last reading failed: the computer out of reach. */
   trouble = $state(false);
+  /** When the computer was last read, on this phone's clock; 0 not yet. */
+  readAt = $state(0);
   /** Requests landed at the last reading, for the curve to drop in. */
   landings = $state<Landing[]>([]);
   /** Today's estimate and what the last reading added to it. */
@@ -196,6 +198,7 @@ export class PhoneLive {
     const moment = Number.isFinite(answer.at) ? answer.at * 1000 : now;
     const gap = this.lastTake > 0 && now - this.lastTake > GAP;
     this.lastTake = now;
+    this.readAt = now;
     const shown = localize({ entries: answer.sessions ? [answer.sessions] : [], dashboard: answer.dashboard });
     const dashboard = shown.dashboard ?? null, entry = shown.entries[0] ?? null;
     const events: LiveEvent[] = [];

@@ -149,9 +149,10 @@
     const timer = setTimeout(() => { if (doneShown === done.at) doneShown = null; }, 4500);
     return () => clearTimeout(timer);
   });
+  /** When the computer was last read (resting, the bar says so: a reading on its way for long is no reading now). */
   const lastRead = $derived.by(() => {
-    void live.version;
-    const d = new Date(now);
+    if (!live.readAt) return '';
+    const d = new Date(live.readAt);
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   });
 
