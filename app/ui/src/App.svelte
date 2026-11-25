@@ -119,9 +119,9 @@
   }
   /** On a phone: why the figures on screen are not fresh, until a reading comes through. */
   let phoneProblem = $state<string | null>(null);
-  /** On a phone, its own look (手机版) rather than the computer's homepage (电脑版): phoneLook.svelte.ts. */
+  /** On a phone, its own look (网页版) rather than the computer's homepage (电脑版): phoneLook.svelte.ts. */
   const staged = $derived(onPhone && phoneLook.current === 'stage');
-  /** The phone's look picked at the foot of either page: the other fades in over it, 手机版 with its opening. */
+  /** The phone's look picked at the foot of either page: the other fades in over it, 网页版 with its opening. */
   function chooseLook(next: PhoneLook) {
     if (next === phoneLook.current) return;
     if (next === 'stage') replayIntro();
@@ -151,13 +151,13 @@
     if (target) push(target);
   }
   const toolSettings = $derived(toolId ? (snapshot?.moduleOptions ?? []).find((e) => e.action?.[0] === 'set-module' && e.action[1] === toolId) ?? null : null);
-  /** 手机版 chosen and something to show in it: with no figures from the computer yet (SwiftBar's plugin not written,
+  /** 网页版 chosen and something to show in it: with no figures from the computer yet (SwiftBar's plugin not written,
    *  no tool on the homepage) the homepage shows as it is, laid out as 电脑版 lays it out. */
   const stageReady = $derived.by(() => staged && !!(waiting ? shown : snapshot?.dashboard));
   const viewKey = $derived(phoneOpen ? 'phone' : sharing ? 'share' : toolId ? 'tool:' + toolId : pageEntry ? (managerOnly ? 'grid:' : 'home:') + pagePath.join('/') : managerOnly ? 'grid' : stageReady ? 'stage' : 'home');
-  /** 手机版 on screen: the whole screen is its, both ways up; the other pages keep the panel's width in the middle. */
+  /** 网页版 on screen: the whole screen is its, both ways up; the other pages keep the panel's width in the middle. */
   const stageShown = $derived(viewKey === 'stage');
-  // On a phone, the browser's bars take the page's colour (手机版 paints its own sky's edges): 电脑版's background, in
+  // On a phone, the browser's bars take the page's colour (网页版 paints its own sky's edges): 电脑版's background, in
   // the theme and look the computer chose.
   $effect(() => {
     if (!onPhone || stageShown || !windowBox) return;
@@ -266,7 +266,7 @@
       reveal = 0;
       revealing = requestAnimationFrame(step);
     }
-    // 手机版 rolls its own figures (StageNumber) and lights its own cards: the panel's blend frame by frame is not drawn.
+    // 网页版 rolls its own figures (StageNumber) and lights its own cards: the panel's blend frame by frame is not drawn.
     if (!old || old.rangeKey !== next.rangeKey || old.grouping !== next.grouping || panel.reduceMotion || staged) { shown = next; glows = {}; summaryGlow = 0; return; }
     const grew: Record<string, number> = {};
     for (const p of next.cards ?? next.providers) {
@@ -812,7 +812,7 @@
   onpointermove={() => { if (pinned) showChrome(); }} onpointerleave={() => { if (pinned && !cornerFrom) showChrome(700); }}
   style:width={inTauri ? '100vw' : onPhone ? null : `${panelWidth}px`} style:height={inTauri ? '100vh' : onPhone ? null : `${panelHeight}px`}>
   {#key viewKey}
-    <!-- On a phone the pages keep the panel's width in the middle of the screen; 手机版 has all of it. -->
+    <!-- On a phone the pages keep the panel's width in the middle of the screen; 网页版 has all of it. -->
     <div class="view" class:centred={onPhone && viewKey !== 'stage'} style:--page-width={onPhone ? `${panelWidth}px` : null} in:pageIn={{ dir }} out:pageOut={{ dir }}>
       {#if phoneOpen}
         <PhonePage onback={back} onheight={(h) => (wanted.phone = h)} />
@@ -829,7 +829,7 @@
         <ModulesPage entries={snapshot.moduleOptions ?? []} {leading} fromHome={settingsFromHome} bind:scrollTop={gridScroll}
           onback={finishModules} ondone={finishModules} onaction={perform} onopen={push} onheight={(h) => (wanted.grid = h)} />
       {:else if snapshot && stageReady}
-        <!-- 手机版: the figures as they came in (held, as the panel holds them, while a range picked is read). -->
+        <!-- 网页版: the figures as they came in (held, as the panel holds them, while a range picked is read). -->
         <PhoneStage data={(waiting ? shown : snapshot.dashboard)!} {rangeOptions} reading={waiting} grouping={pickedGroup} {regrouping} {sessions} {view}
           entries={without(snapshot.entries, sessions)} problem={phoneProblem} material={snapshot.appearance} onrange={perform} ongroup={(key) => perform(['set-group', key])}
           onview={chooseView} onshare={openShare} onlook={chooseLook} />
@@ -868,11 +868,11 @@
 </div>
 
 {#snippet lookFoot()}
-  <!-- On a phone, at the homepage's foot as at 手机版's: the phone's choice of look. -->
+  <!-- On a phone, at the homepage's foot as at 网页版's: the phone's choice of look. -->
   <div class="look-foot">
-    <Segments entries={[{ label: t('手机版'), checked: staged, action: ['phone-look', 'stage'], children: [] }, { label: t('电脑版'), checked: !staged, action: ['phone-look', 'panel'], children: [] }]}
+    <Segments entries={[{ label: t('网页版'), checked: staged, action: ['phone-look', 'stage'], children: [] }, { label: t('电脑版'), checked: !staged, action: ['phone-look', 'panel'], children: [] }]}
       onchoose={(e) => chooseLook(e.action?.[1] === 'stage' ? 'stage' : 'panel')} />
-    {#if staged}<p class="look-note">{t('电脑还没有读到用量，手机版会在有数字后出现')}</p>{/if}
+    {#if staged}<p class="look-note">{t('电脑还没有读到用量，网页版会在有数字后出现')}</p>{/if}
   </div>
 {/snippet}
 
@@ -996,7 +996,7 @@
     background: color-mix(in srgb, var(--orange) 22%, var(--solid));
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
   }
-  /* Over 手机版: a pane of its glass, tinted by the warning, within the notch's safe area. */
+  /* Over 网页版: a pane of its glass, tinted by the warning, within the notch's safe area. */
   .phone-problem.staged {
     left: max(16px, env(safe-area-inset-left));
     right: max(16px, env(safe-area-inset-right));

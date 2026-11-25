@@ -1,5 +1,5 @@
 <script lang="ts">
-  // 手机版's live curve: how fast each tool's models are writing (output tokens a second over the last minute, as the
+  // 网页版's live curve: how fast each tool's models are writing (output tokens a second over the last minute, as the
   // pinned panel's Token/s reads it), stacked a band per tool over the last five minutes, flowing left as time runs, a
   // glowing line along the top. Each request that lands drops in from above onto the curve's end, ripples there, and
   // says what it added (+12.3K) as it rises and fades: the AI's work arriving, one request at a time. Reduced motion:

@@ -1,5 +1,5 @@
 <script lang="ts">
-  // 手机版's 星环: each tool's share of the tokens Summary counts, as arcs round a ring that sweep in clockwise from the
+  // 网页版's 星环: each tool's share of the tokens Summary counts, as arcs round a ring that sweep in clockwise from the
   // top when a range first shows (shares fill a whole), with the total in the middle. A tap on an arc or on its line in
   // the legend lights that tool and puts its own figures in the middle; another tap, or a tap on the middle, lets go.
   // The first five keep their arcs; the rest are one, 其他工具.

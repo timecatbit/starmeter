@@ -1,5 +1,5 @@
 <script lang="ts">
-  // The homepage's other rows on 手机版. A plan with a limit (订阅) leads with a dial of its tightest window, which fills
+  // The homepage's other rows on 网页版. A plan with a limit (订阅) leads with a dial of its tightest window, which fills
   // to its share when it first shows and takes the colour of its level (orange from 70%, red from 90%), and a bar for
   // each window (five hours, the week) named under it. The rest (API balances, monitors, updates) are tiles of their
   // figure, two to a row. Read-only, as on the panel's phone page: nothing here opens.

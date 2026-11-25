@@ -189,12 +189,12 @@ export interface Snapshot {
   moduleOptions?: Entry[];
   appearance?: string;
   theme?: string;
-  /** On a phone: the computer's look (外观 → 风格), for 手机版 and 电脑版 to follow. */
+  /** On a phone: the computer's look (外观 → 风格), for 网页版 and 电脑版 to follow. */
   style?: 'standard' | 'sketch';
   preferences?: PresentationPreferences;
 }
 
-/** 手机版's live view (/api/live): today's figures by tool as the computer read them a moment ago, 会话 (its sessions
+/** 网页版's live view (/api/live): today's figures by tool as the computer read them a moment ago, 会话 (its sessions
  *  only), and when each session's latest turn began (in the computer's seconds, as `at` is). */
 export interface LiveAnswer {
   at: number;

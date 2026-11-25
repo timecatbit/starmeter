@@ -41,7 +41,7 @@ export function phoneAnswer(data, { pathname, params, given, key = PHONE_KEY, lo
   return { status: 200, type: 'application/json', body };
 }
 
-// MARK: 手机版's live view (/api/live: today's figures by tool, 会话, and when each session's turn began)
+// MARK: 网页版's live view (/api/live: today's figures by tool, 会话, and when each session's turn began)
 
 /** 会话's row as the phone has it: its sessions, no switch, nothing to do. */
 function sessionsOf(data) {
@@ -61,7 +61,7 @@ const clock = (seconds) => { const d = new Date(seconds * 1000); return `${pad(d
 const tokensText = (n) => (n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : String(Math.round(n)));
 
 /**
- * Made-up work for 手机版 to watch, on `now()`'s clock: a cycle of `length` seconds. Claude Code's session 重做设置页的分段控件
+ * Made-up work for 网页版 to watch, on `now()`'s clock: a cycle of `length` seconds. Claude Code's session 重做设置页的分段控件
  * runs its turn from the cycle's start to `claudeEnds`, a request landing every 4 seconds, its tools called as it goes;
  * Codex's harbor-api from 2 seconds in to `codexEnds`, a request every 7 seconds; then nothing until the cycle starts
  * again (resting, then waking). Each answer is today's figures with what has landed added, 会话 with the turns as they

@@ -1,5 +1,5 @@
 <script lang="ts">
-  // 手机版's trend: the total over the range as a glowing line on a soft area, drawn in from the left as time runs
+  // 网页版's trend: the total over the range as a glowing line on a soft area, drawn in from the left as time runs
   // when a range first shows (so the eye follows it), its latest point breathing while the range is still running. A
   // finger on the chart (or a pointer) reads it: a line at the nearest slot and a bubble with its time, the total and
   // the tools that made most of it. Vertical swipes still scroll the page.

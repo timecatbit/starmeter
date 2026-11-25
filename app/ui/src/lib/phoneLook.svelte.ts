@@ -1,4 +1,4 @@
-// 在手机上看's two looks on the phone: 手机版 (PhoneStage.svelte, made for a phone's screen, portrait or landscape) and
+// 在手机上看's two looks on the phone: 网页版 (PhoneStage.svelte, made for a phone's screen, portrait or landscape) and
 // 电脑版 (the computer's homepage as it is). The phone picks, at the foot of either page, where the choice is seen; the
 // computer's QR page stays about connecting, and nothing goes back to the computer (the phone only reads).
 //

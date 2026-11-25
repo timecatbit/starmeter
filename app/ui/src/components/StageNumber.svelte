@@ -1,5 +1,5 @@
 <script lang="ts">
-  // A figure on the phone's own page (手机版) whose digits roll like a meter's wheels: a new reading turns only the
+  // A figure on the phone's own page (网页版) whose digits roll like a meter's wheels: a new reading turns only the
   // digits that changed, so the eye sees which place moved and which way. The first time it shows (`count`), every
   // digit rolls up from 0, which says how large the number is. The currency sign and the K/M/B unit sit smaller beside
   // the digits, as on the panel. Reduced motion: the figure simply changes.

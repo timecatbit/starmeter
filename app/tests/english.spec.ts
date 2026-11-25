@@ -179,7 +179,7 @@ test('English: on the phone, the homepage, its sessions and the share page', asy
   expect(left.list.filter((line) => !titles.has(line.replace(/^.*?: /, '')))).toEqual([]);
 });
 
-test('English: on the phone, 手机版 with each grouping, a card and a session open, and both ways up', async ({ page }) => {
+test('English: on the phone, 网页版 with each grouping, a card and a session open, and both ways up', async ({ page }) => {
   const left = new Leftovers();
   // Work going on a minute-long cycle: requests landing, tools called, a turn done, resting, waking.
   const clock = { now: Date.now() };

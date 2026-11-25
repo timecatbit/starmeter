@@ -1,4 +1,4 @@
-// 手机版's live view: what the AI on the computer is doing right now. Someone looks at their phone because they are
+// 网页版's live view: what the AI on the computer is doing right now. Someone looks at their phone because they are
 // away from the computer (or it is running a long job) and want to know whether it is working, how hard, what it has
 // spent and when the turn will be done. This asks the computer (/api/live) every 2 seconds while there is work, every
 // 5 while it rests, never while the page is out of sight, and makes of the readings:
@@ -181,7 +181,7 @@ export class PhoneLive {
     document.removeEventListener('visibilitychange', this.onVisible);
   }
 
-  /** One loop at a time: a loop begun (the page back in sight, 手机版 back on screen) ends any before it, so a reading
+  /** One loop at a time: a loop begun (the page back in sight, 网页版 back on screen) ends any before it, so a reading
    *  two loops waited for is taken once (taken twice, the second found nothing new and the requests that landed never
    *  dropped onto the curve). */
   private round = 0;

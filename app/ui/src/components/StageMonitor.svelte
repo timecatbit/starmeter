@@ -1,5 +1,5 @@
 <script lang="ts">
-  // The top of 手机版: is the AI working, how hard, and what has today cost. Working, the line says so with a beating
+  // The top of 网页版: is the AI working, how hard, and what has today cost. Working, the line says so with a beating
   // light and how many sessions are running; the headline is how fast the models are writing (Token/s, as the pinned
   // panel reads it), today's estimate under it rolling up as each request lands with what it added rising off it; the
   // live curve below. Resting, the line says since when; the headline is today's estimate, the curve today's trend, and

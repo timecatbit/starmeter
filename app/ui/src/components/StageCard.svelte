@@ -1,5 +1,5 @@
 <script lang="ts">
-  // A tool's card on 手机版 (or a model's, a project's): its mark in a halo of its colour, the name and any note that
+  // A tool's card on 网页版 (or a model's, a project's): its mark in a halo of its colour, the name and any note that
   // changes how to read it, the amount on the right; its tokens and its share of the list, with a bar of that share
   // that grows in when the card first shows. A tap opens it in place, sliding open to the counts and each model with
   // its own bar; another tap closes it. A card whose figures just grew glows at its edge in its colour for a moment:

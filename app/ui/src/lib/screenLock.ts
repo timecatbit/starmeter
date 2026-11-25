@@ -1,4 +1,4 @@
-// 手机版's 保持亮屏 (a monitor by the desk): the screen wake lock, held while the switch is on and the page shows. At
+// 网页版's 保持亮屏 (a monitor by the desk): the screen wake lock, held while the switch is on and the page shows. At
 // most one request out at a time; a lock that arrives after the switch went off (or the page went away) is let go at
 // once; the system's own letting go (the page hidden) is noticed, and the lock taken again when the page comes back.
 

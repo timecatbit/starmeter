@@ -205,7 +205,7 @@ impl Engine {
         to_value(sessions_row(&runtime, range))
     }
 
-    /// A phone watching 手机版's live view: today's usage read again from the local logs, and the sessions, as a pinned
+    /// A phone watching 网页版's live view: today's usage read again from the local logs, and the sessions, as a pinned
     /// panel's tick reads them (refresh_live), at most every `LIVE_EVERY` whoever asks, so two phones share a reading;
     /// then today's figures by tool, 会话 for today, and when each session's latest turn began (its clock on the phone).
     pub fn live(&self) -> Value {

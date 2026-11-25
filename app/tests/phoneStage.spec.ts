@@ -1,6 +1,6 @@
-// 在手机上看 on the phone, in its own look (手机版, PhoneStage.svelte): the live monitor (working, a turn done, resting,
+// 在手机上看 on the phone, in its own look (网页版, PhoneStage.svelte): the live monitor (working, a turn done, resting,
 // waking, asked for only while shown), portrait, landscape and a computer's window laid out within the screen, the
-// figures the computer's homepage shows, its ranges and groupings, the choice between 手机版 and 电脑版 (kept in the
+// figures the computer's homepage shows, its ranges and groupings, the choice between 网页版 and 电脑版 (kept in the
 // address, a cookie and the page's storage), reduced motion, and the languages.
 import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
@@ -29,7 +29,7 @@ async function phone(page: Page, size = PORTRAIT, hash = '', options: { swiftbar
 
 /** A figure as written, without the thousands' commas the phone's look adds. */
 const plain = (text: string | null) => (text ?? '').replace(/,/g, '').trim();
-/** 手机版's estimate, tokens, requests. */
+/** 网页版's estimate, tokens, requests. */
 async function stageFigures(page: Page) {
   const amount = await page.locator('.stage .hero .amount [data-value]').getAttribute('data-value');
   const rest = await page.locator('.stage .figure [data-value]').evaluateAll((list) => list.map((e) => e.getAttribute('data-value')));
@@ -42,7 +42,7 @@ async function panelFigures(page: Page) {
 /** Boxes of what the page lays out, in the screen's coordinates. */
 const box = async (page: Page, selector: string) => (await page.locator(selector).first().boundingBox())!;
 
-test('手机版 is what a phone opens: portrait, balanced within the screen, its figures the computer\'s', async ({ page }) => {
+test('网页版 is what a phone opens: portrait, balanced within the screen, its figures the computer\'s', async ({ page }) => {
   await phone(page);
   // The order of importance, top to bottom: the bar, now (the monitor), what is happening, then the figures for a range.
   const order = ['.stage .bar', '.stage .monitor', '.stage .activity', '.stage .ranges', '.stage .amount', '.stage .figures', '.stage .trend', '.stage .shares', '.stage .tabs', '.stage .card'];
@@ -74,7 +74,7 @@ test('手机版 is what a phone opens: portrait, balanced within the screen, its
   expect(panelCards.length).toBeGreaterThan(3);
 });
 
-test('手机版 on its side: a monitor by the desk, the live view still on the left, the rest scrolling on the right', async ({ page }) => {
+test('网页版 on its side: a monitor by the desk, the live view still on the left, the rest scrolling on the right', async ({ page }) => {
   for (const size of [LANDSCAPE, { width: 667, height: 375 }]) {
     await phone(page, size);
     const lead = await box(page, '.stage .lead'), rest = await box(page, '.stage .rest');
@@ -106,7 +106,7 @@ test('手机版 on its side: a monitor by the desk, the live view still on the l
   expect((await box(page, '.stage .rest')).y).toBeGreaterThan((await box(page, '.stage .monitor')).y);
 });
 
-test('手机版: the ranges and groupings are the phone\'s own, the figures read for them as the computer reads them', async ({ page }) => {
+test('网页版: the ranges and groupings are the phone\'s own, the figures read for them as the computer reads them', async ({ page }) => {
   const asked = await phone(page);
   const ranges = page.getByRole('radiogroup', { name: '统计范围' });
   await expect(ranges.getByRole('radio')).toHaveText(['今天', '昨天', '近 24 小时', '近 7 天', '近 30 天', '本周', '本月', '全部']);
@@ -148,7 +148,7 @@ test('手机版: the ranges and groupings are the phone\'s own, the figures read
   expect(await panelFigures(page)).toEqual(week);
 });
 
-test('手机版: the trend reads under a finger, the share page opens and comes back, a new reading lights the tool that grew', async ({ page }) => {
+test('网页版: the trend reads under a finger, the share page opens and comes back, a new reading lights the tool that grew', async ({ page }) => {
   await phone(page);
   await page.locator('.stage .trend .chart').scrollIntoViewIfNeeded();
   const chart = await box(page, '.stage .trend .chart');
@@ -157,7 +157,7 @@ test('手机版: the trend reads under a finger, the share page opens and comes 
   await expect(page.locator('.stage .trend .bubble .part').first()).toBeVisible();
   await page.mouse.move(chart.x + chart.width * 0.5, chart.y - 60);
   await expect(page.locator('.stage .trend .bubble')).toHaveCount(0);
-  // The share page, as on the panel's phone page, and back to 手机版 where it was.
+  // The share page, as on the panel's phone page, and back to 网页版 where it was.
   await page.getByRole('button', { name: '分享用量图' }).click();
   await expect(page.locator('.share-page .stage img')).toBeVisible();
   await page.keyboard.press('Escape');
@@ -183,9 +183,9 @@ test('手机版: the trend reads under a finger, the share page opens and comes 
   errors.splice(0, errors.length, ...errors.filter((line) => !/Failed to load resource|Could not connect/.test(line)));
 });
 
-test('手机版 and 电脑版: picked on the phone, at either page\'s foot, and kept through a reload and a new address', async ({ page }) => {
+test('网页版 and 电脑版: picked on the phone, at either page\'s foot, and kept through a reload and a new address', async ({ page }) => {
   await phone(page);
-  await expect(page.getByRole('radiogroup', { name: '手机上的样式' }).getByRole('radio', { name: '手机版' })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByRole('radiogroup', { name: '手机上的样式' }).getByRole('radio', { name: '网页版' })).toHaveAttribute('aria-checked', 'true');
   await page.getByRole('radio', { name: '电脑版' }).click();
   await expect(page.locator('.dashboard')).toBeVisible();
   await expect(page.locator('.stage')).toHaveCount(0);
@@ -200,8 +200,8 @@ test('手机版 and 电脑版: picked on the phone, at either page\'s foot, and 
   await page.reload();
   await expect(page.locator('.dashboard')).toBeVisible();
   await expect(page.locator('.stage')).toHaveCount(0);
-  // Back at 电脑版's foot: 手机版, its opening again.
-  const back = page.locator('.look-foot').getByRole('radio', { name: '手机版' });
+  // Back at 电脑版's foot: 网页版, its opening again.
+  const back = page.locator('.look-foot').getByRole('radio', { name: '网页版' });
   await back.scrollIntoViewIfNeeded();
   await back.click();
   await expect(page.locator('.stage')).toBeVisible();
@@ -209,7 +209,7 @@ test('手机版 and 电脑版: picked on the phone, at either page\'s foot, and 
   expect(await page.evaluate(() => document.cookie)).toContain('starmeter-phone-look=stage');
 });
 
-test('手机版 with reduced motion: everything simply there, nothing drifting or counting', async ({ page }) => {
+test('网页版 with reduced motion: everything simply there, nothing drifting or counting', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.setViewportSize(PORTRAIT);
   await servePhone(page);
@@ -223,15 +223,15 @@ test('手机版 with reduced motion: everything simply there, nothing drifting o
   await expect(page.locator('.stage .chart .drawn')).toHaveCount(0);
 });
 
-test('手机版 for SwiftBar\'s panel: the computer\'s range and grouping only, with 会话', async ({ page }) => {
+test('网页版 for SwiftBar\'s panel: the computer\'s range and grouping only, with 会话', async ({ page }) => {
   await phone(page, PORTRAIT, '', { swiftbar: true });
   await expect(page.getByRole('radiogroup', { name: '统计范围' })).toHaveCount(0);
   await expect(page.locator('.stage .hero .range')).toHaveText('今天');
   await expect(page.getByRole('radiogroup', { name: '卡片分组' }).getByRole('radio')).toHaveText(['工具', '会话']);
 });
 
-test('手机版 in English and in 繁體中文: laid out within the screen, both ways up', async ({ context }) => {
-  for (const [hash, words] of [['&l=en', ['Share by tool', 'Plans and services', 'Phone', 'Desktop', 'Hourly tokens']], ['&l=zh-Hant', ['工具佔比', '訂閱與服務', '手機版', '電腦版']]] as const) {
+test('网页版 in English and in 繁體中文: laid out within the screen, both ways up', async ({ context }) => {
+  for (const [hash, words] of [['&l=en', ['Share by tool', 'Plans and services', 'Web', 'Desktop', 'Hourly tokens']], ['&l=zh-Hant', ['工具佔比', '訂閱與服務', '網頁版', '電腦版']]] as const) {
     for (const size of [PORTRAIT, LANDSCAPE]) {
       // A page of its own each time: only the address's fragment would change, and the page keeps its language.
       const page = await context.newPage();
@@ -249,7 +249,7 @@ test('手机版 in English and in 繁體中文: laid out within the screen, both
   }
 });
 
-test('手机版 without Summary on the homepage: the figures for a range are the cards and plans only, as the panel shows it', async ({ page }) => {
+test('网页版 without Summary on the homepage: the figures for a range are the cards and plans only, as the panel shows it', async ({ page }) => {
   await page.setViewportSize(LANDSCAPE);
   await servePhone(page);
   await page.route('**/api/snapshot**', async (route) => {
@@ -356,7 +356,7 @@ test('the live view is asked for only while the page shows', async ({ page }) =>
   await expect.poll(live, { timeout: 1500 }).toBeGreaterThan(hidden);
 });
 
-test('手机版 in a computer\'s window: the monitor large beside what is happening, the figures under both, a page that scrolls', async ({ page }) => {
+test('网页版 in a computer\'s window: the monitor large beside what is happening, the figures under both, a page that scrolls', async ({ page }) => {
   for (const size of [{ width: 1440, height: 900 }, { width: 1280, height: 800 }, { width: 1024, height: 768 }]) {
     const work = scripted();
     await phone(page, size, '', { live: work.live });
@@ -395,7 +395,7 @@ async function computerChose(page: Page, chosen: { theme?: string; appearance?: 
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
 }
 
-test('手机版 follows the computer\'s look: its theme, its background as the panes\' material, 标准 or 手绘', async ({ page }) => {
+test('网页版 follows the computer\'s look: its theme, its background as the panes\' material, 标准 or 手绘', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'light' });
   await phone(page);
   await expect(page.locator('.stage.light.solid')).toBeVisible();
@@ -420,7 +420,7 @@ test('手机版 follows the computer\'s look: its theme, its background as the p
   await expect(page.locator('html')).not.toHaveAttribute('data-style', 'sketch');
 });
 
-test('手机版\'s figures and words keep the panel\'s rules: figures rounded at 600, words in the panel\'s own face', async ({ page }) => {
+test('网页版\'s figures and words keep the panel\'s rules: figures rounded at 600, words in the panel\'s own face', async ({ page }) => {
   const work = scripted();
   await phone(page, PORTRAIT, '', { live: work.live });
   work.at(9);
@@ -441,7 +441,7 @@ test('手机版\'s figures and words keep the panel\'s rules: figures rounded at
   expect(sign.weight).toBe('500');
 });
 
-test('on a phone the browser\'s bars take the page\'s colours: 手机版\'s sky edges, 电脑版\'s background, as the theme changes', async ({ page }) => {
+test('on a phone the browser\'s bars take the page\'s colours: 网页版\'s sky edges, 电脑版\'s background, as the theme changes', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'dark' });
   await phone(page);
   expect(await page.locator('meta[name="viewport"]').getAttribute('content')).toContain('viewport-fit=cover');
@@ -593,9 +593,9 @@ test('today\'s estimate with no priced tool counted in Summary is —, not $0.00
   await expect(page.locator('.stage .monitor [data-figure="today"] [data-value]').first()).toHaveAttribute('data-value', '—');
 });
 
-test('one reading loop at a time: a reading two loops waited for is taken once, the page back in sight or 手机版 back on screen (STAGE-6)', async ({ page }) => {
+test('one reading loop at a time: a reading two loops waited for is taken once, the page back in sight or 网页版 back on screen (STAGE-6)', async ({ page }) => {
   await phone(page);
-  // The computer slow to answer, so the page comes back (or 手机版 does) while a reading is on its way.
+  // The computer slow to answer, so the page comes back (or 网页版 does) while a reading is on its way.
   await page.route('**/api/live**', async (route) => { await new Promise((resolve) => setTimeout(resolve, 600)); await route.fallback(); });
   const taken = await page.evaluate(async () => {
     const { PhoneLive } = await import('/src/lib/phoneLive.svelte.ts');
@@ -620,7 +620,7 @@ test('one reading loop at a time: a reading two loops waited for is taken once, 
   }
 });
 
-test('a turn done is said at the top once, not again when 手机版 comes back from 电脑版 or the share page (STAGE-7)', async ({ page }) => {
+test('a turn done is said at the top once, not again when 网页版 comes back from 电脑版 or the share page (STAGE-7)', async ({ page }) => {
   const work = scripted();
   await phone(page, PORTRAIT, '', { live: work.live });
   work.at(9);
@@ -633,7 +633,7 @@ test('a turn done is said at the top once, not again when 手机版 comes back f
   // To 电脑版 and back, then to the share page and back: the turn is not said done again.
   await page.getByRole('radio', { name: '电脑版' }).click();
   await expect(page.locator('.dashboard')).toBeVisible();
-  const back = page.locator('.look-foot').getByRole('radio', { name: '手机版' });
+  const back = page.locator('.look-foot').getByRole('radio', { name: '网页版' });
   await back.scrollIntoViewIfNeeded();
   await back.click();
   await expect(page.locator('.stage')).toBeVisible();
@@ -774,23 +774,23 @@ test('a plan\'s window with a long name in a narrow column keeps its share whole
   }
 });
 
-test('with no figures from the computer yet, a phone that chose 手机版 sees the homepage as it is, and can still choose (STAGE-8 · 8)', async ({ page }) => {
+test('with no figures from the computer yet, a phone that chose 网页版 sees the homepage as it is, and can still choose (STAGE-8 · 8)', async ({ page }) => {
   await page.setViewportSize(PORTRAIT);
   await servePhone(page, PHONE_KEY);
   await snapshotAs(page, (snapshot) => { snapshot.dashboard = null; });
   await page.goto('/#k=' + PHONE_KEY);
   await expect(page.locator('.look-foot')).toBeVisible();
-  // The homepage laid out as 电脑版 lays it out, not 手机版's screen-wide frame.
+  // The homepage laid out as 电脑版 lays it out, not 网页版's screen-wide frame.
   await expect(page.locator('.window')).not.toHaveClass(/staged/);
   await expect(page.locator('.stage')).toHaveCount(0);
   const foot = page.locator('.look-foot');
-  await expect(foot.getByRole('radio', { name: '手机版' })).toHaveAttribute('aria-checked', 'true');
+  await expect(foot.getByRole('radio', { name: '网页版' })).toHaveAttribute('aria-checked', 'true');
   await expect(foot.locator('.look-note')).toBeVisible();
   await foot.getByRole('radio', { name: '电脑版' }).click();
   await expect(foot.getByRole('radio', { name: '电脑版' })).toHaveAttribute('aria-checked', 'true');
   await expect(foot.locator('.look-note')).toHaveCount(0);
   expect(new URL(page.url()).hash).toContain('v=panel');
-  await foot.getByRole('radio', { name: '手机版' }).click();
-  await expect(foot.getByRole('radio', { name: '手机版' })).toHaveAttribute('aria-checked', 'true');
+  await foot.getByRole('radio', { name: '网页版' }).click();
+  await expect(foot.getByRole('radio', { name: '网页版' })).toHaveAttribute('aria-checked', 'true');
   expect(new URL(page.url()).hash).toContain('v=stage');
 });

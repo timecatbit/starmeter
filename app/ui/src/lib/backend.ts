@@ -28,7 +28,7 @@ export const backend = {
   snapshot: (): Promise<Snapshot> => (inTauri ? invoke('snapshot') : browser().then((f) => f.snapshot())),
   dashboard: (range: string): Promise<Dashboard> => (inTauri ? invoke('dashboard', { range }) : browser().then((f) => f.dashboard(range))),
   action: (action: string[]): Promise<ActionReceipt> => (inTauri ? invoke('action', { action }) : browser().then((f) => f.action(action))),
-  /** On a phone, 手机版's live view: what the computer read a moment ago. Nowhere else. */
+  /** On a phone, 网页版's live view: what the computer read a moment ago. Nowhere else. */
   live: (): Promise<LiveAnswer> => (onPhone ? import('./phoneBackend').then((f) => f.live()) : Promise.reject(new Error('the live view is a phone\'s'))),
   onSnapshot(changed: () => void): () => void {
     if (inTauri) {

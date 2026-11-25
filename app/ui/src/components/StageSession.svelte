@@ -1,5 +1,5 @@
 <script lang="ts">
-  // A session on 手机版, as 会话 lists it on the panel (SessionList.svelte reads the same rows): its tool's mark, the
+  // A session on 网页版, as 会话 lists it on the panel (SessionList.svelte reads the same rows): its tool's mark, the
   // title and what it cost in the range; its state under it, a running one with a light that breathes (it is working
   // now); the latest turn after that. A tap slides its last turns open.
   import { untrack } from 'svelte';

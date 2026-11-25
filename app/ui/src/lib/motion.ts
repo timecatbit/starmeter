@@ -30,7 +30,7 @@ export function rowOut(_node: Element): TransitionConfig {
 }
 
 /** A page slides in from the side it comes from (dir 1: deeper, -1: back) while the old one slides away and fades. dir
- *  2: the same page in another look (on a phone, 手机版 and 电脑版): it settles in from a touch larger as the old fades. */
+ *  2: the same page in another look (on a phone, 网页版 and 电脑版): it settles in from a touch larger as the old fades. */
 export function pageIn(_node: Element, { dir }: { dir: number }): TransitionConfig {
   if (!dir) return { duration: 0 };
   if (dir === 2) return { duration: quick(420), easing: pageCurve, css: (t, u) => `opacity: ${t}; transform: scale(${1 + 0.03 * u})` };

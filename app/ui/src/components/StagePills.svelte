@@ -1,5 +1,5 @@
 <script lang="ts">
-  // 手机版's choices in a row (the range, the grouping, 手机版 / 电脑版): one tap picks, and a lit pill slides from the
+  // 网页版's choices in a row (the range, the grouping, 网页版 / 电脑版): one tap picks, and a lit pill slides from the
   // old choice to the new, so the eye follows where it went. A row wider than the screen scrolls sideways and brings
   // the choice into view. `busy`: the choice is picked but its figures are still on their way; a light runs across its
   // pill until they come. The arrow keys move to the next choice and pick it, as the panel's grouping tabs do.

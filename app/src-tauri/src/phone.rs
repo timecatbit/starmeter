@@ -490,7 +490,7 @@ fn phone_snapshot(app: &AppHandle, range: Option<&str>, group: Option<&str>) -> 
     snapshot
 }
 
-/// 手机版's live view, asked every couple of seconds while it is on screen: today's figures by tool, 会话 (its
+/// 网页版's live view, asked every couple of seconds while it is on screen: today's figures by tool, 会话 (its
 /// sessions only, as the snapshot sends them) and when each session's turn began. The app reads today's logs afresh
 /// for it (Engine::live, at most every 1.5 s); SwiftBar's panel has what the plugin last wrote, for the range the
 /// computer shows (the phone says which, and compares figures of one range only), the fixtures creep up.

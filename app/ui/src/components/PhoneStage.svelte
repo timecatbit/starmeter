@@ -7,12 +7,12 @@
   export function replayIntro() { played = false; kept = 0; }
   /** The live view's readings and what happened, kept while the share page is on screen (asked for only while this page is). */
   const live = new PhoneLive();
-  /** The last turn done said at the top: said once, not again each time 手机版 comes back (from the share page, 电脑版). */
+  /** The last turn done said at the top: said once, not again each time 网页版 comes back (from the share page, 电脑版). */
   let doneSaid = 0;
 </script>
 
 <script lang="ts">
-  // 在手机上看, the phone's own look (手机版): a live monitor of the AI working on the computer, under the night of the
+  // 在手机上看, the phone's own look (网页版): a live monitor of the AI working on the computer, under the night of the
   // app's icon. Someone looks at their phone when they are away from the computer (or it runs a long job): is it working,
   // how hard, what has it spent, when will the turn be done. So the top is now (StageMonitor: working or resting, how
   // fast the models write, today's estimate rolling up, the live curve), then what it is doing (StageActivity: the
@@ -426,7 +426,7 @@
         </div>
 
         <footer class="foot">
-          <StagePills options={[{ value: 'stage', label: t('手机版') }, { value: 'panel', label: t('电脑版') }]} chosen="stage" label={t('手机上的样式')} onpick={(v) => onlook(v as PhoneLook)} small />
+          <StagePills options={[{ value: 'stage', label: t('网页版') }, { value: 'panel', label: t('电脑版') }]} chosen="stage" label={t('手机上的样式')} onpick={(v) => onlook(v as PhoneLook)} small />
           <p class="read-only">{t('只读：实时数字每 2 秒从电脑上的 Starmeter 读一次，休息时每 5 秒')}</p>
         </footer>
       </section>
