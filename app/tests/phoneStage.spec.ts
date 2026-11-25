@@ -197,6 +197,22 @@ test('网页版: the trend reads under a finger, the share page opens and comes 
   errors.splice(0, errors.length, ...errors.filter((line) => !/Failed to load resource|Could not connect/.test(line)));
 });
 
+test('the ranges scrolled by hand stay where they were as the figures come; a range picked comes into view', async ({ page }) => {
+  await phone(page, PORTRAIT, '', { live: liveWork({ now: () => Date.now(), length: 99_999, claudeEnds: 99_998, codexEnds: 99_998 }) });
+  const row = page.locator('.stage .ranges .pills');
+  await row.evaluate((r) => { r.scrollLeft = r.scrollWidth; });
+  const end = await row.evaluate((r) => r.scrollLeft);
+  expect(end).toBeGreaterThan(50);
+  // Readings come in (a reading every couple of seconds while working): the row stays scrolled.
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await page.waitForTimeout(5000);
+  expect(await row.evaluate((r) => r.scrollLeft)).toBe(end);
+  // 全部 picked: it is in view; then 今天 picked: the row slides back to it.
+  await page.getByRole('radio', { name: '全部' }).click();
+  await page.getByRole('radio', { name: '今天' }).click();
+  await expect.poll(() => row.evaluate((r) => r.scrollLeft)).toBeLessThan(5);
+});
+
 test('a phone opens 网页版 only: a choice of 电脑版 kept from before (in the address, a cookie, the page\'s storage) is let go of', async ({ page }) => {
   await page.setViewportSize(PORTRAIT);
   await servePhone(page);

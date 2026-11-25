@@ -21,12 +21,17 @@
     if (!button) { pill = null; return; }
     pill = { x: button.offsetLeft, w: button.offsetWidth };
   }
+  /** The choice last brought into view: the row scrolls to a choice when it changes, not each time the figures come
+   *  (a new list of the same choices every few seconds slid a row scrolled by hand back to the choice). */
+  let shownChoice: string | null = null;
   $effect(() => {
     void chosen; void options; void row;
     place();
     const frame = requestAnimationFrame(() => (placed = true));
     const button = row?.querySelector<HTMLButtonElement>(`[data-value="${CSS.escape(chosen)}"]`);
-    if (scroll && button && row) {
+    const changed = chosen !== shownChoice;
+    if (button) shownChoice = chosen;
+    if (scroll && button && row && changed) {
       const left = button.offsetLeft - 16, right = button.offsetLeft + button.offsetWidth + 16;
       if (left < row.scrollLeft) row.scrollTo({ left, behavior: panel.reduceMotion || !placed ? 'auto' : 'smooth' });
       else if (right > row.scrollLeft + row.clientWidth) row.scrollTo({ left: right - row.clientWidth, behavior: panel.reduceMotion || !placed ? 'auto' : 'smooth' });
