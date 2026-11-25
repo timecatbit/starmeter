@@ -16,11 +16,14 @@
   import { legendName, tokens } from '../lib/format';
   import { panel } from '../lib/ui.svelte';
 
-  let { live, height }: { live: PhoneLive; height: number } = $props();
+  let { live, height, legendHeight = $bindable(0) }: {
+    live: PhoneLive; height: number;
+    /** The legend's height over the curve, for the monitor to give the curve its room under it. */
+    legendHeight?: number;
+  } = $props();
 
   /** The lines named: the total's, then each tool's as drawn (the busiest first). */
   let named = $state<{ id: string; name: string; idle: boolean }[]>([]);
-  let legendHeight = $state(0);
   const plotHeight = $derived(Math.max(40, height - legendHeight));
 
   let box: HTMLDivElement | undefined = $state();
@@ -62,7 +65,7 @@
       const next = ids.map((id, k) => ({ id, name: names.get(id) ?? id, idle: points.every((p) => p.rates[k] <= 0) }));
       const key = (list: typeof named) => list.map((n) => `${n.id}${n.name}${n.idle}`).join();
       if (key(next) !== key(named)) named = next;
-      const highest = Math.max(0, ...points.map((p) => p.rates.reduce((a, b) => a + b, 0)));
+      highest = Math.max(0, ...points.map((p) => p.rates.reduce((a, b) => a + b, 0)));
       top = nice(Math.max(4, highest * 1.18));
       for (const landing of live.landings) {
         drops.push({ id: landing.id, tokens: landing.tokens, born: now });
@@ -75,8 +78,11 @@
     });
   });
 
-  // The scale eases to a new top instead of jumping, so a burst grows the axis smoothly.
+  // The scale eases down to a new top instead of jumping; up, never behind what is drawn (the line's end, its dot and its
+  // glow ran past the canvas's top while the scale caught up with a burst).
   let shownTop = 2000;
+  /** The highest the line reaches now. */
+  let highest = 0;
   let frame = 0;
   let running = false;
   /** The next drawing while nothing on the curve moves but its flow left (a timer, not every frame). */
@@ -115,7 +121,7 @@
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     ctx.clearRect(0, 0, W, H);
     const now = Date.now(), still = panel.reduceMotion;
-    shownTop = still ? top : shownTop + (top - shownTop) * 0.12;
+    shownTop = still ? top : Math.max(highest * 1.04, shownTop + (top - shownTop) * 0.12);
     if (Math.abs(top - shownTop) < top * 0.002) shownTop = top;
     const padTop = 18, padBottom = 20, right = W - 30, plotH = H - padTop - padBottom, base = padTop + plotH;
     // The right edge is now; a reading is placed at its moment, so the curve flows left between readings.
@@ -124,7 +130,9 @@
     const first = live.feed.samples[0]?.at ?? end;
     const span = Math.min(LIVE_SPAN, Math.max(60_000, end - first + 15_000));
     const x = (at: number) => right - ((end - at) / span) * right;
-    const y = (v: number) => base - (v / shownTop) * plotH;
+    // Within the plot whatever comes: the end's dot (3.5) and the line's glow (12) stay inside the canvas, with padTop and
+    // padBottom over and under it and 30 to its right.
+    const y = (v: number) => Math.min(base, Math.max(padTop, base - (v / shownTop) * plotH));
     const sketch = style.current === 'sketch';
     const ink = (amount: number) => alpha(faces.ink, amount);
 
@@ -222,6 +230,7 @@
       ctx.fillStyle = sketch ? summaryColour(panel.dark) : panel.dark ? '#F5F8FF' : '#0E1D4C';
       ctx.beginPath(); ctx.arc(ex, ey, 3.5, 0, Math.PI * 2); ctx.fill();
       canvas.dataset.lines = String(ids.length);
+      canvas.dataset.end = `${Math.round(ex * 10) / 10},${Math.round(ey * 10) / 10},${W},${H}`;
       canvas.dataset.dots = JSON.stringify(Object.fromEntries(dots.map((id) => [id, Math.round(ends[id] * 10) / 10])));
       canvas.dataset.under = under.join(',');
       {

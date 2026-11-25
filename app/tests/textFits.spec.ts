@@ -102,3 +102,30 @@ for (const [size, viewport, seen] of SIZES) {
     expect([...new Set(found)]).toEqual([]);
   });
 }
+
+for (const [size, viewport, seen] of SIZES) {
+  test(`网页版's live chart keeps its end whole, its dot and glow inside the canvas, the curve no sliver: ${size}`, async ({ page }) => {
+    if (seen) await page.addInitScript((height) => {
+      const view = Object.assign(new EventTarget(), { height, width: innerWidth, offsetTop: 0, offsetLeft: 0, scale: 1, pageTop: 0, pageLeft: 0 });
+      Object.defineProperty(window, 'visualViewport', { configurable: true, value: view });
+    }, seen);
+    await page.setViewportSize(viewport);
+    await servePhone(page, PHONE_KEY, { live: longWork(), edit: longTitles });
+    await page.goto(`/#k=${PHONE_KEY}`);
+    const canvas = page.locator('.stage .live-chart canvas');
+    await expect(canvas).toBeVisible();
+    // A few seconds of readings landing (the scale moving with them): the end's dot (3.5) and the line's glow (12) inside.
+    for (let i = 0; i < 16; i++) {
+      await page.waitForTimeout(250);
+      const end = await canvas.getAttribute('data-end');
+      if (!end) continue;
+      const [x, y, width, height] = end.split(',').map(Number);
+      const where = `${size} at ${i}: ${end}`;
+      expect(y - 3.5 - 12, where).toBeGreaterThanOrEqual(0);
+      expect(y + 3.5 + 12, where).toBeLessThanOrEqual(height);
+      expect(x + 3.5 + 12, where).toBeLessThanOrEqual(width);
+      // A curve, not a sliver under its legend: the plot at least 40 points.
+      expect(height - 38, where).toBeGreaterThanOrEqual(40);
+    }
+  });
+}

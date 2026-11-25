@@ -204,3 +204,23 @@ test('pinned, the live line opens with the last minutes the app kept: its speed 
   await page.waitForTimeout(300);
   expect(Number(await canvas.getAttribute('data-rate'))).toBeLessThan(30);
 });
+
+test('pinned, the live line\'s end keeps its halo and ring inside the canvas, narrow and wide', async ({ page }) => {
+  await open(page);
+  await seed(page, 50, { id: 'claude', tokens: 2000, output: 50 });
+  await page.getByRole('button', { name: '钉住面板', exact: true }).click();
+  const canvas = page.locator('canvas.live');
+  for (const width of [360, 480]) {
+    await page.evaluate((w) => window.dispatchEvent(new CustomEvent('panel-resized', { detail: { width: w, height: 760 } })), width);
+    for (let i = 0; i < 12; i++) {
+      await page.waitForTimeout(250);
+      const tip = await canvas.getAttribute('data-tip');
+      if (!tip) continue;
+      const [x, y, w, h] = tip.split(',').map(Number);
+      // The halo (5) and the ring a reading sends out (10).
+      expect(y - 10, tip).toBeGreaterThanOrEqual(0);
+      expect(y + 10, tip).toBeLessThanOrEqual(h);
+      expect(x + 10, tip).toBeLessThanOrEqual(w);
+    }
+  }
+});

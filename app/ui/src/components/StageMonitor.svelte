@@ -27,10 +27,16 @@
     intro?: boolean;
   } = $props();
 
-  let room = $state(0);
-  const curveHeight = $derived(chartHeight ?? Math.max(least, room));
-
   const working = $derived(live.state === 'working');
+  let room = $state(0);
+  /** The live chart's legend, over its curve: the curve gets its least under it (on its side, two rows of legend left the
+   *  curve 10 points and its end's dot was cut). */
+  let legend = $state(0);
+  /** Filling, the least the curve takes: working, the live chart's legend and its plot of at least 40 points between
+   *  its 18 over and 20 under (its scale's words, its time line). */
+  const leastNow = $derived(working ? legend + Math.max(least, 78) : least);
+  const curveHeight = $derived(chartHeight ?? Math.max(leastNow, room));
+
   const running = $derived(live.sessions.filter((s) => s.running).length);
   const data = $derived(live.dashboard ?? today);
   /** The figures' range: today on the app; on SwiftBar's panel, the range the computer shows, said as such. */
@@ -60,7 +66,7 @@
   const added = $derived(live.costAdded && now - live.costAdded.at < 2500 ? live.costAdded : null);
 </script>
 
-<div class="monitor" class:working class:trouble={live.trouble} class:filling={chartHeight === null} style:--least="{least}px">
+<div class="monitor" class:working class:trouble={live.trouble} class:filling={chartHeight === null} style:--least="{leastNow}px">
   <div class="state" role="status">
     <span class="beat" aria-hidden="true"></span>
     <span class="state-text">{stateLine}</span>
@@ -89,7 +95,7 @@
   </div>
   <div class="curve" bind:clientHeight={room}>
     {#if working}
-      <StageLiveChart {live} height={curveHeight} />
+      <StageLiveChart {live} height={curveHeight} bind:legendHeight={legend} />
     {:else if data}
       <div class="resting-chart"><StageChart {data} height={curveHeight} draw={intro} /></div>
     {/if}

@@ -423,6 +423,8 @@
       }
       ctx.fillStyle = alpha(total, 0.2); ctx.beginPath(); ctx.arc(tip[0], tip[1], 5, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = total; ctx.beginPath(); ctx.arc(tip[0], tip[1], 2.5, 0, Math.PI * 2); ctx.fill();
+      // Where the end is, and the canvas around it: for the tests, which ask its halo be whole.
+      canvas.dataset.tip = `${Math.round(tip[0] * 10) / 10},${Math.round(tip[1] * 10) / 10},${W + PAD},${H}`;
     };
     frame = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(frame);
