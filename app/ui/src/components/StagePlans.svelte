@@ -78,7 +78,7 @@
                     {#if g}
                       <span class="window-bar"><span class="window-fill" style:width="{filled ? Math.max(2, g.used) : 0}%" style:background={barColor(g.level, panel.dark)}
                         style:transition-delay="{i * 90 + (l * 2 + k) * 60}ms"></span></span>
-                      <span class="window-name">{g.label} <span class="num">{g.used}%</span></span>
+                      <span class="window-name"><span class="window-label">{g.label}</span><span class="num">{g.used}%</span></span>
                     {/if}
                   </div>
                 {/each}
@@ -142,8 +142,10 @@
   .window { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
   .window-bar { height: 4px; border-radius: 2px; background: var(--line-faint); overflow: hidden; }
   .window-fill { display: block; height: 100%; border-radius: 2px; transition: width 1.1s cubic-bezier(0.22, 1, 0.36, 1); }
-  .window-name { font-size: 11px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .window-name .num { color: var(--ink); font-weight: 600; }
+  /* A long name gives way, the share stays whole. */
+  .window-name { display: flex; gap: 0.3em; min-width: 0; font-size: 11px; color: var(--ink-2); white-space: nowrap; }
+  .window-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .window-name .num { flex: none; color: var(--ink); font-weight: 600; }
   .group { display: flex; align-items: center; gap: 4px; margin-bottom: -2px; font-size: 10.5px; color: var(--ink-3); }
   .tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 10px; }
   /* An odd one out takes the whole last row, so the grid ends level. */
