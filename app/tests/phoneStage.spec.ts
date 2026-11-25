@@ -84,8 +84,16 @@ test('网页版 is what a phone opens: portrait, balanced within the screen, its
   expect(await panelFigures(page)).toEqual(stage);
 });
 
-test('网页版 on its side: a monitor by the desk, the live view still on the left, the rest scrolling on the right', async ({ page }) => {
+test('网页版 on its side: a monitor by the desk, the live view still on the left, the rest scrolling on the right', async ({ page: first }) => {
+  // Each size in a page of its own: going to the page again while a reading is on its way aborts that reading, and
+  // WebKit reports it as an error (on a busy machine, now and then).
+  let page = first;
   for (const size of [LANDSCAPE, { width: 667, height: 375 }]) {
+    if (size !== LANDSCAPE) {
+      page = await first.context().newPage();
+      page.on('pageerror', (error) => errors.push(String(error)));
+      page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
+    }
     await phone(page, size);
     const lead = await box(page, '.stage .lead'), rest = await box(page, '.stage .rest');
     // Side by side, the left column's foot within the screen; the curve has room to read.
@@ -114,6 +122,7 @@ test('网页版 on its side: a monitor by the desk, the live view still on the l
   await page.setViewportSize(PORTRAIT);
   await expect(page.locator('.stage.wide')).toHaveCount(0);
   expect((await box(page, '.stage .rest')).y).toBeGreaterThan((await box(page, '.stage .monitor')).y);
+  await page.close();
 });
 
 test('网页版: the ranges and groupings are the phone\'s own, the figures read for them as the computer reads them', async ({ page }) => {
