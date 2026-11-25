@@ -411,8 +411,10 @@ test('pinned, every tool on the homepage has its line, one not used in the last 
   // In Token/s too: a line for each, the idle ones at zero.
   await page.getByRole('radio', { name: 'Token/s' }).click();
   await expect.poll(async () => Object.keys(JSON.parse((await read()).toolRates ?? '{}')).length, { timeout: 20_000 }).toBe(lines.length);
-  const rates = JSON.parse((await read()).toolRates ?? '{}') as Record<string, number>;
-  expect(Object.entries(rates).filter(([, r]) => r > 0).map(([id]) => id)).toEqual(['claude']);
+  // The rate eases in over 15 seconds (liveLines.ts): Claude's comes up from 0 in the moments after a reading lands, so
+  // it is waited for, not read once (read just after a reading it was still 0.0 on a busy machine); the others stay 0.
+  const writing = async () => Object.entries(JSON.parse((await read()).toolRates ?? '{}') as Record<string, number>).filter(([, r]) => r > 0).map(([id]) => id);
+  await expect.poll(writing, { timeout: 20_000 }).toEqual(['claude']);
   await page.getByRole('radio', { name: 'Token', exact: true }).click();
 });
 
