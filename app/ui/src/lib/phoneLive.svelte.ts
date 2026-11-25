@@ -24,6 +24,8 @@ const BUSY_EVERY = 2_000, REST_EVERY = 5_000;
 /** Readings further apart than this left a gap (the page out of sight, the computer out of reach): what changed in it
  *  happened at moments nobody saw, so it is neither this moment's speed, nor requests landing now, nor a turn just done. */
 const GAP = 15_000;
+/** An amount worth saying: one that money() doesn't write as 0.00 in the computer's currency. */
+const worthSaying = (usd: number) => currency.convert(usd) >= 0.005;
 /** The curve's span. */
 export const LIVE_SPAN = 5 * 60_000;
 
@@ -219,7 +221,7 @@ export class PhoneLive {
           if (added > 0.5) {
             landings.push({ id, tokens: added, at: now });
             const spent = part.cost - (was?.cost ?? part.cost);
-            event('usage', part.name, t('+{n} Token', { n: tokenText(added) }) + (spent > 0.00005 ? ' · ' + money(spent) : ''), id);
+            event('usage', part.name, t('+{n} Token', { n: tokenText(added) }) + (worthSaying(spent) ? ' · ' + money(spent) : ''), id);
           }
         }
       }
@@ -229,7 +231,7 @@ export class PhoneLive {
       this.beforeRange = dashboard.rangeKey;
       this.feed.add(dashboard, now, gap);
       const costs = [...now_.values()].map((p) => p.cost), total = costs.reduce((a, b) => a + b, 0);
-      if (comparable && !gap && this.cost !== null && total > this.cost + 0.00005) this.costAdded = { amount: total - this.cost, at: now };
+      if (comparable && !gap && this.cost !== null && worthSaying(total - this.cost)) this.costAdded = { amount: total - this.cost, at: now };
       // Work went on in the gap, when exactly unknown: the last activity is what the sessions say of themselves.
       if (gap && grew) this.lastActive = null;
       this.cost = dashboard.providers.some((p) => p.available && summaryPart(p)?.cost != null) ? total : null;
