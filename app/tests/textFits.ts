@@ -50,7 +50,9 @@ export async function cutWords(page: Page, root = '.stage'): Promise<string[]> {
       if (cut) take(cut, cut.textContent ?? '');
       else pieces.push({ element, text: node, label: node.textContent });
     }
-    for (const canvas of top.querySelectorAll('canvas')) if (!canvas.closest('.sky') && shown(canvas)) take(canvas, `(${name(canvas)})`);
+    // The canvases that draw words or lines (the charts); not the sky's, nor the taps' layer over the page (aria-hidden:
+    // pictures only, the size of the screen by design).
+    for (const canvas of top.querySelectorAll('canvas')) if (!canvas.closest('.sky, [aria-hidden="true"]') && shown(canvas)) take(canvas, `(${name(canvas)})`);
 
     const rects = (piece: Piece) => {
       if (!piece.text) { const box = piece.element.getBoundingClientRect(); return box.width > 0 && box.height > 0 ? [box] : []; }
