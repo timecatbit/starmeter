@@ -20,6 +20,7 @@
   import Heatmap from './Heatmap.svelte';
   import HintButton from './HintButton.svelte';
   import LiveChart from './LiveChart.svelte';
+  import PinnedNow from './PinnedNow.svelte';
   import ProviderCard from './ProviderCard.svelte';
   import SessionList from './SessionList.svelte';
   import MoreButton from './MoreButton.svelte';
@@ -67,9 +68,13 @@
   const showSummary = $derived(data.showSummary !== false);
   const extra = $derived(chartExtra(data, right - left));
   const summaryHeight = $derived(showSummary ? 230 + extra : 44);
+  /** Pinned, under the live curve: the sessions running and what happened (PinnedNow), as tall as it is. */
+  const nowShown = $derived(pinned && !!live && showSummary);
+  let nowHeight = $state(0);
+  const nowSpace = $derived(nowShown ? nowHeight : 0);
   const column = $derived(labelColumn(data));
   const dot = $derived(panelDot(panel.width));
-  const heatmapLayout = $derived(data.heatmap ? new HeatmapLayout(left + column, summaryHeight + 8, right - left - column, data.heatmap.columns, heatmapRows(data.heatmap), dot) : null);
+  const heatmapLayout = $derived(data.heatmap ? new HeatmapLayout(left + column, summaryHeight + nowSpace + 8, right - left - column, data.heatmap.columns, heatmapRows(data.heatmap), dot) : null);
   const heatmapHeight = $derived(heatmapLayout && data.heatmap ? blockHeight(heatmapLayout, data.heatmap) : 0);
   const harnessHeader = $derived(!data.providers.length || !showSummary || data.heatmap ? 0 : 6);
   /** The grouping the tabs show and a click is measured against: the one last picked while it is on its way. */
@@ -110,14 +115,14 @@
   const listHeight = $derived(showingSessions ? sessionsHeight
     : Math.max(cardList.length === 0 && data.providers.length ? 24 : 0, listed.reduce((s, p) => s + cardHeight(p), 0) + (unlisted || folds ? MORE : 0))
       + (data.providers.length ? 4 : 0));
-  const total = $derived(summaryHeight + heatmapHeight + harnessHeader + groupingHeight + listHeight);
+  const total = $derived(summaryHeight + nowSpace + heatmapHeight + harnessHeader + groupingHeight + listHeight);
   // A pinned panel fits down to the end of the third card or session (the user makes it taller at its edges).
   const FIT = 3;
   let sessionsFit = $state(0);
   const fitList = $derived(showingSessions ? sessionsFit
     : cardList.length <= FIT ? listHeight : cardList.slice(0, FIT).reduce((s, p) => s + cardHeight(p), 0) + 4);
-  $effect(() => onsize?.(summaryHeight + heatmapHeight + harnessHeader + groupingHeight + fitList));
-  $effect(() => onfloor?.(summaryHeight + heatmapHeight));
+  $effect(() => onsize?.(summaryHeight + nowSpace + heatmapHeight + harnessHeader + groupingHeight + fitList));
+  $effect(() => onfloor?.(summaryHeight + nowSpace + heatmapHeight));
 
   const counted = $derived(summaryProviders(data));
   const valid = $derived(counted.filter((p) => p.available));
@@ -214,10 +219,13 @@
       </div>
     {/if}
   </div>
-  {#if data.heatmap}
-    <Heatmap heatmap={data.heatmap} {column} top={summaryHeight} {right} current={data.rangeKey !== 'yesterday'} max={dot} />
+  {#if nowShown}
+    <div class="now-room" style:top="{summaryHeight}px"><PinnedNow onheight={(h) => (nowHeight = h)} /></div>
   {/if}
-  <div class="cards" style:top="{summaryHeight + heatmapHeight + harnessHeader}px">
+  {#if data.heatmap}
+    <Heatmap heatmap={data.heatmap} {column} top={summaryHeight + nowSpace} {right} current={data.rangeKey !== 'yesterday'} max={dot} />
+  {/if}
+  <div class="cards" style:top="{summaryHeight + nowSpace + heatmapHeight + harnessHeader}px">
     {#if groupingHeight}
       <GroupTabs options={tabOptions} chosen={showingSessions ? 'sessions' : wantedGrouping} note={showingSessions || regrouping ? null : data.groupNote}
         onchoose={(key) => { if (key === 'sessions') onview?.('sessions'); else { onview?.('cards'); if (key !== wantedGrouping) ongroup(key); } }} />
@@ -353,6 +361,7 @@
     height: 230px;
     pointer-events: none;
   }
+  .now-room { position: absolute; left: 0; width: 100%; }
   .cards {
     position: absolute;
     left: 0;

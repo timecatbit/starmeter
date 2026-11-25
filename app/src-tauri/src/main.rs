@@ -398,6 +398,7 @@ fn main() {
             guide::mark_guide_shown,
             language::set_language,
             style::set_style,
+            phone::live_now,
             phone::phone_start,
             phone::phone_status,
             phone::phone_stop,

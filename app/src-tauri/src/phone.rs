@@ -524,6 +524,13 @@ fn live(app: &AppHandle, history: bool) -> Value {
     answer
 }
 
+/// The computer's own panel, pinned: the live answer a phone's 网页版 gets (today by tool, 会话's sessions, each turn's
+/// start), for 正在运行 and 动态 under its live curve. Off the main thread: the app reads today's logs for it.
+#[tauri::command]
+pub async fn live_now(app: AppHandle) -> Value {
+    tauri::async_runtime::spawn_blocking(move || live(&app, false)).await.unwrap_or(Value::Null)
+}
+
 /// 会话's row in a snapshot, if it is on the homepage.
 fn sessions_of(snapshot: &Value) -> Value {
     let mark = json!(["refresh-source", "sessions"]);

@@ -28,8 +28,8 @@ export const backend = {
   snapshot: (): Promise<Snapshot> => (inTauri ? invoke('snapshot') : browser().then((f) => f.snapshot())),
   dashboard: (range: string): Promise<Dashboard> => (inTauri ? invoke('dashboard', { range }) : browser().then((f) => f.dashboard(range))),
   action: (action: string[]): Promise<ActionReceipt> => (inTauri ? invoke('action', { action }) : browser().then((f) => f.action(action))),
-  /** On a phone, 网页版's live view: what the computer read a moment ago. Nowhere else. */
-  live: (history = false): Promise<LiveAnswer> => (onPhone ? import('./phoneBackend').then((f) => f.live(history)) : Promise.reject(new Error('the live view is a phone\'s'))),
+  /** 网页版's live view (on a phone, what the computer read a moment ago), and the pinned panel's 正在运行 and 动态. */
+  live: (history = false): Promise<LiveAnswer> => (inTauri ? invoke('live_now') : onPhone ? import('./phoneBackend').then((f) => f.live(history)) : browser().then((f) => f.live(history))),
   onSnapshot(changed: () => void): () => void {
     if (inTauri) {
       const stop = listen('snapshot-changed', changed);

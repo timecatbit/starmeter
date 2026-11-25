@@ -1,7 +1,7 @@
 // The fixture backend for a plain browser (dev server, Playwright). It serves app/ui/fixtures/*.json and keeps the
 // choices made in the panel, as the Tauri app's fixture backend (app/src-tauri/src/fixtures.rs) does; the two follow
 // the same rules. Pick a scenario with ?fixture=failed, ?fixture=pending or ?fixture=empty (a first run that found nothing).
-import type { ActionReceipt, Dashboard, Entry, PresentationPreferences, ProviderUsage, Question, Snapshot } from './types';
+import type { ActionReceipt, Dashboard, Entry, LiveAnswer, PresentationPreferences, ProviderUsage, Question, Snapshot } from './types';
 import { addPhrases } from './i18n.svelte';
 
 // The made-up session titles in English, for the English screenshots; a real title is the user's own and stays as it is.
@@ -202,6 +202,20 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Asks the panel as the core does in the app: a question event, then the answer the panel sends back. */
 let asked = 0;
+/** The live answer (the app's live_now, 网页版's /api/live) from the fixtures: today by tool, creeping up with each
+ *  pinned tick, and 会话 as it stands (no turn's start to the second). */
+export async function live(_history = false): Promise<LiveAnswer> {
+  const [today, shown] = await Promise.all([dashboard('today'), snapshot()]);
+  const sessions = shown.entries.find((e) => e.onOpenAction?.[1] === 'sessions');
+  // Each running session's turn begun as long ago as its row says (运行中 4 分钟), to the second as the app gives it.
+  const at = Date.now() / 1000, turns: Record<string, number> = {};
+  for (const row of sessions?.children ?? []) {
+    const minutes = row.statusLight === 'new' ? /^运行中(?: (\d+) 分钟)?/.exec(row.detail ?? '') : null;
+    if (minutes && row.key) turns[row.key] = at - Number(minutes[1] ?? 0) * 60 - 13;
+  }
+  return { at, dashboard: today, sessions: sessions ? { ...sessions, children: sessions.children.filter((c) => !c.action) } : null, turns };
+}
+
 function askPanel(question: Omit<Question, 'id'>): Promise<unknown> {
   const id = ++asked;
   return new Promise((resolve) => {
