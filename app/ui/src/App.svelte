@@ -337,8 +337,11 @@
     void shell.setPinned(value);
     clearInterval(liveTimer);
     if (value) {
+      // Pinned again while the chart still zooms out: it zooms back in on the line it has (STAGE-16: a new feed was
+      // dropped for the old one, which then let go, and the panel stayed pinned with the trend).
+      const back = leaving !== null && feed !== null;
       leaving = null;
-      void pinFeed(new LiveFeed());
+      if (!back) void pinFeed(new LiveFeed());
       schedule();
     } else {
       liveStamp = null;
@@ -900,7 +903,7 @@
 
 {#snippet dashboardView()}
   {#if shown && snapshot}
-    <Dashboard data={shown} {rangeOptions} reading={waiting} onprefetch={prefetchRanges} {updateMark} {updateSaid} onupdates={openUpdates} {reveal} {glows} {summaryGlow} live={pinned || leaving !== null ? feed : null} {leaving} onleft={() => { leaving = null; feed = null; }} {liveStamp} {pinned}
+    <Dashboard data={shown} {rangeOptions} reading={waiting} onprefetch={prefetchRanges} {updateMark} {updateSaid} onupdates={openUpdates} {reveal} {glows} {summaryGlow} live={pinned || leaving !== null ? feed : null} {leaving} onleft={() => { if (pinned) return; leaving = null; feed = null; }} {liveStamp} {pinned}
       {pinInterval} onrange={perform} onshare={openShare}
       onpin={() => { panel.hint = null; setPinned(!pinned); if (pinned) perform(['refresh-live']); }} onsettings={openSettings}
       onopentool={openTool} grouping={pickedGroup} {regrouping} ongroup={(key) => perform(['set-group', key])} {sessions} {view} onview={chooseView} busy={busyNow}

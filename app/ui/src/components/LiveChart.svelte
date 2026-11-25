@@ -96,6 +96,8 @@
       last = time;
       if (canvas.width !== Math.round((W + PAD) * scale)) canvas.width = Math.round((W + PAD) * scale);
       const now = Date.now(), dark = panel.dark;
+      // Pinned again while zooming out (or just as it ended): back in from wherever it stands, the same feed (STAGE-16).
+      if (leavingAt === null && zoom && zoom.to === 0) { left = false; zoom = { from: progress, to: 1, start: now, trend: zoom.trend }; }
       // Unpinning: zoom back out from wherever the chart stands, then hand back to the trend.
       if (leavingAt !== null && !left && (!zoom || zoom.to !== 0)) {
         if (panel.reduceMotion) { left = true; onleft?.(); return; }

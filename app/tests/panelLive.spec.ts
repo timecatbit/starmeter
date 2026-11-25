@@ -200,6 +200,26 @@ test('started hidden (the app at login) with 实时 the tab last shown, nothing 
   await expect(live.locator('.live-session .clock').first()).not.toHaveText(clock!, { timeout: 2500 });
 });
 
+test('pinned again while the live line still zooms out, it zooms back in and stays live (STAGE-16)', async ({ page }) => {
+  await open(page);
+  await seed(page, 50, { id: 'claude', tokens: 2000, output: 50 });
+  const pin = page.getByRole('button', { name: '钉住面板', exact: true }), unpin = page.getByRole('button', { name: '取消钉住面板', exact: true });
+  await pin.click();
+  const canvas = page.locator('canvas.live');
+  await expect.poll(async () => Number(await canvas.getAttribute('data-samples')), { timeout: 1500 }).toBeGreaterThan(20);
+  await page.waitForTimeout(900);
+  await unpin.click();
+  await page.waitForTimeout(250);
+  await pin.click();
+  // Well past the 750 ms the zoom out takes: still the live line, its modes back, and readings still coming in.
+  await page.waitForTimeout(1500);
+  await expect(canvas).toBeVisible();
+  await expect(page.getByRole('radiogroup', { name: '实时图显示' })).toBeVisible();
+  const samples = Number(await canvas.getAttribute('data-samples'));
+  await expect.poll(async () => Number(await canvas.getAttribute('data-samples')), { timeout: 6000 }).toBeGreaterThan(samples);
+  await expect(canvas).toBeVisible();
+});
+
 test('pinned, the live line opens with the last minutes the app kept: its speed at once, and a gap in them no burst', async ({ page }) => {
   await open(page);
   // Fifty seconds of Claude writing 25 tokens a second.
