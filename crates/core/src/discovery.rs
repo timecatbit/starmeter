@@ -318,7 +318,10 @@ mod tests {
             ("OCX_STATE_DIR".to_string(), home.join("state").to_string_lossy().into_owned()),
         ]
         .into();
-        let runtime = crate::runtime::Runtime::new(environment, "starmeter");
+        let mut runtime = crate::runtime::Runtime::new(environment, "starmeter");
+        // The runtime's home is this process's HOME, not the map's: pointed at the stand-in, so the app looked for is
+        // the one in its Applications folder, whether or not this Mac has WorkBuddy in /Applications.
+        runtime.home = home.to_string_lossy().into_owned();
         assert!(runtime.detected_modules().contains(&"workbuddy".to_string()));
         let _ = std::fs::remove_dir_all(&home);
     }
