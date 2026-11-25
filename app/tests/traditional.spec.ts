@@ -56,7 +56,7 @@ test('繁體中文: the homepage, its pages, the groupings and 會話', async ({
   await left.take(page, 'home');
   // The cards' groupings, each character converted.
   const tabs = page.getByRole('radiogroup', { name: '卡片分組' }).getByRole('radio');
-  await expect(tabs).toHaveText(['工具', '模型', '項目', '會話']);
+  await expect(tabs).toHaveText(['工具', '模型', '項目', '會話', '實時']);
   for (const tab of await tabs.all()) {
     await tab.click();
     await page.waitForTimeout(400);
