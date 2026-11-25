@@ -134,6 +134,11 @@ impl Files {
         }
     }
 
+    /// The snapshot as it is, not taken as seen (the panel is still told of a new one): what a phone's last minutes keep.
+    pub fn peek(&self) -> Value {
+        read(&self.snapshot).unwrap_or(Value::Null)
+    }
+
     pub fn snapshot(&self) -> Value {
         *self.seen.lock().expect("the seen lock") = modified(&self.snapshot);
         read(&self.snapshot).unwrap_or_else(|| json!({"schema": 1, "entries": []}))

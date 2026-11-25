@@ -7,6 +7,7 @@
 //! so it stays out of logs. The optional public link (Cloudflare's quick tunnel, see `tunnel`) reaches this same
 //! server from outside and needs the same key.
 
+use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{IpAddr, TcpListener, TcpStream, UdpSocket};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -153,6 +154,16 @@ pub fn phone_start(app: AppHandle) -> Result<PhoneView, String> {
     {
         let (app, key, stop) = (app.clone(), key.clone(), stop.clone());
         std::thread::spawn(move || serve(app, listener, key, stop));
+    }
+    {
+        // The last minutes kept while the server is on, a page open or not.
+        let (app, stop) = (app.clone(), stop.clone());
+        let _ = std::thread::Builder::new().name("starmeter-phone-readings".into()).spawn(move || {
+            while !stop.load(Ordering::SeqCst) {
+                sample(&app.state::<Data>());
+                std::thread::sleep(Duration::from_secs_f64(RECENT_EVERY));
+            }
+        });
     }
     let started = Running { port, key, stop, public: None };
     let shown = view(&started);
@@ -490,13 +501,84 @@ fn phone_snapshot(app: &AppHandle, range: Option<&str>, group: Option<&str>) -> 
     snapshot
 }
 
+/// The live readings of the last few minutes, today's figures by tool in short (what a page's live line counts), so a
+/// page opened or reloaded while the work goes on has its last minutes at once, not a line starting from nothing and a
+/// speed of 0 while the sessions run. Kept here, whatever the figures come from (the app's own logs, SwiftBar's plugin,
+/// the fixtures): from each /api/live answer, and every couple of seconds while the server is on (`sample`), so the
+/// line goes on with no page open. Asked for with ?history=1.
+static RECENT: Mutex<VecDeque<Value>> = Mutex::new(VecDeque::new());
+/// How long the readings are kept (a page's line spans five minutes, its speed the minute before), and how far apart.
+const RECENT_FOR: f64 = 400.0;
+const RECENT_EVERY: f64 = 2.0;
+
+/// A reading kept: when, the day and range, and each tool's figures the line counts (Summary's share, what a gateway
+/// alone logged).
+fn keep_recent(recent: &mut VecDeque<Value>, moment: f64, dashboard: &Value) {
+    let Some(providers) = dashboard.get("providers").and_then(Value::as_array) else { return };
+    if recent.back().and_then(|last| last["at"].as_f64()).is_some_and(|at| moment - at < RECENT_EVERY && moment >= at) {
+        return;
+    }
+    let short: Vec<Value> = providers
+        .iter()
+        .map(|p| {
+            let mut kept = serde_json::Map::new();
+            for name in ["id", "available", "summaryIncluded", "tokens", "output", "cost"] {
+                if let Some(value) = p.get(name) {
+                    kept.insert(name.into(), value.clone());
+                }
+            }
+            if let Some(counted) = p.get("counted").filter(|counted| counted.is_object()) {
+                let part: serde_json::Map<String, Value> = ["tokens", "output", "cost"]
+                    .iter()
+                    .filter_map(|name| counted.get(*name).map(|value| (name.to_string(), value.clone())))
+                    .collect();
+                kept.insert("counted".into(), Value::Object(part));
+            }
+            Value::Object(kept)
+        })
+        .collect();
+    recent.push_back(serde_json::json!({
+        "at": moment, "date": dashboard["date"], "rangeKey": dashboard["rangeKey"], "providers": short,
+    }));
+    // The clock set back, or readings too old to draw: let go.
+    while recent
+        .front()
+        .and_then(|first| first["at"].as_f64())
+        .is_some_and(|at| moment - at > RECENT_FOR || at > moment)
+    {
+        recent.pop_front();
+    }
+}
+
 /// 网页版's live view, asked every couple of seconds while it is on screen: today's figures by tool, 会话 (its
 /// sessions only, as the snapshot sends them) and when each session's turn began. The app reads today's logs afresh
 /// for it (Engine::live, at most every 1.5 s); SwiftBar's panel has what the plugin last wrote, for the range the
 /// computer shows (the phone says which, and compares figures of one range only), the fixtures creep up.
 fn live(app: &AppHandle, history: bool) -> Value {
-    let mut answer = match &*app.state::<Data>() {
-        Data::Engine(engine) => engine.live(history),
+    live_from(&app.state::<Data>(), history)
+}
+
+/// Today's figures as the source has them now, read cheaply (no logs read again, SwiftBar's snapshot only looked at,
+/// not taken as seen): what `sample` keeps.
+fn today_now(data: &Data) -> Option<Value> {
+    match data {
+        Data::Engine(engine) => Some(engine.dashboard_grouped("today", Some("tool"))),
+        Data::SwiftBar(files) => files.peek().get("dashboard").cloned(),
+        Data::Fixtures(fixtures) => Some(fixtures.lock().expect("the fixtures").dashboard("today")),
+    }
+    .filter(Value::is_object)
+}
+
+/// A reading kept for the last minutes, the server on and no page asking.
+fn sample(data: &Data) {
+    if let Some(dashboard) = today_now(data) {
+        keep_recent(&mut RECENT.lock().expect("the live readings"), starmeter_core::runtime::now(), &dashboard);
+    }
+}
+
+fn live_from(data: &Data, history: bool) -> Value {
+    let mut answer = match data {
+        Data::Engine(engine) => engine.live(),
         Data::SwiftBar(files) => {
             let snapshot = files.snapshot();
             json!({
@@ -520,6 +602,14 @@ fn live(app: &AppHandle, history: bool) -> Value {
     };
     if let Some(entry) = answer.get_mut("sessions").filter(|entry| entry.is_object()) {
         phone_sessions(entry);
+    }
+    // The last minutes for a page just opened, from whatever source; then this reading kept with them.
+    let mut recent = RECENT.lock().expect("the live readings");
+    if history {
+        answer["history"] = Value::Array(recent.iter().cloned().collect());
+    }
+    if let (Some(at), Some(dashboard)) = (answer["at"].as_f64(), answer.get("dashboard")) {
+        keep_recent(&mut recent, at, dashboard);
     }
     answer
 }
@@ -636,6 +726,62 @@ mod tests {
         assert!(entry["children"][0].get("href").is_none());
         assert!(entry["children"][0]["children"][0].get("action").is_none());
         assert!(entry.get("onOpenAction").is_none());
+    }
+
+    /// The readings a page opened late is given: two seconds apart at most, a few minutes back, each tool's figures the
+    /// line counts and nothing else.
+    #[test]
+    fn the_live_readings_kept_are_the_last_minutes_in_short() {
+        let dashboard = |tokens: f64| {
+            serde_json::json!({"date": "2026-11-25", "rangeKey": "today", "chartUnit": "每小时", "providers": [
+                {"id": "claude", "available": true, "tokens": tokens, "output": tokens / 100.0, "cost": 1.5, "history": [1, 2, 3],
+                 "counted": {"tokens": tokens, "output": 4.0, "cost": 1.0, "history": [1]}, "name": "Claude"},
+            ]})
+        };
+        let mut recent = std::collections::VecDeque::new();
+        super::keep_recent(&mut recent, 1000.0, &dashboard(100.0));
+        super::keep_recent(&mut recent, 1001.0, &dashboard(150.0));
+        super::keep_recent(&mut recent, 1002.5, &dashboard(200.0));
+        assert_eq!(recent.len(), 2, "one a second is too often");
+        let first = &recent[0];
+        assert_eq!(first["date"], "2026-11-25");
+        assert_eq!(first["providers"][0]["tokens"], 100.0);
+        assert_eq!(first["providers"][0]["counted"], serde_json::json!({"tokens": 100.0, "output": 4.0, "cost": 1.0}));
+        assert!(first["providers"][0].get("history").is_none() && first["providers"][0].get("name").is_none());
+        super::keep_recent(&mut recent, 1000.0 + super::RECENT_FOR + 2.0, &dashboard(300.0));
+        assert_eq!(
+            recent.iter().map(|r| r["at"].as_f64().unwrap()).collect::<Vec<_>>(),
+            vec![1002.5, 1000.0 + super::RECENT_FOR + 2.0]
+        );
+        // The clock set back: what is now ahead of it goes.
+        super::keep_recent(&mut recent, 900.0, &dashboard(300.0));
+        assert_eq!(recent.len(), 1);
+    }
+
+    /// SwiftBar's figures (the plugin's snapshot) have their last minutes too: kept while the server is on, given
+    /// with ?history=1 as the app's own are, not only on the standalone app.
+    #[test]
+    fn swiftbars_figures_have_their_last_minutes_too() {
+        let folder =
+            std::env::temp_dir().join(format!("starmeter-phone-recent-{}", starmeter_core::runtime::random_hex(6)));
+        std::fs::create_dir_all(&folder).unwrap();
+        let view = folder.join("panel-view.json");
+        let write = |tokens: f64| {
+            let snapshot = serde_json::json!({"schema": 1, "entries": [], "dashboard": {"date": "2026-11-25", "rangeKey": "today",
+                "providers": [{"id": "claude", "available": true, "tokens": tokens, "output": tokens / 100.0, "cost": 1.0}]}});
+            std::fs::write(&view, snapshot.to_string()).unwrap();
+        };
+        let args = ["--snapshot".to_string(), view.to_string_lossy().into_owned()];
+        let data = crate::data::Data::SwiftBar(Arc::new(crate::swiftbar::Files::from_args(&args).unwrap()));
+        super::RECENT.lock().unwrap().clear();
+        write(100.0);
+        super::sample(&data);
+        let answer = super::live_from(&data, true);
+        let history = answer["history"].as_array().expect("the last minutes");
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0]["providers"][0]["tokens"], 100.0);
+        assert!(super::live_from(&data, false).get("history").is_none());
+        let _ = std::fs::remove_dir_all(&folder);
     }
 
     #[test]
