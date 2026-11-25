@@ -118,9 +118,13 @@
         break;
       } catch (error) {
         if (mine !== round) return;
-        if (attempt === 0 && passing(error)) continue;
-        failed = String(error);
-        lost = 'failed';
+        if (attempt === 0 && passing(error) && reach === 'public') continue;
+        // Said on 任何网络 only: chosen away while the link was made (同一个网络, Tailscale), that code stays as it is,
+        // with nothing of Cloudflare under it (PHONE-12).
+        if (reach === 'public') {
+          failed = String(error);
+          lost = 'failed';
+        }
         break;
       }
     }

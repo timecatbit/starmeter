@@ -1377,6 +1377,39 @@ test('在手机上看: a public link that drops stays on 任何网络, with 重�
   await expect(button(page, '改用同一个网络')).toBeVisible();
 });
 
+test('在手机上看: a public link that fails after 同一个网络 or Tailscale was chosen leaves that code alone (PHONE-12)', async ({ page }) => {
+  for (const away of ['同一个网络', 'Tailscale']) {
+    await open(page, '?tailnet');
+    await button(page, '主页模块与设置').click();
+    await page.getByRole('button', { name: /^在手机上看/ }).click();
+    const phone = page.locator('.phone-page');
+    await expect(phone.locator('svg.qr')).toBeVisible();
+    // The link takes its time (PHONE-11's wait), then fails for good.
+    await page.evaluate(async (source) => {
+      const shell = await eval(source);
+      const w = window as unknown as { letGo: () => void };
+      shell.phonePublic = () => new Promise((_, refuse) => (w.letGo = () => refuse('Cloudflare 这次没有给出链接，稍后再试')));
+    }, panelShell);
+    await page.getByRole('radio', { name: '任何网络' }).click();
+    await button(page, '生成链接').click();
+    await expect(phone.locator('.wait')).toHaveText('正在向 Cloudflare 要链接…');
+    await page.getByRole('radio', { name: away }).click();
+    const address = away === 'Tailscale' ? 'http://100.76.55.73:51234/' : 'http://192.168.1.20:51234/';
+    await expect(phone.locator('.address')).toHaveText(address);
+    await page.evaluate(() => (window as unknown as { letGo: () => void }).letGo());
+    await page.waitForTimeout(300);
+    // The chosen code as it was, nothing of Cloudflare under it.
+    await expect(page.getByRole('radio', { name: away })).toHaveAttribute('aria-checked', 'true');
+    await expect(phone.locator('.address')).toHaveText(address);
+    await expect(phone.locator('svg.qr')).toBeVisible();
+    await expect(phone.locator('.failed')).toHaveCount(0);
+    await expect(phone.locator('.stopped')).toHaveCount(0);
+    // 任何网络 chosen again asks as it always does.
+    await page.getByRole('radio', { name: '任何网络' }).click();
+    await expect(button(page, '生成链接')).toBeVisible();
+  }
+});
+
 test('在手机上看: the public link shows once a phone can open it, its wait saying so, and a wait run out says to give it a minute (PHONE-11)', async ({ page }) => {
   for (const query of ['', '?unchecked']) {
     await open(page, query);
