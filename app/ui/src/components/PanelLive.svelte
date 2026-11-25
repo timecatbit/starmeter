@@ -8,7 +8,7 @@
   import { fly } from 'svelte/transition';
   import { toolColour } from '../lib/colors';
   import { t } from '../lib/i18n.svelte';
-  import { duration, PhoneLive } from '../lib/phoneLive.svelte';
+  import { PhoneLive, turnClock } from '../lib/phoneLive.svelte';
   import { panel } from '../lib/ui.svelte';
   import Glyph from './Glyph.svelte';
 
@@ -31,17 +31,8 @@
   const events = $derived(live.events.slice(0, SHOWN));
   const pad = (n: number) => String(n).padStart(2, '0');
   const clock = (at: number) => { const d = new Date(at); return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
-  /** This turn's clock: m:ss when the computer gave its start to the second, else its minutes. */
-  function timer(began: number | null, exact: boolean): string {
-    // No start known (a turn begun before the logs read): it is running, said so, never an empty space.
-    if (began === null) return t('运行中');
-    const seconds = Math.max(0, Math.floor((now - began) / 1000));
-    if (!exact) return duration(seconds * 1000, false);
-    const h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60), s = seconds % 60;
-    return h ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
-  }
-  /** The model and effort, as 会话 writes them before the context's share. */
-  const model = (about: string) => about.split(' · ').filter((part) => !/%/.test(part)).slice(0, 2).join(' · ');
+  /** This turn's clock as 网页版 writes it (turnClock): figures in the rounded face, words in the text's. */
+  const timer = (began: number | null, exact: boolean) => turnClock(began, exact, now);
   const motion = (ms: number) => (panel.reduceMotion ? 0 : ms);
   const tint = $derived(panel.dark ? 'rgb(235, 238, 255)' : 'rgb(30, 40, 80)');
 </script>
@@ -53,10 +44,12 @@
       <div class="top">
         <span class="mark"><Glyph image={s.image} template={s.template} symbol={s.symbol ?? 'terminal'} size={12} {tint} /></span>
         <span class="title">{s.title}</span>
-        <span class="clock num">{timer(s.began, s.exact)}</span>
+        <span class="clock" title={t('本轮用时')}>{#each timer(s.began, s.exact) as piece, i (i)}<span class={piece.figure ? 'clock-figure num' : 'clock-words'}>{piece.text}</span>{/each}</span>
       </div>
       <div class="about">
-        {#if model(s.about)}<span class="model">{model(s.about)}</span>{/if}
+        {#if s.model}<span class="model">{s.model}</span>{/if}
+        {#if s.context !== null}<span class="context" title={t('上下文 {n}%', { n: Math.round(s.context * 100) })}><span class="meter" aria-hidden="true"><span style:width="{Math.round(s.context * 100)}%"></span></span><span
+            class="share num">{Math.round(s.context * 100)}%</span></span>{/if}
         {#if s.turnTokens}<span class="spent num">{t('本轮') + ' ' + s.turnTokens + (s.turnCost ? ' · ' + s.turnCost : '')}</span>{/if}
       </div>
     </div>
@@ -72,7 +65,12 @@
       {#each events as e (e.id)}
         <li class="event {e.kind}" in:fly={{ y: -8, duration: motion(260) }} animate:flip={{ duration: motion(220) }}>
           <span class="when num">{clock(e.at)}</span>
-          <span class="dot" style:background={e.tool ? toolColour(e.tool, panel.dark) : e.kind === 'wake' || e.kind === 'done' ? 'var(--green)' : 'var(--accent)'}></span>
+          {#if e.kind === 'done'}
+            <!-- A turn done: a tick in a green disc, as 网页版 marks it. -->
+            <svg class="sign" width="10" height="10" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5.5" fill="var(--green)" /><path d="M3.4 6.1 5.2 7.9 8.6 4.3" fill="none" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          {:else}
+            <span class="dot" style:background={e.tool ? toolColour(e.tool, panel.dark) : e.kind === 'wake' ? 'var(--green)' : 'var(--accent)'}></span>
+          {/if}
           <span class="who">{e.who}</span>
           <span class="what num">{e.what}</span>
         </li>
@@ -93,10 +91,17 @@
   .top { display: flex; align-items: center; gap: 6px; min-width: 0; height: 18px; }
   .mark { flex: none; width: 16px; height: 16px; border-radius: 5px; display: flex; align-items: center; justify-content: center; background: var(--hover); }
   .title { flex: 1; min-width: 0; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .clock { flex: none; font-family: var(--rounded); font-size: 12px; font-weight: 600; color: var(--green); }
+  .clock { flex: none; display: inline-flex; align-items: baseline; gap: 2px; color: var(--green); }
+  .clock-figure { font-family: var(--rounded); font-size: 12px; font-weight: 600; }
+  .clock-words { font-size: 10px; font-weight: 500; }
   .about { display: flex; gap: 8px; min-width: 0; padding-left: 22px; height: 16px; line-height: 16px; color: var(--secondary); white-space: nowrap; }
   .model { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .spent { flex: none; color: var(--label); }
+  .context { flex: none; display: inline-flex; align-items: center; gap: 4px; }
+  .meter { width: 22px; height: 3px; border-radius: 1.5px; background: var(--separator); overflow: hidden; }
+  .meter span { display: block; height: 100%; border-radius: 1.5px; background: var(--accent); }
+  .share { font-family: var(--rounded); font-size: 10px; font-weight: 600; }
+  .sign { flex: none; }
   .quiet { margin: 2px 0 4px; line-height: 18px; color: var(--secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .feed { list-style: none; margin: 0; padding: 0; }
   .event { display: flex; align-items: center; gap: 6px; height: 20px; min-width: 0; color: var(--secondary); }

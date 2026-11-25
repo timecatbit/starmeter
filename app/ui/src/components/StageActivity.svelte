@@ -8,7 +8,7 @@
   import { fly } from 'svelte/transition';
   import { toolColour } from '../lib/colors';
   import { t } from '../lib/i18n.svelte';
-  import { duration, type PhoneLive } from '../lib/phoneLive.svelte';
+  import { turnClock, type PhoneLive } from '../lib/phoneLive.svelte';
   import { panel } from '../lib/ui.svelte';
   import Glyph from './Glyph.svelte';
 
@@ -19,19 +19,9 @@
   const events = $derived(live.events.slice(0, shown));
   const pad = (n: number) => String(n).padStart(2, '0');
   const clock = (at: number) => { const d = new Date(at); return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
-  /** A turn's clock: m:ss to the second when the computer gave its start, else its minutes, each figure in the figures'
-   *  face and each word in the text's (4 分钟; 1 小时 23 分钟, the 23 a figure too: STAGE-19). */
-  const timer = (began: number | null, exact: boolean): { text: string; figure: boolean }[] => {
-    // No start known (a turn begun before the logs read): it is running, said so, never an empty space.
-    if (began === null) return [{ text: t('运行中'), figure: false }];
-    const seconds = Math.max(0, Math.floor((now - began) / 1000));
-    if (!exact) {
-      return duration(seconds * 1000, false).split(/(\d+)/).map((piece) => piece.trim()).filter(Boolean)
-        .map((text) => ({ text, figure: /^\d+$/.test(text) }));
-    }
-    const h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60), s = seconds % 60;
-    return [{ text: h ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`, figure: true }];
-  };
+  /** A turn's clock (turnClock, as the panel's 实时 writes it): each figure in the figures' face, each word in the
+   *  text's (4 分钟; 1 小时 23 分钟, the 23 a figure too: STAGE-19). */
+  const timer = (began: number | null, exact: boolean) => turnClock(began, exact, now);
   const motion = (ms: number) => (panel.reduceMotion ? 0 : ms);
   const tint = $derived(panel.dark ? 'rgb(235, 238, 255)' : 'rgb(30, 40, 80)');
 </script>
@@ -48,10 +38,12 @@
             <span class="timer" title={t('本轮用时')}>{#each timer(s.began, s.exact) as piece, i (i)}<span
                 class={piece.figure ? 'timer-figure num' : 'timer-words'}>{piece.text}</span>{/each}</span>
           </div>
-          {#if s.about}
+          {#if s.model || s.context !== null}
+            <!-- The model and effort, then how full the context is: its meter and share (as the panel's 实时 has them). -->
             <div class="about">
-              <span class="about-text">{s.about}</span>
-              {#if s.context !== null}<span class="context" aria-hidden="true"><span style:width="{Math.round(s.context * 100)}%"></span></span>{/if}
+              {#if s.model}<span class="about-text">{s.model}</span>{/if}
+              {#if s.context !== null}<span class="context" title={t('上下文 {n}%', { n: Math.round(s.context * 100) })}><span class="meter" aria-hidden="true"><span style:width="{Math.round(s.context * 100)}%"></span></span><span
+                  class="share num">{Math.round(s.context * 100)}%</span></span>{/if}
             </div>
           {/if}
           <div class="turn">
@@ -141,8 +133,10 @@
   .timer-words { font-size: var(--type-small, 11px); font-weight: 500; }
   .about { display: flex; align-items: center; gap: 10px; padding-left: 44px; font-size: 11.5px; color: var(--ink-2); min-width: 0; }
   .about-text { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .context { flex: none; width: 46px; height: 4px; border-radius: 2px; background: var(--line-faint); overflow: hidden; }
-  .context span { display: block; height: 100%; border-radius: 2px; background: var(--star); }
+  .context { flex: none; display: inline-flex; align-items: center; gap: 5px; }
+  .meter { width: 40px; height: 4px; border-radius: 2px; background: var(--line-faint); overflow: hidden; }
+  .meter span { display: block; height: 100%; border-radius: 2px; background: var(--star); }
+  .share { font-family: var(--rounded); font-weight: 600; color: var(--ink-2); }
   .turn { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-left: 44px; font-size: 11.5px; color: var(--ink-2); }
   .turn-figures { margin-right: 4px; color: var(--ink); font-weight: 600; }
   .chip {

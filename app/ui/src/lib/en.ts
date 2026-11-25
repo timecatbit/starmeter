@@ -277,7 +277,7 @@ export const phrases: Record<string, string> = {
   '输出 Token/s': 'Output tokens/s', '今天 · API 估算': 'Today · API estimate', '{range} · API 估算': '{range} · API estimate', '近 1 分钟': 'Last minute', '{n} 分钟前': '{n} min ago',
   '{n} 分钟': '{n} min', '{m} 分 {s} 秒': '{m} min {s} s', '{s} 秒': '{s} s', '{h} 小时 {m} 分钟': '{h} hr {m} min', '{h} 小时 {m} 分': '{h} hr {m} min', '+{n} Token': '+{n} tokens', 这一轮完成: 'Turn done',
   '这一轮完成 · {d}': 'Turn done · {d}', 开始新一轮: 'New turn', '调用 {tools}': 'Called {tools}', 开始工作: 'Started working', 正在运行: 'Running',
-  本轮用时: 'This turn so far', 没有在运行的会话: 'No session running', '没有在运行的会话 · 最近：{title}{idle}': 'No session running · last: {title}{idle}',
+  本轮用时: 'This turn so far', '上下文 {n}%': 'Context {n}%', 没有在运行的会话: 'No session running', '没有在运行的会话 · 最近：{title}{idle}': 'No session running · last: {title}{idle}',
   动态: 'Activity', '等下一笔请求…': 'Waiting for the next request…', 一有动静就会出现在这里: 'What happens shows up here', '等 {n} 个': 'and {n} more', '图 1 · ': 'Fig. 1 · ', 总量: 'Total',
   // The panel's own labels
   '近 1 分钟 +{n} Token · 输出 ': 'Last min +{n} · output ', '收起 {name} 明细': 'Fold {name}', '展开 {name} 明细': 'Unfold {name}',

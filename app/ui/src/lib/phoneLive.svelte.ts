@@ -39,6 +39,8 @@ export interface LiveSession {
   running: boolean;
   /** The model, effort and context as 会话 writes them, without the state at its head. */
   about: string;
+  /** The model and effort alone (the context is shown as its meter, `context`): the panel's 实时 and 网页版 alike. */
+  model: string;
   /** How full the context is (0–1), when 会话 says. */
   context: number | null;
   /** When this turn began on this phone's clock; `exact` when the computer said to the second (else to the minute). */
@@ -107,7 +109,8 @@ function readSession(e: Entry, turns: Record<string, number>, skew: number, befo
     if (before && !gap && count > was) called[name] = now;
   }
   return {
-    key, title: e.label, image: e.image, template: e.template, symbol: e.symbol, running, about, context: context ? Number(context[1]) / 100 : null,
+    key, title: e.label, image: e.image, template: e.template, symbol: e.symbol, running, about,
+    model: shownParts.slice(1).filter((part) => !/%/.test(part)).slice(0, 2).join(' · '), context: context ? Number(context[1]) / 100 : null,
     began, exact, turnTokens: labelParts.length >= 3 ? labelParts[labelParts.length - 2] : null, turnCost: labelParts.length >= 3 ? labelParts[labelParts.length - 1] : null,
     requests: requests ? Number(requests[1]) : null, tools: [...tools].sort((a, b) => b[1] - a[1]), called, value: e.value ?? '',
     idle: !running && detail.startsWith('空闲') ? shownParts[0] : null,
@@ -132,6 +135,21 @@ export function duration(ms: number, exact = true): string {
   if (!exact) return hours ? t('{h} 小时 {m} 分钟', { h: hours, m: minutes % 60 }) : t('{n} 分钟', { n: Math.max(1, minutes) });
   if (hours) return t('{h} 小时 {m} 分', { h: hours, m: minutes % 60 });
   return minutes ? t('{m} 分 {s} 秒', { m: minutes, s: seconds % 60 }) : t('{s} 秒', { s: seconds });
+}
+
+/** A turn's clock as both 实时s write it, in pieces: m:ss (h:mm:ss) to the second when the computer gave its start, else
+ *  its minutes (4 分钟, 1 小时 23 分钟), else 运行中 (a turn begun before the logs read: never an empty space). Each
+ *  piece a figure (the figures' rounded face) or words (the text's). */
+export function turnClock(began: number | null, exact: boolean, now: number): { text: string; figure: boolean }[] {
+  if (began === null) return [{ text: t('运行中'), figure: false }];
+  const seconds = Math.max(0, Math.floor((now - began) / 1000));
+  if (!exact) {
+    return duration(seconds * 1000, false).split(/(\d+)/).map((piece) => piece.trim()).filter(Boolean)
+      .map((text) => ({ text, figure: /^\d+$/.test(text) }));
+  }
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60), s = seconds % 60;
+  return [{ text: h ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`, figure: true }];
 }
 
 export class PhoneLive {
