@@ -26,7 +26,9 @@
   } = $props();
 
   let room = $state(0);
-  const curveHeight = $derived(chartHeight ?? Math.max(80, room));
+  /** The least the curve is given, filling: under it, the monitor scrolls in its column instead. */
+  const CURVE_LEAST = 64;
+  const curveHeight = $derived(chartHeight ?? Math.max(CURVE_LEAST, room));
 
   const working = $derived(live.state === 'working');
   const running = $derived(live.sessions.filter((s) => s.running).length);
@@ -96,7 +98,7 @@
 
 <style>
   .monitor { position: relative; display: flex; flex-direction: column; min-height: 0; }
-  .monitor.fill { height: 100%; }
+  .monitor.fill { min-height: 100%; }
   /* Filling, the curve's box is the room itself, and what is drawn in it never pushes it taller. */
   .fill .curve { overflow: hidden; }
   .fill .curve > :global(*) { position: absolute; left: 0; right: 0; top: 0; }
@@ -153,5 +155,6 @@
   }
   @keyframes rise { from { opacity: 0; transform: translateY(8px); } 15% { opacity: 1; } to { opacity: 0; transform: translateY(-18px); } }
   .curve { position: relative; flex: 1; min-height: 0; }
+  .fill .curve { min-height: 64px; }
   .resting-chart { opacity: 0.78; }
 </style>

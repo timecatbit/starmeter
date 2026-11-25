@@ -840,3 +840,28 @@ test('reloaded while the work goes on, the page has the computer\'s last minutes
   await expect.poll(async () => Number(await rate.getAttribute('data-value')), { timeout: 5000 }).toBeGreaterThan(0);
   await expect(minute).toHaveAttribute('data-value', /^\+\d/);
 });
+
+test('on its side under Safari\'s bars, the monitor held still fits what is seen of the page, its curve\'s foot too', async ({ page }) => {
+  // Safari on its side with the tab bar: 852 × 393 of window, 286 of it seen below the bars.
+  await page.addInitScript(() => {
+    const view = Object.assign(new EventTarget(), { height: 286, width: 852, offsetTop: 0, offsetLeft: 0, scale: 1, pageTop: 0, pageLeft: 0 });
+    Object.defineProperty(window, 'visualViewport', { configurable: true, value: view });
+  });
+  await phone(page, LANDSCAPE);
+  const seen = await page.evaluate(() => {
+    const lead = document.querySelector('.stage .lead')!, curve = document.querySelector('.stage .monitor .curve')!;
+    return { lead: lead.getBoundingClientRect().bottom, curve: curve.getBoundingClientRect().height, scroll: lead.scrollHeight - lead.clientHeight };
+  });
+  expect(seen.lead).toBeLessThanOrEqual(286.5);
+  expect(seen.curve).toBeGreaterThanOrEqual(63);
+  // Shorter still: the monitor scrolls in its column, its curve's foot (1 分钟前 · 现在) reachable, nothing cut.
+  await page.evaluate(() => { Object.assign(window.visualViewport!, { height: 200 }); window.visualViewport!.dispatchEvent(new Event('resize')); });
+  await expect.poll(() => page.evaluate(() => document.querySelector('.stage .lead')!.getBoundingClientRect().bottom)).toBeLessThanOrEqual(200.5);
+  const scrolled = await page.evaluate(() => {
+    const lead = document.querySelector('.stage .lead')!;
+    lead.scrollTop = lead.scrollHeight;
+    return { gap: lead.scrollHeight - lead.clientHeight, curve: document.querySelector('.stage .monitor .curve')!.getBoundingClientRect().bottom, bottom: lead.getBoundingClientRect().bottom };
+  });
+  expect(scrolled.gap).toBeGreaterThan(0);
+  expect(scrolled.curve).toBeLessThanOrEqual(scrolled.bottom + 0.5);
+});

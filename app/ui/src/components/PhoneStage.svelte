@@ -96,6 +96,17 @@
     observer.observe(headline);
     return () => observer.disconnect();
   });
+  /** The height the page is seen at: on its side, Safari's tab and address bars over the top of the screen leave less
+   *  than the window's height (100dvh where the browser can't say), and the monitor held still must fit in it. */
+  let visible = $state<number | null>(null);
+  onMount(() => {
+    const view = window.visualViewport;
+    if (!view) return;
+    const measure = () => { visible = view.height; };
+    measure();
+    view.addEventListener('resize', measure);
+    return () => view.removeEventListener('resize', measure);
+  });
   let asleep = $state(false);
   /** The clock the turns' timers and "6 分钟前" read: each second while the page shows. */
   let now = $state(Date.now());
@@ -289,7 +300,8 @@
 
 <svelte:window bind:innerWidth={screenW} bind:innerHeight={screenH} />
 
-<div class="stage {layout} {pane}" class:light={!panel.dark} class:sketch class:wide class:still={panel.reduceMotion} class:asleep class:working class:waking bind:this={stageBox}>
+<div class="stage {layout} {pane}" class:light={!panel.dark} class:sketch class:wide class:still={panel.reduceMotion} class:asleep class:working class:waking bind:this={stageBox}
+  style:--visible-h={visible ? `${visible}px` : null}>
   <div class="sky" aria-hidden="true">
     <!-- The lights fade out at the top and the foot, so the edges stay the flat colour the browser's bars take. -->
     <div class="lights">
@@ -625,7 +637,8 @@
   .stats-head { margin: 8px 2px -4px; font-size: var(--type-head); font-weight: 600; color: var(--ink-2); }
 
   /* A phone on its side: the monitor held still on the left, the rest scrolling on the right. */
-  .side .scroll { overflow: hidden; }
+  /* As tall as what is seen of the page, not the window's height under Safari's bars. */
+  .side .scroll { overflow: hidden; bottom: auto; height: min(100%, var(--visible-h, 100dvh)); }
   .side .frame {
     max-width: none;
     height: 100%;
@@ -637,7 +650,18 @@
     column-gap: 22px;
   }
   .side .bar { grid-column: 1; grid-row: 1; }
-  .side .lead { grid-column: 1; grid-row: 2; padding-bottom: max(12px, env(safe-area-inset-bottom)); min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); }
+  /* The curve gives way first; past its least, the monitor scrolls rather than lose its foot. */
+  .side .lead {
+    grid-column: 1;
+    grid-row: 2;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: none;
+    display: grid;
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .side .lead::-webkit-scrollbar { display: none; }
   .side .monitor-box { grid-row: 1; grid-column: 1; min-height: 0; height: 100%; }
   .side .rest {
     grid-column: 2;
