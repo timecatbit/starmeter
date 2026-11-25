@@ -76,7 +76,7 @@
         {#if added}{#key added.at}<span class="added num">+{currency.symbol}{grouped(added.amount)}</span>{/key}{/if}</span>
       <span class="tick"><span class="tick-label">{t('近 1 分钟')}</span> <span class="tick-value num"><StageNumber value={'+' + tokens(minute)} /></span></span>
     {:else if data}
-      <span class="tick"><span class="tick-label">{rangeWord}</span> <span class="tick-value num"><StageNumber value={tokens(data.providers.reduce((s, p) => s + (p.available && p.summaryIncluded !== false ? (p.counted?.tokens ?? p.tokens) : 0), 0))} /></span><span class="tick-label">Token</span></span>
+      <span class="tick"><span class="tick-label">{rangeWord}</span> <span class="tick-value num"><StageNumber value={tokens(data.providers.reduce((s, p) => s + (p.available && p.summaryIncluded !== false ? (p.counted?.tokens ?? p.tokens) : 0), 0))} /></span><span class="tick-label">{t('Token')}</span></span>
     {/if}
   </div>
   <div class="curve" bind:clientHeight={room}>
