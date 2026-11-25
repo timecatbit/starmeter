@@ -11,7 +11,7 @@ test.describe.configure({ timeout: 120_000 });
 const KEPT = new Set(['中文', '简体中文', '繁體中文']);
 const CJK = /[㐀-鿿（-？、-。]/;
 
-async function english(page: Page, query = '') {
+async function english(page: Page, query = '', shown = '.dashboard') {
   await page.addInitScript(() => {
     localStorage.setItem('starmeter.language', 'en');
     const drawn = new Set<string>();
@@ -23,7 +23,7 @@ async function english(page: Page, query = '') {
     };
   });
   await page.goto('/' + query);
-  await expect(page.locator('.dashboard')).toBeVisible();
+  await expect(page.locator(shown)).toBeVisible();
   await page.waitForTimeout(300);
 }
 
@@ -165,7 +165,7 @@ test('English: the phone view and its public link', async ({ page }) => {
 test('English: on the phone, the homepage, its sessions and the share page', async ({ page }) => {
   const left = new Leftovers();
   await servePhone(page);
-  await english(page, '#k=' + PHONE_KEY + '&l=en');
+  await english(page, '#k=' + PHONE_KEY + '&l=en&v=panel');
   await expect(page.locator('.window.phone')).toBeVisible();
   await left.take(page, 'phone');
   await page.getByRole('radio', { name: 'Sessions' }).click();
@@ -175,6 +175,31 @@ test('English: on the phone, the homepage, its sessions and the share page', asy
   await expect(page.getByRole('button', { name: 'Save picture' })).toBeVisible();
   await left.take(page, 'phone › share');
   // Session titles are the user's own words, never translated; the fixtures' English for them is the dev server's only.
+  const titles = new Set(sessionTitles());
+  expect(left.list.filter((line) => !titles.has(line.replace(/^.*?: /, '')))).toEqual([]);
+});
+
+test('English: on the phone, 手机版 with each grouping, a card and a session open, and both ways up', async ({ page }) => {
+  const left = new Leftovers();
+  await servePhone(page);
+  await page.setViewportSize({ width: 393, height: 852 });
+  await english(page, '#k=' + PHONE_KEY + '&l=en', '.stage');
+  await page.waitForTimeout(1400);
+  await left.take(page, 'phone');
+  for (const name of ['Model', 'Project', 'Sessions', 'Tool']) {
+    await page.getByRole('radiogroup', { name: 'Card grouping' }).getByRole('radio', { name }).click();
+    await page.waitForTimeout(700);
+    if (name === 'Sessions') await page.locator('.stage .session .head').first().click();
+    if (name === 'Tool') await page.locator('.stage .card .head').first().click();
+    await page.waitForTimeout(400);
+    await left.take(page, 'phone › ' + name);
+  }
+  const chart = (await page.locator('.stage .chart').boundingBox())!;
+  await page.mouse.move(chart.x + chart.width / 2, chart.y + chart.height / 2);
+  await left.take(page, 'phone › the trend read');
+  await page.setViewportSize({ width: 852, height: 393 });
+  await page.waitForTimeout(400);
+  await left.take(page, 'phone › landscape');
   const titles = new Set(sessionTitles());
   expect(left.list.filter((line) => !titles.has(line.replace(/^.*?: /, '')))).toEqual([]);
 });

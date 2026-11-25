@@ -29,15 +29,19 @@ export function rowOut(_node: Element): TransitionConfig {
   return { duration: quick(220), easing: pageCurve, css: (t) => `opacity: ${t}` };
 }
 
-/** A page slides in from the side it comes from (dir 1: deeper, -1: back) while the old one slides away and fades. */
+/** A page slides in from the side it comes from (dir 1: deeper, -1: back) while the old one slides away and fades. dir
+ *  2: the same page in another look (on a phone, 手机版 and 电脑版): it settles in from a touch larger as the old fades. */
 export function pageIn(_node: Element, { dir }: { dir: number }): TransitionConfig {
   if (!dir) return { duration: 0 };
+  if (dir === 2) return { duration: quick(420), easing: pageCurve, css: (t, u) => `opacity: ${t}; transform: scale(${1 + 0.03 * u})` };
   return { duration: quick(320), easing: pageCurve, css: (t, u) => `opacity: ${t}; transform: translateX(${dir * 72 * u}px)` };
 }
 export function pageOut(node: HTMLElement, { dir }: { dir: number }): TransitionConfig {
   if (!dir) return { duration: 0 };
   // The old page leaves the flow so the new one takes its place at once.
   node.style.position = 'absolute';
-  node.style.inset = '0';
+  // A page kept to the panel's width in the middle of a phone's screen (App.svelte's .centred) stays where it is.
+  if (!node.classList.contains('centred')) node.style.inset = '0';
+  if (dir === 2) return { duration: quick(260), easing: pageCurve, css: (t) => `opacity: ${t}` };
   return { duration: quick(220), easing: pageCurve, css: (t, u) => `opacity: ${t}; transform: translateX(${-dir * 43 * u}px)` };
 }

@@ -1349,7 +1349,7 @@ test('在手机上看 the first time says cloudflared is downloaded first', asyn
 
 test('on the phone: the homepage read-only, its figures asked for with the key, a range of its own', async ({ page }) => {
   const asked = await servePhone(page);
-  await page.goto('/#k=' + PHONE_KEY);
+  await page.goto('/#k=' + PHONE_KEY + '&v=panel');
   await expect(page.locator('.dashboard')).toBeVisible();
   await expect(page.locator('.window.phone')).toBeVisible();
   // No pin or settings on the phone; the range and share are there.
@@ -1397,7 +1397,7 @@ test('on the phone: the homepage read-only, its figures asked for with the key, 
 
 test('on the phone: a slow reading of the range before never takes the page back', async ({ page }) => {
   await servePhone(page);
-  await page.goto('/#k=' + PHONE_KEY);
+  await page.goto('/#k=' + PHONE_KEY + '&v=panel');
   await expect(page.locator('.dashboard')).toBeVisible();
   // Today's next reading is held back; the week is picked meanwhile and arrives at once.
   let release = () => {};
@@ -1417,7 +1417,7 @@ test('on the phone: a slow reading of the range before never takes the page back
 
 test('on the phone: one reading at a time, and a computer out of reach or a stale link said at the foot', async ({ page }) => {
   const asked = await servePhone(page);
-  await page.goto('/#k=' + PHONE_KEY);
+  await page.goto('/#k=' + PHONE_KEY + '&v=panel');
   await expect(page.locator('.dashboard')).toBeVisible();
   // A slow computer: asking again while a reading is on its way sends nothing more.
   let slow = 0;

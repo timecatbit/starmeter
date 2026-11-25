@@ -15,6 +15,7 @@
   import { chooseUpdateHints, markUpdatesSeen, pendingUpdates, updateHints } from './lib/updateHints.svelte';
   import { chooseStyle } from './lib/style.svelte';
   import { phoneStatus } from './lib/phone.svelte';
+  import { choosePhoneLook, phoneLook, type PhoneLook } from './lib/phoneLook.svelte';
   import { chooseShortcut, restoreShortcut, shortcut } from './lib/shortcut.svelte';
   import { grabWindow, panel } from './lib/ui.svelte';
   import type { Dashboard as DashboardData, Entry, ShellInfo, Snapshot } from './lib/types';
@@ -22,6 +23,8 @@
   import DetailPage from './components/DetailPage.svelte';
   import Guide, { type GuideState } from './components/Guide.svelte';
   import PhonePage from './components/PhonePage.svelte';
+  import PhoneStage, { replayIntro } from './components/PhoneStage.svelte';
+  import Segments from './components/Segments.svelte';
   import HomePage from './components/HomePage.svelte';
   import InlineAsk from './components/InlineAsk.svelte';
   import ModulesPage from './components/ModulesPage.svelte';
@@ -115,6 +118,17 @@
   }
   /** On a phone: why the figures on screen are not fresh, until a reading comes through. */
   let phoneProblem = $state<string | null>(null);
+  /** On a phone: when the last reading came in (手机版's ring counts the 15 seconds to the next from it). */
+  let phoneReadAt = $state(0);
+  /** On a phone, its own look (手机版) rather than the computer's homepage (电脑版): phoneLook.svelte.ts. */
+  const staged = $derived(onPhone && phoneLook.current === 'stage');
+  /** The phone's look picked at the foot of either page: the other fades in over it, 手机版 with its opening. */
+  function chooseLook(next: PhoneLook) {
+    if (next === phoneLook.current) return;
+    if (next === 'stage') replayIntro();
+    dir = 2;
+    choosePhoneLook(next);
+  }
   /** A tool's page, opened from its card: its usage and its settings. */
   let toolId = $state<string | null>(null);
   const tool = $derived(toolId ? snapshot?.dashboard?.providers.find((p) => p.id === toolId) ?? null : null);
@@ -138,7 +152,9 @@
     if (target) push(target);
   }
   const toolSettings = $derived(toolId ? (snapshot?.moduleOptions ?? []).find((e) => e.action?.[0] === 'set-module' && e.action[1] === toolId) ?? null : null);
-  const viewKey = $derived(phoneOpen ? 'phone' : sharing ? 'share' : toolId ? 'tool:' + toolId : pageEntry ? (managerOnly ? 'grid:' : 'home:') + pagePath.join('/') : managerOnly ? 'grid' : 'home');
+  const viewKey = $derived(phoneOpen ? 'phone' : sharing ? 'share' : toolId ? 'tool:' + toolId : pageEntry ? (managerOnly ? 'grid:' : 'home:') + pagePath.join('/') : managerOnly ? 'grid' : staged ? 'stage' : 'home');
+  /** 手机版 on screen: the whole screen is its, both ways up; the other pages keep the panel's width in the middle. */
+  const stageShown = $derived(viewKey === 'stage');
 
   // MARK: The window
 
@@ -239,7 +255,8 @@
       reveal = 0;
       revealing = requestAnimationFrame(step);
     }
-    if (!old || old.rangeKey !== next.rangeKey || old.grouping !== next.grouping || panel.reduceMotion) { shown = next; glows = {}; summaryGlow = 0; return; }
+    // 手机版 rolls its own figures (StageNumber) and lights its own cards: the panel's blend frame by frame is not drawn.
+    if (!old || old.rangeKey !== next.rangeKey || old.grouping !== next.grouping || panel.reduceMotion || staged) { shown = next; glows = {}; summaryGlow = 0; return; }
     const grew: Record<string, number> = {};
     for (const p of next.cards ?? next.providers) {
       const before = (old.cards ?? old.providers).find((q) => q.id === p.id);
@@ -406,6 +423,7 @@
   function take(answer: Snapshot) {
     interaction.source = answer;
     phoneProblem = null;
+    if (onPhone) phoneReadAt = Date.now();
     if (pinned && interaction.source.dashboard) {
       feed?.add(interaction.source.dashboard);
       const now = new Date();
@@ -776,11 +794,12 @@
 
 <svelte:window onkeydown={keydown} onresize={() => (screenWidth = window.innerWidth)} />
 
-<div class="window" bind:this={windowBox} class:solid={!glass} class:browser={!inTauri && !onPhone} class:phone={onPhone} oncontextmenu={contextmenu} role="application" aria-label={t('AI 用量面板')}
+<div class="window" bind:this={windowBox} class:solid={!glass} class:browser={!inTauri && !onPhone} class:phone={onPhone} class:staged={stageShown} oncontextmenu={contextmenu} role="application" aria-label={t('AI 用量面板')}
   onpointermove={() => { if (pinned) showChrome(); }} onpointerleave={() => { if (pinned && !cornerFrom) showChrome(700); }}
-  style:width={inTauri ? '100vw' : `${panelWidth}px`} style:height={inTauri ? '100vh' : onPhone ? '100dvh' : `${panelHeight}px`}>
+  style:width={inTauri || onPhone ? '100vw' : `${panelWidth}px`} style:height={inTauri ? '100vh' : onPhone ? '100dvh' : `${panelHeight}px`}>
   {#key viewKey}
-    <div class="view" in:pageIn={{ dir }} out:pageOut={{ dir }}>
+    <!-- On a phone the pages keep the panel's width in the middle of the screen; 手机版 has all of it. -->
+    <div class="view" class:centred={onPhone && viewKey !== 'stage'} style:--page-width={onPhone ? `${panelWidth}px` : null} in:pageIn={{ dir }} out:pageOut={{ dir }}>
       {#if phoneOpen}
         <PhonePage onback={back} onheight={(h) => (wanted.phone = h)} />
       {:else if sharing && snapshot?.dashboard}
@@ -795,14 +814,19 @@
       {:else if snapshot && managerOnly}
         <ModulesPage entries={snapshot.moduleOptions ?? []} {leading} fromHome={settingsFromHome} bind:scrollTop={gridScroll}
           onback={finishModules} ondone={finishModules} onaction={perform} onopen={push} onheight={(h) => (wanted.grid = h)} />
+      {:else if snapshot && staged && (waiting ? shown : snapshot.dashboard)}
+        <!-- 手机版: the figures as they came in (held, as the panel holds them, while a range picked is read). -->
+        <PhoneStage data={(waiting ? shown : snapshot.dashboard)!} {rangeOptions} reading={waiting} grouping={pickedGroup} {regrouping} {sessions} {view}
+          entries={without(snapshot.entries, sessions)} readAt={phoneReadAt} problem={phoneProblem} onrange={perform} ongroup={(key) => perform(['set-group', key])}
+          onview={chooseView} onshare={openShare} onlook={chooseLook} />
       {:else if snapshot}
         <HomePage entries={shown ? without(snapshot.entries, sessions) : snapshot.entries} dashboard={shown ? dashboardView : null} bind:scrollTop={homeScroll} onactivate={activate}
-          onmove={perform} onheight={(h) => (wanted.home = h)} />
+          onmove={perform} onheight={(h) => (wanted.home = h)} foot={onPhone ? lookFoot : null} />
       {/if}
     </div>
   {/key}
   {#if onPhone && phoneProblem}
-    <p class="phone-problem" role="status">{t(phoneProblem)}</p>
+    <p class="phone-problem" class:staged={stageShown} role="status">{t(phoneProblem)}</p>
   {/if}
   {#if hint}
     <span class="hint-bubble" role="tooltip" style:left="{hint.left}px" style:top="{hint.top}px">{hint.text}</span>
@@ -828,6 +852,14 @@
     <div class="ask-sheet"><InlineAsk question={ask.current.question} sheet /></div>
   {/if}
 </div>
+
+{#snippet lookFoot()}
+  <!-- On a phone, at the homepage's foot as at 手机版's: the phone's choice of look. -->
+  <div class="look-foot">
+    <Segments entries={[{ label: t('手机版'), checked: false, action: ['phone-look', 'stage'], children: [] }, { label: t('电脑版'), checked: true, action: ['phone-look', 'panel'], children: [] }]}
+      onchoose={(e) => chooseLook(e.action?.[1] === 'stage' ? 'stage' : 'panel')} />
+  </div>
+{/snippet}
 
 {#snippet dashboardView()}
   {#if shown && snapshot}
@@ -859,6 +891,9 @@
   /* On a phone the page is the screen: no edge, no shadow, the width centred on a wide one. */
   .window.phone { margin: 0 auto; border-radius: 0; background: var(--solid); }
   .window.phone::after { display: none; }
+  .window.staged { background: transparent; }
+  .view.centred { left: 50%; right: auto; width: var(--page-width); margin-left: calc(var(--page-width) / -2); }
+  .look-foot { width: 168px; margin: 18px auto calc(14px + env(safe-area-inset-bottom)); }
   .window.browser {
     margin: 24px;
     box-shadow: 0 18px 50px rgba(0, 0, 0, 0.22), 0 0 0 0.5px rgba(0, 0, 0, 0.12);
@@ -944,5 +979,20 @@
     color: var(--label);
     background: color-mix(in srgb, var(--orange) 22%, var(--solid));
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+  }
+  /* Over 手机版: a pane of its glass, tinted by the warning, within the notch's safe area. */
+  .phone-problem.staged {
+    left: max(16px, env(safe-area-inset-left));
+    right: max(16px, env(safe-area-inset-right));
+    max-width: 560px;
+    margin: 0 auto;
+    padding: 11px 14px;
+    border-radius: 16px;
+    color: #fff;
+    background: rgba(150, 80, 20, 0.72);
+    backdrop-filter: blur(16px) saturate(1.4);
+    -webkit-backdrop-filter: blur(16px) saturate(1.4);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3), inset 0 0 0 0.5px rgba(255, 255, 255, 0.18);
+    z-index: 20;
   }
 </style>

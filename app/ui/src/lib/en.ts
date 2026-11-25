@@ -258,7 +258,10 @@ export const phrases: Record<string, string> = {
   '{style}风格的用量图预览': 'Usage picture preview, {style} style', 时间范围: 'Range', 像素: 'pixels', '其他 {n} 个模型': '{n} more models', '其他 {n} 个模型|1': '1 more model',
   含未定价: 'some unpriced', '占 {n}': '{n} of all', 其他工具: 'Other tools', '{range} AI 用量': 'AI usage · {range}', 今日: 'Today',
   昨日: 'Yesterday', 累计: 'All time', '已知 API 等值估算': 'Known API-equivalent estimate', 'API 等值估算': 'API-equivalent estimate',
-  缓存命中: 'Cache hits', '等 {n} 个': 'and {n} more', '图 1 · ': 'Fig. 1 · ', 总量: 'Total',
+  缓存命中: 'Cache hits',
+  // 在手机上看 on the phone: 手机版, and the choice between it and the homepage as the computer shows it
+  手机版: 'Phone', 电脑版: 'Desktop', 手机上的样式: 'Layout on this phone', 工具占比: 'Share by tool', '按 Token': 'by tokens',
+  订阅与服务: 'Plans and services', '只读：数字来自电脑上的 Starmeter，每 15 秒更新一次': 'Read-only: the figures come from Starmeter on your computer, every 15 seconds', '等 {n} 个': 'and {n} more', '图 1 · ': 'Fig. 1 · ', 总量: 'Total',
   // The panel's own labels
   '近 1 分钟 +{n} Token · 输出 ': 'Last min +{n} · output ', '收起 {name} 明细': 'Fold {name}', '展开 {name} 明细': 'Unfold {name}',
   '{name} 详情': '{name} details', 此时段暂无模型调用: 'No model calls in this range', '全部来自 {name}': 'All from {name}',

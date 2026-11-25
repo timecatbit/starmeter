@@ -3,12 +3,13 @@
 // the charts and share pictures all count; the languages' own names are meant to stay.
 import { expect, test, type Page } from '@playwright/test';
 import { toHant } from '../ui/src/lib/hant';
+import { PHONE_KEY, servePhone } from './phone';
 
 test.describe.configure({ timeout: 120_000 });
 
 const KEPT = new Set(['简体中文']);
 
-async function traditional(page: Page, query = '') {
+async function traditional(page: Page, query = '', shown = '.dashboard') {
   await page.addInitScript(() => {
     localStorage.setItem('starmeter.language', 'zh-Hant');
     const drawn = new Set<string>();
@@ -20,7 +21,7 @@ async function traditional(page: Page, query = '') {
     };
   });
   await page.goto('/' + query);
-  await expect(page.locator('.dashboard')).toBeVisible();
+  await expect(page.locator(shown)).toBeVisible();
   await page.waitForTimeout(300);
 }
 
@@ -79,6 +80,31 @@ test('繁體中文: the homepage, its pages, the groupings and 會話', async ({
   await page.waitForTimeout(450);
   await expect(page.locator('.page')).toContainText('語言 Language');
   await left.take(page, 'general');
+  expect(left.list).toEqual([]);
+});
+
+test('繁體中文 on the phone: 手機版 with each grouping, a card and a session open, both ways up', async ({ page }) => {
+  const left = new Leftovers();
+  await servePhone(page);
+  await page.setViewportSize({ width: 393, height: 852 });
+  await traditional(page, '#k=' + PHONE_KEY + '&l=zh-Hant', '.stage');
+  await page.waitForTimeout(1400);
+  await left.take(page, 'phone');
+  for (const name of ['模型', '項目', '會話', '工具']) {
+    await page.getByRole('radiogroup', { name: '卡片分組' }).getByRole('radio', { name }).click();
+    await page.waitForTimeout(700);
+    if (name === '會話') await page.locator('.stage .session .head').first().click();
+    if (name === '工具') await page.locator('.stage .card .head').first().click();
+    await page.waitForTimeout(400);
+    await left.take(page, 'phone › ' + name);
+  }
+  await page.setViewportSize({ width: 852, height: 393 });
+  await page.waitForTimeout(400);
+  await left.take(page, 'phone › landscape');
+  // 電腦版 at the foot, and back.
+  await page.getByRole('radio', { name: '電腦版' }).click();
+  await expect(page.locator('.dashboard')).toBeVisible();
+  await left.take(page, 'phone › 電腦版');
   expect(left.list).toEqual([]);
 });
 

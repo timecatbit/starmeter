@@ -11,9 +11,11 @@
   import HomeRow from './HomeRow.svelte';
   import Scroller from './Scroller.svelte';
 
-  let { entries, dashboard, scrollTop = $bindable(0), onactivate, onmove, onheight }: {
+  let { entries, dashboard, scrollTop = $bindable(0), onactivate, onmove, onheight, foot = null }: {
     entries: Entry[]; dashboard: Snippet | null; scrollTop?: number; onactivate: (e: Entry) => void;
     onmove: (action: string[]) => void; onheight: (height: number) => void;
+    /** Under the rows: on a phone, the choice of look (手机版 / 电脑版). */
+    foot?: Snippet | null;
   } = $props();
 
   const hasIcon = (e: Entry) => e.image !== undefined || e.symbol !== undefined || e.checked !== undefined || e.statusLight !== undefined;
@@ -160,6 +162,7 @@
         {/if}
       {/each}
     </div>
+    {#if foot}{@render foot()}{/if}
   </Scroller>
 </div>
 
