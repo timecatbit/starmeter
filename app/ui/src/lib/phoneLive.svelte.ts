@@ -335,10 +335,14 @@ export class PhoneLive {
     }
   }
 
-  /** The readings cover enough time for the speed to mean something. */
+  /** The readings since the last gap cover enough time for the speed to mean something: readings either side of a
+   *  gap (the page away, the computer out of reach, the phone server off) are no run of readings (STAGE-3). */
   ready(): boolean {
     const samples = this.feed.samples;
-    return samples.length > 1 && samples[samples.length - 1].at - samples[0].at >= READY;
+    if (samples.length < 2) return false;
+    let from = samples.length - 1;
+    while (from > 0 && samples[from].at - samples[from - 1].at <= GAP) from--;
+    return samples[samples.length - 1].at - samples[from].at >= READY;
   }
 
   /** Output tokens a second over the last minute, as the pinned panel reads it; none until the readings cover enough. */

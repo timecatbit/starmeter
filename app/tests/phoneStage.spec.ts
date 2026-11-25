@@ -1024,3 +1024,46 @@ test('opened with nothing kept yet, 网页版 waits quietly: a faint dash in the
   expect(colours.big).toBe(probe);
   expect(await page.evaluate(() => (window as unknown as { drawn: string[] }).drawn.filter((text) => /Token\/s$/.test(text)))).toEqual([]);
 });
+
+test('the computer\'s last minutes with a gap in them, or ended a while ago, are no speed now nor work now (STAGE-3)', async ({ page }) => {
+  await phone(page, PORTRAIT, '', { live: resting() });
+  const seen = await page.evaluate(async (key) => {
+    const { PhoneLive } = await import('/src/lib/phoneLive.svelte.ts');
+    const template = await (await fetch('/api/live', { headers: { 'X-Starmeter-Key': key } })).json();
+    const now = 1_800_000_000_000, at = now / 1000;
+    // Claude's figures at a moment `back` seconds ago: `tokens` and a hundredth of them written.
+    const reading = (back: number, tokens: number) => ({ at: at - back, date: template.dashboard.date, rangeKey: 'today',
+      providers: [{ id: 'claude', available: true, tokens, output: tokens / 100, cost: tokens / 1e6 }] });
+    const answer = (history: unknown[], tokens: number) => {
+      const dashboard = structuredClone(template.dashboard);
+      const claude = dashboard.providers.find((p: { id: string }) => p.id === 'claude');
+      Object.assign(claude, { tokens, output: tokens / 100, cost: tokens / 1e6, counted: undefined });
+      return { at, dashboard, sessions: null, turns: {}, history };
+    };
+    const run = (history: unknown[], tokens: number) => {
+      const live = new PhoneLive();
+      live.take(answer(history, tokens) as never, now);
+      // What the history said happened stays at its moments; nothing of the gap is said as happening now.
+      return { rate: live.rate(now), ready: live.ready(), state: live.state, usage: live.events.filter((e: { kind: string; at: number }) => e.kind === 'usage' && e.at >= now).length };
+    };
+    const steady = (from: number, to: number, base: number, step: number) => {
+      const list = [];
+      for (let back = from, i = 0; back >= to; back -= 2, i++) list.push(reading(back, base + i * step));
+      return list;
+    };
+    return {
+      // Readings that ended 100 s ago, a million tokens added since: nothing to say of now.
+      ended: run(steady(130, 100, 1e6, 1000), 2e6),
+      // A run, a minute's gap, then ten seconds: the last run too short to say a speed.
+      gapped: run([...steady(120, 90, 1e6, 1000), ...steady(10, 2, 3e6, 1000)], 3e6 + 5000),
+      // Forty seconds unbroken, growing: a speed, and working.
+      steady: run(steady(40, 2, 1e6, 20000), 1e6 + 20 * 20000),
+    };
+  }, PHONE_KEY);
+  expect(seen.ended).toEqual({ rate: null, ready: false, state: 'resting', usage: 0 });
+  expect(seen.gapped.ready).toBe(false);
+  expect(seen.gapped.rate).toBeNull();
+  expect(seen.steady.ready).toBe(true);
+  expect(seen.steady.rate).toBeGreaterThan(0);
+  expect(seen.steady.state).toBe('working');
+});
