@@ -29,7 +29,7 @@ export const backend = {
   dashboard: (range: string): Promise<Dashboard> => (inTauri ? invoke('dashboard', { range }) : browser().then((f) => f.dashboard(range))),
   action: (action: string[]): Promise<ActionReceipt> => (inTauri ? invoke('action', { action }) : browser().then((f) => f.action(action))),
   /** On a phone, 网页版's live view: what the computer read a moment ago. Nowhere else. */
-  live: (): Promise<LiveAnswer> => (onPhone ? import('./phoneBackend').then((f) => f.live()) : Promise.reject(new Error('the live view is a phone\'s'))),
+  live: (history = false): Promise<LiveAnswer> => (onPhone ? import('./phoneBackend').then((f) => f.live(history)) : Promise.reject(new Error('the live view is a phone\'s'))),
   onSnapshot(changed: () => void): () => void {
     if (inTauri) {
       const stop = listen('snapshot-changed', changed);

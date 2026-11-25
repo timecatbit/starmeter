@@ -2,7 +2,7 @@
 //! core's questions with its own dialogs, takes over its refreshes (one background queue), saves the range on screen
 //! and the connection settings, and tells it whether the panel is open so closed panels refresh less often.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, RwLock};
@@ -20,6 +20,53 @@ use tauri_plugin_dialog::DialogExt;
 use crate::host as shell;
 #[cfg(target_os = "macos")]
 use crate::macos;
+
+/// The live readings of the last few minutes, today's figures by tool in short (what a page's live line counts), so a
+/// page opened or reloaded while the work goes on has its last minutes at once, not a line starting from nothing and a
+/// speed of 0 while the sessions run. Kept from the readings phones asked for; asked for with ?history=1.
+static RECENT: Mutex<VecDeque<Value>> = Mutex::new(VecDeque::new());
+/// How long the readings are kept (a page's line spans five minutes, its speed the minute before), and how far apart.
+const RECENT_FOR: f64 = 400.0;
+const RECENT_EVERY: f64 = 2.0;
+
+/// A reading kept: when, the day and range, and each tool's figures the line counts (Summary's share, what a gateway
+/// alone logged).
+fn keep_recent(recent: &mut VecDeque<Value>, moment: f64, dashboard: &Value) {
+    let Some(providers) = dashboard.get("providers").and_then(Value::as_array) else { return };
+    if recent.back().and_then(|last| last["at"].as_f64()).is_some_and(|at| moment - at < RECENT_EVERY && moment >= at) {
+        return;
+    }
+    let short: Vec<Value> = providers
+        .iter()
+        .map(|p| {
+            let mut kept = serde_json::Map::new();
+            for name in ["id", "available", "summaryIncluded", "tokens", "output", "cost"] {
+                if let Some(value) = p.get(name) {
+                    kept.insert(name.into(), value.clone());
+                }
+            }
+            if let Some(counted) = p.get("counted").filter(|counted| counted.is_object()) {
+                let part: serde_json::Map<String, Value> = ["tokens", "output", "cost"]
+                    .iter()
+                    .filter_map(|name| counted.get(*name).map(|value| (name.to_string(), value.clone())))
+                    .collect();
+                kept.insert("counted".into(), Value::Object(part));
+            }
+            Value::Object(kept)
+        })
+        .collect();
+    recent.push_back(serde_json::json!({
+        "at": moment, "date": dashboard["date"], "rangeKey": dashboard["rangeKey"], "providers": short,
+    }));
+    // The clock set back, or readings too old to draw: let go.
+    while recent
+        .front()
+        .and_then(|first| first["at"].as_f64())
+        .is_some_and(|at| moment - at > RECENT_FOR || at > moment)
+    {
+        recent.pop_front();
+    }
+}
 
 /// 会话's row with its figures in `range`, as the panel draws it.
 fn sessions_row(runtime: &Runtime, range: &str) -> Json {
@@ -208,7 +255,7 @@ impl Engine {
     /// A phone watching 网页版's live view: today's usage read again from the local logs, and the sessions, as a pinned
     /// panel's tick reads them (refresh_live), at most every `LIVE_EVERY` whoever asks, so two phones share a reading;
     /// then today's figures by tool, 会话 for today, and when each session's latest turn began (its clock on the phone).
-    pub fn live(&self) -> Value {
+    pub fn live(&self, history: bool) -> Value {
         static LAST: AtomicU64 = AtomicU64::new(0);
         let runtime = self.runtime();
         let moment = now();
@@ -229,12 +276,17 @@ impl Engine {
             let _turn = self.rendering.lock().expect("the render lock");
             live_sessions(&runtime)
         };
-        serde_json::json!({
-            "at": moment,
-            "dashboard": self.dashboard_grouped("today", Some("tool")),
-            "sessions": sessions,
-            "turns": turns,
-        })
+        let dashboard = self.dashboard_grouped("today", Some("tool"));
+        let mut answer = serde_json::json!({ "at": moment, "sessions": sessions, "turns": turns });
+        {
+            let mut recent = RECENT.lock().expect("the live readings");
+            if history {
+                answer["history"] = Value::Array(recent.iter().cloned().collect());
+            }
+            keep_recent(&mut recent, moment, &dashboard);
+        }
+        answer["dashboard"] = dashboard;
+        answer
     }
 
     pub fn menu_bar_text(&self) -> String {
@@ -745,6 +797,36 @@ fn online() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The readings a page opened late is given: two seconds apart at most, a few minutes back, each tool's figures the
+    /// line counts and nothing else.
+    #[test]
+    fn the_live_readings_kept_are_the_last_minutes_in_short() {
+        let dashboard = |tokens: f64| {
+            serde_json::json!({"date": "2026-11-25", "rangeKey": "today", "chartUnit": "每小时", "providers": [
+                {"id": "claude", "available": true, "tokens": tokens, "output": tokens / 100.0, "cost": 1.5, "history": [1, 2, 3],
+                 "counted": {"tokens": tokens, "output": 4.0, "cost": 1.0, "history": [1]}, "name": "Claude"},
+            ]})
+        };
+        let mut recent = VecDeque::new();
+        keep_recent(&mut recent, 1000.0, &dashboard(100.0));
+        keep_recent(&mut recent, 1001.0, &dashboard(150.0));
+        keep_recent(&mut recent, 1002.5, &dashboard(200.0));
+        assert_eq!(recent.len(), 2, "one a second is too often");
+        let first = &recent[0];
+        assert_eq!(first["date"], "2026-11-25");
+        assert_eq!(first["providers"][0]["tokens"], 100.0);
+        assert_eq!(first["providers"][0]["counted"], serde_json::json!({"tokens": 100.0, "output": 4.0, "cost": 1.0}));
+        assert!(first["providers"][0].get("history").is_none() && first["providers"][0].get("name").is_none());
+        keep_recent(&mut recent, 1000.0 + RECENT_FOR + 2.0, &dashboard(300.0));
+        assert_eq!(
+            recent.iter().map(|r| r["at"].as_f64().unwrap()).collect::<Vec<_>>(),
+            vec![1002.5, 1000.0 + RECENT_FOR + 2.0]
+        );
+        // The clock set back: what is now ahead of it goes.
+        keep_recent(&mut recent, 900.0, &dashboard(300.0));
+        assert_eq!(recent.len(), 1);
+    }
 
     /// STAGE-1: a session last read running, still in 会话's cache, goes to a phone's live view only while 会话 is on
     /// the homepage; turned off, nothing of it does (no row, no turn's start).

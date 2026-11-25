@@ -136,7 +136,7 @@
   /** The bar's headline once the monitor's has scrolled away: the speed while working, else today's estimate. */
   const compact = $derived.by(() => {
     void live.version;
-    if (working) return `${rateText(live.rate(now) ?? 0)} Token/s`;
+    if (working) { const rate = live.rate(now); return `${rate === null ? '—' : rateText(rate)} Token/s`; }
     return live.cost === null ? '' : currency.symbol + grouped(live.cost);
   });
   /** A turn just done, said at the top for a few seconds; a tap lets it go. */

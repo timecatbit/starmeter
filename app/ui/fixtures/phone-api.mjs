@@ -18,7 +18,18 @@ export const PHONE_KEY = '0123456789abcdef0123456789abcdef';
 export function phoneAnswer(data, { pathname, params, given, key = PHONE_KEY, logo, swiftbar = false, live = null }) {
   if (given !== key) return { status: 403, type: 'text/plain; charset=utf-8', body: 'key needed' };
   if (pathname.endsWith('live')) {
-    const body = JSON.stringify((live ?? still)(data)).replace(/"logo:([^"]*)"/g, (_, file) => JSON.stringify(logo(file)));
+    const answer = (live ?? still)(data);
+    // As the app keeps them (Engine::live): the readings of the last few minutes in short, for ?history=1.
+    const recent = (data.recentLive ??= []);
+    if (params.get('history') === '1') answer.history = recent.slice();
+    const last = recent.at(-1);
+    if (answer.dashboard && (!last || answer.at - last.at >= 2 || answer.at < last.at)) {
+      recent.push({ at: answer.at, date: answer.dashboard.date, rangeKey: answer.dashboard.rangeKey,
+        providers: answer.dashboard.providers.map(({ id, available, summaryIncluded, tokens, output, cost, counted }) =>
+          ({ id, available, summaryIncluded, tokens, output, cost, ...(counted ? { counted: { tokens: counted.tokens, output: counted.output, cost: counted.cost } } : {}) })) });
+      while (recent.length && (answer.at - recent[0].at > 400 || recent[0].at > answer.at)) recent.shift();
+    }
+    const body = JSON.stringify(answer).replace(/"logo:([^"]*)"/g, (_, file) => JSON.stringify(logo(file)));
     return { status: 200, type: 'application/json', body };
   }
   const range = swiftbar ? 'today' : params.get('range') ?? 'today';

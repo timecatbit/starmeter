@@ -354,7 +354,7 @@ fn answer(app: &AppHandle, mut stream: TcpStream, key: &str) -> std::io::Result<
         let body = match call {
             "snapshot" => phone_snapshot(app, range, group),
             "dashboard" => dashboard(app, range.unwrap_or("today"), group),
-            "live" => live(app),
+            "live" => live(app, query.split('&').any(|pair| pair == "history=1")),
             _ => return respond(&mut stream, 404, "text/plain; charset=utf-8", b"not here", true),
         };
         return respond(&mut stream, 200, "application/json; charset=utf-8", body.to_string().as_bytes(), true);
@@ -494,9 +494,9 @@ fn phone_snapshot(app: &AppHandle, range: Option<&str>, group: Option<&str>) -> 
 /// sessions only, as the snapshot sends them) and when each session's turn began. The app reads today's logs afresh
 /// for it (Engine::live, at most every 1.5 s); SwiftBar's panel has what the plugin last wrote, for the range the
 /// computer shows (the phone says which, and compares figures of one range only), the fixtures creep up.
-fn live(app: &AppHandle) -> Value {
+fn live(app: &AppHandle, history: bool) -> Value {
     let mut answer = match &*app.state::<Data>() {
-        Data::Engine(engine) => engine.live(),
+        Data::Engine(engine) => engine.live(history),
         Data::SwiftBar(files) => {
             let snapshot = files.snapshot();
             json!({

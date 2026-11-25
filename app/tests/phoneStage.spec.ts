@@ -546,8 +546,9 @@ test('back after a while out of sight, what went on meanwhile is not this moment
   await expect.poll(() => page.locator('.stage .activity .session').count(), { timeout: 5000 }).toBe(2);
   await page.waitForTimeout(2500);
   await expect(page.locator('.stage .monitor.working')).toBeVisible();
-  // (Nothing seen written in the last minute: the speed eases to nothing, never what the locked minutes added over 60 s.)
-  expect(Number(await rate.getAttribute('data-value'))).toBeLessThanOrEqual(Number(before));
+  // (Nothing seen written in the last minute: the speed is nothing yet, never what the locked minutes added over 60 s.)
+  expect(['—', '0']).toContain(await rate.getAttribute('data-value'));
+  void before;
   expect(await page.locator('.stage .feed .event.usage').count()).toBeLessThanOrEqual(events);
   // Locked for three minutes while both turns ended: resting, no turn said done now with the locked minutes as its time.
   await away(page, work, 180, 200);
@@ -819,4 +820,23 @@ test('reloaded on a phone in dark mode, the page and the bars are the computer\'
   const window = await page.locator('.window.phone').evaluate((e) => getComputedStyle(e).backgroundColor);
   expect(light(window), window).toBe(true);
   await expect.poll(async () => light((await colours()).html)).toBe(true);
+});
+
+test('reloaded while the work goes on, the page has the computer\'s last minutes: the speed at once, not 0; opened fresh, — until it has its own', async ({ page }) => {
+  const clock = { now: Date.UTC(2026, 10, 25, 2, 0, 0) };
+  const live = liveWork({ now: () => clock.now, length: 1000, claudeEnds: 300, codexEnds: 300 });
+  const at = (seconds: number) => { clock.now = Date.UTC(2026, 10, 25, 2, 0, 0) + seconds * 1000; };
+  await phone(page, PORTRAIT, '', { live });
+  const rate = page.locator('.stage .monitor [data-figure="rate"] [data-value]');
+  const minute = page.locator('.stage .monitor .tick').nth(1).locator('[data-value]').first();
+  // Just opened, the sessions running: no speed to say yet, and not 0.
+  await expect(page.locator('.stage .monitor.working')).toBeVisible();
+  await expect(rate).toHaveAttribute('data-value', '—');
+  await expect(minute).toHaveAttribute('data-value', '—');
+  // Watched a while (the computer's readings kept as it goes), then reloaded.
+  for (const seconds of [3, 8, 13, 18, 23, 28]) { at(seconds); await page.waitForTimeout(2200); }
+  await page.reload();
+  await expect(page.locator('.stage .monitor.working')).toBeVisible();
+  await expect.poll(async () => Number(await rate.getAttribute('data-value')), { timeout: 5000 }).toBeGreaterThan(0);
+  await expect(minute).toHaveAttribute('data-value', /^\+\d/);
 });

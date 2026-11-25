@@ -48,7 +48,7 @@ const query = (pairs: [string, string | null][]) => {
 export const snapshot = () => once<Snapshot>('/api/snapshot' + query([['range', range], ['group', group]]));
 export const dashboard = (asked: string) => once<Dashboard>('/api/dashboard' + query([['range', asked], ['group', group]]));
 /** 网页版's live view, asked every couple of seconds while it is on screen (today's figures, 会话, the turns' starts). */
-export const live = () => once<LiveAnswer>('/api/live');
+export const live = (history = false) => once<LiveAnswer>('/api/live' + (history ? '?history=1' : ''));
 
 export async function action(asked: string[]): Promise<ActionReceipt> {
   if (asked[0] === 'set-range' && asked[1]) {

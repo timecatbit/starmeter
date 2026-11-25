@@ -26,6 +26,8 @@ const BUSY_EVERY = 2_000, REST_EVERY = 5_000;
 const GAP = 15_000;
 /** An amount worth saying: one that money() doesn't write as 0.00 in the computer's currency. */
 const worthSaying = (usd: number) => currency.convert(usd) >= 0.005;
+/** How much time the readings must cover before the speed means anything: until then it is —, not 0. */
+const READY = 20_000;
 /** The curve's span. */
 export const LIVE_SPAN = 5 * 60_000;
 
@@ -199,7 +201,8 @@ export class PhoneLive {
 
   private async read(round: number) {
     let answer: LiveAnswer;
-    try { answer = await backend.live(); } catch { if (round === this.round) this.trouble = true; return; }
+    // The first reading asks for the computer's last minutes too (a page opened or reloaded while the work goes on).
+    try { answer = await backend.live(this.feed.samples.length === 0); } catch { if (round === this.round) this.trouble = true; return; }
     if (this.stopped || round !== this.round) return;
     this.trouble = false;
     this.take(answer, Date.now());
@@ -210,6 +213,7 @@ export class PhoneLive {
     if (Number.isFinite(answer.at)) this.skew = answer.at * 1000 - now;
     // Quiet and resting are judged on the computer's clock (the readings' own moments), not this phone's.
     const moment = Number.isFinite(answer.at) ? answer.at * 1000 : now;
+    if (answer.history?.length && !this.feed.samples.length) this.seed(answer.history, moment);
     const gap = this.lastTake > 0 && now - this.lastTake > GAP;
     this.lastTake = now;
     this.readAt = now;
@@ -302,6 +306,27 @@ export class PhoneLive {
 
   private dashboardSeen = false;
 
-  /** Output tokens a second over the last minute, as the pinned panel reads it. */
-  rate(now = Date.now()): number | null { return this.feed.rate(now); }
+  /** The computer's last minutes, given with the first reading: drawn on the line as they were, on this phone's clock.
+   *  A tool that grew in the last of them is still working (QUIET), before any reading here has seen it grow. */
+  private seed(history: NonNullable<LiveAnswer['history']>, moment: number) {
+    let before: number | null = null;
+    for (const reading of history) {
+      const at = reading.at * 1000;
+      const shown = { ...reading, dates: [], providers: reading.providers.map((p) => ({ history: [], ...p })) } as unknown as Dashboard;
+      this.feed.add(shown, at - this.skew);
+      const total = shown.providers.filter((p) => p.available).reduce((s, p) => s + (summaryPart(p)?.tokens ?? 0), 0);
+      if (before !== null && total > before + 0.5 && moment - at < QUIET) this.lastGrowth = at;
+      before = total;
+    }
+    if (this.lastGrowth) this.lastActive = this.lastGrowth - this.skew;
+  }
+
+  /** The readings cover enough time for the speed to mean something. */
+  ready(): boolean {
+    const samples = this.feed.samples;
+    return samples.length > 1 && samples[samples.length - 1].at - samples[0].at >= READY;
+  }
+
+  /** Output tokens a second over the last minute, as the pinned panel reads it; none until the readings cover enough. */
+  rate(now = Date.now()): number | null { return this.ready() ? this.feed.rate(now) : null; }
 }

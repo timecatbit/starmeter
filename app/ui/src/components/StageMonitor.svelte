@@ -34,7 +34,10 @@
   /** The figures' range: today on the app; on SwiftBar's panel, the range the computer shows, said as such. */
   const ofToday = $derived(!data || data.rangeKey === 'today');
   const rangeWord = $derived(ofToday ? t('今天') : data!.rangeLabel);
-  const rate = $derived.by(() => { void live.version; return live.rate(now) ?? 0; });
+  /** The speed, and the last minute's tokens: — until the readings cover enough time (a page just opened with no
+   *  last minutes from the computer), not 0 while the sessions run. */
+  const rate = $derived.by(() => { void live.version; return live.rate(now); });
+  const ready = $derived.by(() => { void live.version; return live.ready(); });
   /** Tokens added over the last minute, from the samples. */
   const minute = $derived.by(() => {
     void live.version;
@@ -64,7 +67,7 @@
     {#key working}
       <div class="figure-block" class:enter={!panel.reduceMotion && live.woke > 0}>
         {#if working}
-          <span class="big num" data-figure="rate"><StageNumber value={rateText(rate)} count={intro} /></span>
+          <span class="big num" data-figure="rate"><StageNumber value={rate === null ? '—' : rateText(rate)} count={intro} /></span>
           <span class="unit">{t('输出 Token/s')}</span>
         {:else}
           <span class="big num" data-figure="today"><StageNumber value={amount} count={intro} /></span>
@@ -77,7 +80,7 @@
     {#if working}
       <span class="tick"><span class="tick-label">{rangeWord}</span> <span class="tick-value num" data-figure="today"><StageNumber value={amount} /></span>
         {#if added}{#key added.at}<span class="added num">+{currency.symbol}{grouped(added.amount)}</span>{/key}{/if}</span>
-      <span class="tick"><span class="tick-label">{t('近 1 分钟')}</span> <span class="tick-value num"><StageNumber value={'+' + tokens(minute)} /></span></span>
+      <span class="tick"><span class="tick-label">{t('近 1 分钟')}</span> <span class="tick-value num"><StageNumber value={ready ? '+' + tokens(minute) : '—'} /></span></span>
     {:else if data}
       <span class="tick"><span class="tick-label">{rangeWord}</span> <span class="tick-value num"><StageNumber value={tokens(data.providers.reduce((s, p) => s + (p.available && p.summaryIncluded !== false ? (p.counted?.tokens ?? p.tokens) : 0), 0))} /></span><span class="tick-label">{t('Token')}</span></span>
     {/if}
