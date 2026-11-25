@@ -14,7 +14,7 @@
 <p align="center">
   <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/zh-Hant/home-dark.png"><img src="docs/images/zh-Hant/home-light.png" width="250" align="top" alt="主頁：今天的 API 估算、Token 和請求，趨勢圖、熱力圖和各工具卡片"></picture>
   <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/zh-Hant/subscription-dark.png"><img src="docs/images/zh-Hant/subscription-light.png" width="250" align="top" alt="Claude 訂閱：每個窗口已用多少、何時重置、比勻速多用還是少用"></picture>
-  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/zh-Hant/live-dark.png"><img src="docs/images/zh-Hant/live-light.png" width="250" align="top" alt="釘住後的實時圖：近 1 分鐘每個工具新增的 Token"></picture>
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/zh-Hant/live-dark.png"><img src="docs/images/zh-Hant/live-light.png" width="250" align="top" alt="釘住後的實時圖：近 1 分鐘每個工具新增的 Token，下面是正在運行的會話和動態"></picture>
 </p>
 
 Starmeter 是 macOS 菜單欄（獨立 App 或 SwiftBar 插件）和 Windows、Linux 托盤裡的一顆星星，終端裡也能用 `starmeter` 命令看。它只讀本機已有的用量記錄和你啟用的官方接口，不需要賬號、不經過任何中轉服務器。免費開源。界面有簡體中文、繁體中文和英文，在“齒輪 → 通用 → 語言”切換。
@@ -27,11 +27,11 @@ Starmeter 是 macOS 菜單欄（獨立 App 或 SwiftBar 插件）和 Windows、L
 - **訂閱額度**：ChatGPT、Claude、MiniMax、Cursor、Gemini 顯示已用百分比和重置時間，70% 起變橙、90% 起變紅，並寫出比勻速多用還是少用。ChatGPT、Claude 在主頁並排畫出 5 小時和本週兩根條，Gemini 分成 Gemini 模型和 Claude、GPT 模型兩行，各帶自己的標誌，名稱右邊寫本週已用多少（Gemini 是 Gemini 模型自己的本週，沒有本週窗口的寫最緊的那個）。窗口用完後，名稱右邊改寫還能接著花的餘額（橙色）：ChatGPT 的 Credits、Claude 的額外用量、Cursor 的按需用量，已用多少寫在條下，如“餘 41,521 Credits”下面的“本週已用 100%”（Cursor 是“本週期已用”）；ChatGPT 還能免費重置幾次寫在它的詳情頁裡。Gemini 的額度來自本機運行的 Antigravity App，Qoder 讀取 Qoder CN App 本機記錄的 Credits 用量；Grok、Kimi 可以手動標記。填上每月訂閱價後，側欄寫本月用量值訂閱價的幾倍（按 API 官方價估算）。
 - **API 餘額與花費**：DeepSeek、Kimi、Grok 顯示餘額；Qoder 用組織 API Key（團隊版/企業版）顯示組織共享的加購 Credits；Claude 顯示本月花費（需要管理員 Key）；ChatGPT、Gemini 可以測試 Key 是否可用。每個 API 可以保存多把 Key，主頁顯示合計和 Key 數量，如“餘額 ¥12.00 (3)”。
 - **會話**：工具 / 模型 / 項目旁的第四個標籤，列出所選統計範圍裡活動過的會話，正在運行的和最新活躍的在前，先列 5 個，其餘點“查看更多”，展開後末尾可以“收起”。首頁上所有在本機留有會話記錄的工具都會列出：Claude Code、Codex、Gemini CLI、Antigravity 與 Gemini 桌面版、OpenCode、Qoder、WorkBuddy、DeepSeek Harness（Gemini 桌面版只有緩存裡最近打開過的對話，沒有 Token 和金額，只寫輪次和是否在運行；Magpie 是網關，Cursor 的用量來自 cursor.com，都沒有會話）。Antigravity 的子代理並入發起它的任務，只算一個會話。每個會話一張卡：這個會話在所選統計範圍裡花了多少（和其他標籤同一口徑，釘住時實時跳動）、是否正在運行、這一輪用了多少 Token、上下文用了多少，點開看整個會話的累計花費和最近幾輪各用了多少 Token、費用和工具；可選在一輪完成時提醒。
-- **釘住實時看**：點標題旁的圖釘，面板浮在其他窗口之上，可以挪動、拉大；趨勢圖換成近 1 分鐘的實時圖，每個工具一條自己顏色的線（可切換新增 Token 或每秒輸出的 Token/s；各工具量級相差很多時，縱軸自動換成對數刻度），下面自動切到正在跑的會話，每 1–5 秒按本機日誌刷新。
+- **釘住實時看**：點標題旁的圖釘，面板浮在其他窗口之上，可以挪動、拉大；趨勢圖換成近 1 分鐘的實時曲線，每個工具一條自己顏色的線（可切換新增 Token 或每秒輸出的 Token/s；各工具量級相差很多時，縱軸自動換成對數刻度），下面自動切到第五個標籤“實時”：正在運行的會話（本輪用時、模型與強度、上下文、本輪 Token 和金額）和動態（每個工具剛新增了多少，先列 5 條，可展開），每 1–5 秒按本機日誌刷新。不釘住時也能點“實時”標籤看。
 - **分享圖**：卡片、終端、手繪、報刊、夜空、地鐵、織物、收據、藍圖、霓虹十種風格，每種都有淺色和深色，先預覽，再複製或保存（Mac 還能直接分享）。圖裡只有 Summary 計入的用量，不含訂閱、餘額和 Key。
 - **外觀與語言**：淺色、深色或跟隨系統，實色、磨砂或玻璃背景；也可以換成手繪風格（白天是點格紙上的彩色墨水，夜裡是黑板上的粉筆，排版不變）。界面有簡體中文、繁體中文和 English。
 - **多台電腦合併**：在每台電腦的“齒輪 → 數據 → 多台電腦合併”裡選同一個同步文件夾（iCloud 雲盤、Dropbox、OneDrive 等），各自寫下自己的用量，主頁、菜單欄金額和導出都按合起來的數字顯示，圖表上方寫“含 N 台電腦”。不經過任何服務器，文件裡只有工具、模型和用量數字。
-- **在手機上看**：齒輪裡的“在手機上看”給出一個二維碼，手機掃一下就在瀏覽器裡看主頁（只讀，可以換統計範圍、按工具/模型/項目分組、看會話、點進工具頁，也能生成分享圖存到相冊或發給朋友）。默認在同一個網絡裡直連電腦；手機不在同一個網絡時可選“任何網絡”，確認後經 Cloudflare 生成臨時外網鏈接（第一次要下載 cloudflared），一小時後關閉；同一個網絡裡一直開著，直到點“停止”或退出 App。
+- **在手機上看**：齒輪裡的“在手機上看”給出一個二維碼，手機掃一下就在瀏覽器裡打開網頁版實時監視器（只讀）：AI 此刻是否在工作、每秒輸出多少 Token、今天花了多少，下面是實時曲線、正在運行的會話和動態，再往下是統計（可以換統計範圍、換分組，也能生成分享圖存到相冊或發給朋友）。它跟隨電腦的深淺色和風格，豎屏、橫屏和電腦瀏覽器各有佈局；用 https 鏈接打開時，右上角的太陽可讓屏幕保持常亮。默認在同一個網絡裡直連電腦；這台電腦連著 Tailscale 時還可選 Tailscale，手機也連上同一個 Tailscale 網絡就在哪都能打開，不經過 Cloudflare；手機不在同一個網絡時也可選“任何網絡”，確認後經 Cloudflare 生成臨時外網鏈接（第一次要下載 cloudflared），一小時後關閉；同一個網絡裡一直開著，直到點“停止”或退出 App。
 - **提醒**：訂閱窗口用到 90%（可改為 70%、80% 或關閉）時發通知；餘額類 API 可以按幣種設置低於多少時提醒；可選在每週額度快重置卻還沒怎麼用時提醒。
 - **工具更新**：首頁上每個工具的 App 和 CLI 各佔一行，寫本機版本、官方最新版和安裝渠道（Homebrew、npm 或官方安裝），可更新的排在前面；CLI 有新版本時一鍵在終端運行對應的更新命令（如 `brew upgrade --cask codex`），App 點一下打開，由它自己更新。Gemini 桌面版由 Google 更新程序自動更新，Qoder 的 App 沒有公開的版本接口，這兩行只寫本機版本。Starmeter 標題旁的小圖標（圈裡一個向下箭頭）表示有新版，點它打開“工具更新”，看過後收成小圓點；不想要可在“提醒”裡關掉“主頁提示工具更新”，系統通知照常。
 - **其他**：菜單欄星星旁可選顯示今天的 API 估算或最緊張的訂閱額度；可設全局快捷鍵（如 ⌃⌥S，Windows 是 Ctrl+Alt+S），在任何地方按下即可打開或收起面板；當前範圍的用量可導出成 CSV 或 JSON；可選讀取 Claude、OpenAI、Cursor 的官方狀態頁，服務出問題時標在卡片上，並逐行寫出是什麼事、進展到哪，點一下打開那個事件的頁面；API 等值估算可以改用人民幣顯示；Komari 服務器監控；淺色、深色或跟隨系統。
@@ -173,7 +173,7 @@ starmeter usage 30d --json     # 給腳本用的 JSON
 - Gemini 訂閱的額度只向這台電腦上正在運行的 Antigravity App 詢問（127.0.0.1），用它在本機記下的臨時令牌，令牌只用於這次請求，不保存。
 - 只向你啟用的服務的官方接口查詢。另外每天從 GitHub 檢查一次價格表和插件新版本，請求不帶 Cookie 或任何標識；不需要的話，在 `config.local.sh` 加 `export OCX_PRICING_UPDATES=0` 或 `export OCX_SELF_UPDATES=0` 即可關閉。GitHub 連不上時，檢查和下載改經公共鏡像（ghfast.top 等，也可用 `STARMETER_GITHUB_MIRRORS` 指定自己的），安裝包仍按 GitHub 公佈的 SHA-256 校驗。服務狀態頁和人民幣匯率只在你開啟後才讀取。
 - 多台電腦合併只寫到你自己選的同步文件夾，由你的網盤同步，Starmeter 不經過任何服務器；文件裡只有電腦名稱、工具、模型和用量數字，沒有路徑、項目、對話或 Key。
-- 在手機上看時，數據只在局域網裡從這台電腦直接發到手機，鏈接帶一次性口令，沒有口令打不開；只有選了“任何網絡”才經過 Cloudflare 的臨時鏈接（第一次從 GitHub 下載 cloudflared），一小時後關閉；點“停止”或退出 App 時全部關閉。
+- 在手機上看時，數據只在局域網（或你自己的 Tailscale 網絡）裡從這台電腦直接發到手機，鏈接帶一次性口令，沒有口令打不開；只有選了“任何網絡”才經過 Cloudflare 的臨時鏈接（第一次從 GitHub 下載 cloudflared），一小時後關閉；點“停止”或退出 App 時全部關閉。
 - 費用是按官方 API 價格算出的等值估算，不是你的訂閱賬單；沒有價格的模型只統計 Token，不會憑空填個零。
 
 ## 開發
