@@ -2338,6 +2338,40 @@ test('在手机上看: a status answer from before 停止 and 重新开始 leave
   await expect(phone.locator('svg.qr')).toBeVisible();
 });
 
+test('手绘 lays its paper on the computer\'s background: opaque for 实色, cold-pressed and translucent for 磨砂, tracing paper for 玻璃', async ({ page }) => {
+  await open(page);
+  await button(page, '主页模块与设置').click();
+  await button(page, '外观').click();
+  await page.getByRole('radio', { name: '手绘' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-style', 'sketch');
+  const paper = () => page.locator('.window').evaluate((w) => {
+    const css = getComputedStyle(w), seen = css.backgroundColor.match(/\/\s*([\d.]+)\)|rgba\([^)]*,\s*([\d.]+)\)/);
+    return { material: w.dataset.material, alpha: seen ? Number(seen[1] ?? seen[2]) : 1, image: css.backgroundImage };
+  });
+  // 实色: the drawing paper, opaque and finely dotted.
+  let shown = await paper();
+  expect(shown.material).toBe('solid');
+  expect(shown.alpha).toBe(1);
+  // 磨砂: heavy cold-pressed paper, its clouds (the turbulence at 0.016) and tooth, the desktop's frost faintly through.
+  await page.getByRole('radio', { name: '磨砂' }).click();
+  await expect.poll(async () => (await paper()).material).toBe('frosted');
+  shown = await paper();
+  expect(shown.alpha).toBeGreaterThan(0.75);
+  expect(shown.alpha).toBeLessThan(0.9);
+  expect(shown.image).toContain('0.016');
+  // 玻璃: tracing paper, plainly translucent, its fibres (0.035 0.5) and a sheen across it.
+  await page.getByRole('radio', { name: '玻璃' }).click();
+  await expect.poll(async () => (await paper()).material).toBe('glass');
+  shown = await paper();
+  expect(shown.alpha).toBeGreaterThan(0.45);
+  expect(shown.alpha).toBeLessThan(0.65);
+  expect(shown.image).toContain('0.035');
+  expect(shown.image).toContain('linear-gradient');
+  // Back to 实色: opaque again.
+  await page.getByRole('radio', { name: '实色' }).click();
+  await expect.poll(async () => (await paper()).alpha).toBe(1);
+});
+
 test('外观 → 风格 draws the panel by hand, in faces scaled to the usual width, kept across a reload, and back', async ({ page }) => {
   await open(page);
   const standard = await page.locator('.window').boundingBox();

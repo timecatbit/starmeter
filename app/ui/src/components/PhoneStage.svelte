@@ -970,7 +970,7 @@
   }
 
   /* MARK: 手绘, as the panel draws it (sketch.css): coloured markers on dotted ivory paper by day, coloured chalk on a
-     blackboard by night, in the hand's letters (the page inherits them); panes outlined by hand, never filled; the
+     blackboard by night, in the hand's letters (the page inherits them); panes outlined by hand, of the paper itself; the
      lines (curves, rings, bars) wobble a little, the words never do; the lit choice ringed in coral. */
   .stage.sketch {
     --sky-top: var(--paper);
@@ -979,7 +979,8 @@
     --ink: var(--label);
     --ink-2: var(--secondary);
     --ink-3: var(--tertiary);
-    --glass: transparent;
+    /* The paper again under each pane, nearly opaque: what floats behind stays out from under the words. */
+    --glass: color-mix(in srgb, var(--paper) 80%, transparent);
     --glass-strong: var(--hover);
     --glass-edge: var(--separator);
     --line: var(--separator);
@@ -1006,6 +1007,23 @@
   .stage.sketch :global(:is(.card, .session, .plan, .tile, .feed)) {
     box-shadow: inset 0 0 0 1.3px var(--separator);
     border-radius: 18px 7px 17px 8px / 8px 17px 7px 18px;
+  }
+  /* 手绘 with the computer's 磨砂 or 玻璃 (sketch.css has its papers): the panes laid on the paper as sheets of their own.
+     磨砂: patches of heavy cold-pressed paper, lighter than the page, its tooth and clouds, what floats behind blurred
+     away. 玻璃: tracing paper, what floats behind seen softly through it, fine fibres, a sheen across it, its top edge
+     catching the light and the sheet's shadow under it. */
+  .stage.sketch.frosted { --glass: var(--frost-pane); --pane-blur: blur(10px) saturate(1.15); }
+  .stage.sketch.glass { --glass: var(--trace-pane); --pane-blur: blur(1.5px); }
+  .stage.sketch.frosted :is(.trend, .panel, .figure, .turn-done),
+  .stage.sketch.frosted :global(:is(.card, .session, .plan, .tile, .feed)) {
+    background-image: var(--tooth), var(--mottle);
+    background-size: 160px 160px, 320px 320px;
+  }
+  .stage.sketch.glass :is(.trend, .panel, .figure, .turn-done),
+  .stage.sketch.glass :global(:is(.card, .session, .plan, .tile, .feed)) {
+    background-image: var(--sheen), var(--fibres);
+    background-size: 100% 100%, 360px 360px;
+    box-shadow: inset 0 0 0 1.3px var(--separator), inset 0 1px 0 var(--sheen-edge), var(--sheet-shadow);
   }
   .stage.sketch .turn-done { background: var(--paper); }
   .stage.sketch .bar.raised { background: color-mix(in srgb, var(--paper) 92%, transparent); box-shadow: inset 0 -1px var(--separator); }

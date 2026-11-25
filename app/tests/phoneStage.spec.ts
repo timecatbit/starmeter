@@ -420,6 +420,36 @@ test('网页版 follows the computer\'s look: its theme, its background as the p
   await expect(page.locator('html')).not.toHaveAttribute('data-style', 'sketch');
 });
 
+test('网页版 in 手绘 lays its panes as sheets of the computer\'s background: paper for 实色, cold-pressed for 磨砂, tracing paper for 玻璃', async ({ page }) => {
+  await phone(page);
+  const pane = page.locator('.stage .card').first();
+  const read = () => pane.evaluate((e) => {
+    const css = getComputedStyle(e);
+    return { image: css.backgroundImage, blur: css.backdropFilter || css.getPropertyValue('-webkit-backdrop-filter'), shadow: css.boxShadow, colour: css.backgroundColor };
+  });
+  // 实色: the paper itself under each pane, nothing laid on it, nothing behind blurred.
+  await computerChose(page, { theme: 'light', style: 'sketch', appearance: 'solid' });
+  await expect(page.locator('.stage.sketch.solid')).toBeVisible();
+  let shown = await read();
+  expect(shown.image).toBe('none');
+  expect(shown.blur).toMatch(/^(none)?$/);
+  expect(shown.colour).not.toBe('rgba(0, 0, 0, 0)');
+  // 磨砂: a patch of cold-pressed paper (its clouds, the turbulence at 0.016), what floats behind blurred away.
+  await computerChose(page, { theme: 'light', style: 'sketch', appearance: 'frosted' });
+  await expect(page.locator('.stage.sketch.frosted')).toBeVisible();
+  shown = await read();
+  expect(shown.image).toContain('0.016');
+  expect(shown.blur).toContain('blur(10px)');
+  // 玻璃: tracing paper (its fibres, 0.035 0.5, and a sheen), what floats behind softly through, the sheet's shadow.
+  await computerChose(page, { theme: 'dark', style: 'sketch', appearance: 'glass' });
+  await expect(page.locator('.stage.sketch.glass:not(.light)')).toBeVisible();
+  shown = await read();
+  expect(shown.image).toContain('0.035');
+  expect(shown.image).toContain('linear-gradient');
+  expect(shown.blur).toContain('blur(1.5px)');
+  expect(shown.shadow).toContain('-16px');
+});
+
 test('网页版\'s figures and words keep the panel\'s rules: figures rounded at 600, words in the panel\'s own face', async ({ page }) => {
   const work = scripted();
   await phone(page, PORTRAIT, '', { live: work.live });

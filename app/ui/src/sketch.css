@@ -94,6 +94,15 @@
   --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.36 0 0 0 0 0.29 0 0 0 0 0.2 0 0 0 0.06 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   --glow: radial-gradient(120% 60% at 50% -8%, rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0) 70%);
   --shade: radial-gradient(150% 110% at 50% 45%, rgba(150, 120, 80, 0) 58%, rgba(150, 120, 80, 0.08) 100%);
+  /* The papers for the computer's backgrounds (磨砂, 玻璃): below. */
+  --tooth: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='160'%20height='160'%3E%3Cfilter%20id='n'%3E%3CfeTurbulence%20type='fractalNoise'%20baseFrequency='0.42'%20numOctaves='2'%20stitchTiles='stitch'/%3E%3CfeColorMatrix%20values='0%200%200%200%200.36%200%200%200%200%200.29%200%200%200%200%200.2%200%200%200%200.16%20-0.035'/%3E%3C/filter%3E%3Crect%20width='100%25'%20height='100%25'%20filter='url%28%23n%29'/%3E%3C/svg%3E");
+  --mottle: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='320'%20height='320'%3E%3Cfilter%20id='n'%3E%3CfeTurbulence%20type='fractalNoise'%20baseFrequency='0.016'%20numOctaves='3'%20stitchTiles='stitch'/%3E%3CfeColorMatrix%20values='0%200%200%200%200.36%200%200%200%200%200.29%200%200%200%200%200.2%200%200%200%200.2%20-0.06'/%3E%3C/filter%3E%3Crect%20width='100%25'%20height='100%25'%20filter='url%28%23n%29'/%3E%3C/svg%3E");
+  --fibres: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='360'%20height='360'%3E%3Cfilter%20id='n'%3E%3CfeTurbulence%20type='fractalNoise'%20baseFrequency='0.035%200.5'%20numOctaves='2'%20stitchTiles='stitch'/%3E%3CfeColorMatrix%20values='0%200%200%200%200.36%200%200%200%200%200.29%200%200%200%200%200.2%200%200%200%200.2%20-0.075'/%3E%3C/filter%3E%3Crect%20width='100%25'%20height='100%25'%20filter='url%28%23n%29'/%3E%3C/svg%3E");
+  --sheen: linear-gradient(118deg, rgba(255, 255, 255, 0.42) 0, rgba(255, 255, 255, 0) 38%);
+  --sheen-edge: rgba(255, 255, 255, 0.85);
+  --sheet-shadow: 0 12px 24px -16px rgba(92, 78, 60, 0.42);
+  --frost-pane: color-mix(in srgb, white 46%, transparent);
+  --trace-pane: color-mix(in srgb, white 30%, transparent);
   font-family: var(--hand);
 }
 :root[data-style='sketch']:lang(zh-Hant) {
@@ -121,6 +130,14 @@
   --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   --glow: radial-gradient(110% 70% at 28% 6%, rgba(236, 240, 230, 0.06), rgba(236, 240, 230, 0) 70%);
   --shade: radial-gradient(150% 110% at 50% 45%, rgba(0, 0, 0, 0) 52%, rgba(0, 0, 0, 0.3) 100%);
+  --tooth: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='160'%20height='160'%3E%3Cfilter%20id='n'%3E%3CfeTurbulence%20type='fractalNoise'%20baseFrequency='0.42'%20numOctaves='2'%20stitchTiles='stitch'/%3E%3CfeColorMatrix%20values='0%200%200%200%201%200%200%200%200%201%200%200%200%200%201%200%200%200%200.11%20-0.025'/%3E%3C/filter%3E%3Crect%20width='100%25'%20height='100%25'%20filter='url%28%23n%29'/%3E%3C/svg%3E");
+  --mottle: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='320'%20height='320'%3E%3Cfilter%20id='n'%3E%3CfeTurbulence%20type='fractalNoise'%20baseFrequency='0.016'%20numOctaves='3'%20stitchTiles='stitch'/%3E%3CfeColorMatrix%20values='0%200%200%200%201%200%200%200%200%201%200%200%200%200%201%200%200%200%200.12%20-0.035'/%3E%3C/filter%3E%3Crect%20width='100%25'%20height='100%25'%20filter='url%28%23n%29'/%3E%3C/svg%3E");
+  --fibres: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='360'%20height='360'%3E%3Cfilter%20id='n'%3E%3CfeTurbulence%20type='fractalNoise'%20baseFrequency='0.035%200.5'%20numOctaves='2'%20stitchTiles='stitch'/%3E%3CfeColorMatrix%20values='0%200%200%200%201%200%200%200%200%201%200%200%200%200%201%200%200%200%200.11%20-0.045'/%3E%3C/filter%3E%3Crect%20width='100%25'%20height='100%25'%20filter='url%28%23n%29'/%3E%3C/svg%3E");
+  --sheen: linear-gradient(118deg, rgba(241, 239, 231, 0.09) 0, rgba(241, 239, 231, 0) 38%);
+  --sheen-edge: rgba(241, 239, 231, 0.14);
+  --sheet-shadow: 0 14px 28px -16px rgba(0, 0, 0, 0.65);
+  --frost-pane: rgba(241, 239, 231, 0.07);
+  --trace-pane: rgba(241, 239, 231, 0.035);
 }
 @media (prefers-color-scheme: dark) {
   :root[data-style='sketch']:not([data-theme='light']) {
@@ -143,6 +160,14 @@
     --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
     --glow: radial-gradient(110% 70% at 28% 6%, rgba(236, 240, 230, 0.06), rgba(236, 240, 230, 0) 70%);
     --shade: radial-gradient(150% 110% at 50% 45%, rgba(0, 0, 0, 0) 52%, rgba(0, 0, 0, 0.3) 100%);
+    --tooth: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='160'%20height='160'%3E%3Cfilter%20id='n'%3E%3CfeTurbulence%20type='fractalNoise'%20baseFrequency='0.42'%20numOctaves='2'%20stitchTiles='stitch'/%3E%3CfeColorMatrix%20values='0%200%200%200%201%200%200%200%200%201%200%200%200%200%201%200%200%200%200.11%20-0.025'/%3E%3C/filter%3E%3Crect%20width='100%25'%20height='100%25'%20filter='url%28%23n%29'/%3E%3C/svg%3E");
+    --mottle: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='320'%20height='320'%3E%3Cfilter%20id='n'%3E%3CfeTurbulence%20type='fractalNoise'%20baseFrequency='0.016'%20numOctaves='3'%20stitchTiles='stitch'/%3E%3CfeColorMatrix%20values='0%200%200%200%201%200%200%200%200%201%200%200%200%200%201%200%200%200%200.12%20-0.035'/%3E%3C/filter%3E%3Crect%20width='100%25'%20height='100%25'%20filter='url%28%23n%29'/%3E%3C/svg%3E");
+    --fibres: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='360'%20height='360'%3E%3Cfilter%20id='n'%3E%3CfeTurbulence%20type='fractalNoise'%20baseFrequency='0.035%200.5'%20numOctaves='2'%20stitchTiles='stitch'/%3E%3CfeColorMatrix%20values='0%200%200%200%201%200%200%200%200%201%200%200%200%200%201%200%200%200%200.11%20-0.045'/%3E%3C/filter%3E%3Crect%20width='100%25'%20height='100%25'%20filter='url%28%23n%29'/%3E%3C/svg%3E");
+    --sheen: linear-gradient(118deg, rgba(241, 239, 231, 0.09) 0, rgba(241, 239, 231, 0) 38%);
+    --sheen-edge: rgba(241, 239, 231, 0.14);
+    --sheet-shadow: 0 14px 28px -16px rgba(0, 0, 0, 0.65);
+    --frost-pane: rgba(241, 239, 231, 0.07);
+    --trace-pane: rgba(241, 239, 231, 0.035);
   }
 }
 
@@ -152,6 +177,23 @@
   background-color: var(--paper);
   background-image: var(--grain), var(--glow), var(--shade), radial-gradient(circle, var(--dots) 0.75px, transparent 1.1px);
   background-size: 180px 180px, 100% 100%, 100% 100%, 15px 15px;
+}
+/* The computer's background, as paper. 实色: the drawing paper above, opaque. 磨砂: a heavy cold-pressed paper, its
+   tooth and its clouds, the desktop's frost faintly through it. 玻璃: tracing paper, milky and plainly translucent, fine
+   fibres in it, a sheen across it and its top edge catching the light. Only where the material shows (data-material,
+   App.svelte): with Reduce Transparency, on Linux or on a phone, the paper stays opaque. */
+:root[data-style='sketch'] .window.window[data-material='frosted'] {
+  background-color: color-mix(in srgb, var(--paper) 84%, transparent);
+  background-image: var(--tooth), var(--mottle), var(--glow), var(--shade);
+  background-size: 160px 160px, 320px 320px, 100% 100%, 100% 100%;
+}
+:root[data-style='sketch'] .window.window[data-material='glass'] {
+  background-color: color-mix(in srgb, var(--paper) 56%, transparent);
+  background-image: var(--sheen), var(--fibres), var(--glow);
+  background-size: 100% 100%, 360px 360px, 100% 100%;
+}
+:root[data-style='sketch'] .window.window[data-material='glass']::after {
+  box-shadow: inset 0 1px 0 var(--sheen-edge), inset 0 0 0 0.5px var(--separator);
 }
 /* The hand's lines. */
 :root[data-style='sketch'] :is(svg.chart, svg.squares, svg.icon, svg.chevron, svg.arrow, canvas.live, .fill, .gauge-fill, .bar-fill) {

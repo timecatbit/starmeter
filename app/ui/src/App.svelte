@@ -235,6 +235,8 @@
     if (theme === 'system') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = theme;
     void shell.setLook(theme, material).then((shown) => (glass = shown));
   });
+  /** The material under the window where it shows (for 手绘's papers, sketch.css); a phone's page has none under it. */
+  const windowMaterial = $derived(glass && !onPhone ? (snapshot?.appearance ?? 'solid') : 'solid');
 
   // MARK: The figures on screen: they roll from the last reading to the next, and a new range draws its trend in
 
@@ -817,7 +819,7 @@
 
 <svelte:window onkeydown={keydown} onresize={() => (screenWidth = window.innerWidth)} />
 
-<div class="window" bind:this={windowBox} class:solid={!glass} class:browser={!inTauri && !onPhone} class:phone={onPhone} class:staged={stageShown || awaitingStage} oncontextmenu={contextmenu} role="application" aria-label={t('AI 用量面板')}
+<div class="window" bind:this={windowBox} data-material={windowMaterial} class:solid={!glass} class:browser={!inTauri && !onPhone} class:phone={onPhone} class:staged={stageShown || awaitingStage} oncontextmenu={contextmenu} role="application" aria-label={t('AI 用量面板')}
   onpointermove={() => { if (pinned) showChrome(); }} onpointerleave={() => { if (pinned && !cornerFrom) showChrome(700); }}
   style:width={inTauri ? '100vw' : onPhone ? null : `${panelWidth}px`} style:height={inTauri ? '100vh' : onPhone ? null : `${panelHeight}px`}>
   {#key viewKey}
