@@ -165,19 +165,26 @@ export class PhoneLive {
     document.removeEventListener('visibilitychange', this.onVisible);
   }
 
+  /** One loop at a time: a loop begun (the page back in sight, 手机版 back on screen) ends any before it, so a reading
+   *  two loops waited for is taken once (taken twice, the second found nothing new and the requests that landed never
+   *  dropped onto the curve). */
+  private round = 0;
+
   private async loop() {
     if (this.stopped) return;
-    if (this.visible()) await this.read();
-    if (this.stopped) return;
+    const round = ++this.round;
+    clearTimeout(this.timer);
+    if (this.visible()) await this.read(round);
+    if (this.stopped || round !== this.round) return;
     clearTimeout(this.timer);
     // Out of sight, nothing is asked until the page comes back (onVisible).
     if (this.visible()) this.timer = setTimeout(() => void this.loop(), this.state === 'working' ? BUSY_EVERY : REST_EVERY);
   }
 
-  private async read() {
+  private async read(round: number) {
     let answer: LiveAnswer;
-    try { answer = await backend.live(); } catch { this.trouble = true; return; }
-    if (this.stopped) return;
+    try { answer = await backend.live(); } catch { if (round === this.round) this.trouble = true; return; }
+    if (this.stopped || round !== this.round) return;
     this.trouble = false;
     this.take(answer, Date.now());
   }

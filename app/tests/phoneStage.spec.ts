@@ -592,3 +592,30 @@ test('today\'s estimate with no priced tool counted in Summary is —, not $0.00
   await expect(page.locator('.stage .monitor:not(.working)')).toBeVisible();
   await expect(page.locator('.stage .monitor [data-figure="today"] [data-value]').first()).toHaveAttribute('data-value', '—');
 });
+
+test('one reading loop at a time: a reading two loops waited for is taken once, the page back in sight or 手机版 back on screen (STAGE-6)', async ({ page }) => {
+  await phone(page);
+  // The computer slow to answer, so the page comes back (or 手机版 does) while a reading is on its way.
+  await page.route('**/api/live**', async (route) => { await new Promise((resolve) => setTimeout(resolve, 600)); await route.fallback(); });
+  const taken = await page.evaluate(async () => {
+    const { PhoneLive } = await import('/src/lib/phoneLive.svelte.ts');
+    const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    const results: { takes: number; distinct: number }[] = [];
+    for (const comeBack of ['visible', 'restart']) {
+      const live = new PhoneLive(), answers: unknown[] = [], take = live.take.bind(live);
+      live.take = (answer, now) => { answers.push(answer); take(answer, now); };
+      live.start();
+      await wait(150);
+      if (comeBack === 'visible') document.dispatchEvent(new Event('visibilitychange'));
+      else { live.stop(); live.start(); }
+      await wait(1000);
+      live.stop();
+      results.push({ takes: answers.length, distinct: new Set(answers).size });
+    }
+    return results;
+  });
+  for (const { takes, distinct } of taken) {
+    expect(takes).toBeGreaterThan(0);
+    expect(takes).toBe(distinct);
+  }
+});
