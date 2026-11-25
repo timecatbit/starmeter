@@ -142,6 +142,8 @@ export class PhoneLive {
   private restingSince = 0;
   private before: Map<string, { name: string; tokens: number; cost: number }> | null = null;
   private beforeDay: string | null = null;
+  /** The range the last figures were for: today on the app; SwiftBar's panel sends whatever the computer shows. */
+  private beforeRange: string | null = null;
   /** When the last reading was taken, on this phone's clock. */
   private lastTake = 0;
   private nextId = 1;
@@ -198,7 +200,9 @@ export class PhoneLive {
     if (dashboard) {
       currency.unit = dashboard.currency ?? currency.unit;
       const now_ = counted(dashboard), day = dashboard.date;
-      if (this.before && this.beforeDay === day && !gap) {
+      // Only figures for the same day and range compare: the computer picking 近 30 天 on SwiftBar's panel is no usage.
+      const comparable = !!this.before && this.beforeDay === day && this.beforeRange === dashboard.rangeKey;
+      if (comparable && !gap) {
         for (const [id, part] of now_) {
           const was = this.before.get(id);
           const added = was ? part.tokens - was.tokens : 0;
@@ -209,12 +213,13 @@ export class PhoneLive {
           }
         }
       }
-      const grew = !!this.before && [...now_].some(([id, part]) => part.tokens > (this.before?.get(id)?.tokens ?? 0) + 0.5);
+      const grew = comparable && [...now_].some(([id, part]) => part.tokens > (this.before?.get(id)?.tokens ?? 0) + 0.5);
       this.before = now_;
       this.beforeDay = day;
+      this.beforeRange = dashboard.rangeKey;
       this.feed.add(dashboard, now, gap);
       const costs = [...now_.values()].map((p) => p.cost), total = costs.reduce((a, b) => a + b, 0);
-      if (this.cost !== null && total > this.cost + 0.00005 && !gap) this.costAdded = { amount: total - this.cost, at: now };
+      if (comparable && !gap && this.cost !== null && total > this.cost + 0.00005) this.costAdded = { amount: total - this.cost, at: now };
       // Work went on in the gap, when exactly unknown: the last activity is what the sessions say of themselves.
       if (gap && grew) this.lastActive = null;
       this.cost = dashboard.providers.some((p) => p.available && summaryPart(p)?.cost !== null) ? total : null;

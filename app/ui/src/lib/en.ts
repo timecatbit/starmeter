@@ -266,7 +266,7 @@ export const phrases: Record<string, string> = {
   // 手机版's live view: working or resting, how fast, what happened
   正在工作: 'Working', '正在工作 · {n} 个会话运行中': 'Working · {n} sessions running', '正在工作 · {n} 个会话运行中|1': 'Working · 1 session running',
   休息中: 'Resting', '休息中 · 刚刚还在工作': 'Resting · working a moment ago', '休息中 · 上次活动 {n} 分钟前': 'Resting · last active {n} min ago',
-  '输出 Token/s': 'Output tokens/s', '今天 · API 估算': 'Today · API estimate', '近 1 分钟': 'Last minute', '{n} 分钟前': '{n} min ago',
+  '输出 Token/s': 'Output tokens/s', '今天 · API 估算': 'Today · API estimate', '{range} · API 估算': '{range} · API estimate', '近 1 分钟': 'Last minute', '{n} 分钟前': '{n} min ago',
   '{n} 分钟': '{n} min', '{m} 分 {s} 秒': '{m} min {s} s', '{s} 秒': '{s} s', '+{n} Token': '+{n} tokens', 这一轮完成: 'Turn done',
   '这一轮完成 · {d}': 'Turn done · {d}', 开始新一轮: 'New turn', '调用 {tools}': 'Called {tools}', 开始工作: 'Started working', 正在运行: 'Running',
   本轮用时: 'This turn so far', 没有在运行的会话: 'No session running', '没有在运行的会话 · 最近：{title}{idle}': 'No session running · last: {title}{idle}',

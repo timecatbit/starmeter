@@ -2,6 +2,7 @@
 // waking, asked for only while shown), portrait, landscape and a computer's window laid out within the screen, the
 // figures the computer's homepage shows, its ranges and groupings, the choice between 手机版 and 电脑版 (kept in the
 // address, a cookie and the page's storage), reduced motion, and the languages.
+import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { liveWork, PHONE_KEY, servePhone } from './phone';
 
@@ -554,4 +555,24 @@ test('back after a while out of sight, what went on meanwhile is not this moment
   await page.waitForTimeout(2500);
   await expect(page.locator('.stage .turn-done')).toHaveCount(0);
   await expect(page.locator('.stage .feed .event.done')).toHaveCount(0);
+});
+
+test('on SwiftBar\'s panel the live figures are the computer\'s range, said as such, and its picking another is no usage (STAGE-4)', async ({ page }) => {
+  // The plugin's snapshot: today, then the computer picks 近 30 天 (far more), then today again.
+  let range = 'today';
+  const data = JSON.parse(readFileSync(new URL('../ui/fixtures/default.json', import.meta.url), 'utf8'));
+  const live = () => ({ at: Date.now() / 1000, dashboard: structuredClone(data.dashboards[range]), sessions: null, turns: {} });
+  await phone(page, PORTRAIT, '', { swiftbar: true, live });
+  await expect(page.locator('.stage .monitor .figure-block > .unit')).toHaveText('今天 · API 估算');
+  range = '30d';
+  await expect(page.locator('.stage .monitor .figure-block > .unit')).toHaveText('近 30 天 · API 估算', { timeout: 7000 });
+  await page.waitForTimeout(800);
+  // Not tokens landing now: no request in what happened, not working, nothing added to the estimate.
+  await expect(page.locator('.stage .feed .event')).toHaveCount(0);
+  await expect(page.locator('.stage .monitor.working')).toHaveCount(0);
+  await expect(page.locator('.stage .monitor .added')).toHaveCount(0);
+  range = 'today';
+  await expect(page.locator('.stage .monitor .figure-block > .unit')).toHaveText('今天 · API 估算', { timeout: 7000 });
+  await page.waitForTimeout(800);
+  await expect(page.locator('.stage .feed .event')).toHaveCount(0);
 });
