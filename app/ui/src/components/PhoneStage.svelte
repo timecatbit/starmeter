@@ -1027,7 +1027,10 @@
   }
   .stage.sketch .turn-done { background: var(--paper); }
   .stage.sketch .bar.raised { background: color-mix(in srgb, var(--paper) 92%, transparent); box-shadow: inset 0 -1px var(--separator); }
-  .stage.sketch :global(:is(.chart svg, .live-chart canvas, .ring svg, .dial svg, .bar .fill, .model-fill, .window-fill, .context span)) { filter: url(#hand); }
+  /* The wobble filter on what stands still only (worked out again whenever what it covers is drawn): the live chart draws
+     its lines twice by hand itself, and the trend's end stops breathing. */
+  .stage.sketch :global(:is(.chart svg, .ring svg, .dial svg, .bar .fill, .model-fill, .window-fill, .context span)) { filter: url(#hand); }
+  .stage.sketch :global(.chart .pulse) { animation: none; }
   .stage.sketch :global(.pills .pill) {
     background: transparent;
     box-shadow: inset 0 0 0 1.4px var(--coral);

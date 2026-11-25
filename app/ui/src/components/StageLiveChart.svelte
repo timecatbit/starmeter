@@ -79,7 +79,10 @@
   let shownTop = 2000;
   let frame = 0;
   let running = false;
+  /** The next drawing while nothing on the curve moves but its flow left (a timer, not every frame). */
+  let later: ReturnType<typeof setTimeout> | undefined;
   function queue() {
+    clearTimeout(later);
     if (running) return;
     running = true;
     frame = requestAnimationFrame(draw);
@@ -96,7 +99,7 @@
       queue();
     });
   });
-  onDestroy(() => { cancelAnimationFrame(frame); running = false; });
+  onDestroy(() => { cancelAnimationFrame(frame); clearTimeout(later); running = false; });
 
   const ease = (x: number) => 1 - Math.pow(1 - Math.min(1, Math.max(0, x)), 3);
   const bounce = (x: number) => { const k = Math.min(1, Math.max(0, x)); return k < 0.8 ? ease(k / 0.8) * 1.04 : 1.04 - 0.04 * ease((k - 0.8) / 0.2); };
@@ -171,12 +174,22 @@
       fill.addColorStop(1, alpha(summaryColour(panel.dark), 0));
       ctx.fillStyle = fill;
       ctx.fill();
+      // 手绘: a line drawn twice by the hand, the second a touch off and lighter (as the panel's strokes are), here in the
+      // drawing itself: the wobble filter over a canvas drawn again and again would be worked out each time.
+      const again = (xy: [number, number][]) => {
+        if (!sketch) return;
+        ctx.save();
+        ctx.globalAlpha *= 0.45; ctx.lineWidth *= 0.8;
+        ctx.beginPath(); tracePath(ctx, monotoneCurve(xy.map(([px, py]) => [px + 0.8, Math.min(base, py + 0.7)]))); ctx.stroke();
+        ctx.restore();
+      };
       const toolLine = (k: number) => {
         ctx.beginPath();
         const xy = path(values[k]);
         ctx.lineWidth = 1.6; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
         ctx.strokeStyle = toolColour(ids[k], panel.dark);
         ctx.stroke();
+        again(xy);
         ends[ids[k]] = xy[xy.length - 1][1];
       };
       const idle = (k: number) => values[k].every((v) => v <= 0);
@@ -193,6 +206,7 @@
       const xy = path(totals);
       ctx.stroke();
       ctx.restore();
+      again(xy);
       // The tools writing, over it, the busiest last.
       for (let k = ids.length - 1; k >= 0; k--) if (!idle(k)) toolLine(k);
       const [ex, ey] = xy[xy.length - 1];
@@ -251,8 +265,14 @@
         }
       }
     }
-    // Keep flowing while the page shows it; reduced motion draws only at readings.
-    if (!still && document.visibilityState === 'visible') queue();
+    canvas.dataset.hand = sketch ? 'twice' : '';
+    // Keep flowing while the page shows it; reduced motion draws only at readings. Every frame while something moves on
+    // it (a request landing, its sparks, the scale easing); otherwise only as the flow left moves it half a point (a
+    // minute across the width: about 12 times a second; five minutes: twice).
+    if (still || document.visibilityState !== 'visible') return;
+    const moving = drops.length > 0 || sparks.some((s) => now - s.born < SPARK) || shownTop !== top;
+    if (moving) queue();
+    else later = setTimeout(queue, Math.min(1000, Math.max(33, (span / Math.max(1, right)) * 0.5)));
   }
 </script>
 

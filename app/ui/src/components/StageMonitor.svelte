@@ -60,7 +60,7 @@
   const added = $derived(live.costAdded && now - live.costAdded.at < 2500 ? live.costAdded : null);
 </script>
 
-<div class="monitor" class:working class:trouble={live.trouble} class:fill={chartHeight === null} style:--least="{least}px">
+<div class="monitor" class:working class:trouble={live.trouble} class:filling={chartHeight === null} style:--least="{least}px">
   <div class="state" role="status">
     <span class="beat" aria-hidden="true"></span>
     <span class="state-text">{stateLine}</span>
@@ -98,10 +98,11 @@
 
 <style>
   .monitor { position: relative; display: flex; flex-direction: column; min-height: 0; }
-  .monitor.fill { min-height: 100%; }
+  /* (Not `fill`: 手绘 draws every `.fill` through its wobble filter, meant for the bars, and this holds the moving figures.) */
+  .monitor.filling { min-height: 100%; }
   /* Filling, the curve's box is the room itself, and what is drawn in it never pushes it taller. */
-  .fill .curve { overflow: hidden; }
-  .fill .curve > :global(*) { position: absolute; left: 0; right: 0; top: 0; }
+  .filling .curve { overflow: hidden; }
+  .filling .curve > :global(*) { position: absolute; left: 0; right: 0; top: 0; }
   .state { display: flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 600; color: var(--ink); min-height: 24px; }
   .beat { position: relative; flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--ink-3); }
   .working .beat { background: var(--good); }
@@ -160,6 +161,6 @@
   }
   @keyframes rise { from { opacity: 0; transform: translateY(8px); } 15% { opacity: 1; } to { opacity: 0; transform: translateY(-18px); } }
   .curve { position: relative; flex: 1; min-height: 0; }
-  .fill .curve { min-height: var(--least, 64px); }
+  .filling .curve { min-height: var(--least, 64px); }
   .resting-chart { opacity: 0.78; }
 </style>

@@ -414,7 +414,9 @@ test('网页版 follows the computer\'s look: its theme, its background as the p
   await expect(page.locator('html')).toHaveAttribute('data-style', 'sketch');
   expect(await page.locator('.stage .state-text').evaluate((e) => getComputedStyle(e).fontFamily)).toMatch(/^"?Starmeter Hand/);
   expect(await page.locator('.stage .monitor .big').evaluate((e) => getComputedStyle(e).fontFamily)).toMatch(/^"?Starmeter Hand/);
-  expect(await page.locator('.stage .lead .chart svg, .stage .live-chart canvas').first().evaluate((e) => getComputedStyle(e).filter)).toContain('hand');
+  // The lines by hand: the trend through the wobble filter, the live chart's drawn twice by the hand itself.
+  const lead = page.locator('.stage .lead .chart svg, .stage .live-chart canvas').first();
+  expect(await lead.evaluate((e) => (e.tagName === 'CANVAS' ? (e as HTMLCanvasElement).dataset.hand : getComputedStyle(e).filter))).toMatch(/hand|twice/);
   await computerChose(page, { theme: 'light', style: 'standard' });
   await expect(page.locator('.stage.sketch')).toHaveCount(0);
   await expect(page.locator('html')).not.toHaveAttribute('data-style', 'sketch');
@@ -1180,6 +1182,26 @@ test('the sky floats the logos of the tools at work, the Starmeter mark when not
   await expect.poll(async () => (await read()).marks, { timeout: 5000 }).toBe('starmeter');
   await expect.poll(async () => (await read()).drawn, { timeout: 12_000 }).toBe('starmeter');
   expect((await read()).count).toBeGreaterThanOrEqual(1);
+});
+
+test('网页版 in 手绘 sends nothing that moves through the wobble filter (worked out again each time it is drawn)', async ({ page }) => {
+  // The filter over a canvas drawn every frame, or over something that keeps moving, cost a 1440-wide screen 180 ms a
+  // frame: here, while working, nothing filtered holds a canvas or an endless animation.
+  const work = scripted();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await servePhone(page, PHONE_KEY, { live: work.live });
+  await page.goto('/#k=' + PHONE_KEY + '&s=sketch');
+  await expect(page.locator('.stage.sketch .monitor.working')).toBeVisible();
+  await page.waitForTimeout(1600);
+  const moving = await page.evaluate(() => {
+    const filtered = [...document.querySelectorAll('.stage *')].filter((e) => getComputedStyle(e).filter.includes('hand'));
+    const endless = document.getAnimations().filter((a) => a.effect?.getComputedTiming().iterations === Infinity && a.playState === 'running')
+      .map((a) => (a.effect as KeyframeEffect).target).filter((e): e is Element => !!e);
+    return filtered.flatMap((f) => [...endless.filter((e) => f.contains(e)), ...f.querySelectorAll('canvas'), ...(f.tagName === 'CANVAS' ? [f] : [])])
+      .map((e) => `${e.tagName}.${(e.getAttribute('class') ?? '').split(' ')[0]}`);
+  });
+  expect(moving).toEqual([]);
+  expect(await page.locator('.stage .live-chart canvas').evaluate((c) => (c as HTMLCanvasElement).dataset.hand)).toBe('twice');
 });
 
 test('with reduced motion the one still frame has the logos of the tools at work in it', async ({ page }) => {
