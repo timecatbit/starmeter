@@ -40,6 +40,10 @@
   let top = 2000;
   type Drop = { id: string; tokens: number; born: number };
   let drops: Drop[] = [];
+  /** As a request lands, a few sparks rise off the curve's end and fade. */
+  type Spark = { id: string; born: number; dx: number; rise: number; size: number };
+  let sparks: Spark[] = [];
+  const SPARK = 1100;
   const DROP = 650, RIPPLE = 700, RISE = 1700;
 
   $effect(() => {
@@ -59,9 +63,13 @@
       if (key(next) !== key(named)) named = next;
       const highest = Math.max(0, ...points.map((p) => p.rates.reduce((a, b) => a + b, 0)));
       top = nice(Math.max(4, highest * 1.18));
-      for (const landing of live.landings) drops.push({ id: landing.id, tokens: landing.tokens, born: now });
+      for (const landing of live.landings) {
+        drops.push({ id: landing.id, tokens: landing.tokens, born: now });
+        for (let i = 0; i < 4; i++) sparks.push({ id: landing.id, born: now + DROP, dx: (Math.random() - 0.5) * 26, rise: 18 + Math.random() * 22, size: 1.2 + Math.random() * 0.9 });
+      }
+      sparks = sparks.filter((s) => now - s.born < SPARK);
       drops = drops.filter((d) => now - d.born < DROP + RISE);
-      if (panel.reduceMotion) drops = [];
+      if (panel.reduceMotion) { drops = []; sparks = []; }
       queue();
     });
   });
@@ -204,6 +212,16 @@
       canvas.dataset.dots = JSON.stringify(Object.fromEntries(dots.map((id) => [id, Math.round(ends[id] * 10) / 10])));
       canvas.dataset.under = under.join(',');
       {
+        // Sparks off the end as each lands, rising and fading.
+        for (const s of sparks) {
+          const age = now - s.born;
+          if (age < 0 || age >= SPARK) continue;
+          const k = ease(age / SPARK);
+          ctx.globalAlpha = 0.85 * (1 - age / SPARK);
+          ctx.fillStyle = toolColour(s.id, panel.dark);
+          ctx.beginPath(); ctx.arc(ex + s.dx * k, ey - s.rise * k, s.size, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.globalAlpha = 1;
         // The requests landing: each falls onto the end, ripples, and says what it added as it rises away.
         let lift = 0;
         for (const d of drops) {

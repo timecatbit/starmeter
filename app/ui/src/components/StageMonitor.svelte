@@ -139,6 +139,8 @@
   .unit { font-size: 12px; color: var(--ink-2); margin-top: 2px; }
   /* No speed to say yet (a page just opened): a quiet dash, not a figure. */
   .big.unknown, :global(.light) .working .big.unknown { color: var(--ink-3); filter: none; }
+  /* A dash, not a bar: half the headline's size on the headline's line (nothing moves when the speed comes). */
+  .big.unknown :global(.number) { font-size: 0.5em; }
   .reading { margin-left: 0.4em; color: var(--ink-3); }
   .ticker { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 6px 0 10px; font-size: 13px; color: var(--ink-2); min-height: 20px; }
   .tick { position: relative; display: inline-flex; align-items: baseline; gap: 6px; }

@@ -102,6 +102,23 @@
     flex-direction: column;
     gap: 7px;
   }
+  /* At work: a light runs along the card's foot, again and again. */
+  .session { position: relative; overflow: hidden; }
+  .session::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 40%;
+    height: 1.5px;
+    background: linear-gradient(90deg, transparent, var(--good), transparent);
+    opacity: 0.55;
+    transform: translateX(-100%);
+    animation: at-work 2.8s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  }
+  @keyframes at-work { to { transform: translateX(250%); } }
+  :global(.asleep) .session::after { animation-play-state: paused; }
+  :global(.still) .session::after { animation: none; opacity: 0; }
   .top { display: flex; align-items: center; gap: 10px; min-width: 0; }
   .mark { position: relative; flex: none; width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--glass-strong); }
   /* Turning while the session works: an arc of light round its mark. */

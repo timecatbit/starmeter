@@ -47,6 +47,7 @@
   import Icon from './Icon.svelte';
   import StageActivity from './StageActivity.svelte';
   import StageCard from './StageCard.svelte';
+  import StageDrift from './StageDrift.svelte';
   import StageChart from './StageChart.svelte';
   import StageMonitor from './StageMonitor.svelte';
   import StageNumber from './StageNumber.svelte';
@@ -129,6 +130,7 @@
   // look and background.
   let stageBox: HTMLDivElement | undefined = $state();
   const sketch = $derived(style.current === 'sketch');
+  const driftLook = $derived(sketch ? (panel.dark ? 'sketch-dark' : 'sketch-light') : panel.dark ? 'dark' : 'light');
   const pane = $derived(material === 'frosted' || material === 'glass' ? material : 'solid');
   $effect(() => {
     void panel.dark; void sketch; void pane;
@@ -345,6 +347,8 @@
           style:animation-delay="{star.wait}s" style:animation-duration="{star.length}s"></span>
       {/each}
     </div>
+    <!-- Things floating in the sky, more and faster as the models write (StageDrift.svelte). -->
+    <StageDrift {live} look={driftLook} still={panel.reduceMotion} {asleep} burst={live.done && doneShown === live.done.at ? live.done.at : 0} />
   </div>
   <!-- What is fixed at the screen's edges, in the edges' colour: Safari 26 tints its bars from it. -->
   <div class="edge top" aria-hidden="true"></div>

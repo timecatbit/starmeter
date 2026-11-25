@@ -1097,3 +1097,44 @@ test('保持亮屏 refused on coming back (low power mode) goes off, not lit and
   });
   await expect(button).toHaveAttribute('aria-pressed', 'false');
 });
+
+test('the sky\'s floating things answer the work: busier as the models write, few and slow resting, a burst for a turn done, still while hidden', async ({ page }) => {
+  test.setTimeout(60_000);
+  const work = scripted();
+  await phone(page, PORTRAIT, '', { live: work.live });
+  const drift = page.locator('.stage .sky canvas.drift');
+  const read = () => drift.evaluate((c) => ({ energy: Number(c.dataset.energy), active: Number(c.dataset.active), frames: Number(c.dataset.frames), bursts: Number(c.dataset.bursts) }));
+  // Working: the energy climbs (smoothly) and more of them show; never more than the screen's few dozen.
+  for (const seconds of [3, 6, 9]) { work.at(seconds); await page.waitForTimeout(2000); }
+  await expect.poll(async () => (await read()).energy, { timeout: 8000 }).toBeGreaterThan(0.3);
+  const busy = await read();
+  expect(busy.active).toBeLessThanOrEqual(56);
+  // A turn done: a burst under its banner.
+  work.at(21);
+  await expect(page.locator('.stage .turn-done')).toBeVisible({ timeout: 5000 });
+  await expect.poll(async () => (await read()).bursts).toBeGreaterThan(0);
+  // Resting: few and slow.
+  work.at(80);
+  await expect(page.locator('.stage .monitor:not(.working)')).toBeVisible({ timeout: 5000 });
+  await expect.poll(async () => (await read()).energy, { timeout: 10_000 }).toBeLessThan(0.15);
+  expect((await read()).active).toBeLessThan(busy.active);
+  // Hidden: nothing drawn.
+  await page.evaluate(() => { Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' }); document.dispatchEvent(new Event('visibilitychange')); });
+  await page.waitForTimeout(300);
+  const hidden = (await read()).frames;
+  await page.waitForTimeout(1000);
+  expect((await read()).frames).toBe(hidden);
+});
+
+test('with reduced motion the sky is one still frame; in 手绘 its things are the pen\'s doodles on the paper', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await phone(page, PORTRAIT, '&s=sketch', { live: resting() });
+  const drift = page.locator('.stage.sketch .sky canvas.drift');
+  await expect(drift).toHaveCount(1);
+  const frames = async () => Number(await drift.evaluate((c) => c.dataset.frames ?? '0'));
+  await page.waitForTimeout(500);
+  const first = await frames();
+  expect(first).toBeLessThanOrEqual(2);
+  await page.waitForTimeout(1000);
+  expect(await frames()).toBe(first);
+});
