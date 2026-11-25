@@ -171,6 +171,54 @@ impl Engine {
         to_value(entry)
     }
 
+    /// A phone watching 手机版's live view: today's usage read again from the local logs, and the sessions, as a pinned
+    /// panel's tick reads them (refresh_live), at most every `LIVE_EVERY` whoever asks, so two phones share a reading;
+    /// then today's figures by tool, 会话 for today, and when each session's latest turn began (its clock on the phone).
+    pub fn live(&self) -> Value {
+        static LAST: AtomicU64 = AtomicU64::new(0);
+        let runtime = self.runtime();
+        let moment = now();
+        let millis = (moment * 1000.0) as u64;
+        let last = LAST.load(Ordering::SeqCst);
+        if millis.saturating_sub(last) >= LIVE_EVERY.as_millis() as u64
+            && LAST.compare_exchange(last, millis, Ordering::SeqCst, Ordering::SeqCst).is_ok()
+        {
+            // Busy with another read of the ranges (a refresh, the panel's own tick): what is cached serves.
+            let _ = runtime.with_lock("range-refresh.lock", false, || {
+                runtime.range_usage(Some("today"), Some(0.0));
+            });
+            if runtime.module_enabled("sessions") {
+                runtime.sessions_cached(Some(0.0));
+            }
+        }
+        let mut turns = serde_json::Map::new();
+        if let Some(sessions) = runtime
+            .read_cache("sessions")
+            .get("payload")
+            .and_then(|payload| payload.get("sessions"))
+            .and_then(Json::as_array)
+        {
+            for session in sessions {
+                let id = session.get("id").and_then(Json::as_str);
+                let began = session
+                    .get("turns")
+                    .and_then(Json::as_array)
+                    .and_then(|turns| turns.first())
+                    .and_then(|turn| turn.get("at"))
+                    .and_then(Json::number);
+                if let (Some(id), Some(began)) = (id, began) {
+                    turns.insert(id.to_string(), serde_json::json!(began));
+                }
+            }
+        }
+        serde_json::json!({
+            "at": moment,
+            "dashboard": self.dashboard_grouped("today", Some("tool")),
+            "sessions": self.sessions_entry("today"),
+            "turns": turns,
+        })
+    }
+
     pub fn menu_bar_text(&self) -> String {
         let runtime = self.runtime();
         let _turn = self.rendering.lock().expect("the render lock");
@@ -261,6 +309,9 @@ impl Engine {
         }
     }
 }
+
+/// The live view's reads on a phone come at most this often, however many phones ask and however often.
+const LIVE_EVERY: Duration = Duration::from_millis(1500);
 
 /// Actions whose receipt carries the display preferences (5.x's RECEIPT_ACTIONS).
 const PREFERENCE_ACTIONS: [&str; 9] = [

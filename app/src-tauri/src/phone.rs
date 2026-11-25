@@ -354,6 +354,7 @@ fn answer(app: &AppHandle, mut stream: TcpStream, key: &str) -> std::io::Result<
         let body = match call {
             "snapshot" => phone_snapshot(app, range, group),
             "dashboard" => dashboard(app, range.unwrap_or("today"), group),
+            "live" => live(app),
             _ => return respond(&mut stream, 404, "text/plain; charset=utf-8", b"not here", true),
         };
         return respond(&mut stream, 200, "application/json; charset=utf-8", body.to_string().as_bytes(), true);
@@ -470,29 +471,77 @@ fn phone_snapshot(app: &AppHandle, range: Option<&str>, group: Option<&str>) -> 
     snapshot["moduleOptions"] = json!([]);
     if let Some(entries) = snapshot.get_mut("entries").and_then(Value::as_array_mut) {
         for entry in entries {
-            // 会话 keeps its sessions (titles, models, tokens: no paths) for the phone's 会话 tab, and the mark the panel
-            // knows the row by; its switch (这一轮完成时提醒) is the computer's.
+            // 会话 keeps its sessions for the phone's 会话 tab, and the mark the panel knows the row by; every other row
+            // only itself.
             let mark = json!(["refresh-source", "sessions"]);
-            let sessions = entry.get("onOpenAction") == Some(&mark);
-            if let Some(object) = entry.as_object_mut() {
-                let children = object.entry("children").or_insert_with(|| json!([]));
-                match children.as_array_mut() {
-                    Some(children) if sessions => {
-                        children.retain(|child| child.get("action").is_none());
-                        while children.last().is_some_and(|child| child.get("separator").is_some()) {
-                            children.pop();
-                        }
-                    }
-                    _ => *children = json!([]),
-                }
-            }
-            strip(entry);
-            if sessions {
+            if entry.get("onOpenAction") == Some(&mark) {
+                phone_sessions(entry);
                 entry["onOpenAction"] = mark;
+            } else {
+                if let Some(object) = entry.as_object_mut() {
+                    object.insert("children".into(), json!([]));
+                }
+                strip(entry);
             }
         }
     }
     snapshot
+}
+
+/// 手机版's live view, asked every couple of seconds while it is on screen: today's figures by tool, 会话 (its
+/// sessions only, as the snapshot sends them) and when each session's turn began. The app reads today's logs afresh
+/// for it (Engine::live, at most every 1.5 s); SwiftBar's panel has what the plugin last wrote, the fixtures creep up.
+fn live(app: &AppHandle) -> Value {
+    let mut answer = match &*app.state::<Data>() {
+        Data::Engine(engine) => engine.live(),
+        Data::SwiftBar(files) => {
+            let snapshot = files.snapshot();
+            json!({
+                "at": starmeter_core::runtime::now(),
+                "dashboard": snapshot.get("dashboard").cloned().unwrap_or(Value::Null),
+                "sessions": sessions_of(&snapshot),
+                "turns": {},
+            })
+        }
+        Data::Fixtures(fixtures) => {
+            let mut fixtures = fixtures.lock().expect("the fixtures");
+            let _ = fixtures.act(&["refresh-live".to_string()]);
+            let snapshot = fixtures.snapshot();
+            json!({
+                "at": starmeter_core::runtime::now(),
+                "dashboard": fixtures.dashboard("today"),
+                "sessions": sessions_of(&snapshot),
+                "turns": {},
+            })
+        }
+    };
+    if let Some(entry) = answer.get_mut("sessions").filter(|entry| entry.is_object()) {
+        phone_sessions(entry);
+    }
+    answer
+}
+
+/// 会话's row in a snapshot, if it is on the homepage.
+fn sessions_of(snapshot: &Value) -> Value {
+    let mark = json!(["refresh-source", "sessions"]);
+    snapshot
+        .get("entries")
+        .and_then(Value::as_array)
+        .and_then(|entries| entries.iter().find(|entry| entry.get("onOpenAction") == Some(&mark)))
+        .cloned()
+        .unwrap_or(Value::Null)
+}
+
+/// 会话 as a phone has it: its sessions (titles, models, tokens: no paths), never its switch (这一轮完成时提醒), and
+/// nothing to do.
+fn phone_sessions(entry: &mut Value) {
+    if let Some(children) = entry.get_mut("children").and_then(Value::as_array_mut) {
+        children.retain(|child| child.get("action").is_none());
+        while children.last().is_some_and(|child| child.get("separator").is_some()) {
+            children.pop();
+        }
+    }
+    strip(entry);
 }
 
 /// Nothing to do on a phone: actions and links go, all the way down. The values' shorter forms stay, for a narrow
@@ -558,6 +607,25 @@ mod tests {
         })
         .join();
         assert_eq!(slots.0.load(Ordering::SeqCst), CONNECTIONS - 1);
+    }
+
+    #[test]
+    fn a_phone_has_the_sessions_without_the_switch_or_anything_to_do() {
+        let mut entry = serde_json::json!({
+            "label": "会话", "onOpenAction": ["refresh-source", "sessions"],
+            "children": [
+                {"label": "重做设置页", "key": "s1", "statusLight": "new", "href": "x",
+                 "children": [{"label": "15:36 · 2.41M Token · $0.92", "detail": "Bash ×4", "action": ["open"]}]},
+                {"label": "", "separator": true},
+                {"label": "这一轮完成时提醒", "checked": true, "action": ["set-session-alerts", "false"]},
+            ],
+        });
+        super::phone_sessions(&mut entry);
+        assert_eq!(entry["children"].as_array().unwrap().len(), 1);
+        assert_eq!(entry["children"][0]["key"], "s1");
+        assert!(entry["children"][0].get("href").is_none());
+        assert!(entry["children"][0]["children"][0].get("action").is_none());
+        assert!(entry.get("onOpenAction").is_none());
     }
 
     #[test]
