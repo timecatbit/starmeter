@@ -104,15 +104,15 @@
    *  (one that floated off the top). */
   function thing(kind: Thing['kind'], anywhere: boolean, fade = false): Thing {
     const depth = random(0, 1);
-    const size = kind === 'logo' ? 18 + 26 * depth : random(1.4, 3.6);
+    const size = kind === 'logo' ? 11 + 13 * depth : random(1.4, 3.6);
     const mark = kind === 'logo' ? current[markTurn++ % current.length].key : '';
     return { kind, x: random(0, width), y: anywhere ? random(0, height) : height + random(20, 60), depth, size, sway: random(4, 12),
       phase: random(0, Math.PI * 2), twinkle: random(0.5, 1.6), turn: random(-0.25, 0.25), spin: random(-0.08, 0.08), shown: anywhere && !fade ? 1 : 0,
       mark, pen: Math.floor(random(0, 4)), wobble: Array.from({ length: 12 }, () => random(-0.1, 0.1)) };
   }
-  /** As many as the screen holds: stars a few dozen, logos a handful (a dozen on a computer's screen). */
+  /** As many as the screen holds: stars a few dozen, logos small and a score or so (more on a computer's screen). */
   const starsFor = () => Math.max(22, Math.min(44, Math.round((width * height) / 9_000)));
-  const logosFor = () => (width >= 1000 ? 18 : width > height ? 14 : 12);
+  const logosFor = () => (width >= 1000 ? 32 : width > height ? 24 : 20);
 
   function size() {
     if (!canvas) return;
@@ -177,7 +177,7 @@
   }
 
   /** How strong each look's things are: faint, under the figures. */
-  const LOGO: Record<Look, number> = { light: 0.22, dark: 0.28, 'sketch-light': 0.24, 'sketch-dark': 0.26 };
+  const LOGO: Record<Look, number> = { light: 0.26, dark: 0.32, 'sketch-light': 0.28, 'sketch-dark': 0.3 };
   const STAR: Record<Look, number> = { light: 0.3, dark: 0.75, 'sketch-light': 0.35, 'sketch-dark': 0.4 };
 
   let last = 0, frame = 0, running = false, frames = 0;
