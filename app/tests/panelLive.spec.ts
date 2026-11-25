@@ -220,6 +220,22 @@ test('pinned again while the live line still zooms out, it zooms back in and sta
   await expect(canvas).toBeVisible();
 });
 
+test('pinned on 昨天, the live line has none of the minutes kept from today: flat from the start, no speed (STAGE-17)', async ({ page }) => {
+  await open(page);
+  await page.getByRole('button', { name: /统计范围/ }).click();
+  await page.getByRole('option', { name: '昨天', exact: true }).click();
+  await expect(page.locator('.summary')).toContainText('昨天');
+  await page.waitForTimeout(600);
+  // Fifty seconds of Claude writing today: what the app kept, all of it today's.
+  await seed(page, 50, { id: 'claude', tokens: 2000, output: 50 });
+  await page.getByRole('button', { name: '钉住面板', exact: true }).click();
+  const canvas = page.locator('canvas.live');
+  await expect(canvas).toBeVisible();
+  await page.waitForTimeout(800);
+  expect(Number(await canvas.getAttribute('data-samples'))).toBeLessThan(5);
+  expect(Number(await canvas.getAttribute('data-rate') ?? 0)).toBe(0);
+});
+
 test('pinned, the live line opens with the last minutes the app kept: its speed at once, and a gap in them no burst', async ({ page }) => {
   await open(page);
   // Fifty seconds of Claude writing 25 tokens a second.

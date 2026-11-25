@@ -352,10 +352,12 @@
   }
   /** Pinned: the live line begins with the last minutes the app kept (recent_readings), as 网页版's does, then this
    *  reading, so the line, its speed and each tool's line are whole at once rather than starting from nothing. Asked
-   *  for at most 0.4 s (the trend stays on screen meanwhile); a gap in them, or since the last of them, is a gap. */
+   *  for at most 0.4 s (the trend stays on screen meanwhile); a gap in them, or since the last of them, is a gap. The
+   *  minutes kept are today's: a range that doesn't run to now (昨天) has none of them, its line begins flat (STAGE-17:
+   *  today's rises were drawn on yesterday's line for its first minute). */
   async function pinFeed(live: LiveFeed) {
     let last = 0;
-    try {
+    if (snapshot?.dashboard?.rangeKey !== 'yesterday') try {
       const recent = await Promise.race([backend.recent(), new Promise<null>((resolve) => setTimeout(() => resolve(null), 400))]);
       if (recent?.history.length && snapshot?.dashboard) last = live.replay(snapshot.dashboard, recent.history, recent.at * 1000 - Date.now(), GAP);
     } catch { /* from this reading on, as before */ }
