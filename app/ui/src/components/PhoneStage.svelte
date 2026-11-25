@@ -763,10 +763,13 @@
     align-items: start;
   }
   .desk .bar { grid-column: 1 / -1; margin: 0 -40px; padding: 0 40px; height: 64px; }
-  /* The monitor as tall as what is beside it, its curve filling it; what happened reaching down to the same line. */
+  /* The monitor as tall as what is beside it, its curve filling it; what happened reaching down to the same line. Never
+     taller than what is seen under the bar, though: with many sessions and long titles beside it the curve would grow
+     past the screen's foot, its 1 分钟前 · 现在 out of sight. */
   .desk .lead {
     grid-column: 1;
     align-self: stretch;
+    max-height: calc(var(--visible-h, 100dvh) - 64px - 30px);
     display: flex;
     flex-direction: column;
     padding: 22px 26px 18px;
