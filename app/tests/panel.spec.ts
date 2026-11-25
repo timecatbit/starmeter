@@ -540,9 +540,51 @@ test('会话 sits beside the groupings: running first, what each cost in the ran
   await expect(cards.first().locator('.turn')).toHaveCount(3);
   await expect(cards.first().locator('.turn-heading')).toHaveText('starmeter · 最近 3 轮 · 累计 $6.90');
   await expect(page.getByRole('switch', { name: /这一轮完成时提醒/ })).toBeVisible();
-  // The choice is remembered.
+  // Not kept for the next opening: the panel opens on the homepage's 工具.
   await page.reload();
-  await expect(page.getByRole('radio', { name: '会话' })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByRole('radio', { name: '工具' })).toHaveAttribute('aria-checked', 'true');
+});
+
+test('opened again, the panel is on the homepage with its cards by tool, wherever it was left; a tab picked holds while it is open', async ({ page }) => {
+  await open(page);
+  const tab = (name: string) => page.getByRole('radiogroup', { name: '卡片分组' }).getByRole('radio', { name, exact: true });
+  /** Closed (a click elsewhere, Esc, the star) and opened again from the star. */
+  const reopen = async () => {
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent('panel-closed')));
+    await page.waitForTimeout(150);
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent('panel-opened', { detail: { modules: false, maxHeight: 900 } })));
+  };
+  const onTools = async (where: string) => {
+    await expect(page.locator('.dashboard'), where).toBeVisible();
+    await expect(page.locator('.page'), where).toHaveCount(0);
+    await expect(tab('工具'), where).toHaveAttribute('aria-checked', 'true');
+    await expect(page.locator('.list .card .name').first(), where).toHaveText('Claude');
+  };
+  // Left on 会话.
+  await tab('会话').click();
+  await expect(tab('会话')).toHaveAttribute('aria-checked', 'true');
+  await reopen();
+  await onTools('会话');
+  // Left on 项目 (the computer's grouping, in its preferences): set back to 工具.
+  await tab('项目').click();
+  await expect(tab('项目')).toHaveAttribute('aria-checked', 'true');
+  await expect(page.locator('.list .card .name').first()).not.toHaveText('Claude');
+  await reopen();
+  await onTools('项目');
+  // Left on a row's page, and in the settings.
+  await page.locator('.row', { hasText: 'ChatGPT 订阅' }).click();
+  await expect(page.locator('.page h2.title')).toHaveText('ChatGPT 订阅');
+  await reopen();
+  await onTools('a row\'s page');
+  await button(page, '主页模块与设置').click();
+  await expect(page.locator('.modules')).toBeVisible();
+  await reopen();
+  await expect(page.locator('.modules')).toHaveCount(0);
+  await onTools('the settings');
+  // Picked while it is open, a tab holds: 模型 stays 模型 for as long as the panel is open.
+  await tab('模型').click();
+  await page.waitForTimeout(2500);
+  await expect(tab('模型')).toHaveAttribute('aria-checked', 'true');
 });
 
 test('a pinned panel resized at its edges lays its pages out at that width, and unpinning gives the size back', async ({ page }) => {

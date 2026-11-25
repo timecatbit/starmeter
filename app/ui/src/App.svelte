@@ -157,17 +157,24 @@
   let pinned = $state(false);
   // 会话 sits beside 工具 / 模型 / 项目 when its module is on the homepage, instead of among the other rows, and 实时
   // (what the AI is doing now) last. Pinning turns to 实时 (a pinned panel is for watching work as it happens) and
-  // unpinning turns back, unless another was picked meanwhile.
+  // unpinning turns back, unless another was picked meanwhile. Not kept from one opening to the next: the panel opens
+  // on the homepage's 工具 (homeOnTools).
   const sessions = $derived(snapshot ? sessionsEntry(snapshot.entries) : null);
-  const VIEW = 'starmeter.homeView';
   type View = 'cards' | 'sessions' | 'live';
-  const keptView = typeof localStorage !== 'undefined' ? localStorage.getItem(VIEW) : null;
-  let view = $state<View>(keptView === 'sessions' || keptView === 'live' ? keptView : 'cards');
+  let view = $state<View>('cards');
   let viewBeforePin: View | null = null;
   function chooseView(next: View) {
     view = next;
     viewBeforePin = null;
-    if (typeof localStorage !== 'undefined') localStorage.setItem(VIEW, next);
+  }
+  /** Opened from the star or the shortcut: the homepage, its cards by tool, whatever was shown when it last closed
+   *  (another tab or grouping, a row's or a tool's page, the settings, the share page; the user: 电脑上默认点开主页，直接
+   *  看工具，无论上次停留在哪里). Picked again while it is open, a tab or grouping holds until it closes. The grouping is
+   *  the computer's own (set-group, kept in its preferences: the cards are read for it), so it is set back to 工具 when it
+   *  is another; a phone's 网页版 keeps its own. */
+  function homeOnTools() {
+    const shown = snapshot?.dashboard;
+    if (shown && groupShown(shown) !== 'tool' && interaction.latest('set-group') === null) perform(['set-group', 'tool']);
   }
   /** The size the user gave the pinned panel at its edges: the homepage and the pages take it (the module grid keeps
    *  its own) until unpinned. */
@@ -731,7 +738,9 @@
     // A press the closing cut short never came up: no press is on as the panel opens, and its reading is fresh.
     pressing = false;
     held = null;
-    void reload();
+    if (!modules) { view = 'cards'; viewBeforePin = null; }
+    // The grouping as the computer has it now (the figures just read), set back to 工具 if it is another.
+    void reload().then(() => { if (!modules && panel.shown) homeOnTools(); });
     // A shortcut another app held: tried again each time the panel opens, so quitting that app is enough.
     if (shortcut.taken) void restoreShortcut();
     if (modules) void phoneStatus();

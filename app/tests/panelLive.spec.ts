@@ -102,9 +102,9 @@ test('unpinned, 实时 is never blank: the sessions running, and what happened o
   await expect(live.locator('.head').first()).toHaveText(/正在运行/);
   await expect(live.locator('.live-session')).toHaveCount(3);
   await expect(live.locator('.quiet')).toHaveText('等下一笔请求…');
-  // Remembered as the homepage's tab.
+  // Not kept for the next opening: the panel opens on the homepage's 工具.
   await page.reload();
-  await expect(radio(page, '实时')).toHaveAttribute('aria-checked', 'true');
+  await expect(radio(page, '工具')).toHaveAttribute('aria-checked', 'true');
 });
 
 test('pinned, 实时 cuts no words: titles far too long for a line, an hour and more into their turns, in every language and look, narrow and wide', async ({ page }) => {
@@ -178,21 +178,27 @@ test('实时 opens with what happened in the last minutes, and reads only while 
   await page.waitForTimeout(4500);
   expect(await asked(page)).toBe(closed);
   await expect(live.locator('.live-session .clock').first()).toHaveText(clock!);
-  // Open again: asked at once, the clock going.
+  // Open again: on the homepage's 工具 (nothing of 实时 read); 实时 picked, asked at once, the clock going.
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('panel-opened', { detail: { modules: false, maxHeight: 900 } })));
+  await expect(radio(page, '工具')).toHaveAttribute('aria-checked', 'true');
+  await page.waitForTimeout(500);
+  expect(await asked(page)).toBe(closed);
+  await radio(page, '实时').click();
   await expect.poll(() => asked(page), { timeout: 1500 }).toBeGreaterThan(closed);
   await expect(live.locator('.live-session .clock').first()).not.toHaveText(clock!, { timeout: 2500 });
 });
 
-test('started hidden (the app at login) with 实时 the tab last shown, nothing is read until the panel is opened (STAGE-11)', async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem('starmeter.homeView', 'live'));
+test('started hidden (the app at login), nothing is read until the panel is opened and 实时 picked (STAGE-11)', async ({ page }) => {
   // ?hidden: the browser's stand-in for the app's window not yet on screen (info().visible false).
   await page.goto('/?hidden');
   await expect(page.locator('.dashboard')).toBeAttached();
   await page.waitForTimeout(3500);
   expect(await asked(page)).toBe(0);
-  // The star clicked: the panel opened, 实时 reads at once and its clocks go.
+  // The star clicked: the panel opened on the homepage's 工具; 实时 picked, it reads at once and its clocks go.
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('panel-opened', { detail: { modules: false, maxHeight: 900 } })));
+  await expect(radio(page, '工具')).toHaveAttribute('aria-checked', 'true');
+  expect(await asked(page)).toBe(0);
+  await radio(page, '实时').click();
   await expect.poll(() => asked(page), { timeout: 1500 }).toBeGreaterThan(0);
   const live = page.locator('.panel-live');
   await expect(live.locator('.live-session')).toHaveCount(3);
