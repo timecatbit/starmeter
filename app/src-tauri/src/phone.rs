@@ -537,33 +537,44 @@ fn keep_recent(recent: &mut VecDeque<Value>, moment: f64, dashboard: &Value, ses
             Value::Object(kept)
         })
         .collect();
+    // Readings too old to draw, and any ahead of this moment (the clock set back), let go wherever they are; those
+    // kept carry 会话 as it stood when each was read.
+    let mut stood: Option<Value> = None;
+    let mut kept_stood: Option<Value> = None;
+    let kept: VecDeque<Value> = recent
+        .drain(..)
+        .filter_map(|mut reading| {
+            if let Some(sessions) = reading.get("sessions") {
+                stood = Some(sessions.clone());
+            }
+            let at = reading["at"].as_f64()?;
+            if moment - at > RECENT_FOR || at > moment {
+                return None;
+            }
+            if let Some(object) = reading.as_object_mut() {
+                object.remove("sessions");
+                if stood != kept_stood
+                    && let Some(sessions) = &stood
+                {
+                    object.insert("sessions".into(), sessions.clone());
+                }
+            }
+            kept_stood.clone_from(&stood);
+            Some(reading)
+        })
+        .collect();
+    *recent = kept;
     let mut reading = serde_json::json!({
         "at": moment, "date": dashboard["date"], "rangeKey": dashboard["rangeKey"], "providers": short,
     });
     // 会话 in short when it changed since the last reading kept: what a page opened late replays its 动态 from (a tool
     // called, a turn begun or done).
     if let Some(sessions) = sessions.map(short_sessions)
-        && last_sessions(recent).as_ref() != Some(&sessions)
+        && kept_stood.as_ref() != Some(&sessions)
     {
         reading["sessions"] = sessions;
     }
     recent.push_back(reading);
-    // The clock set back, or readings too old to draw: let go; the first one left carries 会话 as it stood.
-    let mut carried = None;
-    while recent
-        .front()
-        .and_then(|first| first["at"].as_f64())
-        .is_some_and(|at| moment - at > RECENT_FOR || at > moment)
-    {
-        if let Some(sessions) = recent.pop_front().and_then(|gone| gone.get("sessions").cloned()) {
-            carried = Some(sessions);
-        }
-    }
-    if let (Some(sessions), Some(first)) = (carried, recent.front_mut())
-        && first.get("sessions").is_none()
-    {
-        first["sessions"] = sessions;
-    }
 }
 
 /// 会话 as the readings keep it: each session's title, key, light and state, and its latest turn's line (tokens, cost,
@@ -586,11 +597,6 @@ fn short_sessions(entry: &Value) -> Value {
         })
         .collect();
     Value::Array(rows)
-}
-
-/// 会话 as the readings kept last stood.
-fn last_sessions(recent: &VecDeque<Value>) -> Option<Value> {
-    recent.iter().rev().find_map(|reading| reading.get("sessions").cloned())
 }
 
 /// 网页版's live view, asked every couple of seconds while it is on screen: today's figures by tool, 会话 (its
@@ -875,6 +881,23 @@ mod tests {
         assert_eq!(recent.len(), 2);
         assert_eq!(recent[0]["sessions"][0]["children"][0]["detail"], "10 次请求 · Edit ×6 · Bash ×1");
         assert!(recent[1].get("sessions").is_none());
+    }
+
+    /// The clock set back to between readings kept: every reading ahead of it goes, not only from the front (STAGE-10).
+    #[test]
+    fn a_clock_set_back_lets_go_of_every_reading_ahead_of_it() {
+        let dashboard = serde_json::json!({"date": "2026-11-25", "rangeKey": "today", "providers": [{"id": "claude", "tokens": 1.0}]});
+        let sessions =
+            serde_json::json!({"children": [{"label": "s", "key": "s1", "statusLight": "new", "children": []}]});
+        let mut recent = std::collections::VecDeque::new();
+        super::keep_recent(&mut recent, 800.0, &dashboard, None);
+        super::keep_recent(&mut recent, 1000.0, &dashboard, Some(&sessions));
+        super::keep_recent(&mut recent, 1002.0, &dashboard, Some(&sessions));
+        super::keep_recent(&mut recent, 900.0, &dashboard, Some(&sessions));
+        let at: Vec<f64> = recent.iter().map(|reading| reading["at"].as_f64().unwrap()).collect();
+        assert_eq!(at, vec![800.0, 900.0]);
+        // 会话 as it stands at 900, though the reading that first had it is gone.
+        assert!(recent[1].get("sessions").is_some());
     }
 
     #[test]
