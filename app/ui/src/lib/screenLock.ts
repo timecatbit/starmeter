@@ -14,6 +14,8 @@ export class ScreenLock {
   private asking = false;
   private wanted = false;
   private gone = false;
+  /** Why the browser last refused it (NotAllowedError: Low Power Mode, a page not in front), for the page to say. */
+  refusal: string | null = null;
 
   constructor(private request: Request) {}
 
@@ -49,7 +51,12 @@ export class ScreenLock {
     if (this.held || this.asking || this.gone) return true;
     this.asking = true;
     let got: Sentinel;
-    try { got = await this.request(); } catch { this.asking = false; this.wanted = false; return false; }
+    try { got = await this.request(); } catch (error) {
+      this.asking = false; this.wanted = false;
+      this.refusal = error instanceof Error ? error.name : 'Error';
+      return false;
+    }
+    this.refusal = null;
     this.asking = false;
     if (!this.wanted || this.gone) {
       void got.release().catch(() => {});

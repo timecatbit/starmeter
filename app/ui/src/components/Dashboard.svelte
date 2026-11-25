@@ -19,6 +19,7 @@
   import GroupTabs from './GroupTabs.svelte';
   import Heatmap from './Heatmap.svelte';
   import HintButton from './HintButton.svelte';
+  import { onMount } from 'svelte';
   import LiveChart from './LiveChart.svelte';
   import PinnedNow from './PinnedNow.svelte';
   import ProviderCard from './ProviderCard.svelte';
@@ -73,6 +74,21 @@
    *  small at its corner), and fitting the homepage takes the strip in. */
   const nowShown = $derived(pinned && !!live && showSummary);
   let nowHeight = $state(0);
+  // Its height comes in as its first reading does, just after pinning: one arriving while a pointer is down waits till
+  // the click is done, so the rows under it don't move under the press.
+  let pressed = false, heldHeight: number | null = null;
+  function nowHeightIs(height: number) { if (pressed) heldHeight = height; else nowHeight = height; }
+  onMount(() => {
+    const down = () => (pressed = true);
+    const up = () => {
+      pressed = false;
+      setTimeout(() => { if (!pressed && heldHeight !== null) { nowHeight = heldHeight; heldHeight = null; } }, 0);
+    };
+    window.addEventListener('pointerdown', down, true);
+    window.addEventListener('pointerup', up, true);
+    window.addEventListener('pointercancel', up, true);
+    return () => { window.removeEventListener('pointerdown', down, true); window.removeEventListener('pointerup', up, true); window.removeEventListener('pointercancel', up, true); };
+  });
   const nowSpace = $derived(nowShown ? nowHeight : 0);
   const column = $derived(labelColumn(data));
   const dot = $derived(panelDot(panel.width));
@@ -225,7 +241,7 @@
     <Heatmap heatmap={data.heatmap} {column} top={summaryHeight} {right} current={data.rangeKey !== 'yesterday'} max={dot} />
   {/if}
   {#if nowShown}
-    <div class="now-room" style:top="{summaryHeight + heatmapHeight}px"><PinnedNow onheight={(h) => (nowHeight = h)} /></div>
+    <div class="now-room" style:top="{summaryHeight + heatmapHeight}px"><PinnedNow onheight={nowHeightIs} /></div>
   {/if}
   <div class="cards" style:top="{summaryHeight + heatmapHeight + nowSpace + harnessHeader}px">
     {#if groupingHeight}

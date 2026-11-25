@@ -261,7 +261,7 @@ export const phrases: Record<string, string> = {
   缓存命中: 'Cache hits',
   // 在手机上看 on the phone: 网页版, and the choice between it and the homepage as the computer shows it
   网页版: 'Web', 电脑版: 'Desktop', '电脑还没有读到用量，网页版会在有数字后出现': 'The computer has read no usage yet: Web appears once it has figures', 手机上的样式: 'Layout on this phone', 工具占比: 'Share by tool', '按 Token': 'by tokens',
-  订阅与服务: 'Plans and services', '还有 {n} 个会话在运行': '{n} more running', 服务: 'Services', 统计: 'Figures', 保持亮屏: 'Keep the screen on', 连不上电脑: 'Can\'t reach the computer',
+  订阅与服务: 'Plans and services', '还有 {n} 个会话在运行': '{n} more running', 服务: 'Services', 统计: 'Figures', 保持亮屏: 'Keep the screen on', '屏幕会保持常亮，离开这一页就恢复自动锁屏': 'The screen stays on; leave this page and it locks as usual', '已恢复自动锁屏': 'The screen locks as usual again', '没能保持亮屏：浏览器没有允许（低电量模式下会这样）': 'Couldn\'t keep the screen on: the browser said no (as in Low Power Mode)', '没能保持亮屏：这个浏览器不支持': 'Couldn\'t keep the screen on: this browser can\'t', '屏幕保持常亮，点按恢复自动锁屏': 'The screen stays on; tap to let it lock', '保持亮屏：屏幕不自动锁定': 'Keep the screen on: no auto-lock', 连不上电脑: 'Can\'t reach the computer',
   '只读：实时数字每 2 秒从电脑上的 Starmeter 读一次，休息时每 5 秒': 'Read-only: the live figures come from Starmeter on your computer every 2 seconds, every 5 while it rests',
   // 网页版's live view: working or resting, how fast, what happened
   正在工作: 'Working', '正在工作 · {n} 个会话运行中': 'Working · {n} sessions running', '正在工作 · {n} 个会话运行中|1': 'Working · 1 session running',

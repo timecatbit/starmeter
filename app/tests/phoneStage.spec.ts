@@ -1138,3 +1138,29 @@ test('with reduced motion the sky is one still frame; in 手绘 its things are t
   await page.waitForTimeout(1000);
   expect(await frames()).toBe(first);
 });
+
+test('保持亮屏 says what it did: on, off, or why the browser would not (the sun alone told nothing on a phone)', async ({ page }) => {
+  await page.addInitScript(() => {
+    const state = { refuse: false };
+    (window as unknown as { lockState: typeof state }).lockState = state;
+    Object.defineProperty(navigator, 'wakeLock', { configurable: true, value: {
+      request: () => state.refuse ? Promise.reject(Object.assign(new Error('not now'), { name: 'NotAllowedError' }))
+        : Promise.resolve({ release: async () => {}, addEventListener: () => {} }) } });
+  });
+  await phone(page, LANDSCAPE, '', { live: resting() });
+  const button = page.getByRole('button', { name: '保持亮屏' }), notice = page.locator('.stage .notice');
+  await button.click();
+  await expect(notice).toHaveText('屏幕会保持常亮，离开这一页就恢复自动锁屏');
+  await expect(button).toHaveAttribute('aria-pressed', 'true');
+  await expect(button).toHaveAttribute('title', '屏幕保持常亮，点按恢复自动锁屏');
+  await button.click();
+  await expect(notice).toHaveText('已恢复自动锁屏');
+  await expect(button).toHaveAttribute('aria-pressed', 'false');
+  // Refused (Low Power Mode): it says so, and the switch stays off.
+  await page.evaluate(() => { (window as unknown as { lockState: { refuse: boolean } }).lockState.refuse = true; });
+  await button.click();
+  await expect(notice).toHaveText('没能保持亮屏：浏览器没有允许（低电量模式下会这样）');
+  await expect(button).toHaveAttribute('aria-pressed', 'false');
+  // Said for a moment, then gone.
+  await expect(notice).toHaveCount(0, { timeout: 5000 });
+});

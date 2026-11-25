@@ -1561,6 +1561,8 @@ test('pinned, a row\'s page fits its own rows, and the homepage keeps its size',
   await button(page, '钉住面板').click();
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('panel-resized', { detail: { width: 400, height: 760 } })));
   await expect(page.locator('.window')).toHaveCSS('height', '760px');
+  // Pinned, 正在运行 comes in under the heatmap with its first reading: in place before a row is clicked.
+  await expect(page.locator('.pinned-now')).toBeVisible();
   await page.locator('.row', { hasText: 'Kimi API' }).first().click();
   await expect(page.locator('.page h2.title')).toHaveText('Kimi API');
   // Its own height, not the 760 the homepage was sized to; the width stays the panel's.
