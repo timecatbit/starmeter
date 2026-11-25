@@ -51,6 +51,8 @@ const MARGIN = 40;
 const PANEL_HEIGHT = 760;
 // The website shows the share pictures in a row about 300pt wide each; at twice that they stay sharp and light.
 const SHARE_WIDTH = 600;
+// The fixtures' moment as the panel tells it (更新时间 15:40, the trend's last hour), in the pictures' zone.
+const FIXTURE_MOMENT = new Date('2026-11-19T15:40:00+08:00');
 
 // MARK: The dev server
 
@@ -83,8 +85,11 @@ const STILL = `
   *, *::after { caret-color: transparent !important; }
 `;
 
-async function open(context, { height = PANEL_HEIGHT, query = '', style = 'standard' } = {}) {
+async function open(context, { height = PANEL_HEIGHT, query = '', style = 'standard', at = null } = {}) {
   const page = await context.newPage();
+  // A picture whose own clock shows (实时's 动态 writes each reading's time) runs from the fixtures' moment, 15:40,
+  // the time the rest of the panel tells; the clock still runs on from there.
+  if (at) await page.clock.install({ time: at });
   // The panel takes the window's height less 16 (shell.info in backend.ts); the page is made taller than that so the
   // margin under the panel fits too.
   await page.addInitScript((inner) => Object.defineProperty(window, 'innerHeight', { get: () => inner, configurable: true }), height + 16);
@@ -164,7 +169,7 @@ const shots = {
   // Pinned: the live chart, after a few readings have come in. The fixtures add a little more on each 2-second tick
   // until the seventh, which adds less: the line would start again (as after midnight), so the picture is taken first.
   async live(context) {
-    const page = await open(context, { height: 560 });
+    const page = await open(context, { height: 560, at: FIXTURE_MOMENT });
     await page.getByRole('button', { name: context.names.pin }).first().click();
     await page.getByLabel(context.names.live).waitFor();
     await page.waitForTimeout(9_000);
