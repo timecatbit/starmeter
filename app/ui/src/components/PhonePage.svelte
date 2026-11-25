@@ -16,8 +16,8 @@
 
   let { onback, onheight }: { onback: () => void; onheight: (height: number) => void } = $props();
 
-  /** 同一网络 or 任何网络: which address the code holds. */
-  let reach = $state<'local' | 'public'>('local');
+  /** 同一网络, Tailscale (when this computer is on a tailnet) or 任何网络: which address the code holds. */
+  let reach = $state<'local' | 'tailnet' | 'public'>('local');
   let failed = $state<string | null>(null);
   /** 任何网络 chosen and its link not there: it couldn't be made, or it dropped. The choice stays, and the code's place
    *  says so, with 重试 (or 重新生成) and 改用同一个网络: the page doesn't go back to the same network on its own
@@ -36,10 +36,14 @@
   const view = $derived(phone.view);
   // The phone opens in this panel's language, and its look (手绘).
   const address = $derived.by(() => {
-    const base = reach === 'public' ? view?.public ?? null : view?.local ?? null;
+    const base = reach === 'public' ? view?.public ?? null : reach === 'tailnet' ? view?.tailnet ?? null : view?.local ?? null;
     return base ? `${base}&l=${language.current}${style.current === 'sketch' ? '&s=sketch' : ''}` : null;
   });
   const minutes = $derived(view ? Math.max(1, Math.round(secondsLeft() / 60)) : 0);
+  /** The choices: Tailscale between the two while this computer is on a tailnet (or while it is the one chosen, so the
+   *  page can say it went), each a third of the bar then. */
+  const choices = $derived<('local' | 'tailnet' | 'public')[]>(view?.tailnet || reach === 'tailnet' ? ['local', 'tailnet', 'public'] : ['local', 'public']);
+  const chosenIndex = $derived(Math.max(0, choices.indexOf(reach)));
 
   /** Each start (opening the page, 重新开始) begins a round, and 停止 or leaving the page ends it. What a step of an
    *  earlier round answers late (the public link asked for before 停止, the status asked every ten seconds) is
@@ -85,7 +89,7 @@
    *  back after a later choice (同一个网络 again, or the link asked for) is dropped, so it can't take the local code
    *  away or open the question under the wrong radio. */
   let choosing = 0;
-  async function choose(next: 'local' | 'public') {
+  async function choose(next: 'local' | 'tailnet' | 'public') {
     const mine = ++choosing;
     // A new choice starts afresh: the last one's failure is not left under it.
     failed = null;
@@ -177,9 +181,11 @@
     <Scroller onswipeback={onback}>
       <div class="content" bind:this={body}>
         <div class="reach" class:off={stopped} role="radiogroup" aria-label={t('手机在哪')} aria-disabled={stopped}>
-          <span class="pill" class:right={reach === 'public'}></span>
-          <button class="choice pressable" class:chosen={reach === 'local'} role="radio" aria-checked={reach === 'local'} disabled={stopped} onclick={() => choose('local')}>{t('同一个网络')}</button>
-          <button class="choice pressable" class:chosen={reach === 'public'} role="radio" aria-checked={reach === 'public'} disabled={stopped} onclick={() => choose('public')}>{t('任何网络')}</button>
+          <span class="pill" style:width="calc({100 / choices.length}% - {4 / choices.length}px)" style:transform="translateX({chosenIndex * 100}%)"></span>
+          {#each choices as choice (choice)}
+            <button class="choice pressable" class:chosen={reach === choice} role="radio" aria-checked={reach === choice} disabled={stopped}
+              onclick={() => choose(choice)}>{choice === 'tailnet' ? 'Tailscale' : t(choice === 'local' ? '同一个网络' : '任何网络')}</button>
+          {/each}
         </div>
 
         {#if stopped}
@@ -213,6 +219,16 @@
             {#if busy && reach === 'public'}
               <span class="spinner" aria-label={t('生成链接')}></span>
               <span class="wait">{t('正在向 Cloudflare 要链接…')}</span>
+            {:else if reach === 'tailnet' && view && !view.tailnet}
+              <!-- Tailscale chosen and gone (turned off, signed out): said in the code's place, the same network a click away. -->
+              <div class="stopped" role="status">
+                <span class="stopped-glyph"><Icon name="iphone" size={22} /></span>
+                <span class="stopped-title">{t('Tailscale 没有连上')}</span>
+                <span class="stopped-detail">{t('这台电脑打开 Tailscale 后，二维码会回来')}</span>
+              </div>
+              <div class="ask-actions">
+                <button class="button pressable" onclick={() => choose('local')}>{t('改用同一个网络')}</button>
+              </div>
             {:else if reach === 'public' && lost}
               <!-- In the code's place, on 任何网络 still: what happened, and the two ways on. -->
               <div class="stopped" role="status">
@@ -247,9 +263,10 @@
           <!-- What the code is for: on the same network until 停止; the public link, while it is up, for its hour. -->
           {#if !asking && !(busy && reach === 'public')}
             <!-- On 任何网络 without its link, nothing about the same network's code: it isn't the one on screen. -->
-            {#if reach === 'local' || view.public}
+            {#if reach === 'local' || (reach === 'public' && view.public) || (reach === 'tailnet' && view.tailnet)}
               <p class="note">
                 {reach === 'public' ? t('任何网络都能打开，链接带一次性口令，还能用 {n} 分钟', { n: minutes })
+                  : reach === 'tailnet' ? t('手机也连上同一个 Tailscale 网络后扫码，在哪都能打开，不经过 Cloudflare')
                   : t('手机和电脑连同一个网络（Wi-Fi）后扫码；第一次打开时系统可能问是否允许 Starmeter 接收连接，选允许')}
               </p>
             {/if}
@@ -280,10 +297,9 @@
     background: color-mix(in srgb, var(--label) 6%, transparent);
   }
   .pill {
-    position: absolute; top: 2px; bottom: 2px; left: 2px; width: calc(50% - 2px); border-radius: 6px; background: var(--solid);
-    box-shadow: 0 0 0 0.5px var(--separator), 0 1px 3px rgba(0, 0, 0, 0.1); transition: transform 0.22s var(--page-curve);
+    position: absolute; top: 2px; bottom: 2px; left: 2px; border-radius: 6px; background: var(--solid);
+    box-shadow: 0 0 0 0.5px var(--separator), 0 1px 3px rgba(0, 0, 0, 0.1); transition: transform 0.22s var(--page-curve), width 0.22s var(--page-curve);
   }
-  .pill.right { transform: translateX(100%); }
   .choice { --press-scale: 0.96; position: relative; flex: 1; display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--secondary); border-radius: 6px; }
   .choice.chosen { color: var(--label); font-weight: 600; }
   .code { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 196px; }

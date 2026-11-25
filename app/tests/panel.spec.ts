@@ -1377,6 +1377,76 @@ test('在手机上看: a public link that drops stays on 任何网络, with 重�
   await expect(button(page, '改用同一个网络')).toBeVisible();
 });
 
+test('在手机上看: on a tailnet, Tailscale is a choice of its own, its code the computer\'s Tailscale address', async ({ page }) => {
+  await open(page, '?tailnet');
+  await button(page, '主页模块与设置').click();
+  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  const phone = page.locator('.phone-page');
+  await expect(phone.getByRole('radio')).toHaveText(['同一个网络', 'Tailscale', '任何网络']);
+  await page.getByRole('radio', { name: 'Tailscale' }).click();
+  await expect(page.getByRole('radio', { name: 'Tailscale' })).toHaveAttribute('aria-checked', 'true');
+  await expect(phone.locator('.address')).toHaveText('http://100.76.55.73:51234/');
+  await expect(phone.locator('svg.qr')).toBeVisible();
+  await expect(phone.locator('.note').first()).toContainText('Tailscale');
+  // The pill under the middle choice, a third of the bar, once it has slid there.
+  await expect(async () => {
+    const pill = (await phone.locator('.reach .pill').boundingBox())!;
+    const middle = (await page.getByRole('radio', { name: 'Tailscale' }).boundingBox())!;
+    expect(Math.abs(pill.x - middle.x)).toBeLessThan(2);
+    expect(Math.abs(pill.width - middle.width)).toBeLessThan(2);
+  }).toPass();
+});
+
+test('在手机上看: off a tailnet there are the two choices, and Tailscale gone while chosen says so in the code\'s place', async ({ page }) => {
+  await open(page);
+  // Off a tailnet at first; then on it, then off it again: the status asked every ten seconds says which.
+  await page.evaluate(async (source) => {
+    const shell = await eval(source);
+    const real = shell.phoneStatus;
+    const w = window as unknown as { on: boolean };
+    w.on = false;
+    const tailnet = (view: { local: string } | null) => view && { ...view, tailnet: w.on ? 'http://100.76.55.73:51234/#k=0123456789abcdef0123456789abcdef' : null };
+    shell.phoneStatus = async () => tailnet(await real());
+  }, panelShell);
+  // The page's ten seconds on a clock the test moves (installed now: the module lookup above reads real timings).
+  await page.clock.install();
+  await button(page, '主页模块与设置').click();
+  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  const phone = page.locator('.phone-page');
+  await expect(phone.getByRole('radio')).toHaveText(['同一个网络', '任何网络']);
+  await page.evaluate(() => { (window as unknown as { on: boolean }).on = true; });
+  await page.clock.fastForward(10_500);
+  await expect(phone.getByRole('radio')).toHaveText(['同一个网络', 'Tailscale', '任何网络']);
+  await page.getByRole('radio', { name: 'Tailscale' }).click();
+  await expect(phone.locator('.address')).toHaveText('http://100.76.55.73:51234/');
+  await page.evaluate(() => { (window as unknown as { on: boolean }).on = false; });
+  await page.clock.fastForward(10_500);
+  await expect(phone.getByRole('status')).toContainText('Tailscale 没有连上');
+  await expect(page.getByRole('radio', { name: 'Tailscale' })).toHaveAttribute('aria-checked', 'true');
+  await expect(phone.locator('svg.qr')).toHaveCount(0);
+  await button(page, '改用同一个网络').click();
+  await expect(phone.locator('.address')).toHaveText('http://192.168.1.20:51234/');
+  await expect(phone.getByRole('radio')).toHaveText(['同一个网络', '任何网络']);
+});
+
+test('on the phone: a link without its key says so in the panel\'s place, not an empty panel', async ({ page }) => {
+  await page.goto('/?keyless');
+  await expect(page.getByRole('status')).toContainText('链接不完整');
+  await expect(page.getByRole('status')).toContainText('# 后面的一次性口令');
+  await expect(page.locator('.dashboard')).toHaveCount(0);
+});
+
+test('on the phone: a key no longer the server\'s, at the first reading, says so in the panel\'s place', async ({ page }) => {
+  await servePhone(page, 'ffffffffffffffffffffffffffffffff');
+  await page.goto('/#k=' + PHONE_KEY);
+  await expect(page.getByRole('status').first()).toContainText('链接打不开');
+  await expect(page.getByRole('status').first()).toContainText('链接已失效');
+  await expect(page.locator('.dashboard')).toHaveCount(0);
+  await expect(page.locator('.phone-problem')).toHaveCount(0);
+  // The browser logs the refused request itself; nothing else may have gone wrong.
+  errors.splice(0, errors.length, ...errors.filter((line) => !/Failed to load resource/.test(line)));
+});
+
 test('在手机上看: 已复制链接 only once the clipboard took it; refused, the whole link to copy by hand', async ({ page }) => {
   await open(page);
   // The clipboard as the test says: refusing first, then taking it.

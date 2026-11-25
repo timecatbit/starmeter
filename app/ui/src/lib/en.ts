@@ -209,6 +209,10 @@ export const phrases: Record<string, string> = {
   在手机上看: 'Phone view', 扫码在手机浏览器里看: 'Scan with your phone',
   外网链接断开了: 'The public link dropped', 没能生成外网链接: "Couldn't make the link", 可以重新生成一个新链接: 'You can make a new one',
   改用同一个网络: 'Use the same network', 重新生成: 'Make a new one',
+  'Tailscale 没有连上': "Tailscale isn't connected", 链接不完整: 'This link is incomplete', 链接打不开: "This link can't open",
+  '手机查看的链接要带上 # 后面的一次性口令。请在电脑的“在手机上看”里扫码，或点二维码下的地址复制完整链接。': 'A phone view link carries a one-time key after the #. Scan the code in Phone view on the computer, or click the address under the code to copy the whole link.',
+  '这台电脑打开 Tailscale 后，二维码会回来': 'The code comes back once Tailscale is on here',
+  '手机也连上同一个 Tailscale 网络后扫码，在哪都能打开，不经过 Cloudflare': 'With the phone on the same tailnet, scan it to open from anywhere, without Cloudflare',
   '这个网络的 DNS 查不到 Cloudflare 隧道的地址（常见于代理或 VPN），换个网络或关掉代理再试':
     'This network\'s DNS can\'t find Cloudflare\'s tunnel servers (common behind a proxy or VPN); try another network or turn the proxy off',
   'Cloudflare 暂时不给新的临时链接，稍后再试': 'Cloudflare isn\'t giving out new temporary links right now; try again later',

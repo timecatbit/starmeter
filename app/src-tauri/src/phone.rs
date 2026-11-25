@@ -91,6 +91,9 @@ struct Running {
 pub struct PhoneView {
     /// http://192.168.1.5:51234/#k=… on this network; None without one.
     local: Option<String>,
+    /// http://100.x.y.z:51234/#k=… through Tailscale, when this computer is on a tailnet: a phone on it opens the page
+    /// from anywhere, nothing going through Cloudflare.
+    tailnet: Option<String>,
     /// https://….trycloudflare.com/#k=… once the public link is up.
     public: Option<String>,
     /// The public link's time left; 0 without one.
@@ -105,8 +108,10 @@ fn usable((tunnel, until): &(crate::tunnel::Tunnel, Instant)) -> bool {
 
 fn view(running: &Running) -> PhoneView {
     let fragment = format!("#k={}", running.key);
+    let lan = lan_address();
     PhoneView {
-        local: lan_address().map(|ip| format!("http://{ip}:{}/{fragment}", running.port)),
+        local: lan.map(|ip| format!("http://{ip}:{}/{fragment}", running.port)),
+        tailnet: tailnet_address(lan).map(|ip| format!("http://{ip}:{}/{fragment}", running.port)),
         public: running
             .public
             .as_ref()
@@ -127,6 +132,23 @@ fn lan_address() -> Option<IpAddr> {
     socket.connect("192.0.2.1:9").ok()?;
     let ip = socket.local_addr().ok()?.ip();
     (!ip.is_loopback() && !ip.is_unspecified()).then_some(ip)
+}
+
+/// This computer's Tailscale address: the one its traffic to Tailscale's own service address (100.100.100.100, on the
+/// tailnet's route) would leave from, when that is a Tailscale address (100.64.0.0/10) and not the network's own.
+fn tailnet_address(lan: Option<IpAddr>) -> Option<IpAddr> {
+    let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect("100.100.100.100:53").ok()?;
+    tailnet_ip(socket.local_addr().ok()?.ip(), lan)
+}
+
+/// A Wi-Fi of its own can hand out 100.64.0.0/10 too (a carrier's or a campus's): without Tailscale the route to
+/// 100.100.100.100 is the default one, from the network's own address, which is no tailnet's.
+fn tailnet_ip(ip: IpAddr, lan: Option<IpAddr>) -> Option<IpAddr> {
+    match ip {
+        IpAddr::V4(v4) if Some(ip) != lan && v4.octets()[0] == 100 && v4.octets()[1] & 0xC0 == 64 => Some(ip),
+        _ => None,
+    }
 }
 
 fn new_key() -> String {
@@ -510,7 +532,22 @@ fn strip(entry: &mut Value) {
 
 #[cfg(test)]
 mod tests {
-    use super::{AtomicUsize, CONNECTIONS, Deadline, Ordering, Slot, Slots, same};
+    use super::{AtomicUsize, CONNECTIONS, Deadline, Ordering, Slot, Slots, same, tailnet_ip};
+
+    #[test]
+    fn a_tailnet_address_is_tailscales_range_and_not_the_networks_own() {
+        let ip = |text: &str| text.parse::<std::net::IpAddr>().unwrap();
+        // Tailscale on: its own address, beside the Wi-Fi's.
+        assert_eq!(tailnet_ip(ip("100.76.55.73"), Some(ip("192.168.1.5"))), Some(ip("100.76.55.73")));
+        // A Wi-Fi that hands out 100.64.0.0/10 itself, and no Tailscale: the route is the default one, no tailnet.
+        assert_eq!(tailnet_ip(ip("100.69.38.146"), Some(ip("100.69.38.146"))), None);
+        // Both in the range and apart: Tailscale's beside a carrier's network.
+        assert_eq!(tailnet_ip(ip("100.76.55.73"), Some(ip("100.69.38.146"))), Some(ip("100.76.55.73")));
+        // Outside the range (another VPN's), or the range's edges.
+        for other in ["192.168.1.5", "10.0.0.2", "100.63.255.255", "100.128.0.1"] {
+            assert_eq!(tailnet_ip(ip(other), Some(ip("192.168.1.5"))), None, "{other}");
+        }
+    }
     use std::io::{BufRead, BufReader};
     use std::net::{TcpListener, TcpStream};
     use std::sync::Arc;

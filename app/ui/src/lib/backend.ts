@@ -44,11 +44,13 @@ const quiet = () => Promise.resolve();
 const localGuide = () => { try { return localStorage.getItem('starmeter.guide') === '1'; } catch { return false; } };
 
 /** Where a phone can open the homepage, and how long the public link has left (0 without one). */
-export interface PhoneView { local: string | null; public: string | null; secondsLeft: number }
+export interface PhoneView { local: string | null; tailnet?: string | null; public: string | null; secondsLeft: number }
 /** The browser's stand-in for the phone server, for the tests and the dev server. */
 const browserPhone = (() => {
   let on = false, open = false;
-  const view = (): PhoneView | null => (on ? { local: 'http://192.168.1.20:51234/#k=0123456789abcdef0123456789abcdef',
+  // ?tailnet: this computer on a tailnet too.
+  const tailnet = () => (new URLSearchParams(location.search).has('tailnet') ? 'http://100.76.55.73:51234/#k=0123456789abcdef0123456789abcdef' : null);
+  const view = (): PhoneView | null => (on ? { local: 'http://192.168.1.20:51234/#k=0123456789abcdef0123456789abcdef', tailnet: tailnet(),
     public: open ? 'https://quiet-river-1234.trycloudflare.com/#k=0123456789abcdef0123456789abcdef' : null, secondsLeft: open ? 3540 : 0 } : null);
   return {
     view, start: () => { on = true; return view()!; }, stop: () => { on = false; open = false; },
