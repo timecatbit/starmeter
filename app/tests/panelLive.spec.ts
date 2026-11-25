@@ -40,18 +40,40 @@ test('pinned, the homepage turns to 实时: the sessions at work and what happen
   await expect(radio(page, '工具')).toHaveAttribute('aria-checked', 'true');
 });
 
-test('the five tabs sit on one line, evenly, in Chinese, English and 繁體, and in 手绘', async ({ page }) => {
+test('the five tabs spread across the row, the first at its left and the last at its right, the same room between, in every language and look, pinned and at any width', async ({ page }) => {
+  const spread = async (tab: Page, what: string) => {
+    const seen = await tab.evaluate(() => {
+      const row = document.querySelector('.tabs')!.getBoundingClientRect();
+      return { row: { left: row.left, right: row.right }, tabs: [...document.querySelectorAll('.tabs .tab')].map((b) => {
+        const r = b.getBoundingClientRect(); return { top: r.top, left: r.left, right: r.right, wraps: b.scrollWidth > b.clientWidth + 1 }; }) };
+    });
+    expect(seen.tabs.length, what).toBe(5);
+    for (const t of seen.tabs) { expect(t.top, what).toBe(seen.tabs[0].top); expect(t.wraps, what).toBe(false); }
+    expect(seen.tabs[0].left - seen.row.left, what).toBeCloseTo(8, 0);
+    expect(seen.row.right - seen.tabs[4].right, what).toBeCloseTo(8, 0);
+    const gaps = seen.tabs.slice(1).map((t, i) => t.left - seen.tabs[i].right);
+    for (const g of gaps) expect(Math.abs(g - gaps[0]), what).toBeLessThan(0.5);
+    expect(gaps[0], what).toBeGreaterThan(2);
+    // The pill under the chosen tab, as wide as it.
+    const pill = await tab.locator('.tabs .pill').boundingBox(), chosen = await tab.locator('.tabs .tab.chosen').boundingBox();
+    expect(Math.abs(pill!.x - chosen!.x), what).toBeLessThan(0.5);
+    expect(Math.abs(pill!.width - chosen!.width), what).toBeLessThan(0.5);
+  };
   for (const init of [{}, { lang: 'en' }, { lang: 'zh-Hant' }, { style: 'sketch' }, { lang: 'en', style: 'sketch' }]) {
     const tab = Object.keys(init).length ? await page.context().newPage() : page;
     await open(tab, init);
-    const tabs = await tab.locator('.tabs .tab').evaluateAll((list) => list.map((b) => { const r = b.getBoundingClientRect(); return { top: r.top, left: r.left, right: r.right, text: b.textContent, wraps: b.scrollWidth > b.clientWidth + 1 }; }));
-    const room = await tab.locator('.dashboard').evaluate((d) => d.getBoundingClientRect().right);
-    expect(tabs.length, JSON.stringify(init)).toBe(5);
-    for (const t of tabs) { expect(t.top).toBe(tabs[0].top); expect(t.wraps, t.text!).toBe(false); }
-    for (let i = 1; i < tabs.length; i++) expect(tabs[i].left - tabs[i - 1].right).toBeCloseTo(2, 0);
-    expect(tabs.at(-1)!.right).toBeLessThanOrEqual(room - 8);
+    await spread(tab, JSON.stringify(init));
     if (tab !== page) await tab.close();
   }
+  // Pinned (实时 chosen, the pill slid to it), then made wider at the corner: still spread, end to end.
+  await page.getByRole('button', { name: '钉住面板', exact: true }).click();
+  await expect(radio(page, '实时')).toHaveAttribute('aria-checked', 'true');
+  await page.waitForTimeout(400);
+  await spread(page, 'pinned');
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('panel-resized', { detail: { width: 440, height: 700 } })));
+  await expect(page.locator('.window')).toHaveCSS('width', '440px');
+  await page.waitForTimeout(400);
+  await spread(page, 'pinned at 440');
 });
 
 test('the arrows walk all five tabs, 实时 among them, and Tab leaves the group', async ({ page }) => {

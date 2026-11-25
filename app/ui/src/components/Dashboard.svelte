@@ -82,7 +82,9 @@
   // 会话 when chosen, and always when there are no cards to choose instead (its row has left the other rows for here).
   const showingLive = $derived(view === 'live');
   const showingSessions = $derived(!showingLive && !!sessions && (view === 'sessions' || !data.providers.length));
-  const groupingHeight = $derived(tabOptions.length < 2 ? 0 : 30);
+  /** A grouping's note (项目: 按客户端自己的记录), on a line under the tabs. */
+  const groupNote = $derived(showingLive || showingSessions || regrouping ? null : data.groupNote);
+  const groupingHeight = $derived(tabOptions.length < 2 ? 0 : groupNote ? 44 : 30);
   let sessionsHeight = $state(0);
   // 实时's height as it is drawn (its sessions and what happened come and go), taken a frame after it changes; one
   // coming in while a pointer is down waits till the click is done, so the rows under it don't move under the press.
@@ -254,7 +256,7 @@
   {/if}
   <div class="cards" style:top="{summaryHeight + heatmapHeight + harnessHeader}px">
     {#if groupingHeight}
-      <GroupTabs options={tabOptions} chosen={showingLive ? 'live' : showingSessions ? 'sessions' : wantedGrouping} note={showingLive || showingSessions || regrouping ? null : data.groupNote}
+      <GroupTabs options={tabOptions} chosen={showingLive ? 'live' : showingSessions ? 'sessions' : wantedGrouping} note={groupNote}
         onchoose={(key) => { if (key === 'live' || key === 'sessions') onview?.(key); else { onview?.('cards'); if (key !== wantedGrouping) ongroup(key); } }} />
     {/if}
     {#if showingLive}

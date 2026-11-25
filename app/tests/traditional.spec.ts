@@ -62,6 +62,8 @@ test('繁體中文: the homepage, its pages, the groupings and 會話', async ({
     await page.waitForTimeout(400);
     await left.take(page, `home › ${await tab.textContent()}`);
   }
+  // 會話 (the last tab now is 實時).
+  await tabs.nth(3).click();
   await expect(page.locator('.session-list .empty')).toHaveText('今天活動過的會話 · 金額只算今天');
   await (await tabs.all())[0].click();
   const pages = page.locator('.home .row.tall', { has: page.locator('.arrow') });
