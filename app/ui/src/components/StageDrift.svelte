@@ -65,23 +65,42 @@
 
   // MARK: Drawing
 
+  /** A glow or a sparkle's halo drawn once into a small image and stamped thereafter: a gradient made each frame for
+   *  each of them cost a phone its smoothness and its power. */
+  const sprites = new Map<string, HTMLCanvasElement>();
+  function halo(rgb: string, radius: number): HTMLCanvasElement {
+    const r = Math.max(2, Math.round(radius)), key = `${rgb}|${r}`;
+    let sprite = sprites.get(key);
+    if (!sprite) {
+      sprite = document.createElement('canvas');
+      const ratio = Math.min(2, window.devicePixelRatio || 1);
+      sprite.width = sprite.height = Math.ceil(r * 2 * ratio);
+      const c = sprite.getContext('2d')!;
+      c.scale(ratio, ratio);
+      const light = c.createRadialGradient(r, r, 0, r, r, r);
+      light.addColorStop(0, `rgba(${rgb}, 1)`); light.addColorStop(1, `rgba(${rgb}, 0)`);
+      c.fillStyle = light; c.fillRect(0, 0, r * 2, r * 2);
+      sprites.set(key, sprite);
+    }
+    return sprite;
+  }
+  function stamp(ctx: CanvasRenderingContext2D, rgb: string, x: number, y: number, radius: number, alpha: number) {
+    const r = Math.max(2, Math.round(radius));
+    ctx.globalAlpha = alpha;
+    ctx.drawImage(halo(rgb, r), x - r, y - r, r * 2, r * 2);
+    ctx.globalAlpha = 1;
+  }
+
   function draw(ctx: CanvasRenderingContext2D, kind: Kind, x: number, y: number, size: number, rgb: string, alpha: number, turn: number, wobble?: number[]) {
     if (alpha <= 0.004) return;
-    if (kind === 'glow') {
-      const light = ctx.createRadialGradient(x, y, 0, x, y, size);
-      light.addColorStop(0, `rgba(${rgb}, ${alpha})`); light.addColorStop(1, `rgba(${rgb}, 0)`);
-      ctx.fillStyle = light; ctx.beginPath(); ctx.arc(x, y, size, 0, Math.PI * 2); ctx.fill();
-      return;
-    }
+    if (kind === 'glow') { stamp(ctx, rgb, x, y, size, alpha); return; }
     if (kind === 'point') {
       ctx.fillStyle = `rgba(${rgb}, ${alpha})`; ctx.beginPath(); ctx.arc(x, y, size, 0, Math.PI * 2); ctx.fill();
       return;
     }
     if (kind === 'sparkle') {
       // The logo's star: four points over a soft glow.
-      const glow = ctx.createRadialGradient(x, y, 0, x, y, size * 3);
-      glow.addColorStop(0, `rgba(${rgb}, ${alpha * 0.35})`); glow.addColorStop(1, `rgba(${rgb}, 0)`);
-      ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(x, y, size * 3, 0, Math.PI * 2); ctx.fill();
+      stamp(ctx, rgb, x, y, size * 3, alpha * 0.35);
       ctx.fillStyle = `rgba(${rgb}, ${alpha})`; ctx.beginPath();
       for (let i = 0; i < 8; i++) {
         const r = i % 2 ? size * 0.22 : size, a = (i * Math.PI) / 4 + turn * 0.2;
