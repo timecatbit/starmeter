@@ -290,7 +290,9 @@
 <style>
   .live-chart { position: relative; display: flex; flex-direction: column; }
   canvas { display: block; }
-  .legend { display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 0 0 4px; padding: 0; list-style: none; font-size: 11px; line-height: 16px; color: var(--ink-2); }
+  /* The room under the legend inside it (padding, not margin): its height, measured, is what the plot leaves, and a
+     margin outside it would push the plot's foot, its 1 分钟前 · 现在, 4 points past the curve's box (cut off). */
+  .legend { display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 0; padding: 0 0 4px; list-style: none; font-size: 11px; line-height: 16px; color: var(--ink-2); }
   .legend li { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; transition: opacity 0.4s; }
   .legend li.idle { opacity: 0.45; }
   .swatch { width: 10px; height: 2.5px; border-radius: 2px; }
