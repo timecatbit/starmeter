@@ -30,7 +30,7 @@ async function phone(page: Page, size = PORTRAIT, hash = '', options: { swiftbar
 const plain = (text: string | null) => (text ?? '').replace(/,/g, '').trim();
 /** 手机版's estimate, tokens, requests. */
 async function stageFigures(page: Page) {
-  const amount = await page.locator('.stage .amount [data-value]').getAttribute('data-value');
+  const amount = await page.locator('.stage .hero .amount [data-value]').getAttribute('data-value');
   const rest = await page.locator('.stage .figure [data-value]').evaluateAll((list) => list.map((e) => e.getAttribute('data-value')));
   return [amount, rest[0], rest[1]].map(plain);
 }
@@ -378,4 +378,96 @@ test('手机版 in a computer\'s window: the monitor large beside what is happen
     await expect(page.locator('.stage .trend .bubble')).toBeVisible();
     await page.mouse.move(0, 0);
   }
+});
+
+
+/** The phone's snapshot as the computer would send it with these choices (theme, background, look). */
+async function computerChose(page: Page, chosen: { theme?: string; appearance?: string; style?: string }) {
+  await page.unroute('**/api/snapshot**').catch(() => {});
+  await page.route('**/api/snapshot**', async (route) => {
+    const answer = await route.fetch();
+    const body = await answer.json();
+    // The theme and background are the computer's saved preferences too, which the panel reads first.
+    const preferences = { ...body.preferences, ...(chosen.theme ? { theme: chosen.theme } : {}), ...(chosen.appearance ? { appearance: chosen.appearance } : {}) };
+    await route.fulfill({ response: answer, json: { ...body, ...chosen, preferences } });
+  });
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+}
+
+test('手机版 follows the computer\'s look: its theme, its background as the panes\' material, 标准 or 手绘', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' });
+  await phone(page);
+  await expect(page.locator('.stage.light.solid')).toBeVisible();
+  // Dark on the computer: dark here, whatever the phone's own scheme.
+  await computerChose(page, { theme: 'dark' });
+  await expect(page.locator('.stage:not(.light)')).toBeVisible();
+  // Its background as the panes' material.
+  await computerChose(page, { theme: 'dark', appearance: 'frosted' });
+  await expect(page.locator('.stage.frosted')).toBeVisible();
+  expect(await page.locator('.stage .feed, .stage .card').first().evaluate((e) => getComputedStyle(e).backdropFilter || getComputedStyle(e).getPropertyValue('-webkit-backdrop-filter'))).toContain('blur');
+  await computerChose(page, { theme: 'dark', appearance: 'glass' });
+  await expect(page.locator('.stage.glass')).toBeVisible();
+  // 手绘: the page in the hand's letters and on paper, its lines by hand; back to 标准 as the computer goes back.
+  await computerChose(page, { theme: 'light', style: 'sketch' });
+  await expect(page.locator('.stage.sketch.light')).toBeVisible();
+  await expect(page.locator('html')).toHaveAttribute('data-style', 'sketch');
+  expect(await page.locator('.stage .state-text').evaluate((e) => getComputedStyle(e).fontFamily)).toMatch(/^"?Starmeter Hand/);
+  expect(await page.locator('.stage .monitor .big').evaluate((e) => getComputedStyle(e).fontFamily)).toMatch(/^"?Starmeter Hand/);
+  expect(await page.locator('.stage .lead .chart svg, .stage .live-chart canvas').first().evaluate((e) => getComputedStyle(e).filter)).toContain('hand');
+  await computerChose(page, { theme: 'light', style: 'standard' });
+  await expect(page.locator('.stage.sketch')).toHaveCount(0);
+  await expect(page.locator('html')).not.toHaveAttribute('data-style', 'sketch');
+});
+
+test('手机版\'s figures and words keep the panel\'s rules: figures rounded at 600, words in the panel\'s own face', async ({ page }) => {
+  const work = scripted();
+  await phone(page, PORTRAIT, '', { live: work.live });
+  work.at(9);
+  await expect.poll(() => page.locator('.stage .activity .session').count(), { timeout: 5000 }).toBe(2);
+  const rounded = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--rounded').split(',')[0].trim().replace(/"/g, ''));
+  const text = await page.evaluate(() => getComputedStyle(document.documentElement).fontFamily.split(',')[0].trim().replace(/"/g, ''));
+  for (const selector of ['.stage .monitor .big', '.stage .tick-value', '.stage .timer-figure', '.stage .card .amount', '.stage .figure-value', '.stage .hero .amount']) {
+    const face = await page.locator(selector).first().evaluate((e) => { const css = getComputedStyle(e); return { family: css.fontFamily.split(',')[0].trim().replace(/"/g, ''), weight: css.fontWeight }; });
+    expect(face, selector).toEqual({ family: rounded, weight: '600' });
+  }
+  for (const selector of ['.stage .state-text', '.stage .activity .title', '.stage .card .name', '.stage .feed .when', '.stage .unit', '.stage .tick-label']) {
+    expect(await page.locator(selector).first().evaluate((e) => getComputedStyle(e).fontFamily.split(',')[0].trim().replace(/"/g, '')), selector).toBe(text);
+  }
+  // Nothing on the page heavier than 600, and the sign of an amount as the panel sets it: smaller, lighter, raised.
+  expect(await page.locator('.stage').evaluate((root) => [...root.querySelectorAll('*')].filter((e) => Number(getComputedStyle(e).fontWeight) > 600).length)).toBe(0);
+  const sign = await page.locator('.stage .tick-value .sign').first().evaluate((e) => ({ size: parseFloat(getComputedStyle(e).fontSize), of: parseFloat(getComputedStyle(e.closest('.tick-value')!).fontSize), weight: getComputedStyle(e).fontWeight }));
+  expect(sign.size / sign.of).toBeCloseTo(0.62, 2);
+  expect(sign.weight).toBe('500');
+});
+
+test('on a phone the browser\'s bars take the page\'s colours: 手机版\'s sky edges, 电脑版\'s background, as the theme changes', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await phone(page);
+  expect(await page.locator('meta[name="viewport"]').getAttribute('content')).toContain('viewport-fit=cover');
+  // The page is the whole screen, fixed to its edges (under the bars too), not a band that stops short of them.
+  const window = await box(page, '.window.phone');
+  expect(window).toEqual({ x: 0, y: 0, width: PORTRAIT.width, height: PORTRAIT.height });
+  expect(await page.locator('.window.phone').evaluate((e) => getComputedStyle(e).position)).toBe('fixed');
+  const edges = () => page.evaluate(() => {
+    const stage = document.querySelector('.stage'), css = stage ? getComputedStyle(stage) : null;
+    return { meta: document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.content, html: getComputedStyle(document.documentElement).backgroundColor,
+      top: css?.getPropertyValue('--edge-top').trim(), bottom: css ? getComputedStyle(document.querySelector('.stage .edge.bottom')!).backgroundColor : null,
+      topStrip: css ? getComputedStyle(document.querySelector('.stage .edge.top')!).backgroundColor : null };
+  });
+  const dark = await edges();
+  expect(dark.meta).toBe(dark.top);
+  expect(dark.html).toBe(dark.bottom);
+  // The top of the sky is flat in the status bar's colour, under the bar and the light.
+  expect(dark.topStrip).not.toBe(dark.bottom);
+  // The computer turns light: so do the bars.
+  await computerChose(page, { theme: 'light' });
+  await expect(page.locator('.stage.light')).toBeVisible();
+  await expect.poll(async () => (await edges()).meta).not.toBe(dark.meta);
+  const light = await edges();
+  expect(light.meta).toBe(light.top);
+  expect(light.html).toBe(light.bottom);
+  // 电脑版: its own background, top and bottom.
+  await page.getByRole('radio', { name: '电脑版' }).click();
+  await expect(page.locator('.dashboard')).toBeVisible();
+  await expect.poll(async () => (await edges()).html).toBe(await page.locator('.window.phone').evaluate((e) => getComputedStyle(e).backgroundColor));
 });
