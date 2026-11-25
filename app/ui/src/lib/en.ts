@@ -261,6 +261,11 @@ export const phrases: Record<string, string> = {
   缓存命中: 'Cache hits',
   // 在手机上看 on the phone: 网页版, and the choice between it and the homepage as the computer shows it
   等电脑读到用量: 'Waiting for the computer\'s usage',
+  '保持亮屏要用 https 链接：在电脑上选“任何网络”，用它生成的链接打开就能用':
+    'Keeping the screen on needs an https link: choose Any network on the computer and open the link it makes',
+  '这个浏览器不支持保持亮屏（iPhone 需要 iOS 16.4 以上）': 'This browser can\'t keep the screen on (an iPhone needs iOS 16.4 or later)',
+  '网页右上角的太阳可让手机屏幕保持常亮，适合放在桌边一直看；要用“任何网络”的 https 链接打开才能用':
+    'The sun at the top right of the page keeps the phone\'s screen on, to watch from beside the desk; it needs the https link from Any network',
   '电脑上的 Starmeter 还没有今天的数字（SwiftBar 插件还没写入，或主页上还没有勾选工具）。一读到，这里就是实时用量。':
     'Starmeter on the computer has no figures for today yet (SwiftBar\'s plugin hasn\'t written them, or no tool is on the homepage). As soon as it has, live usage shows here.',
   工具占比: 'Share by tool', '按 Token': 'by tokens',

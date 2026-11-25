@@ -1322,6 +1322,30 @@ test('保持亮屏 says what it did: on, off, or why the browser would not (the 
   await expect(notice).toHaveCount(0, { timeout: 5000 });
 });
 
+test('保持亮屏 on an http page (the same network, Tailscale): the sun there all the same, fainter, saying it needs the https link', async ({ page }) => {
+  // An http page: no secure context, so no wake lock in the browser.
+  await page.addInitScript(() => {
+    Object.defineProperty(window, 'isSecureContext', { configurable: true, value: false });
+    delete (Navigator.prototype as unknown as { wakeLock?: unknown }).wakeLock;
+    delete (navigator as unknown as { wakeLock?: unknown }).wakeLock;
+  });
+  await phone(page, PORTRAIT, '', { live: resting() });
+  expect(await page.evaluate(() => 'wakeLock' in navigator)).toBe(false);
+  const button = page.getByRole('button', { name: '保持亮屏' }), notice = page.locator('.stage .notice');
+  await expect(button).toBeVisible();
+  await expect(button).toHaveClass(/unoffered/);
+  await button.click();
+  await expect(notice).toHaveText('保持亮屏要用 https 链接：在电脑上选“任何网络”，用它生成的链接打开就能用');
+  await expect(button).toHaveAttribute('aria-pressed', 'false');
+  // Said whole within the screen, a little longer than the switch's own words, then gone.
+  const said = await notice.boundingBox();
+  expect(said!.x).toBeGreaterThanOrEqual(0);
+  expect(said!.x + said!.width).toBeLessThanOrEqual(PORTRAIT.width);
+  await page.waitForTimeout(3600);
+  await expect(notice).toBeVisible();
+  await expect(notice).toHaveCount(0, { timeout: 3000 });
+});
+
 test('the computer gone from 手绘 dark to 标准 dark, the phone reloaded: its first frame is the sky\'s, not the blackboard kept from before', async ({ page }) => {
   // Served as the phone server serves it: the page carries the computer's look as it is now.
   let look = { theme: 'dark', style: 'sketch' };

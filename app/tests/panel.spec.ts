@@ -1161,8 +1161,10 @@ test('在手机上看: a code for the same network, a public link only after a y
   await expect(phone.locator('svg[role="img"]')).toBeVisible();
   // The address without its key, which stays in the code; on the same network no time limit, until 停止.
   await expect(phone.locator('.address')).toHaveText('http://192.168.1.20:51234/');
-  await expect(phone.locator('.note').last()).toContainText('一直开着');
+  await expect(phone.locator('.note', { hasText: '只读' })).toContainText('一直开着');
   await expect(phone.locator('.note')).not.toContainText(['分钟']);
+  // What the sun on the phone's page is for, said before the scan: it needs the https link (any network).
+  await expect(phone.locator('.note', { hasText: '太阳' })).toHaveText('网页右上角的太阳可让手机屏幕保持常亮，适合放在桌边一直看；要用“任何网络”的 https 链接打开才能用');
   // Any network: asked first, nothing opened until the yes, and no note about a link not made yet.
   await page.getByRole('radio', { name: '任何网络' }).click();
   await expect(phone.locator('.ask')).toContainText('经 Cloudflare 生成外网链接？');

@@ -170,21 +170,28 @@
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   });
 
-  // Keeping the screen on (a monitor by the desk): only where the browser offers it (an https page, iOS 16.4 on). One
-  // lock at most, let go when the switch goes off or this page goes away (to the share page).
+  // Keeping the screen on (a monitor by the desk): where the browser offers it, an https page (the public link; iOS 16.4
+  // on). One lock at most, let go when the switch goes off or this page goes away (to the share page). On an http page
+  // (the same network, Tailscale) the browser has no such thing: the sun is there all the same, fainter, and says so
+  // when tapped, so the feature is known of (a looping silent video, the old way round it, is no longer to be relied
+  // on in iOS's Safari and costs a phone's battery; not tried).
   const lockable = ScreenLock.offered();
   const screenLock = lockable ? ScreenLock.browser() : null;
   let awake = $state(false);
   /** What the switch just did, said under the bar for a moment (a phone has no tooltip to tell what a sun means). */
-  let notice = $state<{ text: string; at: number } | null>(null);
-  function say(text: string) {
+  let notice = $state<{ text: string; at: number; long: boolean } | null>(null);
+  function say(text: string, long = false) {
     const at = Date.now();
-    notice = { text, at };
-    setTimeout(() => { if (notice?.at === at) notice = null; }, 3200);
+    notice = { text, at, long };
+    setTimeout(() => { if (notice?.at === at) notice = null; }, long ? 5200 : 3200);
   }
+  /** Why the sun can't keep the screen on here. */
+  const unoffered = () => t(typeof isSecureContext !== 'undefined' && !isSecureContext
+    ? '保持亮屏要用 https 链接：在电脑上选“任何网络”，用它生成的链接打开就能用' : '这个浏览器不支持保持亮屏（iPhone 需要 iOS 16.4 以上）');
   const refused = () => t(screenLock?.refusal === 'NotAllowedError'
     ? '没能保持亮屏：浏览器没有允许（低电量模式下会这样）' : '没能保持亮屏：这个浏览器不支持');
   function holdScreen(on: boolean) {
+    if (!screenLock) { say(unoffered(), true); return; }
     awake = on;
     void screenLock?.hold(on).then((held) => {
       if (!on) say(t('已恢复自动锁屏'));
@@ -387,13 +394,12 @@
             <span class="compact num" class:shown={headlineAway && !!compact} aria-hidden={!headlineAway}>{compact}<span class="compact-range">{working ? t('正在工作') : compactRange}</span></span>
           </span>
         </span>
-        {#if lockable}
-          <button class="awake" class:on={awake} aria-pressed={awake} aria-label={t('保持亮屏')} title={awake ? t('屏幕保持常亮，点按恢复自动锁屏') : t('保持亮屏：屏幕不自动锁定')}
-            onclick={() => holdScreen(!awake)}>
-            <svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3.4" /><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4" /></svg>
-          </button>
-        {/if}
-        {#if notice}{#key notice.at}<p class="notice" role="status">{notice.text}</p>{/key}{/if}
+        <button class="awake" class:on={awake} class:unoffered={!lockable} aria-pressed={awake} aria-label={t('保持亮屏')}
+          title={!lockable ? unoffered() : awake ? t('屏幕保持常亮，点按恢复自动锁屏') : t('保持亮屏：屏幕不自动锁定')}
+          onclick={() => holdScreen(!awake)}>
+          <svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3.4" /><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4" /></svg>
+        </button>
+        {#if notice}{#key notice.at}<p class="notice" class:long={notice.long} role="status">{notice.text}</p>{/key}{/if}
         <span class="live" class:trouble={live.trouble || !!problem} title={problem ?? ''}>
           {#key live.version}<span class="live-dot" aria-hidden="true"></span>{/key}
           <span class="num">{live.trouble ? t('连不上电脑') : working ? t('实时') : lastRead}</span>
@@ -851,6 +857,8 @@
   .awake svg circle { fill: none; }
   .awake.on { color: #FFD66B; background: rgba(255, 214, 107, 0.16); }
   :global(.light) .awake.on, .sketch .awake.on { color: #E8590C; background: rgba(232, 89, 12, 0.12); }
+  /* Not to be had on this page (http): there, fainter, and saying why when tapped. */
+  .awake.unoffered { opacity: 0.5; }
   /* What 保持亮屏 just did, under the bar for a moment. */
   .notice {
     position: absolute;
@@ -871,6 +879,7 @@
   }
   :global(.light) .notice { background: rgba(255, 255, 255, 0.94); }
   @keyframes notice { 0% { opacity: 0; transform: translateY(-6px); } 8%, 85% { opacity: 1; transform: none; } 100% { opacity: 0; } }
+  .notice.long { border-radius: 16px; animation-duration: 5.2s; }
   .still .notice { animation: none; }
   .awake.on svg circle { fill: currentColor; }
   .awake:active, .share:active { background: var(--glass-strong); transform: scale(0.92); }
