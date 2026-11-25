@@ -1,8 +1,8 @@
 {
  "source": {
   "project": "ccusage",
-  "commit": "48b7a625a1def5c62245dbf5ba6648bfa95b499e",
-  "committedAt": "2026-11-23T11:28:34Z",
+  "commit": "538716a678b7b3b2db193266ee64cb9373a0e8ab",
+  "committedAt": "2026-11-24T06:34:48Z",
   "license": "MIT"
  },
  "aliases": {
@@ -95,12 +95,6 @@
    "cacheRead": 0.375,
    "cacheWrite": 1.875
   },
-  "gpt-3.5-turbo": {
-   "input": 0.5,
-   "output": 1.5,
-   "cacheRead": 0,
-   "cacheWrite": 0.625
-  },
   "gpt-3.5-turbo-0125": {
    "input": 0.5,
    "output": 1.5,
@@ -118,12 +112,6 @@
    "output": 2,
    "cacheRead": 0.15,
    "cacheWrite": 1.875
-  },
-  "gpt-4": {
-   "input": 30,
-   "output": 60,
-   "cacheRead": 3.0,
-   "cacheWrite": 37.5
   },
   "gpt-4-turbo": {
    "input": 10,
@@ -166,12 +154,6 @@
    "output": 10,
    "cacheRead": 1.25,
    "cacheWrite": 3.125
-  },
-  "gpt-4o-2024-05-13": {
-   "input": 5,
-   "output": 15,
-   "cacheRead": 0.5,
-   "cacheWrite": 6.25
   },
   "gpt-4o-2024-08-06": {
    "input": 2.5,
@@ -608,12 +590,6 @@
    "output": 4.4,
    "cacheRead": 0.55,
    "cacheWrite": 1.375
-  },
-  "o1-pro": {
-   "input": 150,
-   "output": 600,
-   "cacheRead": 15.0,
-   "cacheWrite": 187.5
   },
   "o3": {
    "input": 2,
