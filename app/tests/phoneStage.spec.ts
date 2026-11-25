@@ -598,6 +598,35 @@ test('Safari 26\'s bars: at the middle of each edge the frontmost thing is a fix
   expect((await barSamples(page)).bottom.colour).toBe(ground);
 });
 
+test('in the bands Safari 26 keeps for its bars, the page\'s ground is the sky\'s own: its top\'s colour above, its foot\'s below', async ({ page, browser }) => {
+  // As the user's iPhone laid it out: the page between the status bar's band (47 points) and the toolbar's (80), the
+  // page's ground shown in both. It was the sky's foot's colour (near white by day) in both.
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await phone(page);
+    await page.addStyleTag({ content: 'html { margin-top: 47px !important; height: 725px !important; min-height: 0 !important } .window.phone { top: 47px !important; bottom: 80px !important }' });
+    await page.waitForTimeout(400);
+    const shot = (await page.screenshot()).toString('base64');
+    const reader = await browser.newPage();
+    const [above, below] = await reader.evaluate(async (data) => {
+      const image = new Image();
+      image.src = 'data:image/png;base64,' + data;
+      await image.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = image.width; canvas.height = image.height;
+      const c = canvas.getContext('2d')!;
+      c.drawImage(image, 0, 0);
+      const at = (y: number) => [...c.getImageData(Math.round(image.width / 2), y, 1, 1).data.slice(0, 3)];
+      return [at(20), at(image.height - 30)];
+    }, shot);
+    await reader.close();
+    const near = (seen: number[], hex: string) => { const n = parseInt(hex.slice(1), 16); return Math.max(...[n >> 16, (n >> 8) & 255, n & 255].map((v, i) => Math.abs(v - seen[i]))) <= 3; };
+    const sky = scheme === 'light' ? ['#DCE3FF', '#F7F6FF'] : ['#1F3A7A', '#050A24'];
+    expect(near(above, sky[0]), `${scheme} above: ${above}`).toBe(true);
+    expect(near(below, sky[1]), `${scheme} below: ${below}`).toBe(true);
+  }
+});
+
 test('Safari 26\'s bar samplers paint nothing: the page shows through them, whatever their colour', async ({ page, browser }) => {
   await phone(page);
   // Red samplers: not one red pixel in the strips they cover.

@@ -38,6 +38,12 @@
     // The two colours over the whole screen in one piece: before the stylesheet (height: 100%) the page has no height,
     // and its background would repeat in thin stripes.
     root.style.minHeight = '100%';
+    // And beyond the page: the top's colour all the way up, the bottom's all the way down. Safari 26 lays the page out
+    // between its bars (the status bar's band, the toolbar's) and shows the page's ground in them; repeated, the
+    // gradient put the bottom's colour (near white by day) under the status bar.
     root.style.backgroundImage = 'linear-gradient(' + top + ' 0 50%, ' + bottom + ' 50% 100%)';
+    root.style.backgroundSize = '100% 300%';
+    root.style.backgroundPosition = 'center';
+    root.style.backgroundRepeat = 'no-repeat';
   } catch (e) { /* the page paints them itself in a moment */ }
 })();

@@ -31,7 +31,12 @@ export function paintEdges(top: string, bottom: string) {
   meta.content = top;
   const root = document.documentElement.style;
   root.backgroundColor = bottom;
+  // The top's colour all the way up beyond the page, the bottom's all the way down (Safari 26 shows the page's ground
+  // in its bars' bands: repeated, the gradient put the bottom's colour under the status bar).
   root.backgroundImage = `linear-gradient(${top} 0 50%, ${bottom} 50% 100%)`;
+  root.backgroundSize = '100% 300%';
+  root.backgroundPosition = 'center';
+  root.backgroundRepeat = 'no-repeat';
   root.setProperty('--bar-top', top);
   root.setProperty('--bar-bottom', bottom);
   document.documentElement.classList.add('phone-page');
