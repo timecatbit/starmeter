@@ -3,7 +3,8 @@
   // display, the window's size, the pinned live mode and the rolling figures.
   import { onMount, tick, untrack } from 'svelte';
   import { fade } from 'svelte/transition';
-  import { backend, inTauri, onPhone, shell } from './lib/backend';
+  import { backend, inTauri, keyless, onPhone, shell } from './lib/backend';
+  import Icon from './components/Icon.svelte';
   import { automatic, entryKey, isModule, keepsPanelOpen, opening, passive, sessionsEntry, without } from './lib/detail';
   import { currency } from './lib/format';
   import { PanelInteraction } from './lib/interaction';
@@ -115,6 +116,9 @@
   }
   /** On a phone: why the figures on screen are not fresh, until a reading comes through. */
   let phoneProblem = $state<string | null>(null);
+  /** The phone page can't show the panel: its link has no key, or the first reading already failed (the key no longer
+   *  the server's, the computer out of reach). Said in the panel's place, not as a line under an empty one. */
+  const phoneGate = $derived(keyless || (onPhone && !snapshot && !!phoneProblem));
   /** A tool's page, opened from its card: its usage and its settings. */
   let toolId = $state<string | null>(null);
   const tool = $derived(toolId ? snapshot?.dashboard?.providers.find((p) => p.id === toolId) ?? null : null);
@@ -162,7 +166,7 @@
   /** On a phone (在手机上看): the page fills the screen's width, between 320 and 480. */
   let screenWidth = $state(typeof window === 'undefined' ? 360 : window.innerWidth);
   const phoneWidth = $derived(Math.min(480, Math.max(320, screenWidth)));
-  const panelWidth = $derived(onPhone ? phoneWidth : grid ? 588 : free?.width ?? 360);
+  const panelWidth = $derived(onPhone || keyless ? phoneWidth : grid ? 588 : free?.width ?? 360);
   // Pinned, the homepage keeps the size the panel was given (fitted, or the user's); every other page fits its own
   // content (a share page its picture, a tool's or a row's page its rows), unless the user sizes it at its edges while
   // on it, which holds until they leave it.
@@ -776,9 +780,17 @@
 
 <svelte:window onkeydown={keydown} onresize={() => (screenWidth = window.innerWidth)} />
 
-<div class="window" bind:this={windowBox} class:solid={!glass} class:browser={!inTauri && !onPhone} class:phone={onPhone} oncontextmenu={contextmenu} role="application" aria-label={t('AI 用量面板')}
+<div class="window" bind:this={windowBox} class:solid={!glass} class:browser={!inTauri && !onPhone && !keyless} class:phone={onPhone || keyless} oncontextmenu={contextmenu} role="application" aria-label={t('AI 用量面板')}
   onpointermove={() => { if (pinned) showChrome(); }} onpointerleave={() => { if (pinned && !cornerFrom) showChrome(700); }}
-  style:width={inTauri ? '100vw' : `${panelWidth}px`} style:height={inTauri ? '100vh' : onPhone ? '100dvh' : `${panelHeight}px`}>
+  style:width={inTauri ? '100vw' : `${panelWidth}px`} style:height={inTauri ? '100vh' : onPhone || keyless ? '100dvh' : `${panelHeight}px`}>
+  {#if phoneGate}
+    <!-- A phone link that can't open the panel: why, and where the right one comes from, in the panel's place. -->
+    <div class="phone-gate" role="status">
+      <span class="gate-glyph"><Icon name="iphone" size={30} /></span>
+      <h1 class="gate-title">{t(keyless ? '链接不完整' : '链接打不开')}</h1>
+      <p class="gate-detail">{t(keyless ? '手机查看的链接要带上 # 后面的一次性口令。请在电脑的“在手机上看”里扫码，或点二维码下的地址复制完整链接。' : phoneProblem ?? '')}</p>
+    </div>
+  {:else}
   {#key viewKey}
     <div class="view" in:pageIn={{ dir }} out:pageOut={{ dir }}>
       {#if phoneOpen}
@@ -801,7 +813,8 @@
       {/if}
     </div>
   {/key}
-  {#if onPhone && phoneProblem}
+  {/if}
+  {#if onPhone && phoneProblem && !phoneGate}
     <p class="phone-problem" role="status">{t(phoneProblem)}</p>
   {/if}
   {#if hint}
@@ -858,6 +871,12 @@
   .window.solid { background: var(--solid); }
   /* On a phone the page is the screen: no edge, no shadow, the width centred on a wide one. */
   .window.phone { margin: 0 auto; border-radius: 0; background: var(--solid); }
+  .phone-gate {
+    position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+    padding: 0 32px calc(40px + env(safe-area-inset-bottom)); text-align: center; color: var(--secondary);
+  }
+  .gate-title { margin: 6px 0 0; font-size: 18px; font-weight: 600; color: var(--label); }
+  .gate-detail { margin: 0; max-width: 320px; font-size: 14px; line-height: 1.55; }
   .window.phone::after { display: none; }
   .window.browser {
     margin: 24px;

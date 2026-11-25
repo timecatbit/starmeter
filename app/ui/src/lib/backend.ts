@@ -16,6 +16,11 @@ import type { ActionReceipt, Dashboard, Question, ShellInfo, Snapshot } from './
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 /** On a phone (在手机上看): the computer's app served this page, with its key in the address's fragment. */
 export const onPhone = !inTauri && typeof location !== 'undefined' && /(^#|&)k=[0-9a-f]{32}/.test(location.hash);
+/** Served by the phone server (outside the app, not the dev server) without a key that opens it: a link cut short, or
+ *  typed in by hand (a Tailscale address with the port alone). The page says so instead of an empty panel; ?keyless
+ *  shows it on the dev server. */
+export const keyless = !inTauri && !onPhone && typeof location !== 'undefined'
+  && (!import.meta.env.DEV || new URLSearchParams(location.search).has('keyless'));
 
 type Fixtures = typeof import('./fixtureBackend');
 let fixtures: Promise<Fixtures> | null = null;
