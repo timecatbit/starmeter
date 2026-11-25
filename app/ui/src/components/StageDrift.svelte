@@ -190,7 +190,7 @@
     const size = kind === 'logo' ? 11 + 13 * depth : random(1.4, 3.6);
     const mark = kind === 'logo' ? current[markTurn++ % current.length].key : '';
     return { kind, x: random(0, width), y: anywhere ? random(0, height) : height + random(20, 60), depth, size, sway: random(4, 12),
-      phase: random(0, Math.PI * 2), twinkle: random(0.5, 1.6), turn: random(-0.25, 0.25), spin: random(-0.08, 0.08), shown: anywhere && !fade ? 1 : 0,
+      phase: random(0, Math.PI * 2), twinkle: random(0.5, 1.6), turn: random(-0.25, 0.25), spin: random(-0.14, 0.14), shown: anywhere && !fade ? 1 : 0,
       mark, pen: Math.floor(random(0, 4)), ox: 0, oy: 0, vx: 0, vy: 0, glint: 0 };
   }
   /** As many as the screen holds: stars a few dozen, logos small and a score or so (more on a computer's screen). */
@@ -233,8 +233,12 @@
   /** How strong each look's things are: faint, under the figures. */
   const LOGO: Record<Look, number> = { light: 0.26, dark: 0.32, 'sketch-light': 0.28, 'sketch-dark': 0.3 };
   const STARS: Record<Look, number> = { light: 0.3, dark: 0.75, 'sketch-light': 0.35, 'sketch-dark': 0.4 };
-  /** A pushed thing's way back: a soft spring, a little under-damped, a couple of seconds to settle. */
-  const SPRING = 2.4, DAMPING = 2.2;
+  /** A pushed thing's way back: a soft spring, a little under-damped, about a second and a half to settle. */
+  const SPRING = 4.5, DAMPING = 3.2;
+  /** How fast things rise (points a second): a logo by its depth, a star barely; times the sky's pace, from about 0.6
+   *  resting (a logo 8 to 19 points a second: plainly drifting, not standing) to 2 writing fast (up to about 60). */
+  const RISE = { logo: [12, 18], star: [3, 5] } as const;
+  const paceAt = (energy: number) => 0.55 + 1.5 * energy;
 
   let last = 0, frame = 0, running = false, frames = 0;
   function tick(time: number) {
@@ -256,7 +260,7 @@
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const ink = INK[look], pen = pens();
     const logos = things.filter((t) => t.kind === 'logo');
-    const active = Math.round(logos.length * (0.35 + 0.65 * energy)), pace = 0.25 + 1.6 * energy;
+    const active = Math.round(logos.length * (0.35 + 0.65 * energy)), pace = paceAt(energy);
     const now = time / 1000;
     let shownLogos = 0, pushed = 0;
     const drawn: string[] = [];
@@ -266,9 +270,9 @@
       // Faded in and out over a second; in the one still frame, as they are.
       t.shown += (wanted - t.shown) * (still ? 1 : 1 - Math.exp(-dt / 1.2));
       // Nearer, faster: the logos rise at their depth's pace, the stars barely.
-      const rise = t.kind === 'logo' ? 6 + 12 * t.depth : 1.5 + 2 * t.depth;
-      t.y -= rise * pace * dt;
-      t.x += Math.sin(now * 0.3 + t.phase) * t.sway * dt * 0.5;
+      const [from, by] = RISE[t.kind];
+      t.y -= (from + by * t.depth) * pace * dt;
+      t.x += Math.sin(now * 0.45 + t.phase) * t.sway * dt * 0.6;
       t.turn += t.spin * pace * dt;
       if (t.ox || t.oy || t.vx || t.vy) {
         t.vx += (-SPRING * t.ox - DAMPING * t.vx) * dt; t.vy += (-SPRING * t.oy - DAMPING * t.vy) * dt;
@@ -319,6 +323,8 @@
     d.bursts = String(sparks.length);
     d.ripples = String(ripples.length);
     d.pokes = String(pokes);
+    // A logo halfway deep: how fast it rises now, points a second.
+    d.rise = ((RISE.logo[0] + RISE.logo[1] / 2) * pace).toFixed(1);
     d.pushed = pushed.toFixed(1);
     d.marks = current.map((m) => (m.image ? 'tool' : 'starmeter')).join(',');
     d.logos = String(shownLogos);
@@ -369,7 +375,7 @@
     for (const t of things) {
       const dx = t.x + t.ox - x, dy = t.y + t.oy - y, d = Math.hypot(dx, dy), reach = t.kind === 'logo' ? 160 : 110;
       if (d >= reach || d < 0.5) continue;
-      const push = (1 - d / reach) ** 2 * (t.kind === 'logo' ? 150 : 70);
+      const push = (1 - d / reach) ** 2 * (t.kind === 'logo' ? 190 : 90);
       t.vx += (dx / d) * push; t.vy += (dy / d) * push;
     }
     queue();

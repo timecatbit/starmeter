@@ -1158,12 +1158,14 @@ test('the sky\'s floating things answer the work: busier as the models write, fe
   const work = scripted();
   await phone(page, PORTRAIT, '', { live: work.live });
   const drift = page.locator('.stage .sky canvas.drift');
-  const read = () => drift.evaluate((c) => ({ energy: Number(c.dataset.energy), active: Number(c.dataset.active), frames: Number(c.dataset.frames), bursts: Number(c.dataset.bursts) }));
+  const read = () => drift.evaluate((c) => ({ energy: Number(c.dataset.energy), active: Number(c.dataset.active), frames: Number(c.dataset.frames), bursts: Number(c.dataset.bursts), rise: Number(c.dataset.rise) }));
   // Working: the energy climbs (smoothly) and more of them show; never more than the screen's few dozen.
   for (const seconds of [3, 6, 9]) { work.at(seconds); await page.waitForTimeout(2000); }
   await expect.poll(async () => (await read()).energy, { timeout: 8000 }).toBeGreaterThan(0.3);
   const busy = await read();
   expect(busy.active).toBeLessThanOrEqual(56);
+  // Faster while writing (a logo halfway deep, points a second: user: 漂浮物可以动的快一些).
+  expect(busy.rise).toBeGreaterThan(22);
   // A turn done: a burst under its banner.
   work.at(21);
   await expect(page.locator('.stage .turn-done')).toBeVisible({ timeout: 5000 });
@@ -1173,6 +1175,8 @@ test('the sky\'s floating things answer the work: busier as the models write, fe
   await expect(page.locator('.stage .monitor:not(.working)')).toBeVisible({ timeout: 5000 });
   await expect.poll(async () => (await read()).energy, { timeout: 10_000 }).toBeLessThan(0.15);
   expect((await read()).active).toBeLessThan(busy.active);
+  // Resting, still plainly drifting: not the 4 points a second it was.
+  expect((await read()).rise).toBeGreaterThan(12);
   // Hidden: nothing drawn.
   await page.evaluate(() => { Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' }); document.dispatchEvent(new Event('visibilitychange')); });
   await page.waitForTimeout(300);
