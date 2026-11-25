@@ -59,9 +59,15 @@ function watchBars() {
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') rereadBars(); });
 }
 
+/** The computer's look as the phone server wrote it into this page (phone.rs), when it did: it is the computer's now,
+ *  so it goes before anything kept from a visit before and before the address (STAGE-15). */
+export function pageLook(): { theme?: string; style?: string } | null {
+  return typeof window === 'undefined' ? null : ((window as unknown as { STARMETER_LOOK?: { theme?: string; style?: string } }).STARMETER_LOOK ?? null);
+}
+
 /** The computer's theme, kept for the next load's first frame, before the computer has answered. */
 export function keepTheme(theme: string) { if (kept().theme !== theme) keep({ theme }); }
 export function keptTheme(): 'system' | 'light' | 'dark' {
-  const theme = kept().theme;
+  const theme = pageLook()?.theme ?? kept().theme;
   return theme === 'light' || theme === 'dark' ? theme : 'system';
 }

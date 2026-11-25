@@ -9,6 +9,9 @@ export type Style = 'standard' | 'sketch';
 const KEY = 'starmeter.style';
 
 function stored(): Style {
+  // The computer's look as the phone server wrote it into the page (now), before the address's (at the scan).
+  const look = typeof window === 'undefined' ? null : (window as unknown as { STARMETER_LOOK?: { style?: string } }).STARMETER_LOOK?.style;
+  if (look === 'sketch' || look === 'standard') return look;
   try {
     const asked = typeof location === 'undefined' ? null : new URLSearchParams(location.hash.slice(1)).get('s');
     if (asked === 'sketch' || asked === 'standard') return asked;

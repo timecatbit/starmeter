@@ -1549,6 +1549,46 @@ test('with reduced motion the one still frame is drawn, by day and on paper too 
   }
 });
 
+/** The page as the phone server serves it, with the computer's look written in (phone.rs). */
+async function servedWithLook(page: Page, look: { theme: string; style: string }) {
+  await page.route((url) => url.pathname === '/', async (route) => {
+    const answer = await route.fetch();
+    const html = (await answer.text()).replace('<script src="/first-frame.js"', `<script>window.STARMETER_LOOK=${JSON.stringify(look)};</script><script src="/first-frame.js"`);
+    await route.fulfill({ response: answer, body: html, headers: { ...answer.headers(), 'content-type': 'text/html' } });
+  });
+}
+
+test('before the computer answers, the look written into the page goes before the last visit\'s and the address\'s (STAGE-15)', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.setViewportSize(PORTRAIT);
+  await servePhone(page);
+  await servedWithLook(page, { theme: 'dark', style: 'standard' });
+  // The last visit: light and 手绘; the address from the scan says 手绘 too. The computer: dark, 标准 now.
+  await page.addInitScript(() => {
+    localStorage.setItem('starmeter.edges', JSON.stringify({ theme: 'light', top: '#fdfaf4', bottom: '#fdfaf4' }));
+    localStorage.setItem('starmeter.style', 'sketch');
+  });
+  await page.route('**/api/snapshot**', () => {});
+  await page.goto('/#k=' + PHONE_KEY + '&s=sketch');
+  await page.waitForTimeout(1200);
+  expect(await page.evaluate(() => ({ theme: document.documentElement.dataset.theme, style: document.documentElement.dataset.style ?? 'standard',
+    bar: getComputedStyle(document.querySelector('.bar-tint.top')!).backgroundColor }))).toEqual({ theme: 'dark', style: 'standard', bar: 'rgb(31, 58, 122)' });
+});
+
+test('the first frame is painted with the computer\'s look even when the page\'s storage is refused (STAGE-15)', async ({ page }) => {
+  await page.setViewportSize(PORTRAIT);
+  await servePhone(page);
+  await servedWithLook(page, { theme: 'dark', style: 'standard' });
+  await page.addInitScript(() => {
+    Storage.prototype.getItem = () => { throw new DOMException('refused', 'SecurityError'); };
+    Storage.prototype.setItem = () => { throw new DOMException('refused', 'SecurityError'); };
+  });
+  await page.route(/\/src\/main\.ts(\?|$)/, () => {});
+  await page.goto('/#k=' + PHONE_KEY, { waitUntil: 'commit' });
+  await expect.poll(() => page.evaluate(() => ({ html: getComputedStyle(document.documentElement).backgroundColor,
+    bar: document.documentElement.style.getPropertyValue('--bar-top') }))).toEqual({ html: 'rgb(5, 10, 36)', bar: '#1F3A7A' });
+});
+
 test('the live lines are smooth curves that go no further than their readings: never under zero, no peak not read, flat stays flat', async ({ page }) => {
   await phone(page, PORTRAIT, '', { live: resting() });
   const curve = await page.evaluate(async () => {

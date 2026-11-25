@@ -371,11 +371,18 @@ fn answer(app: &AppHandle, mut stream: TcpStream, key: &str) -> std::io::Result<
         // takes its bars' colours from that frame and keeps them.
         Some(asset) if file == "index.html" => {
             let page = with_look(&String::from_utf8_lossy(&asset.bytes), &computer_look(&app.state::<Data>()));
-            respond(&mut stream, 200, &asset.mime_type, page.as_bytes(), false)
+            respond(&mut stream, 200, &asset.mime_type, page.as_bytes(), fresh_asset(file))
         }
         Some(asset) => respond(&mut stream, 200, &asset.mime_type, &asset.bytes, false),
         None => respond(&mut stream, 404, "text/plain; charset=utf-8", b"not here", false),
     }
+}
+
+/// Whether a file of the page must never be kept by the browser: the page itself carries the computer's look as it is
+/// now (STAGE-15: kept five minutes, a reload drew the look from before); the scripts, styles and pictures, named by
+/// their content, may be.
+fn fresh_asset(file: &str) -> bool {
+    file == "index.html"
 }
 
 /// The computer's theme (system, light, dark) and look (标准, 手绘) as the phone's page should first draw them.
@@ -1032,6 +1039,12 @@ mod tests {
     }
 
     /// The page carries the computer's look just before first-frame.js reads it.
+    #[test]
+    fn the_page_with_the_computers_look_is_never_kept_by_the_browser() {
+        assert!(super::fresh_asset("index.html"));
+        assert!(!super::fresh_asset("assets/index-3f9a.js"));
+    }
+
     #[test]
     fn the_page_carries_the_computers_look_for_its_first_frame() {
         let page = "<head>\n    <title>Starmeter</title>\n    <script src=\"/first-frame.js\"></script>\n  </head>";

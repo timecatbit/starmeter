@@ -9,7 +9,9 @@
     var root = document.documentElement;
     // The bars' samplers (index.html) on, at the colours below.
     root.classList.add('phone-page');
-    var kept = JSON.parse(localStorage.getItem('starmeter.edges') || 'null') || {};
+    // The page's storage on its own (STAGE-15): refused (a private window) or spoilt, the colours are still painted.
+    var kept = {};
+    try { kept = JSON.parse(localStorage.getItem('starmeter.edges') || 'null') || {}; } catch (e) { kept = {}; }
     var look = window.STARMETER_LOOK;
     var top, bottom, theme;
     if (look) {
@@ -20,7 +22,7 @@
       if (sketch) { top = paper; bottom = paper; }
       else { top = dark ? '#1F3A7A' : '#DCE3FF'; bottom = dark ? '#050A24' : '#F7F6FF'; }
       // The look itself too, so the page's first drawing is in it (style.svelte.ts reads this).
-      localStorage.setItem('starmeter.style', sketch ? 'sketch' : 'standard');
+      try { localStorage.setItem('starmeter.style', sketch ? 'sketch' : 'standard'); } catch (e) { /* this load only */ }
     } else {
       theme = kept.theme; top = kept.top; bottom = kept.bottom;
     }
