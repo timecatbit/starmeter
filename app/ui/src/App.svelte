@@ -153,7 +153,7 @@
   const toolSettings = $derived(toolId ? (snapshot?.moduleOptions ?? []).find((e) => e.action?.[0] === 'set-module' && e.action[1] === toolId) ?? null : null);
   /** 手机版 chosen and something to show in it: with no figures from the computer yet (SwiftBar's plugin not written,
    *  no tool on the homepage) the homepage shows as it is, laid out as 电脑版 lays it out. */
-  const stageReady = $derived(staged && !!(waiting ? shown : snapshot?.dashboard));
+  const stageReady = $derived.by(() => staged && !!(waiting ? shown : snapshot?.dashboard));
   const viewKey = $derived(phoneOpen ? 'phone' : sharing ? 'share' : toolId ? 'tool:' + toolId : pageEntry ? (managerOnly ? 'grid:' : 'home:') + pagePath.join('/') : managerOnly ? 'grid' : stageReady ? 'stage' : 'home');
   /** 手机版 on screen: the whole screen is its, both ways up; the other pages keep the panel's width in the middle. */
   const stageShown = $derived(viewKey === 'stage');

@@ -225,10 +225,10 @@ export class PhoneLive {
       currency.unit = dashboard.currency ?? null;
       const now_ = counted(dashboard), day = dashboard.date;
       // Only figures for the same day and range compare: the computer picking 近 30 天 on SwiftBar's panel is no usage.
-      const comparable = !!this.before && this.beforeDay === day && this.beforeRange === dashboard.rangeKey;
-      if (comparable && !gap) {
+      const before = this.before && this.beforeDay === day && this.beforeRange === dashboard.rangeKey ? this.before : null;
+      if (before && !gap) {
         for (const [id, part] of now_) {
-          const was = this.before.get(id);
+          const was = before.get(id);
           const added = was ? part.tokens - was.tokens : 0;
           if (added > 0.5) {
             landings.push({ id, tokens: added, at: now });
@@ -237,13 +237,13 @@ export class PhoneLive {
           }
         }
       }
-      const grew = comparable && [...now_].some(([id, part]) => part.tokens > (this.before?.get(id)?.tokens ?? 0) + 0.5);
+      const grew = !!before && [...now_].some(([id, part]) => part.tokens > (before.get(id)?.tokens ?? 0) + 0.5);
       this.before = now_;
       this.beforeDay = day;
       this.beforeRange = dashboard.rangeKey;
       this.feed.add(dashboard, now, gap);
       const costs = [...now_.values()].map((p) => p.cost), total = costs.reduce((a, b) => a + b, 0);
-      if (comparable && !gap && this.cost !== null && worthSaying(total - this.cost)) this.costAdded = { amount: total - this.cost, at: now };
+      if (before && !gap && this.cost !== null && worthSaying(total - this.cost)) this.costAdded = { amount: total - this.cost, at: now };
       // Work went on in the gap, when exactly unknown: the last activity is what the sessions say of themselves.
       if (gap && grew) this.lastActive = null;
       this.cost = estimate(dashboard);
