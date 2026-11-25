@@ -408,14 +408,15 @@
     const element = target instanceof Element ? target : null;
     return !!element && !!canvas && !!element.closest('.stage') && !element.closest(OWNED);
   }
-  /** Played once again on an element (its CSS answers `.tapped`): the class off, a reflow, on, off when it is over. */
+  /** Played once again on an element (its CSS answers `.tapped`): the class off, a reflow, on, and off a second later
+   *  (its own timer, begun again with each tap: not the end of any animation inside, a chip's or a card's coming in). */
+  const tapTimers = new WeakMap<Element, ReturnType<typeof setTimeout>>();
   function replay(element: Element) {
+    clearTimeout(tapTimers.get(element));
     element.classList.remove('tapped');
     void (element as HTMLElement).offsetWidth;
     element.classList.add('tapped');
-    const off = () => element.classList.remove('tapped');
-    element.addEventListener('animationend', off, { once: true });
-    setTimeout(off, 1200);
+    tapTimers.set(element, setTimeout(() => element.classList.remove('tapped'), 1000));
   }
   /** A tap at (x, y) on the screen: a little burst there over the page, a faint ring, the logos near it pushed away; and
    *  where the tap fell says a little more of itself (`data-tap`): the big figure hops, a curve lights up where it was

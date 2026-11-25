@@ -738,9 +738,11 @@
     // A press the closing cut short never came up: no press is on as the panel opens, and its reading is fresh.
     pressing = false;
     held = null;
-    if (!modules) { view = 'cards'; viewBeforePin = null; }
-    // The grouping as the computer has it now (the figures just read), set back to 工具 if it is another.
-    void reload().then(() => { if (!modules && panel.shown) homeOnTools(); });
+    // On the homepage's 工具 (a star's click on an open panel closes it, unpinning it: this is never a pinned one);
+    // the grouping set back at once from the figures on hand, and again from those just read if they say otherwise.
+    const home = !modules && !pinned;
+    if (home) { view = 'cards'; viewBeforePin = null; homeOnTools(); }
+    void reload().then(() => { if (home && panel.shown && !pinned) homeOnTools(); });
     // A shortcut another app held: tried again each time the panel opens, so quitting that app is enough.
     if (shortcut.taken) void restoreShortcut();
     if (modules) void phoneStatus();
