@@ -168,7 +168,11 @@ export class PhoneLive {
   private visible = () => typeof document === 'undefined' || document.visibilityState === 'visible';
   private onVisible = () => { if (this.visible() && !this.stopped) { clearTimeout(this.timer); void this.loop(); } };
 
-  constructor() { this.feed.history = LIVE_SPAN + LiveFeed.window + 10_000; }
+  constructor() {
+    this.feed.history = LIVE_SPAN + LiveFeed.window + 10_000;
+    // SwiftBar's figures change every half minute or so: the speed rises over the stretch, not in steps.
+    this.feed.spread = 30_000;
+  }
 
   start() {
     if (!this.stopped) return;

@@ -15,6 +15,11 @@ export class LiveFeed {
   /** How far back the readings are kept: two windows for the panel's minute; a phone's live view draws five minutes. */
   history = 2 * LiveFeed.window;
   started = Date.now();
+  /** How far back a change is spread (0, the panel's own: not at all). Figures that change only now and then (SwiftBar's
+   *  plugin runs every half minute) would draw the speed as steps, flat between readings and jumping at each: a change
+   *  is spread evenly over the quiet stretch before it, up to this long, as the work was (a request's output is written
+   *  over its time, and logged when it ends). */
+  spread = 0;
   /** The pinning zoom plays once per pin, not each time the homepage comes back. */
   zoomed = false;
   private rangeKey: string | null = null;
@@ -87,8 +92,18 @@ export class LiveFeed {
 
   private keep(sample: Sample, at: number) {
     if (this.samples.length && Math.abs(at - this.samples.at(-1)!.at) < 500) this.samples[this.samples.length - 1] = sample;
-    else this.samples.push(sample);
+    else { this.spreadOut(sample); this.samples.push(sample); }
     this.samples = this.samples.filter((s) => at - s.at <= this.history);
+  }
+
+  /** The readings since the line last moved (within `spread`), raised evenly towards this one, which moved it. */
+  private spreadOut(sample: Sample) {
+    const list = this.samples, last = list.at(-1);
+    if (!this.spread || !last || same(last, sample) || sample.at <= last.at) return;
+    let from = list.length - 1;
+    while (from > 0 && same(list[from - 1], last) && sample.at - list[from - 1].at <= this.spread) from--;
+    const anchor = list[from], length = sample.at - anchor.at;
+    for (let i = from + 1; i < list.length; i++) list[i] = between(anchor, sample, (list[i].at - anchor.at) / length, list[i].at);
   }
 
   span() { return LiveFeed.window; }
@@ -110,6 +125,19 @@ export class LiveFeed {
     const output = (sample: Sample) => (id === undefined ? sample.output : sample.outputs?.[id] ?? 0);
     return Math.max(0, output(last) - output(from)) / (LiveFeed.window / 1000);
   }
+}
+
+/** Two readings the same: nothing added between them. */
+function same(a: Sample, b: Sample): boolean {
+  return Math.abs(a.total - b.total) < 0.5 && Math.abs(a.output - b.output) < 0.5 && Math.abs(a.cost - b.cost) < 1e-9;
+}
+
+/** The reading `f` of the way from `a` to `b`, at `at`. */
+function between(a: Sample, b: Sample, f: number, at: number): Sample {
+  const mix = (x: number, y: number) => x + (y - x) * f;
+  const each = (from: Record<string, number>, to: Record<string, number>) =>
+    Object.fromEntries([...new Set([...Object.keys(from), ...Object.keys(to)])].map((id) => [id, mix(from[id] ?? 0, to[id] ?? 0)]));
+  return { at, total: mix(a.total, b.total), output: mix(a.output, b.output), cost: mix(a.cost, b.cost), parts: each(a.parts, b.parts), outputs: each(a.outputs ?? {}, b.outputs ?? {}) };
 }
 
 /** A rate as the header writes it: 1.2K, 340, 12, 3.4, 0. */

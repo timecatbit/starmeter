@@ -888,3 +888,31 @@ test('网页版 on a computer\'s screen: the monitor as tall as what is beside i
     expect(Math.abs(seen.frame.left - (seen.width - seen.frame.right))).toBeLessThanOrEqual(1);
   }
 });
+
+test('figures that change only now and then (SwiftBar\'s plugin) make a speed that rises over the stretch, not steps', async ({ page }) => {
+  await phone(page);
+  const samples = await page.evaluate(async () => {
+    const { LiveFeed } = await import('/src/lib/live.ts');
+    const feed = new LiveFeed();
+    feed.spread = 30_000;
+    const reading = (tokens: number, output: number) => ({ rangeKey: 'today', date: '2026-11-25', dates: [],
+      providers: [{ id: 'claude', available: true, tokens, output, cost: tokens / 1e6, history: [] }] });
+    // Read every two seconds; the figures move at 0 s and at 30 s only.
+    for (let s = 0; s <= 30; s += 2) feed.add(reading(s < 30 ? 1000 : 61000, s < 30 ? 10 : 610) as never, s * 1000);
+    return feed.samples.map((x) => x.output);
+  });
+  // Between the two, the output climbs evenly, not flat then a jump.
+  expect(samples.at(-1)! - samples[0]).toBe(600);
+  for (let i = 1; i < samples.length; i++) expect(samples[i]).toBeGreaterThan(samples[i - 1]);
+});
+
+test('on SwiftBar\'s panel, reloaded while the work goes on, the page picks up the computer\'s last minutes', async ({ page }) => {
+  const clock = { now: Date.UTC(2026, 10, 25, 2, 0, 0) };
+  const live = liveWork({ now: () => clock.now, length: 1000, claudeEnds: 300, codexEnds: 300 });
+  await phone(page, PORTRAIT, '', { swiftbar: true, live });
+  const rate = page.locator('.stage .monitor [data-figure="rate"] [data-value]');
+  for (const seconds of [3, 8, 13, 18, 23, 28]) { clock.now = Date.UTC(2026, 10, 25, 2, 0, 0) + seconds * 1000; await page.waitForTimeout(2200); }
+  await page.reload();
+  await expect(page.locator('.stage .monitor.working')).toBeVisible();
+  await expect.poll(async () => Number(await rate.getAttribute('data-value')), { timeout: 5000 }).toBeGreaterThan(0);
+});
