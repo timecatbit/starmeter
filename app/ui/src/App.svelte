@@ -151,26 +151,6 @@
     if (target) push(target);
   }
   const toolSettings = $derived(toolId ? (snapshot?.moduleOptions ?? []).find((e) => e.action?.[0] === 'set-module' && e.action[1] === toolId) ?? null : null);
-  /** 网页版's figures to show: with none from the computer yet (SwiftBar's plugin not written, no tool on the homepage)
-   *  网页版 waits in its own sky, saying what for (StageWaiting.svelte). */
-  const stageReady = $derived.by(() => onPhone && !!(waiting ? shown : snapshot?.dashboard));
-  const viewKey = $derived(phoneOpen ? 'phone' : sharing ? 'share' : toolId ? 'tool:' + toolId : pageEntry ? (managerOnly ? 'grid:' : 'home:') + pagePath.join('/') : managerOnly ? 'grid' : stageReady ? 'stage' : onPhone && snapshot ? 'waiting' : 'home');
-  /** 网页版 on screen (or waiting for its figures): the whole screen is its, both ways up; the other pages keep the
-   *  panel's width in the middle. */
-  const stageShown = $derived(viewKey === 'stage' || viewKey === 'waiting');
-  /** On a phone, the computer not yet answered: the window lets the last load's sky show through. */
-  const awaitingStage = $derived(onPhone && !snapshot);
-  // On a phone, the browser's bars take the page's colour (网页版 paints its own sky's edges): a page of the panel's
-  // (the share page, a row's page), its background in the theme and look the computer chose.
-  $effect(() => {
-    // Waiting for the computer's first answer, the colours of the last load stay (first-frame.js painted them, and they
-    // are kept): neither painted over nor kept as the panel's (STAGE-9).
-    if (!onPhone || stageShown || awaitingStage || !windowBox) return;
-    void panel.dark; void style.current; void snapshot?.theme;
-    const box = windowBox;
-    const frame = requestAnimationFrame(() => { const colour = getComputedStyle(box).backgroundColor; paintEdges(colour, colour); });
-    return () => cancelAnimationFrame(frame);
-  });
 
   // MARK: The window
 
@@ -246,6 +226,28 @@
   let glows = $state<Record<string, number>>({});
   let summaryGlow = $state(0);
   let motion = 0, revealing = 0;
+
+  // 网页版's view: declared after the figures on screen (`shown`), which it reads.
+  /** 网页版's figures to show: with none from the computer yet (SwiftBar's plugin not written, no tool on the homepage)
+   *  网页版 waits in its own sky, saying what for (StageWaiting.svelte). */
+  const stageReady = $derived.by(() => onPhone && !!(waiting ? shown : snapshot?.dashboard));
+  const viewKey = $derived(phoneOpen ? 'phone' : sharing ? 'share' : toolId ? 'tool:' + toolId : pageEntry ? (managerOnly ? 'grid:' : 'home:') + pagePath.join('/') : managerOnly ? 'grid' : stageReady ? 'stage' : onPhone && snapshot ? 'waiting' : 'home');
+  /** 网页版 on screen (or waiting for its figures): the whole screen is its, both ways up; the other pages keep the
+   *  panel's width in the middle. */
+  const stageShown = $derived(viewKey === 'stage' || viewKey === 'waiting');
+  /** On a phone, the computer not yet answered: the window lets the last load's sky show through. */
+  const awaitingStage = $derived(onPhone && !snapshot);
+  // On a phone, the browser's bars take the page's colour (网页版 paints its own sky's edges): a page of the panel's
+  // (the share page, a row's page), its background in the theme and look the computer chose.
+  $effect(() => {
+    // Waiting for the computer's first answer, the colours of the last load stay (first-frame.js painted them, and they
+    // are kept): neither painted over nor kept as the panel's (STAGE-9).
+    if (!onPhone || stageShown || awaitingStage || !windowBox) return;
+    void panel.dark; void style.current; void snapshot?.theme;
+    const box = windowBox;
+    const frame = requestAnimationFrame(() => { const colour = getComputedStyle(box).backgroundColor; paintEdges(colour, colour); });
+    return () => cancelAnimationFrame(frame);
+  });
 
   function mix(a: DashboardData, b: DashboardData, t: number): DashboardData {
     const lerp = (x: number, y: number) => x + (y - x) * t;
