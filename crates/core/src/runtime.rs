@@ -106,6 +106,7 @@ impl Runtime {
             .to_string_lossy()
             .into_owned();
         let base = detect_base(&environment, &home);
+        crate::projects::use_environment(&environment);
         pricing::ensure_folders(vec![lib_directory(&plugin).into(), format!("{state_dir}/pricing").into()]);
         let host: Arc<dyn Host> = Arc::new(PanelAskHost::new(cache_dir.clone()));
         Runtime {

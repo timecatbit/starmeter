@@ -226,7 +226,9 @@ fn answer(call: &str, args: &[Json]) -> Result<Json, String> {
             routes(args.get(3));
             let force = args.get(1) == Some(&Json::Bool(true));
             let requested = args.get(2).and_then(Json::number).unwrap_or(0.0);
-            let (payload, error) = claude_subscription::oauth_fetch(text(0).unwrap_or(""), true, force, requested);
+            let environment: std::collections::HashMap<String, String> = std::env::vars().collect();
+            let (payload, error) =
+                claude_subscription::oauth_fetch(text(0).unwrap_or(""), true, force, requested, &environment);
             Ok(object! { "payload" => payload, "error" => error }.into())
         }
         "updates.pieces" => {

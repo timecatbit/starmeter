@@ -38,6 +38,23 @@ fn repository(path: &str) -> &str {
     path.find("/.claude/worktrees/").map_or(path, |at| &path[..at])
 }
 
+/// CLAUDE_CONFIG_DIR as the runtime has it (config.local.sh's), told when one is made: opened from Finder or at login,
+/// the process's own environment doesn't hold it (R9-1). The process's own until a runtime tells it.
+static CONFIG_DIR: std::sync::RwLock<Option<Option<String>>> = std::sync::RwLock::new(None);
+
+/// The runtime's environment, for the folder Claude Code's settings are in.
+pub fn use_environment(environment: &HashMap<String, String>) {
+    *CONFIG_DIR.write().unwrap_or_else(|poisoned| poisoned.into_inner()) =
+        Some(environment.get("CLAUDE_CONFIG_DIR").cloned());
+}
+
+fn configured_dir() -> Option<String> {
+    match &*CONFIG_DIR.read().unwrap_or_else(|poisoned| poisoned.into_inner()) {
+        Some(dir) => dir.clone(),
+        None => std::env::var("CLAUDE_CONFIG_DIR").ok(),
+    }
+}
+
 /// Claude Code's settings file: in the first folder CLAUDE_CONFIG_DIR names (it may list several, comma separated, and
 /// start with ~), else in the home folder (found on Windows too, where HOME is often not set).
 fn settings_file(configured: Option<&str>) -> PathBuf {
@@ -52,7 +69,7 @@ fn settings_file(configured: Option<&str>) -> PathBuf {
 /// The folders Claude Code has run in, by their written name: the keys of `projects` in its settings, each also under
 /// its repository's name when it is a worktree. Read again when the file changes.
 fn listed(written: &str) -> Option<String> {
-    let file = settings_file(std::env::var("CLAUDE_CONFIG_DIR").ok().as_deref());
+    let file = settings_file(configured_dir().as_deref());
     let stamp = (file.clone(), std::fs::metadata(&file).ok().and_then(|meta| meta.modified().ok()));
     SETTINGS.with(|settings| {
         let mut settings = settings.borrow_mut();

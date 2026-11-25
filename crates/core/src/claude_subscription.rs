@@ -1,7 +1,7 @@
 //! Claude subscription usage: the usage response's windows and extra usage, Claude Code's OAuth login (read only,
 //! tokens kept in memory), its statusline snapshot and the desktop app's own snapshot.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use jiff::tz::TimeZone;
@@ -440,8 +440,10 @@ fn login_document(raw: &[u8]) -> Option<Object> {
 }
 
 /// The access token, its expiry and whose login it is, read only; the refresh token is never kept.
-fn credentials() -> Result<(String, f64, String), OAuthError> {
-    let configured = std::env::var("CLAUDE_CONFIG_DIR").unwrap_or_default();
+/// CLAUDE_CONFIG_DIR is the runtime's (config.local.sh's, the app's PATH): opened from Finder or at login, the process's
+/// own environment holds neither (R9-1).
+fn credentials(environment: &HashMap<String, String>) -> Result<(String, f64, String), OAuthError> {
+    let configured = environment.get("CLAUDE_CONFIG_DIR").cloned().unwrap_or_default();
     if configured.contains(',') {
         return Err(oauth_error("profile", "多个 Claude 目录，请指定单一登录来源"));
     }
@@ -602,21 +604,21 @@ fn query_usage(token: &str) -> Result<Object, OAuthError> {
 const RENEW_SECONDS: f64 = 30.0;
 
 #[cfg(target_os = "macos")]
-fn renewed(before: &str) -> bool {
-    credentials().is_ok_and(|(_, expires, owner)| owner != before && expires > now() + 30.0)
+fn renewed(before: &str, environment: &HashMap<String, String>) -> bool {
+    credentials(environment).is_ok_and(|(_, expires, owner)| owner != before && expires > now() + 30.0)
 }
 
 /// Lets the CLI's own startup auth check rotate its token. Nothing is typed into it; it stops as soon as the login
 /// changes, or after 30 seconds, and its whole process group goes with it.
 #[cfg(target_os = "macos")]
-fn renew_with_claude(before: Option<&str>) -> Result<(), OAuthError> {
+fn renew_with_claude(before: Option<&str>, environment: &HashMap<String, String>) -> Result<(), OAuthError> {
     use std::os::unix::process::CommandExt;
     use std::time::{Duration, Instant};
 
     use crate::json::Format;
     use crate::shell;
-    let environment: std::collections::HashMap<String, String> = std::env::vars().collect();
-    let binary = shell::which("claude", &environment)
+    // Found on the runtime's PATH (Homebrew's, ~/.local/bin) and run in its environment, as the app sees it (R9-1).
+    let binary = shell::which("claude", environment)
         .ok_or_else(|| oauth_error("expired", "登录已过期，请安装并登录 Claude Code"))?;
     let directory = std::env::temp_dir().join(format!("swiftbar-claude-auth-{}", crate::runtime::random_hex(32)));
     std::fs::create_dir_all(&directory)
@@ -643,6 +645,8 @@ fn renew_with_claude(before: Option<&str>) -> Result<(), OAuthError> {
     command
         .args(["--strict-mcp-config", "--tools", "", "--settings", &settings])
         .current_dir(&directory)
+        .env_clear()
+        .envs(environment)
         .env("TERM", "xterm-256color")
         .env("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1")
         .env("DISABLE_AUTOUPDATER", "1")
@@ -669,7 +673,7 @@ fn renew_with_claude(before: Option<&str>) -> Result<(), OAuthError> {
             && Instant::now() >= check
         {
             check += Duration::from_secs(2);
-            if renewed(before) {
+            if renewed(before, environment) {
                 break;
             }
         }
@@ -693,7 +697,7 @@ fn renew_with_claude(before: Option<&str>) -> Result<(), OAuthError> {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn renew_with_claude(_before: Option<&str>) -> Result<(), OAuthError> {
+fn renew_with_claude(_before: Option<&str>, _environment: &HashMap<String, String>) -> Result<(), OAuthError> {
     Err(oauth_error("expired", "请在 Claude Code 中重新登录，再刷新用量"))
 }
 
@@ -703,7 +707,13 @@ fn unavailable(message: &str) -> Object {
 
 /// One read at a time; the server's backoff always holds, our own only until the user retries. Credentials stay
 /// read only, and another login's figures are never shown.
-pub fn oauth_fetch(state: &str, consent: bool, force: bool, requested_at: f64) -> (Object, Option<String>) {
+pub fn oauth_fetch(
+    state: &str,
+    consent: bool,
+    force: bool,
+    requested_at: f64,
+    environment: &HashMap<String, String>,
+) -> (Object, Option<String>) {
     if !consent {
         return (unavailable("未启用 Claude Code 登录查询"), None);
     }
@@ -733,7 +743,7 @@ pub fn oauth_fetch(state: &str, consent: bool, force: bool, requested_at: f64) -
     }
     let mut owner: Option<String> = None;
     let outcome = (|| -> Result<Object, OAuthError> {
-        let (mut token, mut expires, first) = credentials()?;
+        let (mut token, mut expires, first) = credentials(environment)?;
         owner = Some(first.clone());
         if cached.get("owner") != Some(&Json::from(first.as_str())) {
             // Never another login's quota.
@@ -746,8 +756,8 @@ pub fn oauth_fetch(state: &str, consent: bool, force: bool, requested_at: f64) -
             cached.insert("lastRenewAt", moment);
             cached.insert("checkedAt", moment);
             write_state(&path, cached);
-            renew_with_claude(owner.as_deref())?;
-            let (token, expires, next) = credentials()?;
+            renew_with_claude(owner.as_deref(), environment)?;
+            let (token, expires, next) = credentials(environment)?;
             *owner = Some(next);
             cached.remove("payload");
             Ok((token, expires))
@@ -902,7 +912,8 @@ impl Runtime {
                 .unwrap_or(0.0);
             // 立即刷新用量 is an explicit retry: renew once even after a failed renewal for this login.
             let retry = self.claude_retry_pending();
-            let (mut payload, error) = oauth_fetch(&self.state_dir, true, retry != 0.0, requested.max(retry));
+            let (mut payload, error) =
+                oauth_fetch(&self.state_dir, true, retry != 0.0, requested.max(retry), &self.environment);
             let handled = if retry != 0.0 {
                 Json::Double(retry)
             } else {
@@ -1002,6 +1013,65 @@ mod tests {
         let state = state.to_string_lossy().into_owned();
         write_state(&format!("{state}/claude-oauth-usage.json"), &record);
         state
+    }
+
+    /// A Claude login document as Claude Code writes it, its token and expiry given.
+    fn login(token: &str, expires_in: f64) -> String {
+        format!(
+            r#"{{"claudeAiOauth":{{"accessToken":"{token}","expiresAt":{},"scopes":["user:inference","user:profile"]}}}}"#,
+            ((now() + expires_in) * 1000.0) as i64
+        )
+    }
+
+    #[test]
+    fn the_login_is_read_from_the_runtimes_claude_folder_not_the_processs() {
+        // R9-1: config.local.sh names the folder; the process opened from Finder knows nothing of it.
+        let folder = std::env::temp_dir().join(format!("starmeter-claude-dir-{}", crate::runtime::random_hex(8)));
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join(".credentials.json"), login("sk-ant-oat01-aaaaaaaaaaaaaaaaaaaa", 3600.0)).unwrap();
+        assert!(std::env::var("CLAUDE_CONFIG_DIR").is_err(), "the test's own process names no folder");
+        let environment = HashMap::from([("CLAUDE_CONFIG_DIR".to_string(), folder.to_string_lossy().into_owned())]);
+        let (token, expires, _) = credentials(&environment).unwrap();
+        assert_eq!(token, "sk-ant-oat01-aaaaaaaaaaaaaaaaaaaa");
+        assert!(expires > now() + 3000.0);
+        let _ = std::fs::remove_dir_all(&folder);
+    }
+
+    /// R9-1: the CLI found on the runtime's PATH (not the process's bare one) and run in the runtime's environment,
+    /// its CLAUDE_CONFIG_DIR among it: a stand-in claude writes a fresh login there, and the renewal sees it.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_renewal_runs_the_claude_on_the_runtimes_path_in_its_environment() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!("starmeter-renew-{}", crate::runtime::random_hex(8)));
+        let (bin, folder) = (root.join("bin"), root.join("claude"));
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join(".credentials.json"), login("sk-ant-oat01-oldoldoldoldoldoldold", -60.0)).unwrap();
+        let script = bin.join("claude");
+        std::fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\nprintf '%s' '{}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\nsleep 20\n",
+                login("sk-ant-oat01-newnewnewnewnewnewnew", 3600.0)
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let environment = HashMap::from([
+            ("PATH".to_string(), format!("{}:/usr/bin:/bin", bin.to_string_lossy())),
+            ("CLAUDE_CONFIG_DIR".to_string(), folder.to_string_lossy().into_owned()),
+            ("HOME".to_string(), root.to_string_lossy().into_owned()),
+        ]);
+        let (_, _, before) = credentials(&environment).unwrap();
+        let started = std::time::Instant::now();
+        renew_with_claude(Some(&before), &environment).unwrap();
+        // Done once the new login is seen (checked every 2 s from the 3rd), well before the 30 s limit.
+        assert!(started.elapsed() < std::time::Duration::from_secs(15));
+        let (token, _, after) = credentials(&environment).unwrap();
+        assert_eq!(token, "sk-ant-oat01-newnewnewnewnewnewnew");
+        assert_ne!(after, before);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
