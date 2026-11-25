@@ -1164,3 +1164,32 @@ test('保持亮屏 says what it did: on, off, or why the browser would not (the 
   // Said for a moment, then gone.
   await expect(notice).toHaveCount(0, { timeout: 5000 });
 });
+
+test('the computer gone from 手绘 dark to 标准 dark, the phone reloaded: its first frame is the sky\'s, not the blackboard kept from before', async ({ page }) => {
+  // Served as the phone server serves it: the page carries the computer's look as it is now.
+  let look = { theme: 'dark', style: 'sketch' };
+  await page.route((url) => url.pathname === '/', async (route) => {
+    const answer = await route.fetch();
+    const html = (await answer.text()).replace('<script src="/first-frame.js"', `<script>window.STARMETER_LOOK=${JSON.stringify(look)};</script><script src="/first-frame.js"`);
+    await route.fulfill({ response: answer, body: html, headers: { ...answer.headers(), 'content-type': 'text/html' } });
+  });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await phone(page);
+  await computerChose(page, { theme: 'dark', style: 'sketch' });
+  await expect(page.locator('.stage.sketch')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('starmeter.edges') ?? '{}').top)).toBe('#1f2924');
+  // The computer turns 标准: the next load's first frame (before the page's own script) is the night sky.
+  look = { theme: 'dark', style: 'standard' };
+  await computerChose(page, { theme: 'dark', style: 'standard' });
+  const main = /\/src\/main\.ts(\?|$)/;
+  await page.route(main, () => {});
+  await page.reload({ waitUntil: 'commit' });
+  const colours = () => page.evaluate(() => ({ meta: document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.content, html: getComputedStyle(document.documentElement).backgroundColor }));
+  await expect.poll(colours).toEqual({ meta: '#1F3A7A', html: 'rgb(5, 10, 36)' });
+  expect(await page.evaluate(() => localStorage.getItem('starmeter.style'))).toBe('standard');
+  // And the page, drawn, keeps them.
+  await page.unroute(main);
+  await page.reload();
+  await expect(page.locator('.stage:not(.sketch)')).toBeVisible();
+  await expect.poll(colours).toEqual({ meta: '#1F3A7A', html: 'rgb(5, 10, 36)' });
+});

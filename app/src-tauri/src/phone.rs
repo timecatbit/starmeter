@@ -377,8 +377,39 @@ fn answer(app: &AppHandle, mut stream: TcpStream, key: &str) -> std::io::Result<
         return respond(&mut stream, 404, "text/plain; charset=utf-8", b"not here", false);
     }
     match app.asset_resolver().get(file.to_string()) {
+        // The page itself carries the computer's look as it is now, for its first frame (first-frame.js): iOS Safari
+        // takes its bars' colours from that frame and keeps them.
+        Some(asset) if file == "index.html" => {
+            let page = with_look(&String::from_utf8_lossy(&asset.bytes), &computer_look(&app.state::<Data>()));
+            respond(&mut stream, 200, &asset.mime_type, page.as_bytes(), false)
+        }
         Some(asset) => respond(&mut stream, 200, &asset.mime_type, &asset.bytes, false),
         None => respond(&mut stream, 404, "text/plain; charset=utf-8", b"not here", false),
+    }
+}
+
+/// The computer's theme (system, light, dark) and look (标准, 手绘) as the phone's page should first draw them.
+fn computer_look(data: &Data) -> Value {
+    let theme = match data {
+        Data::Engine(engine) => Value::from(
+            engine.runtime().settings().get("theme").and_then(starmeter_core::json::Json::as_str).unwrap_or("system"),
+        ),
+        Data::SwiftBar(files) => files.peek().get("theme").cloned().unwrap_or(Value::Null),
+        Data::Fixtures(fixtures) => {
+            fixtures.lock().expect("the fixtures").snapshot().get("theme").cloned().unwrap_or(Value::Null)
+        }
+    };
+    let theme =
+        theme.as_str().filter(|theme| ["system", "light", "dark"].contains(theme)).unwrap_or("system").to_string();
+    json!({"theme": theme, "style": crate::style::current()})
+}
+
+/// The page with the computer's look written in before its first script runs.
+fn with_look(page: &str, look: &Value) -> String {
+    let script = format!("<script>window.STARMETER_LOOK={look};</script>\n    ");
+    match page.find("<script src=\"/first-frame.js\"") {
+        Some(at) => format!("{}{script}{}", &page[..at], &page[at..]),
+        None => page.to_string(),
     }
 }
 
@@ -898,6 +929,17 @@ mod tests {
         assert_eq!(at, vec![800.0, 900.0]);
         // 会话 as it stands at 900, though the reading that first had it is gone.
         assert!(recent[1].get("sessions").is_some());
+    }
+
+    /// The page carries the computer's look just before first-frame.js reads it.
+    #[test]
+    fn the_page_carries_the_computers_look_for_its_first_frame() {
+        let page = "<head>\n    <title>Starmeter</title>\n    <script src=\"/first-frame.js\"></script>\n  </head>";
+        let shown = super::with_look(page, &serde_json::json!({"theme": "dark", "style": "standard"}));
+        let look = shown.find("window.STARMETER_LOOK={\"style\":\"standard\",\"theme\":\"dark\"};").expect("the look");
+        assert!(look < shown.find("first-frame.js").unwrap());
+        // A page without the script is left as it is.
+        assert_eq!(super::with_look("<html></html>", &serde_json::json!({})), "<html></html>");
     }
 
     #[test]
