@@ -300,6 +300,9 @@ export const rules: Rule[] = [
   [/^已用 (.+)$/, (m, tr) => `Used: ${tr(m[1])}`],
   [/^本周已用 (\d+(?:\.\d+)?%)$/, (m) => `${m[1]} used this week`],
   [/^本周期已用 (\d+(?:\.\d+)?%)$/, (m) => `${m[1]} used this cycle`],
+  // A plan on its reserve with one window of another name (R6-2): the name joined to 已用, as the rows write it.
+  [/^5 小时已用 (\d+(?:\.\d+)?%)$/, (m) => `${m[1]} used in 5 hours`],
+  [/^([^·]*\S)已用 (\d+(?:\.\d+)?%)$/, (m, tr) => `${m[2]} used on ${tr(m[1])}`],
   [/^(本周|本周期|5 小时) (\d+(?:\.\d+)?%)$/, (m, tr) => `${tr(m[1])} ${m[2]}`],
   [/^截至 (.+)$/, (m) => `as of ${m[1]}`],
   [/^(\d+) 个账户$/, (m) => `${m[1]} accounts`],

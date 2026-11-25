@@ -178,12 +178,15 @@ pub static WHOLE: [Rule; 4] = [
 ];
 
 /// One part of the engine's text.
-pub static RULES: [Rule; 93] = [
+pub static RULES: [Rule; 95] = [
     rule!(r"^已用 (\d+(?:\.\d+)?%)$", |m| format!("{} used", group(m, 1))),
     rule!(r"^已用 (\d+(?:\.\d+)?%) 截至 (.+)$", |m| format!("{} used as of {}", group(m, 1), group(m, 2))),
     rule!(r"^已用 (.+)$", |m| format!("Used: {}", translate(group(m, 1)))),
     rule!(r"^本周已用 (\d+(?:\.\d+)?%)$", |m| format!("{} used this week", group(m, 1))),
     rule!(r"^本周期已用 (\d+(?:\.\d+)?%)$", |m| format!("{} used this cycle", group(m, 1))),
+    // A plan on its reserve with one window of another name (R6-2): the name joined to 已用, as the rows write it.
+    rule!(r"^5 小时已用 (\d+(?:\.\d+)?%)$", |m| format!("{} used in 5 hours", group(m, 1))),
+    rule!(r"^([^·]*\S)已用 (\d+(?:\.\d+)?%)$", |m| format!("{} used on {}", group(m, 2), translate(group(m, 1)))),
     rule!(r"^(本周|本周期|5 小时) (\d+(?:\.\d+)?%)$", |m| format!("{} {}", translate(group(m, 1)), group(m, 2))),
     rule!(r"^截至 (.+)$", |m| format!("as of {}", group(m, 1))),
     rule!(r"^(\d+) 个账户$", |m| format!("{} accounts", group(m, 1))),
@@ -477,6 +480,10 @@ mod tests {
         assert_eq!(translate("Claude 服务状态"), "Claude status");
         assert_eq!(translate("数据待更新"), "Waiting for fresh data");
         assert_eq!(translate("已用 本周 76% · Fable 41%"), "Used: this week 76% · Fable 41%");
+        // A plan on its reserve with its one window named (R6-2).
+        assert_eq!(translate("本周已用 100%"), "100% used this week");
+        assert_eq!(translate("5 小时已用 100%"), "100% used in 5 hours");
+        assert_eq!(translate("Codex Spark已用 42.5%"), "42.5% used on Codex Spark");
         assert_eq!(translate("已用 Gemini 24% · Claude 和 GPT 18%"), "Used: Gemini 24% · Claude and GPT 18%");
         assert_eq!(translate("ChatGPT 订阅"), "ChatGPT plan");
         assert_eq!(translate("余额 ¥229.15 (2)"), "Balance ¥229.15 (2)");

@@ -102,6 +102,32 @@ test('English: a plan on its reserve names its single bar with its share first, 
   await expect(row.locator('.gauge-label')).toHaveText('used this week');
 });
 
+test('English: a plan on its reserve with one window of another name says it in English, its share first (R6-2)', async ({ page }) => {
+  for (const [detail, said, label] of [['5 小时已用 100%', '100% used in 5 hours', 'used in 5 hours'],
+    ['Codex Spark已用 42.5%', '42.5% used on Codex Spark', 'used on Codex Spark']]) {
+    await english(page);
+    await page.evaluate(async (detail) => {
+      const loaded = performance.getEntriesByType('resource').map((entry) => entry.name).filter((name) => name.includes('/src/lib/backend.ts'));
+      const { backend } = await import(/* @vite-ignore */ loaded.at(-1) ?? '/src/lib/backend.ts');
+      const real = backend.snapshot;
+      backend.snapshot = async () => {
+        const shot = await real();
+        for (const entry of shot.entries as { label?: string; module?: string }[]) {
+          if (entry.module === 'chatgpt' && entry.label === 'ChatGPT 订阅') {
+            Object.assign(entry, { value: '余 45,934 Credits', usageLevel: 'warning', share: 100, shareLevel: 'critical', detail });
+            delete (entry as { gauges?: unknown }).gauges;
+          }
+        }
+        return shot;
+      };
+      await backend.action(['set-group', 'tool']);
+    }, detail);
+    const row = page.locator('.row', { hasText: 'ChatGPT plan' });
+    await expect(row.locator('.gauge-name')).toHaveText(said);
+    await expect(row.locator('.gauge-label')).toHaveText(label);
+  }
+});
+
 test('English: the homepage, its pages and the card groupings', async ({ page }) => {
   const left = new Leftovers();
   await english(page);
