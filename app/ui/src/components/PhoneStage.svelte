@@ -152,6 +152,8 @@
     if (working) { const rate = live.rate(now); return `${rate === null ? '—' : rateText(rate)} Token/s`; }
     return live.cost === null ? '' : currency.symbol + grouped(live.cost);
   });
+  /** The estimate's range in the bar: today, or on SwiftBar's panel the range the computer shows (STAGE-10). */
+  const compactRange = $derived(live.dashboard && live.dashboard.rangeKey !== 'today' ? live.dashboard.rangeLabel : t('今天'));
   /** A turn just done, said at the top for a few seconds; a tap lets it go. */
   let doneShown = $state<number | null>(null);
   $effect(() => {
@@ -179,7 +181,8 @@
     void screenLock?.hold(on).then((held) => { if (!held) awake = false; });
   }
   // The system lets go of it when the page is hidden: taken again when it comes back.
-  $effect(() => { if (awake && !asleep) untrack(() => void screenLock?.resume()); });
+  // Refused on coming back (low power mode), the switch goes off rather than stay lit holding nothing (STAGE-10).
+  $effect(() => { if (awake && !asleep) untrack(() => void screenLock?.resume().then((held) => { if (!held) awake = false; })); });
   onMount(() => () => screenLock?.dispose());
 
   // MARK: Summary
@@ -367,7 +370,7 @@
           </svg>
           <span class="titles">
             <span class="word" class:away={headlineAway && !!compact}>Starmeter</span>
-            <span class="compact num" class:shown={headlineAway && !!compact} aria-hidden={!headlineAway}>{compact}<span class="compact-range">{working ? t('正在工作') : t('今天')}</span></span>
+            <span class="compact num" class:shown={headlineAway && !!compact} aria-hidden={!headlineAway}>{compact}<span class="compact-range">{working ? t('正在工作') : compactRange}</span></span>
           </span>
         </span>
         {#if lockable}

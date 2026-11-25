@@ -157,10 +157,14 @@
   const viewKey = $derived(phoneOpen ? 'phone' : sharing ? 'share' : toolId ? 'tool:' + toolId : pageEntry ? (managerOnly ? 'grid:' : 'home:') + pagePath.join('/') : managerOnly ? 'grid' : stageReady ? 'stage' : 'home');
   /** 网页版 on screen: the whole screen is its, both ways up; the other pages keep the panel's width in the middle. */
   const stageShown = $derived(viewKey === 'stage');
+  /** 网页版 chosen on a phone and the computer not yet answered: the window lets the last load's sky show through. */
+  const awaitingStage = $derived(onPhone && staged && !snapshot);
   // On a phone, the browser's bars take the page's colour (网页版 paints its own sky's edges): 电脑版's background, in
   // the theme and look the computer chose.
   $effect(() => {
-    if (!onPhone || stageShown || !windowBox) return;
+    // Waiting for the computer's first answer with 网页版 chosen, the colours of the last load stay (first-frame.js
+    // painted them, and they are kept): neither painted over nor kept as 电脑版's (STAGE-9).
+    if (!onPhone || stageShown || awaitingStage || !windowBox) return;
     void panel.dark; void style.current; void snapshot?.theme;
     const box = windowBox;
     const frame = requestAnimationFrame(() => { const colour = getComputedStyle(box).backgroundColor; paintEdges(colour, colour); });
@@ -810,7 +814,7 @@
 
 <svelte:window onkeydown={keydown} onresize={() => (screenWidth = window.innerWidth)} />
 
-<div class="window" bind:this={windowBox} class:solid={!glass} class:browser={!inTauri && !onPhone} class:phone={onPhone} class:staged={stageShown} oncontextmenu={contextmenu} role="application" aria-label={t('AI 用量面板')}
+<div class="window" bind:this={windowBox} class:solid={!glass} class:browser={!inTauri && !onPhone} class:phone={onPhone} class:staged={stageShown || awaitingStage} oncontextmenu={contextmenu} role="application" aria-label={t('AI 用量面板')}
   onpointermove={() => { if (pinned) showChrome(); }} onpointerleave={() => { if (pinned && !cornerFrom) showChrome(700); }}
   style:width={inTauri ? '100vw' : onPhone ? null : `${panelWidth}px`} style:height={inTauri ? '100vh' : onPhone ? null : `${panelHeight}px`}>
   {#key viewKey}

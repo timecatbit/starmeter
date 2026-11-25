@@ -572,6 +572,10 @@ test('on SwiftBar\'s panel the live figures are the computer\'s range, said as s
   await expect(page.locator('.stage .feed .event')).toHaveCount(0);
   await expect(page.locator('.stage .monitor.working')).toHaveCount(0);
   await expect(page.locator('.stage .monitor .added')).toHaveCount(0);
+  // Scrolled, the bar says that range too beside the estimate (STAGE-10).
+  await page.locator('.stage > .scroll').evaluate((s) => (s.scrollTop = 700));
+  await expect(page.locator('.stage .bar .compact-range')).toHaveText('近 30 天');
+  await page.locator('.stage > .scroll').evaluate((s) => (s.scrollTop = 0));
   range = 'today';
   await expect(page.locator('.stage .monitor .figure-block > .unit')).toHaveText('今天 · API 估算', { timeout: 7000 });
   await page.waitForTimeout(800);
@@ -813,14 +817,15 @@ test('reloaded on a phone in dark mode, the page and the bars are the computer\'
   const colours = () => page.evaluate(() => ({ meta: document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.content, html: getComputedStyle(document.documentElement).backgroundColor }));
   await expect.poll(colours).toEqual(lit);
   expect(await page.evaluate(() => document.documentElement.dataset.theme)).toBe('light');
-  // Then the page, waiting for the computer: in the computer's light theme, the bars with it.
+  // Then the page, waiting for the computer: the last load's sky shows through and stays, neither painted over with
+  // 电脑版's background nor kept as it (STAGE-9).
   await page.unroute(main);
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.locator('.window.phone')).toBeVisible();
-  const light = (colour: string) => colour.match(/\d+(\.\d+)?/g)!.slice(0, 3).map(Number).reduce((a, b) => a + b, 0) > 600;
-  const window = await page.locator('.window.phone').evaluate((e) => getComputedStyle(e).backgroundColor);
-  expect(light(window), window).toBe(true);
-  await expect.poll(async () => light((await colours()).html)).toBe(true);
+  await page.waitForTimeout(800);
+  expect(await colours()).toEqual(lit);
+  expect(await page.locator('.window.phone').evaluate((e) => getComputedStyle(e).backgroundColor)).toBe('rgba(0, 0, 0, 0)');
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('starmeter.edges')!).top)).toBe(lit.meta);
 });
 
 test('reloaded while the work goes on, the page has the computer\'s last minutes: the speed at once, not 0; opened fresh, — until it has its own', async ({ page }) => {
@@ -1066,4 +1071,29 @@ test('the computer\'s last minutes with a gap in them, or ended a while ago, are
   expect(seen.steady.ready).toBe(true);
   expect(seen.steady.rate).toBeGreaterThan(0);
   expect(seen.steady.state).toBe('working');
+});
+
+test('保持亮屏 refused on coming back (low power mode) goes off, not lit and holding nothing (STAGE-10)', async ({ page }) => {
+  await page.addInitScript(() => {
+    const state = { refuse: false, release: null as null | (() => void) };
+    (window as unknown as { lockState: typeof state }).lockState = state;
+    Object.defineProperty(navigator, 'wakeLock', { configurable: true, value: {
+      request: () => state.refuse ? Promise.reject(new Error('NotAllowedError')) : Promise.resolve({
+        release: async () => {}, addEventListener: (_: string, listener: () => void) => { state.release = listener; } }) } });
+  });
+  await phone(page, LANDSCAPE, '', { live: resting() });
+  const button = page.getByRole('button', { name: '保持亮屏' });
+  await button.click();
+  await expect(button).toHaveAttribute('aria-pressed', 'true');
+  // Hidden: the system lets go of it. Back, the browser refuses it now.
+  await page.evaluate(() => {
+    const state = (window as unknown as { lockState: { refuse: boolean; release: (() => void) | null } }).lockState;
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
+    state.release?.();
+    state.refuse = true;
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect(button).toHaveAttribute('aria-pressed', 'false');
 });

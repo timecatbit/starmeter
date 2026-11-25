@@ -75,5 +75,7 @@ test('pinned in English, 正在运行 and 动态 in English and within the panel
   await expect(now.locator('.label')).toHaveText('Running');
   await expect(now.locator('.pinned-event .what')).toHaveText(/^\+[\d.]+K tokens/, { timeout: 8000 });
   const width = await page.locator('.dashboard').evaluate((d) => d.getBoundingClientRect().right);
-  for (const right of await now.locator('.pinned-session > *, .event > *').evaluateAll((list) => list.map((e) => e.getBoundingClientRect().right))) expect(right).toBeLessThanOrEqual(width);
+  const parts = now.locator('.pinned-session > *, .pinned-event > *');
+  expect(await parts.count()).toBeGreaterThan(0);
+  for (const right of await parts.evaluateAll((list) => list.map((e) => e.getBoundingClientRect().right))) expect(right).toBeLessThanOrEqual(width);
 });
