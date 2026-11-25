@@ -399,6 +399,7 @@ fn main() {
             language::set_language,
             style::set_style,
             phone::live_now,
+            phone::recent_readings,
             phone::phone_start,
             phone::phone_status,
             phone::phone_stop,
@@ -422,6 +423,9 @@ fn main() {
             let handle = app.handle().clone();
             app.manage(data_source(&handle, &args, mode));
             app.manage(phone::Phone::default());
+            // The last minutes of live readings, from the start: the panel's 实时 and its pinned line, and a phone's page,
+            // open with them.
+            phone::keep_recording(handle.clone());
             // A check of the phone view without the panel: STARMETER_PHONE starts it at launch and prints where.
             // STARMETER_PHONE=public opens the public link too, as 任何网络 does after the user's yes.
             if let Some(which) = std::env::var_os("STARMETER_PHONE") {

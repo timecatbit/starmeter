@@ -155,16 +155,6 @@ pub fn phone_start(app: AppHandle) -> Result<PhoneView, String> {
         let (app, key, stop) = (app.clone(), key.clone(), stop.clone());
         std::thread::spawn(move || serve(app, listener, key, stop));
     }
-    {
-        // The last minutes kept while the server is on, a page open or not.
-        let (app, stop) = (app.clone(), stop.clone());
-        let _ = std::thread::Builder::new().name("starmeter-phone-readings".into()).spawn(move || {
-            while !stop.load(Ordering::SeqCst) {
-                sample(&app.state::<Data>());
-                std::thread::sleep(Duration::from_secs_f64(RECENT_EVERY));
-            }
-        });
-    }
     let started = Running { port, key, stop, public: None };
     let shown = view(&started);
     *running = Some(started);
@@ -532,15 +522,37 @@ fn phone_snapshot(app: &AppHandle, range: Option<&str>, group: Option<&str>) -> 
     snapshot
 }
 
-/// The live readings of the last few minutes, today's figures by tool in short (what a page's live line counts), so a
-/// page opened or reloaded while the work goes on has its last minutes at once, not a line starting from nothing and a
-/// speed of 0 while the sessions run. Kept here, whatever the figures come from (the app's own logs, SwiftBar's plugin,
-/// the fixtures): from each /api/live answer, and every couple of seconds while the server is on (`sample`), so the
-/// line goes on with no page open. Asked for with ?history=1.
+/// The live readings of the last few minutes, today's figures by tool in short (what a live line counts), so a phone's
+/// page opened or reloaded while the work goes on, the panel's 实时 opened, or the panel pinned, has its last minutes at
+/// once: not a line starting from nothing, a speed of 0 while the sessions run, an empty 动态. Kept here for every one of
+/// them alike, whatever the figures come from (the app's own logs, SwiftBar's plugin, the fixtures): from each live
+/// answer, and from the app's start on its own (`keep_recording`), phone view on or not. A phone asks for them with
+/// ?history=1, the panel with live_now's `history` or recent_readings. With 会话 off the homepage they carry none of it.
 static RECENT: Mutex<VecDeque<Value>> = Mutex::new(VecDeque::new());
-/// How long the readings are kept (a page's line spans five minutes, its speed the minute before), and how far apart.
+/// How long the readings are kept (a page's line spans five minutes, its speed the minute before), and how far apart:
+/// every couple of seconds while someone looks (the panel showing, the phone view on), every ten otherwise (the figures
+/// the reading takes change only as the app refreshes them, about once a minute while nobody looks), well inside the
+/// 15 seconds a page takes for a gap.
 const RECENT_FOR: f64 = 400.0;
 const RECENT_EVERY: f64 = 2.0;
+const RECENT_IDLE: f64 = 10.0;
+
+/// The last minutes recorded from the app's start: a reading every couple of seconds while the panel shows or the
+/// phone view is on, every ten otherwise. Cheap: today's figures as the app has them, nothing read again.
+pub fn keep_recording(app: AppHandle) {
+    let _ = std::thread::Builder::new().name("starmeter-live-readings".into()).spawn(move || {
+        loop {
+            sample(&app.state::<Data>());
+            let watched = crate::panel::visible(&app)
+                || app
+                    .state::<Phone>()
+                    .running
+                    .lock()
+                    .is_ok_and(|running| running.as_ref().is_some_and(|r| !r.stop.load(Ordering::SeqCst)));
+            std::thread::sleep(Duration::from_secs_f64(if watched { RECENT_EVERY } else { RECENT_IDLE }));
+        }
+    });
+}
 
 /// A reading kept: when, the day and range, and each tool's figures the line counts (Summary's share, what a gateway
 /// alone logged).
@@ -569,7 +581,8 @@ fn keep_recent(recent: &mut VecDeque<Value>, moment: f64, dashboard: &Value, ses
         })
         .collect();
     // Readings too old to draw, and any ahead of this moment (the clock set back), let go wherever they are; those
-    // kept carry 会话 as it stood when each was read.
+    // kept carry 会话 as it stood when each was read. 会话 off the homepage now: none of it kept at all (STAGE-1).
+    let sessions_on = sessions.is_some();
     let mut stood: Option<Value> = None;
     let mut kept_stood: Option<Value> = None;
     let kept: VecDeque<Value> = recent
@@ -584,13 +597,16 @@ fn keep_recent(recent: &mut VecDeque<Value>, moment: f64, dashboard: &Value, ses
             }
             if let Some(object) = reading.as_object_mut() {
                 object.remove("sessions");
-                if stood != kept_stood
+                if sessions_on
+                    && stood != kept_stood
                     && let Some(sessions) = &stood
                 {
                     object.insert("sessions".into(), sessions.clone());
                 }
             }
-            kept_stood.clone_from(&stood);
+            if sessions_on {
+                kept_stood.clone_from(&stood);
+            }
             Some(reading)
         })
         .collect();
@@ -699,9 +715,10 @@ fn live_from(data: &Data, history: bool) -> Value {
         phone_sessions(entry);
     }
     // The last minutes for a page just opened, from whatever source; then this reading kept with them.
+    let sessions_on = answer.get("sessions").is_some_and(Value::is_object);
     let mut recent = RECENT.lock().expect("the live readings");
     if history {
-        answer["history"] = Value::Array(recent.iter().cloned().collect());
+        answer["history"] = history_of(&recent, sessions_on);
     }
     if let (Some(at), Some(dashboard)) = (answer["at"].as_f64(), answer.get("dashboard")) {
         keep_recent(&mut recent, at, dashboard, answer.get("sessions").filter(|sessions| sessions.is_object()));
@@ -709,11 +726,38 @@ fn live_from(data: &Data, history: bool) -> Value {
     answer
 }
 
-/// The computer's own panel, pinned: the live answer a phone's 网页版 gets (today by tool, 会话's sessions, each turn's
-/// start), for 正在运行 and 动态 under its live curve. Off the main thread: the app reads today's logs for it.
+/// The last minutes as a page is given them: with 会话 off the homepage, none of its sessions (STAGE-1).
+fn history_of(recent: &VecDeque<Value>, sessions_on: bool) -> Value {
+    Value::Array(
+        recent
+            .iter()
+            .cloned()
+            .map(|mut reading| {
+                if !sessions_on && let Some(object) = reading.as_object_mut() {
+                    object.remove("sessions");
+                }
+                reading
+            })
+            .collect(),
+    )
+}
+
+/// The computer's own panel: the live answer a phone's 网页版 gets (today by tool, 会话's sessions, each turn's start),
+/// for 实时's 正在运行 and 动态, with the last minutes when it opens (`history`). Off the main thread: the app reads
+/// today's logs for it.
 #[tauri::command]
-pub async fn live_now(app: AppHandle) -> Value {
-    tauri::async_runtime::spawn_blocking(move || live(&app, false)).await.unwrap_or(Value::Null)
+pub async fn live_now(app: AppHandle, history: Option<bool>) -> Value {
+    tauri::async_runtime::spawn_blocking(move || live(&app, history.unwrap_or(false))).await.unwrap_or(Value::Null)
+}
+
+/// The last minutes only, at once (nothing read again): the panel pinned draws its live line from them before its
+/// first tick.
+#[tauri::command]
+pub fn recent_readings(app: AppHandle) -> Value {
+    let data = app.state::<Data>();
+    let sessions_on = today_now(&data).is_some_and(|(_, sessions)| sessions.is_object());
+    let recent = RECENT.lock().expect("the live readings");
+    json!({"at": starmeter_core::runtime::now(), "history": history_of(&recent, sessions_on)})
 }
 
 /// 会话's row in a snapshot, if it is on the homepage.
@@ -851,6 +895,29 @@ mod tests {
         // The clock set back: what is now ahead of it goes.
         super::keep_recent(&mut recent, 900.0, &dashboard(300.0), None);
         assert_eq!(recent.len(), 1);
+    }
+
+    /// 会话 off the homepage: the readings kept let go of every session they held, and the last minutes a page is
+    /// given carry none (STAGE-1: what was off went out over the phone link and into 动态 still).
+    #[test]
+    fn with_sessions_off_the_readings_carry_none_of_them() {
+        let dashboard = serde_json::json!({"date": "2026-11-25", "rangeKey": "today",
+            "providers": [{"id": "claude", "available": true, "tokens": 100.0, "output": 1.0, "cost": 1.0}]});
+        let sessions = serde_json::json!({"children": [{"label": "重做设置页的分段控件", "key": "session-1", "statusLight": "new", "detail": "运行中"}]});
+        let mut recent = std::collections::VecDeque::new();
+        super::keep_recent(&mut recent, 1000.0, &dashboard, Some(&sessions));
+        super::keep_recent(&mut recent, 1003.0, &dashboard, Some(&sessions));
+        assert!(recent.iter().any(|reading| reading.get("sessions").is_some()));
+        // Still on: given as kept.
+        assert!(super::history_of(&recent, true).to_string().contains("重做设置页的分段控件"));
+        // Off: not given, then not kept.
+        assert!(!super::history_of(&recent, false).to_string().contains("重做设置页的分段控件"));
+        super::keep_recent(&mut recent, 1006.0, &dashboard, None);
+        assert_eq!(recent.len(), 3);
+        assert!(recent.iter().all(|reading| reading.get("sessions").is_none()), "{recent:?}");
+        // On again: kept from then on.
+        super::keep_recent(&mut recent, 1009.0, &dashboard, Some(&sessions));
+        assert_eq!(recent.iter().filter(|reading| reading.get("sessions").is_some()).count(), 1);
     }
 
     /// SwiftBar's figures (the plugin's snapshot) have their last minutes too: kept while the server is on, given
