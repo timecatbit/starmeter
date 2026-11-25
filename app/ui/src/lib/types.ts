@@ -201,11 +201,18 @@ export interface LiveAnswer {
   dashboard: Dashboard | null;
   sessions: Entry | null;
   turns: Record<string, number>;
-  /** Asked for with ?history=1: the readings of the last few minutes (the computer's seconds), each tool's figures
-   *  the live line counts, for a page opened or reloaded while the work goes on. */
-  history?: { at: number; date: string; rangeKey: string; providers: Partial<ProviderUsage>[];
-    /** 会话 in short, when it changed: each session's title, key, light and state, and its latest turn's line. */
-    sessions?: { label: string; key?: string; statusLight?: string; detail?: string; children?: { label: string; detail?: string }[] }[] }[];
+  /** Asked for with ?history=1 (the panel: live_now's `history`): the readings of the last few minutes, for a page
+   *  opened or reloaded while the work goes on. */
+  history?: LiveReading[];
+}
+
+/** One of the last minutes' readings the computer keeps (the computer's seconds): each tool's figures the live line
+ *  counts (what a gateway alone logged as `counted`, when it did). */
+export interface LiveReading {
+  at: number; date: string; rangeKey: string;
+  providers: (Partial<Omit<ProviderUsage, 'counted'>> & { id: string; counted?: { tokens?: number; output?: number; cost?: number | null } })[];
+  /** 会话 in short, when it changed: each session's title, key, light and state, and its latest turn's line. */
+  sessions?: { label: string; key?: string; statusLight?: string; detail?: string; children?: { label: string; detail?: string }[] }[];
 }
 
 /** What an action left behind: done, failed (with why) or cancelled (a dialog was dismissed). */

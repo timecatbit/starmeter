@@ -15,7 +15,7 @@
 import { backend } from './backend';
 import { currency, legendName, money, summaryPart, tokens as tokenText } from './format';
 import { english, localize, source, t } from './i18n.svelte';
-import { LiveFeed } from './live';
+import { LiveFeed, readingDashboard } from './live';
 import type { Dashboard, Entry, LiveAnswer } from './types';
 
 /** Tokens added this recently still count as working, between requests of a turn that has no session to say so. */
@@ -325,14 +325,7 @@ export class PhoneLive {
         const rows = reading.sessions.map((row) => ({ ...row, children: (row.children ?? []).map((turn) => ({ ...turn, children: [] })) }));
         sessions = { label: '会话', children: rows } as unknown as Entry;
       }
-      const kept = new Map(reading.providers.map((p) => [p.id, p]));
-      const dashboard = { ...template, date: reading.date, rangeKey: reading.rangeKey, providers: template.providers.map((p) => {
-        const then = kept.get(p.id);
-        if (!then) return { ...p, available: false };
-        return { ...p, available: then.available ?? p.available, summaryIncluded: then.summaryIncluded ?? p.summaryIncluded,
-          tokens: then.tokens ?? 0, output: then.output ?? 0, cost: then.cost ?? null, counted: p.counted ? { ...p.counted, ...(then.counted ?? {}) } : p.counted };
-      }) } as Dashboard;
-      this.take({ at: reading.at, dashboard, sessions, turns: {} }, reading.at * 1000 - this.skew, true);
+      this.take({ at: reading.at, dashboard: readingDashboard(template, reading), sessions, turns: {} }, reading.at * 1000 - this.skew, true);
     }
   }
 

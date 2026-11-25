@@ -1,11 +1,29 @@
 // Pinned, the panel is watched while the user works, so the chart zooms in on now: what Summary's tools added in the
 // last minute, read every couple of seconds. The feed keeps the readings; LiveChart.svelte draws them.
 import { summaryPart } from './format';
-import type { Dashboard } from './types';
+import type { Dashboard, LiveReading } from './types';
 
 /** A reading: Summary's tokens (cache reads included, as the line and the cards count them), the output tokens the
- *  models generated, the cost, and each source's tokens and output tokens (a line of its own for each tool). */
-export interface Sample { at: number; total: number; output: number; cost: number; parts: Record<string, number>; outputs: Record<string, number> }
+ *  models generated, the cost, and each source's tokens and output tokens (a line of its own for each tool). `cut`: a
+ *  reading not comparable with the one before (a gap, a new range): the line stood still there, and what comes after
+ *  is never spread back over it. */
+export interface Sample { at: number; total: number; output: number; cost: number; parts: Record<string, number>; outputs: Record<string, number>; cut?: boolean }
+
+/** One of the computer's last minutes (a kept reading) as a dashboard: the tools of `template` (the latest figures, for
+ *  their names and shares), each with that moment's own figures, and a gateway's part only where that reading had one
+ *  (STAGE-12: a gateway that came or went within the minutes took the latest reading's part into every older one). */
+export function readingDashboard(template: Dashboard, reading: LiveReading): Dashboard {
+  const kept = new Map(reading.providers.map((p) => [p.id, p]));
+  return { ...template, date: reading.date, rangeKey: reading.rangeKey, providers: template.providers.map((p) => {
+    const then = kept.get(p.id);
+    if (!then) return { ...p, available: false };
+    const counted = then.counted ? { requests: 0, history: [], ...p.counted, ...then.counted, cost: then.counted.cost ?? null } : undefined;
+    return { ...p, available: then.available ?? p.available, summaryIncluded: then.summaryIncluded ?? p.summaryIncluded,
+      tokens: then.tokens ?? 0, output: then.output ?? 0, cost: then.cost ?? null, counted } as Dashboard['providers'][number];
+  }) } as Dashboard;
+}
+type Part = { tokens: number; output: number; cost: number };
+
 type Part = { tokens: number; output: number; cost: number };
 
 export class LiveFeed {
@@ -87,6 +105,7 @@ export class LiveFeed {
       parts: Object.fromEntries([...shifted].map(([id, part]) => [id, part.tokens])),
       outputs: Object.fromEntries([...shifted].map(([id, part]) => [id, part.output])) };
     if (!comparable || !this.samples.length) this.offset = LiveFeed.latest(dashboard) - sample.total;
+    if (!comparable && this.samples.length) sample.cut = true;
     this.keep(sample, at);
   }
 
@@ -96,12 +115,13 @@ export class LiveFeed {
     this.samples = this.samples.filter((s) => at - s.at <= this.history);
   }
 
-  /** The readings since the line last moved (within `spread`), raised evenly towards this one, which moved it. */
+  /** The readings since the line last moved (within `spread`), raised evenly towards this one, which moved it; never
+   *  back over a gap or a new range (a cut: the line stood still there, STAGE-13). */
   private spreadOut(sample: Sample) {
     const list = this.samples, last = list.at(-1);
-    if (!this.spread || !last || same(last, sample) || sample.at <= last.at) return;
+    if (!this.spread || !last || sample.cut || same(last, sample) || sample.at <= last.at) return;
     let from = list.length - 1;
-    while (from > 0 && same(list[from - 1], last) && sample.at - list[from - 1].at <= this.spread) from--;
+    while (from > 0 && !list[from].cut && same(list[from - 1], last) && sample.at - list[from - 1].at <= this.spread) from--;
     const anchor = list[from], length = sample.at - anchor.at;
     for (let i = from + 1; i < list.length; i++) list[i] = between(anchor, sample, (list[i].at - anchor.at) / length, list[i].at);
   }

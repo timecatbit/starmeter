@@ -1377,6 +1377,59 @@ test('the computer gone from 手绘 dark to 标准 dark, the phone reloaded: its
   await expect.poll(colours).toEqual({ meta: '#1F3A7A', html: 'rgb(5, 10, 36)' });
 });
 
+test('a reading of the last minutes has a gateway\'s part only where it had one then (STAGE-12)', async ({ page }) => {
+  await phone(page, PORTRAIT, '', { live: resting() });
+  const seen = await page.evaluate(async () => {
+    const { readingDashboard } = await import('/src/lib/live.ts');
+    const tool = { id: 'chatgpt', name: 'ChatGPT', available: true, summaryIncluded: true, tokens: 900, output: 90, cost: 9, requests: 3, history: [], models: [] };
+    const template = (counted: boolean) => ({ date: '2026-11-25', rangeKey: 'today', dates: [], providers: [{ ...tool, ...(counted ? { counted: { tokens: 400, output: 40, cost: 4, requests: 1, history: [] } } : {}) }] });
+    const reading = (counted: boolean) => ({ at: 1, date: '2026-11-25', rangeKey: 'today',
+      providers: [{ id: 'chatgpt', available: true, summaryIncluded: true, tokens: 500, output: 50, cost: 5, ...(counted ? { counted: { tokens: 200, output: 20, cost: 2 } } : {}) }] });
+    const part = (t: boolean, r: boolean) => (readingDashboard(template(t) as never, reading(r) as never).providers[0] as { counted?: { tokens: number; output: number } }).counted ?? null;
+    // A gateway now but not then: none of its part in the older reading; then but not now: its part as it was then.
+    return { cameLater: part(true, false), wentSince: part(false, true), both: part(true, true) };
+  });
+  expect(seen.cameLater).toBeNull();
+  expect(seen.wentSince).toMatchObject({ tokens: 200, output: 20 });
+  expect(seen.both).toMatchObject({ tokens: 200, output: 20 });
+});
+
+test('a change spread over the quiet stretch before it never reaches back over a gap or a new range (STAGE-13)', async ({ page }) => {
+  await phone(page, PORTRAIT, '', { live: resting() });
+  const outputs = await page.evaluate(async () => {
+    const { LiveFeed } = await import('/src/lib/live.ts');
+    const feed = new LiveFeed();
+    feed.spread = 30_000;
+    const at = (tokens: number, output: number) => ({ date: '2026-11-25', rangeKey: 'today', dates: [],
+      providers: [{ id: 'claude', name: 'Claude', available: true, summaryIncluded: true, tokens, output, cost: 0, requests: 0, history: [], models: [] }] });
+    feed.add(at(1000, 100) as never, 0);
+    feed.add(at(1000, 100) as never, 2_000);
+    // A gap: 900 more output came at moments unknown. The line stands still there.
+    feed.add(at(5000, 1000) as never, 20_000, true);
+    // Then 60 more over four seconds: spread back over its own quiet stretch, not over the gap.
+    feed.add(at(5600, 1060) as never, 24_000);
+    return feed.samples.map((s) => Math.round(s.output));
+  });
+  expect(outputs[0]).toBe(outputs[1]);
+  expect(outputs[2]).toBe(outputs[1]);
+  expect(outputs[3]).toBe(outputs[2] + 60);
+});
+
+test('with reduced motion the one still frame is drawn, by day and on paper too (STAGE-13)', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'light' });
+  for (const hash of ['', '&s=sketch']) {
+    await phone(page, PORTRAIT, hash, { live: resting() });
+    await page.waitForTimeout(400);
+    const painted = await page.locator('.stage .sky canvas.drift').evaluate((c) => {
+      const canvas = c as HTMLCanvasElement, data = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
+      let n = 0;
+      for (let i = 3; i < data.length; i += 4) if (data[i] > 8) n++;
+      return n;
+    });
+    expect(painted, hash || 'standard').toBeGreaterThan(200);
+  }
+});
+
 test('the live lines are smooth curves that go no further than their readings: never under zero, no peak not read, flat stays flat', async ({ page }) => {
   await phone(page, PORTRAIT, '', { live: resting() });
   const curve = await page.evaluate(async () => {
