@@ -2070,7 +2070,9 @@ def claude_subscription_lines(data):
     failed=refresh_failed(error)
     # 订阅额度框架: a window used up with extra usage on, what is left of it is the value, in orange.
     extra_on=payload.get('extraUsage') if isinstance(payload.get('extraUsage'),dict) and payload['extraUsage'].get('enabled') else None
-    on_reserve=bool(windows) and not stale and max(w['used'] for w in windows)>=100 and extra_on is not None
+    # Only with something left to spend: no limit, or one not reached; spent, it is the red 已用 100% (R9-3).
+    left=extra_on is not None and (not extra_on.get('limit') or float(extra_on['limit'])-float(extra_on.get('used') or 0)>0)
+    on_reserve=bool(windows) and not stale and max(w['used'] for w in windows)>=100 and left
     if on_reserve:
         symbol='$' if extra_on.get('currency','USD')=='USD' else extra_on['currency']+' '
         value='额外用量剩 %s%.2f'%(symbol,max(0,extra_on['limit']-extra_on['used'])) if extra_on.get('limit') else '在用额外用量'
@@ -2158,7 +2160,9 @@ def cursor_subscription_lines(data):
     # 订阅额度框架: the cycle's included usage used up with on-demand on, what is left of it is the value, in orange.
     on_demand=payload.get('onDemand') if isinstance(payload.get('onDemand'),dict) and payload['onDemand'].get('enabled') else None
     # Not with an unlimited plan: nothing to run out of, so no reserve and no full bar.
-    on_reserve=percent is not None and percent>=100 and on_demand is not None and not payload.get('unlimited')
+    # Only with something left to spend: no limit, or one not reached; spent, it is the red 已用 100% (R9-3).
+    left=on_demand is not None and (not on_demand.get('limitCents') or float(on_demand['limitCents'])-float(on_demand.get('usedCents') or 0)>0)
+    on_reserve=percent is not None and percent>=100 and left and not payload.get('unlimited')
     if not enabled:badge='未开启读取'
     elif payload.get('unlimited'):badge='不限量'
     elif on_reserve:badge='按需剩 $%.2f'%max(0,(on_demand['limitCents']-on_demand.get('usedCents',0))/100) if on_demand.get('limitCents') else '在用按需用量'
@@ -3450,7 +3454,11 @@ def chatgpt_lines(data):
     unlimited=bool(credits) and credits.get('unlimited') is True
     balance=credits_amount(credits.get('balance') or 0) if credits else None
     exhausted=(most is not None and most>=100) or bool(payload.get('blocked'))
-    on_reserve=exhausted and credits is not None and bool(visible)
+    # Only with Credits left: unlimited, or a balance above nothing; none (0, or not given), it is the red 已用 100%
+    # (R9-3).
+    figure=credits.get('balance') if credits else None
+    left=unlimited or (isinstance(figure,(int,float)) and not isinstance(figure,bool) and figure>0)
+    on_reserve=exhausted and credits is not None and left and bool(visible)
     if on_reserve:badge='Credits 不限' if unlimited else '余 %s Credits'%balance
     resets=payload.get('resets') if isinstance(payload.get('resets'),dict) else {}
     offered=resets.get('count') or 0

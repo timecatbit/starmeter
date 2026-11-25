@@ -2602,6 +2602,51 @@ class EngineRunParityTests(PanelParityTests):
         self.assertEqual(cursor.get('detail'), '本周期已用 100%')
         self.assertEqual((cursor['value'], cursor.get('usageLevel')), ('在用按需用量', 'warning'))
 
+    def test_a_reserve_spent_is_the_red_100_percent(self):
+        # R9-3: the window used up and the reserve spent too (Credits 0 or not given, extra usage or on-demand at its
+        # limit): nothing left to spend, so not the orange reserve but the red 已用 100%, in both engines.
+        self.codex_on_path()
+        codex = Path(self.common['HOME']) / '.codex'; codex.mkdir(exist_ok=True)
+        (codex / 'auth.json').write_text(json.dumps({'auth_mode': 'chatgpt'}))
+        self.settings(visible=['chatgpt', 'claude-subscription', 'cursor-subscription'], cursorUsage=True)
+        def iso(at):return datetime.fromtimestamp(at, timezone.utc).isoformat()
+        for balance in (0, None):
+            with self.subTest(balance=balance):
+                now = time.time()
+                self.caches(now)
+                records = {
+                    'chatgpt': {'state': '已同步', 'plan': 'pro', 'windows': [{'name': 'codex', 'slot': 'primary', 'remaining': 0, 'minutes': 10080, 'resetsAt': now + 86400}],
+                                'credits': {'balance': balance, 'unlimited': False}, 'blocked': True},
+                    'claude_subscription': {'windows': [{'label': '5 小时', 'used': 100, 'resetsAt': iso(now + 3600)}, {'label': '本周', 'used': 40, 'resetsAt': iso(now + 86400), 'span': 604800}],
+                                            'source': 'oauth', 'updatedAt': now - 20, 'stale': False,
+                                            'extraUsage': {'enabled': True, 'used': 50, 'limit': 50, 'currency': 'USD'}},
+                    'cursor_subscription': {'membership': 'pro', 'unlimited': False, 'percent': 100.0, 'usedCents': 2000.0, 'limitCents': 2000.0,
+                                            'cycleStart': now - 86400, 'cycleEnd': now + 86400 * 20, 'onDemand': {'enabled': True, 'usedCents': 500.0, 'limitCents': 500.0}},
+                }
+                for engine in self.states:
+                    for name, payload in records.items():
+                        (self.cache_dir(engine) / (name + '.json')).write_text(json.dumps({'schema': 1, 'fetchedAt': now - 30, 'payload': payload}, ensure_ascii=False))
+                expected, got = self.python('snapshot', now), self.swift('snapshot', now)
+                for key in expected:
+                    self.assertEqual(expected[key], got.get(key), key)
+                spent = {entry['label']: entry for entry in got['entries'] if entry.get('label')}
+                # Each row as it is with no reserve at all: what was there to spend is gone.
+                for engine in self.states:
+                    for name, payload in records.items():
+                        bare = {key: value for key, value in payload.items() if key not in ('credits', 'extraUsage', 'onDemand')}
+                        (self.cache_dir(engine) / (name + '.json')).write_text(json.dumps({'schema': 1, 'fetchedAt': now - 30, 'payload': bare}, ensure_ascii=False))
+                without = {entry['label']: entry for entry in self.swift('snapshot', now)['entries'] if entry.get('label')}
+                for label in ('ChatGPT 订阅', 'Claude 订阅', 'Cursor 订阅'):
+                    row = spent[label]
+                    self.assertNotIn('剩', row['value'], label)
+                    self.assertNotIn('余', row['value'], label)
+                    self.assertEqual((row['value'], row.get('usageLevel'), row.get('detail')),
+                                     (without[label]['value'], without[label].get('usageLevel'), without[label].get('detail')), label)
+                # The ones used up whole are the red 已用 100%.
+                for label in ('ChatGPT 订阅', 'Cursor 订阅'):
+                    self.assertTrue(spent[label]['value'].endswith('已用 100%'), (label, spent[label]['value']))
+                    self.assertEqual(spent[label].get('usageLevel'), 'critical', label)
+
     def test_payback_of_a_tool_off_the_homepage(self):
         # Claude 订阅 with a price, the Claude tool not on the homepage: weighed from the tool's own month read.
         self.settings(visible=['claude-subscription'], subscriptionPrices={'claude-subscription': 200})

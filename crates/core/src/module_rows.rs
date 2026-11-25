@@ -169,7 +169,12 @@ impl Runtime {
             .and_then(Json::as_object)
             .filter(|extra| extra.get("enabled").is_some_and(Json::is_truthy))
             .cloned();
-        let on_reserve = !stale && most.is_some_and(|most| most >= 100.0) && extra_on.is_some();
+        // Only with something left to spend: no limit, or one not reached; spent, it is the red 已用 100% (R9-3).
+        let left = |extra: &Object| match extra.get("limit").filter(|limit| limit.is_truthy()).and_then(Json::number) {
+            Some(limit) => limit - py::num(extra.get("used")) > 0.0,
+            None => true,
+        };
+        let on_reserve = !stale && most.is_some_and(|most| most >= 100.0) && extra_on.as_ref().is_some_and(left);
         if let Some(extra) = extra_on.as_ref().filter(|_| on_reserve) {
             let currency = py::str(Some(&extra.get("currency").cloned().unwrap_or_else(|| Json::from("USD"))));
             let symbol = if currency == "USD" { "$".to_string() } else { format!("{currency} ") };
@@ -515,8 +520,14 @@ impl Runtime {
             .filter(|extra| extra.get("enabled").is_some_and(Json::is_truthy))
             .cloned();
         // Not with an unlimited plan: nothing to run out of, so no reserve and no full bar.
+        // Only with something left to spend: no limit, or one not reached; spent, it is the red 已用 100% (R9-3).
+        let left =
+            |extra: &Object| match extra.get("limitCents").filter(|limit| limit.is_truthy()).and_then(Json::number) {
+                Some(limit) => limit - py::num(extra.get("usedCents")) > 0.0,
+                None => true,
+            };
         let on_reserve = percent.is_some_and(|percent| percent >= 100.0)
-            && on_demand.is_some()
+            && on_demand.as_ref().is_some_and(left)
             && !payload.get("unlimited").is_some_and(Json::is_truthy);
         let badge = if !enabled {
             "未开启读取".to_string()
@@ -852,7 +863,14 @@ impl Runtime {
         let unlimited = credits.is_some_and(|credits| credits.get("unlimited") == Some(&Json::Bool(true)));
         let balance = credits.map(|credits| rows::credits_amount(py::num(credits.get("balance"))));
         let exhausted = most.is_some_and(|most| most >= 100.0) || payload.get("blocked").is_some_and(Json::is_truthy);
-        let on_reserve = exhausted && credits.is_some() && !visible.is_empty();
+        // Only with Credits left: unlimited, or a balance above nothing; none (0, or not given), it is the red 已用 100%
+        // (R9-3).
+        let left = unlimited
+            || credits
+                .and_then(|credits| credits.get("balance"))
+                .and_then(Json::number)
+                .is_some_and(|balance| balance > 0.0);
+        let on_reserve = exhausted && credits.is_some() && left && !visible.is_empty();
         if on_reserve {
             badge = if unlimited {
                 "Credits 不限".to_string()
