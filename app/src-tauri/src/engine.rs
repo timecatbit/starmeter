@@ -183,6 +183,28 @@ impl Engine {
         to_value(Json::Object(value))
     }
 
+    /// Today's figures for the last minutes' live readings (phone.rs keeps them from the start), from the cache only:
+    /// never a read of the logs, rendered only when today's cache was written again since `seen` (its fetchedAt), and
+    /// none while a render is under way (a refresh, the panel's own drawing: the reading waits for the next turn, it
+    /// doesn't hold them up). STAGE-14.
+    pub fn today_cached(&self, seen: &mut f64) -> Option<Value> {
+        let runtime = self.runtime();
+        let _turn = self.rendering.try_lock().ok()?;
+        today_from_cache(&runtime, seen)
+    }
+
+    /// 会话 as cached, when the render lock is free (Some(Null) while it is off the homepage), for the same readings.
+    pub fn sessions_if_free(&self) -> Option<Value> {
+        let runtime = self.runtime();
+        let _turn = self.rendering.try_lock().ok()?;
+        Some(live_sessions(&runtime).0)
+    }
+
+    /// Whether 会话 is on the homepage: the last minutes given carry its sessions only then.
+    pub fn sessions_on(&self) -> bool {
+        self.runtime().module_enabled("sessions")
+    }
+
     /// One range's dashboard without changing the one on screen; reads it if the cache has none.
     pub fn dashboard(&self, range: &str) -> Value {
         self.dashboard_grouped(range, None)
@@ -749,9 +771,64 @@ fn online() -> bool {
     true
 }
 
+/// Today's dashboard from today's range cache as it stands (its figures and other computers'), if it was written again
+/// since `seen`: nothing read from the logs, nothing fetched when there is no cache.
+fn today_from_cache(runtime: &Runtime, seen: &mut f64) -> Option<Value> {
+    let record = runtime.read_cache(&runtime.range_cache_name(Some("today")));
+    let stamp = record.get("fetchedAt").and_then(Json::python_float)?;
+    if stamp == *seen {
+        return None;
+    }
+    let bundle = record.get("payload").and_then(Json::as_object).cloned()?;
+    let merged = runtime.with_devices("today", starmeter_core::object! { "payload" => bundle });
+    let loaded = (merged.get("payload").and_then(Json::as_object).cloned(), None);
+    let value = runtime.render(|| runtime.range_dashboard("today", Some("tool"), loaded, now()));
+    *seen = stamp;
+    Some(to_value(Json::Object(value)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// STAGE-14: the live readings' today comes from the cache only. No cache: nothing, and nothing fetched (the logs
+    /// not read: no cache written). A cache: its dashboard; the same cache again: nothing to render; written again:
+    /// rendered again.
+    #[test]
+    fn the_readings_today_comes_from_the_cache_alone() {
+        let home = std::env::temp_dir().join(format!("starmeter-today-{}", starmeter_core::runtime::random_hex(6)));
+        let (state, cache) = (home.join("state"), home.join("cache"));
+        std::fs::create_dir_all(&state).unwrap();
+        std::fs::create_dir_all(&cache).unwrap();
+        std::fs::write(state.join("preferences.json"), r#"{"schema":1,"visible":["summary","claude"]}"#).unwrap();
+        let environment: HashMap<String, String> = [
+            ("HOME", home.to_string_lossy().into_owned()),
+            ("OCX_STATE_DIR", state.to_string_lossy().into_owned()),
+            ("OCX_CACHE_DIR", cache.to_string_lossy().into_owned()),
+            ("PATH", home.join("bin").to_string_lossy().into_owned()),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value))
+        .collect();
+        let runtime = Runtime::new(environment, "starmeter");
+        let path = runtime.cache_path(&runtime.range_cache_name(Some("today")));
+        let mut seen = 0.0;
+        assert!(today_from_cache(&runtime, &mut seen).is_none());
+        assert!(!Path::new(&path).exists(), "fetched: {path}");
+        let write = |at: f64| {
+            let record = serde_json::json!({"schema": 1, "fetchedAt": at, "day": starmeter_core::runtime::today(),
+                "payload": {"range": "today", "start": at - 3600.0, "end": at}});
+            std::fs::create_dir_all(Path::new(&path).parent().unwrap()).unwrap();
+            std::fs::write(&path, record.to_string()).unwrap();
+        };
+        write(now() - 5.0);
+        let dashboard = today_from_cache(&runtime, &mut seen).expect("today's dashboard");
+        assert_eq!(dashboard["rangeKey"], "today", "{dashboard}");
+        assert!(today_from_cache(&runtime, &mut seen).is_none(), "the same cache rendered again");
+        write(now());
+        assert!(today_from_cache(&runtime, &mut seen).is_some());
+        let _ = std::fs::remove_dir_all(&home);
+    }
 
     /// STAGE-1: a session last read running, still in 会话's cache, goes to a phone's live view only while 会话 is on
     /// the homepage; turned off, nothing of it does (no row, no turn's start).

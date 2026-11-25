@@ -538,12 +538,15 @@ const RECENT_EVERY: f64 = 2.0;
 const RECENT_IDLE: f64 = 10.0;
 
 /// The last minutes recorded from the app's start: a reading every couple of seconds while the panel shows or the
-/// phone view is on, every ten otherwise. Cheap: today's figures as the app has them, nothing read again.
+/// phone view is on, every ten otherwise. Cheap (STAGE-14): today's figures from the app's cache only, rendered only
+/// when that cache was written again (otherwise the last reading again, at this moment), never a read of the logs, never
+/// waiting on a render under way; whether the panel shows from its flag, not asked of the main thread.
 pub fn keep_recording(app: AppHandle) {
     let _ = std::thread::Builder::new().name("starmeter-live-readings".into()).spawn(move || {
+        let mut seen = 0.0;
         loop {
-            sample(&app.state::<Data>());
-            let watched = crate::panel::visible(&app)
+            sample_cached(&app.state::<Data>(), &mut seen);
+            let watched = crate::engine::PANEL_OPEN.load(Ordering::SeqCst)
                 || app
                     .state::<Phone>()
                     .running
@@ -552,6 +555,27 @@ pub fn keep_recording(app: AppHandle) {
             std::thread::sleep(Duration::from_secs_f64(if watched { RECENT_EVERY } else { RECENT_IDLE }));
         }
     });
+}
+
+/// A reading for the last minutes from what the source has cached: the app's today when its cache was written again
+/// (else the last reading's figures again, so the readings run on without a gap), SwiftBar's snapshot looked at, the
+/// fixtures. Nothing when the app is busy rendering: the next turn takes it.
+fn sample_cached(data: &Data, seen: &mut f64) {
+    let Data::Engine(engine) = data else { return sample(data) };
+    let Some(mut sessions) = engine.sessions_if_free() else { return };
+    if sessions.is_object() {
+        phone_sessions(&mut sessions);
+    }
+    let sessions = sessions.is_object().then_some(&sessions);
+    let mut recent = RECENT.lock().expect("the live readings");
+    let dashboard = match engine.today_cached(seen) {
+        Some(dashboard) => dashboard,
+        None => match recent.back() {
+            Some(last) => json!({"date": last["date"], "rangeKey": last["rangeKey"], "providers": last["providers"]}),
+            None => return,
+        },
+    };
+    keep_recent(&mut recent, starmeter_core::runtime::now(), &dashboard, sessions);
 }
 
 /// A reading kept: when, the day and range, and each tool's figures the line counts (Summary's share, what a gateway
@@ -750,14 +774,23 @@ pub async fn live_now(app: AppHandle, history: Option<bool>) -> Value {
     tauri::async_runtime::spawn_blocking(move || live(&app, history.unwrap_or(false))).await.unwrap_or(Value::Null)
 }
 
-/// The last minutes only, at once (nothing read again): the panel pinned draws its live line from them before its
-/// first tick.
+/// The last minutes only, at once (nothing read again, off the main thread): the panel pinned draws its live line from
+/// them before its first tick. Whether 会话 is on asked of the preferences alone (STAGE-14: asking it of today's
+/// figures could read every log on the main thread).
 #[tauri::command]
-pub fn recent_readings(app: AppHandle) -> Value {
-    let data = app.state::<Data>();
-    let sessions_on = today_now(&data).is_some_and(|(_, sessions)| sessions.is_object());
-    let recent = RECENT.lock().expect("the live readings");
-    json!({"at": starmeter_core::runtime::now(), "history": history_of(&recent, sessions_on)})
+pub async fn recent_readings(app: AppHandle) -> Value {
+    tauri::async_runtime::spawn_blocking(move || {
+        let data = app.state::<Data>();
+        let sessions_on = match &*data {
+            Data::Engine(engine) => engine.sessions_on(),
+            Data::SwiftBar(files) => sessions_of(&files.peek()).is_object(),
+            Data::Fixtures(fixtures) => sessions_of(&fixtures.lock().expect("the fixtures").snapshot()).is_object(),
+        };
+        let recent = RECENT.lock().expect("the live readings");
+        json!({"at": starmeter_core::runtime::now(), "history": history_of(&recent, sessions_on)})
+    })
+    .await
+    .unwrap_or(Value::Null)
 }
 
 /// 会话's row in a snapshot, if it is on the homepage.
