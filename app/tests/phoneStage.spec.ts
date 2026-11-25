@@ -794,3 +794,29 @@ test('with no figures from the computer yet, a phone that chose 网页版 sees t
   await expect(foot.getByRole('radio', { name: '网页版' })).toHaveAttribute('aria-checked', 'true');
   expect(new URL(page.url()).hash).toContain('v=stage');
 });
+
+test('reloaded on a phone in dark mode, the page and the bars are the computer\'s light colours before it answers (the first frame)', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await phone(page);
+  await computerChose(page, { theme: 'light' });
+  await expect(page.locator('.stage.light')).toBeVisible();
+  const lit = await page.evaluate(() => ({ meta: document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.content, html: getComputedStyle(document.documentElement).backgroundColor }));
+  // Reloaded, the computer slow to answer: what is drawn meanwhile is in its colours, not the phone's dark.
+  await page.unroute('**/api/snapshot**');
+  await page.route('**/api/snapshot**', () => {});
+  await page.route('**/api/live**', () => {});
+  // Before the page's own script: the colours of the last load, and its theme.
+  await page.route('**/src/main.ts', () => {});
+  await page.reload({ waitUntil: 'commit' });
+  const colours = () => page.evaluate(() => ({ meta: document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.content, html: getComputedStyle(document.documentElement).backgroundColor }));
+  await expect.poll(colours).toEqual(lit);
+  expect(await page.evaluate(() => document.documentElement.dataset.theme)).toBe('light');
+  // Then the page, waiting for the computer: in the computer's light theme, the bars with it.
+  await page.unroute('**/src/main.ts');
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.locator('.window.phone')).toBeVisible();
+  const light = (colour: string) => colour.match(/\d+(\.\d+)?/g)!.slice(0, 3).map(Number).reduce((a, b) => a + b, 0) > 600;
+  const window = await page.locator('.window.phone').evaluate((e) => getComputedStyle(e).backgroundColor);
+  expect(light(window), window).toBe(true);
+  await expect.poll(async () => light((await colours()).html)).toBe(true);
+});

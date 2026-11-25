@@ -15,7 +15,7 @@
   import { chooseUpdateHints, markUpdatesSeen, pendingUpdates, updateHints } from './lib/updateHints.svelte';
   import { chooseStyle, followStyle, restoreStyle, style } from './lib/style.svelte';
   import { phoneStatus } from './lib/phone.svelte';
-  import { paintEdges } from './lib/edges';
+  import { keepTheme, keptTheme, paintEdges } from './lib/edges';
   import { choosePhoneLook, phoneLook, type PhoneLook } from './lib/phoneLook.svelte';
   import { chooseShortcut, restoreShortcut, shortcut } from './lib/shortcut.svelte';
   import { grabWindow, panel } from './lib/ui.svelte';
@@ -221,7 +221,9 @@
   // Transparency), and otherwise the page paints the solid colour.
   let glass = $state(false);
   $effect(() => {
-    const theme = snapshot?.theme ?? 'system', material = snapshot?.appearance ?? 'solid';
+    // A phone keeps the computer's theme for its next load: until the computer answers, that one, not the phone's own.
+    if (onPhone && snapshot?.theme) keepTheme(snapshot.theme);
+    const theme = snapshot?.theme ?? (onPhone ? keptTheme() : 'system'), material = snapshot?.appearance ?? 'solid';
     panel.theme = theme;
     if (theme === 'system') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = theme;
     void shell.setLook(theme, material).then((shown) => (glass = shown));
