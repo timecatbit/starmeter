@@ -168,11 +168,12 @@ export function qrModules(text: string, level: Level = 'M'): boolean[][] | null 
   return modules;
 }
 
-/** The QR code in the logo's look, laid out in modules (drawn by the share picture and by 在手机上看): a dot for each
- *  dark module outside the three finder eyes and the middle, the eyes' corners (drawn as rounded squares), and the
- *  middle square left clear for the app icon (level Q recovers the modules it covers). */
-export function qrLook(modules: boolean[][]) {
-  const n = modules.length, logo = n >= 29 ? 7 : 5, clear = logo + 2, from = Math.floor((n - clear) / 2);
+/** The QR code in the logo's look, laid out in modules (drawn by 在手机上看, and by the share picture without the icon):
+ *  a dot for each dark module outside the three finder eyes and the middle, the eyes' corners (drawn as rounded
+ *  squares), and the middle square left clear for the app icon (level Q recovers the modules it covers). Without the
+ *  icon every module outside the eyes is a dot. */
+export function qrLook(modules: boolean[][], icon = true) {
+  const n = modules.length, logo = n >= 29 ? 7 : 5, clear = icon ? logo + 2 : 0, from = Math.floor((n - clear) / 2);
   const eye = (mx: number, my: number) => (mx < 7 && my < 7) || (mx >= n - 7 && my < 7) || (mx < 7 && my >= n - 7);
   const centre = (mx: number, my: number) => mx >= from && mx < from + clear && my >= from && my < from + clear;
   const dots: [number, number][] = [];

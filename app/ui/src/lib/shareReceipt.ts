@@ -101,7 +101,7 @@ export async function drawReceiptPicture(d: Dashboard, project: Project, dark: b
   const bars = seeded([...p.date].reduce((s, ch) => s + ch.charCodeAt(0), 0) + 11), unit = 1.15;
   let x = WIDTH / 2 - 110;
   ctx.fillStyle = c.ink;
-  while (x < WIDTH / 2 + 108) { const w = (1 + Math.floor(bars() * 3)) * unit; ctx.fillRect(x, L.foot + 6, w, 22); x += w + (1 + Math.floor(bars() * 3)) * unit; }
+  while (x < WIDTH / 2 + 108) { const w = (1 + Math.floor(bars() * 3)) * unit; ctx.fillRect(x, L.foot + 4, w, 18); x += w + (1 + Math.floor(bars() * 3)) * unit; }
   drawSignature(ctx, p, project, L.sign + 20, { name: mono(14, 800), small: (s) => mono(s), size: 10.5, ink: c.ink, muted: c.faded });
   return canvas;
 }

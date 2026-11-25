@@ -52,7 +52,7 @@ export async function drawKnitPicture(d: Dashboard, project: Project, dark: bool
   // above it, leaving room for the fringe, and holds the title, the estimate, the tags and the curve on the rows every
   // style uses.
   const label = { x: 24, y: (G.tools[0] ?? G.foot) - 16, w: WIDTH - 48, h: 0 };
-  label.h = G.sign + 100 - label.y;
+  label.h = G.sign + 110 - label.y;
   const chart = p.chart, scarfTop = G.title + 2, rows = Math.floor((Math.max(label.y - FRINGE, G.stats + 62) - scarfTop) / CELL_H);
   const panel = { x: panelX, y: scarfTop, w: cols * CELL_W, h: rows * CELL_H };
   const rowAt = (y: number) => Math.round((y - scarfTop) / CELL_H);
