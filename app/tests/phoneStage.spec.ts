@@ -447,7 +447,8 @@ test('网页版 in 手绘 lays its panes as sheets of the computer\'s background
   expect(shown.image).toContain('0.035');
   expect(shown.image).toContain('linear-gradient');
   expect(shown.blur).toContain('blur(1.5px)');
-  expect(shown.shadow).toContain('-16px');
+  // (The panes' shadow eases to its new one.)
+  await expect.poll(async () => (await read()).shadow).toContain('-16px');
 });
 
 test('网页版\'s figures and words keep the panel\'s rules: figures rounded at 600, words in the panel\'s own face', async ({ page }) => {
