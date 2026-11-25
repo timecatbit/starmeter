@@ -238,7 +238,9 @@ export async function action(action: string[]): Promise<ActionReceipt> {
       // As the core does: the range on screen, ticked in the menu, stays until the new one has been read (here a
       // moment, longer for the longer ranges); a range picked meanwhile replaces it.
       wanted = a;
-      const read = a === 'all' || a === '30d' || a === 'month' ? 450 : 250;
+      // ?slow-ranges: three seconds, for a test that acts while one is read and must not have the page change under
+      // its pointer meanwhile (FLAKE-1).
+      const read = new URLSearchParams(location.search).has('slow-ranges') ? 3000 : a === 'all' || a === '30d' || a === 'month' ? 450 : 250;
       setTimeout(() => {
         if (wanted !== a) return;
         state.range = a;

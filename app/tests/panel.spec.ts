@@ -19,6 +19,17 @@ async function open(page: Page, query = '') {
   await page.waitForTimeout(300);
 }
 const button = (page: Page, label: string) => page.getByRole('button', { name: label, exact: true });
+/** After a reload: the homepage drawn and the panel grown to it (it opens 400 high and fits its page a frame later),
+ *  still for two frames, so a click aimed low on the page lands where it was aimed (FLAKE-1). */
+async function settled(page: Page) {
+  await expect(page.locator('.dashboard')).toBeVisible();
+  await expect.poll(() => page.locator('.window').evaluate(async (box) => {
+    const first = box.getBoundingClientRect().height;
+    await new Promise(requestAnimationFrame);
+    await new Promise(requestAnimationFrame);
+    return first > 400 && box.getBoundingClientRect().height === first;
+  })).toBe(true);
+}
 /** The panel's own dropdown: opens under its button, then the option is clicked. */
 async function choose(page: Page, label: RegExp, option: string) {
   await page.getByRole('button', { name: label }).click();
@@ -770,22 +781,31 @@ test('grouping by model or project swaps the cards, five of them and the rest be
   await expect(page.locator('.card')).toHaveCount(15);
 });
 
-/** The grouping's answers slowed (190 ms, as Codex measured them; 0 for their usual pace), every action noted in
+/** The grouping's answers slowed (190 ms, as Codex measured them; 0 for their usual pace; 'held' until letGroups, so
+ *  clicks made meanwhile all come before any answer however busy the machine: FLAKE-1), every action noted in
  *  window.asked. */
-async function slowGroups(page: Page, slow = 190) {
+async function slowGroups(page: Page, slow: number | 'held' = 190) {
   await page.evaluate(async (slow) => {
     const loaded = performance.getEntriesByType('resource').map((entry) => entry.name).filter((name) => name.includes('/src/lib/backend.ts'));
     const { backend } = await import(/* @vite-ignore */ loaded.at(-1) ?? '/src/lib/backend.ts');
     const real = backend.action;
-    const w = window as unknown as { asked: string[][] };
+    const w = window as unknown as { asked: string[][]; letGroups: () => void; holdGroups: () => void };
     w.asked = [];
+    let gate = Promise.resolve(), release = () => {};
+    w.holdGroups = () => { gate = new Promise<void>((resolve) => (release = resolve)); };
+    w.letGroups = () => release();
+    if (slow === 'held') w.holdGroups();
     backend.action = async (action: string[]) => {
       w.asked.push(action);
-      if (action[0] === 'set-group' && slow) await new Promise((resolve) => setTimeout(resolve, slow));
+      if (action[0] === 'set-group' && slow === 'held') await gate;
+      else if (action[0] === 'set-group' && slow) await new Promise((resolve) => setTimeout(resolve, slow));
       return real(action);
     };
   }, slow);
 }
+/** The grouping's answers kept by slowGroups(page, 'held') let go; holdGroups keeps the next ones again. */
+const letGroups = (page: Page) => page.evaluate(() => (window as unknown as { letGroups: () => void }).letGroups());
+const holdGroups = (page: Page) => page.evaluate(() => (window as unknown as { holdGroups: () => void }).holdGroups());
 /** Every frame for the time given: which grouping tab is lit, and the first card's name. */
 const frames = (page: Page, ms: number) => page.evaluate(async (ms) => {
   const seen: { lit: string; card: string }[] = [];
@@ -800,13 +820,13 @@ const frames = (page: Page, ms: number) => page.evaluate(async (ms) => {
 
 test('the grouping clicked last is the one kept, a click back to the one on screen among them (GROUP-PICK)', async ({ page }) => {
   await open(page);
-  await slowGroups(page);
+  await slowGroups(page, 'held');
   await choose(page, /统计范围/, '近 7 天');
-  // 模型, and 40 ms later back to 工具, while 近 7 天 is being read.
+  // 模型, then back to 工具 before 模型's answer comes, while 近 7 天 is being read.
   await page.getByRole('radio', { name: '模型' }).click();
-  await page.waitForTimeout(40);
   await page.getByRole('radio', { name: '工具' }).click();
   await expect(page.getByRole('radio', { name: '工具' })).toHaveAttribute('aria-checked', 'true');
+  await letGroups(page);
   await page.waitForTimeout(1200);
   await expect(page.getByRole('radio', { name: '工具' })).toHaveAttribute('aria-checked', 'true');
   // The cards are the tools', and the last grouping asked is 工具.
@@ -816,12 +836,13 @@ test('the grouping clicked last is the one kept, a click back to the one on scre
 });
 
 test('the grouping lit is the one clicked last, from the click on, and the cards before it are out of reach (GROUP-FLASH)', async ({ page }) => {
-  await open(page);
-  await slowGroups(page);
-  // Every frame from the click on 项目: which tab is lit.
+  await open(page, '?slow-ranges');
+  await slowGroups(page, 'held');
+  // Every frame from the click on 项目, the answers let go: which tab is lit.
   await page.getByRole('radio', { name: '模型' }).click();
   await page.getByRole('radio', { name: '项目' }).click();
   const lit = await page.evaluate(async () => {
+    (window as unknown as { letGroups: () => void }).letGroups();
     const seen: string[] = [];
     const until = performance.now() + 1200;
     while (performance.now() < until) {
@@ -835,8 +856,11 @@ test('the grouping lit is the one clicked last, from the click on, and the cards
   // 近 7 天, 模型, then at once the first card: the tool card still on screen is held, its page doesn't open.
   await page.getByRole('radio', { name: '工具' }).click();
   await expect(page.getByRole('button', { name: 'Claude 详情' })).toBeVisible();
+  // 近 7 天 read slowly (?slow-ranges): read through before the click, its taller heatmap moved the cards down under a
+  // click aimed at the old place, which landed on 会话 instead (FLAKE-1).
   await choose(page, /统计范围/, '近 7 天');
   await page.getByRole('radio', { name: '模型' }).click();
+  await expect(page.locator('.list')).toHaveAttribute('inert', '');
   await page.locator('.list .card').first().click({ force: true });
   await page.waitForTimeout(600);
   await expect(page.getByRole('heading', { name: 'Claude', exact: true })).toHaveCount(0);
@@ -861,7 +885,8 @@ test('at their usual pace, a grouping picked while a range is read is kept to th
 });
 
 test('at their usual pace, the tool cards of a range still read are out of reach once 模型 is picked (GROUP-FLASH)', async ({ page }) => {
-  await open(page);
+  // 近 7 天 read slowly, so the cards stay where they are under the click (FLAKE-1); 模型 answers at once.
+  await open(page, '?slow-ranges');
   await slowGroups(page, 0);
   await choose(page, /统计范围/, '近 7 天');
   await page.getByRole('radio', { name: '模型' }).click();
@@ -877,35 +902,40 @@ test('at their usual pace, the tool cards of a range still read are out of reach
 
 test('工具, 模型, 项目: the grouping between is never drawn, the tool cards held until the projects\' come (GROUP-FLASH)', async ({ page }) => {
   await open(page);
-  await slowGroups(page);
+  await slowGroups(page, 'held');
   const tools = (await page.locator('.card .name').first().textContent())!.trim();
   await page.getByRole('radio', { name: '模型' }).click();
   await page.getByRole('radio', { name: '项目' }).click();
+  await letGroups(page);
   const seen = await frames(page, 1200);
-  expect(new Set(seen.map((frame) => frame.card))).toEqual(new Set([tools, 'starmeter']));
+  // Every frame the tools' cards or the projects', never the models' between.
+  expect([...new Set(seen.map((frame) => frame.card))].filter((card) => card !== tools && card !== 'starmeter')).toEqual([]);
   expect(seen.at(-1)!.card).toBe('starmeter');
   // 工具, 模型, back to 工具: the models' never drawn either.
   await page.getByRole('radio', { name: '工具' }).click();
   await expect(page.locator('.card .name').first()).toHaveText(tools);
+  await holdGroups(page);
   await page.getByRole('radio', { name: '模型' }).click();
   await page.getByRole('radio', { name: '工具' }).click();
+  await letGroups(page);
   const back = await frames(page, 1000);
   expect(new Set(back.map((frame) => frame.card))).toEqual(new Set([tools]));
 });
 
 test('工具, 模型, 工具 with the readings slow to come: the models\' cards are never drawn in between (R7-1)', async ({ page }) => {
   await open(page);
-  // 工具 is clicked while 模型's action is on its way (600 ms); each reading of the whole panel takes 250 ms, as the
-  // app's can over IPC. The reading asked once 模型's action is done (after 工具 was clicked, so it counts) answers 模型's
-  // cards; 工具's action is then done before the reading after it comes, and its receipt (carrying the preferences, as
-  // a module's or a theme's does) has the page look again at once.
+  // 工具 is clicked while 模型's action is on its way (held until both clicks are made); each reading of the whole
+  // panel takes 250 ms, as the app's can over IPC. The reading asked once 模型's action is done (after 工具 was clicked,
+  // so it counts) answers 模型's cards; 工具's action is then done before the reading after it comes, and its receipt
+  // (carrying the preferences, as a module's or a theme's does) has the page look again at once.
   await page.evaluate(async () => {
     const loaded = performance.getEntriesByType('resource').map((entry) => entry.name).filter((name) => name.includes('/src/lib/backend.ts'));
     const { backend } = await import(/* @vite-ignore */ loaded.at(-1) ?? '/src/lib/backend.ts');
-    const action = backend.action, snapshot = backend.snapshot;
+    const action = backend.action, snapshot = backend.snapshot, w = window as unknown as { letGroups: () => void };
+    const gate = new Promise<void>((resolve) => (w.letGroups = resolve));
     backend.action = async (asked: string[]) => {
       if (asked[0] !== 'set-group') return action(asked);
-      await new Promise((resolve) => setTimeout(resolve, 600));
+      await gate;
       const receipt = await action(asked);
       return { ...receipt, preferences: (await snapshot()).preferences };
     };
@@ -913,8 +943,8 @@ test('工具, 模型, 工具 with the readings slow to come: the models\' cards 
   });
   const tools = (await page.locator('.card .name').first().textContent())!.trim();
   await page.getByRole('radio', { name: '模型' }).click();
-  await page.waitForTimeout(30);
   await page.getByRole('radio', { name: '工具' }).click();
+  await letGroups(page);
   const seen = await frames(page, 2000);
   expect(new Set(seen.map((frame) => frame.card))).toEqual(new Set([tools]));
   expect(new Set(seen.map((frame) => frame.lit))).toEqual(new Set(['工具']));
@@ -1032,6 +1062,7 @@ test('a newer version shows beside Starmeter, a pill until looked at and then a 
   await expect(mark).not.toHaveClass(/fresh/);
   await expect(mark.locator('.dot')).toHaveCount(1);
   await page.reload();
+  await settled(page);
   await expect(page.locator('.heading .update-mark')).not.toHaveClass(/fresh/);
   // In 工具更新, each row with a newer version has its 更新 pill to click, the pills in one column at the right edge
   // whether the row opens an app (no ↗ beside the pill) or runs a command; a command is never broken between words.
@@ -1086,7 +1117,7 @@ test('what was opened stays open: 查看更多 and an opened session, across tab
   await expect(page.getByRole('button', { name: '收起' })).toHaveAttribute('aria-expanded', 'true');
   // A reopened panel (the page loaded afresh) has them as they were.
   await page.reload();
-  await expect(page.locator('.dashboard')).toBeVisible();
+  await settled(page);
   await page.getByRole('radio', { name: '项目' }).click();
   await expect(page.locator('.card')).toHaveCount(projects);
   await page.getByRole('radio', { name: '会话' }).click();
@@ -1095,7 +1126,7 @@ test('what was opened stays open: 查看更多 and an opened session, across tab
   // Closed again, it stays closed.
   await page.locator('.session .head').first().click();
   await page.reload();
-  await expect(page.locator('.dashboard')).toBeVisible();
+  await settled(page);
   await page.getByRole('radio', { name: '会话' }).click();
   await expect(page.locator('.session .head').first()).toHaveAttribute('aria-expanded', 'false');
 });
@@ -1119,7 +1150,7 @@ test('a list opened with 查看更多 folds back with 收起 at its end, the but
     await expect(again, tab).toBeInViewport();
   }
   await page.reload();
-  await expect(page.locator('.dashboard')).toBeVisible();
+  await settled(page);
   await page.getByRole('radio', { name: '会话' }).click();
   await expect(page.locator('.session')).toHaveCount(5);
   await expect(page.getByRole('button', { name: /查看更多 \d+ 个会话/ })).toBeVisible();
