@@ -1169,7 +1169,10 @@ test('the sky floats the logos of the tools at work, the Starmeter mark when not
   expect((await read()).count).toBeGreaterThanOrEqual(2);
   // (Both sessions' logos are the one blank stand-in here, so one mark: tools' own logos are told apart by their pictures.)
   // Nothing running: the Starmeter mark, faded in where it is (not a minute's float up from the foot).
-  for (const seconds of [6, 9, 12, 15, 18, 21]) { work.at(seconds); await page.waitForTimeout(600); }
+  // (The computer's clock moved on a few seconds a reading, as it is: a jump past 15 seconds is a gap, and a turn ended
+  // in a gap is not announced.)
+  for (const seconds of [6, 9]) { work.at(seconds); await page.waitForTimeout(2000); }
+  work.at(21);
   await expect(page.locator('.stage .turn-done')).toBeVisible({ timeout: 5000 });
   work.at(80);
   await expect(page.locator('.stage .monitor:not(.working)')).toBeVisible({ timeout: 5000 });
