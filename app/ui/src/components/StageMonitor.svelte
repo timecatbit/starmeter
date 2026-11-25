@@ -59,8 +59,10 @@
   // Written again at each reading: the computer's currency comes with it (currency is no state of its own).
   const amount = $derived.by(() => { void live.version; return cost === null ? '—' : currency.symbol + grouped(cost); });
   const since = $derived(live.lastActive === null ? null : Math.max(0, Math.round((now - live.lastActive) / 60_000)));
-  const stateLine = $derived(working
-    ? (running ? t('正在工作 · {n} 个会话运行中', { n: running }) : t('正在工作'))
+  // Before the first answer: as the computer said when it gave the page (or the page last saw it), else 正在读取….
+  const runningNow = $derived(live.answered ? running : live.runningBefore);
+  const stateLine = $derived(!live.known ? t('正在读取…') : working
+    ? (runningNow ? t('正在工作 · {n} 个会话运行中', { n: runningNow }) : t('正在工作'))
     : since === null ? t('休息中') : since < 1 ? t('休息中 · 刚刚还在工作') : t('休息中 · 上次活动 {n} 分钟前', { n: since }));
   /** What the last reading added to today's estimate, rising off it for a moment. */
   const added = $derived(live.costAdded && now - live.costAdded.at < 2500 ? live.costAdded : null);

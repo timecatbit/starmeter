@@ -55,7 +55,7 @@
     </div>
   {/each}
   {#if !running.length}
-    <p class="quiet">{latest ? t('没有在运行的会话 · 最近：{title}{idle}', { title: latest.title, idle: latest.idle ? ' · ' + latest.idle : '' }) : t('没有在运行的会话')}</p>
+    <p class="quiet">{!live.answered ? t('正在读取…') : latest ? t('没有在运行的会话 · 最近：{title}{idle}', { title: latest.title, idle: latest.idle ? ' · ' + latest.idle : '' }) : t('没有在运行的会话')}</p>
   {/if}
 
   <div class="head feed-head"><span>{t('动态')}</span></div>
@@ -77,7 +77,7 @@
       {/each}
     </ol>
   {:else}
-    <p class="quiet">{live.state === 'working' ? t('等下一笔请求…') : t('一有动静就会出现在这里')}</p>
+    <p class="quiet">{!live.answered ? t('正在读取…') : live.state === 'working' ? t('等下一笔请求…') : t('一有动静就会出现在这里')}</p>
   {/if}
 </div>
 

@@ -1672,6 +1672,71 @@ test('保持亮屏 switched off before the lock comes says it is off, not that t
   await expect(page.locator('.stage .notice')).toHaveText('屏幕会保持常亮，离开这一页就恢复自动锁屏');
 });
 
+/** Every state the page is in from its very start (each change to it and each frame): whether 网页版's monitor is
+ *  there, at work, and whether it says anything of resting (休息中, no session running). */
+async function recordStates(page: Page) {
+  await page.addInitScript(() => {
+    const seen: { working: boolean; resting: boolean; line: string }[] = [];
+    (window as unknown as { seenStates: typeof seen }).seenStates = seen;
+    const look = () => {
+      const monitor = document.querySelector('.stage .monitor');
+      if (!monitor) return;
+      const text = document.querySelector('.stage')?.textContent ?? '';
+      const line = monitor.querySelector('.state-text')?.textContent ?? '';
+      seen.push({ working: monitor.classList.contains('working'), resting: /休息中|没有在运行的会话|一有动静就会出现在这里/.test(text), line });
+    };
+    new MutationObserver(look).observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+    const frame = () => { look(); requestAnimationFrame(frame); };
+    requestAnimationFrame(frame);
+  });
+}
+const statesSeen = (page: Page) => page.evaluate(() => (window as unknown as { seenStates: { working: boolean; resting: boolean; line: string }[] }).seenStates);
+/** The computer slow with its first live answer (the history): the page's first frames come before it. */
+const slowLive = (page: Page, ms = 1200) => page.route('**/api/live**', async (route) => { await new Promise((r) => setTimeout(r, ms)); await route.fallback(); });
+
+test('reloaded while the AI works, the page is at work from its first frame: never a flash of resting (as the computer told it, or as it last saw)', async ({ page }) => {
+  // As the phone server gives the page: it writes in that the AI is at work, two sessions running (phone.rs).
+  await page.route((url) => url.pathname === '/', async (route) => {
+    const answer = await route.fetch();
+    const html = (await answer.text()).replace('<script src="/first-frame.js"', '<script>window.STARMETER_LIVE={"working":true,"running":2};</script><script src="/first-frame.js"');
+    await route.fulfill({ response: answer, body: html, headers: { ...answer.headers(), 'content-type': 'text/html' } });
+  });
+  await recordStates(page);
+  const work = scripted();
+  await page.setViewportSize(PORTRAIT);
+  await servePhone(page, PHONE_KEY, { live: work.live });
+  work.at(9);
+  await slowLive(page);
+  await page.goto('/#k=' + PHONE_KEY);
+  await expect(page.locator('.stage .activity .session')).toHaveCount(2, { timeout: 6000 });
+  let seen = await statesSeen(page);
+  expect(seen.length).toBeGreaterThan(10);
+  expect(seen.filter((s) => !s.working || s.resting).slice(0, 3)).toEqual([]);
+  expect(seen[0].line).toBe('正在工作 · 2 个会话运行中');
+  // Reloaded with nothing written in (an older app, a page kept): as the page last saw it, a moment ago.
+  await page.unroute((url) => url.pathname === '/');
+  await page.reload();
+  await expect(page.locator('.stage .activity .session')).toHaveCount(2, { timeout: 6000 });
+  seen = await statesSeen(page);
+  expect(seen.length).toBeGreaterThan(10);
+  expect(seen.filter((s) => !s.working || s.resting).slice(0, 3)).toEqual([]);
+});
+
+test('opened with nothing known of the work yet, the page says it is reading, not resting, until its first answer', async ({ page }) => {
+  await recordStates(page);
+  const work = scripted();
+  await page.setViewportSize(PORTRAIT);
+  await servePhone(page, PHONE_KEY, { live: work.live });
+  work.at(9);
+  await slowLive(page);
+  await page.goto('/#k=' + PHONE_KEY);
+  await expect(page.locator('.stage .monitor.working')).toBeVisible({ timeout: 6000 });
+  const seen = await statesSeen(page);
+  const before = seen.slice(0, seen.findIndex((s) => s.working));
+  expect(before.length).toBeGreaterThan(0);
+  expect(before.filter((s) => s.resting || s.line !== '正在读取…').slice(0, 3)).toEqual([]);
+});
+
 /** The page as the phone server serves it, with the computer's look written in (phone.rs). */
 async function servedWithLook(page: Page, look: { theme: string; style: string }) {
   await page.route((url) => url.pathname === '/', async (route) => {

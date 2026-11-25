@@ -152,14 +152,40 @@ export function turnClock(began: number | null, exact: boolean, now: number): { 
   return [{ text: h ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`, figure: true }];
 }
 
+const KEPT_STATE = 'starmeter.liveState';
+/** Where a page starts before its first answer (a flash of 休息中 on a reload while the work went on): at work or resting
+ *  as the computer said when it gave the page (phone.rs writes it in), else as this page last saw it within the
+ *  minute (kept in its storage), else not known (a neutral 正在读取…). */
+function firstState(): { state: 'working' | 'resting'; running: number; known: boolean } {
+  const given = typeof window === 'undefined' ? undefined
+    : (window as unknown as { STARMETER_LIVE?: { working?: unknown; running?: unknown } }).STARMETER_LIVE;
+  if (typeof given?.working === 'boolean') {
+    return { state: given.working ? 'working' : 'resting', running: typeof given.running === 'number' ? given.running : 0, known: true };
+  }
+  try {
+    const kept = JSON.parse(localStorage.getItem(KEPT_STATE) ?? 'null') as { state?: string; running?: number; at?: number } | null;
+    if (kept && (kept.state === 'working' || kept.state === 'resting') && typeof kept.at === 'number' && Math.abs(Date.now() - kept.at) < 60_000) {
+      return { state: kept.state, running: kept.running ?? 0, known: true };
+    }
+  } catch { /* nothing kept */ }
+  return { state: 'resting', running: 0, known: false };
+}
+
 export class PhoneLive {
   feed = new LiveFeed();
+  private start0 = firstState();
+  /** Whether the page knows yet if the AI is at work: from its first answer, or told before it (firstState). */
+  known = $state(this.start0.known);
+  /** The first answer taken: until then the sessions and what happened are still to come (not "none"). */
+  answered = $state(false);
+  /** Before the first answer, how many sessions the computer said were running. */
+  runningBefore = this.start0.running;
   /** Bumped at each reading: what draws from the feed reads it. */
   version = $state(0);
   dashboard = $state<Dashboard | null>(null);
   sessions = $state<LiveSession[]>([]);
   events = $state<LiveEvent[]>([]);
-  state = $state<'working' | 'resting'>('resting');
+  state = $state<'working' | 'resting'>(this.start0.state);
   /** When the page last woke (resting to working), on this phone's clock; 0 never. */
   woke = $state(0);
   /** A turn just done: said at the top for a moment. */
@@ -334,6 +360,11 @@ export class PhoneLive {
     if (!working && !this.restingSince) this.restingSince = moment;
     this.state = working ? 'working' : 'resting';
     if (working) this.restingSince = 0;
+    if (!replay) {
+      this.known = true;
+      this.answered = true;
+      try { localStorage.setItem(KEPT_STATE, JSON.stringify({ state: this.state, running: sessions.filter((s) => s.running).length, at: Date.now() })); } catch { /* this load only */ }
+    }
     this.dashboardSeen = true;
 
     // Newest first: the wake before what woke it, and a turn done before its last tools.

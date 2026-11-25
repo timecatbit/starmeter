@@ -370,7 +370,8 @@ fn answer(app: &AppHandle, mut stream: TcpStream, key: &str) -> std::io::Result<
         // The page itself carries the computer's look as it is now, for its first frame (first-frame.js): iOS Safari
         // takes its bars' colours from that frame and keeps them.
         Some(asset) if file == "index.html" => {
-            let page = with_look(&String::from_utf8_lossy(&asset.bytes), &computer_look(&app.state::<Data>()));
+            let live = live_state(&RECENT.lock().expect("the live readings"), starmeter_core::runtime::now());
+            let page = with_look(&String::from_utf8_lossy(&asset.bytes), &computer_look(&app.state::<Data>()), &live);
             respond(&mut stream, 200, &asset.mime_type, page.as_bytes(), fresh_asset(file))
         }
         Some(asset) => respond(&mut stream, 200, &asset.mime_type, &asset.bytes, false),
@@ -401,9 +402,43 @@ fn computer_look(data: &Data) -> Value {
     json!({"theme": theme, "style": crate::style::current()})
 }
 
-/// The page with the computer's look written in before its first script runs.
-fn with_look(page: &str, look: &Value) -> String {
-    let script = format!("<script>window.STARMETER_LOOK={look};</script>\n    ");
+/// Whether the AI is at work now, as 网页版 judges it (phoneLive.svelte.ts: a session running, or Summary's tokens grown
+/// within the last 40 seconds, readings either side of a gap not counting), from the last minutes kept, and how many
+/// sessions run: written into the page, so a page reloaded while the work goes on is at work from its first frame (it
+/// was resting until its first answer came, a flash of 休息中).
+fn live_state(recent: &VecDeque<Value>, now: f64) -> Value {
+    let counted = |reading: &Value| -> f64 {
+        reading["providers"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|p| p["available"] != Value::Bool(false) && p["summaryIncluded"] != Value::Bool(false))
+            .map(|p| p["counted"]["tokens"].as_f64().or_else(|| p["tokens"].as_f64()).unwrap_or(0.0))
+            .sum()
+    };
+    let grew = recent
+        .iter()
+        .zip(recent.iter().skip(1))
+        .filter(|(before, after)| {
+            before["date"] == after["date"]
+                && before["rangeKey"] == after["rangeKey"]
+                && after["at"].as_f64().zip(before["at"].as_f64()).is_some_and(|(a, b)| a - b <= 15.0)
+                && counted(after) > counted(before) + 0.5
+        })
+        .filter_map(|(_, after)| after["at"].as_f64())
+        .next_back();
+    let running = recent
+        .iter()
+        .rev()
+        .find_map(|reading| reading.get("sessions"))
+        .and_then(Value::as_array)
+        .map_or(0, |rows| rows.iter().filter(|row| row["statusLight"] == "new").count());
+    json!({"working": running > 0 || grew.is_some_and(|at| now - at < 40.0), "running": running})
+}
+
+/// The page with the computer's look, and whether the AI is at work, written in before its first script runs.
+fn with_look(page: &str, look: &Value, live: &Value) -> String {
+    let script = format!("<script>window.STARMETER_LOOK={look};window.STARMETER_LIVE={live};</script>\n    ");
     match page.find("<script src=\"/first-frame.js\"") {
         Some(at) => format!("{}{script}{}", &page[..at], &page[at..]),
         None => page.to_string(),
@@ -1048,11 +1083,46 @@ mod tests {
     #[test]
     fn the_page_carries_the_computers_look_for_its_first_frame() {
         let page = "<head>\n    <title>Starmeter</title>\n    <script src=\"/first-frame.js\"></script>\n  </head>";
-        let shown = super::with_look(page, &serde_json::json!({"theme": "dark", "style": "standard"}));
+        let live = serde_json::json!({"working": true, "running": 2});
+        let shown = super::with_look(page, &serde_json::json!({"theme": "dark", "style": "standard"}), &live);
         let look = shown.find("window.STARMETER_LOOK={\"style\":\"standard\",\"theme\":\"dark\"};").expect("the look");
         assert!(look < shown.find("first-frame.js").unwrap());
+        assert!(shown.contains("window.STARMETER_LIVE={\"running\":2,\"working\":true};"));
         // A page without the script is left as it is.
-        assert_eq!(super::with_look("<html></html>", &serde_json::json!({})), "<html></html>");
+        assert_eq!(super::with_look("<html></html>", &serde_json::json!({}), &live), "<html></html>");
+    }
+
+    /// At work or resting as 网页版 would judge it, for the page's first frame: a session running; Summary's tokens grown
+    /// in the last 40 seconds; not tokens grown across a gap, nor long ago, nor by a tool left out of Summary.
+    #[test]
+    fn the_page_is_told_whether_the_ai_is_at_work() {
+        let reading = |at: f64, claude: f64, other: f64| {
+            serde_json::json!({"at": at, "date": "2026-11-25", "rangeKey": "today", "providers": [
+                {"id": "claude", "available": true, "summaryIncluded": true, "tokens": claude},
+                {"id": "left-out", "available": true, "summaryIncluded": false, "tokens": other}]})
+        };
+        let state = |readings: Vec<serde_json::Value>, now: f64| {
+            let recent: std::collections::VecDeque<_> = readings.into_iter().collect();
+            super::live_state(&recent, now)
+        };
+        let working = |value: serde_json::Value| value["working"].as_bool().unwrap();
+        assert!(!working(state(vec![], 1000.0)));
+        assert!(working(state(vec![reading(990.0, 100.0, 0.0), reading(992.0, 300.0, 0.0)], 1000.0)));
+        assert!(!working(state(
+            vec![reading(900.0, 100.0, 0.0), reading(902.0, 300.0, 0.0), reading(998.0, 300.0, 0.0)],
+            1000.0
+        )));
+        assert!(!working(state(vec![reading(960.0, 100.0, 0.0), reading(990.0, 300.0, 0.0)], 1000.0)), "across a gap");
+        assert!(
+            !working(state(vec![reading(990.0, 100.0, 0.0), reading(992.0, 100.0, 500.0)], 1000.0)),
+            "left out of Summary"
+        );
+        let mut quiet = reading(998.0, 100.0, 0.0);
+        quiet["sessions"] =
+            serde_json::json!([{"label": "a", "statusLight": "new"}, {"label": "b", "statusLight": "idle"}]);
+        let running = state(vec![reading(996.0, 100.0, 0.0), quiet], 1000.0);
+        assert!(working(running.clone()));
+        assert_eq!(running["running"], 1);
     }
 
     #[test]
