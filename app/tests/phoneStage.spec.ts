@@ -1193,3 +1193,24 @@ test('the computer gone from 手绘 dark to 标准 dark, the phone reloaded: its
   await expect(page.locator('.stage:not(.sketch)')).toBeVisible();
   await expect.poll(colours).toEqual({ meta: '#1F3A7A', html: 'rgb(5, 10, 36)' });
 });
+
+test('the live lines are smooth curves that go no further than their readings: never under zero, no peak not read, flat stays flat', async ({ page }) => {
+  await phone(page, PORTRAIT, '', { live: resting() });
+  const curve = await page.evaluate(async () => {
+    const { monotoneCurve } = await import('/src/lib/chart.ts');
+    // Screen points (y down): a plateau, a fall, a plateau, a rise, down to zero (the bottom at 200).
+    return monotoneCurve([[0, 100], [10, 100], [20, 160], [30, 160], [40, 120], [50, 200], [50, 190], [60, 200]]);
+  });
+  expect(curve.segments.length).toBe(6);
+  let from = curve.start;
+  for (const [a, b, end] of curve.segments) {
+    const lo = Math.min(from[1], end[1]) - 1e-9, hi = Math.max(from[1], end[1]) + 1e-9;
+    // A cubic stays within its control points: these within the piece's own two readings.
+    for (const y of [a[1], b[1]]) { expect(y).toBeGreaterThanOrEqual(lo); expect(y).toBeLessThanOrEqual(hi); }
+    expect(a[0]).toBeGreaterThan(from[0]);
+    expect(b[0]).toBeLessThan(end[0]);
+    if (from[1] === end[1]) expect([a[1], b[1]]).toEqual([from[1], end[1]]);
+    from = end;
+  }
+  expect(curve.end).toEqual([60, 200]);
+});

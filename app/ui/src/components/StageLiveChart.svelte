@@ -7,6 +7,7 @@
   // says what it added (+12.3K) as it rises and fades: the AI's work arriving, one request at a time. Reduced motion:
   // drawn again at each reading, nothing falling or flowing.
   import { onDestroy, untrack } from 'svelte';
+  import { monotoneCurve, tracePath } from '../lib/chart';
   import { alpha, summaryColour, toolColour } from '../lib/colors';
   import { style } from '../lib/style.svelte';
   import { t } from '../lib/i18n.svelte';
@@ -153,11 +154,9 @@
       const totals = line.map((p) => p.rates.reduce((a, b) => a + b, 0));
       const values = ids.map((_, k) => line.map((p) => p.rates[k] ?? 0));
       const path = (of: number[]) => {
-        // A smooth path through the points: midpoints joined by quadratic curves.
-        const xy = line.map((p, i) => [x(p.at), y(of[i] ?? 0)] as const);
-        ctx.moveTo(xy[0][0], xy[0][1]);
-        for (let i = 1; i < xy.length - 1; i++) { const mx = (xy[i][0] + xy[i + 1][0]) / 2, my = (xy[i][1] + xy[i + 1][1]) / 2; ctx.quadraticCurveTo(xy[i][0], xy[i][1], mx, my); }
-        ctx.lineTo(xy[xy.length - 1][0], xy[xy.length - 1][1]);
+        // A smooth curve through the readings that goes no further than them (never under zero, no peak not read).
+        const xy = line.map((p, i) => [x(p.at), y(of[i] ?? 0)] as [number, number]);
+        tracePath(ctx, monotoneCurve(xy));
         return xy;
       };
       const total = sketch ? summaryColour(panel.dark) : panel.dark ? 'rgba(240, 245, 255, 0.95)' : 'rgba(14, 29, 76, 0.85)';

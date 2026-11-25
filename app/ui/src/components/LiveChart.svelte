@@ -8,7 +8,7 @@
   // turns the line into that rate over the last minute (remembered): how fast the models are writing, rising and easing.
   import { accent, alpha, label as labelColour, starAccent, toolColour, summaryColour } from '../lib/colors';
   import { t } from '../lib/i18n.svelte';
-  import { chartAxis, chartPositions, seriesOf, smoothCurves, summaryProviders, tracePath } from '../lib/chart';
+  import { chartAxis, chartPositions, monotoneCurve, seriesOf, smoothCurves, summaryProviders, tracePath } from '../lib/chart';
   import { tokens } from '../lib/format';
   import { compact, nice, rateText, scaleFor, type LiveFeed, type Sample, type Scale } from '../lib/live';
   import { font, ROUNDED, SANS, width } from '../lib/measure';
@@ -350,10 +350,12 @@
         const opened = plot.w * reach;
         ctx.beginPath(); ctx.rect(plot.x + plot.w - opened, plot.y - 6, opened, plot.h + 12); ctx.clip();
         if (rates.length > 1) {
-          const trace = () => { ctx.beginPath(); rates.forEach(([t, r], i) => (i ? ctx.lineTo(x(t), clamped(r)) : ctx.moveTo(x(t), clamped(r)))); };
+          // Smooth, and no further than the readings (monotoneCurve): a straight line from second to second before.
+          const smooth = (points: [number, number][]) => { ctx.beginPath(); tracePath(ctx, monotoneCurve(points.map(([t, r]) => [x(t), clamped(r)]))); };
+          const trace = () => smooth(rates);
           const idle = (tool: (typeof toolRates)[number]) => tool.points.every(([, r]) => r <= 0);
           const toolLine = (tool: (typeof toolRates)[number]) => {
-            ctx.beginPath(); tool.points.forEach(([t, r], i) => (i ? ctx.lineTo(x(t), clamped(r)) : ctx.moveTo(x(t), clamped(r))));
+            smooth(tool.points);
             ctx.lineWidth = 1.4; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.strokeStyle = toolColour(tool.id, dark); ctx.stroke();
             toolEnd(tool.id, clamped(tool.points.at(-1)![1]));
           };
