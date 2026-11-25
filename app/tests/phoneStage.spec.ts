@@ -1563,6 +1563,50 @@ test('a change spread over the quiet stretch before it never reaches back over a
   expect(outputs[3]).toBe(outputs[2] + 60);
 });
 
+test('the minutes given again with a later answer are new from the last one taken on the computer clock, however long the answer took (STAGE-18)', async ({ page }) => {
+  await phone(page, PORTRAIT, '', { live: resting() });
+  const seen = await page.evaluate(async () => {
+    const { PhoneLive } = await import('/src/lib/phoneLive.svelte.ts');
+    const { readingDashboard } = await import('/src/lib/live.ts');
+    const template = { date: '2026-11-25', rangeKey: 'today', dates: [],
+      providers: [{ id: 'claude', name: 'Claude', available: true, summaryIncluded: true, tokens: 0, output: 0, cost: 0, requests: 0, history: [], models: [] }] };
+    const reading = (at: number, tokens: number) => ({ at, date: '2026-11-25', rangeKey: 'today', providers: [{ id: 'claude', tokens, output: tokens / 10, cost: 0 }] });
+    const answer = (at: number, tokens: number, history: number[][]) => ({ at, dashboard: readingDashboard(template as never, reading(at, tokens) as never),
+      sessions: null, turns: {}, history: history.map(([s, n]) => reading(s, n)) });
+    const T = 1_795_600_000, live = new PhoneLive();
+    // The first answer: the computer's minutes before it, on its way no time at all.
+    live.take(answer(T, 1000, [[T - 6, 400], [T - 4, 600], [T - 2, 800]]) as never, T * 1000);
+    // Four seconds on, the minutes given again (back in sight), and this answer three seconds longer on its way.
+    live.take(answer(T + 4, 1400, [[T - 6, 400], [T - 4, 600], [T - 2, 800], [T, 1000], [T + 2, 1200]]) as never, (T + 4) * 1000 + 3000);
+    return live.feed.samples.map((s) => ({ total: Math.round(s.total), cut: !!s.cut }));
+  });
+  // Each reading once, in order: none taken twice, nothing going back, no gap or new range made of it.
+  expect(seen.map((s) => s.total - seen[0].total)).toEqual([0, 200, 400, 600, 800, 1000]);
+  expect(seen.some((s) => s.cut)).toBe(false);
+});
+
+test('a reading that takes the place of the one just before keeps its cut: the next rise spreads not over the gap (STAGE-18)', async ({ page }) => {
+  await phone(page, PORTRAIT, '', { live: resting() });
+  const outputs = await page.evaluate(async () => {
+    const { LiveFeed } = await import('/src/lib/live.ts');
+    const feed = new LiveFeed();
+    feed.spread = 30_000;
+    const at = (tokens: number, output: number) => ({ date: '2026-11-25', rangeKey: 'today', dates: [],
+      providers: [{ id: 'claude', name: 'Claude', available: true, summaryIncluded: true, tokens, output, cost: 0, requests: 0, history: [], models: [] }] });
+    feed.add(at(1000, 100) as never, 0);
+    feed.add(at(1000, 100) as never, 2_000);
+    // A gap, and within half a second another reading: it takes the gap's place.
+    feed.add(at(5000, 1000) as never, 20_000, true);
+    feed.add(at(5000, 1000) as never, 20_300);
+    // Then 60 more over four seconds: not spread back over the gap.
+    feed.add(at(5600, 1060) as never, 24_300);
+    return { outputs: feed.samples.map((s) => Math.round(s.output)), cut: feed.samples.map((s) => !!s.cut) };
+  });
+  expect(outputs.cut).toEqual([false, false, true, false]);
+  expect(outputs.outputs[2]).toBe(outputs.outputs[1]);
+  expect(outputs.outputs[3]).toBe(outputs.outputs[2] + 60);
+});
+
 test('with reduced motion the one still frame is drawn, by day and on paper too (STAGE-13)', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'light' });
   for (const hash of ['', '&s=sketch']) {

@@ -169,6 +169,10 @@ export class PhoneLive {
   private beforeRange: string | null = null;
   /** When the last reading was taken, on this phone's clock. */
   private lastTake = 0;
+  /** The computer's moment of the last reading taken (its seconds): the minutes given again with a later answer are
+   *  new from there on. Not this phone's clock less the skew, which moves with each request's time on the way (STAGE-18:
+   *  a slower answer made readings already taken look new, and they were taken again). */
+  private lastAt = 0;
   private nextId = 1;
   private visible = () => typeof document === 'undefined' || document.visibilityState === 'visible';
   /** The next reading asks for the computer's last minutes too: the first, and the first after being away (out of
@@ -230,6 +234,7 @@ export class PhoneLive {
     // Quiet and resting are judged on the computer's clock (the readings' own moments), not this phone's.
     const moment = Number.isFinite(answer.at) ? answer.at * 1000 : now;
     if (!replay && answer.history?.length) this.replay(answer);
+    if (Number.isFinite(answer.at)) this.lastAt = answer.at;
     const gap = this.lastTake > 0 && now - this.lastTake > GAP;
     this.lastTake = now;
     this.readAt = now;
@@ -336,8 +341,8 @@ export class PhoneLive {
         sessions = { label: '会话', children: rows } as unknown as Entry;
       }
       // Only what came after the last reading taken here (back in sight, the panel opened again: the minutes missed).
+      if (reading.at <= this.lastAt) continue;
       const at = reading.at * 1000 - this.skew;
-      if (at <= this.lastTake + 1) continue;
       this.take({ at: reading.at, dashboard: readingDashboard(template, reading), sessions, turns: {} }, at, true);
     }
   }

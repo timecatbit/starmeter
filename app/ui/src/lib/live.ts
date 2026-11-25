@@ -126,7 +126,12 @@ export class LiveFeed {
   }
 
   private keep(sample: Sample, at: number) {
-    if (this.samples.length && Math.abs(at - this.samples.at(-1)!.at) < 500) this.samples[this.samples.length - 1] = sample;
+    // Within half a second of the last, it takes the last's place; a cut there stays one (STAGE-18: the next rise
+    // otherwise spread back over the gap or the new range).
+    if (this.samples.length && Math.abs(at - this.samples.at(-1)!.at) < 500) {
+      if (this.samples.at(-1)!.cut) sample.cut = true;
+      this.samples[this.samples.length - 1] = sample;
+    }
     else { this.spreadOut(sample); this.samples.push(sample); }
     this.samples = this.samples.filter((s) => at - s.at <= this.history);
   }
