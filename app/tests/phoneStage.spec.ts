@@ -945,3 +945,56 @@ test('on SwiftBar\'s panel, reloaded while the work goes on, the page picks up t
   await expect(page.locator('.stage .monitor.working')).toBeVisible();
   await expect.poll(async () => Number(await rate.getAttribute('data-value')), { timeout: 5000 }).toBeGreaterThan(0);
 });
+
+test('the monitor\'s 今天 and 近 1 分钟 stand on their figures\' line, the figures alike, the sign and unit as the panel\'s, in both looks and three languages', async ({ page }) => {
+  test.setTimeout(90_000);
+  // The four at once, each watched long enough for the last minute to be said (twenty seconds of readings).
+  const hashes = ['', '&l=zh-Hant&s=sketch', '&l=en', '&l=en&s=sketch'];
+  const tabs = await Promise.all(hashes.map(async (hash) => {
+    const tab = hash ? await page.context().newPage() : page;
+    const work = scripted();
+    await phone(tab, PORTRAIT, hash, { live: work.live });
+    return { tab, work, hash };
+  }));
+  for (let seconds = 2; seconds <= 26; seconds += 2) { for (const { work } of tabs) work.at(seconds); await page.waitForTimeout(2000); }
+  for (const { tab, hash } of tabs) {
+    await expect(tab.locator('.stage .monitor .ticker .tick-value .wheel').first()).toBeVisible();
+    await expect.poll(() => tab.locator('.stage .monitor .ticker .tick-value').nth(1).locator('.wheel').count(), { timeout: 10_000 }).toBeGreaterThan(0);
+    const seen = await tab.evaluate(() => {
+      // A probe with no height stands on the line it is in: its top is that line's baseline.
+      const baseline = (inside: Element) => {
+        const probe = document.createElement('span');
+        probe.style.cssText = 'display:inline-block;width:0;height:0';
+        inside.append(probe);
+        const y = probe.getBoundingClientRect().top;
+        probe.remove();
+        return y;
+      };
+      const ticker = document.querySelector('.stage .monitor .ticker')!;
+      const labels = [...ticker.querySelectorAll('.tick-label')].map(baseline);
+      const figures = [...ticker.querySelectorAll('.tick-value .number')].map((n) => ({
+        // A wheel's digit stands where its line is within the wheel, whichever digit the wheel has turned to.
+        line: baseline(n.querySelector('.ghost .body')!), digit: (() => {
+          const wheel = n.querySelector('.wheel')!, first = wheel.querySelector('.digits > span')!;
+          return wheel.getBoundingClientRect().top + baseline(first) - first.getBoundingClientRect().top;
+        })(),
+        size: getComputedStyle(n).fontSize, weight: getComputedStyle(n).fontWeight,
+        sign: n.querySelector('.ghost .sign') ? getComputedStyle(n.querySelector('.ghost .sign')!).fontSize : null,
+        unit: n.querySelector('.ghost .unit') ? getComputedStyle(n.querySelector('.ghost .unit')!).fontSize : null,
+      }));
+      return { labels, figures };
+    });
+    const line = seen.figures[0].line;
+    for (const y of seen.labels) expect(Math.abs(y - line), hash).toBeLessThanOrEqual(0.5);
+    for (const f of seen.figures) {
+      expect(Math.abs(f.line - line), hash).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(f.digit - line), hash).toBeLessThanOrEqual(0.5);
+      expect([f.size, f.weight]).toEqual([seen.figures[0].size, seen.figures[0].weight]);
+    }
+    // $ at 0.62 and K/M at 0.74 of the figure, as Figure.svelte draws them.
+    const px = (v: string | null) => Number.parseFloat(v ?? 'NaN');
+    expect(px(seen.figures[0].sign) / px(seen.figures[0].size)).toBeCloseTo(0.62, 2);
+    expect(px(seen.figures[1].unit) / px(seen.figures[1].size)).toBeCloseTo(0.74, 2);
+    if (tab !== page) await tab.close();
+  }
+});

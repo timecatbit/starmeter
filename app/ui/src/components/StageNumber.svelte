@@ -25,20 +25,26 @@
 
 <span class="number num" data-value={value}>
   <span class="said">{value}</span>
+  <!-- The figure as text, in the page's flow and unseen but for its sign and unit: it gives the number its width and its
+       baseline (the wheels, clipped, have none of their own), so words beside it stand on the digits' line; the sign
+       and unit are drawn here as the panel's Figure draws them (the sign smaller and raised, the unit on the line). -->
+  <span class="ghost" aria-hidden="true">{#if parts.sign}<span class="sign">{parts.sign}</span>{/if}<span class="body">{parts.body}</span>{#if parts.unit}<span
+      class="unit">{parts.unit}</span>{/if}</span>
+  <!-- The digits on their wheels, laid exactly over the ghost's. -->
   <span class="drawn" aria-hidden="true">
-    {#if parts.sign}<span class="sign">{parts.sign}</span>{/if}{#each chars as ch, i (chars.length - i)}{#if /\d/.test(ch)}<span
+    {#if parts.sign}<span class="sign spacer">{parts.sign}</span>{/if}{#each chars as ch, i (chars.length - i)}{#if /\d/.test(ch)}<span
           class="wheel"><span class="digits" style:transform="translateY({-(ready ? Number(ch) : 0) * 10}%)"
             style:transition-delay="{wait(chars.length - i)}ms">{#each [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] as d (d)}<span>{d}</span>{/each}</span></span>{:else}<span
-          class="mark">{ch}</span>{/if}{/each}{#if parts.unit}<span class="unit">{parts.unit}</span>{/if}
+          class="mark">{ch}</span>{/if}{/each}
   </span>
 </span>
 
 <style>
   .number {
-    display: inline-flex;
+    display: inline-block;
     position: relative;
     white-space: nowrap;
-    line-height: 1;
+    line-height: 1.1;
   }
   .said {
     position: absolute;
@@ -47,9 +53,22 @@
     overflow: hidden;
     clip-path: inset(50%);
   }
-  .drawn { display: inline-flex; align-items: flex-end; }
+  .ghost .body { visibility: hidden; }
+  /* As the panel's figures (Figure.svelte): the sign smaller, lighter and raised, the unit smaller on the digits' line;
+     neither makes the line taller. */
+  .sign {
+    font-size: 0.62em;
+    font-weight: 500;
+    line-height: 0;
+    color: var(--ink-2, var(--secondary));
+    vertical-align: 0.48em;
+    margin-right: 0.04em;
+  }
+  .unit { font-size: 0.74em; line-height: 0; }
+  .drawn { position: absolute; left: 0; top: 0; display: flex; align-items: flex-start; }
+  .spacer { visibility: hidden; line-height: 1.1em; }
   .wheel {
-    display: inline-block;
+    display: block;
     height: 1.1em;
     overflow: hidden;
     /* The wheel's edges fade, so a turning digit comes up out of the dark rather than from behind a cut. */
@@ -62,20 +81,4 @@
     transition: transform 0.95s cubic-bezier(0.22, 1, 0.36, 1);
   }
   .digits > span, .mark { height: 1.1em; line-height: 1.1em; display: block; text-align: center; }
-  .mark { display: inline-block; }
-  /* As the panel's figures (Figure.svelte): the sign smaller, lighter and raised, the unit smaller, both beside the
-     digits in the same rounded face (by hand in 手绘). */
-  .sign {
-    font-size: 0.62em;
-    font-weight: 500;
-    line-height: 1;
-    color: var(--ink-2, var(--secondary));
-    align-self: flex-start;
-    margin: 0.1em 0.04em 0 0;
-  }
-  .unit {
-    font-size: 0.74em;
-    line-height: 1;
-    margin: 0 0 0.07em 0.02em;
-  }
 </style>
