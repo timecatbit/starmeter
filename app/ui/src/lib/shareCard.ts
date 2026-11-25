@@ -5,10 +5,24 @@ import { smoothCurves, tracePath } from './chart';
 import { accent, alpha, label as labelColour, systemColor } from './colors';
 import { font, ROUNDED } from './measure';
 import { BOTTOM_BAND, canvasFor, crownSeed, drawMark, drawSymbol, fade, loadSymbols, measure, middleText, roundRect, text, WIDTH, type Box, type Fade } from './shareCommon';
-import { drawAmount, drawMasthead, drawMembers, drawSignature, figures, fitAmount, HERO_BASELINE, layout, poster, ROWS, tickBox, toolHeight, SHARE_TOOLS } from './sharePoster';
+import { amountWidth, drawAmount, drawMasthead, drawMembers, drawSignature, figures, fitAmount, HERO_BASELINE, layout, poster, ROWS, tickBox, toolHeight, SHARE_TOOLS, type Amount } from './sharePoster';
 import type { Dashboard, Project } from './types';
 
 const INSET = 28;
+/** The dots beside the estimate: 170 wide from the card's right edge, and room for at least this many kept by shrinking
+ *  the sum first. */
+export const HERO_DOTS = 72;
+const HERO_GAP = 12;
+/** The estimate's size, where it ends, and the dots beside it: after it, never under it (a long sum, 全部's thousands,
+ *  used to run over them); none when a sum too long even at its smallest leaves no room. */
+export function heroLayout(ctx: CanvasRenderingContext2D, cost: Amount, top: number) {
+  const left = INSET - 2, face = (s: number) => font(s, 700, ROUNDED);
+  const size = fitAmount(ctx, cost, WIDTH - INSET * 2 - HERO_DOTS - HERO_GAP, 80, 30, face, -0.012);
+  const right = left + amountWidth(ctx, cost, size, face, -0.012);
+  const x = Math.max(WIDTH - 170, right + HERO_GAP);
+  const dots: Box | null = WIDTH - x >= 36 ? { x, y: top + 4, w: WIDTH - x, h: 104 } : null;
+  return { size, left, right, dots };
+}
 const rounded = (size: number, weight = 600) => font(size, weight, ROUNDED);
 
 export async function drawCardPicture(d: Dashboard, project: Project, dark: boolean, tools = SHARE_TOOLS): Promise<HTMLCanvasElement> {
@@ -55,10 +69,11 @@ export async function drawCardPicture(d: Dashboard, project: Project, dark: bool
   text(ctx, p.title, { x: left, y: L.title + 10, w: width, h: 30 }, font(24, 700), label);
 
   // Hero: the estimate, its sign small against the figure, with dots fading in from the card's right edge beside it.
-  halftone({ x: WIDTH - 170, y: L.hero + 4, w: 170, h: 104 }, 'left', teal, dark ? 0.34 : 0.26);
+  // A long sum (全部's thousands) keeps room for them: it is fitted short of them, and they start after it, never under it.
   text(ctx, p.costLabel, { x: left, y: L.hero + 4, w: width, h: 16 }, font(12, 500), secondary);
-  const hero = fitAmount(ctx, p.cost, width - 30, 80, 30, (s) => rounded(s, 700), -0.012);
-  drawAmount(ctx, p.cost, left - 2, L.hero + HERO_BASELINE, hero, (s) => rounded(s, 700), label, secondary, -0.012);
+  const hero = heroLayout(ctx, p.cost, L.hero);
+  if (hero.dots) halftone(hero.dots, 'left', teal, dark ? 0.34 : 0.26);
+  drawAmount(ctx, p.cost, hero.left, L.hero + HERO_BASELINE, hero.size, (s) => rounded(s, 700), label, secondary, -0.012);
 
   // Three figures, each with its own small symbol. The cache hit rate is weighted by each tool's tokens.
   const tileWidth = (width - 20) / 3, icons = ['square.stack.3d.up.fill', 'arrow.up.arrow.down', 'bolt.fill'];

@@ -1673,6 +1673,29 @@ test('pinned, the share page takes its own height and gives the panel back its s
   await expect(page.locator('.window')).toHaveCSS('width', '400px');
 });
 
+test('卡片: a long estimate (全部\'s thousands) keeps the dots beside it, never drawn over them', async ({ page }) => {
+  await open(page);
+  const laid = await page.evaluate(async () => {
+    const { heroLayout, HERO_DOTS } = await import('/src/lib/shareCard.ts');
+    const { WIDTH } = await import('/src/lib/shareCommon.ts');
+    const ctx = document.createElement('canvas').getContext('2d')!;
+    return { WIDTH, HERO_DOTS, sums: ['21.78', '9,100.46', '22,679.02', '283,487.69', '9,876,543.21'].map((figure) => {
+      const { size, right, dots } = heroLayout(ctx, { symbol: '$', figure }, 100);
+      return { figure, size, right, dots };
+    }) };
+  });
+  for (const { figure, size, right, dots } of laid.sums) {
+    // The dots start after the sum, a gap between, at most 170 wide from the right edge; a short sum keeps nearly all.
+    if (dots) expect(dots.x, figure).toBeGreaterThanOrEqual(Math.max(laid.WIDTH - 170, right + 12));
+    if (figure === '21.78') expect(dots!.w, figure).toBeGreaterThanOrEqual(150);
+    // Up to hundreds of thousands, the sum is fitted to leave the dots their room, still large.
+    if (figure !== '9,876,543.21') {
+      expect(dots!.w, figure).toBeGreaterThanOrEqual(laid.HERO_DOTS);
+      expect(size, figure).toBeGreaterThanOrEqual(44);
+    }
+  }
+});
+
 test('the share picture\'s cache share is the tools\' cache reads over their cache-eligible input', async ({ page }) => {
   await open(page);
   const cache = await page.evaluate(async () => {
