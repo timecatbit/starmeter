@@ -5,7 +5,7 @@
   // the tools that made most of it. Vertical swipes still scroll the page.
   import { alpha, summaryColour, toolColour } from '../lib/colors';
   import { style } from '../lib/style.svelte';
-  import { chartAxis, chartPositions, seriesOf, smoothCurves, summaryProviders, svgPath } from '../lib/chart';
+  import { chartAxis, chartPositions, paceOf, seriesOf, smoothCurves, summaryProviders, svgPath } from '../lib/chart';
   import { legendName, tokens } from '../lib/format';
   import { t } from '../lib/i18n.svelte';
   import { panel } from '../lib/ui.svelte';
@@ -26,6 +26,8 @@
   const providers = $derived(summaryProviders(data));
   const waiting = $derived(!providers.some((p) => p.available));
   const series = $derived(seriesOf(data));
+  /** The figures as read, for the bubble: today's hour still under way is drawn at its pace, but said as it stands. */
+  const read = $derived(seriesOf(data, true));
   const n = $derived(data.dates.length);
   const totals = $derived(Array.from({ length: n }, (_, i) => series.reduce((s, row) => s + row[i], 0)));
   const axis = $derived(chartAxis(data));
@@ -37,6 +39,8 @@
   const line = $derived(curves.length ? svgPath(curves[curves.length - 1]) : '');
   const area = $derived(line ? line + `L${plot.x + plot.w},${bottom}L${plot.x},${bottom}Z` : '');
   const x = (i: number) => plot.x + positions[i] * plot.w;
+  /** Today's last point is an hour still under way, drawn at its pace (paceOf). */
+  const partial = $derived(paceOf(data) !== 1);
   const y = (v: number) => bottom - (v / axis.ceiling) * plot.h;
   const empty = $derived(waiting || totals.every((v) => v === 0));
   /** The range still running (today, this week…): its last point is now, and breathes. Yesterday's is over. */
@@ -88,9 +92,11 @@
   const picked = $derived.by(() => {
     if (at === null || at >= n) return null;
     const i = at;
-    const parts = providers.map((p, k) => ({ id: p.id, name: legendName(p), value: series[k]?.[i] ?? 0 }))
+    const parts = providers.map((p, k) => ({ id: p.id, name: legendName(p), value: read[k]?.[i] ?? 0 }))
       .filter((p) => p.value > 0).sort((a, b) => b.value - a.value).slice(0, 3);
-    return { i, x: x(i), y: y(totals[i]), label: data.dates[i], total: totals[i], parts };
+    // The hour still under way, by its span so far (15:00–15:40): its figures are that stretch's.
+    const label = partial && i === n - 1 ? `${data.dates[n - 2]}–${data.dates[n - 1]}` : data.dates[i];
+    return { i, x: x(i), y: y(totals[i]), label, total: read.reduce((s, row) => s + (row[i] ?? 0), 0), parts };
   });
   const bubbleLeft = $derived(picked ? Math.min(Math.max(0, picked.x - 70), Math.max(0, width - 140)) : 0);
 </script>
@@ -110,6 +116,7 @@
           <stop offset="0" stop-color={alpha(colour, 0.55)} />
           <stop offset="1" stop-color={colour} />
         </linearGradient>
+
       </defs>
       {#each [0.5, 1] as f (f)}
         <line class="grid" x1={plot.x} x2={plot.x + plot.w} y1={bottom - f * plot.h} y2={bottom - f * plot.h} />

@@ -4613,7 +4613,7 @@ def dashboard_payload(data):
     histories=providers+[p['counted'] for p in providers if p.get('counted')]
     # Crop only today's chart, never the statistics window. Preserve a short zero
     # lead-in before the earliest source activity, and use actual time spacing.
-    chart_positions=None
+    chart_positions=None;chart_partial=None
     if key=='today' and slots:
         active=[i for i in range(len(slots)) if any(summary_history(p)[i]>0 for p in providers if p['summaryIncluded'])]
         if active:
@@ -4634,6 +4634,9 @@ def dashboard_payload(data):
             if chart_positions[1]<0.01:
                 chart_positions=[0,0.04]+[0.04+0.96*x for x in chart_positions[2:]]
             for h in histories:h['history']=[0,0]+[sum(h['history'][i] for i in group) for group in groups]
+            # The last point is the hour still under way: how far into it, for the chart to draw it at its pace so far.
+            last=slots[groups[-1][-1]]
+            if last+3600>end:chart_partial=max(0,math.floor(end-last))
             labels=[datetime.fromtimestamp(stamp,now.tzinfo).strftime('%H:%M') for stamp in chart_times]
             span=datetime.fromtimestamp(chart_start,now.tzinfo).strftime('%m/%d %H:%M')+'–'+datetime.fromtimestamp(end,now.tzinfo).strftime('%H:%M')
     # Keep long histories legible without dropping recorded totals from the cards.
@@ -4662,7 +4665,7 @@ def dashboard_payload(data):
     return {'date':now.date().isoformat(),'dates':labels,'providers':providers,'rangeKey':key,'rangeLabel':RANGES[key],
             'grouping':grouping,'groupings':[{'key':k,'label':v} for k,v in GROUPINGS.items()],'cards':cards,'currency':currency_unit(data),
             'groupNote':'按客户端自己的记录' if grouping=='project' and cards is not None else None,
-            'chartUnit':unit,'chartSpan':span,'period':period,'chartStatus':chart_status,'updated':updated,'fetchedAt':bundle.get('_fetchedAt'),'chartPositions':chart_positions,
+            'chartUnit':unit,'chartSpan':span,'period':period,'chartStatus':chart_status,'updated':updated,'fetchedAt':bundle.get('_fetchedAt'),'chartPositions':chart_positions,'chartPartial':chart_partial,
             'heatmap':heatmap_payload(bundle,key,now,selected,data.get('range_usage_error'),start,end) if module_enabled('heatmap') and selected else None,
             'showSummary':module_enabled('summary'),'allowCollapse':view_settings()['allowCollapse'],'expandedProviders':view_settings()['expandedProviders']}
 

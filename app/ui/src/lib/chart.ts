@@ -11,10 +11,29 @@ export interface Curve { start: Point; segments: [Point, Point, Point][]; end: P
 
 export const summaryProviders = (d: Dashboard) => d.providers.map(summaryPart).filter((p) => p !== null);
 
-/** Each counted source's series over the chart's slots, missing points as zero. */
-export function seriesOf(d: Dashboard): number[][] {
+/** Today's last point is the hour still under way (from 11:00 to 11:23, say): its tokens so far, on an axis of whole
+ *  hours, read as a fall when the work went faster (用户：最后怎么这么奇怪). So it is drawn at its pace, scaled to the
+ *  hour as if the hour went on as it has, in the same line as the rest (用户：不要虚线); at least ten minutes counted, so
+ *  an hour just begun doesn't leap from a request or two. 1 when the last point is a whole hour. */
+export function paceOf(d: Dashboard): number {
+  const s = d.chartPartial;
+  return typeof s === 'number' && s >= 0 && s < 3600 && d.dates.length > 1 ? 3600 / Math.max(s, 600) : 1;
+}
+
+/** A series with its last point at the hour's pace (paceOf). */
+export function paced(values: number[], d: Dashboard): number[] {
+  const pace = paceOf(d);
+  return pace === 1 ? values : values.map((v, i) => (i === values.length - 1 ? v * pace : v));
+}
+
+/** Each counted source's series over the chart's slots, missing points as zero; the hour still under way at its pace,
+ *  unless `asRead` (a reading's own figures, as the 网页版 chart's bubble says them). */
+export function seriesOf(d: Dashboard, asRead = false): number[][] {
   const n = d.dates.length;
-  return summaryProviders(d).map((p) => Array.from({ length: n }, (_, i) => Math.max(0, p.history[i] ?? 0)));
+  return summaryProviders(d).map((p) => {
+    const values = Array.from({ length: n }, (_, i) => Math.max(0, p.history[i] ?? 0));
+    return asRead ? values : paced(values, d);
+  });
 }
 
 /** A rounded ceiling over the highest total, labelled at zero, half and full. */

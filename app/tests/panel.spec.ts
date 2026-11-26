@@ -1353,6 +1353,28 @@ test('全局快捷键 in 通用: off at first, a choice is kept, one already tak
   await expect(page.getByRole('radio', { name: '不使用', exact: true })).toHaveAttribute('aria-checked', 'true');
 });
 
+test('today\'s hour still under way is drawn at its pace, in the same line as the rest; yesterday\'s hours are whole', async ({ page }) => {
+  // 用户：这个图对吗？最后怎么这么奇怪 (23 minutes' tokens on an axis of whole hours read as a fall); 不要虚线.
+  await open(page);
+  const pace = await page.evaluate(async () => {
+    const loaded = performance.getEntriesByType('resource').map((entry) => entry.name).filter((name) => name.includes('/src/lib/chart.ts'));
+    const chart = await import(/* @vite-ignore */ loaded.at(-1) ?? '/src/lib/chart.ts');
+    const day = (chartPartial: number | null) => ({ dates: ['15:00', '15:23'], chartPartial }) as never;
+    return { at23: chart.paceOf(day(23 * 60)), at2: chart.paceOf(day(120)), whole: chart.paceOf(day(null)), full: chart.paceOf(day(3600)),
+      values: chart.paced([10, 20, 46], { dates: ['a', 'b', 'c'], chartPartial: 23 * 60 } as never) };
+  });
+  // 23 minutes in: scaled to the hour; two minutes in, counted as ten, so it doesn't leap; a whole hour as it is.
+  expect(pace.at23).toBeCloseTo(3600 / 1380, 6);
+  expect(pace.at2).toBe(6);
+  expect([pace.whole, pace.full]).toEqual([1, 1]);
+  expect(pace.values.slice(0, 2)).toEqual([10, 20]);
+  expect(pace.values[2]).toBeCloseTo(46 * 3600 / 1380, 6);
+  // No dashes anywhere: the fixtures' today ends 40 minutes into its hour, drawn in one solid line.
+  const chart = page.locator('.summary svg.chart');
+  await expect(chart.locator('path').first()).toBeVisible();
+  await expect(chart.locator('path[stroke-dasharray]')).toHaveCount(0);
+});
+
 test('the header has the pin, settings, 在手机上看 and share in a row, Starmeter whole beside them in every range, Chinese and English', async ({ page }) => {
   for (const english of [false, true]) {
     await open(page);

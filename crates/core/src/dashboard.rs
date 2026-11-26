@@ -1268,6 +1268,7 @@ impl Runtime {
             }
         };
         let mut chart_positions = Json::Null;
+        let mut chart_partial = Json::Null;
         // Crop only today's chart, never the statistics window, keeping a short zero lead-in before the first call.
         if key == "today" && !slots.is_empty() {
             let included: Vec<&Object> =
@@ -1315,6 +1316,14 @@ impl Runtime {
                     positions = adjusted;
                 }
                 chart_positions = Json::Array(positions);
+                // The last point is the hour still under way: how far into it, for the chart to draw it at its pace so
+                // far rather than as a fall (an hour's tokens on the axis, 23 minutes' at the end).
+                if let Some(&last) = groups.last().and_then(|group| group.last()) {
+                    let began = slots[last].integer().unwrap_or(0) as f64;
+                    if began + 3600.0 > end {
+                        chart_partial = Json::Int((end - began).floor().max(0.0) as i64);
+                    }
+                }
                 rebucket(&mut providers, &|series: &[Json]| {
                     let mut out = vec![Json::Int(0), Json::Int(0)];
                     out.extend(groups.iter().map(|group| {
@@ -1435,7 +1444,7 @@ impl Runtime {
             "cards" => cards, "currency" => self.currency_unit(data), "groupNote" => group_note,
             "chartUnit" => unit, "chartSpan" => span, "period" => Json::from(period), "chartStatus" => chart_status,
             "updated" => updated, "fetchedAt" => bundle.get("_fetchedAt").cloned().unwrap_or(Json::Null),
-            "chartPositions" => chart_positions, "heatmap" => heatmap,
+            "chartPositions" => chart_positions, "chartPartial" => chart_partial, "heatmap" => heatmap,
             "showSummary" => self.module_enabled("summary"),
             "allowCollapse" => settings.get("allowCollapse").cloned().unwrap_or(Json::Bool(false)),
             "expandedProviders" => settings.get("expandedProviders").cloned().unwrap_or(Json::Array(vec![])),

@@ -1,7 +1,7 @@
 <script lang="ts">
   // A tool's own page, opened from its card: what it used in the range (figures, notes, its own trend, every model, a
   // gateway's clients), then its settings as the module grid has them (where it reads from, what to open).
-  import { chartPositions, smoothCurves, svgPath } from '../lib/chart';
+  import { chartPositions, paced, smoothCurves, svgPath } from '../lib/chart';
   import { shown, t } from '../lib/i18n.svelte';
   import { alpha, toolColour } from '../lib/colors';
   import { clientLine, colourOf, headline, modelAmount, modelName, notes, share, tokens } from '../lib/format';
@@ -38,7 +38,8 @@
   // Its own trend over the range, on its own scale.
   const W = $derived(panel.width - 32), H = 64;
   const trend = $derived.by(() => {
-    const n = dashboard.dates.length, values = Array.from({ length: n }, (_, i) => Math.max(0, p.history[i] ?? 0));
+    // Today's hour still under way at its pace, as on the homepage.
+    const n = dashboard.dates.length, values = paced(Array.from({ length: n }, (_, i) => Math.max(0, p.history[i] ?? 0)), dashboard);
     if (n < 2 || !values.some((v) => v > 0)) return null;
     const top = Math.max(...values) * 1.1, plot = { x: 0, y: 4, w: W, h: H - 8 };
     const curve = smoothCurves([values], chartPositions(dashboard), plot, top).at(-1)!;

@@ -305,7 +305,7 @@ function dashboard(key, label) {
     }
     return c;
   });
-  let chartPositions = null;
+  let chartPositions = null, chartPartial = null;
   if (key === 'today') {
     const firstIndex = slots.findIndex((_, i) => providers.some((p) => (p.counted ?? p).history[i] > 0));
     if (firstIndex >= 0) {
@@ -321,6 +321,9 @@ function dashboard(key, label) {
       let positions = times.map((t) => (t - chartStart) / duration);
       if (positions[1] < 0.01) positions = [0, 0.04, ...positions.slice(2).map((p) => 0.04 + 0.96 * p)];
       chartPositions = positions;
+      // The last point is the hour still under way, as the engine says (dashboard.rs).
+      const began = slots[groups[groups.length - 1].at(-1)][0];
+      if (began + HOUR > end) chartPartial = Math.max(0, Math.floor(end - began));
       const rebucket = (series) => [0, 0, ...groups.map((g) => g.reduce((s, i) => s + series[i], 0))];
       for (const p of providers) { p.history = rebucket(p.history); if (p.counted) p.counted.history = rebucket(p.counted.history); }
       labels = times.map(hm);
@@ -338,7 +341,7 @@ function dashboard(key, label) {
   return {
     date: iso(TODAY), dates: labels, providers, rangeKey: key, rangeLabel: label, grouping: 'tool',
     groupings: [{ key: 'tool', label: '工具' }, { key: 'model', label: '模型' }, { key: 'project', label: '项目' }], cards: null, currency: null, groupNote: null,
-    chartUnit: unit, chartSpan: span, period, chartStatus: key === 'all' ? '图表展示最近 366 天' : '', updated: '更新时间：15:40', chartPositions,
+    chartUnit: unit, chartSpan: span, period, chartStatus: key === 'all' ? '图表展示最近 366 天' : '', updated: '更新时间：15:40', chartPositions, chartPartial,
     heatmap: heatmap(key, start, end, selected), showSummary: true, allowCollapse: false, expandedProviders: [],
   };
 }

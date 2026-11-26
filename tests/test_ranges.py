@@ -49,6 +49,8 @@ class RangeTests(unittest.TestCase):
   with patch.object(self.m,'usage_now',return_value=self.now):
    d=self.m.dashboard_payload({'displayed_range':'yesterday','range_usage':{'range':'yesterday','claude':usage}})
   self.assertEqual((d['rangeLabel'],d['period'],d['chartUnit'],d['chartPositions']),('昨天',['2026-11-03','2026-11-03'],'每小时',None))
+  # Yesterday's hours are all whole: no hour still under way.
+  self.assertIsNone(d['chartPartial'])
   self.assertEqual((len(d['dates']),d['dates'][0],d['dates'][-1]),(24,'00:00','24:00'))
   history=d['providers'][0]['history'];self.assertEqual((history[0],history[-1],sum(history)),(100,200,300))
   h=d['heatmap']
@@ -365,6 +367,8 @@ class RangeTests(unittest.TestCase):
   with patch.object(self.m,'usage_now',return_value=now):
    d=self.m.dashboard_payload({'range_usage':{'range':'today','start':start,'end':end,'claude':sample}})
   self.assertEqual(d['providers'][1]['history'],[0,0,100]);self.assertEqual(d['chartPositions'],[0,0.04,1.0])
+  # Its last point is the hour still under way, 30 seconds into it.
+  self.assertEqual(d['chartPartial'],30)
 
  def test_rolling_24h_chart_keeps_full_window(self):
   self.m.write_json_cache(self.m.cache_path('view-range'),{'schema':1,'range':'24h'})

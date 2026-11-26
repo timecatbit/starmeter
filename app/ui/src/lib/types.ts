@@ -146,6 +146,8 @@ export interface Dashboard {
   /** When the range's figures were read (seconds): a range picked shows once its reading is this fresh. */
   fetchedAt?: number | null;
   chartPositions?: number[] | null;
+  /** Today: how many seconds the last point's hour has run (it is still under way); null when it is a whole hour. */
+  chartPartial?: number | null;
   heatmap?: UsageHeatmap | null;
   showSummary?: boolean;
   allowCollapse?: boolean;
