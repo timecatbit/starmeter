@@ -63,7 +63,7 @@ export interface LiveSession {
 export interface LiveEvent {
   id: number;
   at: number;
-  kind: 'usage' | 'tool' | 'start' | 'done' | 'wake';
+  kind: 'usage' | 'tool' | 'start' | 'done' | 'wake' | 'rest';
   /** The tool's id for its colour (usage), or none. */
   tool: string | null;
   who: string;
@@ -356,7 +356,13 @@ export class PhoneLive {
       const who = sessions.find((s) => s.running)?.title ?? (landings[0] ? this.before?.get(landings[0].id)?.name : null) ?? 'AI';
       event('wake', who, t('开始工作'));
     }
-    if (!working && this.state === 'working') this.restingSince = moment;
+    if (!working && this.state === 'working') {
+      this.restingSince = moment;
+      // Resting is in 动态 too, at the last activity (it is told a while after, once nothing has come for QUIET), so the
+      // feed says how long it has stood still and what came before (用户：正在运行和动态呢？).
+      const who = sessions.find((s) => !s.running)?.title ?? 'AI';
+      events.push({ id: this.nextId++, at: this.lastActive ?? now, kind: 'rest', tool: null, who, what: t('开始休息') });
+    }
     if (!working && !this.restingSince) this.restingSince = moment;
     this.state = working ? 'working' : 'resting';
     if (working) this.restingSince = 0;
@@ -368,7 +374,7 @@ export class PhoneLive {
     this.dashboardSeen = true;
 
     // Newest first: the wake before what woke it, and a turn done before its last tools.
-    const order: Record<LiveEvent['kind'], number> = { wake: 0, done: 1, start: 2, tool: 3, usage: 4 };
+    const order: Record<LiveEvent['kind'], number> = { rest: 0, wake: 0, done: 1, start: 2, tool: 3, usage: 4 };
     events.sort((a, b) => order[a.kind] - order[b.kind]);
     if (events.length) this.events = [...events, ...this.events].slice(0, 40);
     this.version++;

@@ -2,8 +2,10 @@
   // What the AI is doing, under the curve. 正在运行: each running session, its tool's mark in a ring that turns while it
   // works, the title and this turn's clock going second by second; its model and how full its context is; this turn's
   // tokens and cost, and the tools it has called (a tool called since the last reading lights for a moment: that is
-  // what it is doing now). Nothing running, the session last at work and since when. 动态: what happened, newest first,
-  // each sliding in at the top: a request landing (+12.3K Token from Claude), a tool called, a turn begun or done.
+  // what it is doing now). Nothing running, the session last at work in the same card, greyed, with how long it has been
+  // idle and its last turn, lighting up in its place when work comes again (no card coming or going: 用户：正在运行和动态
+  // 呢？). 动态: what happened, newest first, each sliding in at the top: a request landing (+12.3K Token from Claude), a
+  // tool called, a turn begun or done, work begun or stopped; resting, what came before stays.
   import { flip } from 'svelte/animate';
   import { fly } from 'svelte/transition';
   import { toolColour } from '../lib/colors';
@@ -21,6 +23,8 @@
 
   const running = $derived(live.sessions.filter((s) => s.running));
   const latest = $derived(live.sessions.find((s) => !s.running) ?? null);
+  /** The cards: the sessions running, else the one last at work. */
+  const shown = $derived(running.length ? running : latest ? [latest] : []);
   const events = $derived(feedOpen ? live.events : live.events.slice(0, SHOWN));
   const pad = (n: number) => String(n).padStart(2, '0');
   const clock = (at: number) => { const d = new Date(at); return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
@@ -33,15 +37,19 @@
 
 <div class="activity">
   <div class="head"><span>{t('正在运行')}</span>{#if running.length}<span class="count num">{running.length}</span>{/if}</div>
-  {#if running.length}
+  {#if shown.length && live.answered}
     <div class="sessions">
-      {#each running as s (s.key)}
-        <div class="session" in:fly={{ y: 10, duration: motion(400) }} data-tap="turn">
+      {#each shown as s (s.key)}
+        <div class="session" class:ended={!s.running} in:fly={{ y: 10, duration: motion(400) }} data-tap={s.running ? 'turn' : null}>
           <div class="top">
-            <span class="mark"><span class="orbit" aria-hidden="true"></span><Glyph image={s.image} template={s.template} symbol={s.symbol ?? 'terminal'} size={17} {tint} /></span>
+            <span class="mark">{#if s.running}<span class="orbit" aria-hidden="true"></span>{/if}<Glyph image={s.image} template={s.template} symbol={s.symbol ?? 'terminal'} size={17} {tint} /></span>
             <span class="title">{s.title}</span>
-            <span class="timer" title={t('本轮用时')}>{#each timer(s.began, s.exact) as piece, i (i)}<span
-                class={piece.figure ? 'timer-figure num' : 'timer-words'}>{piece.text}</span>{/each}</span>
+            {#if s.running}
+              <span class="timer" title={t('本轮用时')}>{#each timer(s.began, s.exact) as piece, i (i)}<span
+                  class={piece.figure ? 'timer-figure num' : 'timer-words'}>{piece.text}</span>{/each}</span>
+            {:else if s.idle}
+              <span class="idle">{s.idle}</span>
+            {/if}
           </div>
           {#if s.model || s.context !== null}
             <!-- The model and effort, then how full the context is: its meter and share (as the panel's 实时 has them). -->
@@ -52,9 +60,9 @@
             </div>
           {/if}
           <div class="turn">
-            {#if s.turnTokens}<span class="turn-figures num">{t('本轮') + ' ' + s.turnTokens + (s.turnCost ? ' · ' + s.turnCost : '')}</span>{/if}
+            {#if s.turnTokens}<span class="turn-figures num">{t(s.running ? '本轮' : '上一轮') + ' ' + s.turnTokens + (s.turnCost ? ' · ' + s.turnCost : '')}</span>{/if}
             {#each s.tools.slice(0, 4) as [name, count] (name)}
-              <span class="chip num" class:lit={now - (s.called[name] ?? 0) < 1800}>{name} ×{count}</span>
+              <span class="chip num" class:lit={s.running && now - (s.called[name] ?? 0) < 1800}>{name} ×{count}</span>
             {/each}
           </div>
         </div>
@@ -62,7 +70,7 @@
     </div>
   {:else}
     <!-- Before the first answer, the sessions are still to come, not none. -->
-    <p class="quiet">{!live.answered ? t('正在读取…') : latest ? t('没有在运行的会话 · 最近：{title}{idle}', { title: latest.title, idle: latest.idle ? ' · ' + latest.idle : '' }) : t('没有在运行的会话')}</p>
+    <p class="quiet">{!live.answered ? t('正在读取…') : t('没有在运行的会话')}</p>
   {/if}
 
   <div class="head feed-head"><span>{t('动态')}</span></div>
@@ -75,7 +83,7 @@
           {#if e.kind === 'done'}
             <svg class="sign" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5.5" fill="var(--good)" /><path d="M3.4 6.1 5.2 7.9 8.6 4.3" fill="none" stroke="#06281A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
           {:else}
-            <span class="dot" style:background={e.tool ? toolColour(e.tool, panel.dark) : e.kind === 'wake' ? 'var(--good)' : 'var(--star)'}></span>
+            <span class="dot" style:background={e.tool ? toolColour(e.tool, panel.dark) : e.kind === 'wake' ? 'var(--good)' : e.kind === 'rest' ? 'var(--ink-3)' : 'var(--star)'}></span>
           {/if}
           <span class="who">{e.who}</span>
           <span class="what num">{e.what}</span>
@@ -123,6 +131,11 @@
   @keyframes at-work { to { transform: translateX(250%); } }
   :global(.asleep) .session::after { animation-play-state: paused; }
   :global(.still) .session::after { animation: none; opacity: 0; }
+  /* The session last at work while nothing runs: the same card, quiet: no green edge, no light along its foot, greyed;
+     it lights up in its place when work comes again. */
+  .session.ended { box-shadow: inset 0 0 0 0.5px var(--glass-edge), var(--lift); opacity: 0.62; transition: opacity 0.6s ease-out; }
+  .session.ended::after { display: none; }
+  .idle { flex: none; font-size: var(--type-small, 11px); font-weight: 500; color: var(--ink-3); }
   .top { display: flex; align-items: center; gap: 10px; min-width: 0; }
   /* Tapped (StageDrift): its mark turns once. */
   .session:global(.tapped) .mark { animation: turn-once 0.8s cubic-bezier(0.3, 0.7, 0.2, 1); }
@@ -170,6 +183,7 @@
   }
   @media (hover: hover) { .more:hover { background: var(--glass-strong); } }
   .feed { list-style: none; margin: 0; padding: 4px 14px; border-radius: 20px; background: var(--glass); box-shadow: inset 0 0 0 0.5px var(--glass-edge), var(--lift); }
+  .event.rest .what { color: var(--ink-3); }
   .event { display: grid; grid-template-columns: auto auto minmax(0, auto) minmax(0, 1fr); align-items: center; gap: 8px; min-height: 34px; font-size: 12.5px; border-bottom: 0.5px solid var(--line-faint); }
   .event:last-child { border-bottom: 0; }
   .when { font-size: 11px; color: var(--ink-3); }

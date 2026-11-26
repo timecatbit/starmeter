@@ -32,6 +32,8 @@
   const SHOWN = 5;
   const running = $derived(live.sessions.filter((s) => s.running));
   const latest = $derived(live.sessions.find((s) => !s.running) ?? null);
+  /** The cards: the sessions running, else the one last at work, greyed (as 网页版's 正在运行). */
+  const shown = $derived(running.length ? running : latest ? [latest] : []);
   const feedOpen = $derived(listOpen('feed'));
   const events = $derived(feedOpen ? live.events : live.events.slice(0, SHOWN));
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -44,23 +46,27 @@
 
 <div class="panel-live">
   <div class="head"><span>{t('正在运行')}</span>{#if running.length}<span class="count num">{running.length}</span>{/if}</div>
-  {#each running as s (s.key)}
-    <div class="live-session" in:fly={{ y: 6, duration: motion(240) }}>
+  {#each live.answered ? shown : [] as s (s.key)}
+    <div class="live-session" class:ended={!s.running} in:fly={{ y: 6, duration: motion(240) }}>
       <div class="top">
         <span class="mark"><Glyph image={s.image} template={s.template} symbol={s.symbol ?? 'terminal'} size={12} {tint} /></span>
         <span class="title">{s.title}</span>
-        <span class="clock" title={t('本轮用时')}>{#each timer(s.began, s.exact) as piece, i (i)}<span class={piece.figure ? 'clock-figure num' : 'clock-words'}>{piece.text}</span>{/each}</span>
+        {#if s.running}
+          <span class="clock" title={t('本轮用时')}>{#each timer(s.began, s.exact) as piece, i (i)}<span class={piece.figure ? 'clock-figure num' : 'clock-words'}>{piece.text}</span>{/each}</span>
+        {:else if s.idle}
+          <span class="idle">{s.idle}</span>
+        {/if}
       </div>
       <div class="about">
         {#if s.model}<span class="model">{s.model}</span>{/if}
         {#if s.context !== null}<span class="context" title={t('上下文 {n}%', { n: Math.round(s.context * 100) })}><span class="meter" aria-hidden="true"><span style:width="{Math.round(s.context * 100)}%"></span></span><span
             class="share num">{Math.round(s.context * 100)}%</span></span>{/if}
-        {#if s.turnTokens}<span class="spent num">{t('本轮') + ' ' + s.turnTokens + (s.turnCost ? ' · ' + s.turnCost : '')}</span>{/if}
+        {#if s.turnTokens}<span class="spent num">{t(s.running ? '本轮' : '上一轮') + ' ' + s.turnTokens + (s.turnCost ? ' · ' + s.turnCost : '')}</span>{/if}
       </div>
     </div>
   {/each}
-  {#if !running.length}
-    <p class="quiet">{!live.answered ? t('正在读取…') : latest ? t('没有在运行的会话 · 最近：{title}{idle}', { title: latest.title, idle: latest.idle ? ' · ' + latest.idle : '' }) : t('没有在运行的会话')}</p>
+  {#if !live.answered || !shown.length}
+    <p class="quiet">{!live.answered ? t('正在读取…') : t('没有在运行的会话')}</p>
   {/if}
 
   <div class="head feed-head"><span>{t('动态')}</span></div>
@@ -74,7 +80,7 @@
             <!-- A turn done: a tick in a green disc, as 网页版 marks it. -->
             <svg class="sign" width="10" height="10" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5.5" fill="var(--green)" /><path d="M3.4 6.1 5.2 7.9 8.6 4.3" fill="none" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
           {:else}
-            <span class="dot" style:background={e.tool ? toolColour(e.tool, panel.dark) : e.kind === 'wake' ? 'var(--green)' : 'var(--accent)'}></span>
+            <span class="dot" style:background={e.tool ? toolColour(e.tool, panel.dark) : e.kind === 'wake' ? 'var(--green)' : e.kind === 'rest' ? 'var(--tertiary)' : 'var(--accent)'}></span>
           {/if}
           <span class="who">{e.who}</span>
           <span class="what num">{e.what}</span>
@@ -97,6 +103,9 @@
   .count { min-width: 15px; height: 15px; padding: 0 4px; box-sizing: border-box; border-radius: 8px; font-size: 10px; font-weight: 600; line-height: 15px; text-align: center; color: white; background: var(--green); }
   .live-session { padding: 4px 0 5px; border-bottom: 0.5px solid var(--separator); }
   .live-session:last-of-type { border-bottom: 0; }
+  /* The session last at work while nothing runs: the same row, greyed, lighting up in its place when work comes. */
+  .live-session.ended { opacity: 0.6; }
+  .idle { flex: none; font-size: 10px; color: var(--tertiary); }
   .top { display: flex; align-items: center; gap: 6px; min-width: 0; height: 18px; }
   .mark { flex: none; width: 16px; height: 16px; border-radius: 5px; display: flex; align-items: center; justify-content: center; background: var(--hover); }
   .title { flex: 1; min-width: 0; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -119,4 +128,5 @@
   .who { flex: none; max-width: 45%; font-weight: 600; color: var(--label); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .what { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .event.done .what, .event.wake .what { color: var(--green); font-weight: 600; }
+  .event.rest .what { color: var(--tertiary); }
 </style>

@@ -352,17 +352,27 @@ test('the live view: a turn done is said at the top, then resting, then waking w
   await expect(page.locator('.stage .turn-done')).toContainText('这一轮完成', { timeout: 5000 });
   await expect(page.locator('.stage .turn-done .done-detail')).toContainText(/重做设置页的分段控件|harbor-api/);
   await expect(page.locator('.stage .feed .event.done')).toHaveCount(2);
-  await expect(page.locator('.stage .activity .session')).toHaveCount(0);
+  // Nothing running: the session last at work in its card's place, greyed, its turn the last one.
+  await expect(page.locator('.stage .activity .session:not(.ended)')).toHaveCount(0);
+  await expect(page.locator('.stage .activity .session.ended')).toHaveCount(1);
   // Requests landed just now: still working for a while, with no session running.
   await expect(page.locator('.stage .monitor .state')).toHaveText('正在工作');
-  // Nothing for a minute: resting, the headline today's estimate and the curve today's trend.
+  // Nothing for a minute: resting, the headline today's estimate; the live curve stays, lying flat, not today's trend
+  // again (the statistics below have it: 用户：有点信息重复), the card the same size, so nothing jumps when work comes.
+  const curve = await page.locator('.stage .monitor .curve').boundingBox();
   work.at(80);
   await expect(page.locator('.stage .monitor:not(.working)')).toBeVisible({ timeout: 5000 });
   await expect(page.locator('.stage .monitor .state')).toHaveText(/休息中/);
   await expect(page.locator('.stage .monitor [data-figure="today"]').first()).toBeVisible();
-  await expect(page.locator('.stage .monitor .live-chart')).toHaveCount(0);
-  await expect(page.locator('.stage .monitor .chart')).toBeVisible();
-  await expect(page.locator('.stage .activity .quiet').first()).toContainText('没有在运行的会话');
+  await expect(page.locator('.stage .monitor .live-chart')).toBeVisible();
+  await expect(page.locator('.stage .monitor .chart')).toHaveCount(0);
+  expect(Math.abs((await page.locator('.stage .monitor .curve').boundingBox())!.height - curve!.height)).toBeLessThan(1);
+  // 正在运行: the session last at work, greyed; 动态: what came before stays, resting at the top, at the last activity.
+  await expect(page.locator('.stage .activity .session.ended')).toHaveCount(1);
+  await expect(page.locator('.stage .activity .quiet')).toHaveCount(0);
+  await expect(page.locator('.stage .feed .event').first()).toHaveClass(/rest/);
+  await expect(page.locator('.stage .feed .event.rest .what')).toHaveText('开始休息');
+  await expect(page.locator('.stage .feed .event.done')).toHaveCount(2);
   // A new turn: the page wakes, says so first, and the speed is the headline again.
   work.at(1001);
   await expect(page.locator('.stage .feed .event').first()).toHaveClass(/wake/, { timeout: 7000 });

@@ -2,15 +2,15 @@
   // The top of 网页版: is the AI working, how hard, and what has today cost. Working, the line says so with a beating
   // light and how many sessions are running; the headline is how fast the models are writing (Token/s, as the pinned
   // panel reads it), today's estimate under it rolling up as each request lands with what it added rising off it; the
-  // live curve below. Resting, the line says since when; the headline is today's estimate, the curve today's trend, and
-  // the page is still. Waking, the headline turns from the estimate to the speed and the trend gives way to the curve.
+  // live curve below. Resting, the line says since when; the headline is today's estimate, and the live curve stays,
+  // lying flat: today's trend is the statistics' just below (用户：有点信息重复), and the card keeps its size, the curve
+  // rising in its place when work comes (no chart taking another's place). Waking, the headline turns to the speed.
   import { currency, grouped, tokens } from '../lib/format';
   import { t } from '../lib/i18n.svelte';
   import { rateText } from '../lib/live';
   import { estimate, type PhoneLive } from '../lib/phoneLive.svelte';
   import { panel } from '../lib/ui.svelte';
   import type { Dashboard } from '../lib/types';
-  import StageChart from './StageChart.svelte';
   import StageLiveChart from './StageLiveChart.svelte';
   import StageNumber from './StageNumber.svelte';
 
@@ -32,9 +32,9 @@
   /** The live chart's legend, over its curve: the curve gets its least under it (on its side, two rows of legend left the
    *  curve 10 points and its end's dot was cut). */
   let legend = $state(0);
-  /** Filling, the least the curve takes: working, the live chart's legend and its plot of at least 40 points between
-   *  its 18 over and 20 under (its scale's words, its time line). */
-  const leastNow = $derived(working ? legend + Math.max(least, 78) : least);
+  /** Filling, the least the curve takes: the live chart's legend and its plot of at least 40 points between its 18
+   *  over and 20 under (its scale's words, its time line), working or resting alike. */
+  const leastNow = $derived(legend + Math.max(least, 78));
   const curveHeight = $derived(chartHeight ?? Math.max(leastNow, room));
 
   const running = $derived(live.sessions.filter((s) => s.running).length);
@@ -95,12 +95,8 @@
       <span class="tick"><span class="tick-label">{rangeWord}</span> <span class="tick-value num"><StageNumber value={tokens(data.providers.reduce((s, p) => s + (p.available && p.summaryIncluded !== false ? (p.counted?.tokens ?? p.tokens) : 0), 0))} /></span><span class="tick-label">{t('Token')}</span></span>
     {/if}
   </div>
-  <div class="curve" bind:clientHeight={room}>
-    {#if working}
-      <StageLiveChart {live} height={curveHeight} bind:legendHeight={legend} />
-    {:else if data}
-      <div class="resting-chart"><StageChart {data} height={curveHeight} draw={intro} /></div>
-    {/if}
+  <div class="curve" class:resting={!working} bind:clientHeight={room}>
+    <StageLiveChart {live} height={curveHeight} bind:legendHeight={legend} />
   </div>
 </div>
 
@@ -173,5 +169,6 @@
   @keyframes rise { from { opacity: 0; transform: translateY(8px); } 15% { opacity: 1; } to { opacity: 0; transform: translateY(-18px); } }
   .curve { position: relative; flex: 1; min-height: 0; }
   .filling .curve { min-height: var(--least, 64px); }
-  .resting-chart { opacity: 0.78; }
+  .curve { transition: opacity 0.6s ease-out; }
+  .curve.resting { opacity: 0.78; }
 </style>
