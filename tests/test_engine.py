@@ -1866,6 +1866,37 @@ class SessionParityTests(unittest.TestCase):
         self.assertAlmostEqual(got[0]['turns'][0]['at'], now - 600, delta=1)
         self.assertGreater(got[0]['turns'][0]['requests'], 0)
 
+    def test_a_message_from_another_session_begins_a_turn(self):
+        # Another session's message, written as a note (isMeta) from a peer, sets the session to work as a prompt does:
+        # both engines start its turn there, not at the user's own last words hours before (用户：这个20小时3分钟是累积时间？);
+        # a note that is no message (a picture's) still begins nothing.
+        temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
+        root = Path(temp.name); claude, codex = root / 'projects', root / 'codex'; codex.mkdir()
+        now = time.time()
+        stamp = lambda ago: datetime.fromtimestamp(now - ago, timezone.utc).isoformat().replace('+00:00', 'Z')
+        def work(ago, n):
+            rows = []
+            for i in range(n):
+                rows.append({'type': 'assistant', 'timestamp': stamp(ago - i), 'message': {'id': f'm{ago}-{i}', 'model': 'claude-opus-5-5',
+                             'content': [{'type': 'tool_use', 'name': 'Bash'}], 'usage': {'input_tokens': 100, 'output_tokens': 10}}})
+                rows.append({'type': 'user', 'timestamp': stamp(ago - i), 'message': {'content': [{'type': 'tool_result', 'content': 'ok'}]}})
+            return rows
+        rows = [{'type': 'user', 'timestamp': stamp(3 * 3600), 'message': {'content': 'go on'}}, *work(3 * 3600 - 5, 3),
+                {'type': 'user', 'isMeta': True, 'origin': {'kind': 'peer', 'name': 'main'}, 'timestamp': stamp(600),
+                 'message': {'role': 'user', 'content': 'Another Claude session sent a message'}},
+                {'type': 'user', 'isMeta': True, 'timestamp': stamp(590), 'message': {'content': '[Image: source: shot.png]'}}, *work(580, 5)]
+        path = claude / 'p' / '7a5d1c2e-0000-4000-8000-0000000000dd.jsonl'; path.parent.mkdir(parents=True)
+        path.write_text(''.join(json.dumps(row) + '\n' for row in rows)); os.utime(path, (now - 5, now - 5))
+        plugin = __import__('types').ModuleType('plugin_peer_turn')
+        with unittest.mock.patch.dict(os.environ, {'OCX_PLUGIN_PATH': str(ROOT / 'starmeter.30s.sh')}):
+            exec(compile((ROOT / 'lib/swiftbar_plugin.py').read_text(), 'plugin', 'exec'), plugin.__dict__)
+        from zoneinfo import ZoneInfo
+        wanted = [['24h', now - 86400, now]]
+        expected = live_sessions.active([claude], codex, now, plugin.session_prices(), {}, wanted, ZoneInfo('UTC'))
+        got = swift('sessions.active', [str(claude)], str(codex), now, True, {}, wanted, 'UTC')
+        same(self, expected, got)
+        self.assertAlmostEqual(got[0]['turns'][0]['at'], now - 600, delta=1)
+
     def test_antigravitys_copies_of_a_conversation_count_each_response_once(self):
         """AGY-6: a conversation the app and the IDE each keep, the older copy holding a response the newer lacks: the
         session counts every response once, as the Gemini card does, whichever copy is newer, for a task listed for

@@ -194,9 +194,11 @@ PROMPT_FAR = 256 * 1024 * 1024
 
 
 def prompt(row):
-    """A row that begins a Claude turn: the user's own words (or a picture, a file), not a tool's result, not a
-    subagent's, not a note of Claude Code's."""
-    if row.get('type') != 'user' or row.get('isSidechain') or row.get('isMeta'):return False
+    """A row that begins a Claude turn: the user's own words (or a picture, a file), or a message from another session
+    (a note, isMeta, from a peer: it sets the session to work as a prompt does); not a tool's result, not a subagent's,
+    not another note of Claude Code's."""
+    origin = row.get('origin') if isinstance(row.get('origin'), dict) else {}
+    if row.get('type') != 'user' or row.get('isSidechain') or (row.get('isMeta') and origin.get('kind') != 'peer'):return False
     message = row.get('message') if isinstance(row.get('message'), dict) else {}
     content = message.get('content')
     kinds = {item.get('type') for item in content if isinstance(item, dict)} if isinstance(content, list) else set()

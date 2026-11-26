@@ -75,12 +75,15 @@ fn rows_at_end_from(path: &str, size: usize) -> Result<(Vec<Object>, u64), FileE
     Ok((rows, start))
 }
 
-/// A row that begins a Claude turn: the user's own words (or a picture, a file), not a tool's result, not a subagent's,
-/// not a note of Claude Code's.
+/// A row that begins a Claude turn: the user's own words (or a picture, a file), or a message from another session
+/// (written as a note, `isMeta`, from a peer: it sets the session to work as a prompt does; its turn's clock said the
+/// hours since the user last wrote, 用户：这个20小时3分钟是累积时间？); not a tool's result, not a subagent's, not
+/// another note of Claude Code's.
 fn prompt(row: &Object) -> bool {
+    let from_peer = row.get("origin").and_then(|origin| origin.get("kind")).and_then(Json::as_str) == Some("peer");
     if !kind_is(row, "user")
         || row.get("isSidechain").is_some_and(Json::is_truthy)
-        || row.get("isMeta").is_some_and(Json::is_truthy)
+        || (row.get("isMeta").is_some_and(Json::is_truthy) && !from_peer)
     {
         return false;
     }
@@ -1735,9 +1738,16 @@ mod tests {
             .unwrap();
         assert_eq!(started(&claude_turns(&path, &price).unwrap()), Some(at("09:20:00")));
         // A tool's result, a subagent's line or a note is no prompt.
-        std::fs::write(&file, prompt("08:00:00") + "{\"type\":\"user\",\"isSidechain\":true,\"timestamp\":\"2026-11-26T08:30:00Z\",\"message\":{\"content\":\"sub\"}}\n" + &work("08:40:00", 40)).unwrap();
+        let note = "{\"type\":\"user\",\"isMeta\":true,\"timestamp\":\"2026-11-26T08:35:00Z\",\"message\":{\"content\":\"[Image: source: shot.png]\"}}\n";
+        std::fs::write(&file, prompt("08:00:00") + "{\"type\":\"user\",\"isSidechain\":true,\"timestamp\":\"2026-11-26T08:30:00Z\",\"message\":{\"content\":\"sub\"}}\n" + note + &work("08:40:00", 40)).unwrap();
         super::PROMPTS.lock().unwrap().take();
         assert_eq!(started(&claude_turns(&path, &price).unwrap()), Some(at("08:00:00")));
+        // A message from another session sets it to work as a prompt does: its turn begins there, not at the user's
+        // last words hours before (用户：这个20小时3分钟是累积时间？).
+        let peer = "{\"type\":\"user\",\"isMeta\":true,\"origin\":{\"kind\":\"peer\",\"name\":\"main\"},\"timestamp\":\"2026-11-26T09:30:00Z\",\"message\":{\"role\":\"user\",\"content\":\"Another Claude session sent a message\"}}\n";
+        std::fs::write(&file, prompt("08:00:00") + &work("08:00:05", 5) + peer + &work("09:30:05", 40)).unwrap();
+        super::PROMPTS.lock().unwrap().take();
+        assert_eq!(started(&claude_turns(&path, &price).unwrap()), Some(at("09:30:00")));
         let _ = std::fs::remove_dir_all(&folder);
     }
 
