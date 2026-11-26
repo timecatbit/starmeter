@@ -1,6 +1,6 @@
 <script lang="ts">
   // 网页版's live curve: how fast the models are writing (output tokens a second, the last minute's eased as the pinned
-  // panel's Token/s is: LiveFeed.smoothRates) over the last five minutes, flowing left as time runs, in the live line's
+  // panel's Token/s is: LiveFeed.smoothRates) over the last minute, flowing left as time runs, in the live line's
   // one look (liveLines.ts): the total the line the eye follows, a soft area under it and its end a dot whose halo
   // breathes; each tool thin in its colour where it writes; one writing alone is the total (no second line on it).
   // Named in a legend over it. The plot is the monitor's whole width: the end's halo in its own room at the right,
@@ -66,7 +66,7 @@
       // The busiest first (the legend in that order).
       const last = samples.at(-1);
       ids = [...seen].sort((a, b) => (last?.outputs?.[b] ?? 0) - (last?.outputs?.[a] ?? 0));
-      // A point a second from the first reading (or five minutes back) to the last, and on a few seconds past it as
+      // A point a second from the first reading (or a minute back) to the last, and on a few seconds past it as
       // the rate eases with nothing new (the curve runs on to now between readings, not flat for the last two).
       times = [];
       readingAt = last?.at ?? 0;
@@ -148,9 +148,8 @@
     const padTop = 16, padBottom = 18, right = W - LINE.end, plotH = H - padTop - padBottom, base = padTop + plotH;
     // The right edge is now; a reading is placed at its moment, so the curve flows left between readings.
     const end = still ? readingAt || now : now;
-    // A minute at first, widening to five as the readings come in: the curve fills the width from the start.
-    const first = live.feed.samples[0]?.at ?? end;
-    const span = Math.min(LIVE_SPAN, Math.max(60_000, end - first + 15_000));
+    // The last minute, as the pinned panel's.
+    const span = LIVE_SPAN;
     const x = (at: number) => right - ((end - at) / span) * right;
     const y = (v: number) => Math.min(base, Math.max(padTop, base - (v / shownTop) * plotH));
     const sketch = style.current === 'sketch';
@@ -255,7 +254,7 @@
     canvas.dataset.draws = String(++draws);
     // Keep flowing while the page shows it; reduced motion draws only at readings. Every frame while something moves on
     // it (a request landing, its sparks, the scale easing); otherwise only as the flow left moves it half a point (a
-    // minute across the width: about 12 times a second; five minutes: twice).
+    // minute across the width: about 12 times a second).
     if (still || document.visibilityState !== 'visible') return;
     // A drop is moving for its fall and its rise, not for as long as it is kept (until the next reading: STAGE-19, a
     // computer gone quiet just after one kept every frame drawn).

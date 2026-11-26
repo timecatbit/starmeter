@@ -27,8 +27,8 @@ const BUSY_EVERY = 2_000, REST_EVERY = 5_000;
 const worthSaying = (usd: number) => currency.convert(usd) >= 0.005;
 /** How much time the readings must cover before the speed means anything: until then it is —, not 0. */
 const READY = 20_000;
-/** The curve's span. */
-export const LIVE_SPAN = 5 * 60_000;
+/** The curve's span: the last minute, as the pinned panel's (the user: 就1分钟就好; it had grown to five). */
+export const LIVE_SPAN = 60_000;
 
 export interface LiveSession {
   key: string;
