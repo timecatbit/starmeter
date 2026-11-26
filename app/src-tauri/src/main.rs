@@ -253,11 +253,18 @@ fn build_star(app: &AppHandle) -> tauri::Result<()> {
                     button: MouseButton::Left, button_state: MouseButtonState::Up, rect, ..
                 } => {
                     panel::toggle(app, star_anchor(app, Some(rect)), false);
+                    // The menu brought up to date while it is not on screen (the login item's tick, the notifications
+                    // item), for the next right-click; not as it opens (below).
+                    refresh_star_menu(app);
                 }
-                // The right-click menu replaces the panel; the menu's own items then decide.
+                // The right-click menu replaces the panel; the menu's own items then decide. It is not built afresh
+                // here: on Windows the tray shows its menu itself as the button comes up, and this runs while it shows
+                // (the click comes through the app's queue, which the menu's own loop runs): a new menu put in then
+                // dropped the one on screen, and it closed at once (用户：windows用户说，右键菜单点不开). It is built
+                // afresh when what it says changes: the language, the login item clicked, a left click. (On a Mac the
+                // star's clicks are its own, and the menu is built and then shown: take_over_star.)
                 TrayIconEvent::Click { button: MouseButton::Right, button_state: MouseButtonState::Down, .. } => {
                     panel::close(app, false);
-                    refresh_star_menu(app);
                 }
                 _ => {}
             }
