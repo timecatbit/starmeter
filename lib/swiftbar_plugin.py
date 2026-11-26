@@ -231,6 +231,14 @@ def chatgpt_home():
     return os.path.abspath(os.path.expanduser(os.environ.get('OCX_CHATGPT_HOME') or os.environ.get('CODEX_HOME') or os.path.join(HOME,'.codex')))
 
 
+def app_roots():
+    return [os.path.join(HOME,'Applications'),'/Applications'] if sys.platform=='darwin' else []
+
+
+def codex_binary():
+    return discovery.chatgpt_codex(app_roots=app_roots())
+
+
 def chatgpt_configured():
     return memoized('chatgpt-configured',chatgpt_login_present)
 
@@ -238,7 +246,7 @@ def chatgpt_configured():
 def chatgpt_login_present():
     auth=discovery.read_object(os.path.join(chatgpt_home(),'auth.json'))
     tokens=auth.get('tokens') if isinstance(auth.get('tokens'),dict) else {}
-    return bool(shutil.which('codex') and (auth.get('auth_mode') in ('chatgpt','chatgptAuthTokens') or tokens.get('access_token')))
+    return bool(codex_binary() and (auth.get('auth_mode') in ('chatgpt','chatgptAuthTokens') or tokens.get('access_token')))
 
 
 def chatgpt_source():
@@ -2569,7 +2577,7 @@ def external_loaders():
     if module_enabled('gemini-subscription') and antigravity.present(HOME):loaders['gemini_subscription']=lambda:cached_fetch('gemini_subscription',lambda:antigravity.quota(HOME),EXTERNAL_TTLS['gemini_subscription'])
     if module_enabled('qoder-subscription'):loaders['qoder_subscription']=lambda:cached_fetch('qoder_subscription',lambda:(qoder.snapshot(HOME) or {'empty':True},None),EXTERNAL_TTLS['qoder_subscription'])
     # Each read starts the ChatGPT client's app-server, so a failing client waits its normal interval, not a minute.
-    if module_enabled('chatgpt') and chatgpt_source()=='client' and chatgpt_configured():loaders['chatgpt']=lambda:cached_fetch('chatgpt',lambda:(sources.chatgpt_account(home=chatgpt_home()),None),EXTERNAL_TTLS['chatgpt'],retry=EXTERNAL_TTLS['chatgpt'])
+    if module_enabled('chatgpt') and chatgpt_source()=='client' and chatgpt_configured():loaders['chatgpt']=lambda:cached_fetch('chatgpt',lambda:(sources.chatgpt_account(codex_binary(),home=chatgpt_home()),None),EXTERNAL_TTLS['chatgpt'],retry=EXTERNAL_TTLS['chatgpt'])
     for key in ACCOUNT_SOURCES:
         if module_enabled(key) and default_ready(key):loaders[key]=lambda key=key:cached_fetch(key,lambda:(accounts.account(key),None),EXTERNAL_TTLS[key])
     loaders.update(named_key_loaders())
@@ -3485,7 +3493,7 @@ def chatgpt_lines(data):
 
 
 def detected_modules():
-    return discovery.detect({key:source_path(key) for key in preferences.USAGE},HOME,ocx_configured(),KOMARI_BASE_URL,app_roots=[os.path.join(HOME,'Applications'),'/Applications'] if sys.platform=='darwin' else [],chatgpt_home=chatgpt_home(),configured_subscriptions=view_settings()['configuredSubscriptions'])
+    return discovery.detect({key:source_path(key) for key in preferences.USAGE},HOME,ocx_configured(),KOMARI_BASE_URL,app_roots=app_roots(),chatgpt_home=chatgpt_home(),configured_subscriptions=view_settings()['configuredSubscriptions'])
 
 
 def detection_help_entries():

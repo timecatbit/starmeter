@@ -138,6 +138,18 @@ pub mod qoder {
 pub mod chatgpt {
     use super::*;
 
+    /// Where the ChatGPT app keeps Codex's command line, in an apps folder: the app (com.openai.codex) carries it.
+    pub const APP_CODEX: &str = "ChatGPT.app/Contents/Resources/codex-cli/bin/codex";
+
+    /// The Codex command line the plan's windows are read with: Codex's own on PATH, else the one inside the ChatGPT
+    /// app, which signs in to the same ~/.codex. So the app alone, without Codex installed, has the plan's windows
+    /// (用户：如果电脑只安装了chatgpt app没安装codex没办法查看订阅用量).
+    pub fn binary(app_roots: &[String], environment: &HashMap<String, String>) -> Option<String> {
+        shell::which("codex", environment).or_else(|| {
+            app_roots.iter().map(|root| format!("{root}/{APP_CODEX}")).find(|path| Path::new(path).is_file())
+        })
+    }
+
     /// ChatGPT's rate-limit windows from the App Server: it never refreshes or logs in, never calls a model.
     pub fn account(binary: Option<&str>, home: Option<&str>, environment: &HashMap<String, String>) -> Object {
         let Some(binary) = binary.map(String::from).or_else(|| shell::which("codex", environment)) else {

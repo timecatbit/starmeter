@@ -86,6 +86,18 @@ class DiscoveryTests(unittest.TestCase):
         self.assertNotIn('chatgpt',discovery.detect({},self.home,which=lambda _:'/test/codex'))
         auth.write_text(json.dumps({'auth_mode':'chatgpt','tokens':{'access_token':'PRIVATE'}}))
         self.assertIn('chatgpt',discovery.detect({},self.home,which=lambda _:'/test/codex'))
+    def test_the_chatgpt_apps_codex_reads_the_plan_without_codex_installed(self):
+        # Signed in with the ChatGPT app, and Codex not installed: the app's own Codex command line reads the plan.
+        self.put('.codex/auth.json',json.dumps({'auth_mode':'chatgpt'}))
+        apps=self.home/'Applications';none=lambda _:None
+        self.assertIsNone(discovery.chatgpt_codex(none,[apps]))
+        self.assertNotIn('chatgpt',discovery.detect({},self.home,which=none,app_roots=[apps]))
+        (apps/'ChatGPT.app/Contents/MacOS').mkdir(parents=True)
+        self.assertNotIn('chatgpt',discovery.detect({},self.home,which=none,app_roots=[apps]),'an older app without Codex inside')
+        inside=self.put('Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex','#!/bin/sh\n')
+        self.assertEqual(discovery.chatgpt_codex(none,[apps]),str(inside))
+        self.assertIn('chatgpt',discovery.detect({},self.home,which=none,app_roots=[apps]))
+        self.assertEqual(discovery.chatgpt_codex(lambda _:'/test/codex',[apps]),'/test/codex','Codex on PATH comes first')
     def test_upgrade_preserves_explicitly_hidden_modules_and_appearance(self):
         state=self.home/'state';original={'schema':1,'visible':['summary'],'appearance':'solid','paths':{'claude':'/chosen/path'}}
         preferences.write(state,original);before=(state/'preferences.json').read_bytes()

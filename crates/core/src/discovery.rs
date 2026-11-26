@@ -6,7 +6,7 @@ use std::io::Write;
 use std::path::Path;
 
 use crate::claude_usage::state_of;
-use crate::client_accounts::qoder;
+use crate::client_accounts::{chatgpt, qoder};
 use crate::files::{self, paths};
 use crate::harness::{relative_to, walk};
 use crate::json::{Json, Object};
@@ -174,7 +174,7 @@ pub fn detect(inputs: &Inputs) -> Vec<String> {
     .into_owned();
     let auth = claude_app::read_object(&format!("{auth_root}/auth.json"));
     let mode = auth.get("auth_mode");
-    if which("codex")
+    if chatgpt::binary(&inputs.app_roots, environment).is_some()
         && (mode == Some(&Json::from("chatgpt"))
             || mode == Some(&Json::from("chatgptAuthTokens"))
             || auth.get("tokens").and_then(|tokens| tokens.get("access_token")).is_some_and(Json::is_truthy))
@@ -260,6 +260,16 @@ pub fn replace_selection(directory: &str, detected: &[String]) -> Result<(), Err
 }
 
 impl Runtime {
+    /// Where the apps are installed. By the system, not by app or plugin: the macOS app and its command line look for
+    /// the apps too (they count as desktop hosts, as Windows and Linux do, which keep no .app folders).
+    pub fn app_roots(&self) -> Vec<String> {
+        if cfg!(target_os = "macos") {
+            vec![format!("{}/Applications", self.home), "/Applications".into()]
+        } else {
+            Vec::new()
+        }
+    }
+
     pub fn detected_modules(&self) -> Vec<String> {
         let settings = self.settings();
         let subscriptions: Vec<String> = settings
@@ -275,13 +285,7 @@ impl Runtime {
             home: &self.home,
             configured_proxy: self.opencodex_configured(),
             komari_url: &komari,
-            // By the system, not by app or plugin: the macOS app and its command line look for the apps too (they
-            // count as desktop hosts, as Windows and Linux do, which keep no .app folders).
-            app_roots: if cfg!(target_os = "macos") {
-                vec![format!("{}/Applications", self.home), "/Applications".into()]
-            } else {
-                Vec::new()
-            },
+            app_roots: self.app_roots(),
             chatgpt_home: Some(self.codex_home_absolute()),
             configured_subscriptions: subscriptions,
             environment: &self.environment,
@@ -324,6 +328,56 @@ mod tests {
         runtime.home = home.to_string_lossy().into_owned();
         assert!(runtime.detected_modules().contains(&"workbuddy".to_string()));
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// Signed in with the ChatGPT app, and Codex not installed: the app's own Codex command line reads the plan.
+    #[test]
+    fn the_chatgpt_apps_codex_reads_the_plan_without_codex_installed() {
+        let folder = std::env::temp_dir().join(format!("starmeter-chatgpt-app-{}", crate::runtime::random_hex(6)));
+        let home = folder.join("home");
+        std::fs::create_dir_all(home.join(".codex")).unwrap();
+        std::fs::write(home.join(".codex/auth.json"), br#"{"auth_mode":"chatgpt"}"#).unwrap();
+        let environment = HashMap::from([("PATH".to_string(), folder.join("bin").to_string_lossy().into_owned())]);
+        let home_text = home.to_string_lossy().into_owned();
+        let apps = folder.join("Applications").to_string_lossy().into_owned();
+        let found = || {
+            detect(&Inputs {
+                paths: HashMap::new(),
+                home: &home_text,
+                configured_proxy: false,
+                komari_url: "",
+                app_roots: vec![apps.clone()],
+                chatgpt_home: None,
+                configured_subscriptions: Vec::new(),
+                environment: &environment,
+            })
+            .contains(&"chatgpt".to_string())
+        };
+        let roots = [apps.clone()];
+        assert_eq!(crate::client_accounts::chatgpt::binary(&roots, &environment), None);
+        assert!(!found(), "neither Codex nor the app");
+        // An app folder without Codex inside (an older ChatGPT app) is no command line.
+        std::fs::create_dir_all(folder.join("Applications/ChatGPT.app/Contents/MacOS")).unwrap();
+        assert!(!found());
+        let inside = folder.join("Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex");
+        std::fs::create_dir_all(inside.parent().unwrap()).unwrap();
+        std::fs::write(&inside, b"#!/bin/sh\n").unwrap();
+        assert_eq!(
+            crate::client_accounts::chatgpt::binary(&roots, &environment),
+            Some(inside.to_string_lossy().into_owned())
+        );
+        assert!(found());
+        // Codex on PATH comes first.
+        #[cfg(unix)]
+        {
+            let own = folder.join("bin/codex");
+            std::fs::create_dir_all(own.parent().unwrap()).unwrap();
+            std::fs::write(&own, b"#!/bin/sh\n").unwrap();
+            std::fs::set_permissions(&own, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+            let first = crate::client_accounts::chatgpt::binary(&roots, &environment);
+            assert_eq!(first, Some(own.to_string_lossy().into_owned()));
+        }
+        let _ = std::fs::remove_dir_all(&folder);
     }
 
     #[test]

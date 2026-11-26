@@ -28,6 +28,16 @@ def has_records(root, patterns=('*.jsonl',)):
     except OSError:return False
 
 
+# Where the ChatGPT app keeps Codex's command line, in an apps folder: the app (com.openai.codex) carries it.
+CHATGPT_APP_CODEX='ChatGPT.app/Contents/Resources/codex-cli/bin/codex'
+
+
+def chatgpt_codex(which=None, app_roots=()):
+    """Codex's own command line on PATH, else the one inside the ChatGPT app, which signs in to the same ~/.codex: the
+    app alone, without Codex installed, has the plan's windows."""
+    return (which or shutil.which)('codex') or next((str(Path(root)/CHATGPT_APP_CODEX) for root in app_roots if (Path(root)/CHATGPT_APP_CODEX).is_file()),None)
+
+
 def detect(paths, home=None, configured_proxy=False, komari_url='', which=shutil.which, app_roots=(), chatgpt_home=None, configured_subscriptions=()):
     home=Path(home or Path.home());found={'summary','heatmap','updates'}
     if configured_proxy:found.update(('opencodex','chatgpt'))
@@ -71,7 +81,7 @@ def detect(paths, home=None, configured_proxy=False, komari_url='', which=shutil
     if any(has_records(folder) for folder in roots):found.add('workbuddy')
     auth_root=Path(chatgpt_home or os.environ.get('CODEX_HOME') or home/'.codex').expanduser()
     auth=read_object(auth_root/'auth.json')
-    if which('codex') and (auth.get('auth_mode') in ('chatgpt','chatgptAuthTokens') or isinstance(auth.get('tokens'),dict) and auth['tokens'].get('access_token')):
+    if chatgpt_codex(which,app_roots) and (auth.get('auth_mode') in ('chatgpt','chatgptAuthTokens') or isinstance(auth.get('tokens'),dict) and auth['tokens'].get('access_token')):
         found.add('chatgpt')
     config=read_object(Path(paths.get('opencodex') or home/'.opencodex')/'config.json')
     providers=config.get('providers') or {}

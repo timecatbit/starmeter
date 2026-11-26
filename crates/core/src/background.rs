@@ -320,7 +320,7 @@ impl Runtime {
         let auth = claude_app::read_object(&format!("{}/auth.json", self.codex_home_absolute()));
         let tokens = py::dict(auth.get("tokens"));
         let mode = auth.get("auth_mode");
-        shell::which("codex", &self.environment).is_some()
+        chatgpt::binary(&self.app_roots(), &self.environment).is_some()
             && (mode == Some(&Json::from("chatgpt"))
                 || mode == Some(&Json::from("chatgptAuthTokens"))
                 || tokens.get("access_token").is_some_and(Json::is_truthy))
@@ -620,7 +620,8 @@ impl Runtime {
             add(&mut loaders, "chatgpt", || {
                 self.cached_fetch("chatgpt", 300.0, 300.0, || {
                     let home = self.codex_home_absolute();
-                    Ok((Some(chatgpt::account(None, Some(&home), &self.environment)), None))
+                    let binary = chatgpt::binary(&self.app_roots(), &self.environment);
+                    Ok((Some(chatgpt::account(binary.as_deref(), Some(&home), &self.environment)), None))
                 });
             });
         }
