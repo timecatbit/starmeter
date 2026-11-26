@@ -3,7 +3,8 @@
   // itself (用户：同一网络和任何网络为什么是一切开始和结束？互不影响啊): 同一个网络, which the app serves itself, its
   // network address and its Tailscale one side by side, until its 停止; and 任何网络, a public link through Cloudflare
   // (a download of cloudflared the first time), an hour at most, until its own 停止. Both start off, and only their own
-  // 开始 starts them (用户：默认，同一网络，任何网络都是停止状态，用户点击开始才开始): looking at a page starts nothing,
+  // 开始 starts them (用户：默认，同一网络，任何网络都是停止状态，用户点击开始才开始), and one left on is on again when the
+  // app starts again, an update too, 同一个网络 at the same address (the shell keeps it): looking at a page starts nothing,
   // and a page that is off says what its 开始 will do (任何网络's, that the figures go through Cloudflare) before it is
   // pressed. A 停止 stays on its page, saying so in the code's place.
   import { onDestroy, onMount } from 'svelte';

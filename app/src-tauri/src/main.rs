@@ -426,6 +426,8 @@ fn main() {
             // The last minutes of live readings, from the start: the panel's 实时 and its pinned line, and a phone's page,
             // open with them.
             phone::keep_recording(handle.clone());
+            // 在手机上看 as the user left it: on again if it was on (an update too), off otherwise.
+            phone::resume(&handle);
             // A check of the phone view without the panel: STARMETER_PHONE starts it at launch and prints where.
             // STARMETER_PHONE=public opens the public link too, as 任何网络 does after the user's yes.
             if let Some(which) = std::env::var_os("STARMETER_PHONE") {

@@ -71,9 +71,13 @@ export interface PhoneView {
   publicChecked?: boolean;
 }
 /** The browser's stand-in for the phone server, for the tests and the dev server: 同一个网络 and the public link, each
- *  on and off on its own, the server on while either is. */
+ *  on and off on its own, the server on while either is; what is on kept in the page's storage, on again as the page
+ *  loads again, as the app keeps it in the settings folder and turns it on again as it starts (phone.rs). */
 const browserPhone = (() => {
-  let local = false, open = false;
+  const KEPT = 'starmeter.test-phone';
+  const kept = (() => { try { return JSON.parse(localStorage.getItem(KEPT) ?? '{}') as { local?: boolean; open?: boolean }; } catch { return {}; } })();
+  let local = !!kept.local, open = !!kept.open;
+  const keep = () => { try { localStorage.setItem(KEPT, JSON.stringify({ local, open })); } catch { /* not kept */ } };
   // ?tailnet: this computer on a tailnet too.
   const tailnet = () => (new URLSearchParams(location.search).has('tailnet') ? 'http://100.76.55.73:51234/#k=0123456789abcdef0123456789abcdef' : null);
   const view = (): PhoneView | null => (local || open ? { localOpen: local, local: local ? 'http://192.168.1.20:51234/#k=0123456789abcdef0123456789abcdef' : null,
@@ -82,8 +86,8 @@ const browserPhone = (() => {
     // ?unchecked: the wait for the public link to open ran out.
     publicChecked: !new URLSearchParams(location.search).has('unchecked') } : null);
   return {
-    view, start: () => { local = true; return view()!; }, stop: () => { local = false; return view(); },
-    open: () => { open = true; return view()!; }, close: () => { open = false; return view(); },
+    view, start: () => { local = true; keep(); return view()!; }, stop: () => { local = false; keep(); return view(); },
+    open: () => { open = true; keep(); return view()!; }, close: () => { open = false; keep(); return view(); },
   };
 })();
 const base64 = (bytes: Uint8Array) => {

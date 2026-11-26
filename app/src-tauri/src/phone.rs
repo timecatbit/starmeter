@@ -7,21 +7,22 @@
 //! its own; the server runs while either is on. A key travels in the address's fragment (#k=…), which a browser never
 //! sends; the page sends it back in a header, so it stays out of logs.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{IpAddr, TcpListener, TcpStream, UdpSocket};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tauri::{AppHandle, Manager};
 
 use crate::data::Data;
 
 /// How long the public link stays open: it reaches the computer from anywhere. On the same network the phone view stays
-/// until it is stopped or the app quits.
+/// until it is stopped, and is on again when the app starts again (Kept).
 const PUBLIC_LIFETIME: Duration = Duration::from_secs(3600);
 const RANGES: [&str; 8] = ["today", "yesterday", "24h", "7d", "30d", "week", "month", "all"];
 const GROUPS: [&str; 3] = ["tool", "model", "project"];
@@ -181,6 +182,86 @@ fn new_key() -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// What the user left on, kept in the settings folder (outside the app, so an update keeps it too), and on again when
+/// the app starts (用户：默认是关的，但是你要记住用户的状态。就算重新安装新版本，也要记住之前用户开没开): 同一个网络 with
+/// the server's port and its key, so a phone's link from before keeps opening; the public link until its hour is up
+/// (its address is Cloudflare's, new each time, so a phone scans its new code).
+#[derive(Serialize, Deserialize, Default, Clone, PartialEq, Debug)]
+#[serde(rename_all = "camelCase")]
+struct Kept {
+    #[serde(default)]
+    port: Option<u16>,
+    #[serde(default)]
+    local: Option<String>,
+    /// When the public link's hour is up, in seconds since 1970.
+    #[serde(default)]
+    public_until: Option<f64>,
+}
+
+fn kept_file() -> PathBuf {
+    let environment: HashMap<String, String> = std::env::vars().collect();
+    let shell = starmeter_core::desktop::Shell::current();
+    PathBuf::from(starmeter_core::desktop::state_dir(shell, &environment)).join("phone.json")
+}
+
+/// The kept state; a key that isn't one of ours (32 hex digits) is left out.
+fn read_kept(path: &Path) -> Kept {
+    let mut kept: Kept =
+        std::fs::read(path).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default();
+    kept.local = kept.local.filter(|key| key.len() == 32 && key.bytes().all(|b| b.is_ascii_hexdigit()));
+    kept
+}
+
+/// Written whole (a file beside it, then put in its place), readable by this user alone: it holds the key; nothing
+/// kept, no file.
+fn write_kept(path: &Path, kept: &Kept) {
+    if *kept == Kept::default() {
+        let _ = std::fs::remove_file(path);
+        return;
+    }
+    let Ok(bytes) = serde_json::to_vec(kept) else { return };
+    if let Some(folder) = path.parent() {
+        let _ = std::fs::create_dir_all(folder);
+    }
+    let fresh = path.with_extension("json.new");
+    let _ = std::fs::remove_file(&fresh);
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    if let Ok(mut file) = options.open(&fresh)
+        && file.write_all(&bytes).is_ok()
+    {
+        let _ = std::fs::rename(&fresh, path);
+    }
+}
+
+fn keep(change: impl FnOnce(&mut Kept)) {
+    let path = kept_file();
+    let mut kept = read_kept(&path);
+    change(&mut kept);
+    write_kept(&path, &kept);
+}
+
+/// The server's socket, on the port it had before when it is free (a phone's link names it), else on a new one.
+fn bind(port: Option<u16>) -> std::io::Result<TcpListener> {
+    port.and_then(|port| TcpListener::bind(("0.0.0.0", port)).ok()).map_or_else(|| TcpListener::bind("0.0.0.0:0"), Ok)
+}
+
+/// The app started (an update too): what the user left on, on again, before anyone opens the panel.
+pub fn resume(app: &AppHandle) {
+    let kept = read_kept(&kept_file());
+    if kept.local.is_some() {
+        let _ = phone_start(app.clone());
+    }
+    if kept.public_until.is_some_and(|until| until > starmeter_core::runtime::now()) {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let _ = phone_public(app).await;
+        });
+    }
+}
+
 /// The server running (started if it isn't, with neither way in on yet).
 fn serving<'a>(app: &AppHandle, running: &'a mut Option<Running>) -> Result<&'a mut Running, String> {
     if running.as_ref().is_some_and(|current| current.stop.load(Ordering::SeqCst))
@@ -189,9 +270,10 @@ fn serving<'a>(app: &AppHandle, running: &'a mut Option<Running>) -> Result<&'a 
         stop_running(&mut over);
     }
     if running.is_none() {
-        let listener = TcpListener::bind("0.0.0.0:0").map_err(|error| format!("没能开始：{error}"))?;
+        let listener = bind(read_kept(&kept_file()).port).map_err(|error| format!("没能开始：{error}"))?;
         let port = listener.local_addr().map_err(|error| error.to_string())?.port();
         listener.set_nonblocking(true).map_err(|error| error.to_string())?;
+        keep(|kept| kept.port = Some(port));
         let keys = Arc::new(Mutex::new(Keys::default()));
         let stop = Arc::new(AtomicBool::new(false));
         {
@@ -210,14 +292,21 @@ fn serving<'a>(app: &AppHandle, running: &'a mut Option<Running>) -> Result<&'a 
     Ok(running.as_mut().expect("the server just started"))
 }
 
-/// 同一个网络 on (or kept on) and where it is: a new key each time it is turned on, so a code from before its 停止
-/// stays shut. The public link, if up, is left as it is.
+/// 同一个网络 on (or kept on) and where it is: its key as kept when it was on as the app quit (a phone's link keeps
+/// opening), else a new one, so a code from before its 停止 stays shut. The public link, if up, is left as it is.
 #[tauri::command]
 pub fn phone_start(app: AppHandle) -> Result<PhoneView, String> {
     let state = app.state::<Phone>();
     let mut running = state.running.lock().expect("the phone lock");
     let current = serving(&app, &mut running)?;
-    current.keys.lock().expect("the keys").local.get_or_insert_with(new_key);
+    let key = current
+        .keys
+        .lock()
+        .expect("the keys")
+        .local
+        .get_or_insert_with(|| read_kept(&kept_file()).local.unwrap_or_else(new_key))
+        .clone();
+    keep(|kept| kept.local = Some(key));
     Ok(view(current))
 }
 
@@ -249,11 +338,12 @@ pub fn phone_stop(app: AppHandle) -> Option<PhoneView> {
     if let Some(current) = running.as_mut() {
         current.keys.lock().expect("the keys").local = None;
     }
+    keep(|kept| kept.local = None);
     settle(&mut running);
     running.as_ref().map(view)
 }
 
-/// The app quitting: the server and the public link with it.
+/// The app quitting: the server and the public link with it, what was on kept for the next start.
 pub fn phone_quit(app: &AppHandle) {
     let state = app.state::<Phone>();
     if let Some(mut over) = state.running.lock().expect("the phone lock").take() {
@@ -299,6 +389,7 @@ fn close_public_if_over(running: &mut Running) {
         && let Some(over) = running.public.take()
     {
         close_public(&running.keys, over);
+        keep(|kept| kept.public_until = None);
     }
 }
 
@@ -379,7 +470,15 @@ pub async fn phone_public(app: AppHandle) -> Result<PhoneView, String> {
             Err("外网链接已经关闭".into())
         }
         Ok(Some((tunnel, key))) => {
-            if let Some(old) = current.public.replace(Public { tunnel, until: Instant::now() + PUBLIC_LIFETIME, key }) {
+            // Its hour: what is left of the one kept (the app started again within it), else a new one, kept.
+            let now = starmeter_core::runtime::now();
+            let until = read_kept(&kept_file())
+                .public_until
+                .filter(|until| *until > now && *until <= now + PUBLIC_LIFETIME.as_secs_f64())
+                .unwrap_or(now + PUBLIC_LIFETIME.as_secs_f64());
+            keep(|kept| kept.public_until = Some(until));
+            let until = Instant::now() + Duration::from_secs_f64(until - now);
+            if let Some(old) = current.public.replace(Public { tunnel, until, key }) {
                 close_public(&current.keys, old);
             }
             Ok(view(current))
@@ -402,6 +501,7 @@ pub fn phone_private(app: AppHandle) -> Option<PhoneView> {
             close_public(&current.keys, public);
         }
     }
+    keep(|kept| kept.public_until = None);
     settle(&mut running);
     running.as_ref().map(view)
 }
@@ -1030,8 +1130,8 @@ fn strip(entry: &mut Value) {
 #[cfg(test)]
 mod tests {
     use super::{
-        AtomicBool, AtomicUsize, CONNECTIONS, Deadline, Keys, Mutex, Ordering, Running, Slot, Slots, admitted, new_key,
-        same, settle, tailnet_ip,
+        AtomicBool, AtomicUsize, CONNECTIONS, Deadline, Kept, Keys, Mutex, Ordering, Running, Slot, Slots, admitted,
+        bind, new_key, read_kept, same, settle, tailnet_ip, write_kept,
     };
 
     #[test]
@@ -1356,5 +1456,43 @@ mod tests {
         assert!(off.is_none());
         assert!(stop.load(Ordering::SeqCst));
         assert!(round.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn what_was_on_is_kept_for_the_next_start_and_a_stop_leaves_nothing() {
+        // 用户：默认是关的，但是你要记住用户的状态。就算重新安装新版本，也要记住之前用户开没开。
+        let folder = std::env::temp_dir().join(format!("starmeter-phone-kept-{}", new_key()));
+        let path = folder.join("phone.json");
+        assert_eq!(read_kept(&path), Kept::default());
+        let on = Kept { port: Some(51234), local: Some(new_key()), public_until: Some(1_800_000_000.5) };
+        write_kept(&path, &on);
+        assert_eq!(read_kept(&path), on);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+        }
+        // A key not one of ours is left out; the rest stands.
+        std::fs::write(&path, r#"{"port":51234,"local":"not a key","publicUntil":null}"#).unwrap();
+        assert_eq!(read_kept(&path), Kept { port: Some(51234), local: None, public_until: None });
+        // Both ways stopped, the port forgotten too: no file left.
+        write_kept(&path, &Kept::default());
+        assert!(!path.exists());
+        let _ = std::fs::remove_dir_all(&folder);
+    }
+
+    #[test]
+    fn the_server_takes_its_port_from_before_when_it_is_free() {
+        let held = std::net::TcpListener::bind("0.0.0.0:0").unwrap();
+        let port = held.local_addr().unwrap().port();
+        // Taken by something else: another port, the server still starts.
+        let other = bind(Some(port)).unwrap();
+        assert_ne!(other.local_addr().unwrap().port(), port);
+        drop(held);
+        drop(other);
+        // Free again: the same port, so a phone's link from before opens.
+        let again = bind(Some(port)).unwrap();
+        assert_eq!(again.local_addr().unwrap().port(), port);
+        assert!(bind(None).unwrap().local_addr().unwrap().port() > 0);
     }
 }

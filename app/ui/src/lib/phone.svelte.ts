@@ -8,7 +8,8 @@ import { shell, type PhoneView } from './backend';
 try { localStorage.removeItem('starmeter.phone-stopped'); } catch { /* nothing kept */ }
 
 /** The view as last read, and when: the minutes left count down from then. Both ways start off, 同一个网络 and the
- *  public link alike, and only their own 开始 starts them (用户：默认，同一网络，任何网络都是停止状态，用户点击开始才开始).
+ *  public link alike, and only their own 开始 starts them (用户：默认，同一网络，任何网络都是停止状态，用户点击开始才开始);
+ *  one left on is on again when the app starts again, an update too (the shell keeps it, phone.rs).
  *  `localStopped`, `publicStopped`: that way's 停止 pressed since the app started, so its page says 已停止 rather than
  *  未开始. `reach`: the page shown last, shown again when 在手机上看 is opened again. */
 export const phone = $state({ view: null as PhoneView | null, at: 0, localStopped: false, publicStopped: false, reach: 'local' as 'local' | 'public' });

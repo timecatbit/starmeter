@@ -1479,8 +1479,8 @@ const panelShell = `(async () => {
   return (await import(/* @vite-ignore */ loaded.at(-1) ?? '/src/lib/backend.ts')).shell;
 })()`;
 
-test('在手机上看: nothing starts by opening the page, looking at a page or starting the app again, only by 开始; 停止 stays on its page', async ({ page }) => {
-  // 用户：默认，同一网络，任何网络都是停止状态，用户点击开始才开始。
+test('在手机上看: nothing starts by opening the page or looking at a page, only by 开始; 停止 stays on its page; the app started again, each way as it was left', async ({ page }) => {
+  // 用户：默认，同一网络，任何网络都是停止状态，用户点击开始才开始。……你要记住用户的状态。就算重新安装新版本，也要记住之前用户开没开。
   const counted = () => page.evaluate(async (source) => {
     const shell = await eval(source);
     const w = window as unknown as { starts: string[] };
@@ -1516,23 +1516,35 @@ test('在手机上看: nothing starts by opening the page, looking at a page or 
   await button(page, '在手机上看').click();
   await expect(phone.getByRole('status')).toContainText('已停止');
   expect(await starts()).toEqual(['phoneStart']);
-  // On, then the app started again (the page loaded afresh, the server with it): off, 未开始, nothing started.
-  await button(page, '重新开始').click();
-  await expect(phone.locator('svg.qr')).toHaveCount(2);
+  // Stopped, then the app started again (the page loaded afresh, the server with it): still off.
   await page.reload();
   await settled(page);
   await counted();
+  await expect(phoneDot(page)).toHaveCount(0);
   await button(page, '在手机上看').click();
   await expect(phone.getByRole('status')).toContainText('未开始');
   await expect(phone.locator('svg.qr')).toHaveCount(0);
-  expect(await starts()).toEqual([]);
+  // On (and the public link), then the app started again: both on again by themselves, the dot on the button, nothing
+  // started by the page.
   await button(page, '开始').click();
   await expect(phone.locator('.address')).toHaveText(['192.168.1.20:51234', '100.76.55.73:51234']);
-  // On, opened again: as it was left.
-  await page.keyboard.press('Escape');
+  await page.getByRole('radio', { name: '任何网络' }).click();
+  await button(page, '开始').click();
+  await expect(phone.locator('.address')).toContainText('trycloudflare.com');
+  await page.reload();
+  await settled(page);
+  await counted();
+  await expect(phoneDot(page)).toBeVisible();
   await button(page, '在手机上看').click();
   await expect(phone.locator('svg.qr')).toHaveCount(2);
-  expect(await starts()).toEqual(['phoneStart']);
+  await expect(phone.locator('.address')).toHaveText(['192.168.1.20:51234', '100.76.55.73:51234']);
+  await page.getByRole('radio', { name: '任何网络' }).click();
+  await expect(phone.locator('.address')).toContainText('trycloudflare.com');
+  expect(await starts()).toEqual([]);
+  // Opened again after leaving it: as it was left.
+  await page.keyboard.press('Escape');
+  await button(page, '在手机上看').click();
+  await expect(phone.locator('svg.qr')).toBeVisible();
 });
 
 test('在手机上看: each way stops on its own, the other\'s code staying as it was', async ({ page }) => {
@@ -1850,6 +1862,8 @@ test('在手机上看: the public link shows once a phone can open it, its wait 
     await expect(phone.locator('.wait-detail')).toHaveCount(0);
     // Seen to open: nothing more said. Not seen in time: shown all the same, with what to do.
     await expect(phone.locator('.note.caution')).toHaveText(query ? ['还没确认手机能打开：扫码打不开就等一分钟再试'] : []);
+    // The next round from both ways off, not as this one left them.
+    await page.evaluate(() => localStorage.removeItem('starmeter.test-phone'));
   }
 });
 
