@@ -1839,6 +1839,33 @@ class SessionParityTests(unittest.TestCase):
         self.assertEqual((got[0]['spent']['requests'], got[0]['spent']['ranges']['24h']['requests']), (3, 3))
         self.assertEqual((got[0]['turns'][0]['requests'], got[0]['turns'][0]['tokens']), (3, 900))
 
+    def test_a_turn_begun_before_the_part_read_starts_at_its_prompt_further_back(self):
+        # A turn of many tool outputs runs past the 2 MB read for the turns: both engines find its start in the last
+        # prompt further back (its clock said only 运行中), not in a subagent's line.
+        temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
+        root = Path(temp.name); claude, codex = root / 'projects', root / 'codex'; codex.mkdir()
+        now = time.time()
+        stamp = lambda ago: datetime.fromtimestamp(now - ago, timezone.utc).isoformat().replace('+00:00', 'Z')
+        rows = [{'type': 'user', 'timestamp': stamp(600), 'message': {'content': 'go on'}},
+                {'type': 'user', 'isSidechain': True, 'timestamp': stamp(590), 'message': {'content': 'a subagent'}}]
+        for i in range(40):
+            rows.append({'type': 'assistant', 'timestamp': stamp(500 - i), 'message': {'id': f'm{i}', 'model': 'claude-opus-5-5',
+                         'content': [{'type': 'tool_use', 'name': 'Bash'}], 'usage': {'input_tokens': 100, 'output_tokens': 10}}})
+            rows.append({'type': 'user', 'timestamp': stamp(500 - i), 'message': {'content': [{'type': 'tool_result', 'content': 'x' * 100_000}]}})
+        path = claude / 'p' / '7a5d1c2e-0000-4000-8000-0000000000cc.jsonl'; path.parent.mkdir(parents=True)
+        path.write_text(''.join(json.dumps(row) + '\n' for row in rows)); os.utime(path, (now - 5, now - 5))
+        self.assertGreater(path.stat().st_size, 3 * 1024 * 1024)
+        plugin = __import__('types').ModuleType('plugin_turn_start')
+        with unittest.mock.patch.dict(os.environ, {'OCX_PLUGIN_PATH': str(ROOT / 'starmeter.30s.sh')}):
+            exec(compile((ROOT / 'lib/swiftbar_plugin.py').read_text(), 'plugin', 'exec'), plugin.__dict__)
+        from zoneinfo import ZoneInfo
+        wanted = [['24h', now - 86400, now]]
+        expected = live_sessions.active([claude], codex, now, plugin.session_prices(), {}, wanted, ZoneInfo('UTC'))
+        got = swift('sessions.active', [str(claude)], str(codex), now, True, {}, wanted, 'UTC')
+        same(self, expected, got)
+        self.assertAlmostEqual(got[0]['turns'][0]['at'], now - 600, delta=1)
+        self.assertGreater(got[0]['turns'][0]['requests'], 0)
+
     def test_antigravitys_copies_of_a_conversation_count_each_response_once(self):
         """AGY-6: a conversation the app and the IDE each keep, the older copy holding a response the newer lacks: the
         session counts every response once, as the Gemini card does, whichever copy is newer, for a task listed for
