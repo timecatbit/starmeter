@@ -169,7 +169,7 @@ const shots = {
   // Pinned: the live chart, after a few readings have come in. The fixtures add a little more on each 2-second tick
   // until the seventh, which adds less: the line would start again (as after midnight), so the picture is taken first.
   async live(context) {
-    const page = await open(context, { height: 560, at: FIXTURE_MOMENT });
+    const page = await open(context, { height: 760, at: FIXTURE_MOMENT });
     await page.getByRole('button', { name: context.names.pin }).first().click();
     await page.getByLabel(context.names.live).waitFor();
     await page.waitForTimeout(9_000);
