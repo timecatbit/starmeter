@@ -8,6 +8,10 @@ import { BOTTOM_BAND, canvasFor, crownSeed, drawMark, drawSymbol, fade, loadSymb
 import { amountWidth, drawAmount, drawMasthead, drawMembers, drawSignature, figures, fitAmount, HERO_BASELINE, layout, poster, ROWS, tickBox, toolHeight, SHARE_TOOLS, type Amount } from './sharePoster';
 import type { Dashboard, Project } from './types';
 
+/** The panel's night sky (app.css), top to foot. */
+const NIGHT_TOP: [number, number, number] = [0x1f, 0x3a, 0x7a], NIGHT_MID: [number, number, number] = [0x0e, 0x1d, 0x4c],
+  NIGHT_LOW: [number, number, number] = [0x05, 0x0a, 0x24];
+
 const INSET = 28;
 /** The dots beside the estimate: 170 wide from the card's right edge, and room for at least this many kept by shrinking
  *  the sum first. */
@@ -31,7 +35,17 @@ export async function drawCardPicture(d: Dashboard, project: Project, dark: bool
   const width = WIDTH - INSET * 2, left = INSET, right = left + width;
   const { canvas, ctx } = canvasFor(height);
   const teal = dark ? 'rgb(110, 201, 191)' : 'rgb(38, 120, 117)';
-  const surface = dark ? 'rgb(26, 27, 29)' : 'rgb(255, 255, 255)';
+  // By night the card lies on the panel's night sky (app.css --night-top, --night-mid, --night-low; 网页版 the same):
+  // flat at the top, the night between, darkest at the foot (用户：分享图里，卡片深色和当前不一致). By day, white.
+  const sky: [number, [number, number, number]][] = [[0, NIGHT_TOP], [Math.min(0.06, 72 / height), NIGHT_TOP], [0.48, NIGHT_MID],
+    [Math.max(0.5, 1 - 90 / height), NIGHT_LOW], [1, NIGHT_LOW]];
+  /** The card's ground at a height: what is drawn over it to hide what is under (a figure's backing, the end's dot). */
+  const ground = (y: number) => {
+    if (!dark) return 'rgb(255, 255, 255)';
+    const f = Math.min(1, Math.max(0, y / height)), i = Math.max(1, sky.findIndex(([at]) => at >= f));
+    const [a, from] = sky[i - 1], [b, to] = sky[i], k = b > a ? (f - a) / (b - a) : 0;
+    return `rgb(${from.map((c, j) => Math.round(c + (to[j] - c) * k)).join(', ')})`;
+  };
   const quiet = labelColour(dark, dark ? 0.055 : 0.035);
   const symbols = await loadSymbols([['square.stack.3d.up.fill', teal], ['arrow.up.arrow.down', teal], ['bolt.fill', teal]]);
   const seed = crownSeed(d);
@@ -53,7 +67,12 @@ export async function drawCardPicture(d: Dashboard, project: Project, dark: bool
   };
 
   // The card's own surface to every edge, lit softly by the colours of the tools that cost the most.
-  ctx.fillStyle = surface; ctx.fillRect(0, 0, WIDTH, height);
+  if (dark) {
+    const night = ctx.createLinearGradient(0, 0, 0, height);
+    for (const [at, [r, g, b]] of sky) night.addColorStop(at, `rgb(${r}, ${g}, ${b})`);
+    ctx.fillStyle = night;
+  } else ctx.fillStyle = ground(0);
+  ctx.fillRect(0, 0, WIDTH, height);
   const glows = [teal, ...(p.chart?.series ?? []).map((s) => [s.id, s.values.reduce((a, b) => a + b, 0)] as const).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([id]) => accent(id, dark))];
   const spots: [number, number, number][] = [[0.08, 0.03, 0.95], [1, 0.22, 0.8], [0.1, 0.78, 0.9]];
   glows.forEach((colour, i) => {
@@ -111,12 +130,12 @@ export async function drawCardPicture(d: Dashboard, project: Project, dark: bool
     ctx.beginPath(); tracePath(ctx, total); ctx.lineWidth = 2.4; ctx.strokeStyle = teal; ctx.stroke();
     for (const f of [0.5, 1]) {
       const value = chart.axis[f === 1 ? 2 : 1], yy = bottom - f * plot.h;
-      ctx.fillStyle = alpha(surface, 0.85); roundRect(ctx, { x: left - 3, y: yy - 14, w: measure(ctx, value, axisFont) + 6, h: 13 }, 3); ctx.fill();
+      ctx.fillStyle = alpha(ground(yy - 7), 0.85); roundRect(ctx, { x: left - 3, y: yy - 14, w: measure(ctx, value, axisFont) + 6, h: 13 }, 3); ctx.fill();
       text(ctx, value, { x: left, y: yy - 14, w: 80, h: 12 }, axisFont, tertiary);
     }
     const end = total.end;
     ctx.fillStyle = alpha(teal, 0.18); ctx.beginPath(); ctx.arc(end[0], end[1], 7, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = surface; ctx.strokeStyle = teal; ctx.lineWidth = 2;
+    ctx.fillStyle = ground(end[1]); ctx.strokeStyle = teal; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(end[0], end[1], 3.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     chart.ticks.forEach((tick, i) => {
       const at = tickBox(i, chart.ticks.length, plot.x + tick.at * plot.w, left, right, 80);

@@ -1375,6 +1375,30 @@ test('today\'s hour still under way is drawn at its pace, in the same line as th
   await expect(chart.locator('path[stroke-dasharray]')).toHaveCount(0);
 });
 
+test('the card picture by night lies on the panel\'s night sky, lighter at the top than the foot; by day on white', async ({ page }) => {
+  // 用户：分享图里，卡片深色和当前不一致 (it was a near black grey; the dark panel is the night sky now).
+  await open(page);
+  await button(page, '分享用量图').click();
+  const ground = async () => {
+    const src = await page.locator('.share-page .stage img').getAttribute('src');
+    return page.evaluate(async (url) => {
+      const image = new Image(); image.src = url!; await image.decode();
+      const canvas = Object.assign(document.createElement('canvas'), { width: image.naturalWidth, height: image.naturalHeight });
+      const ctx = canvas.getContext('2d')!; ctx.drawImage(image, 0, 0);
+      // Down the middle of the left edge, clear of the figures: the ground and the tools' glows over it.
+      const at = (f: number) => [...ctx.getImageData(6, Math.round(canvas.height * f), 1, 1).data.slice(0, 3)];
+      return { top: at(0.12), middle: at(0.5), foot: at(0.9) };
+    }, src);
+  };
+  await page.getByRole('radio', { name: '深色' }).click();
+  await expect.poll(async () => (await ground()).top[2]).toBeGreaterThan(90);
+  const night = await ground();
+  for (const [r, g, b] of [night.top, night.middle]) expect(b).toBeGreaterThan(Math.max(r, g) + 25);
+  expect(night.foot.reduce((a, c) => a + c)).toBeLessThan(night.top.reduce((a, c) => a + c));
+  await page.getByRole('radio', { name: '浅色' }).click();
+  await expect.poll(async () => Math.min(...(await ground()).middle)).toBeGreaterThan(200);
+});
+
 test('the header has the pin, settings, 在手机上看 and share in a row, Starmeter whole beside them in every range, Chinese and English', async ({ page }) => {
   for (const english of [false, true]) {
     await open(page);
