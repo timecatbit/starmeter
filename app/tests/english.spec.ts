@@ -176,12 +176,14 @@ test('English: the phone view and its public link', async ({ page }) => {
   const left = new Leftovers();
   await english(page, '?no-cloudflared');
   await page.getByRole('button', { name: 'Phone view', exact: true }).click();
+  await left.take(page, 'phone, not started');
+  await page.getByRole('button', { name: 'Start', exact: true }).click();
   await expect(page.locator('.phone-page svg[role="img"]')).toBeVisible();
   await left.take(page, 'phone');
   await page.getByRole('radio', { name: 'Any network' }).click();
-  await expect(page.locator('.phone-page .ask')).toBeVisible();
+  await expect(page.locator('.phone-page').getByRole('status')).toContainText('Not started');
   await left.take(page, 'phone › public');
-  await page.getByRole('button', { name: 'Download and make it' }).click();
+  await page.getByRole('button', { name: 'Download and start' }).click();
   await expect(page.locator('.phone-page .address')).toContainText('trycloudflare');
   await left.take(page, 'phone › public on');
   expect(left.list).toEqual([]);

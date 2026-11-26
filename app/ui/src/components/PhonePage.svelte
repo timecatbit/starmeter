@@ -2,14 +2,15 @@
   // 在手机上看: a QR code a phone scans to open the homepage in its browser, read-only. Two ways, each on and off by
   // itself (用户：同一网络和任何网络为什么是一切开始和结束？互不影响啊): 同一个网络, which the app serves itself, its
   // network address and its Tailscale one side by side, until its 停止; and 任何网络, a public link through Cloudflare
-  // (the user's yes first, and a download of cloudflared the first time), an hour at most, until its own 停止. A 停止
-  // stays on its page, saying so in the code's place; 同一个网络 stopped stays off, the page opened again or the app
-  // started again too, until 重新开始 (用户：停了要手动打开).
+  // (a download of cloudflared the first time), an hour at most, until its own 停止. Both start off, and only their own
+  // 开始 starts them (用户：默认，同一网络，任何网络都是停止状态，用户点击开始才开始): looking at a page starts nothing,
+  // and a page that is off says what its 开始 will do (任何网络's, that the figures go through Cloudflare) before it is
+  // pressed. A 停止 stays on its page, saying so in the code's place.
   import { onDestroy, onMount } from 'svelte';
   import { language, t } from '../lib/i18n.svelte';
   import { style } from '../lib/style.svelte';
-  import { shell } from '../lib/backend';
-  import { keepStopped, phone, secondsLeft, setPhone } from '../lib/phone.svelte';
+  import { shell, type PhoneView } from '../lib/backend';
+  import { phone, secondsLeft, setPhone } from '../lib/phone.svelte';
   import { grabWindow, panel } from '../lib/ui.svelte';
   import HintButton from './HintButton.svelte';
   import Icon from './Icon.svelte';
@@ -18,6 +19,8 @@
 
   let { onback, onheight }: { onback: () => void; onheight: (height: number) => void } = $props();
 
+  /** 同一个网络 being started. */
+  let starting = $state(false);
   /** 同一个网络's start that failed (its port taken for a moment): the reason, in the code's place with 重试. */
   let localFailed = $state<string | null>(null);
   /** The public link's last failure, said on 任何网络 only. */
@@ -27,10 +30,8 @@
   let lost = $state<null | 'failed' | 'dropped'>(null);
   /** The public link being made. */
   let busy = $state(false);
-  /** 任何网络's 停止 pressed: its page says the link is closed, with 重新生成. */
-  let publicStopped = $state(false);
-  /** The public link's yes, asked in place before anything leaves the computer. */
-  let asking = $state<null | { download: boolean }>(null);
+  /** Whether cloudflared has to be downloaded first (its 开始 says so, 下载并开始); unknown until the host has said. */
+  let download = $state(false);
   /** Which link was copied, or the clipboard refused (the full link is then shown, selected, to copy by hand). */
   let copied = $state<{ key: string; state: 'ok' | 'failed' } | null>(null);
   let manual: HTMLInputElement | undefined = $state();
@@ -40,11 +41,10 @@
   const reach = $derived(phone.reach);
   // The phone opens in this panel's language, and its look (手绘).
   const looked = (base: string | null | undefined) => (base ? `${base}&l=${language.current}${style.current === 'sketch' ? '&s=sketch' : ''}` : null);
-  /** 同一个网络's addresses while it is on; none once its 停止 is pressed, before the host has answered too. */
-  const localOn = $derived(!phone.stopped && !localFailed && !!(view?.localOpen ?? view?.local));
+  const localOn = $derived(!localFailed && !!(view?.localOpen ?? view?.local));
   const lan = $derived(localOn ? looked(view?.local) : null);
   const tailnet = $derived(localOn ? looked(view?.tailnet) : null);
-  const outside = $derived(publicStopped ? null : looked(view?.public));
+  const outside = $derived(looked(view?.public));
   const minutes = $derived(view ? Math.max(1, Math.round(secondsLeft() / 60)) : 0);
   const choices = ['local', 'public'] as const;
   /** Which ways are on, a green dot after each one's name. */
@@ -55,36 +55,44 @@
    *  seconds, if a step came between its asking and its answer, is dropped instead of putting back what has gone. */
   let localRound = 0, publicRound = 0, epoch = 0;
 
-  /** 同一个网络 on: started by hand, it is no longer kept stopped. A start that fails stays in the code's place with
-   *  its reason and 重试, instead of leaving a page with neither a code nor a way on. */
+  /** What is left on once a way goes, shown at once: nothing on, nothing at all (the dot on the homepage's button goes
+   *  too). The host's own answer follows. */
+  function without(gone: Partial<PhoneView>) {
+    const left = view ? { ...view, ...gone } : null;
+    setPhone(left && (left.localOpen || left.public) ? left : null);
+  }
+
+  /** 同一个网络's 开始 (重新开始, 重试). A start that fails stays in the code's place with its reason and 重试, instead of
+   *  leaving a page with neither a code nor a way on. */
   async function startLocal() {
     const mine = ++localRound;
     epoch++;
     localFailed = null;
-    keepStopped(false);
+    starting = true;
     try {
       const started = await shell.phoneStart();
       if (mine === localRound) setPhone(started);
     } catch (error) {
       if (mine === localRound) localFailed = String(error);
     }
+    if (mine === localRound) starting = false;
   }
   /** 同一个网络's 停止: its codes stop opening; the public link, if up, stays as it is. */
   async function stopLocal() {
     const mine = ++localRound;
     epoch++;
+    starting = false;
     localFailed = null;
-    keepStopped(true);
+    phone.localStopped = true;
+    without({ localOpen: false, local: null, tailnet: null });
     const left = await shell.phoneStop().catch(() => phone.view);
     if (mine === localRound) setPhone(left ?? null);
   }
 
   let tick: ReturnType<typeof setInterval> | undefined;
   onMount(() => {
-    // Opened again after 同一个网络's 停止: it stays off, as it was left, until 重新开始; on, or never stopped, the page
-    // starts it (or finds it running).
-    if (!phone.stopped) void startLocal();
-    if (phone.reach === 'public' && !view?.public) void choose('public');
+    // Nothing starts by opening the page: each way as it was left, off until its 开始.
+    if (phone.reach === 'public') void checkTunnel();
     // Asked after while the page is open: a public link whose cloudflared has ended is taken down, and said so.
     tick = setInterval(async () => {
       const mine = epoch;
@@ -92,46 +100,38 @@
       const status = await shell.phoneStatus().catch(() => phone.view);
       if (mine !== epoch) return;
       setPhone(status);
-      if (had && !phone.view?.public && !busy && !publicStopped) { publicFailed = null; lost = 'dropped'; }
+      if (had && !phone.view?.public && !busy) { publicFailed = null; lost = 'dropped'; }
     }, 10_000);
   });
   onDestroy(() => { localRound++; publicRound++; epoch++; clearInterval(tick); clearTimeout(copiedTimer); });
 
-  /** The page shown. 任何网络 with nothing on it asks the host whether cloudflared is there before its question; an
-   *  answer that comes back after a later choice is dropped, so it can't open the question under the other page.
-   *  Looking at a page starts nothing and stops nothing. */
-  let choosing = 0;
-  async function choose(next: 'local' | 'public') {
-    const mine = ++choosing;
-    phone.reach = next;
-    // A link already there or on its way (任何网络 chosen again while it is made) is not asked for again (TUNNEL-1).
-    if (next !== 'public' || outside || busy || lost || publicStopped) { asking = null; return; }
+  /** Whether cloudflared is there, for 任何网络's 开始 to say 下载并开始 when it isn't; an answer that comes back after a
+   *  later look is dropped. */
+  let checking = 0;
+  async function checkTunnel() {
+    const mine = ++checking;
     const ready = await shell.tunnelReady().catch(() => false);
-    if (mine !== choosing) return;
-    asking = { download: !ready };
+    if (mine === checking) download = !ready;
   }
-  /** From a link that failed or dropped, or the question: the same network's page, afresh. */
+  /** The page shown: looking starts nothing and stops nothing. */
+  function choose(next: 'local' | 'public') {
+    phone.reach = next;
+    if (next === 'public' && !outside && !busy) void checkTunnel();
+  }
+  /** From a link that failed or dropped: the same network's page, as it is. */
   function useLocal() {
     lost = null;
     publicFailed = null;
-    void choose('local');
-  }
-  /** 重新生成 after 任何网络's 停止: its question again, the yes first. */
-  function again() {
-    publicStopped = false;
-    lost = null;
-    publicFailed = null;
-    void choose('public');
+    choose('local');
   }
   /** Cloudflare not answering this once is often over by the next try: asked again once, quietly, before saying so. */
   const passing = (error: unknown) => String(error).includes('这次没有连上');
+  /** 任何网络's 开始 (重新开始, 重试, 重新生成). */
   async function openPublic() {
-    choosing++;
+    checking++;
     const mine = ++publicRound;
     epoch++;
-    asking = null;
     busy = true;
-    publicStopped = false;
     publicFailed = null;
     lost = null;
     for (let attempt = 0; ; attempt++) {
@@ -156,10 +156,11 @@
     const mine = ++publicRound;
     epoch++;
     busy = false;
-    asking = null;
     lost = null;
     publicFailed = null;
-    publicStopped = true;
+    phone.publicStopped = true;
+    without({ public: null, secondsLeft: 0 });
+    void checkTunnel();
     const left = await shell.phonePrivate().catch(() => phone.view);
     if (mine === publicRound) setPhone(left);
   }
@@ -231,11 +232,7 @@
             {@render halted('没能开启', '原因在下面，可以再试一次')}
             <p class="failed">{t(localFailed)}</p>
             <div class="actions"><button class="action primary pressable" onclick={startLocal}>{t('重试')}</button></div>
-          {:else if phone.stopped}
-            {@render halted('已停止', '手机上的页面已断开')}
-            <p class="note">{t('原来的二维码和链接已失效。点“重新开始”生成新的二维码，手机再扫一次就能看。')}</p>
-            <div class="actions"><button class="action primary pressable" onclick={startLocal}>{t('重新开始')}</button></div>
-          {:else}
+          {:else if localOn}
             {#if lan && tailnet}
               <!-- This computer's network address and its Tailscale one, side by side: the same server, the same key. -->
               <div class="codes">
@@ -259,29 +256,26 @@
               <p class="note">{t(lan ? '手机和电脑连同一个网络（Wi-Fi）后扫码；第一次打开时系统可能问是否允许 Starmeter 接收连接，选允许'
                 : '手机连上同一个 Tailscale 网络时扫这个，在哪都能打开，不经过 Cloudflare')}</p>
             {:else}
-              <div class="code">
-                {#if view?.localOpen ?? view?.local}<span class="wait">{t('这台电脑没有连上网络')}</span>
-                {:else}<span class="spinner" aria-label={t('正在开启')}></span>{/if}
-              </div>
+              <div class="code"><span class="wait">{t('这台电脑没有连上网络')}</span></div>
             {/if}
             {#if lan || tailnet}
               <p class="note">{t('只读：手机上只能看主页和工具页，不能改设置。点“停止”或退出 App 前一直开着。')}</p>
               <p class="note">{t('网页右上角的太阳可让手机屏幕保持常亮，适合放在桌边一直看；要用“任何网络”的 https 链接打开才能用')}</p>
             {/if}
             <div class="actions"><button class="action danger pressable" onclick={stopLocal}>{t('停止')}</button></div>
+          {:else if starting}
+            <div class="code"><span class="spinner" aria-label={t('正在开启')}></span></div>
+          {:else}
+            <!-- Off, as it starts: what its 开始 gives, and the button. -->
+            {#if phone.localStopped}
+              {@render halted('已停止', '手机上的页面已断开')}
+              <p class="note">{t('原来的二维码和链接已失效。点“重新开始”生成新的二维码，手机再扫一次就能看。')}</p>
+            {:else}
+              {@render halted('未开始', '在同一个网络里直连这台电脑')}
+              <p class="note">{t('点“开始”生成二维码：手机和电脑连同一个网络（Wi-Fi）时扫码就能看；这台电脑连着 Tailscale 时，还有一张 Tailscale 的二维码。')}</p>
+            {/if}
+            <div class="actions"><button class="action primary pressable" onclick={startLocal}>{t(phone.localStopped ? '重新开始' : '开始')}</button></div>
           {/if}
-        {:else if asking}
-          <div class="ask">
-            <p class="ask-title">{t('经 Cloudflare 生成外网链接？')}</p>
-            <p class="ask-detail">{t('手机不在同一个网络时用：Cloudflare 给一个临时的 https 地址，转到这台电脑。主页的数字会经过 Cloudflare；链接带一次性口令，停止或一小时后失效。')}</p>
-            <!-- Measured from 29 points across mainland China, the link failed at most of them: said before the yes. -->
-            <p class="ask-detail">{t('中国大陆部分地区打不开 Cloudflare 的链接。手机和电脑能连同一个 Wi-Fi 时，用“同一个网络”更稳。')}</p>
-            {#if asking.download}<p class="ask-detail">{t('第一次要从 Cloudflare 的 GitHub 发布页下载 cloudflared（约 20 MB），校验后存在 App 的数据文件夹。')}</p>{/if}
-            <div class="ask-actions">
-              <button class="button pressable" onclick={useLocal}>{t('取消')}</button>
-              <button class="button primary pressable" onclick={openPublic}>{t(asking.download ? '下载并生成' : '生成链接')}</button>
-            </div>
-          </div>
         {:else if busy}
           <div class="code">
             <span class="spinner" aria-label={t('生成链接')}></span>
@@ -297,10 +291,6 @@
             <button class="action pressable" onclick={useLocal}>{t('改用同一个网络')}</button>
             <button class="action primary pressable" onclick={openPublic}>{t(lost === 'dropped' ? '重新生成' : '重试')}</button>
           </div>
-        {:else if publicStopped}
-          {@render halted('已停止', '外网链接已关闭')}
-          <p class="note">{t('原来的外网链接已失效。点“重新生成”要一个新链接，手机再扫一次就能看。')}</p>
-          <div class="actions"><button class="action primary pressable" onclick={again}>{t('重新生成')}</button></div>
         {:else if outside}
           <div class="code"><QrCode text={outside} size={188} label={t('手机扫这个二维码')} /></div>
           {@render link('public', outside)}
@@ -313,7 +303,18 @@
           <p class="note">{t('网页右上角的太阳可让手机屏幕保持常亮，适合放在桌边一直看；要用“任何网络”的 https 链接打开才能用')}</p>
           <div class="actions"><button class="action danger pressable" onclick={stopPublic}>{t('停止')}</button></div>
         {:else}
-          <div class="code"><span class="spinner" aria-label={t('正在开启')}></span></div>
+          <!-- Off, as it starts: what its 开始 does (the figures go through Cloudflare) said before it is pressed. -->
+          {#if phone.publicStopped}
+            {@render halted('已停止', '外网链接已关闭')}
+            <p class="note">{t('原来的外网链接已失效。点“重新开始”要一个新链接，手机再扫一次就能看。')}</p>
+          {:else}
+            {@render halted('未开始', '经 Cloudflare 的临时链接')}
+          {/if}
+          <p class="note">{t('手机不在同一个网络时用：Cloudflare 给一个临时的 https 地址，转到这台电脑。主页的数字会经过 Cloudflare；链接带一次性口令，停止或一小时后失效。')}</p>
+          <!-- Measured from 29 points across mainland China, the link failed at most of them: said before it starts. -->
+          <p class="note">{t('中国大陆部分地区打不开 Cloudflare 的链接。手机和电脑能连同一个 Wi-Fi 时，用“同一个网络”更稳。')}</p>
+          {#if download}<p class="note">{t('第一次要从 Cloudflare 的 GitHub 发布页下载 cloudflared（约 20 MB），校验后存在 App 的数据文件夹。')}</p>{/if}
+          <div class="actions"><button class="action primary pressable" onclick={openPublic}>{t(download ? '下载并开始' : phone.publicStopped ? '重新开始' : '开始')}</button></div>
         {/if}
       </div>
     </Scroller>
@@ -374,12 +375,6 @@
   .card .address { margin: -2px 0; }
   .note.caution { color: var(--orange); }
   .failed { margin: 0; padding: 8px 10px; border-radius: 8px; font-size: 11.5px; color: var(--label); background: color-mix(in srgb, var(--orange) 18%, transparent); }
-  .ask { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--label) 5%, transparent); }
-  .ask-title { margin: 0; font-size: 12.5px; font-weight: 600; }
-  .ask-detail { margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--secondary); }
-  .ask-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 4px; }
-  .button { --press-scale: 0.96; height: 26px; padding: 0 12px; border-radius: 7px; font-size: 12px; font-weight: 600; background: color-mix(in srgb, var(--label) 8%, transparent); }
-  .button.primary { color: var(--on-accent); background: var(--accent); }
   .actions { display: flex; gap: 8px; justify-content: flex-end; }
   .action { --press-scale: 0.97; height: 28px; padding: 0 14px; border-radius: 8px; font-size: 12px; font-weight: 600; background: color-mix(in srgb, var(--label) 8%, transparent); }
   .action.danger { color: var(--red, #e5484d); }

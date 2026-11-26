@@ -218,7 +218,11 @@ export const phrases: Record<string, string> = {
     'The first time, the system may ask whether Starmeter may accept incoming connections: allow it. The Tailscale code opens from anywhere, without Cloudflare.',
   '只读：手机上只能看主页和工具页，不能改设置。': 'Read-only: the phone sees the homepage and tool pages and changes nothing.',
   外网链接已关闭: 'The public link is closed', 外网链接已经关闭: 'The public link was closed',
-  '原来的外网链接已失效。点“重新生成”要一个新链接，手机再扫一次就能看。': 'The old link no longer opens. Make a new one, and scan it once more.',
+  '原来的外网链接已失效。点“重新开始”要一个新链接，手机再扫一次就能看。': 'The old link no longer opens. Start again for a new one, and scan it once more.',
+  未开始: 'Not started', 在同一个网络里直连这台电脑: 'Straight to this computer on the same network', '经 Cloudflare 的临时链接': 'A temporary link through Cloudflare',
+  '点“开始”生成二维码：手机和电脑连同一个网络（Wi-Fi）时扫码就能看；这台电脑连着 Tailscale 时，还有一张 Tailscale 的二维码。':
+    'Start for a code: with the phone on the same network (Wi-Fi) as this computer, scan it to watch; with this computer on Tailscale, there is a Tailscale code too.',
+  下载并开始: 'Download and start',
   '这个网络的 DNS 查不到 Cloudflare 隧道的地址（常见于代理或 VPN），换个网络或关掉代理再试':
     'This network\'s DNS can\'t find Cloudflare\'s tunnel servers (common behind a proxy or VPN); try another network or turn the proxy off',
   'Cloudflare 暂时不给新的临时链接，稍后再试': 'Cloudflare isn\'t giving out new temporary links right now; try again later',
@@ -228,12 +232,11 @@ export const phrases: Record<string, string> = {
   '外网链接连不上电脑：电脑可能睡着了、断了网，或者外网链接已关闭': 'The public link can\'t reach the computer: it may be asleep or offline, or the link was closed',
   '链接已失效：在电脑上重新打开“在手机上看”，再扫一次码': 'This link no longer works: open Phone view on the computer again and scan the new code',
   开着: 'On', 手机在哪: 'Where the phone is', 同一个网络: 'Same network', 任何网络: 'Any network',
-  '经 Cloudflare 生成外网链接？': 'Make a public link through Cloudflare?',
   '手机不在同一个网络时用：Cloudflare 给一个临时的 https 地址，转到这台电脑。主页的数字会经过 Cloudflare；链接带一次性口令，停止或一小时后失效。':
     'For a phone on another network: Cloudflare gives a temporary https address that leads to this computer. The homepage\'s figures pass through Cloudflare; the link carries a one-time key and stops working when you stop it, or after an hour.',
   '第一次要从 Cloudflare 的 GitHub 发布页下载 cloudflared（约 20 MB），校验后存在 App 的数据文件夹。':
     'The first time, cloudflared (about 20 MB) is downloaded from Cloudflare\'s GitHub releases, checked, and kept in the app\'s data folder.',
-  下载并生成: 'Download and make it', 生成链接: 'Make the link', '正在向 Cloudflare 要链接…': 'Asking Cloudflare for a link…',
+  生成链接: 'Make the link', '正在向 Cloudflare 要链接…': 'Asking Cloudflare for a link…',
   '确认手机能打开后再显示，通常十几秒': 'Shown once a phone can open it, usually within 20 seconds',
   '还没确认手机能打开：扫码打不开就等一分钟再试': "Not yet seen to open: if the phone can't open it, try again in a minute",
   手机扫这个二维码: 'Scan this with your phone', 这台电脑没有连上网络: 'This computer isn\'t on a network', 正在开启: 'Starting',
