@@ -1,0 +1,21 @@
+/* Before anything else, for every page (index.html links it; never inline: see there). */
+
+/* The hand's filters (sketch.css) out of the flow: an SVG in the body, it would stand as a line over the panel. */
+.filters { position: absolute; width: 0; height: 0; overflow: hidden; }
+
+/* 在手机上看: what Safari 26 colours its bars from. It ignores theme-color, and a full-screen fixed layer (the page's
+   window) is to it an overlay over a colour it keeps: it reads a fixed element along the top or bottom edge, as
+   wide as the screen, frontmost, with a solid background colour, and carries that colour into the bar. These two
+   are such elements, at the page's edge colours (first-frame.js, then src/lib/edges.ts), painting nothing:
+   clipped to their text, and they have none. 11 points: over WebKit's 10 for reading the colour directly; 12 for
+   two frames when the colour changes, so Safari reads it again. */
+.bar-tint { display: none; }
+:root.phone-page .bar-tint {
+  display: block; position: fixed; left: 0; right: 0; height: 11px; z-index: 2147483647; pointer-events: none;
+  border: 0; outline: 0; box-shadow: none; transition: none; color: transparent;
+  background-clip: text; -webkit-background-clip: text;
+}
+:root.phone-page .bar-tint.top { top: 0; background-color: var(--bar-top, transparent); }
+:root.phone-page .bar-tint.bottom { bottom: 0; background-color: var(--bar-bottom, transparent); }
+:root.phone-page.bar-refresh .bar-tint { height: 12px; }
+

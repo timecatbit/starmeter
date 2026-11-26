@@ -2977,3 +2977,26 @@ test('外观 → 风格 draws the panel by hand, in faces scaled to the usual wi
   await page.getByRole('radio', { name: '标准' }).click();
   await expect(page.locator('html')).not.toHaveAttribute('data-style', 'sketch');
 });
+
+test('the page carries no inline style: in the app, under its CSP, nothing stands over the panel', async ({ page }) => {
+  // Tauri puts a nonce on every inline <style> of index.html and into style-src, which turns 'unsafe-inline' off: each
+  // style attribute is then refused. The hand's filter, kept out of the flow by one, stood as a 16-point line over the
+  // panel: a gap under the menu bar, the panel's foot cut off (the user: 为什么状态栏图标离页面这么远).
+  const html = readFileSync(new URL('../ui/index.html', import.meta.url), 'utf8');
+  const markup = html.replace(/<!--[\s\S]*?-->/g, '');
+  expect(markup).not.toMatch(/<style[\s>]/i);
+  expect(markup).not.toMatch(/\sstyle\s*=/i);
+  // And under such a policy (a nonce, no 'unsafe-inline', as the app has whenever a <style> is there), the page's first
+  // rules still hold: nothing above the panel.
+  await page.route((url) => url.pathname === '/', (route) => route.fulfill({
+    status: 200,
+    headers: { 'Content-Type': 'text/html', 'Content-Security-Policy': "default-src 'self'; style-src 'self' 'nonce-1234'" },
+    body: html.replace(/<script type="module"[^>]*><\/script>/, ''),
+  }));
+  await page.goto('/');
+  // (The app's own styles aren't loaded here: the body keeps its 8 pixels; what counts is nothing between it and #app.)
+  expect(await page.evaluate(() => ({
+    above: document.getElementById('app')!.getBoundingClientRect().top - document.body.getBoundingClientRect().top,
+    filters: getComputedStyle(document.querySelector('svg.filters')!).position,
+  }))).toEqual({ above: 0, filters: 'absolute' });
+});
