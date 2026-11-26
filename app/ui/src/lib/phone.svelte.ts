@@ -1,9 +1,8 @@
 // 在手机上看, as the panel knows it: whether 同一个网络 and the public link are on, where a phone can open them, and for
 // how long.
-// The server lives in the shell; this asks after it when the module grid or the page opens, and while the page is on
-// screen.
+// The server lives in the shell; this asks after it when the panel or the page opens (a green dot on the homepage's
+// 在手机上看 while a way of it is on), and while the page is on screen.
 import { shell, type PhoneView } from './backend';
-import type { Entry } from './types';
 
 const STOPPED = 'starmeter.phone-stopped';
 const kept = (key: string): boolean => { try { return localStorage.getItem(key) === '1'; } catch { return false; } };
@@ -33,10 +32,4 @@ export async function phoneStatus() {
 /** The public link's seconds left now; 0 without one or once its hour is up. On the same network there is no limit. */
 export function secondsLeft(): number {
   return phone.view ? Math.max(0, phone.view.secondsLeft - (Date.now() - phone.at) / 1000) : 0;
-}
-
-/** 在手机上看 in the module grid, a cell of its own beside the settings: the panel's own, like 语言. While it is on, a
- *  green dot after its name, as a module that is set up has. */
-export function phoneRow(): Entry {
-  return { label: '在手机上看', symbol: 'iphone', ...(phone.view ? { statusLight: 'ok' as const } : {}), action: ['show-phone'], children: [] };
 }

@@ -29,14 +29,16 @@
   import SummaryChart from './SummaryChart.svelte';
 
   let { data, rangeOptions, reveal, glows, summaryGlow, live, leaving = null, onleft, liveStamp, pinned, pinInterval, onrange,
-    onshare, onpin, onsettings, ongroup, ontoggle, onopentool, onsize, onfloor, sessions = null, view = 'cards', onview, busy = null, onopen, onchoose,
+    onshare, onphone, phoneOn = false, onpin, onsettings, ongroup, ontoggle, onopentool, onsize, onfloor, sessions = null, view = 'cards', onview, busy = null, onopen, onchoose,
     readonly = false, reading = false, grouping = null, regrouping = false, onprefetch, updateMark = null, updateSaid = '', onupdates }: {
     data: Dashboard; rangeOptions: Entry[]; reveal: number; glows: Record<string, number>; summaryGlow: number; live: LiveFeed | null;
     leaving?: number | null; onleft?: () => void;
     liveStamp: string | null; pinned: boolean; pinInterval: number;
     onrange: (action: string[]) => void; onshare: () => void; onpin: () => void;
+    /** 在手机上看, beside 分享用量图; `phoneOn`: a way of it on, a green dot on its icon. */
+    onphone?: () => void; phoneOn?: boolean;
     onsettings: () => void; ongroup: (key: string) => void; ontoggle: (id: string, expanded: boolean) => void;
-    /** On a phone (在手机上看): no pin, settings or share, the range alone in the header. */
+    /** On a phone (在手机上看): no pin, settings or 在手机上看, the share and the range alone in the header. */
     readonly?: boolean;
     /** A range picked and still being read: the menu shows it, the figures are still the last range's. */
     /** A range picked and not read through yet: what is on screen is the old reading, dimmed, until the new one is in. */
@@ -179,12 +181,17 @@
   // The range picker is drawn bare like the icons beside it, as wide as the range on it: 8pt, the range, 4pt, the
   // chevron, 8pt; its right edge on the content's.
   /** As wide as the range the menu shows: the one picked, while its figures are still being read. */
-  const pickerWidth = $derived(8 + width(rangeOptions.find((o) => o.checked)?.label ?? data.rangeLabel, font(11)) + 4 + 7 + 8);
+  /** The range as the closed menu shows it: in English the rolling ranges without their "Last" (24 hours, 7 days, 30
+   *  days), so the header keeps room for Starmeter beside four buttons; the list says them in full. */
+  const brief = (label: string) => label.replace(/^Last (?=\d)/, '');
+  const pickerWidth = $derived(8 + width(brief(rangeOptions.find((o) => o.checked)?.label ?? data.rangeLabel), font(11)) + 4 + 7 + 8);
   const pickerX = $derived(inner - 12 - pickerWidth);
   /** The menu bar's star, drawn in the heading's colour. */
   const mark = markSvg.replace(/fill="#000000"/g, 'fill="currentColor"').replace(/width="24" height="24"/, 'width="15" height="15"');
-  const firstButton = $derived(pickerX - 6 - 30);
-  const leftmost = $derived(firstButton - 2 * 32);
+  /** The four buttons 28pt apart, each as wide (the pin, settings, 在手机上看, share), the share 4pt before the range. */
+  const SLOT = 28;
+  const firstButton = $derived(pickerX - 4 - SLOT);
+  const leftmost = $derived(firstButton - 3 * SLOT);
   const chosen = $derived(rangeOptions.find((o) => o.checked)?.action?.[1] ?? data.rangeKey);
 
 
@@ -212,20 +219,25 @@
           d="M8 4.6v6.2M5.3 8.3 8 11 10.7 8.3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>{:else}<span
           class="dot"></span>{/if}</button>{/if}</h1>
     <div class="buttons">
-      <!-- The pin first, then settings and share; on a Mac the symbols are the system's own. A phone shares, and
-           neither pins nor changes settings. -->
+      <!-- The pin first, then settings, 在手机上看 and share; on a Mac the symbols are the system's own. A phone shares,
+           and neither pins, changes settings nor shows itself a code. -->
       {#if !readonly}
       <span class="slot" style:left="{leftmost}px">
-        <HintButton icon={pinned ? 'pin.fill' : 'pin'} system hint={pinned ? t('取消钉住') : t('钉住，每 {n} 秒刷新', { n: pinInterval })} label={pinned ? t('取消钉住面板') : t('钉住面板')}
+        <HintButton icon={pinned ? 'pin.fill' : 'pin'} system width={SLOT} hint={pinned ? t('取消钉住') : t('钉住，每 {n} 秒刷新', { n: pinInterval })} label={pinned ? t('取消钉住面板') : t('钉住面板')}
           onclick={onpin} on={pinned} />
       </span>
-      <span class="slot" style:left="{firstButton - 32}px"><HintButton icon="gearshape" system hint={t('主页模块与设置')} label={t('主页模块与设置')} onclick={onsettings} /></span>
+      <span class="slot" style:left="{firstButton - 2 * SLOT}px"><HintButton icon="gearshape" system width={SLOT} hint={t('主页模块与设置')} label={t('主页模块与设置')} onclick={onsettings} /></span>
+      <span class="slot" style:left="{firstButton - SLOT}px">
+        <HintButton icon="iphone" system width={SLOT} hint={t('在手机上看')} label={t('在手机上看')} onclick={() => onphone?.()} />
+        <!-- On (同一个网络 or the public link): a green dot at its corner, as a module set up has after its name. -->
+        {#if phoneOn}<span class="phone-on" aria-hidden="true"></span>{/if}
+      </span>
       {/if}
       <span class="slot" style:left="{firstButton}px">
-        <HintButton icon="square.and.arrow.up" system hint={t('分享用量图')} label={t('分享用量图')} onclick={onshare} />
+        <HintButton icon="square.and.arrow.up" system width={SLOT} hint={t('分享用量图')} label={t('分享用量图')} onclick={onshare} />
       </span>
       <span class="picker" class:reading style:left="{pickerX}px" style:width="{pickerWidth}px">
-        <Dropdown label={t('统计范围')} value={chosen} options={rangeOptions.map((o) => ({ value: o.action?.[1] ?? '', label: o.label }))} onpick={pickRange} onopen={onprefetch} />
+        <Dropdown label={t('统计范围')} value={chosen} options={rangeOptions.map((o) => ({ value: o.action?.[1] ?? '', label: o.label, short: brief(o.label) }))} onpick={pickRange} onopen={onprefetch} />
       </span>
     </div>
     {#if showSummary}
@@ -358,6 +370,10 @@
   .buttons { position: absolute; left: 0; top: 0; width: 100%; height: 40px; pointer-events: none; }
   .buttons > * { pointer-events: auto; }
   .slot { top: 6px; }
+  .phone-on {
+    position: absolute; right: 6px; top: 5px; width: 6px; height: 6px; border-radius: 50%; background: var(--green);
+    box-shadow: 0 0 0 1.5px var(--solid); pointer-events: none;
+  }
   .picker {
     top: 6px;
     height: 28px;

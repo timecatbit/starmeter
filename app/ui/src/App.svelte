@@ -15,7 +15,7 @@
   import { chooseLanguage, localize, reads, restoreLanguage, source, t } from './lib/i18n.svelte';
   import { chooseUpdateHints, markUpdatesSeen, pendingUpdates, updateHints } from './lib/updateHints.svelte';
   import { chooseStyle, followStyle, restoreStyle, style } from './lib/style.svelte';
-  import { phoneStatus } from './lib/phone.svelte';
+  import { phone, phoneStatus } from './lib/phone.svelte';
   import { keepTheme, keptTheme, paintEdges } from './lib/edges';
   import { chooseShortcut, restoreShortcut, shortcut } from './lib/shortcut.svelte';
   import { grabWindow, panel } from './lib/ui.svelte';
@@ -557,8 +557,6 @@
 
   function perform(action: string[]) {
     if (action[0] === 'set-range' || action[0] === 'set-group') picks++;
-    // 在手机上看 from the module grid: its page slides in over the grid.
-    if (action[0] === 'show-phone') { panel.hint = null; dir = 1; phoneOpen = true; return; }
     // 新手指引 from 通用: back to the homepage, then the tour.
     if (action[0] === 'show-guide') { startOver(false); dir = -1; guideWanted = true; return; }
     // 选择工具… opens the module grid in place.
@@ -648,15 +646,11 @@
   function back() {
     leavePage();
     panel.hint = null;
-    if (phoneOpen) {
-      dir = -1;
-      phoneOpen = false;
-      return;
-    }
-    if (sharing || toolId) {
+    if (sharing || toolId || phoneOpen) {
       dir = -1;
       sharing = false;
       toolId = null;
+      phoneOpen = false;
       homeScroll = savedHome;
       return;
     }
@@ -673,7 +667,6 @@
 
   function openSettings() {
     panel.hint = null;
-    void phoneStatus();
     savedHome = homeScroll;
     leading = new Set((snapshot?.moduleOptions ?? []).filter((e) => isModule(e) && e.checked).map(entryKey));
     dir = 1;
@@ -729,6 +722,14 @@
     sharing = true;
   }
 
+  /** 在手机上看, from its button beside 分享用量图: its page slides in over the homepage. */
+  function openPhone() {
+    panel.hint = null;
+    savedHome = homeScroll;
+    dir = 1;
+    phoneOpen = true;
+  }
+
   // MARK: Opening and closing
 
   /** The page the panel opens on, without sliding: the homepage, or the module grid. */
@@ -761,7 +762,8 @@
     void reload().then(() => { if (home && panel.shown && !pinned) homeOnTools(); });
     // A shortcut another app held: tried again each time the panel opens, so quitting that app is enough.
     if (shortcut.taken) void restoreShortcut();
-    if (modules) void phoneStatus();
+    // Whether 在手机上看 is on, for the dot on its button.
+    void phoneStatus();
     if (!modules) perform(['refresh-view']);
     if (!modules && firstRuns) void shell.guideShown().then((shown) => {
       if (shown) return;
@@ -947,7 +949,7 @@
 {#snippet dashboardView()}
   {#if shown && snapshot}
     <Dashboard data={shown} {rangeOptions} reading={waiting} onprefetch={prefetchRanges} {updateMark} {updateSaid} onupdates={openUpdates} {reveal} {glows} {summaryGlow} live={pinned || leaving !== null ? feed : null} {leaving} onleft={() => { if (pinned) return; leaving = null; feed = null; }} {liveStamp} {pinned}
-      {pinInterval} onrange={perform} onshare={openShare}
+      {pinInterval} onrange={perform} onshare={openShare} onphone={openPhone} phoneOn={!!phone.view}
       onpin={() => { panel.hint = null; setPinned(!pinned); if (pinned) perform(['refresh-live']); }} onsettings={openSettings}
       onopentool={openTool} grouping={pickedGroup} {regrouping} ongroup={(key) => perform(['set-group', key])} {sessions} {view} onview={chooseView} busy={busyNow}
       onsize={(h) => (dashboardHeight = h)} onfloor={(h) => (floorHeight = h)} ontoggle={(id, expanded) => perform(['set-expanded', id, expanded ? 'true' : 'false'])}

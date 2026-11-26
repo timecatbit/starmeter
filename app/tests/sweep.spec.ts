@@ -76,7 +76,7 @@ test('every part of the panel opens what it should and comes back', async ({ pag
       await expect(page.locator('.summary .reading')).toHaveCount(0);
     }
     // Every cell of the module grid, by what the cell does (its arrow says). One with an arrow (a settings page, a
-    // module with a connection to set, 在手机上看) opens a page titled with the cell's name; Esc comes back to the grid.
+    // module with a connection to set) opens a page titled with the cell's name; Esc comes back to the grid.
     // One without (a module with nothing to set) is a switch: its name flips the checkbox, and flips it back.
     await button(page, '主页模块与设置').click();
     await expect(page.locator('.modules')).toBeVisible();

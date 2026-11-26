@@ -175,8 +175,7 @@ for (const [name, query] of [['with usage', '?guide'], ['while reading', '?fixtu
 test('English: the phone view and its public link', async ({ page }) => {
   const left = new Leftovers();
   await english(page, '?no-cloudflared');
-  await page.getByRole('button', { name: 'Modules and settings', exact: true }).click();
-  await page.getByRole('button', { name: /^Phone view/ }).click();
+  await page.getByRole('button', { name: 'Phone view', exact: true }).click();
   await expect(page.locator('.phone-page svg[role="img"]')).toBeVisible();
   await left.take(page, 'phone');
   await page.getByRole('radio', { name: 'Any network' }).click();

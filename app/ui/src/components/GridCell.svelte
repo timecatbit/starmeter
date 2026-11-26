@@ -14,10 +14,10 @@
 
   let { entry, cellWidth, height, ontoggle, onopen }: { entry: Entry; cellWidth: number; height: number; ontoggle: () => void; onopen: () => void } = $props();
 
-  /** A module set up, or (在手机上看) one that is on: a green dot after the name. */
+  /** A module set up: a green dot after the name. */
   const configured = $derived(reads(entry.value, '已配置') || entry.statusLight === 'ok');
-  /** Opens a page: its rows, or (在手机上看) the panel's own page. */
-  const opens = $derived(entry.children.length > 0 || entry.action?.[0] === 'show-phone');
+  /** Opens a page: its rows. */
+  const opens = $derived(entry.children.length > 0);
   const room = $derived(cellWidth - 54 - (opens ? 18 : 6) - (configured ? 12 : 0));
   const nameWidth = $derived(Math.min(room, width(entry.label, font(12.5, 500)) + 1));
   const line = $derived(entry.detail === undefined ? height / 2 : 15);

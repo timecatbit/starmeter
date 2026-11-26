@@ -16,12 +16,10 @@
   const INSET = 8, INDENT = 16, LEAD = 22;
   const leadX = $derived(INSET + depth * INDENT);
   const left = $derived(leadX + (aligned || leads(entry) ? LEAD : 0));
-  /** A row whose action opens a page of the panel (在手机上看) carries the chevron as one with rows inside does. */
-  const opensPage = $derived(entry.action?.[0] === 'show-phone');
   /** A link that carries a pill to click (工具更新's 更新): the pill is the cue, at the row's right edge as on a row that
    *  runs a command, so the pills of a list line up; no ↗ beside it. */
   const pillLink = $derived(entry.attention === true && entry.value !== undefined && (entry.href !== undefined || entry.statusLight !== undefined));
-  const right = $derived(rowWidth - INSET - (pillLink ? 0 : entry.children.length || opensPage ? 18 : entry.href !== undefined ? 16 : 0));
+  const right = $derived(rowWidth - INSET - (pillLink ? 0 : entry.children.length ? 18 : entry.href !== undefined ? 16 : 0));
   const isToggle = $derived(toggle(entry));
   const plain = $derived(info(entry));
   const titleSize = $derived(plain ? 10.5 : depth === 0 ? 12.5 : 12);
@@ -99,7 +97,7 @@
     {/if}
     {#if entry.detail}<span class="detail">{keepCommand(entry.detail)}</span>{/if}
   </span>
-  {#if (entry.children.length || opensPage) && !pillLink}
+  {#if entry.children.length && !pillLink}
     <svg class="chevron" class:open style:top="{(plain ? 5 : 8) + lineHeight / 2 - 6}px" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
       <path d="M4.5 2.5 8 6 4.5 9.5" fill="none" stroke="var(--tertiary)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
     </svg>

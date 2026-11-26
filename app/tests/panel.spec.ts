@@ -1259,12 +1259,13 @@ test('settings: theme segments, switches and the module grid answer at once', as
   await open(page);
   await button(page, '主页模块与设置').click();
   await expect(page.locator('.modules .heading')).toHaveText('主页模块');
-  // The settings are pages by what they are for, a group titled 设置 like the modules' below: 外观, 通用, 提醒, 数据,
-  // then the phone; each cell an icon and a name, as tall as the others.
+  // The settings are pages by what they are for, a group titled 设置 like the modules' below: 外观, 通用, 提醒, 数据
+  // (在手机上看 is the homepage's, beside 分享用量图); each cell an icon and a name, as tall as the others.
   await expect(page.locator('.modules .section').first()).toHaveText('设置');
-  expect(await page.locator('.modules .cell').evaluateAll((cells) => cells.slice(0, 5).map((c) => c.getAttribute('aria-label'))))
-    .toEqual(['外观', '通用', '提醒', '数据', '在手机上看']);
-  expect(new Set(await page.locator('.modules .cell').evaluateAll((cells) => cells.slice(0, 5).map((c) => c.getBoundingClientRect().height)))).toEqual(new Set([32]));
+  expect(await page.locator('.modules .cell').evaluateAll((cells) => cells.slice(0, 4).map((c) => c.getAttribute('aria-label'))))
+    .toEqual(['外观', '通用', '提醒', '数据']);
+  await expect(page.locator('.modules').getByRole('button', { name: '在手机上看' })).toHaveCount(0);
+  expect(new Set(await page.locator('.modules .cell').evaluateAll((cells) => cells.slice(0, 4).map((c) => c.getBoundingClientRect().height)))).toEqual(new Set([32]));
   await page.getByText('外观', { exact: true }).click();
   await page.getByRole('radio', { name: '深色' }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
@@ -1311,13 +1312,44 @@ test('全局快捷键 in 通用: off at first, a choice is kept, one already tak
   await expect(page.getByRole('radio', { name: '不使用', exact: true })).toHaveAttribute('aria-checked', 'true');
 });
 
+test('the header has the pin, settings, 在手机上看 and share in a row, Starmeter whole beside them in every range, Chinese and English', async ({ page }) => {
+  for (const english of [false, true]) {
+    await open(page);
+    if (english) {
+      await page.evaluate(() => localStorage.setItem('starmeter.language', 'en'));
+      await page.reload();
+      await settled(page);
+    }
+    const names = english ? ['Pin the panel', 'Modules and settings', 'Phone view', 'Share usage picture'] : ['钉住面板', '主页模块与设置', '在手机上看', '分享用量图'];
+    const slots = page.locator('.summary .buttons .slot');
+    await expect(slots).toHaveCount(4);
+    const labels = await slots.locator('button.hint-button').evaluateAll((buttons) => buttons.map((b) => b.getAttribute('aria-label')));
+    expect(labels).toEqual(names);
+    for (let i = 0; i < 8; i++) {
+      await page.locator('.summary .picker button').click();
+      await page.getByRole('option').nth(i).click();
+      await expect(page.getByRole('option')).toHaveCount(0);
+      const room = await page.evaluate(() => {
+        const heading = document.querySelector('.summary .heading')!, words = document.createRange();
+        words.selectNodeContents(heading);
+        const boxes = [...document.querySelectorAll('.summary .buttons .slot, .summary .picker')].map((e) => e.getBoundingClientRect());
+        return { spare: heading.getBoundingClientRect().width - words.getBoundingClientRect().width,
+          apart: boxes.slice(1).every((box, j) => box.left >= boxes[j].right - 0.5), range: document.querySelector('.summary .picker')!.textContent!.trim() };
+      });
+      expect(room.spare, room.range).toBeGreaterThanOrEqual(0);
+      expect(room.apart, room.range).toBe(true);
+    }
+  }
+});
+
+/** The green dot on the homepage's 在手机上看 button while a way of it is on. */
+const phoneDot = (page: Page) => page.locator('.summary .slot').filter({ has: button(page, '在手机上看') }).locator('.phone-on');
+
 test('在手机上看: a code for the same network, a public link only after a yes, and 停止 turns it off', async ({ page }) => {
   await open(page);
-  await button(page, '主页模块与设置').click();
-  // A cell of its own in the module grid, beside the settings.
-  const row = page.getByRole('button', { name: /^在手机上看/ });
-  await expect(row.locator('.dot')).toHaveCount(0);
-  await row.click();
+  // A button of its own on the homepage, beside 分享用量图; off, no dot on it.
+  await expect(phoneDot(page)).toHaveCount(0);
+  await button(page, '在手机上看').click();
   const phone = page.locator('.phone-page');
   await expect(phone.locator('svg[role="img"]')).toBeVisible();
   // The address without its key, which stays in the code; on the same network no time limit, until 停止.
@@ -1349,10 +1381,11 @@ test('在手机上看: a code for the same network, a public link only after a y
   await expect(phone.locator('.ask')).toContainText('经 Cloudflare 生成外网链接？');
   await button(page, '取消').click();
   await expect(phone.locator('.address')).toHaveText('http://192.168.1.20:51234/');
-  // Left while on: the cell has a green dot, as a module set up has; 停止 turns it off.
+  // Left while on: back on the homepage, its button has a green dot; 停止 turns it off.
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('button', { name: /^在手机上看/ }).locator('.dot')).toBeVisible();
-  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  await expect(page.locator('.phone-page')).toHaveCount(0);
+  await expect(phoneDot(page)).toBeVisible();
+  await button(page, '在手机上看').click();
   // The code in the logo's look: dots, the three rounded eyes and the app icon in the middle.
   const code = phone.locator('svg.qr');
   await expect(code.locator('image')).toHaveCount(1);
@@ -1370,10 +1403,10 @@ test('在手机上看: a code for the same network, a public link only after a y
   await expect(phone.locator('svg.qr')).toBeVisible();
   await expect(phone.locator('.address')).toHaveText('http://192.168.1.20:51234/');
   await expect(button(page, '停止')).toBeVisible();
-  // Stopped and left: the cell has no dot.
+  // Stopped and left: no dot.
   await button(page, '停止').click();
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('button', { name: /^在手机上看/ }).locator('.dot')).toHaveCount(0);
+  await expect(phoneDot(page)).toHaveCount(0);
 });
 
 /** The panel's own copy of the backend module (a dev server that has reloaded it serves it under a new address), with
@@ -1395,8 +1428,7 @@ test('在手机上看: 同一个网络\'s 停止 stays on its page, stopped when
   const starts = () => page.evaluate(() => (window as unknown as { starts: number }).starts);
   await open(page, '?tailnet');
   await counted();
-  await button(page, '主页模块与设置').click();
-  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  await button(page, '在手机上看').click();
   const phone = page.locator('.phone-page');
   // Never stopped: opening the page starts it; the same network's code and the Tailscale one, on one page.
   await expect(phone.getByRole('radio')).toHaveText(['同一个网络', '任何网络']);
@@ -1417,7 +1449,7 @@ test('在手机上看: 同一个网络\'s 停止 stays on its page, stopped when
   expect(await starts()).toBe(1);
   // Left and opened again: still stopped, nothing started.
   await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  await button(page, '在手机上看').click();
   await expect(phone.getByRole('status')).toContainText('已停止');
   await expect(phone.locator('svg.qr')).toHaveCount(0);
   expect(await starts()).toBe(1);
@@ -1425,8 +1457,7 @@ test('在手机上看: 同一个网络\'s 停止 stays on its page, stopped when
   await page.reload();
   await settled(page);
   await counted();
-  await button(page, '主页模块与设置').click();
-  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  await button(page, '在手机上看').click();
   await expect(phone.getByRole('status')).toContainText('已停止');
   expect(await starts()).toBe(0);
   // 重新开始: both codes again.
@@ -1436,7 +1467,7 @@ test('在手机上看: 同一个网络\'s 停止 stays on its page, stopped when
   expect(await starts()).toBe(1);
   // Started by hand, it is no longer kept stopped: opened again, it is on.
   await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  await button(page, '在手机上看').click();
   await expect(phone.locator('svg.qr')).toHaveCount(2);
 });
 
@@ -1453,8 +1484,7 @@ test('在手机上看: each way stops on its own, the other\'s code staying as i
       shell[name] = () => { w.calls.push(name); return real(); };
     }
   }, panelShell);
-  await button(page, '主页模块与设置').click();
-  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  await button(page, '在手机上看').click();
   const phone = page.locator('.phone-page');
   const local = page.getByRole('radio', { name: '同一个网络' }), anywhere = page.getByRole('radio', { name: '任何网络' });
   await expect(phone.locator('svg.qr')).toHaveCount(2);
@@ -1501,8 +1531,8 @@ test('在手机上看: each way stops on its own, the other\'s code staying as i
   await local.click();
   await button(page, '停止').click();
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('button', { name: /^在手机上看/ }).locator('.dot')).toBeVisible();
-  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  await expect(phoneDot(page)).toBeVisible();
+  await button(page, '在手机上看').click();
   await expect(phone.getByRole('status')).toContainText('已停止');
   await anywhere.click();
   await expect(phone.locator('.address')).toHaveText('https://quiet-river-1234.trycloudflare.com/');
@@ -1510,8 +1540,7 @@ test('在手机上看: each way stops on its own, the other\'s code staying as i
 
 test('在手机上看: the 停止 button sits clear of the panel\'s bottom edge, on both pages', async ({ page }) => {
   await open(page, '?tailnet');
-  await button(page, '主页模块与设置').click();
-  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  await button(page, '在手机上看').click();
   const phone = page.locator('.phone-page');
   const gap = async () => {
     const stop = (await button(page, '停止').boundingBox())!, panel = (await page.locator('.window').boundingBox())!;
@@ -1527,8 +1556,7 @@ test('在手机上看: the 停止 button sits clear of the panel\'s bottom edge,
 
 test('在手机上看: a public link still being made when 停止 is pressed leaves the next start alone (PHONE-3)', async ({ page }) => {
   await open(page);
-  await button(page, '主页模块与设置').click();
-  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  await button(page, '在手机上看').click();
   const phone = page.locator('.phone-page');
   await expect(phone.locator('svg.qr')).toBeVisible();
   // The public link takes its time, and answers as the host does once the server it was for has stopped.
@@ -1557,8 +1585,7 @@ test('在手机上看: a public link still being made when 停止 is pressed lea
 
 test('在手机上看: 任何网络 chosen again while its link is made waits for that link, asking once (TUNNEL-1)', async ({ page }) => {
   await open(page);
-  await button(page, '主页模块与设置').click();
-  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  await button(page, '在手机上看').click();
   const phone = page.locator('.phone-page');
   await expect(phone.locator('svg.qr')).toBeVisible();
   await page.evaluate(async (source) => {
@@ -1594,8 +1621,7 @@ test('在手机上看: 任何网络 chosen again while its link is made waits fo
 
 test('在手机上看: a start that fails once says why and offers 重试, which starts it (PHONE-4)', async ({ page }) => {
   await open(page);
-  await button(page, '主页模块与设置').click();
-  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  await button(page, '在手机上看').click();
   const phone = page.locator('.phone-page');
   await expect(phone.locator('svg.qr')).toBeVisible();
   // The next start fails once (its port taken for a moment), then works.
@@ -1626,8 +1652,7 @@ test('在手机上看: a public link that fails stays on 任何网络, says why 
     shell.phonePublic = () => (++w.asked <= 2 ? Promise.reject('Cloudflare 这次没有连上，稍后再试') : real());
   }, panelShell);
   const asked = () => page.evaluate(() => (window as unknown as { asked: number }).asked);
-  await button(page, '主页模块与设置').click();
-  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  await button(page, '在手机上看').click();
   const phone = page.locator('.phone-page');
   await page.getByRole('radio', { name: '任何网络' }).click();
   await button(page, '生成链接').click();
@@ -1650,8 +1675,7 @@ test('在手机上看: a public link that fails stays on 任何网络, says why 
 
 test('在手机上看: 改用同一个网络 from a failed public link shows the same network\'s code at once', async ({ page }) => {
   await open(page, '?tunnel-fails');
-  await button(page, '主页模块与设置').click();
-  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  await button(page, '在手机上看').click();
   const phone = page.locator('.phone-page');
   await page.getByRole('radio', { name: '任何网络' }).click();
   await button(page, '生成链接').click();
@@ -1680,8 +1704,7 @@ test('在手机上看: a public link that drops stays on 任何网络, with 重�
     };
   }, panelShell);
   await page.clock.install();
-  await button(page, '主页模块与设置').click();
-  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  await button(page, '在手机上看').click();
   const phone = page.locator('.phone-page');
   await page.getByRole('radio', { name: '任何网络' }).click();
   await button(page, '生成链接').click();
@@ -1698,8 +1721,7 @@ test('在手机上看: a public link that drops stays on 任何网络, with 重�
 test('在手机上看: a public link that fails after 同一个网络 was chosen leaves that code alone (PHONE-12)', async ({ page }) => {
   for (const away of ['同一个网络']) {
     await open(page);
-    await button(page, '主页模块与设置').click();
-    await page.getByRole('button', { name: /^在手机上看/ }).click();
+    await button(page, '在手机上看').click();
     const phone = page.locator('.phone-page');
     await expect(phone.locator('svg.qr')).toBeVisible();
     // The link takes its time (PHONE-11's wait), then fails for good.
@@ -1733,8 +1755,7 @@ test('在手机上看: a public link that fails after 同一个网络 was chosen
 test('在手机上看: the public link shows once a phone can open it, its wait saying so, and a wait run out says to give it a minute (PHONE-11)', async ({ page }) => {
   for (const query of ['', '?unchecked']) {
     await open(page, query);
-    await button(page, '主页模块与设置').click();
-    await page.getByRole('button', { name: /^在手机上看/ }).click();
+    await button(page, '在手机上看').click();
     const phone = page.locator('.phone-page');
     await expect(phone.locator('svg.qr')).toBeVisible();
     // The host answers once the link is seen to open (or the wait for it is over): held here to look at the wait.
@@ -1761,8 +1782,7 @@ test('在手机上看: the public link shows once a phone can open it, its wait 
 test('在手机上看: on a tailnet, the same network\'s page has its own code and the Tailscale one side by side, the same server', async ({ page }) => {
   // 用户：本地网络和 tailscale 应该在同一页展示。
   await open(page, '?tailnet');
-  await button(page, '主页模块与设置').click();
-  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  await button(page, '在手机上看').click();
   const phone = page.locator('.phone-page');
   await expect(phone.getByRole('radio')).toHaveText(['同一个网络', '任何网络']);
   await expect(page.getByRole('radio', { name: '同一个网络' })).toHaveAttribute('aria-checked', 'true');
@@ -1805,8 +1825,7 @@ test('在手机上看: the Tailscale code comes and goes with the tailnet, the s
   }, panelShell);
   // The page's ten seconds on a clock the test moves (installed now: the module lookup above reads real timings).
   await page.clock.install();
-  await button(page, '主页模块与设置').click();
-  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  await button(page, '在手机上看').click();
   const phone = page.locator('.phone-page');
   await expect(phone.locator('svg.qr')).toHaveCount(1);
   await expect(phone.locator('.card')).toHaveCount(0);
@@ -1853,8 +1872,7 @@ test('在手机上看: 已复制链接 only once the clipboard took it; refused,
     Object.assign(window, { clipboardState: state });
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: (text: string) => (state.refuse ? Promise.reject(new Error('denied')) : Promise.resolve(void (state.text = text))) } });
   });
-  await button(page, '主页模块与设置').click();
-  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  await button(page, '在手机上看').click();
   const phone = page.locator('.phone-page'), address = phone.locator('.address');
   await expect(address).toHaveText('http://192.168.1.20:51234/');
   await address.click();
@@ -1872,8 +1890,7 @@ test('在手机上看: 已复制链接 only once the clipboard took it; refused,
 
 test('在手机上看 the first time says cloudflared is downloaded first', async ({ page }) => {
   await open(page, '?no-cloudflared');
-  await button(page, '主页模块与设置').click();
-  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  await button(page, '在手机上看').click();
   await page.getByRole('radio', { name: '任何网络' }).click();
   await expect(page.locator('.phone-page .ask')).toContainText('cloudflared');
   await expect(button(page, '下载并生成')).toBeVisible();
@@ -2451,7 +2468,7 @@ async function walk(page: Page): Promise<string[]> {
   }
   return titles;
 }
-const READY_STOPS = ['欢迎使用 Starmeter', '用量总览', '统计范围', '每个工具一张卡', '订阅额度和 API 余额', '三个按钮'];
+const READY_STOPS = ['欢迎使用 Starmeter', '用量总览', '统计范围', '每个工具一张卡', '订阅额度和 API 余额', '四个按钮'];
 const seen = (page: Page) => page.evaluate(() => localStorage.getItem('starmeter.guide'));
 
 test.describe('新手指引', () => {
@@ -2465,7 +2482,7 @@ test.describe('新手指引', () => {
     await expect(guide.locator('.hole')).toHaveCount(0);
     await button(page, '开始').click();
     const stops: [string, string][] = [['用量总览', '.heatmap'], ['统计范围', '.summary .picker'], ['每个工具一张卡', '.cards .tabs'],
-      ['订阅额度和 API 余额', '.rows .row[data-key="chatgpt"]'], ['三个按钮', '.summary .buttons .slot']];
+      ['订阅额度和 API 余额', '.rows .row[data-key="chatgpt"]'], ['四个按钮', '.summary .buttons .slot']];
     for (const [i, [title, part]] of stops.entries()) {
       await expect(guide.locator('h2')).toHaveText(title);
       await expect(guide.locator('.count')).toHaveText(`${i + 1} / ${stops.length}`);
@@ -2828,8 +2845,7 @@ test('在手机上看: a status answer from before 停止 and 重新开始 leave
   }, panelShell);
   // The page's ten seconds on a clock the test moves (installed now: the module lookup above reads real timings).
   await page.clock.install();
-  await button(page, '主页模块与设置').click();
-  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  await button(page, '在手机上看').click();
   const phone = page.locator('.phone-page');
   await expect(phone.locator('.address')).toHaveText('http://192.168.1.20:49001/');
   // The status is asked, and still out when 停止 and 重新开始 bring a new address.

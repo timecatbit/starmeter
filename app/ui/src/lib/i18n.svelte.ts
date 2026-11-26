@@ -8,7 +8,6 @@ import { withUpdateHints } from './updateHints.svelte';
 import { shell } from './backend';
 import { phrases, rules, whole } from './en';
 import { toHant } from './hant';
-import { phoneRow } from './phone.svelte';
 import { shortcutRow } from './shortcut.svelte';
 import { withStyle } from './style.svelte';
 import type { Dashboard, Entry, ProviderUsage, Snapshot } from './types';
@@ -170,7 +169,7 @@ function dashboard(d: Dashboard): Dashboard {
  *  notifications and SwiftBar's menu for 繁體中文. The 新手指引 row under 帮助 is the panel's own too. */
 function withLanguage(list: Entry[]): Entry[] {
   const radio = (label: string, key: Language): Entry => ({ label, children: [], radio: true, checked: language.current === key, action: ['set-language', key] });
-  const out = list.map((e) => {
+  return list.map((e) => {
     if (e.label !== '通用') return e;
     // 语言 and 全局快捷键 first; 帮助, last: the first-run tour, again.
     return { ...e, children: [
@@ -178,9 +177,6 @@ function withLanguage(list: Entry[]): Entry[] {
       shortcutRow(), ...e.children,
       { label: '帮助', section: true, children: [] }, { label: '新手指引', symbol: 'questionmark.circle', action: ['show-guide'], children: [] }] };
   });
-  const data = out.findIndex((e) => e.label === '数据');
-  if (data >= 0) out.splice(data + 1, 0, phoneRow());
-  return out;
 }
 
 /** The snapshot as the panel shows it: the language row added, and every text in the language chosen (in English,

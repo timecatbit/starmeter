@@ -7,7 +7,8 @@
   import { panel } from '../lib/ui.svelte';
 
   let { options, value, label, size = 11, align = 'right', field = false, onpick, onopen }: {
-    options: { value: string; label: string }[]; value: string; label: string; size?: number; align?: 'left' | 'right';
+    /** `short`: the name the closed menu shows, when the full one (in the list) is too long for its place. */
+    options: { value: string; label: string; short?: string }[]; value: string; label: string; size?: number; align?: 'left' | 'right';
     /** Drawn as a full-width field (a soft fill, the chevron at its right end) where it sits among other controls. */
     field?: boolean; onpick: (value: string) => void;
     /** The menu opening: the range menu has its ranges read ahead while the user looks it over. */
@@ -24,7 +25,7 @@
   let menu: HTMLDivElement | undefined = $state();
   /** As tall as the window leaves below the button; the list scrolls inside past that. */
   let room = $state(0);
-  const current = $derived(options.find((o) => o.value === value)?.label ?? '');
+  const current = $derived.by(() => { const chosen = options.find((o) => o.value === value); return chosen?.short ?? chosen?.label ?? ''; });
 
   function outside(event: PointerEvent) {
     if (root && !root.contains(event.target as Node)) close();

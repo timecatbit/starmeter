@@ -188,9 +188,9 @@ export const phrases: Record<string, string> = {
   '订阅额度和 API 余额': 'Plans and API balances',
   '带箭头的行点开是详情：每个额度窗口用了多少、何时重置，账户余额，以及这一项的设置。':
     'A row with an arrow opens its details: how much of each window is used and when it resets, balances, and the settings for that item.',
-  三个按钮: 'Three buttons',
-  '图钉：钉住后面板浮在最上层并实时刷新，可以拖动、调大小。齿轮：选择主页显示哪些模块，设置目录、Key、语言和外观。分享：把用量做成一张图。':
-    'Pin: keep the panel on top, refreshing live; drag it and resize it. Gear: choose what the homepage shows, and set folders, keys, language and look. Share: turn your usage into a picture.',
+  四个按钮: 'Four buttons',
+  '图钉：钉住后面板浮在最上层并实时刷新，可以拖动、调大小。齿轮：选择主页显示哪些模块，设置目录、Key、语言和外观。手机：扫码在手机浏览器里看实时用量。分享：把用量做成一张图。':
+    'Pin: keep the panel on top, refreshing live; drag it and resize it. Gear: choose what the homepage shows, and set folders, keys, language and look. Phone: scan a code to watch your usage live in a phone\'s browser. Share: turn your usage into a picture.',
   '以后可以在 齿轮 → 通用 → 新手指引 再看一遍。': 'You can take this tour again from the gear → General → Quick tour.',
   '最上面是这段时间的 API 等值估算、Token 和请求数，下面是趋势和热力图。第一次读取要一点时间，读到以后数字会自己出现。':
     'At the top: the API-equivalent estimate, tokens and requests for the range; below, the trend and the heatmap. The first reading takes a moment; the figures appear by themselves.',
