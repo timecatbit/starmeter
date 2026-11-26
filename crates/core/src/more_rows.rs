@@ -650,6 +650,12 @@ impl Runtime {
             if let Some(reason) = row.get("reason").filter(|reason| reason.is_truthy()) {
                 detail += &format!("\n{}", py::str(Some(reason)));
             }
+            // Claude's new version is handed out in turns, by each computer's own ID: the feed asked with an
+            // anonymous one may have it before this Claude does, whose own check still says it is up to date
+            // (用户：claude提示有新版本，但是为什么app里显示没有更新？……给个提示，说分批推送).
+            if available && id == "claude" {
+                detail += "\n新版本由 Anthropic 分批推送，Claude 里可能过几天才提示更新";
+            }
             let command = row.get("command").and_then(Json::as_str).filter(|command| !command.is_empty());
             // A row with an update says so at its right, a pill to click (更新), as the homepage's attention rows do.
             let pill = if available {
@@ -897,6 +903,47 @@ mod tests {
         std::fs::create_dir_all(&logs).unwrap();
         std::fs::write(logs.join("gemini-20261123-101500-abc.log"), "updated\n").unwrap();
         assert!(entry(&runtime.app_update_lines(&data)), "Gemini CLI's log");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// Claude's new version goes out in turns, by each computer's own ID: its row says so, as this Claude may still say
+    /// it is up to date (用户：claude提示有新版本，但是为什么app里显示没有更新？); no other row says it, nor Claude's when
+    /// there is nothing new.
+    #[test]
+    fn claudes_new_version_says_it_is_handed_out_in_turns() {
+        let home = std::env::temp_dir().join(format!("starmeter-claude-turns-{}", crate::runtime::random_hex(6)));
+        let state = home.join("state");
+        std::fs::create_dir_all(&state).unwrap();
+        std::fs::write(state.join("preferences.json"), r#"{"schema":1,"visible":["claude","magpie"]}"#).unwrap();
+        let environment: std::collections::HashMap<String, String> = [
+            ("HOME", home.to_string_lossy().into_owned()),
+            ("OCX_STATE_DIR", state.to_string_lossy().into_owned()),
+            ("OCX_CACHE_DIR", home.join("cache").to_string_lossy().into_owned()),
+            ("PATH", home.join("bin").to_string_lossy().into_owned()),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value))
+        .collect();
+        let runtime = Runtime::new(environment, "starmeter");
+        let note = "新版本由 Anthropic 分批推送，Claude 里可能过几天才提示更新";
+        let lines = |claude: &str| {
+            let data = object! {
+                "app_updates" => object! { "apps" => Json::Array(vec![
+                    object! { "id" => "claude", "name" => "Claude", "status" => if claude == "7.37095.0" { "有新版本" } else { "已是最新" },
+                        "current" => "6.28899.6", "latest" => claude, "available" => claude == "7.37095.0" }.into(),
+                    object! { "id" => "magpie", "name" => "Magpie", "status" => "有新版本", "current" => "0.1.4706",
+                        "latest" => "0.1.4710", "available" => true }.into(),
+                ]) },
+            };
+            runtime.app_update_lines(&data)
+        };
+        let said = |lines: &[String], name: &str| {
+            lines.iter().filter(|line| line.contains(&format!("{name} ·"))).any(|line| line.contains(note))
+        };
+        let newer = lines("7.37095.0");
+        assert!(said(&newer, "Claude"), "Claude's row says it");
+        assert!(!said(&newer, "Magpie"), "not another's");
+        assert!(!said(&lines("6.28899.6"), "Claude"), "nothing new, nothing said");
         let _ = std::fs::remove_dir_all(&home);
     }
 }

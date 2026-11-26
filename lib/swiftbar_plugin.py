@@ -1807,6 +1807,8 @@ def app_update_lines(data):
         if row.get('available'):detail+=' → '+str(row.get('latest'))
         if row.get('channel'):detail+=' · '+row['channel']
         if row.get('reason'):detail+='\n'+row['reason']
+        # Claude's new version is handed out in turns, by each computer's own ID: this Claude may say it is up to date.
+        if row.get('available') and row.get('id')=='claude':detail+='\n新版本由 Anthropic 分批推送，Claude 里可能过几天才提示更新'
         # A row with an update says so at its right, a pill to click (更新).
         pill={'badge':'更新','panelattention':True} if row.get('available') else {}
         if row.get('available') and row.get('command'):

@@ -80,7 +80,7 @@ export const phrases: Record<string, string> = {
   'Komari 监控': 'Komari status', '打开 Komari 面板': 'Open the Komari panel', 刷新监控数据: 'Refresh monitoring data', 在线: 'Online',
   离线: 'Offline', '到期 长期': 'No expiry', 工具更新: 'Tool updates', 立即检查更新: 'Check for updates now',
   '查看最近 CLI 更新日志': 'Show the latest CLI update log', '选择工具…': 'Choose tools…',
-  更新记录: 'Changelog', '点击打开 App 更新': 'Click to update in the app', 'Claude 官方': 'Official', 'Homebrew Cask': 'Homebrew Cask',
+  更新记录: 'Changelog', '点击打开 App 更新': 'Click to update in the app', '新版本由 Anthropic 分批推送，Claude 里可能过几天才提示更新': 'Anthropic rolls new versions out in stages: Claude may not offer it for a few days', 'Claude 官方': 'Official', 'Homebrew Cask': 'Homebrew Cask',
   // A tool's update status, the line under it and why a check failed (updates.rs, more_rows.rs)
   有新版本: 'Update available', 已是最新: 'Up to date', 等待检查: 'Waiting to check', 公开渠道暂无更新: 'Nothing new on the public channel',
   未安装: 'Not installed', 更新渠道待确认: 'Update channel not known yet', 安装渠道待确认: 'Install channel not known yet',

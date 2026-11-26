@@ -580,6 +580,9 @@ class UpdateTests(unittest.TestCase):
    entries=self.m.panel_entries(self.m.app_update_lines({'app_updates':{'apps':[dict(self.row(),status='有新版本')]}}))[0]['children']
   claude=next(e for e in entries if e['label'].startswith('Claude ·'))
   self.assertEqual(claude['href'],'file:///Applications/Claude.app');self.assertIn('点击打开 App 更新',claude['detail'])
+  # Claude's new versions go out in turns: said with it, as this Claude may still say it is up to date; no other row says so.
+  self.assertIn('新版本由 Anthropic 分批推送，Claude 里可能过几天才提示更新',claude['detail'])
+  self.assertFalse(any('分批推送' in (e.get('detail') or '') for e in entries if not e['label'].startswith('Claude ·')))
   with patch.object(self.m,'installed_app_path',return_value=None):
    rows={r['id']:r for r in self.m.update_rows({})}
   self.assertEqual(rows['claude']['href'],'https://claude.ai/download');self.assertEqual(rows['workbuddy']['href'],'https://www.workbuddy.cn/')
