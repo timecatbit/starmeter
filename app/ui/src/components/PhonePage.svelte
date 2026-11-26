@@ -1,8 +1,10 @@
 <script lang="ts">
   // 在手机上看: a QR code a phone scans to open the homepage in its browser, read-only. On the same network the app
-  // serves it itself; 任何网络 opens a public link through Cloudflare (the user's yes first, and a download of
-  // cloudflared the first time). The server stays on after this page is left, an hour at most, until 停止. Stopped, the
-  // page stays, saying so in the code's place, with 重新开始 for a new code (the old one's key no longer opens).
+  // serves it itself, and its Tailscale address beside (the same server, on the same page); 任何网络 opens a public
+  // link through Cloudflare (the user's yes first, and a download of cloudflared the first time). The server stays on
+  // after this page is left, the public link an hour at most, until 停止. The two choices only show their page: 停止
+  // keeps it where it is, saying so in the code's place, and only 重新开始 starts it again, also on opening the page
+  // after (用户：停了要手动打开；tailscale 点击停止之后跳到本地网络页面，为什么).
   import { onDestroy, onMount } from 'svelte';
   import { language, t } from '../lib/i18n.svelte';
   import { style } from '../lib/style.svelte';
@@ -16,8 +18,8 @@
 
   let { onback, onheight }: { onback: () => void; onheight: (height: number) => void } = $props();
 
-  /** 同一网络, Tailscale (when this computer is on a tailnet) or 任何网络: which address the code holds. */
-  let reach = $state<'local' | 'tailnet' | 'public'>('local');
+  /** 同一个网络 (its Tailscale address too, when this computer is on a tailnet) or 任何网络: which page is shown. */
+  let reach = $state<'local' | 'public'>('local');
   let failed = $state<string | null>(null);
   /** 任何网络 chosen and its link not there: it couldn't be made, or it dropped. The choice stays, and the code's place
    *  says so, with 重试 (or 重新生成) and 改用同一个网络: the page doesn't go back to the same network on its own
@@ -28,23 +30,19 @@
   let stopped = $state(false);
   /** The public link's yes, asked in place before anything leaves the computer. */
   let asking = $state<null | { download: boolean }>(null);
-  /** The link copied, or the clipboard refused it (the full link is then shown, selected, to copy by hand). */
-  let copied = $state<'ok' | 'failed' | null>(null);
+  /** Which link was copied, or the clipboard refused (the full link is then shown, selected, to copy by hand). */
+  let copied = $state<{ key: string; state: 'ok' | 'failed' } | null>(null);
   let manual: HTMLInputElement | undefined = $state();
   let copiedTimer: ReturnType<typeof setTimeout> | undefined;
 
   const view = $derived(phone.view);
   // The phone opens in this panel's language, and its look (手绘).
-  const address = $derived.by(() => {
-    const base = reach === 'public' ? view?.public ?? null : reach === 'tailnet' ? view?.tailnet ?? null : view?.local ?? null;
-    return base ? `${base}&l=${language.current}${style.current === 'sketch' ? '&s=sketch' : ''}` : null;
-  });
+  const looked = (base: string | null | undefined) => (base ? `${base}&l=${language.current}${style.current === 'sketch' ? '&s=sketch' : ''}` : null);
+  const lan = $derived(looked(view?.local));
+  const tailnet = $derived(looked(view?.tailnet));
+  const outside = $derived(looked(view?.public));
   const minutes = $derived(view ? Math.max(1, Math.round(secondsLeft() / 60)) : 0);
-  /** The choices: Tailscale between the two while this computer is on a tailnet (or while it is the one chosen, so the
-   *  page can say it went), each a third of the bar then. */
-  const choices = $derived<('local' | 'tailnet' | 'public')[]>(view?.tailnet || (!view && phone.tailnet) || reach === 'tailnet'
-    ? ['local', 'tailnet', 'public'] : ['local', 'public']);
-  const chosenIndex = $derived(Math.max(0, choices.indexOf(reach)));
+  const choices = ['local', 'public'] as const;
 
   /** Each start (opening the page, 重新开始) begins a round, and 停止 or leaving the page ends it. What a step of an
    *  earlier round answers late (the public link asked for before 停止, the status asked every ten seconds) is
@@ -64,17 +62,19 @@
       return false;
     }
   }
-  /** A start that fails (its port taken for a moment) stays in the code's place with its reason and 重试, instead of
-   *  leaving a page with neither a code nor a way on. Started by hand, it is no longer kept stopped. */
+  /** 重新开始 (or 重试): started by hand, it is no longer kept stopped. A start that fails (its port taken for a moment)
+   *  stays in the code's place with its reason and 重试, instead of leaving a page with neither a code nor a way on.
+   *  Started again on 任何网络, its link is asked for as when that page is chosen, the yes first. */
   async function begin() {
     stopped = false;
     keepStopped(false);
-    if (!(await start())) stopped = true;
+    if (!(await start())) { stopped = true; return; }
+    if (reach === 'public' && !phone.view?.public) await choose('public');
   }
   let tick: ReturnType<typeof setInterval> | undefined;
   onMount(() => {
-    // Opened again after 停止: it stays off, as it was left, until started by hand (a choice, or 重新开始); on, or
-    // never stopped, the page starts it (or finds it running).
+    // Opened again after 停止: it stays off, as it was left, until 重新开始; on, or never stopped, the page starts it
+    // (or finds it running).
     if (phone.stopped && !phone.view) stopped = true;
     else void begin();
     // Asked after while the page is open: a public link whose cloudflared has ended is taken down, and said so.
@@ -94,17 +94,15 @@
    *  back after a later choice (同一个网络 again, or the link asked for) is dropped, so it can't take the local code
    *  away or open the question under the wrong radio. */
   let choosing = 0;
-  async function choose(next: 'local' | 'tailnet' | 'public') {
-    // Stopped, a choice starts it again, on that network: a choice made by hand.
-    if (stopped) await begin();
-    if (stopped) return;
+  async function choose(next: 'local' | 'public') {
     const mine = ++choosing;
     // A new choice starts afresh: the last one's failure is not left under it.
-    failed = null;
+    if (!stopped) failed = null;
     lost = null;
     reach = next;
-    // A link already on its way (任何网络 chosen again while it is made) is waited for, not asked for again (TUNNEL-1).
-    if (next !== 'public' || view?.public || busy) { asking = null; return; }
+    // Stopped, a choice only shows that page, still stopped: nothing starts by looking. A link already on its way
+    // (任何网络 chosen again while it is made) is waited for, not asked for again (TUNNEL-1).
+    if (stopped || next !== 'public' || view?.public || busy) { asking = null; return; }
     const ready = await shell.tunnelReady().catch(() => false);
     if (mine !== choosing) return;
     asking = { download: !ready };
@@ -138,13 +136,14 @@
     }
     busy = false;
   }
+  /** The public link closed, the page stays 任何网络's, asking again whether to make one. */
   async function closePublic() {
     const mine = round;
     const closed = await shell.phonePrivate().catch(() => phone.view);
     if (mine !== round) return;
     setPhone(closed);
     lost = null;
-    reach = 'local';
+    if (reach === 'public') await choose('public');
   }
   async function stop() {
     round++;
@@ -156,21 +155,20 @@
     asking = null;
     failed = null;
     lost = null;
-    reach = 'local';
+    // On the page it was stopped from (用户：点击停止之后跳到本地网络页面，为什么).
     stopped = true;
   }
-  async function copy() {
-    if (!address) return;
+  async function copy(key: string, link: string) {
     clearTimeout(copiedTimer);
     // 已复制链接 only once the clipboard has taken it.
-    const ok = await (navigator.clipboard?.writeText(address).then(() => true, () => false) ?? Promise.resolve(false));
-    copied = ok ? 'ok' : 'failed';
+    const ok = await (navigator.clipboard?.writeText(link).then(() => true, () => false) ?? Promise.resolve(false));
+    copied = { key, state: ok ? 'ok' : 'failed' };
     if (ok) copiedTimer = setTimeout(() => (copied = null), 2000);
   }
   // Refused: the whole link, key and all, selected for a copy by hand.
-  $effect(() => { if (copied === 'failed' && manual) { manual.focus(); manual.select(); } });
+  $effect(() => { if (copied?.state === 'failed' && manual) { manual.focus(); manual.select(); } });
   // A new link (another network, a public link) starts afresh.
-  $effect(() => { void address; copied = null; });
+  $effect(() => { void lan; void tailnet; void outside; copied = null; });
 
   let body: HTMLDivElement | undefined = $state();
   $effect(() => {
@@ -183,6 +181,14 @@
   });
 </script>
 
+{#snippet link(key: string, url: string)}
+  <button class="address pressable" onclick={() => copy(key, url)} title={url}>{copied?.key === key && copied.state === 'ok' ? t('已复制链接') : url.replace(/#.*/, '')}</button>
+  {#if copied?.key === key && copied.state === 'failed'}
+    <p class="manual-note">{t('没能复制，下面是完整链接，选中后手动复制')}</p>
+    <input class="manual" bind:this={manual} value={url} readonly aria-label={t('完整链接')} onfocus={(event) => event.currentTarget.select()} />
+  {/if}
+{/snippet}
+
 <div class="phone-page">
   <div class="grip" class:movable={panel.pinned} aria-hidden="true"
     onmousedown={grabWindow}></div>
@@ -193,17 +199,17 @@
   <div class="scroll">
     <Scroller onswipeback={onback}>
       <div class="content" bind:this={body}>
-        <!-- Stopped, the choices stay, each a way to start it again on that network. -->
+        <!-- The two choices only show their page: nothing starts or stops by looking. -->
         <div class="reach" role="radiogroup" aria-label={t('手机在哪')}>
-          <span class="pill" style:width="calc({100 / choices.length}% - {4 / choices.length}px)" style:transform="translateX({chosenIndex * 100}%)"></span>
+          <span class="pill" style:transform="translateX({reach === 'public' ? 100 : 0}%)"></span>
           {#each choices as choice (choice)}
             <button class="choice pressable" class:chosen={reach === choice} role="radio" aria-checked={reach === choice}
-              onclick={() => choose(choice)}>{choice === 'tailnet' ? 'Tailscale' : t(choice === 'local' ? '同一个网络' : '任何网络')}</button>
+              onclick={() => choose(choice)}>{t(choice === 'local' ? '同一个网络' : '任何网络')}</button>
           {/each}
         </div>
 
         {#if stopped}
-          <!-- In the code's place, as large: the page keeps its shape, and what was there says it is over. -->
+          <!-- In the code's place, as large, on the page it was stopped from: what was there says it is over. -->
           <div class="code">
             <div class="stopped" role="status">
               <span class="stopped-glyph"><Icon name="iphone" size={22} /></span>
@@ -212,7 +218,7 @@
             </div>
           </div>
           {#if failed}<p class="failed">{t(failed)}</p>
-          {:else}<p class="note">{t('原来的二维码和链接已失效。点“重新开始”或上面的网络，生成新的二维码，手机再扫一次就能看。')}</p>{/if}
+          {:else}<p class="note">{t('原来的二维码和链接已失效。点“重新开始”生成新的二维码，手机再扫一次就能看。')}</p>{/if}
           <div class="actions">
             <button class="action primary pressable" onclick={begin}>{t(failed ? '重试' : '重新开始')}</button>
           </div>
@@ -228,24 +234,14 @@
               <button class="button primary pressable" onclick={openPublic}>{t(asking.download ? '下载并生成' : '生成链接')}</button>
             </div>
           </div>
-        {:else}
+        {:else if reach === 'public'}
           <div class="code">
-            {#if busy && reach === 'public'}
+            {#if busy}
               <span class="spinner" aria-label={t('生成链接')}></span>
               <span class="wait">{t('正在向 Cloudflare 要链接…')}</span>
               <!-- PHONE-11: shown once it opens from outside, so a phone scanning it never meets a name not there yet. -->
               <span class="wait-detail">{t('确认手机能打开后再显示，通常十几秒')}</span>
-            {:else if reach === 'tailnet' && view && !view.tailnet}
-              <!-- Tailscale chosen and gone (turned off, signed out): said in the code's place, the same network a click away. -->
-              <div class="stopped" role="status">
-                <span class="stopped-glyph"><Icon name="iphone" size={22} /></span>
-                <span class="stopped-title">{t('Tailscale 没有连上')}</span>
-                <span class="stopped-detail">{t('这台电脑打开 Tailscale 后，二维码会回来')}</span>
-              </div>
-              <div class="ask-actions">
-                <button class="button pressable" onclick={() => choose('local')}>{t('改用同一个网络')}</button>
-              </div>
-            {:else if reach === 'public' && lost}
+            {:else if lost}
               <!-- In the code's place, on 任何网络 still: what happened, and the two ways on. -->
               <div class="stopped" role="status">
                 <span class="stopped-glyph"><Icon name="iphone" size={22} /></span>
@@ -256,40 +252,52 @@
                 <button class="button pressable" onclick={() => choose('local')}>{t('改用同一个网络')}</button>
                 <button class="button primary pressable" onclick={openPublic}>{t(lost === 'dropped' ? '重新生成' : '重试')}</button>
               </div>
-            {:else if address}
-              <QrCode text={address} size={188} label={t('手机扫这个二维码')} />
-            {:else if view && !view.local && reach === 'local'}
+            {:else if outside}
+              <QrCode text={outside} size={188} label={t('手机扫这个二维码')} />
+            {:else if !failed}
+              <span class="spinner" aria-label={t('正在开启')}></span>
+            {/if}
+          </div>
+          {#if outside && !busy && !lost}{@render link('public', outside)}{/if}
+        {:else}
+          <!-- 同一个网络: this computer's address on its network, and its Tailscale address under it when it is on a
+               tailnet: the same server, both on until 停止. -->
+          <div class="code">
+            {#if lan}
+              <QrCode text={lan} size={188} label={t('手机扫这个二维码')} />
+            {:else if view}
               <span class="wait">{t('这台电脑没有连上网络')}</span>
             {:else if !failed}
               <span class="spinner" aria-label={t('正在开启')}></span>
             {/if}
           </div>
-          {#if address}
-            <button class="address pressable" onclick={copy} title={address}>{copied === 'ok' ? t('已复制链接') : address.replace(/#.*/, '')}</button>
-            {#if copied === 'failed'}
-              <p class="manual-note">{t('没能复制，下面是完整链接，选中后手动复制')}</p>
-              <input class="manual" bind:this={manual} value={address} readonly aria-label={t('完整链接')} onfocus={(event) => event.currentTarget.select()} />
-            {/if}
+          {#if lan}{@render link('local', lan)}{/if}
+          {#if view && lan}
+            <p class="note">{t('手机和电脑连同一个网络（Wi-Fi）后扫码；第一次打开时系统可能问是否允许 Starmeter 接收连接，选允许')}</p>
+          {/if}
+          {#if tailnet}
+            <div class="tailnet">
+              <span class="tailnet-title">Tailscale</span>
+              <QrCode text={tailnet} size={150} label={t('连着 Tailscale 的手机扫这个二维码')} />
+              {@render link('tailnet', tailnet)}
+              <p class="note">{t('手机连上同一个 Tailscale 网络时扫这个，在哪都能打开，不经过 Cloudflare')}</p>
+            </div>
           {/if}
         {/if}
 
         {#if failed && !stopped}<p class="failed">{t(failed)}</p>{/if}
 
         {#if view && !stopped}
-          <!-- What the code is for: on the same network until 停止; the public link, while it is up, for its hour. -->
           {#if !asking && !(busy && reach === 'public')}
-            <!-- On 任何网络 without its link, nothing about the same network's code: it isn't the one on screen. -->
-            {#if reach === 'public' && view.public && view.publicChecked === false}
+            {#if reach === 'public' && outside && view.publicChecked === false}
               <!-- The wait for it to open ran out: shown all the same, with what to do if it doesn't open yet. -->
               <p class="note caution">{t('还没确认手机能打开：扫码打不开就等一分钟再试')}</p>
             {/if}
-            {#if reach === 'local' || (reach === 'public' && view.public) || (reach === 'tailnet' && view.tailnet)}
-              <p class="note">
-                {reach === 'public' ? t('任何网络都能打开，链接带一次性口令，还能用 {n} 分钟', { n: minutes })
-                  : reach === 'tailnet' ? t('手机也连上同一个 Tailscale 网络后扫码，在哪都能打开，不经过 Cloudflare')
-                  : t('手机和电脑连同一个网络（Wi-Fi）后扫码；第一次打开时系统可能问是否允许 Starmeter 接收连接，选允许')}
-              </p>
-              <!-- With a code on screen only: not under a link that failed or a tailnet gone. -->
+            {#if reach === 'public' && outside}
+              <p class="note">{t('任何网络都能打开，链接带一次性口令，还能用 {n} 分钟', { n: minutes })}</p>
+            {/if}
+            <!-- With a code on screen only: not under a link that failed. -->
+            {#if (reach === 'local' && (lan || tailnet)) || (reach === 'public' && outside && !lost)}
               <p class="note">{t('只读：手机上只能看主页和工具页，不能改设置。点“停止”或退出 App 前一直开着。')}</p>
               <p class="note">{t('网页右上角的太阳可让手机屏幕保持常亮，适合放在桌边一直看；要用“任何网络”的 https 链接打开才能用')}</p>
             {/if}
@@ -319,7 +327,7 @@
     background: color-mix(in srgb, var(--label) 6%, transparent);
   }
   .pill {
-    position: absolute; top: 2px; bottom: 2px; left: 2px; border-radius: 6px; background: var(--solid);
+    position: absolute; top: 2px; bottom: 2px; left: 2px; width: calc(50% - 2px); border-radius: 6px; background: var(--solid);
     box-shadow: 0 0 0 0.5px var(--separator), 0 1px 3px rgba(0, 0, 0, 0.1); transition: transform 0.22s var(--page-curve), width 0.22s var(--page-curve);
   }
   .choice { --press-scale: 0.96; position: relative; flex: 1; display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--secondary); border-radius: 6px; }
@@ -346,6 +354,9 @@
     color: var(--label); background: color-mix(in srgb, var(--label) 6%, transparent); user-select: text; -webkit-user-select: text;
   }
   .note { margin: 0; font-size: 11px; line-height: 1.5; color: var(--secondary); }
+  .tailnet { display: flex; flex-direction: column; align-items: center; gap: 8px; padding-top: 12px; border-top: 1px solid var(--separator); }
+  .tailnet-title { align-self: flex-start; font-size: 12px; font-weight: 600; color: var(--label); }
+  .tailnet .note { align-self: stretch; }
   .note.caution { color: var(--orange); }
   .failed { margin: 0; padding: 8px 10px; border-radius: 8px; font-size: 11.5px; color: var(--label); background: color-mix(in srgb, var(--orange) 18%, transparent); }
   .ask { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--label) 5%, transparent); }
