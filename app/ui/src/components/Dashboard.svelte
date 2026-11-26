@@ -105,16 +105,30 @@
     return () => { window.removeEventListener('pointerdown', down, true); window.removeEventListener('pointerup', up, true); window.removeEventListener('pointercancel', up, true); };
   });
   let liveBox: HTMLDivElement | undefined = $state();
+  /** Pinned, 实时 fits down to the end of its third happening (用户：pin 住的时候整个画面高度，显示三个就好); the list
+   *  itself is whole (12), the rest a scroll away. All of it while it has fewer. */
+  let liveFit = $state(0);
   $effect(() => {
     const box = liveBox;
     if (!box) return;
     let frame = 0;
+    const measure = () => {
+      liveHeightIs(box.offsetHeight);
+      const third = box.querySelectorAll<HTMLElement>('.feed .event')[2];
+      // Where it is laid out, not where it is drawn: a new happening slides the others down for a moment (flip), and
+      // the box's size doesn't change when that ends, so a drawn position read mid-slide would stay. The pinned window
+      // is 10 taller than this under it and shows all but its last 8 (App.svelte), so 2 less: what is seen ends just at
+      // the third's foot.
+      let foot = third ? third.offsetHeight : 0;
+      for (let e: HTMLElement | null = third ?? null; e && e !== box; e = e.offsetParent as HTMLElement | null) foot += e.offsetTop;
+      liveFit = third ? foot - 2 : box.offsetHeight;
+    };
     const observer = new ResizeObserver(() => {
       cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => liveHeightIs(box.offsetHeight));
+      frame = requestAnimationFrame(measure);
     });
     observer.observe(box);
-    liveHeightIs(box.offsetHeight);
+    measure();
     return () => { observer.disconnect(); cancelAnimationFrame(frame); };
   });
   let sessionsBox: HTMLDivElement | undefined = $state();
@@ -152,8 +166,8 @@
   // A pinned panel fits down to the end of the third card or session (the user makes it taller at its edges).
   const FIT = 3;
   let sessionsFit = $state(0);
-  // 实时 fits whole up to a screenful's share: its sessions and the latest of what happened.
-  const fitList = $derived(showingLive ? Math.min(liveHeight, 320) : showingSessions ? sessionsFit
+  // 实时 fits down to its third happening: its sessions and the latest three of what happened.
+  const fitList = $derived(showingLive ? Math.min(liveHeight, liveFit) : showingSessions ? sessionsFit
     : cardList.length <= FIT ? listHeight : cardList.slice(0, FIT).reduce((s, p) => s + cardHeight(p), 0) + 4);
   $effect(() => onsize?.(summaryHeight + heatmapHeight + harnessHeader + groupingHeight + fitList));
   $effect(() => onfloor?.(summaryHeight + heatmapHeight));
@@ -296,6 +310,8 @@
 </div>
 
 <style>
+  /* Where 实时's rows are measured from (offsetTop: the pinned fit, laid out, not as drawn mid-slide). */
+  .live-room { position: relative; }
   .dashboard {
     position: relative;
   }

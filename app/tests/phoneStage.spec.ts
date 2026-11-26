@@ -1525,22 +1525,28 @@ test('a tap anywhere but a control answers: the figure hops, the curve lights up
   expect(gaps[Math.floor(gaps.length / 2)], 'the middle frame').toBeLessThan(20);
 });
 
-test('网页版\'s 动态 shows its newest five, the rest behind 查看更多, folded again with 收起, as the panel\'s', async ({ page }) => {
+test('网页版\'s 动态 shows its newest twelve, none folded away, as the panel\'s; a session\'s tools on a row of their own under its turn\'s figures', async ({ page }) => {
+  // 用户：你默认显示12个动作就很好……实时这里不用折叠。胶囊能排版上对齐一下就对齐对齐。
   const work = scripted();
   await phone(page, PORTRAIT, '', { live: work.live });
-  for (const seconds of [3, 6, 9, 12, 15]) { work.at(seconds); await page.waitForTimeout(2100); }
+  for (const seconds of [3, 6, 9, 12, 15, 18, 21]) { work.at(seconds); await page.waitForTimeout(2100); }
   const activity = page.locator('.stage .activity');
-  const more = activity.getByRole('button', { name: /^查看更多 \d+ 条动态$/ });
-  await expect(more).toBeVisible();
-  await expect(activity.locator('.feed li')).toHaveCount(5);
-  await more.click();
   await expect.poll(() => activity.locator('.feed li').count()).toBeGreaterThan(5);
-  await activity.getByRole('button', { name: '收起' }).click();
-  await expect(activity.locator('.feed li')).toHaveCount(5);
-  // Folded, what comes in keeps it at five.
-  work.at(18);
-  await page.waitForTimeout(2500);
-  await expect(activity.locator('.feed li')).toHaveCount(5);
+  expect(await activity.locator('.feed li').count()).toBeLessThanOrEqual(12);
+  await expect(activity.getByRole('button', { name: /^查看更多|^收起/ })).toHaveCount(0);
+  // The tools: every line of them starting where the title and the model start, under the turn's figures.
+  const session = activity.locator('.session').first();
+  await expect(session.locator('.chip').first()).toBeVisible();
+  const lefts = await session.evaluate((card) => {
+    const left = (e: Element | null) => e ? Math.round(e.getBoundingClientRect().left) : null;
+    const rows = new Map<number, number>();
+    for (const chip of card.querySelectorAll('.chip')) { const box = chip.getBoundingClientRect(); const row = Math.round(box.top); rows.set(row, Math.min(rows.get(row) ?? Infinity, Math.round(box.left))); }
+    return { title: left(card.querySelector('.title')), figures: left(card.querySelector('.turn-figures')), rows: [...rows.values()],
+      below: card.querySelector('.chips')!.getBoundingClientRect().top >= card.querySelector('.turn')!.getBoundingClientRect().bottom - 1 };
+  });
+  expect(lefts.below).toBe(true);
+  for (const row of lefts.rows) expect(Math.abs(row - lefts.title!)).toBeLessThanOrEqual(1);
+  expect(Math.abs(lefts.figures! - lefts.title!)).toBeLessThanOrEqual(1);
 });
 
 test('with reduced motion a tap on a pane does nothing to it either', async ({ page }) => {

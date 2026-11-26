@@ -167,10 +167,10 @@ test('实时 opens with what happened in the last minutes, and reads only while 
   await seed(page, 60, { id: 'claude', tokens: 5000, output: 50 });
   await radio(page, '实时').click();
   const live = page.locator('.panel-live');
-  // At once, before a tick of its own: 动态 from the minutes the app kept while 实时 wasn't open (five shown, the rest
-  // behind 查看更多).
-  await expect(live.locator('.event')).toHaveCount(5, { timeout: 1500 });
-  await expect(live.getByRole('button', { name: /^查看更多 (\d+) 条动态$/ })).toHaveText(/^查看更多 ([6-9]|\d\d) 条动态\s*$/);
+  // At once, before a tick of its own: 动态 from the minutes the app kept while 实时 wasn't open (its newest twelve,
+  // none folded away).
+  await expect(live.locator('.event')).toHaveCount(12, { timeout: 1500 });
+  await expect(live.getByRole('button', { name: /^查看更多/ })).toHaveCount(0);
   await expect(live.locator('.event .what').first()).toHaveText(/^\+5(\.0)?K Token/);
   // Closed: nothing more asked, the clock no longer counting.
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('panel-closed')));
@@ -190,31 +190,34 @@ test('实时 opens with what happened in the last minutes, and reads only while 
   await expect(live.locator('.live-session .clock').first()).not.toHaveText(clock!, { timeout: 2500 });
 });
 
-test('实时\'s 动态 shows its newest five, the rest behind 查看更多, folded again with 收起; folded, it stays five as more come in, and it is kept as it was left', async ({ page }) => {
+test('实时\'s 动态 shows its newest twelve, none folded away; pinned, the panel fits down to the third, the rest a scroll away', async ({ page }) => {
+  // 用户：你默认显示12个动作就很好，我只是想你pin住的时候整个画面高度，显示三个就好。实时这里不用折叠。
   await open(page);
   await seed(page, 60, { id: 'claude', tokens: 5000, output: 50 });
   // Pinned: 实时, and a reading every couple of seconds, each adding to 动态.
   await page.getByRole('button', { name: '钉住面板', exact: true }).click();
   await expect(radio(page, '实时')).toHaveAttribute('aria-checked', 'true');
   const live = page.locator('.panel-live');
-  const more = live.getByRole('button', { name: /^查看更多 \d+ 条动态$/ });
-  await expect(more).toBeVisible({ timeout: 2000 });
-  await expect(live.locator('.event')).toHaveCount(5);
-  const all = Number((await more.textContent())!.match(/\d+/)![0]) + 5;
-  await more.click();
-  await expect.poll(() => live.locator('.event').count()).toBeGreaterThanOrEqual(all);
-  await live.getByRole('button', { name: '收起' }).click();
-  await expect(live.locator('.event')).toHaveCount(5);
-  // More come in at each reading: still five.
+  await expect(live.locator('.event')).toHaveCount(12, { timeout: 2000 });
+  await expect(live.getByRole('button', { name: /^查看更多|^收起/ })).toHaveCount(0);
+  // The pinned panel, fitted (as it is when pinned), shows down to the third happening's foot: the third whole, the
+  // fourth below what is seen.
+  // (Measured once it stands still: a reading every couple of seconds slides a new one in at the top.)
+  const edges = () => page.evaluate(() => {
+    const seen = document.querySelector('.view .scroller')!.getBoundingClientRect(), rows = document.querySelectorAll('.panel-live .event');
+    return { seen: Math.round(seen.bottom), third: Math.round(rows[2].getBoundingClientRect().bottom), fourth: Math.round(rows[3].getBoundingClientRect().top) };
+  });
+  await expect(async () => {
+    const first = await edges();
+    await page.waitForTimeout(400);
+    expect(await edges()).toEqual(first);
+    expect(first.third).toBeLessThanOrEqual(first.seen + 1);
+    expect(first.fourth).toBeGreaterThanOrEqual(first.seen - 1);
+  }).toPass({ timeout: 8000 });
+  // More come in at each reading: still twelve.
   const top = await live.locator('.event').first().textContent();
   await expect.poll(async () => live.locator('.event').first().textContent(), { timeout: 8000 }).not.toBe(top);
-  await expect(live.locator('.event')).toHaveCount(5);
-  // Opened, it stays open (as the sessions' list): kept for the next time 实时 is shown.
-  await live.getByRole('button', { name: /^查看更多 \d+ 条动态$/ }).click();
-  await radio(page, '工具').click();
-  await radio(page, '实时').click();
-  await expect(live.getByRole('button', { name: '收起' })).toBeVisible();
-  expect(await live.locator('.event').count()).toBeGreaterThan(5);
+  await expect(live.locator('.event')).toHaveCount(12);
 });
 
 test('started hidden (the app at login), nothing is read until the panel is opened and 实时 picked (STAGE-11)', async ({ page }) => {

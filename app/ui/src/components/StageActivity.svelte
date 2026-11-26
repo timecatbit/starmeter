@@ -9,23 +9,20 @@
   import { flip } from 'svelte/animate';
   import { fly } from 'svelte/transition';
   import { toolColour } from '../lib/colors';
-  import { closeList, listOpen, openList } from '../lib/expanded.svelte';
   import { t } from '../lib/i18n.svelte';
   import { turnClock, type PhoneLive } from '../lib/phoneLive.svelte';
   import { panel } from '../lib/ui.svelte';
   import Glyph from './Glyph.svelte';
 
   let { live, now }: { live: PhoneLive; now: number } = $props();
-  /** 动态 shows its newest five, the rest behind 查看更多 (as the panel's 实时, and the sessions' list: kept open or
-   *  folded, expanded.svelte.ts); folded, what comes in keeps it at five. */
-  const SHOWN = 5;
-  const feedOpen = $derived(listOpen('feed'));
+  /** 动态: the newest twelve, none folded away (用户：你默认显示12个动作就很好……实时这里不用折叠). */
+  const SHOWN = 12;
 
   const running = $derived(live.sessions.filter((s) => s.running));
   const latest = $derived(live.sessions.find((s) => !s.running) ?? null);
   /** The cards: the sessions running, else the one last at work. */
   const shown = $derived(running.length ? running : latest ? [latest] : []);
-  const events = $derived(feedOpen ? live.events : live.events.slice(0, SHOWN));
+  const events = $derived(live.events.slice(0, SHOWN));
   const pad = (n: number) => String(n).padStart(2, '0');
   const clock = (at: number) => { const d = new Date(at); return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
   /** A turn's clock (turnClock, as the panel's 实时 writes it): each figure in the figures' face, each word in the
@@ -59,12 +56,17 @@
                   class="share num">{Math.round(s.context * 100)}%</span></span>{/if}
             </div>
           {/if}
-          <div class="turn">
-            {#if s.turnTokens}<span class="turn-figures num">{t(s.running ? '本轮' : '上一轮') + ' ' + s.turnTokens + (s.turnCost ? ' · ' + s.turnCost : '')}</span>{/if}
-            {#each s.tools.slice(0, 4) as [name, count] (name)}
-              <span class="chip num" class:lit={s.running && now - (s.called[name] ?? 0) < 1800}>{name} ×{count}</span>
-            {/each}
-          </div>
+          {#if s.turnTokens}<div class="turn"><span class="turn-figures num">{t(s.running ? '本轮' : '上一轮') + ' ' + s.turnTokens + (s.turnCost ? ' · ' + s.turnCost : '')}</span></div>{/if}
+          <!-- The tools on a row of their own under the turn's figures, each line of them starting at the same left as
+               the title and the model (用户：胶囊能排版上对齐一下就对齐对齐: beside the figures, a second line began
+               further left than the first). -->
+          {#if s.tools.length}
+            <div class="chips">
+              {#each s.tools.slice(0, 4) as [name, count] (name)}
+                <span class="chip num" class:lit={s.running && now - (s.called[name] ?? 0) < 1800}>{name} ×{count}</span>
+              {/each}
+            </div>
+          {/if}
         </div>
       {/each}
     </div>
@@ -90,10 +92,6 @@
         </li>
       {/each}
     </ol>
-    {#if live.events.length > SHOWN}
-      <button class="more" aria-expanded={feedOpen} onclick={() => (feedOpen ? closeList : openList)('feed')}>
-        {feedOpen ? t('收起') : t('查看更多 {n} 条动态', { n: live.events.length - SHOWN })}</button>
-    {/if}
   {:else}
     <p class="quiet">{!live.answered ? t('正在读取…') : live.state === 'working' ? t('等下一笔请求…') : t('一有动静就会出现在这里')}</p>
   {/if}
@@ -163,8 +161,9 @@
   .meter { width: 40px; height: 4px; border-radius: 2px; background: var(--line-faint); overflow: hidden; }
   .meter span { display: block; height: 100%; border-radius: 2px; background: var(--star); }
   .share { font-family: var(--rounded); font-weight: 600; color: var(--ink-2); }
-  .turn { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-left: 44px; font-size: 11.5px; color: var(--ink-2); }
-  .turn-figures { margin-right: 4px; color: var(--ink); font-weight: 600; }
+  .turn { padding-left: 44px; font-size: 11.5px; color: var(--ink-2); }
+  .turn-figures { color: var(--ink); font-weight: 600; }
+  .chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-left: 44px; margin-top: -1px; }
   .chip {
     padding: 2px 8px;
     border-radius: 999px;
@@ -176,12 +175,6 @@
   /* Just called: lit, then easing back. */
   .chip.lit { background: color-mix(in srgb, var(--good) 30%, transparent); color: var(--ink); box-shadow: 0 0 12px -2px var(--good); transition: none; }
   .quiet { margin: 0 2px; font-size: 12.5px; color: var(--ink-3); line-height: 1.5; }
-  /* As the statistics' 查看更多 (PhoneStage): a pill in the middle under the list. */
-  .more {
-    align-self: center; height: 34px; padding: 0 18px; border-radius: 999px; font-size: 13px; font-weight: 600;
-    color: var(--star); background: var(--glass); box-shadow: inset 0 0 0 0.5px var(--glass-edge);
-  }
-  @media (hover: hover) { .more:hover { background: var(--glass-strong); } }
   .feed { list-style: none; margin: 0; padding: 4px 14px; border-radius: 20px; background: var(--glass); box-shadow: inset 0 0 0 0.5px var(--glass-edge), var(--lift); }
   .event.rest .what { color: var(--ink-3); }
   .event { display: grid; grid-template-columns: auto auto minmax(0, auto) minmax(0, 1fr); align-items: center; gap: 8px; min-height: 34px; font-size: 12.5px; border-bottom: 0.5px solid var(--line-faint); }

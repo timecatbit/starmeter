@@ -7,12 +7,10 @@
   import { flip } from 'svelte/animate';
   import { fly } from 'svelte/transition';
   import { toolColour } from '../lib/colors';
-  import { closeList, listOpen, openList } from '../lib/expanded.svelte';
   import { t } from '../lib/i18n.svelte';
   import { PhoneLive, turnClock } from '../lib/phoneLive.svelte';
   import { panel } from '../lib/ui.svelte';
   import Glyph from './Glyph.svelte';
-  import MoreButton from './MoreButton.svelte';
 
   const live = new PhoneLive();
   let now = $state(Date.now());
@@ -27,15 +25,14 @@
     return () => { live.stop(); clearInterval(ticking); };
   });
 
-  /** 动态 shows its newest five, the rest behind 查看更多 (as the sessions' and projects' lists: kept open or folded,
-   *  expanded.svelte.ts); folded, what comes in keeps it at five. */
-  const SHOWN = 5;
+  /** 动态: the newest twelve, none folded away (用户：你默认显示12个动作就很好……实时这里不用折叠); pinned, the panel fits
+   *  down to the third (Dashboard), the rest a scroll away. */
+  const SHOWN = 12;
   const running = $derived(live.sessions.filter((s) => s.running));
   const latest = $derived(live.sessions.find((s) => !s.running) ?? null);
   /** The cards: the sessions running, else the one last at work, greyed (as 网页版's 正在运行). */
   const shown = $derived(running.length ? running : latest ? [latest] : []);
-  const feedOpen = $derived(listOpen('feed'));
-  const events = $derived(feedOpen ? live.events : live.events.slice(0, SHOWN));
+  const events = $derived(live.events.slice(0, SHOWN));
   const pad = (n: number) => String(n).padStart(2, '0');
   const clock = (at: number) => { const d = new Date(at); return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
   /** This turn's clock as 网页版 writes it (turnClock): figures in the rounded face, words in the text's. */
@@ -87,10 +84,6 @@
         </li>
       {/each}
     </ol>
-    {#if live.events.length > SHOWN}
-      <MoreButton open={feedOpen} label={feedOpen ? t('收起') : t('查看更多 {n} 条动态', { n: live.events.length - SHOWN })}
-        onclick={() => (feedOpen ? closeList : openList)('feed')} />
-    {/if}
   {:else}
     <p class="quiet">{!live.answered ? t('正在读取…') : live.state === 'working' ? t('等下一笔请求…') : t('一有动静就会出现在这里')}</p>
   {/if}
