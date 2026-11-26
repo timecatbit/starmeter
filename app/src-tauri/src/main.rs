@@ -492,7 +492,7 @@ fn main() {
             api.prevent_exit();
         } else if let RunEvent::Exit = event {
             // Quitting stops the phone view, and cloudflared with it.
-            phone::phone_stop(app.clone());
+            phone::phone_quit(app);
         }
         let _ = app;
     });

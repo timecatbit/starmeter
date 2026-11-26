@@ -213,6 +213,12 @@ export const phrases: Record<string, string> = {
   '手机查看的链接要带上 # 后面的一次性口令。请在电脑的“在手机上看”里扫码，或点二维码下的地址复制完整链接。': 'A phone view link carries a one-time key after the #. Scan the code in Phone view on the computer, or click the address under the code to copy the whole link.',
   '手机连上同一个 Tailscale 网络时扫这个，在哪都能打开，不经过 Cloudflare': 'With the phone on the same tailnet, scan this to open from anywhere, without Cloudflare',
   '连着 Tailscale 的手机扫这个二维码': 'Scan this with a phone on the tailnet',
+  局域网: 'Local network', '手机连同一个 Wi-Fi': 'Phone on this Wi-Fi', '手机开着 Tailscale': 'Phone on your tailnet',
+  '第一次打开时系统可能问是否允许 Starmeter 接收连接，选允许；Tailscale 的二维码在哪都能打开，不经过 Cloudflare':
+    'The first time, the system may ask whether Starmeter may accept incoming connections: allow it. The Tailscale code opens from anywhere, without Cloudflare.',
+  '只读：手机上只能看主页和工具页，不能改设置。': 'Read-only: the phone sees the homepage and tool pages and changes nothing.',
+  外网链接已关闭: 'The public link is closed', 外网链接已经关闭: 'The public link was closed',
+  '原来的外网链接已失效。点“重新生成”要一个新链接，手机再扫一次就能看。': 'The old link no longer opens. Make a new one, and scan it once more.',
   '这个网络的 DNS 查不到 Cloudflare 隧道的地址（常见于代理或 VPN），换个网络或关掉代理再试':
     'This network\'s DNS can\'t find Cloudflare\'s tunnel servers (common behind a proxy or VPN); try another network or turn the proxy off',
   'Cloudflare 暂时不给新的临时链接，稍后再试': 'Cloudflare isn\'t giving out new temporary links right now; try again later',

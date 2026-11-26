@@ -63,23 +63,26 @@ const quiet = () => Promise.resolve();
 
 const localGuide = () => { try { return localStorage.getItem('starmeter.guide') === '1'; } catch { return false; } };
 
-/** Where a phone can open the homepage, and how long the public link has left (0 without one). */
+/** Where a phone can open the homepage, and how long the public link has left (0 without one). 同一个网络 and the public
+ *  link are on and off on their own: `localOpen` says the first is on (its addresses, when this computer has them). */
 export interface PhoneView {
-  local: string | null; tailnet?: string | null; public: string | null; secondsLeft: number;
+  localOpen?: boolean; local: string | null; tailnet?: string | null; public: string | null; secondsLeft: number;
   /** The public link seen to open from outside before it was shown; false when the wait for it ran out (PHONE-11). */
   publicChecked?: boolean;
 }
-/** The browser's stand-in for the phone server, for the tests and the dev server. */
+/** The browser's stand-in for the phone server, for the tests and the dev server: 同一个网络 and the public link, each
+ *  on and off on its own, the server on while either is. */
 const browserPhone = (() => {
-  let on = false, open = false;
+  let local = false, open = false;
   // ?tailnet: this computer on a tailnet too.
   const tailnet = () => (new URLSearchParams(location.search).has('tailnet') ? 'http://100.76.55.73:51234/#k=0123456789abcdef0123456789abcdef' : null);
-  const view = (): PhoneView | null => (on ? { local: 'http://192.168.1.20:51234/#k=0123456789abcdef0123456789abcdef', tailnet: tailnet(),
-    public: open ? 'https://quiet-river-1234.trycloudflare.com/#k=0123456789abcdef0123456789abcdef' : null, secondsLeft: open ? 3540 : 0,
+  const view = (): PhoneView | null => (local || open ? { localOpen: local, local: local ? 'http://192.168.1.20:51234/#k=0123456789abcdef0123456789abcdef' : null,
+    tailnet: local ? tailnet() : null,
+    public: open ? 'https://quiet-river-1234.trycloudflare.com/#k=fedcba9876543210fedcba9876543210' : null, secondsLeft: open ? 3540 : 0,
     // ?unchecked: the wait for the public link to open ran out.
     publicChecked: !new URLSearchParams(location.search).has('unchecked') } : null);
   return {
-    view, start: () => { on = true; return view()!; }, stop: () => { on = false; open = false; },
+    view, start: () => { local = true; return view()!; }, stop: () => { local = false; return view(); },
     open: () => { open = true; return view()!; }, close: () => { open = false; return view(); },
   };
 })();
@@ -119,11 +122,12 @@ export const shell = {
   setStyle: (look: string) => (inTauri ? invoke<void>('set_style', { style: look }).catch(() => {}) : quiet()),
   /** The panel's language ('zh' or 'en'), for the shell's own words: the star's right-click menu. */
   setLanguage: (language: string) => (inTauri ? invoke<void>('set_language', { language }).catch(() => {}) : quiet()),
-  /** 在手机上看: the read-only server for a phone, started (or its hour started again), asked after, and stopped; the
-   *  public link through Cloudflare opened and closed. In a browser, made-up addresses for the tests. */
+  /** 在手机上看: 同一个网络 turned on and off (phoneStart, phoneStop), the public link through Cloudflare opened and
+   *  closed (phonePublic, phonePrivate), each leaving the other as it is; and where they stand. In a browser, made-up
+   *  addresses for the tests. */
   phoneStart: (): Promise<PhoneView> => (inTauri ? invoke<PhoneView>('phone_start') : Promise.resolve(browserPhone.start())),
   phoneStatus: (): Promise<PhoneView | null> => (inTauri ? invoke<PhoneView | null>('phone_status') : Promise.resolve(browserPhone.view())),
-  phoneStop: () => (inTauri ? invoke<void>('phone_stop') : quiet().then(() => browserPhone.stop())),
+  phoneStop: (): Promise<PhoneView | null> => (inTauri ? invoke<PhoneView | null>('phone_stop') : Promise.resolve(browserPhone.stop())),
   phonePublic: (): Promise<PhoneView> => (inTauri ? invoke<PhoneView>('phone_public')
     // ?tunnel-fails: the public link fails as on a network Cloudflare can't be reached from.
     : new URLSearchParams(location.search).has('tunnel-fails') ? Promise.reject('Cloudflare 这次没有连上，稍后再试') : Promise.resolve(browserPhone.open())),

@@ -1340,9 +1340,12 @@ test('在手机上看: a code for the same network, a public link only after a y
   await expect(phone.locator('.address')).toHaveText('https://quiet-river-1234.trycloudflare.com/');
   // The public link has its hour.
   await expect(phone.locator('.note').first()).toContainText('还能用 59 分钟');
-  // Closed, the page stays 任何网络's, asking again; 取消 is the same network's code.
-  await button(page, '关闭外网链接').click();
+  // Its own 停止: the page stays 任何网络's, saying the link is closed; 重新生成 asks again, and 取消 is the same
+  // network's code, on all along.
+  await button(page, '停止').click();
   await expect(page.getByRole('radio', { name: '任何网络' })).toHaveAttribute('aria-checked', 'true');
+  await expect(phone.getByRole('status')).toContainText('外网链接已关闭');
+  await button(page, '重新生成').click();
   await expect(phone.locator('.ask')).toContainText('经 Cloudflare 生成外网链接？');
   await button(page, '取消').click();
   await expect(phone.locator('.address')).toHaveText('http://192.168.1.20:51234/');
@@ -1380,7 +1383,7 @@ const panelShell = `(async () => {
   return (await import(/* @vite-ignore */ loaded.at(-1) ?? '/src/lib/backend.ts')).shell;
 })()`;
 
-test('在手机上看: 停止 stays on its page, stopped when the page is opened again and the app started again too, until 重新开始; looking at the other page starts nothing', async ({ page }) => {
+test('在手机上看: 同一个网络\'s 停止 stays on its page, stopped when the page is opened again and the app started again too, until 重新开始; looking at the other page starts nothing', async ({ page }) => {
   // 用户：点击停止之后……重新点进来自动就开了，不合理。停了要手动打开。tailscale 点击停止之后跳到本地网络页面，为什么啊？
   const counted = () => page.evaluate(async (source) => {
     const shell = await eval(source);
@@ -1404,11 +1407,11 @@ test('在手机上看: 停止 stays on its page, stopped when the page is opened
   await expect(page.getByRole('radio', { name: '同一个网络' })).toHaveAttribute('aria-checked', 'true');
   await expect(phone.getByRole('status')).toContainText('已停止');
   await expect(phone.locator('svg.qr')).toHaveCount(0);
-  // Looking at 任何网络 and back starts nothing: still stopped, no question about a link.
+  // Looking at 任何网络 and back starts nothing: its own page (the question, nothing opened before a yes), and the same
+  // network still stopped.
   await page.getByRole('radio', { name: '任何网络' }).click();
   await expect(page.getByRole('radio', { name: '任何网络' })).toHaveAttribute('aria-checked', 'true');
-  await expect(phone.getByRole('status')).toContainText('已停止');
-  await expect(phone.locator('.ask')).toHaveCount(0);
+  await expect(phone.locator('.ask')).toContainText('经 Cloudflare 生成外网链接？');
   await page.getByRole('radio', { name: '同一个网络' }).click();
   await expect(phone.getByRole('status')).toContainText('已停止');
   expect(await starts()).toBe(1);
@@ -1429,7 +1432,7 @@ test('在手机上看: 停止 stays on its page, stopped when the page is opened
   // 重新开始: both codes again.
   await button(page, '重新开始').click();
   await expect(phone.locator('svg.qr')).toHaveCount(2);
-  await expect(phone.locator('.address')).toHaveText(['http://192.168.1.20:51234/', 'http://100.76.55.73:51234/']);
+  await expect(phone.locator('.address')).toHaveText(['192.168.1.20:51234', '100.76.55.73:51234']);
   expect(await starts()).toBe(1);
   // Started by hand, it is no longer kept stopped: opened again, it is on.
   await page.keyboard.press('Escape');
@@ -1437,23 +1440,89 @@ test('在手机上看: 停止 stays on its page, stopped when the page is opened
   await expect(phone.locator('svg.qr')).toHaveCount(2);
 });
 
-test('在手机上看: 停止 on 任何网络 stays on 任何网络, and 重新开始 there asks for its link again', async ({ page }) => {
-  await open(page);
+test('在手机上看: each way stops on its own, the other\'s code staying as it was', async ({ page }) => {
+  // 用户：为什么一按停止所有都停止了？同一网络和任何网络为什么是一切开始和结束？互不影响啊。
+  const calls = () => page.evaluate(() => (window as unknown as { calls: string[] }).calls);
+  await open(page, '?tailnet');
+  await page.evaluate(async (source) => {
+    const shell = await eval(source);
+    const w = window as unknown as { calls: string[] };
+    w.calls = [];
+    for (const name of ['phoneStart', 'phoneStop', 'phonePublic', 'phonePrivate']) {
+      const real = shell[name];
+      shell[name] = () => { w.calls.push(name); return real(); };
+    }
+  }, panelShell);
   await button(page, '主页模块与设置').click();
   await page.getByRole('button', { name: /^在手机上看/ }).click();
   const phone = page.locator('.phone-page');
-  await page.getByRole('radio', { name: '任何网络' }).click();
+  const local = page.getByRole('radio', { name: '同一个网络' }), anywhere = page.getByRole('radio', { name: '任何网络' });
+  await expect(phone.locator('svg.qr')).toHaveCount(2);
+  await anywhere.click();
   await button(page, '生成链接').click();
   await expect(phone.locator('.address')).toHaveText('https://quiet-river-1234.trycloudflare.com/');
+  // Both on: a green dot after each.
+  await expect(local.locator('.on')).toHaveCount(1);
+  await expect(anywhere.locator('.on')).toHaveCount(1);
+  // The same network's 停止: its page says so; the public link is still up, its code as it was.
+  await local.click();
   await button(page, '停止').click();
-  await expect(page.getByRole('radio', { name: '任何网络' })).toHaveAttribute('aria-checked', 'true');
   await expect(phone.getByRole('status')).toContainText('已停止');
-  await expect(phone.locator('svg.qr')).toHaveCount(0);
+  await expect(local.locator('.on')).toHaveCount(0);
+  await expect(anywhere.locator('.on')).toHaveCount(1);
+  await anywhere.click();
+  await expect(phone.locator('svg.qr')).toBeVisible();
+  await expect(phone.locator('.address')).toHaveText('https://quiet-river-1234.trycloudflare.com/');
+  expect(await calls()).toEqual(['phoneStart', 'phonePublic', 'phoneStop']);
+  // The same network started again, the public link's code untouched; then the public link's 停止, the same network's
+  // codes untouched.
+  await local.click();
   await button(page, '重新开始').click();
-  await expect(page.getByRole('radio', { name: '任何网络' })).toHaveAttribute('aria-checked', 'true');
+  await expect(phone.locator('svg.qr')).toHaveCount(2);
+  await anywhere.click();
+  await expect(phone.locator('.address')).toHaveText('https://quiet-river-1234.trycloudflare.com/');
+  await button(page, '停止').click();
+  await expect(anywhere).toHaveAttribute('aria-checked', 'true');
+  await expect(phone.getByRole('status')).toContainText('外网链接已关闭');
+  await expect(phone.locator('svg.qr')).toHaveCount(0);
+  await expect(anywhere.locator('.on')).toHaveCount(0);
+  await expect(local.locator('.on')).toHaveCount(1);
+  await local.click();
+  await expect(phone.locator('svg.qr')).toHaveCount(2);
+  await expect(phone.locator('.address')).toHaveText(['192.168.1.20:51234', '100.76.55.73:51234']);
+  expect(await calls()).toEqual(['phoneStart', 'phonePublic', 'phoneStop', 'phoneStart', 'phonePrivate']);
+  // 重新生成 on 任何网络: its question again, then a new link.
+  await anywhere.click();
+  await button(page, '重新生成').click();
   await expect(phone.locator('.ask')).toContainText('经 Cloudflare 生成外网链接？');
   await button(page, '生成链接').click();
   await expect(phone.locator('.address')).toHaveText('https://quiet-river-1234.trycloudflare.com/');
+  // Left with only the public link on, the same network stopped: opened again, still stopped, the link still up.
+  await local.click();
+  await button(page, '停止').click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: /^在手机上看/ }).locator('.dot')).toBeVisible();
+  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  await expect(phone.getByRole('status')).toContainText('已停止');
+  await anywhere.click();
+  await expect(phone.locator('.address')).toHaveText('https://quiet-river-1234.trycloudflare.com/');
+});
+
+test('在手机上看: the 停止 button sits clear of the panel\'s bottom edge, on both pages', async ({ page }) => {
+  await open(page, '?tailnet');
+  await button(page, '主页模块与设置').click();
+  await page.getByRole('button', { name: /^在手机上看/ }).click();
+  const phone = page.locator('.phone-page');
+  const gap = async () => {
+    const stop = (await button(page, '停止').boundingBox())!, panel = (await page.locator('.window').boundingBox())!;
+    return panel.y + panel.height - (stop.y + stop.height);
+  };
+  await expect(phone.locator('svg.qr')).toHaveCount(2);
+  await expect.poll(gap).toBeGreaterThanOrEqual(26);
+  await page.getByRole('radio', { name: '任何网络' }).click();
+  await button(page, '生成链接').click();
+  await expect(phone.locator('svg.qr')).toBeVisible();
+  await expect.poll(gap).toBeGreaterThanOrEqual(26);
 });
 
 test('在手机上看: a public link still being made when 停止 is pressed leaves the next start alone (PHONE-3)', async ({ page }) => {
@@ -1472,7 +1541,7 @@ test('在手机上看: a public link still being made when 停止 is pressed lea
   await button(page, '生成链接').click();
   await expect(phone.locator('.wait')).toHaveText('正在向 Cloudflare 要链接…');
   await button(page, '停止').click();
-  await button(page, '重新开始').click();
+  await button(page, '重新生成').click();
   // The new round on 任何网络 asks again, without the old request's wait; the same network's code a choice away.
   await expect(phone.locator('.ask')).toContainText('经 Cloudflare 生成外网链接？');
   await expect(phone.locator('.wait')).toHaveCount(0);
@@ -1653,9 +1722,11 @@ test('在手机上看: a public link that fails after 同一个网络 was chosen
     await expect(phone.locator('svg.qr')).toBeVisible();
     await expect(phone.locator('.failed')).toHaveCount(0);
     await expect(phone.locator('.stopped')).toHaveCount(0);
-    // 任何网络 chosen again asks as it always does.
+    // It is 任何网络's: said on its page, with 重试.
     await page.getByRole('radio', { name: '任何网络' }).click();
-    await expect(button(page, '生成链接')).toBeVisible();
+    await expect(phone.getByRole('status')).toContainText('没能生成外网链接');
+    await expect(phone.locator('.failed')).toContainText('Cloudflare 这次没有给出链接');
+    await expect(button(page, '重试')).toBeVisible();
   }
 });
 
@@ -1687,7 +1758,7 @@ test('在手机上看: the public link shows once a phone can open it, its wait 
   }
 });
 
-test('在手机上看: on a tailnet, the same network\'s page has the Tailscale code under its own, the same server', async ({ page }) => {
+test('在手机上看: on a tailnet, the same network\'s page has its own code and the Tailscale one side by side, the same server', async ({ page }) => {
   // 用户：本地网络和 tailscale 应该在同一页展示。
   await open(page, '?tailnet');
   await button(page, '主页模块与设置').click();
@@ -1697,9 +1768,18 @@ test('在手机上看: on a tailnet, the same network\'s page has the Tailscale 
   await expect(page.getByRole('radio', { name: '同一个网络' })).toHaveAttribute('aria-checked', 'true');
   await expect(phone.getByRole('img', { name: '手机扫这个二维码', exact: true })).toBeVisible();
   await expect(phone.getByRole('img', { name: '连着 Tailscale 的手机扫这个二维码' })).toBeVisible();
-  await expect(phone.locator('.address')).toHaveText(['http://192.168.1.20:51234/', 'http://100.76.55.73:51234/']);
-  await expect(phone.locator('.tailnet-title')).toHaveText('Tailscale');
-  await expect(phone.locator('.tailnet .note')).toContainText('Tailscale');
+  await expect(phone.locator('.address')).toHaveText(['192.168.1.20:51234', '100.76.55.73:51234']);
+  await expect(phone.locator('.card-title')).toHaveText(['局域网', 'Tailscale']);
+  await expect(phone.locator('.card-detail')).toHaveText(['手机连同一个 Wi-Fi', '手机开着 Tailscale']);
+  // Side by side: one row, the same size, the codes level (once the page has slid in).
+  await expect(async () => {
+    const [left, right] = [(await phone.locator('.card').nth(0).boundingBox())!, (await phone.locator('.card').nth(1).boundingBox())!];
+    expect(Math.abs(left.y - right.y)).toBeLessThan(1);
+    expect(Math.abs(left.width - right.width)).toBeLessThan(1);
+    expect(Math.abs(left.height - right.height)).toBeLessThan(1);
+    expect(right.x).toBeGreaterThan(left.x + left.width);
+  }).toPass();
+  await expect(phone.locator('.note').first()).toContainText('Tailscale 的二维码在哪都能打开');
   // The pill under 同一个网络, half the bar.
   await expect(async () => {
     const pill = (await phone.locator('.reach .pill').boundingBox())!;
@@ -1709,7 +1789,7 @@ test('在手机上看: on a tailnet, the same network\'s page has the Tailscale 
   }).toPass();
   // Each link copied on its own.
   await phone.locator('.address').nth(1).click();
-  await expect(phone.locator('.address')).toHaveText(['http://192.168.1.20:51234/', '已复制链接']);
+  await expect(phone.locator('.address')).toHaveText(['192.168.1.20:51234', '已复制链接']);
 });
 
 test('在手机上看: the Tailscale code comes and goes with the tailnet, the same network\'s code staying', async ({ page }) => {
@@ -1729,14 +1809,14 @@ test('在手机上看: the Tailscale code comes and goes with the tailnet, the s
   await page.getByRole('button', { name: /^在手机上看/ }).click();
   const phone = page.locator('.phone-page');
   await expect(phone.locator('svg.qr')).toHaveCount(1);
-  await expect(phone.locator('.tailnet')).toHaveCount(0);
+  await expect(phone.locator('.card')).toHaveCount(0);
   await page.evaluate(() => { (window as unknown as { on: boolean }).on = true; });
   await page.clock.fastForward(10_500);
   await expect(phone.locator('svg.qr')).toHaveCount(2);
-  await expect(phone.locator('.address')).toHaveText(['http://192.168.1.20:51234/', 'http://100.76.55.73:51234/']);
+  await expect(phone.locator('.address')).toHaveText(['192.168.1.20:51234', '100.76.55.73:51234']);
   await page.evaluate(() => { (window as unknown as { on: boolean }).on = false; });
   await page.clock.fastForward(10_500);
-  await expect(phone.locator('.tailnet')).toHaveCount(0);
+  await expect(phone.locator('.card')).toHaveCount(0);
   await expect(phone.locator('.address')).toHaveText('http://192.168.1.20:51234/');
   await expect(phone.getByRole('radio')).toHaveText(['同一个网络', '任何网络']);
 });

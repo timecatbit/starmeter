@@ -1,11 +1,11 @@
-//! 在手机上看: a small read-only web server the app runs while the user asks for it, so a phone on the same network
-//! can open the homepage by scanning a QR code. It serves the panel's own page and, behind a one-time key, the
-//! homepage's figures; it never takes an action, and it leaves out the settings and every row's insides (folders, key
-//! files, connection addresses). It stops when the user stops it, or an hour after it started.
+//! 在手机上看: a small read-only web server the app runs while the user asks for it, so a phone can open the homepage
+//! by scanning a QR code. It serves the panel's own page and, behind a key, the homepage's figures; it never takes an
+//! action, and it leaves out the settings and every row's insides (folders, key files, connection addresses).
 //!
-//! The key travels in the address's fragment (#k=…), which a browser never sends; the page sends it back in a header,
-//! so it stays out of logs. The optional public link (Cloudflare's quick tunnel, see `tunnel`) reaches this same
-//! server from outside and needs the same key.
+//! Two ways in, each turned on and off on its own: 同一个网络 (this computer's network address, and its Tailscale one)
+//! until its 停止, and the public link (Cloudflare's quick tunnel, see `tunnel`) for an hour at most. Each has a key of
+//! its own; the server runs while either is on. A key travels in the address's fragment (#k=…), which a browser never
+//! sends; the page sends it back in a header, so it stays out of logs.
 
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -78,19 +78,43 @@ pub struct Phone {
     running: Mutex<Option<Running>>,
 }
 
+/// The server runs while either way in is on, and the two come and go on their own (用户：同一网络和任何网络……互不影响):
+/// 同一个网络 (this computer's network address and its Tailscale one) with its key, and the public link with a key of its
+/// own, so stopping one leaves the other's code opening as it did.
 struct Running {
     port: u16,
-    key: String,
+    keys: Arc<Mutex<Keys>>,
     stop: Arc<AtomicBool>,
-    /// The public link, and when its hour is up.
-    public: Option<(crate::tunnel::Tunnel, Instant)>,
+    public: Option<Public>,
+    /// The public link's round: closed (its 停止, or the server stopping), a link still being made is closed as it
+    /// comes instead of shown.
+    public_round: Arc<AtomicBool>,
+    /// Asks for the public link on their way: the server stays for them with 同一个网络 off.
+    opening: usize,
+}
+
+/// The keys the server takes. Only the public link's comes from this computer itself (cloudflared hands its requests on
+/// from 127.0.0.1); a phone on the network (or the tailnet) needs 同一个网络's, and is turned away while it is off.
+#[derive(Default)]
+struct Keys {
+    local: Option<String>,
+    public: Option<String>,
+}
+
+struct Public {
+    tunnel: crate::tunnel::Tunnel,
+    /// When its hour is up.
+    until: Instant,
+    key: String,
 }
 
 /// What the panel shows: the addresses to scan, and how long the public link has left.
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct PhoneView {
-    /// http://192.168.1.5:51234/#k=… on this network; None without one.
+    /// Whether 同一个网络 is on: its addresses below, when this computer has them.
+    local_open: bool,
+    /// http://192.168.1.5:51234/#k=… on this network; None without one, or with 同一个网络 off.
     local: Option<String>,
     /// http://100.x.y.z:51234/#k=… through Tailscale, when this computer is on a tailnet: a phone on it opens the page
     /// from anywhere, nothing going through Cloudflare.
@@ -106,27 +130,22 @@ pub struct PhoneView {
 
 /// A public link still to be used: its cloudflared running and its hour not up. Past the hour it is closed within a few
 /// seconds (serve looks every five); until then it isn't offered, with no time left on it.
-fn usable((tunnel, until): &(crate::tunnel::Tunnel, Instant)) -> bool {
-    tunnel.alive() && Instant::now() < *until
+fn usable(public: &Public) -> bool {
+    public.tunnel.alive() && Instant::now() < public.until
 }
 
 fn view(running: &Running) -> PhoneView {
-    let fragment = format!("#k={}", running.key);
-    let lan = lan_address();
+    let local = running.keys.lock().expect("the keys").local.clone();
+    let lan = local.as_ref().and_then(|_| lan_address());
+    let address = |ip: IpAddr| format!("http://{ip}:{}/#k={}", running.port, local.as_deref().unwrap_or_default());
+    let public = running.public.as_ref().filter(|public| usable(public));
     PhoneView {
-        local: lan.map(|ip| format!("http://{ip}:{}/{fragment}", running.port)),
-        tailnet: tailnet_address(lan).map(|ip| format!("http://{ip}:{}/{fragment}", running.port)),
-        public: running
-            .public
-            .as_ref()
-            .filter(|public| usable(public))
-            .map(|(tunnel, _)| format!("{}/{fragment}", tunnel.url)),
-        seconds_left: running
-            .public
-            .as_ref()
-            .filter(|public| usable(public))
-            .map_or(0, |(_, until)| until.saturating_duration_since(Instant::now()).as_secs()),
-        public_checked: running.public.as_ref().is_none_or(|(tunnel, _)| tunnel.checked),
+        local_open: local.is_some(),
+        local: lan.map(address),
+        tailnet: local.as_ref().and_then(|_| tailnet_address(lan)).map(address),
+        public: public.map(|public| format!("{}/#k={}", public.tunnel.url, public.key)),
+        seconds_left: public.map_or(0, |public| public.until.saturating_duration_since(Instant::now()).as_secs()),
+        public_checked: running.public.as_ref().is_none_or(|public| public.tunnel.checked),
     }
 }
 
@@ -162,29 +181,44 @@ fn new_key() -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// Starts the server (or keeps the one running) and says where it is.
+/// The server running (started if it isn't, with neither way in on yet).
+fn serving<'a>(app: &AppHandle, running: &'a mut Option<Running>) -> Result<&'a mut Running, String> {
+    if running.as_ref().is_some_and(|current| current.stop.load(Ordering::SeqCst))
+        && let Some(mut over) = running.take()
+    {
+        stop_running(&mut over);
+    }
+    if running.is_none() {
+        let listener = TcpListener::bind("0.0.0.0:0").map_err(|error| format!("没能开始：{error}"))?;
+        let port = listener.local_addr().map_err(|error| error.to_string())?.port();
+        listener.set_nonblocking(true).map_err(|error| error.to_string())?;
+        let keys = Arc::new(Mutex::new(Keys::default()));
+        let stop = Arc::new(AtomicBool::new(false));
+        {
+            let (app, keys, stop) = (app.clone(), keys.clone(), stop.clone());
+            std::thread::spawn(move || serve(app, listener, keys, stop));
+        }
+        *running = Some(Running {
+            port,
+            keys,
+            stop,
+            public: None,
+            public_round: Arc::new(AtomicBool::new(false)),
+            opening: 0,
+        });
+    }
+    Ok(running.as_mut().expect("the server just started"))
+}
+
+/// 同一个网络 on (or kept on) and where it is: a new key each time it is turned on, so a code from before its 停止
+/// stays shut. The public link, if up, is left as it is.
 #[tauri::command]
 pub fn phone_start(app: AppHandle) -> Result<PhoneView, String> {
     let state = app.state::<Phone>();
     let mut running = state.running.lock().expect("the phone lock");
-    if let Some(current) = running.as_mut()
-        && !current.stop.load(Ordering::SeqCst)
-    {
-        return Ok(view(current));
-    }
-    let listener = TcpListener::bind("0.0.0.0:0").map_err(|error| format!("没能开始：{error}"))?;
-    let port = listener.local_addr().map_err(|error| error.to_string())?.port();
-    listener.set_nonblocking(true).map_err(|error| error.to_string())?;
-    let key = new_key();
-    let stop = Arc::new(AtomicBool::new(false));
-    {
-        let (app, key, stop) = (app.clone(), key.clone(), stop.clone());
-        std::thread::spawn(move || serve(app, listener, key, stop));
-    }
-    let started = Running { port, key, stop, public: None };
-    let shown = view(&started);
-    *running = Some(started);
-    Ok(shown)
+    let current = serving(&app, &mut running)?;
+    current.keys.lock().expect("the keys").local.get_or_insert_with(new_key);
+    Ok(view(current))
 }
 
 /// Where the phone view stands, if it is on.
@@ -202,12 +236,25 @@ pub fn phone_status(app: AppHandle) -> Option<PhoneView> {
     if let Some(current) = running.as_mut() {
         close_public_if_over(current);
     }
+    settle(&mut running);
     running.as_ref().map(view)
 }
 
-/// Stops the server and the public link with it.
+/// 同一个网络's 停止: its addresses (the network's and Tailscale's) no longer open, its key gone with them; the public
+/// link, if up, stays.
 #[tauri::command]
-pub fn phone_stop(app: AppHandle) {
+pub fn phone_stop(app: AppHandle) -> Option<PhoneView> {
+    let state = app.state::<Phone>();
+    let mut running = state.running.lock().expect("the phone lock");
+    if let Some(current) = running.as_mut() {
+        current.keys.lock().expect("the keys").local = None;
+    }
+    settle(&mut running);
+    running.as_ref().map(view)
+}
+
+/// The app quitting: the server and the public link with it.
+pub fn phone_quit(app: &AppHandle) {
     let state = app.state::<Phone>();
     if let Some(mut over) = state.running.lock().expect("the phone lock").take() {
         stop_running(&mut over);
@@ -216,17 +263,42 @@ pub fn phone_stop(app: AppHandle) {
 
 fn stop_running(running: &mut Running) {
     running.stop.store(true, Ordering::SeqCst);
-    if let Some((mut tunnel, _)) = running.public.take() {
-        tunnel.stop();
+    running.public_round.store(true, Ordering::SeqCst);
+    *running.keys.lock().expect("the keys") = Keys::default();
+    if let Some(mut public) = running.public.take() {
+        public.tunnel.stop();
     }
 }
 
-/// Closes the public link once its hour is up or its cloudflared has ended; the server stays.
+/// The server stays while something is on: 同一个网络, the public link, or an ask for it on its way.
+fn settle(running: &mut Option<Running>) {
+    let idle = running.as_ref().is_some_and(|current| {
+        current.keys.lock().expect("the keys").local.is_none() && current.public.is_none() && current.opening == 0
+    });
+    if idle && let Some(mut over) = running.take() {
+        stop_running(&mut over);
+    }
+}
+
+/// A public link closed: cloudflared ended, and its key no longer taken.
+fn close_public(keys: &Mutex<Keys>, mut public: Public) {
+    public.tunnel.stop();
+    forget_public_key(keys, &public.key);
+}
+
+fn forget_public_key(keys: &Mutex<Keys>, key: &str) {
+    let mut keys = keys.lock().expect("the keys");
+    if keys.public.as_deref() == Some(key) {
+        keys.public = None;
+    }
+}
+
+/// Closes the public link once its hour is up or its cloudflared has ended; 同一个网络 stays.
 fn close_public_if_over(running: &mut Running) {
     if running.public.as_ref().is_some_and(|public| !usable(public))
-        && let Some((mut over, _)) = running.public.take()
+        && let Some(over) = running.public.take()
     {
-        over.stop();
+        close_public(&running.keys, over);
     }
 }
 
@@ -234,86 +306,107 @@ fn close_public_if_over(running: &mut Running) {
 /// clicks start one cloudflared, and a first download isn't written twice at once (TUNNEL-1).
 static OPENING: Mutex<()> = Mutex::new(());
 
-/// Opens the public link (Cloudflare's quick tunnel) to the server already running, and says where it is. The link
-/// belongs to the round it was asked in: stopped and started again meanwhile, it is closed, not handed to the new one.
+/// Opens the public link (Cloudflare's quick tunnel), the server started for it if 同一个网络 is off, and says where it
+/// is. The link belongs to the round it was asked in: its 停止 meanwhile (or the app quitting), it is closed, not shown.
 #[tauri::command]
 pub async fn phone_public(app: AppHandle) -> Result<PhoneView, String> {
-    let (port, round, key) = {
+    let (port, server, round, keys) = {
         let state = app.state::<Phone>();
-        let running = state.running.lock().expect("the phone lock");
-        let Some(current) = running.as_ref().filter(|current| !current.stop.load(Ordering::SeqCst)) else {
-            return Err("先打开手机查看".into());
-        };
+        let mut running = state.running.lock().expect("the phone lock");
+        let current = serving(&app, &mut running)?;
+        close_public_if_over(current);
         if current.public.as_ref().is_some_and(usable) {
             return Ok(view(current));
         }
-        (current.port, current.stop.clone(), current.key.clone())
+        current.opening += 1;
+        (current.port, current.stop.clone(), current.public_round.clone(), current.keys.clone())
     };
     let (handle, asked) = (app.clone(), round.clone());
-    let opened = tauri::async_runtime::spawn_blocking(move || -> Result<Option<crate::tunnel::Tunnel>, String> {
-        let _turn = OPENING.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        // The link an earlier ask of this round opened while this one waited serves it too.
-        // Stopped while it waited its turn: nothing to open a link for.
-        if asked.load(Ordering::SeqCst) {
-            return Ok(None);
-        }
-        let state = handle.state::<Phone>();
-        let served =
-            state.running.lock().expect("the phone lock").as_ref().is_some_and(|current| {
-                Arc::ptr_eq(&current.stop, &asked) && current.public.as_ref().is_some_and(usable)
-            });
-        if served {
-            return Ok(None);
-        }
-        let mut tunnel = crate::tunnel::open(&handle, port)?;
-        // Shown once it opens from outside (PHONE-11): a phone that looks the name up before Cloudflare has added it
-        // is told it doesn't exist, and keeps being told so for up to a minute.
-        match tunnel.confirm(&key, &asked) {
-            crate::tunnel::Reach::Opens => tunnel.checked = true,
-            crate::tunnel::Reach::Unconfirmed => {}
-            // Stopped meanwhile: the round's over, and the link is closed below with it.
-            crate::tunnel::Reach::Gone if asked.load(Ordering::SeqCst) => {}
-            // cloudflared ended before the link opened: the panel asks once more on its own.
-            crate::tunnel::Reach::Gone => {
-                tunnel.stop();
-                return Err("Cloudflare 这次没有连上，稍后再试".into());
+    let joined =
+        tauri::async_runtime::spawn_blocking(move || -> Result<Option<(crate::tunnel::Tunnel, String)>, String> {
+            let _turn = OPENING.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            // Stopped while it waited its turn: nothing to open a link for.
+            if asked.load(Ordering::SeqCst) {
+                return Ok(None);
             }
-        }
-        Ok(Some(tunnel))
-    })
-    .await
-    .map_err(|error| error.to_string())??;
+            // The link an earlier ask of this round opened while this one waited serves it too.
+            let state = handle.state::<Phone>();
+            let served = state.running.lock().expect("the phone lock").as_ref().is_some_and(|current| {
+                Arc::ptr_eq(&current.public_round, &asked) && current.public.as_ref().is_some_and(usable)
+            });
+            if served {
+                return Ok(None);
+            }
+            // Its own key, taken from cloudflared only, before the link is checked through it.
+            let key = new_key();
+            keys.lock().expect("the keys").public = Some(key.clone());
+            let mut tunnel = crate::tunnel::open(&handle, port).inspect_err(|_| forget_public_key(&keys, &key))?;
+            // Shown once it opens from outside (PHONE-11): a phone that looks the name up before Cloudflare has added it
+            // is told it doesn't exist, and keeps being told so for up to a minute.
+            match tunnel.confirm(&key, &asked) {
+                crate::tunnel::Reach::Opens => tunnel.checked = true,
+                crate::tunnel::Reach::Unconfirmed => {}
+                // Stopped meanwhile: the round's over, and the link is closed below with it.
+                crate::tunnel::Reach::Gone if asked.load(Ordering::SeqCst) => {}
+                // cloudflared ended before the link opened: the panel asks once more on its own.
+                crate::tunnel::Reach::Gone => {
+                    tunnel.stop();
+                    forget_public_key(&keys, &key);
+                    return Err("Cloudflare 这次没有连上，稍后再试".into());
+                }
+            }
+            Ok(Some((tunnel, key)))
+        })
+        .await;
+    let opened = joined.unwrap_or_else(|error| Err(error.to_string()));
     let state = app.state::<Phone>();
     let mut running = state.running.lock().expect("the phone lock");
-    let Some(current) =
-        running.as_mut().filter(|current| Arc::ptr_eq(&current.stop, &round) && !round.load(Ordering::SeqCst))
-    else {
-        if let Some(mut tunnel) = opened {
+    let Some(current) = running.as_mut().filter(|current| Arc::ptr_eq(&current.stop, &server)) else {
+        // The app quitting meanwhile: the server, and every key, already gone.
+        if let Ok(Some((mut tunnel, _))) = opened {
             tunnel.stop();
         }
         return Err("手机查看已经关闭".into());
     };
-    if let Some(tunnel) = opened
-        && let Some((mut old, _)) = current.public.replace((tunnel, Instant::now() + PUBLIC_LIFETIME))
-    {
-        old.stop();
-    }
-    Ok(view(current))
+    current.opening -= 1;
+    let answer = match opened {
+        Err(error) => Err(error),
+        Ok(opened) if round.load(Ordering::SeqCst) => {
+            if let Some((mut tunnel, key)) = opened {
+                tunnel.stop();
+                forget_public_key(&current.keys, &key);
+            }
+            Err("外网链接已经关闭".into())
+        }
+        Ok(Some((tunnel, key))) => {
+            if let Some(old) = current.public.replace(Public { tunnel, until: Instant::now() + PUBLIC_LIFETIME, key }) {
+                close_public(&current.keys, old);
+            }
+            Ok(view(current))
+        }
+        Ok(None) => Ok(view(current)),
+    };
+    settle(&mut running);
+    answer
 }
 
-/// Closes the public link and keeps the network one.
+/// 任何网络's 停止: the public link closes (one still being made is closed as it comes); 同一个网络 stays as it is.
 #[tauri::command]
 pub fn phone_private(app: AppHandle) -> Option<PhoneView> {
     let state = app.state::<Phone>();
     let mut running = state.running.lock().expect("the phone lock");
-    let current = running.as_mut()?;
-    if let Some((mut tunnel, _)) = current.public.take() {
-        tunnel.stop();
+    if let Some(current) = running.as_mut() {
+        current.public_round.store(true, Ordering::SeqCst);
+        current.public_round = Arc::new(AtomicBool::new(false));
+        if let Some(public) = current.public.take() {
+            close_public(&current.keys, public);
+        }
     }
-    Some(view(current))
+    settle(&mut running);
+    running.as_ref().map(view)
 }
 
-fn serve(app: AppHandle, listener: TcpListener, key: String, stop: Arc<AtomicBool>) {
+fn serve(app: AppHandle, listener: TcpListener, keys: Arc<Mutex<Keys>>, stop: Arc<AtomicBool>) {
     let mut checked = Instant::now();
     let slots = Slots(Arc::new(AtomicUsize::new(0)));
     while !stop.load(Ordering::SeqCst) {
@@ -321,19 +414,27 @@ fn serve(app: AppHandle, listener: TcpListener, key: String, stop: Arc<AtomicBoo
         if checked.elapsed() >= Duration::from_secs(5) {
             checked = Instant::now();
             if let Ok(mut running) = app.state::<Phone>().running.lock()
-                && let Some(current) = running.as_mut().filter(|current| Arc::ptr_eq(&current.stop, &stop))
+                && running.as_ref().is_some_and(|current| Arc::ptr_eq(&current.stop, &stop))
             {
-                close_public_if_over(current);
+                if let Some(current) = running.as_mut() {
+                    close_public_if_over(current);
+                }
+                settle(&mut running);
             }
         }
         match listener.accept() {
-            // Past the limit, or with no thread to be had, the connection is closed and the server goes on.
-            Ok((stream, _)) => {
+            Ok((stream, peer)) => {
+                // From the network (or the tailnet) with 同一个网络 off: turned away at once, as if nothing listened.
+                let nearby = !peer.ip().is_loopback();
+                if nearby && keys.lock().expect("the keys").local.is_none() {
+                    continue;
+                }
+                // Past the limit, or with no thread to be had, the connection is closed and the server goes on.
                 let Some(slot) = slots.take() else { continue };
-                let (app, key) = (app.clone(), key.clone());
+                let (app, keys) = (app.clone(), keys.clone());
                 let _ = std::thread::Builder::new().name("starmeter-phone".into()).spawn(move || {
                     let _slot = slot;
-                    let _ = answer(&app, stream, &key);
+                    let _ = answer(&app, stream, &keys, nearby);
                 });
             }
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
@@ -342,7 +443,7 @@ fn serve(app: AppHandle, listener: TcpListener, key: String, stop: Arc<AtomicBoo
             Err(_) => std::thread::sleep(Duration::from_millis(200)),
         }
     }
-    // 停止 (or the app quitting): the public link goes with the server.
+    // Both ways in off (or the app quitting): the public link goes with the server.
     let state = app.state::<Phone>();
     let mut running = state.running.lock().expect("the phone lock");
     if running.as_ref().is_some_and(|current| Arc::ptr_eq(&current.stop, &stop))
@@ -352,7 +453,15 @@ fn serve(app: AppHandle, listener: TcpListener, key: String, stop: Arc<AtomicBoo
     }
 }
 
-fn answer(app: &AppHandle, mut stream: TcpStream, key: &str) -> std::io::Result<()> {
+/// Whether a request's key opens the page's figures: 同一个网络's from anywhere while it is on; the public link's only
+/// as cloudflared hands it on, from this computer itself.
+fn admitted(keys: &Mutex<Keys>, given: &str, nearby: bool) -> bool {
+    let keys = keys.lock().expect("the keys");
+    keys.local.as_deref().is_some_and(|key| same(given, key))
+        || (!nearby && keys.public.as_deref().is_some_and(|key| same(given, key)))
+}
+
+fn answer(app: &AppHandle, mut stream: TcpStream, keys: &Mutex<Keys>, nearby: bool) -> std::io::Result<()> {
     stream.set_nonblocking(false)?;
     stream.set_read_timeout(Some(Duration::from_secs(10)))?;
     stream.set_write_timeout(Some(Duration::from_secs(20)))?;
@@ -383,7 +492,7 @@ fn answer(app: &AppHandle, mut stream: TcpStream, key: &str) -> std::io::Result<
     }
     let (path, query) = target.split_once('?').unwrap_or((target, ""));
     if let Some(call) = path.strip_prefix("/api/") {
-        if !same(&given, key) {
+        if !admitted(keys, &given, nearby) {
             return respond(&mut stream, 403, "text/plain; charset=utf-8", b"key needed", true);
         }
         let range =
@@ -920,7 +1029,10 @@ fn strip(entry: &mut Value) {
 
 #[cfg(test)]
 mod tests {
-    use super::{AtomicUsize, CONNECTIONS, Deadline, Ordering, Slot, Slots, same, tailnet_ip};
+    use super::{
+        AtomicBool, AtomicUsize, CONNECTIONS, Deadline, Keys, Mutex, Ordering, Running, Slot, Slots, admitted, new_key,
+        same, settle, tailnet_ip,
+    };
 
     #[test]
     fn a_tailnet_address_is_tailscales_range_and_not_the_networks_own() {
@@ -1193,5 +1305,56 @@ mod tests {
         assert!(!same("ab1", "ab12"));
         assert!(!same("", "ab12"));
         assert!(!same("ab13", "ab12"));
+    }
+
+    #[test]
+    fn each_way_in_takes_its_own_key_and_stops_on_its_own() {
+        // 用户：同一网络和任何网络……互不影响.
+        let (local, public) = (new_key(), new_key());
+        let keys = Mutex::new(Keys { local: Some(local.clone()), public: Some(public.clone()) });
+        // 同一个网络's key from the network (or the tailnet) and from this computer.
+        assert!(admitted(&keys, &local, true));
+        assert!(admitted(&keys, &local, false));
+        // The public link's only as cloudflared hands it on, from this computer itself.
+        assert!(admitted(&keys, &public, false));
+        assert!(!admitted(&keys, &public, true));
+        // 同一个网络 stopped: its code no longer opens; the public link's still does.
+        keys.lock().unwrap().local = None;
+        assert!(!admitted(&keys, &local, true));
+        assert!(!admitted(&keys, &local, false));
+        assert!(admitted(&keys, &public, false));
+        // The public link stopped and 同一个网络 on again, with a new key: only that one opens.
+        let again = new_key();
+        *keys.lock().unwrap() = Keys { local: Some(again.clone()), public: None };
+        assert!(admitted(&keys, &again, true));
+        assert!(!admitted(&keys, &local, true));
+        assert!(!admitted(&keys, &public, false));
+        assert!(!admitted(&keys, "", false));
+    }
+
+    #[test]
+    fn the_server_stays_while_either_way_in_is_on() {
+        let running = |local: bool, opening: usize| Running {
+            port: 1,
+            keys: Arc::new(Mutex::new(Keys { local: local.then(new_key), public: None })),
+            stop: Arc::new(AtomicBool::new(false)),
+            public: None,
+            public_round: Arc::new(AtomicBool::new(false)),
+            opening,
+        };
+        let mut on = Some(running(true, 0));
+        settle(&mut on);
+        assert!(on.is_some());
+        // 同一个网络 off while the public link is still being made: kept for it.
+        let mut making = Some(running(false, 1));
+        settle(&mut making);
+        assert!(making.is_some());
+        // Neither on: the server stops, and a link still on its way with it.
+        let mut off = Some(running(false, 0));
+        let (stop, round) = off.as_ref().map(|r| (r.stop.clone(), r.public_round.clone())).unwrap();
+        settle(&mut off);
+        assert!(off.is_none());
+        assert!(stop.load(Ordering::SeqCst));
+        assert!(round.load(Ordering::SeqCst));
     }
 }
