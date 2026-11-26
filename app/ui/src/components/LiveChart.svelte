@@ -11,7 +11,7 @@
   import { t } from '../lib/i18n.svelte';
   import { chartAxis, chartPositions, seriesOf, smoothCurves, summaryProviders, tracePath, type Point } from '../lib/chart';
   import { tokens } from '../lib/format';
-  import { compact, nice, rateText, type LiveFeed, type Sample, type Scale } from '../lib/live';
+  import { compact, easeTwice, nice, rateText, type LiveFeed, type Sample, type Scale } from '../lib/live';
   import { drawLines, gridLine, halo, LINE } from '../lib/liveLines';
   import { font, ROUNDED, SANS, width } from '../lib/measure';
   import { untrack } from 'svelte';
@@ -34,9 +34,10 @@
   let canvas: HTMLCanvasElement | undefined = $state();
   const born = Date.now();
   const MODE = 'starmeter.liveMode';
-  let mode = $state<'total' | 'rate'>(typeof localStorage !== 'undefined' && localStorage.getItem(MODE) === 'rate' ? 'rate' : 'total');
+  // Token/s unless Token was picked: the curve 网页版 draws (the user: 图也都一致).
+  let mode = $state<'total' | 'rate'>(typeof localStorage !== 'undefined' && localStorage.getItem(MODE) === 'total' ? 'total' : 'rate');
   // Read by the drawing each frame.
-  let modeNow: 'total' | 'rate' = 'total';
+  let modeNow: 'total' | 'rate' = 'rate';
   $effect(() => { modeNow = mode; });
   function pickMode(next: 'total' | 'rate') {
     mode = next;
@@ -128,10 +129,11 @@
       // A new mode, or a new range moving the line's height on the axis: the scale goes straight there, not sliding.
       if (drawnMode !== modeNow || drawnOffset !== feed.offset) { drawnMode = modeNow; drawnOffset = feed.offset; shown = null; }
       const rates: [number, number][] = [];
+      // A point a second across the window, to now, in either mode.
       const times: number[] = [];
+      for (let t = Math.floor(start / 1000) * 1000; t < now; t += 1000) times.push(t);
+      times.push(now);
       if (rating) {
-        for (let t = Math.floor(start / 1000) * 1000; t < now; t += 1000) times.push(t);
-        times.push(now);
         // Eased (smoothRates): a request rises and settles as a curve; the figure at the top right is the end's height.
         const eased = feed.smoothRates(times);
         times.forEach((t, i) => rates.push([t, eased[i]]));
@@ -307,11 +309,21 @@
       const added = (id: string, sample: Sample) => (sample.parts[id] ?? 0) - (base!.parts[id] ?? 0);
       // What the total and each tool added since the window's left edge: the axis runs from 0.
       const level = (id: string | null, sample: Sample) => (id === null ? feed.value(sample) - from : added(id, sample));
-      const latest = base ? [...samples].reverse().find((s) => s.at <= now) ?? base : null;
-      // Token: a point at each reading (the window's left edge at the first), on to now at the last, a smooth curve
-      // through them: what a reading added rises over the seconds before it, not in a step (it was a staircase).
-      const readingLine = (id: string | null): Point[] => [
-        [plot.x, clamped(level(id, base!))], ...points.map((s): Point => [x(s.at), clamped(level(id, s))]), [liveRight, clamped(level(id, latest!))]];
+      // Token: what was added by each second (the last reading by then), eased twice over a couple of seconds: a
+      // reading's tokens rise as an S over the seconds around it, never as a step with corners (it was a staircase,
+      // then a curve through each reading still with corners; the user: 图的曲线有时候还是有直角).
+      const warmFor = 6000, warm: number[] = [];
+      for (let t = times[0] - warmFor; t < times[0]; t += 1000) warm.push(t);
+      const everySecond = [...warm, ...times];
+      const readingLine = (id: string | null): Point[] => {
+        const values: number[] = [];
+        let k = 0;
+        for (const t of everySecond) {
+          while (k + 1 < samples.length && samples[k + 1].at <= t) k++;
+          values.push(samples[k].at <= t ? level(id, samples[k]) : level(id, base!));
+        }
+        return easeTwice(everySecond, values, 1500).slice(warm.length).map((v, i): Point => [x(times[i]), clamped(v)]);
+      };
       const totalLine: Point[] = rating ? rates.map(([at, r]): Point => [x(at), clamped(r)]) : readingLine(null);
       const toolLines = (rating
         ? toolRates.map((tool) => ({ id: tool.id, points: tool.points.map(([at, r]): Point => [x(at), clamped(r)]) }))

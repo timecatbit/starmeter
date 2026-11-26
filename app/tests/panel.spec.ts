@@ -409,15 +409,17 @@ test('pinned, every tool on the homepage has its line, one not used in the last 
   await button(page, '钉住面板').click();
   const canvas = page.locator('canvas.live');
   const read = () => canvas.evaluate((c) => ({ ...(c as HTMLElement).dataset }));
+  // In Token (Token/s is what a pinned panel shows first, as 网页版 does).
+  await page.getByRole('radio', { name: 'Token', exact: true }).click();
   await expect.poll(async () => Number((await read()).added ?? 0), { timeout: 20_000 }).toBeGreaterThan(0);
-  const seen = await read();
-  const lines = (seen.lines ?? '').split(',').filter(Boolean);
+  const lines = ((await read()).lines ?? '').split(',').filter(Boolean);
   expect(lines).toContain('claude');
   expect(lines.length).toBeGreaterThan(2);
   // Claude, adding all of it, is the total: its line and its dot would lie on the total's, so it draws neither (it read
-  // as a dot trailing behind). The idle tools have no dot: dots only at the ends of lines that are moving.
-  expect((seen.under ?? '').split(',')).toEqual(['claude']);
-  const ends = Object.values(JSON.parse(seen.ends ?? '{}') as Record<string, [number, number]>);
+  // as a dot trailing behind). The idle tools have no dot: dots only at the ends of lines that are moving. (Its line
+  // eases up over a couple of seconds after a reading: waited for.)
+  await expect.poll(async () => (await read()).under ?? '', { timeout: 10_000 }).toBe('claude');
+  const ends = Object.values(JSON.parse((await read()).ends ?? '{}') as Record<string, [number, number]>);
   expect(ends.length).toBe(0);
   // In Token/s too: a line for each, the idle ones at zero.
   await page.getByRole('radio', { name: 'Token/s' }).click();
