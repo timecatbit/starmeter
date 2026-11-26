@@ -19,6 +19,7 @@ tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-ap
 tauri-plugin-autostart = "2"
 tauri-plugin-dialog = "2"
 getrandom = "0.3"
+if-addrs = "0.15"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-opener = "2"

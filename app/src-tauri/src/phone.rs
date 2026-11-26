@@ -161,13 +161,70 @@ fn visible_view(running: &Running) -> Option<PhoneView> {
     (v.local_open || v.public.is_some() || v.public_opening).then_some(v)
 }
 
-/// This computer's address on its network: the one its traffic would leave from. A UDP socket "connected" to an
-/// outside address picks it without sending anything.
+/// This computer's address on its network, for 同一个网络's code. Usually the one its traffic leaves from (a UDP
+/// socket "connected" to an outside address picks it without sending anything). A proxy's TUN mode (Clash, Surge: a
+/// point-to-point utun with an address in 198.18.0.0/15) or a VPN can hold that route, and a phone on the Wi-Fi can't
+/// reach the tunnel's address; then it is the address of the network the computer is on (用户：网卡选择了198的网段……
+/// 这个是clash的tunnel，应该选192网段).
 fn lan_address() -> Option<IpAddr> {
-    let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
-    socket.connect("192.0.2.1:9").ok()?;
-    let ip = socket.local_addr().ok()?.ip();
-    (!ip.is_loopback() && !ip.is_unspecified()).then_some(ip)
+    let routed = UdpSocket::bind("0.0.0.0:0")
+        .and_then(|socket| socket.connect("192.0.2.1:9").and_then(|()| socket.local_addr()))
+        .map(|address| address.ip())
+        .ok();
+    let nics: Vec<Nic> = if_addrs::get_if_addrs()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|interface| interface.is_oper_up())
+        .map(|interface| Nic { tunnel: interface.is_p2p(), ip: interface.ip(), name: interface.name })
+        .collect();
+    lan_choice(routed, &nics)
+}
+
+/// One of the computer's addresses: its interface's name, and whether that interface is a tunnel (point-to-point).
+struct Nic {
+    name: String,
+    tunnel: bool,
+    ip: IpAddr,
+}
+
+/// The route's own address when a phone on the network can reach it, as it always was; otherwise the computer's
+/// address on a network: not a tunnel's, not in the range proxies take for their TUN (198.18.0.0/15, which Clash's TUN
+/// also has on Windows, where it isn't point-to-point), a private address (192.168…, 10…, 172.16–31…) before another,
+/// and a real network card before a virtual machine's or a container's bridge. None when the interfaces can't be
+/// listed and the route's address is a proxy's.
+fn lan_choice(routed: Option<IpAddr>, nics: &[Nic]) -> Option<IpAddr> {
+    let proxied = |ip: IpAddr| matches!(ip, IpAddr::V4(v4) if v4.octets()[0] == 198 && v4.octets()[1] & 0xFE == 18);
+    let usable = |ip: IpAddr| match ip {
+        IpAddr::V4(v4) => !v4.is_loopback() && !v4.is_unspecified() && !v4.is_link_local() && !proxied(ip),
+        IpAddr::V6(_) => false,
+    };
+    let reachable = |nic: &&Nic| !nic.tunnel && usable(nic.ip);
+    if let Some(ip) = routed {
+        match nics.iter().find(|nic| nic.ip == ip) {
+            Some(nic) if reachable(&nic) => return Some(ip),
+            None if nics.is_empty() && usable(ip) => return Some(ip),
+            _ => {}
+        }
+    }
+    const BRIDGES: [&str; 14] = [
+        "bridge",
+        "vmnet",
+        "vboxnet",
+        "docker",
+        "br-",
+        "veth",
+        "virbr",
+        "vethernet",
+        "lxc",
+        "lxdbr",
+        "podman",
+        "cni",
+        "vmware",
+        "virtualbox",
+    ];
+    let bridge = |nic: &Nic| BRIDGES.iter().any(|prefix| nic.name.to_lowercase().starts_with(prefix));
+    let private = |nic: &Nic| matches!(nic.ip, IpAddr::V4(v4) if v4.is_private());
+    nics.iter().filter(reachable).min_by_key(|nic| (!private(nic), bridge(nic))).map(|nic| nic.ip)
 }
 
 /// This computer's Tailscale address: the one its traffic to Tailscale's own service address (100.100.100.100, on the
@@ -1171,9 +1228,43 @@ fn strip(entry: &mut Value) {
 #[cfg(test)]
 mod tests {
     use super::{
-        AtomicBool, AtomicUsize, CONNECTIONS, Deadline, Kept, Keys, Mutex, Ordering, Running, Slot, Slots, admitted,
-        bind, new_key, read_kept, same, settle, tailnet_ip, write_kept,
+        AtomicBool, AtomicUsize, CONNECTIONS, Deadline, Kept, Keys, Mutex, Nic, Ordering, Running, Slot, Slots,
+        admitted, bind, lan_choice, new_key, read_kept, same, settle, tailnet_ip, write_kept,
     };
+
+    /// The route's own address as before; a proxy's TUN or a VPN holding the route gives way to the Wi-Fi's.
+    #[test]
+    fn the_networks_address_is_the_wifis_not_a_proxys_tunnel() {
+        let ip = |text: &str| text.parse::<std::net::IpAddr>().unwrap();
+        let nic = |name: &str, tunnel: bool, address: &str| Nic { name: name.into(), tunnel, ip: ip(address) };
+        // The report: Clash's TUN on macOS (utun1500, point-to-point, 198.18.0.0) holds the route; en0 is the Wi-Fi.
+        let clash =
+            [nic("lo0", false, "127.0.0.1"), nic("en0", false, "192.168.31.234"), nic("utun1500", true, "198.18.0.0")];
+        assert_eq!(lan_choice(Some(ip("198.18.0.0")), &clash), Some(ip("192.168.31.234")));
+        // Clash's TUN on Windows isn't point-to-point; its range gives it away.
+        let windows = [
+            nic("Meta", false, "198.18.0.1"),
+            nic("vEthernet (WSL)", false, "172.24.80.1"),
+            nic("Wi-Fi", false, "192.168.1.8"),
+        ];
+        assert_eq!(lan_choice(Some(ip("198.18.0.1")), &windows), Some(ip("192.168.1.8")));
+        // A VPN's tunnel holds the route: the Wi-Fi before a virtual machine's bridge.
+        let vpn =
+            [nic("bridge100", false, "192.168.64.1"), nic("utun4", true, "10.8.0.2"), nic("en0", false, "192.168.1.5")];
+        assert_eq!(lan_choice(Some(ip("10.8.0.2")), &vpn), Some(ip("192.168.1.5")));
+        // Without a proxy, the route's address, even one outside the private ranges (a campus's 100.64/10 Wi-Fi).
+        let plain = [nic("en0", false, "100.69.38.146"), nic("utun3", true, "100.76.55.73")];
+        assert_eq!(lan_choice(Some(ip("100.69.38.146")), &plain), Some(ip("100.69.38.146")));
+        assert_eq!(lan_choice(Some(ip("192.168.1.5")), &vpn), Some(ip("192.168.1.5")));
+        // The interfaces couldn't be listed: the route's address, unless it is a proxy's.
+        assert_eq!(lan_choice(Some(ip("192.168.1.5")), &[]), Some(ip("192.168.1.5")));
+        assert_eq!(lan_choice(Some(ip("198.18.0.0")), &[]), None);
+        // Only tunnels and the loopback: nothing a phone could reach.
+        assert_eq!(
+            lan_choice(Some(ip("198.18.0.0")), &[nic("lo0", false, "127.0.0.1"), nic("utun1500", true, "198.18.0.0")]),
+            None
+        );
+    }
 
     #[test]
     fn a_tailnet_address_is_tailscales_range_and_not_the_networks_own() {
