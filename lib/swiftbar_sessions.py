@@ -40,8 +40,13 @@ def chat_free(name):
 
 def rows_at_end(path, size=TAIL):
     """The complete JSON lines in the last `size` bytes of a file, in order."""
+    return rows_at_end_from(path, size)[0]
+
+
+def rows_at_end_from(path, size=TAIL):
+    """rows_at_end, and where in the file the part read begins."""
     with open(path, 'rb') as handle:
-        handle.seek(0, os.SEEK_END); end = handle.tell(); handle.seek(max(0, end - size)); data = handle.read()
+        handle.seek(0, os.SEEK_END); end = handle.tell(); start = max(0, end - size); handle.seek(start); data = handle.read()
     lines = data.split(b'\n')
     if end > size:lines = lines[1:]  # The first line was cut.
     rows = []
@@ -50,7 +55,7 @@ def rows_at_end(path, size=TAIL):
             row = json.loads(line)
             if isinstance(row, dict):rows.append(row)
         except ValueError:continue
-    return rows
+    return rows, start
 
 
 def rows_back(path, enough, size=TAIL):
@@ -184,6 +189,47 @@ def codex_titles(codex_root):
 
 # Session detail reads further back than the state does: the last few turns of a long session.
 DETAIL = 2 * 1024 * 1024
+# How far back a Claude turn's start is looked for when the detail read holds none of it (a turn of many tool outputs).
+PROMPT_FAR = 256 * 1024 * 1024
+
+
+def prompt(row):
+    """A row that begins a Claude turn: the user's own words (or a picture, a file), not a tool's result, not a
+    subagent's, not a note of Claude Code's."""
+    if row.get('type') != 'user' or row.get('isSidechain') or row.get('isMeta'):return False
+    message = row.get('message') if isinstance(row.get('message'), dict) else {}
+    content = message.get('content')
+    kinds = {item.get('type') for item in content if isinstance(item, dict)} if isinstance(content, list) else set()
+    return bool((isinstance(content, str) and content.strip()) or (kinds and 'tool_result' not in kinds))
+
+
+def prompt_before(path, before, own):
+    """The time of the last prompt in a transcript before byte `before` (and in the line running on past it), read back
+    in pieces, at most PROMPT_FAR: the start of a turn begun before the part read. None if none."""
+    piece_size = 4 * 1024 * 1024; floor = max(0, before - PROMPT_FAR)
+    with open(path, 'rb') as handle:
+        handle.seek(before); tail = b''
+        while True:
+            chunk = handle.read(256 * 1024)
+            if not chunk:break
+            at = chunk.find(b'\n')
+            if at >= 0:tail += chunk[:at]; break
+            tail += chunk
+        end = before
+        while end > floor:
+            start = max(floor, end - piece_size); handle.seek(start); piece = handle.read(end - start) + tail
+            if start > 0:
+                at = piece.find(b'\n')
+                head, body = (piece[:at], piece[at + 1:]) if at >= 0 else (piece, b'')
+            else:
+                head, body = b'', piece
+            for line in reversed(body.split(b'\n')):
+                if b'"user"' not in line:continue
+                try:row = json.loads(line)
+                except ValueError:continue
+                if isinstance(row, dict) and not copied(row, own) and prompt(row):return stamp(row.get('timestamp'))
+            tail = head; end = start
+    return None
 TURNS = 8
 
 
@@ -221,14 +267,13 @@ def claude_turns(path, price):
     # A reply streamed over several lines writes its output as it goes: counted once, in the turn of its first line,
     # with the most any of its lines says (as the usage takes it); a line with neither id is a reply of its own.
     turns = [turn(None)]; current = turns[0]; best = {}; own = Path(path).stem
-    for row in rows_at_end(path, DETAIL):
+    rows, start = rows_at_end_from(path, DETAIL)
+    for row in rows:
         if copied(row, own):continue
         message = row.get('message') if isinstance(row.get('message'), dict) else {}
         content = message.get('content')
-        if row.get('type') == 'user' and not row.get('isSidechain') and not row.get('isMeta'):
-            kinds = {item.get('type') for item in content if isinstance(item, dict)} if isinstance(content, list) else set()
-            if (isinstance(content, str) and content.strip()) or (kinds and 'tool_result' not in kinds):
-                current = turn(stamp(row.get('timestamp'))); turns.append(current)
+        if prompt(row):
+            current = turn(stamp(row.get('timestamp'))); turns.append(current)
         elif row.get('type') == 'assistant' and current is not None:
             for item in content if isinstance(content, list) else []:
                 if isinstance(item, dict) and item.get('type') == 'tool_use' and item.get('name'):
@@ -248,6 +293,9 @@ def claude_turns(path, price):
             if cost is None:where['unpriced'] += 1
             else:where['cost'] += cost
             if key is not None:best[key] = (where, tokens, cost)
+    # No prompt in the part read: the turn going on began before it, and its start is the last prompt further back.
+    if len(turns) == 1 and start > 0:
+        turns[0]['at'] = prompt_before(path, start, own)
     return [t for t in turns if t['at'] is not None or t['requests']][-TURNS:][::-1]
 
 

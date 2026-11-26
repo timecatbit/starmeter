@@ -27,6 +27,9 @@ const TAIL: usize = 512 * 1024;
 /// How far back a session's state is looked for when the usual tail holds none (a long tool output can fill it).
 const FAR: usize = 16 * 1024 * 1024;
 const DETAIL: usize = 2 * 1024 * 1024;
+/// How far back a Claude turn's start is looked for when the detail read holds none of it: a turn of many tool outputs
+/// (screenshots above all) runs well past DETAIL, and its clock then had no start (the user: 正在运行只有运行中).
+const PROMPT_FAR: u64 = 256 * 1024 * 1024;
 pub(crate) const TURNS: usize = 8;
 const CLAUDE_WINDOWS: [f64; 2] = [200_000.0, 1_000_000.0];
 
@@ -48,21 +51,127 @@ fn number(value: Option<&Json>) -> Json {
 
 /// The JSON objects among the lines in the last `size` bytes of a file; the first is dropped when it was cut.
 pub(crate) fn rows_at_end(path: &str, size: usize) -> Result<Vec<Object>, FileError> {
+    rows_at_end_from(path, size).map(|(rows, _)| rows)
+}
+
+/// rows_at_end, and where in the file the part read begins.
+fn rows_at_end_from(path: &str, size: usize) -> Result<(Vec<Object>, u64), FileError> {
     let unreadable = || FileError::of_kind("unreadable", "OSError");
     let mut file = File::open(path).map_err(|_| unreadable())?;
     let end = file.seek(SeekFrom::End(0)).map_err(|_| unreadable())?;
-    file.seek(SeekFrom::Start(end.saturating_sub(size as u64))).map_err(|_| unreadable())?;
+    let start = end.saturating_sub(size as u64);
+    file.seek(SeekFrom::Start(start)).map_err(|_| unreadable())?;
     let mut data = Vec::new();
     file.read_to_end(&mut data).map_err(|_| unreadable())?;
     let mut lines: Vec<&[u8]> = data.split(|&byte| byte == b'\n').collect();
     if end > size as u64 && !lines.is_empty() {
         lines.remove(0);
     }
-    Ok(lines
+    let rows = lines
         .into_iter()
         .filter_map(|line| Json::parse_selected(line, &Selection::All, true).ok())
         .filter_map(|value| value.as_object().cloned())
-        .collect())
+        .collect();
+    Ok((rows, start))
+}
+
+/// A row that begins a Claude turn: the user's own words (or a picture, a file), not a tool's result, not a subagent's,
+/// not a note of Claude Code's.
+fn prompt(row: &Object) -> bool {
+    if !kind_is(row, "user")
+        || row.get("isSidechain").is_some_and(Json::is_truthy)
+        || row.get("isMeta").is_some_and(Json::is_truthy)
+    {
+        return false;
+    }
+    let content = row.get("message").and_then(|message| message.get("content"));
+    let kinds: HashSet<String> = content
+        .and_then(Json::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|item| item.get("type").map(py::dumps))
+        .collect();
+    let spoken = content.and_then(Json::as_str).is_some_and(|text| !text.trim().is_empty());
+    spoken || (!kinds.is_empty() && !kinds.contains(&py::dumps(&Json::from("tool_result"))))
+}
+
+/// Where the last prompt before byte `before` of a transcript was found, as far as `upto`: per file, so a transcript
+/// read again is read back only from where it was read up to the last time (it only grows).
+type Prompts = HashMap<String, (u64, Option<(u64, Json)>)>;
+static PROMPTS: std::sync::Mutex<Option<Prompts>> = std::sync::Mutex::new(None);
+
+/// The time of the last prompt in a transcript before byte `before` (the start of the part read for its turns), read
+/// back from there in pieces, at most PROMPT_FAR: the start of a turn begun before that part. Null if none.
+fn prompt_before(path: &str, before: u64, own: &str) -> Json {
+    let length = std::fs::metadata(path).map(|meta| meta.len()).unwrap_or(0);
+    let mut kept = PROMPTS.lock().expect("the prompts");
+    let known =
+        kept.get_or_insert_with(HashMap::new).get(path).cloned().filter(|(upto, _)| *upto <= before && *upto <= length);
+    let floor = known.as_ref().map_or(before.saturating_sub(PROMPT_FAR), |(upto, _)| *upto);
+    let found = match scan_prompt(path, floor, before, own) {
+        Some(found) => Some(found),
+        None => known.and_then(|(_, found)| found),
+    };
+    kept.get_or_insert_with(HashMap::new).insert(path.to_string(), (before, found.clone()));
+    found.map_or(Json::Null, |(_, at)| at)
+}
+
+/// The last prompt in bytes `floor`..`before` of a transcript (and in the line running on past `before`), read back in
+/// pieces of 4 MB: its offset and time.
+fn scan_prompt(path: &str, floor: u64, before: u64, own: &str) -> Option<(u64, Json)> {
+    const PIECE: u64 = 4 * 1024 * 1024;
+    let mut file = File::open(path).ok()?;
+    // The line `before` falls in, whole: its start is in the pieces read back, its end after `before`.
+    let mut tail = Vec::new();
+    file.seek(SeekFrom::Start(before)).ok()?;
+    let mut buffer = vec![0u8; 256 * 1024];
+    loop {
+        let read = file.read(&mut buffer).ok()?;
+        if read == 0 {
+            break;
+        }
+        match memchr::memchr(b'\n', &buffer[..read]) {
+            Some(at) => {
+                tail.extend_from_slice(&buffer[..at]);
+                break;
+            }
+            None => tail.extend_from_slice(&buffer[..read]),
+        }
+    }
+    let mut end = before;
+    while end > floor {
+        let start = end.saturating_sub(PIECE).max(floor);
+        let mut piece = vec![0u8; (end - start) as usize];
+        file.seek(SeekFrom::Start(start)).ok()?;
+        file.read_exact(&mut piece).ok()?;
+        piece.extend_from_slice(&tail);
+        // The piece's first line may begin before it: kept for the next piece back (unless the file begins here).
+        let (head, body) = match (start > 0).then(|| memchr::memchr(b'\n', &piece)).flatten() {
+            Some(at) => (piece[..at].to_vec(), &piece[at + 1..]),
+            None if start > 0 => (piece.clone(), &piece[piece.len()..]),
+            None => (Vec::new(), &piece[..]),
+        };
+        let body_start = start + (piece.len() - body.len()) as u64;
+        let mut line_end = body.len();
+        for line_start in memchr::memrchr_iter(b'\n', body).map(|at| at + 1).chain(std::iter::once(0)) {
+            let line = &body[line_start..line_end];
+            line_end = line_start.saturating_sub(1);
+            if memchr::memmem::find(line, b"\"user\"").is_none() {
+                continue;
+            }
+            let Some(row) =
+                Json::parse_selected(line, &Selection::All, true).ok().and_then(|value| value.as_object().cloned())
+            else {
+                continue;
+            };
+            if !copied(&row, own) && prompt(&row) {
+                return Some((body_start + line_start as u64, stamp(row.get("timestamp"))));
+            }
+        }
+        tail = head;
+        end = start;
+    }
+    None
 }
 
 /// The complete JSON lines at a file's end: the usual tail, else twice as far back each time (up to FAR) until `enough`
@@ -393,26 +502,15 @@ fn claude_turns(path: &str, price: &Price) -> Result<Vec<Json>, FileError> {
     // Each reply counted: the turn it is in, its tokens and its cost.
     let mut best: HashMap<String, (usize, Json, Option<f64>)> = HashMap::new();
     let own = own_id(path);
-    for row in rows_at_end(path, DETAIL)? {
+    let (rows, start) = rows_at_end_from(path, DETAIL)?;
+    for row in rows {
         if copied(&row, &own) {
             continue;
         }
         let message = row.get("message").and_then(Json::as_object).cloned().unwrap_or_default();
         let content = message.get("content");
-        if kind_is(&row, "user")
-            && !row.get("isSidechain").is_some_and(Json::is_truthy)
-            && !row.get("isMeta").is_some_and(Json::is_truthy)
-        {
-            let kinds: HashSet<String> = content
-                .and_then(Json::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(|item| item.get("type").map(py::dumps))
-                .collect();
-            let spoken = content.and_then(Json::as_str).is_some_and(|text| !text.trim().is_empty());
-            if spoken || (!kinds.is_empty() && !kinds.contains(&py::dumps(&Json::from("tool_result")))) {
-                turns.push(turn(stamp(row.get("timestamp"))));
-            }
+        if prompt(&row) {
+            turns.push(turn(stamp(row.get("timestamp"))));
         } else if kind_is(&row, "assistant") {
             for item in content.and_then(Json::as_array).into_iter().flatten() {
                 if let Some(fields) = item.as_object()
@@ -456,6 +554,14 @@ fn claude_turns(path: &str, price: &Price) -> Result<Vec<Json>, FileError> {
             if let Some(key) = key {
                 best.insert(key, (at, tokens, cost));
             }
+        }
+    }
+    // No prompt in the part read: the turn going on began before it (a turn of many tool outputs), and its start is the
+    // last prompt further back, so its clock has a start like any other's.
+    if turns.len() == 1 && start > 0 {
+        let at = prompt_before(path, start, &own);
+        if !at.is_null() {
+            turns[0].insert("at", at);
         }
     }
     Ok(last_turns(turns))
@@ -1573,6 +1679,65 @@ mod tests {
             (figure("requests"), figure("tokens"), figure("cost")),
             (Json::Int(3), Json::Int(900), Json::Double(6.0))
         );
+        let _ = std::fs::remove_dir_all(&folder);
+    }
+
+    #[test]
+    fn a_turn_begun_before_the_part_read_starts_at_its_prompt_further_back() {
+        // A turn of many tool outputs (screenshots above all) runs past the 2 MB read for the turns: its start is the
+        // last prompt further back, not none (its clock said only 运行中); read again as it grows, the same, and a new
+        // prompt starts a new turn at its own time.
+        let folder = std::env::temp_dir().join(format!("starmeter-turn-start-{}", crate::runtime::random_hex(6)));
+        std::fs::create_dir_all(&folder).unwrap();
+        let file = folder.join("session.jsonl");
+        let path = file.to_string_lossy().into_owned();
+        let prompt = |at: &str| {
+            format!(
+                "{{\"type\":\"user\",\"timestamp\":\"2026-11-26T{at}Z\",\"message\":{{\"role\":\"user\",\"content\":\"go on\"}}}}\n"
+            )
+        };
+        let work = |at: &str, n: usize| {
+            let mut lines = String::new();
+            for i in 0..n {
+                lines += &format!(
+                    "{{\"type\":\"assistant\",\"timestamp\":\"2026-11-26T{at}Z\",\"message\":{{\"id\":\"m{at}{i}\",\"model\":\"claude-opus-5-5\",\"content\":[{{\"type\":\"tool_use\",\"name\":\"Bash\"}}],\"usage\":{{\"input_tokens\":100,\"output_tokens\":10}}}}}}\n"
+                );
+                lines += &format!(
+                    "{{\"type\":\"user\",\"timestamp\":\"2026-11-26T{at}Z\",\"message\":{{\"role\":\"user\",\"content\":[{{\"type\":\"tool_result\",\"content\":\"{}\"}}]}}}}\n",
+                    "x".repeat(100_000)
+                );
+            }
+            lines
+        };
+        let price: Price = Box::new(|_, _| Some(0.01));
+        let started = |turns: &[Json]| turns[0].get("at").and_then(Json::number);
+        let at = |hms: &str| {
+            crate::time::IsoTime::parse(&format!("2026-11-26T{hms}Z")).unwrap().timestamp(&jiff::tz::TimeZone::system())
+        };
+        std::fs::write(&file, prompt("09:00:00") + &work("09:00:05", 40)).unwrap();
+        let turns = claude_turns(&path, &price).unwrap();
+        assert!(std::fs::metadata(&file).unwrap().len() > 3 * 1024 * 1024);
+        assert_eq!(started(&turns), Some(at("09:00:00")), "its prompt 4 MB back");
+        // Read again as it grows (from where it was read up to the last time): the same start.
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&file)
+            .unwrap()
+            .write_all(work("09:10:00", 30).as_bytes())
+            .unwrap();
+        assert_eq!(started(&claude_turns(&path, &price).unwrap()), Some(at("09:00:00")));
+        // A new prompt: a new turn at its time, also once it is pushed out of the part read.
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&file)
+            .unwrap()
+            .write_all((prompt("09:20:00") + &work("09:20:05", 30)).as_bytes())
+            .unwrap();
+        assert_eq!(started(&claude_turns(&path, &price).unwrap()), Some(at("09:20:00")));
+        // A tool's result, a subagent's line or a note is no prompt.
+        std::fs::write(&file, prompt("08:00:00") + "{\"type\":\"user\",\"isSidechain\":true,\"timestamp\":\"2026-11-26T08:30:00Z\",\"message\":{\"content\":\"sub\"}}\n" + &work("08:40:00", 40)).unwrap();
+        super::PROMPTS.lock().unwrap().take();
+        assert_eq!(started(&claude_turns(&path, &price).unwrap()), Some(at("08:00:00")));
         let _ = std::fs::remove_dir_all(&folder);
     }
 

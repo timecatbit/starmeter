@@ -6,27 +6,15 @@
     <title>Starmeter</title>
     <!-- On a phone, the colours of the last load before the first frame (src/lib/edges.ts). -->
     <script src="/first-frame.js"></script>
-    <!-- 在手机上看: what Safari 26 colours its bars from. It ignores theme-color, and a full-screen fixed layer (the page's
-         window) is to it an overlay over a colour it keeps: it reads a fixed element along the top or bottom edge, as
-         wide as the screen, frontmost, with a solid background colour, and carries that colour into the bar. These two
-         are such elements, at the page's edge colours (first-frame.js, then src/lib/edges.ts), painting nothing:
-         clipped to their text, and they have none. 11 points: over WebKit's 10 for reading the colour directly; 12 for
-         two frames when the colour changes, so Safari reads it again. -->
-    <style>
-      .bar-tint { display: none; }
-      :root.phone-page .bar-tint {
-        display: block; position: fixed; left: 0; right: 0; height: 11px; z-index: 2147483647; pointer-events: none;
-        border: 0; outline: 0; box-shadow: none; transition: none; color: transparent;
-        background-clip: text; -webkit-background-clip: text;
-      }
-      :root.phone-page .bar-tint.top { top: 0; background-color: var(--bar-top, transparent); }
-      :root.phone-page .bar-tint.bottom { bottom: 0; background-color: var(--bar-bottom, transparent); }
-      :root.phone-page.bar-refresh .bar-tint { height: 12px; }
-    </style>
+    <!-- The page's first rules, in a file rather than in a <style> here (or a style attribute): Tauri puts a nonce on
+         every inline <style> and into style-src, which turns 'unsafe-inline' off, and then each style attribute is
+         refused. The hand's filter below lost its position: absolute that way and stood in the flow as a line, 16 points
+         over the panel, which showed a gap under the menu bar and its foot cut off. first-frame.css says why each rule. -->
+    <link rel="stylesheet" href="/first-frame.css" />
   </head>
   <body>
     <!-- 手绘 (sketch.css): the hand's unsteady line, for the lines that look draws; never the words. -->
-    <svg width="0" height="0" style="position: absolute" aria-hidden="true" focusable="false">
+    <svg class="filters" width="0" height="0" aria-hidden="true" focusable="false">
       <filter id="hand" x="-4%" y="-8%" width="108%" height="116%">
         <feTurbulence type="fractalNoise" baseFrequency="0.04" numOctaves="2" seed="7" result="noise" />
         <feDisplacementMap in="SourceGraphic" in2="noise" scale="2.2" xChannelSelector="R" yChannelSelector="G" />

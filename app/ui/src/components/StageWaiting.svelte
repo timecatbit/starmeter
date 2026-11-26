@@ -36,8 +36,8 @@
   .waiting {
     --ink: rgba(240, 245, 255, 0.95);
     --ink-2: rgba(214, 222, 255, 0.7);
-    --edge-top: #1F3A7A;
-    --edge-bottom: #050A24;
+    --edge-top: var(--night-top);
+    --edge-bottom: var(--night-low);
     position: absolute;
     inset: 0;
     display: flex;
@@ -48,7 +48,7 @@
     padding: calc(24px + env(safe-area-inset-top)) 32px calc(24px + env(safe-area-inset-bottom));
     text-align: center;
     color: var(--ink);
-    background: linear-gradient(180deg, var(--edge-top) 0, #1F3A7A 72px, #0E1D4C 48%, #050A24 calc(100% - 90px), var(--edge-bottom) 100%);
+    background: linear-gradient(180deg, var(--edge-top) 0, var(--night-top) 72px, var(--night-mid) 48%, var(--night-low) calc(100% - 90px), var(--edge-bottom) 100%);
   }
   .waiting.light {
     --ink: rgba(14, 24, 66, 0.94);

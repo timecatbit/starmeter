@@ -10,6 +10,25 @@ export const GAP = 15_000;
  *  the Token/s figures alike, so a dot and its figure agree. */
 export const EASE = 15_000;
 
+/** `values` at `times` (rising) eased twice over (two exponential moving averages in a row, each over `tau`): a step
+ *  becomes an S, flat where it starts and where it ends. Eased once, a step still began with a corner (the user: 图的曲线
+ *  有时候还是有直角). Nulls are none yet, and say 0 until the first value. */
+export function easeTwice(times: number[], values: (number | null)[], tau: number): number[] {
+  const out: number[] = [];
+  let first: number | null = null, second: number | null = null, previous = times[0] ?? 0;
+  for (let i = 0; i < times.length; i++) {
+    const v = values[i];
+    if (v !== null && v !== undefined) {
+      const k = 1 - Math.exp(-Math.max(0, times[i] - previous) / tau);
+      first = first === null ? v : first + (v - first) * k;
+      second = second === null ? first : second + (first - second) * k;
+      previous = times[i];
+    }
+    out.push(second ?? 0);
+  }
+  return out;
+}
+
 /** A reading: Summary's tokens (cache reads included, as the line and the cards count them), the output tokens the
  *  models generated, the cost, and each source's tokens and output tokens (a line of its own for each tool). `cut`: a
  *  reading not comparable with the one before (a gap, a new range): the line stood still there, and what comes after
@@ -172,24 +191,15 @@ export class LiveFeed {
   }
 
   /** The rate as the lines draw it and the figures say it, at each of `times` (rising): the last minute's (rateAt),
-   *  eased over EASE (an exponential moving average, begun EASE × 3 earlier so it has settled by the first). A request
-   *  landing rises and settles as a curve, and leaves the minute the same way, not as a step up and a cliff a minute
-   *  later: drawn as a step function, the smooth curve through it was straight plateaus and sharp corners. */
+   *  eased twice over half of EASE (easeTwice, begun EASE × 3 earlier so it has settled by the first). A request
+   *  landing rises and settles as an S, and leaves the minute the same way, never as a step or a corner: drawn as a
+   *  step function, the curve through it was straight plateaus and sharp corners; eased once, a corner where it rose. */
   smoothRates(times: number[], id?: string): number[] {
     if (!times.length) return [];
     const warm: number[] = [];
     for (let at = times[0] - EASE * 3; at < times[0]; at += 1000) warm.push(at);
-    const all = [...warm, ...times], raw = this.rateSeries(all, id), out: number[] = [];
-    let eased: number | null = null, previous = all[0];
-    for (let i = 0; i < all.length; i++) {
-      const r = raw[i];
-      if (r !== null) {
-        eased = eased === null ? r : eased + (r - eased) * (1 - Math.exp(-Math.max(0, all[i] - previous) / EASE));
-        previous = all[i];
-      }
-      if (i >= warm.length) out.push(eased ?? 0);
-    }
-    return out;
+    const all = [...warm, ...times];
+    return easeTwice(all, this.rateSeries(all, id), EASE / 2).slice(warm.length);
   }
 
   /** rateAt at each of `times` (rising) in one pass over the readings; null before the first. */

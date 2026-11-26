@@ -973,6 +973,18 @@
     pointer-events: none;
   }
   .window.solid { background: var(--solid); }
+  /* By night (standard style, solid): 网页版's sky, flat at the top, the night between, as the phone draws it; what floats
+     on it (menus, a lifted row, a bubble) in a blue of that sky rather than grey. 手绘 keeps its blackboard. */
+  :global(:root[data-theme='dark']:not([data-style='sketch'])) .window.solid:not(.staged) {
+    --solid: #182D68;
+    background: linear-gradient(180deg, var(--night-top) 72px, var(--night-mid) 48%, var(--night-low) calc(100% - 90px));
+  }
+  @media (prefers-color-scheme: dark) {
+    :global(:root:not([data-theme='light']):not([data-style='sketch'])) .window.solid:not(.staged) {
+      --solid: #182D68;
+      background: linear-gradient(180deg, var(--night-top) 72px, var(--night-mid) 48%, var(--night-low) calc(100% - 90px));
+    }
+  }
   /* On a phone the page is the screen, under the browser's bars too (viewport-fit=cover): no edge, no shadow. */
   .window.phone { position: fixed; inset: 0; border-radius: 0; background: var(--solid); }
   .phone-gate {

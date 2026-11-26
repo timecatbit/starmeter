@@ -27,6 +27,10 @@
   --knob: rgba(0, 0, 0, 0.28);
   --rounded: ui-rounded, 'SF Pro Rounded', -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
   --page-curve: cubic-bezier(0.22, 1, 0.36, 1);
+  /* 网页版's night sky, top to foot: the solid dark panel lies on it too (the user: 电脑版的深色主页背景色弄成和手机版的一致). */
+  --night-top: #1F3A7A;
+  --night-mid: #0E1D4C;
+  --night-low: #050A24;
 }
 /* 繁體中文 in the Traditional faces (the forms of 說, 骨 and the like differ from the Simplified faces). */
 :root:lang(zh-Hant) {

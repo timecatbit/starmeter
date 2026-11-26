@@ -554,9 +554,9 @@
     --on-star: rgb(12, 22, 60);
     --warn: rgb(255, 178, 92);
     --good: rgb(74, 222, 128);
-    --sky-top: #1F3A7A;
-    --sky-mid: #0E1D4C;
-    --sky-low: #050A24;
+    --sky-top: var(--night-top);
+    --sky-mid: var(--night-mid);
+    --sky-low: var(--night-low);
     --dot: rgba(255, 255, 255, 0.07);
     --halo: rgba(196, 216, 255, 0.32);
     /* The edges' colours: the sky's top and its foot, flat, for the browser's bars to take. */

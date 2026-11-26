@@ -409,15 +409,17 @@ test('pinned, every tool on the homepage has its line, one not used in the last 
   await button(page, '钉住面板').click();
   const canvas = page.locator('canvas.live');
   const read = () => canvas.evaluate((c) => ({ ...(c as HTMLElement).dataset }));
+  // In Token (Token/s is what a pinned panel shows first, as 网页版 does).
+  await page.getByRole('radio', { name: 'Token', exact: true }).click();
   await expect.poll(async () => Number((await read()).added ?? 0), { timeout: 20_000 }).toBeGreaterThan(0);
-  const seen = await read();
-  const lines = (seen.lines ?? '').split(',').filter(Boolean);
+  const lines = ((await read()).lines ?? '').split(',').filter(Boolean);
   expect(lines).toContain('claude');
   expect(lines.length).toBeGreaterThan(2);
   // Claude, adding all of it, is the total: its line and its dot would lie on the total's, so it draws neither (it read
-  // as a dot trailing behind). The idle tools have no dot: dots only at the ends of lines that are moving.
-  expect((seen.under ?? '').split(',')).toEqual(['claude']);
-  const ends = Object.values(JSON.parse(seen.ends ?? '{}') as Record<string, [number, number]>);
+  // as a dot trailing behind). The idle tools have no dot: dots only at the ends of lines that are moving. (Its line
+  // eases up over a couple of seconds after a reading: waited for.)
+  await expect.poll(async () => (await read()).under ?? '', { timeout: 10_000 }).toBe('claude');
+  const ends = Object.values(JSON.parse((await read()).ends ?? '{}') as Record<string, [number, number]>);
   expect(ends.length).toBe(0);
   // In Token/s too: a line for each, the idle ones at zero.
   await page.getByRole('radio', { name: 'Token/s' }).click();
@@ -1280,6 +1282,45 @@ test('settings: theme segments, switches and the module grid answer at once', as
   await page.getByRole('checkbox', { name: '在主页显示 Claude', exact: true }).click();
   await page.keyboard.press('Escape');
   await expect(page.locator('.card .name')).not.toContainText(['Claude']);
+});
+
+test('by night the solid panel lies on 网页版\'s sky, what floats on it in a blue of that sky; by day and in 手绘 as before', async ({ page }) => {
+  await open(page);
+  const look = () => page.locator('.window').evaluate((w) => {
+    const css = getComputedStyle(w);
+    return { colour: css.backgroundColor, image: css.backgroundImage, solid: css.getPropertyValue('--solid').trim() };
+  });
+  await button(page, '主页模块与设置').click();
+  await button(page, '外观').click();
+  await page.getByRole('radio', { name: '深色' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  // The phone's night: #1F3A7A at the top, #0E1D4C, #050A24 at the foot (the user: 电脑版的深色主页背景色弄成和手机版的一致).
+  let seen = await look();
+  expect(seen.image).toContain('rgb(31, 58, 122)');
+  expect(seen.image).toContain('rgb(14, 29, 76)');
+  expect(seen.image).toContain('rgb(5, 10, 36)');
+  expect(seen.solid).toBe('#182D68');
+  // The homepage too, and its range menu a blue of the sky, not the grey of before.
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.dashboard')).toBeVisible();
+  expect((await look()).image).toContain('rgb(31, 58, 122)');
+  await page.locator('button[aria-haspopup=listbox]').first().click();
+  await expect(page.locator('[role=listbox]')).toBeVisible();
+  expect(await page.locator('[role=listbox]').evaluate((m) => getComputedStyle(m).backgroundColor)).toBe('rgb(24, 45, 104)');
+  await page.keyboard.press('Escape');
+  // By day: the white of before, no sky.
+  await button(page, '主页模块与设置').click();
+  await button(page, '外观').click();
+  await page.getByRole('radio', { name: '浅色' }).click();
+  seen = await look();
+  expect(seen.image).toBe('none');
+  expect(seen.colour).toBe('rgb(253, 253, 253)');
+  // 手绘 by night keeps its blackboard.
+  await page.getByRole('radio', { name: '深色' }).click();
+  await page.getByRole('radio', { name: '手绘' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-style', 'sketch');
+  expect((await look()).image).not.toContain('rgb(31, 58, 122)');
 });
 
 test('全局快捷键 in 通用: off at first, a choice is kept, one already taken says so and keeps the old', async ({ page }) => {
@@ -2951,4 +2992,27 @@ test('外观 → 风格 draws the panel by hand, in faces scaled to the usual wi
   await button(page, '外观').click();
   await page.getByRole('radio', { name: '标准' }).click();
   await expect(page.locator('html')).not.toHaveAttribute('data-style', 'sketch');
+});
+
+test('the page carries no inline style: in the app, under its CSP, nothing stands over the panel', async ({ page }) => {
+  // Tauri puts a nonce on every inline <style> of index.html and into style-src, which turns 'unsafe-inline' off: each
+  // style attribute is then refused. The hand's filter, kept out of the flow by one, stood as a 16-point line over the
+  // panel: a gap under the menu bar, the panel's foot cut off (the user: 为什么状态栏图标离页面这么远).
+  const html = readFileSync(new URL('../ui/index.html', import.meta.url), 'utf8');
+  const markup = html.replace(/<!--[\s\S]*?-->/g, '');
+  expect(markup).not.toMatch(/<style[\s>]/i);
+  expect(markup).not.toMatch(/\sstyle\s*=/i);
+  // And under such a policy (a nonce, no 'unsafe-inline', as the app has whenever a <style> is there), the page's first
+  // rules still hold: nothing above the panel.
+  await page.route((url) => url.pathname === '/', (route) => route.fulfill({
+    status: 200,
+    headers: { 'Content-Type': 'text/html', 'Content-Security-Policy': "default-src 'self'; style-src 'self' 'nonce-1234'" },
+    body: html.replace(/<script type="module"[^>]*><\/script>/, ''),
+  }));
+  await page.goto('/');
+  // (The app's own styles aren't loaded here: the body keeps its 8 pixels; what counts is nothing between it and #app.)
+  expect(await page.evaluate(() => ({
+    above: document.getElementById('app')!.getBoundingClientRect().top - document.body.getBoundingClientRect().top,
+    filters: getComputedStyle(document.querySelector('svg.filters')!).position,
+  }))).toEqual({ above: 0, filters: 'absolute' });
 });
