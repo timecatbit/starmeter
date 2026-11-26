@@ -908,7 +908,9 @@ mod tests {
 
     /// Claude's new version goes out in turns, by each computer's own ID: its row says so, as this Claude may still say
     /// it is up to date (用户：claude提示有新版本，但是为什么app里显示没有更新？); no other row says it, nor Claude's when
-    /// there is nothing new.
+    /// there is nothing new. macOS only: elsewhere Claude's app version isn't read (APP_ELSEWHERE), so its row never
+    /// has an update to tell of.
+    #[cfg(target_os = "macos")]
     #[test]
     fn claudes_new_version_says_it_is_handed_out_in_turns() {
         let home = std::env::temp_dir().join(format!("starmeter-claude-turns-{}", crate::runtime::random_hex(6)));
