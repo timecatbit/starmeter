@@ -97,7 +97,8 @@ fn prompt(row: &Object) -> bool {
 
 /// Where the last prompt before byte `before` of a transcript was found, as far as `upto`: per file, so a transcript
 /// read again is read back only from where it was read up to the last time (it only grows).
-static PROMPTS: std::sync::Mutex<Option<HashMap<String, (u64, Option<(u64, Json)>)>>> = std::sync::Mutex::new(None);
+type Prompts = HashMap<String, (u64, Option<(u64, Json)>)>;
+static PROMPTS: std::sync::Mutex<Option<Prompts>> = std::sync::Mutex::new(None);
 
 /// The time of the last prompt in a transcript before byte `before` (the start of the part read for its turns), read
 /// back from there in pieces, at most PROMPT_FAR: the start of a turn begun before that part. Null if none.
@@ -1734,7 +1735,7 @@ mod tests {
             .unwrap();
         assert_eq!(started(&claude_turns(&path, &price).unwrap()), Some(at("09:20:00")));
         // A tool's result, a subagent's line or a note is no prompt.
-        std::fs::write(&file, prompt("08:00:00") + &format!("{{\"type\":\"user\",\"isSidechain\":true,\"timestamp\":\"2026-11-26T08:30:00Z\",\"message\":{{\"content\":\"sub\"}}}}\n") + &work("08:40:00", 40)).unwrap();
+        std::fs::write(&file, prompt("08:00:00") + "{\"type\":\"user\",\"isSidechain\":true,\"timestamp\":\"2026-11-26T08:30:00Z\",\"message\":{\"content\":\"sub\"}}\n" + &work("08:40:00", 40)).unwrap();
         super::PROMPTS.lock().unwrap().take();
         assert_eq!(started(&claude_turns(&path, &price).unwrap()), Some(at("08:00:00")));
         let _ = std::fs::remove_dir_all(&folder);
