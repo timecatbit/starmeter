@@ -1,8 +1,8 @@
 {
  "source": {
   "project": "ccusage",
-  "commit": "5a60e73ddf79e2a22893120af4a52cf66dc0bd1a",
-  "committedAt": "2026-11-25T12:23:57Z",
+  "commit": "0b25fcdfd8d540b6c8086eb131e922ea6662dfb1",
+  "committedAt": "2026-11-26T06:17:32Z",
   "license": "MIT"
  },
  "models": {
