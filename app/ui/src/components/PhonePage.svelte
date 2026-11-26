@@ -46,10 +46,11 @@
   const lan = $derived(localOn ? looked(view?.local) : null);
   const tailnet = $derived(localOn ? looked(view?.tailnet) : null);
   const outside = $derived(looked(view?.public));
+  const opening = $derived(busy || !!view?.publicOpening);
   const minutes = $derived(view ? Math.max(1, Math.round(secondsLeft() / 60)) : 0);
   const choices = ['local', 'public'] as const;
   /** Which ways are on, a green dot after each one's name. */
-  const on = $derived({ local: localOn, public: !!outside || busy });
+  const on = $derived({ local: localOn, public: !!outside || opening });
 
   /** Each way's steps belong to its own round, so what one answers late can't undo a later step of the same way: a
    *  start after a 停止, a link closed while it was made. Every step also moves `epoch`, so the status asked every ten
@@ -60,7 +61,7 @@
    *  too). The host's own answer follows. */
   function without(gone: Partial<PhoneView>) {
     const left = view ? { ...view, ...gone } : null;
-    setPhone(left && (left.localOpen || left.public) ? left : null);
+    setPhone(left && (left.localOpen || left.public || left.publicOpening) ? left : null);
   }
 
   /** 同一个网络's 开始 (重新开始, 重试). A start that fails stays in the code's place with its reason and 重试, instead of
@@ -91,20 +92,31 @@
   }
 
   let tick: ReturnType<typeof setInterval> | undefined;
+  let fast: ReturnType<typeof setInterval> | undefined;
+  async function pollStatus() {
+    const mine = epoch;
+    const had = !!phone.view?.public;
+    const status = await shell.phoneStatus().catch(() => phone.view);
+    if (mine !== epoch) return;
+    setPhone(status);
+    if (had && !phone.view?.public && !opening) { publicFailed = null; lost = 'dropped'; }
+  }
   onMount(() => {
     // Nothing starts by opening the page: each way as it was left, off until its 开始.
+    void pollStatus();
     if (phone.reach === 'public') void checkTunnel();
     // Asked after while the page is open: a public link whose cloudflared has ended is taken down, and said so.
-    tick = setInterval(async () => {
-      const mine = epoch;
-      const had = !!phone.view?.public;
-      const status = await shell.phoneStatus().catch(() => phone.view);
-      if (mine !== epoch) return;
-      setPhone(status);
-      if (had && !phone.view?.public && !busy) { publicFailed = null; lost = 'dropped'; }
-    }, 10_000);
+    tick = setInterval(() => void pollStatus(), 10_000);
   });
-  onDestroy(() => { localRound++; publicRound++; epoch++; clearInterval(tick); clearTimeout(copiedTimer); });
+  // While the host is opening a public link in the background (startup resume or after re-entering this page, R10-8),
+  // poll sooner so the QR code appears as soon as it is ready.
+  $effect(() => {
+    if (!view?.publicOpening || busy) return;
+    const timer = setInterval(() => void pollStatus(), 1500);
+    fast = timer;
+    return () => { clearInterval(timer); if (fast === timer) fast = undefined; };
+  });
+  onDestroy(() => { localRound++; publicRound++; epoch++; clearInterval(tick); clearInterval(fast); clearTimeout(copiedTimer); });
 
   /** Whether cloudflared is there, for 任何网络's 开始 to say 下载并开始 when it isn't; an answer that comes back after a
    *  later look is dropped. */
@@ -117,7 +129,7 @@
   /** The page shown: looking starts nothing and stops nothing. */
   function choose(next: 'local' | 'public') {
     phone.reach = next;
-    if (next === 'public' && !outside && !busy) void checkTunnel();
+    if (next === 'public' && !outside && !opening) void checkTunnel();
   }
   /** From a link that failed or dropped: the same network's page, as it is. */
   function useLocal() {
@@ -160,7 +172,7 @@
     lost = null;
     publicFailed = null;
     phone.publicStopped = true;
-    without({ public: null, secondsLeft: 0 });
+    without({ public: null, secondsLeft: 0, publicOpening: false });
     void checkTunnel();
     const left = await shell.phonePrivate().catch(() => phone.view);
     if (mine === publicRound) setPhone(left);
@@ -277,7 +289,7 @@
             {/if}
             <div class="actions"><button class="action primary pressable" onclick={startLocal}>{t(phone.localStopped ? '重新开始' : '开始')}</button></div>
           {/if}
-        {:else if busy}
+        {:else if opening}
           <div class="code">
             <span class="spinner" aria-label={t('生成链接')}></span>
             <span class="wait">{t('正在向 Cloudflare 要链接…')}</span>

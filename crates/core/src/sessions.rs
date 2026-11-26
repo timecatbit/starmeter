@@ -107,29 +107,36 @@ static PROMPTS: std::sync::Mutex<Option<Prompts>> = std::sync::Mutex::new(None);
 /// back from there in pieces, at most PROMPT_FAR: the start of a turn begun before that part. Null if none.
 fn prompt_before(path: &str, before: u64, own: &str) -> Json {
     let length = std::fs::metadata(path).map(|meta| meta.len()).unwrap_or(0);
-    let mut kept = PROMPTS.lock().expect("the prompts");
-    let known =
-        kept.get_or_insert_with(HashMap::new).get(path).cloned().filter(|(upto, _)| *upto <= before && *upto <= length);
-    let floor = known.as_ref().map_or(before.saturating_sub(PROMPT_FAR), |(upto, _)| *upto);
-    let found = match scan_prompt(path, floor, before, own) {
-        Some(found) => Some(found),
-        None => known.and_then(|(_, found)| found),
+    let known = {
+        let mut kept = PROMPTS.lock().expect("the prompts");
+        kept.get_or_insert_with(HashMap::new).get(path).cloned().filter(|(upto, _)| *upto <= before && *upto <= length)
     };
-    kept.get_or_insert_with(HashMap::new).insert(path.to_string(), (before, found.clone()));
-    found.map_or(Json::Null, |(_, at)| at)
+    let limit = before.saturating_sub(PROMPT_FAR);
+    let floor = known.as_ref().map_or(limit, |(upto, _)| (*upto).max(limit));
+    // Scan outside the PROMPTS lock and advance `upto` only on Ok: a transient I/O error must not skip this range
+    // permanently (R10-12).
+    match scan_prompt(path, floor, before, own) {
+        Ok(scanned) => {
+            let found = scanned.or_else(|| known.and_then(|(_, found)| found));
+            let mut kept = PROMPTS.lock().expect("the prompts");
+            kept.get_or_insert_with(HashMap::new).insert(path.to_string(), (before, found.clone()));
+            found.map_or(Json::Null, |(_, at)| at)
+        }
+        Err(_) => known.and_then(|(_, found)| found).map_or(Json::Null, |(_, at)| at),
+    }
 }
 
 /// The last prompt in bytes `floor`..`before` of a transcript (and in the line running on past `before`), read back in
 /// pieces of 4 MB: its offset and time.
-fn scan_prompt(path: &str, floor: u64, before: u64, own: &str) -> Option<(u64, Json)> {
+fn scan_prompt(path: &str, floor: u64, before: u64, own: &str) -> std::io::Result<Option<(u64, Json)>> {
     const PIECE: u64 = 4 * 1024 * 1024;
-    let mut file = File::open(path).ok()?;
+    let mut file = File::open(path)?;
     // The line `before` falls in, whole: its start is in the pieces read back, its end after `before`.
     let mut tail = Vec::new();
-    file.seek(SeekFrom::Start(before)).ok()?;
+    file.seek(SeekFrom::Start(before))?;
     let mut buffer = vec![0u8; 256 * 1024];
     loop {
-        let read = file.read(&mut buffer).ok()?;
+        let read = file.read(&mut buffer)?;
         if read == 0 {
             break;
         }
@@ -145,8 +152,8 @@ fn scan_prompt(path: &str, floor: u64, before: u64, own: &str) -> Option<(u64, J
     while end > floor {
         let start = end.saturating_sub(PIECE).max(floor);
         let mut piece = vec![0u8; (end - start) as usize];
-        file.seek(SeekFrom::Start(start)).ok()?;
-        file.read_exact(&mut piece).ok()?;
+        file.seek(SeekFrom::Start(start))?;
+        file.read_exact(&mut piece)?;
         piece.extend_from_slice(&tail);
         // The piece's first line may begin before it: kept for the next piece back (unless the file begins here).
         let (head, body) = match (start > 0).then(|| memchr::memchr(b'\n', &piece)).flatten() {
@@ -168,13 +175,13 @@ fn scan_prompt(path: &str, floor: u64, before: u64, own: &str) -> Option<(u64, J
                 continue;
             };
             if !copied(&row, own) && prompt(&row) {
-                return Some((body_start + line_start as u64, stamp(row.get("timestamp"))));
+                return Ok(Some((body_start + line_start as u64, stamp(row.get("timestamp")))));
             }
         }
         tail = head;
         end = start;
     }
-    None
+    Ok(None)
 }
 
 /// The complete JSON lines at a file's end: the usual tail, else twice as far back each time (up to FAR) until `enough`
@@ -1748,6 +1755,12 @@ mod tests {
         std::fs::write(&file, prompt("08:00:00") + &work("08:00:05", 5) + peer + &work("09:30:05", 40)).unwrap();
         super::PROMPTS.lock().unwrap().take();
         assert_eq!(started(&claude_turns(&path, &price).unwrap()), Some(at("09:30:00")));
+        // R10-12: a transient I/O error (missing file) must not poison PROMPTS by advancing `upto` past unread bytes.
+        let missing = folder.join("missing.jsonl");
+        let missing_path = missing.to_string_lossy().to_string();
+        assert_eq!(super::prompt_before(&missing_path, 4096, ""), Json::Null);
+        std::fs::write(&missing, prompt("10:00:00") + &work("10:00:05", 5)).unwrap();
+        assert_eq!(super::prompt_before(&missing_path, 4096, ""), Json::Double(at("10:00:00")));
         let _ = std::fs::remove_dir_all(&folder);
     }
 

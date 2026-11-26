@@ -9,7 +9,7 @@
 import { byUsage } from './order';
 import starmeterMark from '../../../../assets/starmeter-mark.svg?url';
 import { t, t as tr } from './i18n.svelte';
-import { chartPositions } from './chart';
+import { chartPositions, paced } from './chart';
 import { axisTokens, creditsText, currency, legendName, modelAmount, modelName, share, summaryPart, tokenLine, tokens } from './format';
 import { qrLook, qrModules } from './qr';
 import { BOTTOM_BAND, dollars, drawBrand, drawMark, grain, load, loadMarks, measure, middleText, SCALE, shownHeatmap, shownRows, tag, TOP_BAND, WIDTH, type Marks } from './shareCommon';
@@ -135,8 +135,9 @@ export async function poster(d: Dashboard, markColour: string, limit = SHARE_TOO
   const n = d.dates.length;
   let chart: PosterChart | null = null;
   if (n > 1) {
-    const history = (p: ProviderUsage) => Array.from({ length: n }, (_, i) => Math.max(0, p.history[i] ?? 0));
-    const values = Array.from({ length: n }, (_, i) => counted.reduce((s, p) => s + Math.max(0, p.history[i] ?? 0), 0));
+    // Today's last point at its hour's pace so far, matching SummaryChart, ToolPage and StageChart (R10-5).
+    const history = (p: ProviderUsage) => paced(Array.from({ length: n }, (_, i) => Math.max(0, p.history[i] ?? 0)), d);
+    const values = paced(Array.from({ length: n }, (_, i) => counted.reduce((s, p) => s + Math.max(0, p.history[i] ?? 0), 0)), d);
     const series = listed.map((p) => [p, summaryPart(p)] as const).filter(([, part]) => part !== null).map(([p, part]) => ({ id: p.id, values: history(part!) }));
     const rest = values.map((v, i) => Math.max(0, v - series.reduce((s, line) => s + line.values[i], 0)));
     const observed = Math.max(1, ...values), unit = Math.pow(10, Math.floor(Math.log10(observed)));

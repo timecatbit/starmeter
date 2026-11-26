@@ -2072,8 +2072,8 @@ def claude_subscription_lines(data):
     failed=refresh_failed(error)
     # 订阅额度框架: a window used up with extra usage on, what is left of it is the value, in orange.
     extra_on=payload.get('extraUsage') if isinstance(payload.get('extraUsage'),dict) and payload['extraUsage'].get('enabled') else None
-    # Only with something left to spend: no limit, or one not reached; spent, it is the red 已用 100% (R9-3).
-    left=extra_on is not None and (not extra_on.get('limit') or float(extra_on['limit'])-float(extra_on.get('used') or 0)>0)
+    # Only with something left to spend: no limit, or at least one displayed cent left; spent, red 已用 100% (R9-3, R10-13).
+    left=extra_on is not None and (not extra_on.get('limit') or float(extra_on['limit'])-float(extra_on.get('used') or 0)>=0.005)
     on_reserve=bool(windows) and not stale and max(w['used'] for w in windows)>=100 and left
     if on_reserve:
         symbol='$' if extra_on.get('currency','USD')=='USD' else extra_on['currency']+' '
@@ -2162,8 +2162,8 @@ def cursor_subscription_lines(data):
     # 订阅额度框架: the cycle's included usage used up with on-demand on, what is left of it is the value, in orange.
     on_demand=payload.get('onDemand') if isinstance(payload.get('onDemand'),dict) and payload['onDemand'].get('enabled') else None
     # Not with an unlimited plan: nothing to run out of, so no reserve and no full bar.
-    # Only with something left to spend: no limit, or one not reached; spent, it is the red 已用 100% (R9-3).
-    left=on_demand is not None and (not on_demand.get('limitCents') or float(on_demand['limitCents'])-float(on_demand.get('usedCents') or 0)>0)
+    # Only with something left to spend: no limit, or at least one displayed cent left; spent, red 已用 100% (R9-3, R10-13).
+    left=on_demand is not None and (not on_demand.get('limitCents') or float(on_demand['limitCents'])-float(on_demand.get('usedCents') or 0)>=0.5)
     on_reserve=percent is not None and percent>=100 and left and not payload.get('unlimited')
     if not enabled:badge='未开启读取'
     elif payload.get('unlimited'):badge='不限量'
@@ -3456,10 +3456,10 @@ def chatgpt_lines(data):
     unlimited=bool(credits) and credits.get('unlimited') is True
     balance=credits_amount(credits.get('balance') or 0) if credits else None
     exhausted=(most is not None and most>=100) or bool(payload.get('blocked'))
-    # Only with Credits left: unlimited, or a balance above nothing; none (0, or not given), it is the red 已用 100%
-    # (R9-3).
+    # Only with Credits left: unlimited, or a balance that displays above 0; none (0, dust, or null), red 已用 100%
+    # (R9-3, R10-13).
     figure=credits.get('balance') if credits else None
-    left=unlimited or (isinstance(figure,(int,float)) and not isinstance(figure,bool) and figure>0)
+    left=unlimited or (isinstance(figure,(int,float)) and not isinstance(figure,bool) and figure>=0.05)
     on_reserve=exhausted and credits is not None and left and bool(visible)
     if on_reserve:badge='Credits 不限' if unlimited else '余 %s Credits'%balance
     resets=payload.get('resets') if isinstance(payload.get('resets'),dict) else {}
@@ -4637,8 +4637,9 @@ def dashboard_payload(data):
                 chart_positions=[0,0.04]+[0.04+0.96*x for x in chart_positions[2:]]
             for h in histories:h['history']=[0,0]+[sum(h['history'][i] for i in group) for group in groups]
             # The last point is the hour still under way: how far into it, for the chart to draw it at its pace so far.
-            last=slots[groups[-1][-1]]
-            if last+3600>end:chart_partial=max(0,math.floor(end-last))
+            # Take the last group's first slot so exact top-of-hour merges stay full hours, and clamp to start (R10-3).
+            first=slots[groups[-1][0]]
+            if first+3600>end:chart_partial=max(0,math.floor(end-max(first,start)))
             labels=[datetime.fromtimestamp(stamp,now.tzinfo).strftime('%H:%M') for stamp in chart_times]
             span=datetime.fromtimestamp(chart_start,now.tzinfo).strftime('%m/%d %H:%M')+'–'+datetime.fromtimestamp(end,now.tzinfo).strftime('%H:%M')
     # Keep long histories legible without dropping recorded totals from the cards.

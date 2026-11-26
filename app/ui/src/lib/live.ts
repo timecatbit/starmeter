@@ -203,7 +203,7 @@ export class LiveFeed {
   }
 
   /** rateAt at each of `times` (rising) in one pass over the readings; null before the first. */
-  private rateSeries(times: number[], id?: string): (number | null)[] {
+  rateSeries(times: number[], id?: string): (number | null)[] {
     const list = this.samples, output = (s: Sample) => (id === undefined ? s.output : s.outputs?.[id] ?? 0);
     const out: (number | null)[] = [];
     let last = -1, from = 0;

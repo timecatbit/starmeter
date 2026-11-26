@@ -326,11 +326,13 @@ export class PhoneLive {
     const known = new Map(this.sessions.map((s) => [s.key, s]));
     const first = this.events.length === 0 && this.sessions.length === 0 && !this.dashboardSeen;
     const sessions = rows.map((row) => readSession(row, answer.turns ?? {}, this.skew, known.get(row.key ?? row.label), now, gap));
+    let finished = false;
     for (const s of sessions) {
       const was = known.get(s.key);
       // Turns begun or done in a gap went at moments unknown: no event at this one, no time made up for them.
       if (!was || gap) continue;
       if (was.running && !s.running) {
+        finished = true;
         const took = s.began !== null ? duration(now - s.began, s.exact) : '';
         event('done', s.title, took ? t('这一轮完成 · {d}', { d: took }) : t('这一轮完成'));
         if (!replay) this.done = { title: s.title, took, cost: s.turnCost, at: now };
@@ -342,6 +344,8 @@ export class PhoneLive {
       }
     }
     this.sessions = sessions;
+    // Active sessions and newly finished turns advance lastActive too, so 开始休息 is never stamped before 这一轮完成 (R10-4).
+    if (sessions.some((s) => s.running) || finished) this.lastActive = now;
     // Last seen working: the most recent idle session's own word for it, if nothing has been seen here yet.
     if (this.lastActive === null) {
       const minutes = sessions.map((s) => /空闲 (\d+) 分钟/.exec(source(rows.find((r) => (r.key ?? r.label) === s.key)!).detail ?? '')?.[1])
@@ -356,7 +360,7 @@ export class PhoneLive {
       const who = sessions.find((s) => s.running)?.title ?? (landings[0] ? this.before?.get(landings[0].id)?.name : null) ?? 'AI';
       event('wake', who, t('开始工作'));
     }
-    if (!working && this.state === 'working') {
+    if (!working && this.state === 'working' && !first && !gap) {
       this.restingSince = moment;
       // Resting is in 动态 too, at the last activity (it is told a while after, once nothing has come for QUIET), so the
       // feed says how long it has stood still and what came before (用户：正在运行和动态呢？).

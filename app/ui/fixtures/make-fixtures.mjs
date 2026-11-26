@@ -321,9 +321,9 @@ function dashboard(key, label) {
       let positions = times.map((t) => (t - chartStart) / duration);
       if (positions[1] < 0.01) positions = [0, 0.04, ...positions.slice(2).map((p) => 0.04 + 0.96 * p)];
       chartPositions = positions;
-      // The last point is the hour still under way, as the engine says (dashboard.rs).
-      const began = slots[groups[groups.length - 1].at(-1)][0];
-      if (began + HOUR > end) chartPartial = Math.max(0, Math.floor(end - began));
+      // The last point is the hour still under way, as the engine says (dashboard.rs, R10-3).
+      const slotStart = slots[groups[groups.length - 1][0]][0];
+      if (slotStart + HOUR > end) chartPartial = Math.max(0, Math.floor(end - Math.max(slotStart, start)));
       const rebucket = (series) => [0, 0, ...groups.map((g) => g.reduce((s, i) => s + series[i], 0))];
       for (const p of providers) { p.history = rebucket(p.history); if (p.counted) p.counted.history = rebucket(p.counted.history); }
       labels = times.map(hm);

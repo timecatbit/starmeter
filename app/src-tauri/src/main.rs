@@ -120,6 +120,9 @@ fn handle_menu(app: &AppHandle, id: &str) {
             let enabled = launcher.is_enabled().unwrap_or(false);
             let result = if enabled { launcher.disable() } else { launcher.enable() };
             // The tick as it now is, failed or not: a menu that ticked itself on the click (Linux's) shows the truth.
+            // On macOS, never re-attach NSMenu here: pop_star_menu already detached it, and attaching it again makes
+            // left-clicking the star open the right-click menu instead of the panel (R10-1). macOS rebuilds on right-click.
+            #[cfg(not(target_os = "macos"))]
             refresh_star_menu(app);
             if result.is_err() {
                 let app = app.clone();
@@ -254,7 +257,8 @@ fn build_star(app: &AppHandle) -> tauri::Result<()> {
                 } => {
                     panel::toggle(app, star_anchor(app, Some(rect)), false);
                     // The menu brought up to date while it is not on screen (the login item's tick, the notifications
-                    // item), for the next right-click; not as it opens (below).
+                    // item), for the next right-click; not as it opens (below). Skipped on macOS (R10-1).
+                    #[cfg(not(target_os = "macos"))]
                     refresh_star_menu(app);
                 }
                 // The right-click menu replaces the panel; the menu's own items then decide. It is not built afresh

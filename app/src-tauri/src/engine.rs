@@ -21,10 +21,21 @@ use crate::host as shell;
 #[cfg(target_os = "macos")]
 use crate::macos;
 
+/// Minimal cache subset needed to render the 会话 row: only `sessions` and `exchange_rate` instead of all ~25 caches (R10-9).
+fn sessions_data(runtime: &Runtime) -> Object {
+    let mut data = Object::new();
+    for (name, ttl) in [("sessions", 30.0), ("exchange_rate", 86400.0)] {
+        let (payload, error) = runtime.cache_result(&runtime.read_cache(name), ttl);
+        data.insert(name, payload.map(Json::Object).unwrap_or(Json::Null));
+        data.insert(format!("{name}_error"), error.map(Json::from).unwrap_or(Json::Null));
+    }
+    data
+}
+
 /// 会话's row with its figures in `range`, as the panel draws it.
 fn sessions_row(runtime: &Runtime, range: &str) -> Json {
     runtime.render(|| {
-        let data = runtime.cached_data();
+        let data = sessions_data(runtime);
         let lines = runtime.sessions_lines_in(&data, &runtime.currency_unit(&data), range);
         starmeter_core::panel_snapshot::panel_entries(&lines).into_iter().next().unwrap_or(Json::Null)
     })
@@ -186,18 +197,37 @@ impl Engine {
     /// Today's figures for the last minutes' live readings (phone.rs keeps them from the start), from the cache only:
     /// never a read of the logs, rendered only when today's cache was written again since `seen` (its fetchedAt), and
     /// none while a render is under way (a refresh, the panel's own drawing: the reading waits for the next turn, it
-    /// doesn't hold them up). STAGE-14.
-    pub fn today_cached(&self, seen: &mut f64) -> Option<Value> {
+    /// doesn't hold them up). Returns the new fetchedAt so the caller advances `seen` only after storing (STAGE-14, R10-9).
+    pub fn today_cached(&self, seen: f64) -> Option<(Value, f64)> {
         let runtime = self.runtime();
         let _turn = self.rendering.try_lock().ok()?;
-        today_from_cache(&runtime, seen)
+        let mut next = seen;
+        today_from_cache(&runtime, &mut next).map(|value| (value, next))
     }
 
-    /// 会话 as cached, when the render lock is free (Some(Null) while it is off the homepage), for the same readings.
-    pub fn sessions_if_free(&self) -> Option<Value> {
+    /// 会话 as cached, when the render lock is free: None if busy, Some(None) if unchanged since `seen`/`was_on`,
+    /// Some(Some(Null)) when off the homepage, or Some(Some(entry)) when changed (R10-9).
+    pub fn sessions_cached_if_free(&self, seen: &mut f64, was_on: &mut Option<bool>) -> Option<Option<Value>> {
         let runtime = self.runtime();
         let _turn = self.rendering.try_lock().ok()?;
-        Some(live_sessions(&runtime).0)
+        let enabled = runtime.module_enabled("sessions");
+        if !enabled {
+            return if *was_on == Some(false) {
+                Some(None)
+            } else {
+                *was_on = Some(false);
+                *seen = 0.0;
+                Some(Some(Value::Null))
+            };
+        }
+        let stamp = runtime.read_cache("sessions").get("fetchedAt").and_then(Json::python_float).unwrap_or(0.0);
+        if *was_on == Some(true) && stamp == *seen {
+            return Some(None);
+        }
+        let entry = to_value(sessions_row(&runtime, "today"));
+        *was_on = Some(true);
+        *seen = stamp;
+        Some(Some(entry))
     }
 
     /// Whether 会话 is on the homepage: the last minutes given carry its sessions only then.

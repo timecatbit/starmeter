@@ -267,7 +267,20 @@
     if (!onPhone || stageShown || awaitingStage || !windowBox) return;
     void panel.dark; void style.current; void snapshot?.theme;
     const box = windowBox;
-    const frame = requestAnimationFrame(() => { const colour = getComputedStyle(box).backgroundColor; paintEdges(colour, colour); });
+    const frame = requestAnimationFrame(() => {
+      const cs = getComputedStyle(box);
+      // Dark standard solid pages use a linear-gradient shorthand whose backgroundColor is rgba(0, 0, 0, 0): paint the
+      // night sky's actual edges instead of transparent (R10-7).
+      if (cs.backgroundImage !== 'none' && cs.backgroundColor === 'rgba(0, 0, 0, 0)') {
+        const root = getComputedStyle(document.documentElement);
+        const top = root.getPropertyValue('--night-top').trim() || '#1F3A7A';
+        const mid = root.getPropertyValue('--night-mid').trim() || '#0E1D4C';
+        const low = root.getPropertyValue('--night-low').trim() || '#050A24';
+        paintEdges(top, low, mid);
+      } else {
+        paintEdges(cs.backgroundColor, cs.backgroundColor);
+      }
+    });
     return () => cancelAnimationFrame(frame);
   });
 
@@ -756,15 +769,18 @@
     pressing = false;
     held = null;
     // On the homepage's 工具 (a star's click on an open panel closes it, unpinning it: this is never a pinned one);
-    // the grouping set back at once from the figures on hand, and again from those just read if they say otherwise.
-    const home = !modules && !pinned;
+    // a phone keeps its own grouping (R10-6). Submit refresh-view before homeOnTools() so an automatic refresh-view is
+    // not dropped behind set-group (R10-6).
+    const home = !modules && !pinned && !onPhone;
+    if (!onPhone) {
+      // Whether 在手机上看 is on, for the dot on its button.
+      void phoneStatus();
+      if (!modules) perform(['refresh-view']);
+    }
     if (home) { view = 'cards'; viewBeforePin = null; homeOnTools(); }
     void reload().then(() => { if (home && panel.shown && !pinned) homeOnTools(); });
     // A shortcut another app held: tried again each time the panel opens, so quitting that app is enough.
     if (shortcut.taken) void restoreShortcut();
-    // Whether 在手机上看 is on, for the dot on its button.
-    void phoneStatus();
-    if (!modules) perform(['refresh-view']);
     if (!modules && firstRuns) void shell.guideShown().then((shown) => {
       if (shown) return;
       // Seen before this panel kept it in the shared folder (its own storage said so): noted there, not shown again.

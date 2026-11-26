@@ -1955,3 +1955,56 @@ test('the live lines are smooth curves that go no further than their readings: n
   }
   expect(curve.end).toEqual([60, 200]);
 });
+
+test('reloading with kept working state never fabricates 开始休息, and 开始休息 is never earlier than 这一轮完成 (R10-4)', async ({ page }) => {
+  await phone(page, PORTRAIT, '', { live: resting() });
+  const result = await page.evaluate(async () => {
+    const { PhoneLive } = await import('/src/lib/phoneLive.svelte.ts');
+    localStorage.setItem('starmeter.liveState', JSON.stringify({ state: 'working', running: 1, at: Date.now() }));
+    const live = new PhoneLive();
+    const dash = (tokens: number) => ({
+      date: '2026-11-26', rangeKey: 'today', rangeLabel: '今天', currency: null, dates: [], period: ['2026-11-26', '2026-11-26'],
+      chartUnit: '每小时', chartSpan: '', chartStatus: '', updated: '', heatmap: null,
+      providers: [{ id: 'claude', name: 'Claude', available: true, summaryIncluded: true, tokens, output: tokens, cost: tokens / 1_000_000, unpriced: 0, requests: 1, models: [], history: [] }],
+    }) as any;
+    const sess = (running: boolean) => ({
+      label: '会话', children: [{ label: 'Demo', key: 's1', statusLight: running ? 'new' : 'idle', detail: running ? '运行中' : '空闲 1 分钟', children: [] }],
+    }) as any;
+    const t0 = 1_800_000_000;
+    // History starts with a resting sample while localStorage says working: must not fabricate 开始休息 on reading #0.
+    live.take({ at: t0 + 10, dashboard: dash(1000), sessions: sess(true), turns: { s1: t0 }, history: [{ at: t0 - 60, date: '2026-11-26', rangeKey: 'today', providers: [{ id: 'claude', available: true, summaryIncluded: true, tokens: 500, output: 500, cost: 0.001 }] }] }, 100_000);
+    const fabricated = live.events.filter((e) => e.kind === 'rest').length;
+    // Turn finishes 4s after last token landing, then quiet for 45s -> 开始休息 timestamp must be >= 这一轮完成.
+    live.take({ at: t0 + 14, dashboard: dash(1000), sessions: sess(false), turns: {} }, 104_000);
+    live.take({ at: t0 + 60, dashboard: dash(1000), sessions: sess(false), turns: {} }, 150_000);
+    const rest = live.events.find((e) => e.kind === 'rest');
+    const done = live.events.find((e) => e.kind === 'done');
+    return { fabricated, restAt: rest?.at ?? null, doneAt: done?.at ?? null };
+  });
+  expect(result.fabricated).toBe(0);
+  expect(result.restAt).not.toBeNull();
+  expect(result.doneAt).not.toBeNull();
+  expect(result.restAt!).toBeGreaterThanOrEqual(result.doneAt!);
+});
+
+test('dark standard solid phone keeps night-sky edges on SharePage instead of rgba(0, 0, 0, 0) (R10-7)', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await phone(page, PORTRAIT, '', { live: resting(), snapshot: { theme: 'dark', appearance: 'solid' } });
+  await page.getByRole('button', { name: '分享用量图' }).click();
+  await expect(page.getByRole('heading', { name: '分享用量图' })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => ({
+    themeColor: document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.content ?? '',
+    barTop: document.documentElement.style.getPropertyValue('--bar-top'),
+  }))).toEqual({ themeColor: '#1F3A7A', barTop: '#1F3A7A' });
+});
+
+test('resting on a flat zero line, StageLiveChart stops idle redraws (R10-12)', async ({ page }) => {
+  await phone(page, PORTRAIT, '', { live: resting() });
+  const canvas = page.locator('.monitor .live-chart canvas');
+  await expect(canvas).toBeVisible();
+  await page.waitForTimeout(400);
+  const before = Number(await canvas.getAttribute('data-draws') ?? '0');
+  await page.waitForTimeout(800);
+  const after = Number(await canvas.getAttribute('data-draws') ?? '0');
+  expect(after - before).toBeLessThanOrEqual(2);
+});

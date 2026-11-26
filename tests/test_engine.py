@@ -2668,8 +2668,8 @@ class EngineRunParityTests(PanelParityTests):
         (codex / 'auth.json').write_text(json.dumps({'auth_mode': 'chatgpt'}))
         self.settings(visible=['chatgpt', 'claude-subscription', 'cursor-subscription'], cursorUsage=True)
         def iso(at):return datetime.fromtimestamp(at, timezone.utc).isoformat()
-        for balance in (0, None):
-            with self.subTest(balance=balance):
+        for balance, used, used_cents in ((0, 50, 500.0), (None, 50, 500.0), (0.04, 49.996, 499.6)):
+            with self.subTest(balance=balance, used=used, used_cents=used_cents):
                 now = time.time()
                 self.caches(now)
                 records = {
@@ -2677,9 +2677,9 @@ class EngineRunParityTests(PanelParityTests):
                                 'credits': {'balance': balance, 'unlimited': False}, 'blocked': True},
                     'claude_subscription': {'windows': [{'label': '5 小时', 'used': 100, 'resetsAt': iso(now + 3600)}, {'label': '本周', 'used': 40, 'resetsAt': iso(now + 86400), 'span': 604800}],
                                             'source': 'oauth', 'updatedAt': now - 20, 'stale': False,
-                                            'extraUsage': {'enabled': True, 'used': 50, 'limit': 50, 'currency': 'USD'}},
+                                            'extraUsage': {'enabled': True, 'used': used, 'limit': 50, 'currency': 'USD'}},
                     'cursor_subscription': {'membership': 'pro', 'unlimited': False, 'percent': 100.0, 'usedCents': 2000.0, 'limitCents': 2000.0,
-                                            'cycleStart': now - 86400, 'cycleEnd': now + 86400 * 20, 'onDemand': {'enabled': True, 'usedCents': 500.0, 'limitCents': 500.0}},
+                                            'cycleStart': now - 86400, 'cycleEnd': now + 86400 * 20, 'onDemand': {'enabled': True, 'usedCents': used_cents, 'limitCents': 500.0}},
                 }
                 for engine in self.states:
                     for name, payload in records.items():

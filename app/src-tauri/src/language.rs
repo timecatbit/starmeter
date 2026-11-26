@@ -57,9 +57,9 @@ pub fn set_language(app: AppHandle, language: String) {
         let _ = std::fs::create_dir_all(folder);
     }
     let _ = std::fs::write(&path, chosen.key());
-    // Linux sets the star's menu once: its tray opens the menu on any click and tells the app nothing first. macOS and
-    // Windows build it again at each right-click.
-    if cfg!(target_os = "linux") {
+    // Linux and Windows keep the menu attached and show it on right-click without rebuilding there (16b94c0), so
+    // rebuild it when the language changes (R10-10). macOS rebuilds on every right-click and must stay detached (R10-1).
+    if !cfg!(target_os = "macos") {
         crate::refresh_star_menu(&app);
     }
 }

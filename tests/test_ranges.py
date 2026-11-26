@@ -370,6 +370,16 @@ class RangeTests(unittest.TestCase):
   # Its last point is the hour still under way, 30 seconds into it.
   self.assertEqual(d['chartPartial'],30)
 
+ def test_today_chart_top_of_hour_is_not_partial(self):
+  # R10-3: at exact top-of-hour (12:00:00), the merged [11:00, 12:00] group holds a full hour (11:00-12:00) and must
+  # not emit chartPartial=0 (which would scale a full hour by 6x).
+  now=self.now.replace(hour=12,minute=0,second=0,microsecond=0);start,end=self.m.range_bounds('today',now)
+  sample={'summary':{'requests':2,'totalTokens':200},'firstActivityAt':start+10*3600,
+          'hours':[{'timestamp':start+10*3600,'totalTokens':100},{'timestamp':start+11*3600,'totalTokens':100}]}
+  with patch.object(self.m,'usage_now',return_value=now):
+   d=self.m.dashboard_payload({'range_usage':{'range':'today','start':start,'end':end,'claude':sample}})
+  self.assertIsNone(d['chartPartial'])
+
  def test_rolling_24h_chart_keeps_full_window(self):
   self.m.write_json_cache(self.m.cache_path('view-range'),{'schema':1,'range':'24h'})
   start,end=self.m.range_bounds('24h',self.now)

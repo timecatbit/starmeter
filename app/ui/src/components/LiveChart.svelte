@@ -144,10 +144,11 @@
         ? order.map((id) => { const eased = feed.smoothRates(times, id); return { id, points: times.map((t, i): [number, number] => [t, eased[i]]) }; })
         : [];
       // The tools far apart (the most twenty times the least of those moving): a log scale, every line clear of the
-      // bottom; back to a straight one under ten times, the gap between the two keeping it from flickering.
+      // bottom; back to a straight one under ten times, the gap between the two keeping it from flickering. In Token/s
+      // mode judge from each tool's raw window rate rather than its doubly-eased startup ramp (R10-11).
       const newestSample = points.at(-1);
       const amounts = rating
-        ? toolRates.map((tool) => Math.max(...tool.points.map(([, r]) => r))).filter((r) => r > 0)
+        ? order.map((id) => Math.max(0, ...feed.rateSeries(times, id).map((r) => r ?? 0))).filter((r) => r > 0)
         : base && newestSample ? order.map((id) => (newestSample.parts[id] ?? 0) - (base.parts[id] ?? 0)).filter((a) => a > 0) : [];
       const spread = amounts.length > 1 ? Math.max(...amounts) / Math.min(...amounts) : 1;
       if (!logNow && spread >= 20) { logNow = true; shown = null; }
@@ -320,7 +321,8 @@
         let k = 0;
         for (const t of everySecond) {
           while (k + 1 < samples.length && samples[k + 1].at <= t) k++;
-          values.push(samples[k].at <= t ? level(id, samples[k]) : level(id, base!));
+          // Clamp warmup samples before `base` to >= 0 so negative pre-window values never pull the S-curve down (R10-11).
+          values.push(Math.max(0, samples[k].at <= t ? level(id, samples[k]) : level(id, base!)));
         }
         return easeTwice(everySecond, values, 1500).slice(warm.length).map((v, i): Point => [x(times[i]), clamped(v)]);
       };

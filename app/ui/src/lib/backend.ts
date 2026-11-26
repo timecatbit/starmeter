@@ -69,6 +69,8 @@ export interface PhoneView {
   localOpen?: boolean; local: string | null; tailnet?: string | null; public: string | null; secondsLeft: number;
   /** The public link seen to open from outside before it was shown; false when the wait for it ran out (PHONE-11). */
   publicChecked?: boolean;
+  /** A public link is being opened right now (e.g. startup resume or started before leaving the page, R10-8). */
+  publicOpening?: boolean;
 }
 /** The browser's stand-in for the phone server, for the tests and the dev server: 同一个网络 and the public link, each
  *  on and off on its own, the server on while either is; what is on kept in the page's storage, on again as the page

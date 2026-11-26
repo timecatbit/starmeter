@@ -260,7 +260,8 @@
     // computer gone quiet just after one kept every frame drawn).
     const moving = drops.some((d) => now - d.born < DROP + RISE) || sparks.some((s) => now - s.born < SPARK) || shownTop !== top;
     if (moving) queue();
-    else later = setTimeout(queue, Math.min(1000, Math.max(33, (span / Math.max(1, right)) * 0.5)));
+    // Resting on a completely flat zero line: nothing changes between readings, so stop idle redraws until the next reading (R10-12).
+    else if (highest > 0 || live.state === 'working') later = setTimeout(queue, Math.min(1000, Math.max(33, (span / Math.max(1, right)) * 0.5)));
   }
 </script>
 

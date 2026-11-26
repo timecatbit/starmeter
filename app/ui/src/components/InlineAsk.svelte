@@ -82,6 +82,7 @@
     box-shadow: 0 0 0 0.5px var(--separator), 0 -6px 24px rgba(0, 0, 0, 0.16);
   }
   .ask.notice { background: color-mix(in srgb, var(--orange) 9%, transparent); }
+  .ask.sheet.notice { background: color-mix(in srgb, var(--orange) 14%, var(--solid)); }
   .title { margin: 0; font-size: 12px; font-weight: 600; line-height: 1.35; }
   .detail { margin: 4px 0 0; font-size: 11px; line-height: 1.45; color: var(--secondary); white-space: pre-line; }
   .detail.lead { margin-top: 0; }

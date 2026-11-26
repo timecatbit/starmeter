@@ -1317,10 +1317,13 @@ impl Runtime {
                 }
                 chart_positions = Json::Array(positions);
                 // The last point is the hour still under way: how far into it, for the chart to draw it at its pace so
-                // far rather than as a fall (an hour's tokens on the axis, 23 minutes' at the end).
-                if let Some(&last) = groups.last().and_then(|group| group.last()) {
-                    let began = slots[last].integer().unwrap_or(0) as f64;
-                    if began + 3600.0 > end {
+                // far rather than as a fall (an hour's tokens on the axis, 23 minutes' at the end). Take the last
+                // group's first slot so an exact top-of-hour merge ([14:00, 15:00] at 15:00:00) stays a full hour, and
+                // clamp to `start` for half-hour zones during 00:00-00:30 (R10-3).
+                if let Some(&first) = groups.last().and_then(|group| group.first()) {
+                    let slot_start = slots[first].integer().unwrap_or(0) as f64;
+                    if slot_start + 3600.0 > end {
+                        let began = slot_start.max(start);
                         chart_partial = Json::Int((end - began).floor().max(0.0) as i64);
                     }
                 }

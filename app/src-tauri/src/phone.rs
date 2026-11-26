@@ -92,6 +92,8 @@ struct Running {
     public_round: Arc<AtomicBool>,
     /// Asks for the public link on their way: the server stays for them with 同一个网络 off.
     opening: usize,
+    /// Asks belonging to the current (un-cancelled) round: shown in PhoneView so 停止 clears the spinner immediately.
+    opening_active: usize,
 }
 
 /// The keys the server takes. Only the public link's comes from this computer itself (cloudflared hands its requests on
@@ -127,6 +129,8 @@ pub struct PhoneView {
     /// Whether the public link was seen to open from outside before it was shown (PHONE-11); false only when the wait
     /// for it ran out, so the panel says the phone may have to wait a moment.
     public_checked: bool,
+    /// Whether a public link is currently being opened (startup resume or opened before leaving PhonePage, R10-8).
+    public_opening: bool,
 }
 
 /// A public link still to be used: its cloudflared running and its hour not up. Past the hour it is closed within a few
@@ -147,7 +151,14 @@ fn view(running: &Running) -> PhoneView {
         public: public.map(|public| format!("{}/#k={}", public.tunnel.url, public.key)),
         seconds_left: public.map_or(0, |public| public.until.saturating_duration_since(Instant::now()).as_secs()),
         public_checked: running.public.as_ref().is_none_or(|public| public.tunnel.checked),
+        public_opening: running.opening_active > 0,
     }
+}
+
+/// The view shown to the panel, or None when neither way is on and no active-round public link is opening.
+fn visible_view(running: &Running) -> Option<PhoneView> {
+    let v = view(running);
+    (v.local_open || v.public.is_some() || v.public_opening).then_some(v)
 }
 
 /// This computer's address on its network: the one its traffic would leave from. A UDP socket "connected" to an
@@ -198,10 +209,12 @@ struct Kept {
     public_until: Option<f64>,
 }
 
-fn kept_file() -> PathBuf {
+fn kept_file(app: &AppHandle) -> PathBuf {
     let environment: HashMap<String, String> = std::env::vars().collect();
     let shell = starmeter_core::desktop::Shell::current();
-    PathBuf::from(starmeter_core::desktop::state_dir(shell, &environment)).join("phone.json")
+    // Separate files for Standalone vs SwiftBar so running both never overwrites the other's port or tunnel (R10-8).
+    let name = if matches!(&*app.state::<Data>(), Data::SwiftBar(_)) { "phone-swiftbar.json" } else { "phone.json" };
+    PathBuf::from(starmeter_core::desktop::state_dir(shell, &environment)).join(name)
 }
 
 /// The kept state; a key that isn't one of ours (32 hex digits) is left out.
@@ -236,8 +249,8 @@ fn write_kept(path: &Path, kept: &Kept) {
     }
 }
 
-fn keep(change: impl FnOnce(&mut Kept)) {
-    let path = kept_file();
+fn keep(app: &AppHandle, change: impl FnOnce(&mut Kept)) {
+    let path = kept_file(app);
     let mut kept = read_kept(&path);
     change(&mut kept);
     write_kept(&path, &kept);
@@ -250,15 +263,17 @@ fn bind(port: Option<u16>) -> std::io::Result<TcpListener> {
 
 /// The app started (an update too): what the user left on, on again, before anyone opens the panel.
 pub fn resume(app: &AppHandle) {
-    let kept = read_kept(&kept_file());
+    let kept = read_kept(&kept_file(app));
     if kept.local.is_some() {
         let _ = phone_start(app.clone());
     }
     if kept.public_until.is_some_and(|until| until > starmeter_core::runtime::now()) {
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
-            let _ = phone_public(app).await;
+            let _ = open_public(app, true).await;
         });
+    } else if kept.public_until.is_some() {
+        keep(app, |kept| kept.public_until = None);
     }
 }
 
@@ -270,10 +285,10 @@ fn serving<'a>(app: &AppHandle, running: &'a mut Option<Running>) -> Result<&'a 
         stop_running(&mut over);
     }
     if running.is_none() {
-        let listener = bind(read_kept(&kept_file()).port).map_err(|error| format!("没能开始：{error}"))?;
+        let listener = bind(read_kept(&kept_file(app)).port).map_err(|error| format!("没能开始：{error}"))?;
         let port = listener.local_addr().map_err(|error| error.to_string())?.port();
         listener.set_nonblocking(true).map_err(|error| error.to_string())?;
-        keep(|kept| kept.port = Some(port));
+        keep(app, |kept| kept.port = Some(port));
         let keys = Arc::new(Mutex::new(Keys::default()));
         let stop = Arc::new(AtomicBool::new(false));
         {
@@ -287,6 +302,7 @@ fn serving<'a>(app: &AppHandle, running: &'a mut Option<Running>) -> Result<&'a 
             public: None,
             public_round: Arc::new(AtomicBool::new(false)),
             opening: 0,
+            opening_active: 0,
         });
     }
     Ok(running.as_mut().expect("the server just started"))
@@ -304,9 +320,9 @@ pub fn phone_start(app: AppHandle) -> Result<PhoneView, String> {
         .lock()
         .expect("the keys")
         .local
-        .get_or_insert_with(|| read_kept(&kept_file()).local.unwrap_or_else(new_key))
+        .get_or_insert_with(|| read_kept(&kept_file(&app)).local.unwrap_or_else(new_key))
         .clone();
-    keep(|kept| kept.local = Some(key));
+    keep(&app, |kept| kept.local = Some(key));
     Ok(view(current))
 }
 
@@ -323,10 +339,10 @@ pub fn phone_status(app: AppHandle) -> Option<PhoneView> {
     }
     // A public link whose hour is up, or whose cloudflared has ended, goes; the panel says so.
     if let Some(current) = running.as_mut() {
-        close_public_if_over(current);
+        close_public_if_over(&app, current);
     }
     settle(&mut running);
-    running.as_ref().map(view)
+    running.as_ref().and_then(visible_view)
 }
 
 /// 同一个网络's 停止: its addresses (the network's and Tailscale's) no longer open, its key gone with them; the public
@@ -338,9 +354,9 @@ pub fn phone_stop(app: AppHandle) -> Option<PhoneView> {
     if let Some(current) = running.as_mut() {
         current.keys.lock().expect("the keys").local = None;
     }
-    keep(|kept| kept.local = None);
+    keep(&app, |kept| kept.local = None);
     settle(&mut running);
-    running.as_ref().map(view)
+    running.as_ref().and_then(visible_view)
 }
 
 /// The app quitting: the server and the public link with it, what was on kept for the next start.
@@ -384,12 +400,12 @@ fn forget_public_key(keys: &Mutex<Keys>, key: &str) {
 }
 
 /// Closes the public link once its hour is up or its cloudflared has ended; 同一个网络 stays.
-fn close_public_if_over(running: &mut Running) {
+fn close_public_if_over(app: &AppHandle, running: &mut Running) {
     if running.public.as_ref().is_some_and(|public| !usable(public))
         && let Some(over) = running.public.take()
     {
         close_public(&running.keys, over);
-        keep(|kept| kept.public_until = None);
+        keep(app, |kept| kept.public_until = None);
     }
 }
 
@@ -401,15 +417,20 @@ static OPENING: Mutex<()> = Mutex::new(());
 /// is. The link belongs to the round it was asked in: its 停止 meanwhile (or the app quitting), it is closed, not shown.
 #[tauri::command]
 pub async fn phone_public(app: AppHandle) -> Result<PhoneView, String> {
+    open_public(app, false).await
+}
+
+async fn open_public(app: AppHandle, resuming: bool) -> Result<PhoneView, String> {
     let (port, server, round, keys) = {
         let state = app.state::<Phone>();
         let mut running = state.running.lock().expect("the phone lock");
         let current = serving(&app, &mut running)?;
-        close_public_if_over(current);
+        close_public_if_over(&app, current);
         if current.public.as_ref().is_some_and(usable) {
             return Ok(view(current));
         }
         current.opening += 1;
+        current.opening_active += 1;
         (current.port, current.stop.clone(), current.public_round.clone(), current.keys.clone())
     };
     let (handle, asked) = (app.clone(), round.clone());
@@ -460,8 +481,17 @@ pub async fn phone_public(app: AppHandle) -> Result<PhoneView, String> {
         return Err("手机查看已经关闭".into());
     };
     current.opening -= 1;
+    if Arc::ptr_eq(&current.public_round, &round) {
+        current.opening_active = current.opening_active.saturating_sub(1);
+    }
     let answer = match opened {
-        Err(error) => Err(error),
+        Err(error) => {
+            // Startup resume that failed clears its kept expiry so a later manual 开始 gets a full hour (R10-8).
+            if resuming {
+                keep(&app, |kept| kept.public_until = None);
+            }
+            Err(error)
+        }
         Ok(opened) if round.load(Ordering::SeqCst) => {
             if let Some((mut tunnel, key)) = opened {
                 tunnel.stop();
@@ -470,13 +500,17 @@ pub async fn phone_public(app: AppHandle) -> Result<PhoneView, String> {
             Err("外网链接已经关闭".into())
         }
         Ok(Some((tunnel, key))) => {
-            // Its hour: what is left of the one kept (the app started again within it), else a new one, kept.
+            // Startup resume keeps what is left of the previous hour; a manual 开始 always starts a fresh hour (R10-8).
             let now = starmeter_core::runtime::now();
-            let until = read_kept(&kept_file())
-                .public_until
-                .filter(|until| *until > now && *until <= now + PUBLIC_LIFETIME.as_secs_f64())
-                .unwrap_or(now + PUBLIC_LIFETIME.as_secs_f64());
-            keep(|kept| kept.public_until = Some(until));
+            let until = if resuming {
+                read_kept(&kept_file(&app))
+                    .public_until
+                    .filter(|until| *until > now && *until <= now + PUBLIC_LIFETIME.as_secs_f64())
+                    .unwrap_or(now + PUBLIC_LIFETIME.as_secs_f64())
+            } else {
+                now + PUBLIC_LIFETIME.as_secs_f64()
+            };
+            keep(&app, |kept| kept.public_until = Some(until));
             let until = Instant::now() + Duration::from_secs_f64(until - now);
             if let Some(old) = current.public.replace(Public { tunnel, until, key }) {
                 close_public(&current.keys, old);
@@ -497,13 +531,14 @@ pub fn phone_private(app: AppHandle) -> Option<PhoneView> {
     if let Some(current) = running.as_mut() {
         current.public_round.store(true, Ordering::SeqCst);
         current.public_round = Arc::new(AtomicBool::new(false));
+        current.opening_active = 0;
         if let Some(public) = current.public.take() {
             close_public(&current.keys, public);
         }
     }
-    keep(|kept| kept.public_until = None);
+    keep(&app, |kept| kept.public_until = None);
     settle(&mut running);
-    running.as_ref().map(view)
+    running.as_ref().and_then(visible_view)
 }
 
 fn serve(app: AppHandle, listener: TcpListener, keys: Arc<Mutex<Keys>>, stop: Arc<AtomicBool>) {
@@ -517,7 +552,7 @@ fn serve(app: AppHandle, listener: TcpListener, keys: Arc<Mutex<Keys>>, stop: Ar
                 && running.as_ref().is_some_and(|current| Arc::ptr_eq(&current.stop, &stop))
             {
                 if let Some(current) = running.as_mut() {
-                    close_public_if_over(current);
+                    close_public_if_over(&app, current);
                 }
                 settle(&mut running);
             }
@@ -621,10 +656,10 @@ fn answer(app: &AppHandle, mut stream: TcpStream, keys: &Mutex<Keys>, nearby: bo
     }
     match app.asset_resolver().get(file.to_string()) {
         // The page itself carries the computer's look as it is now, for its first frame (first-frame.js): iOS Safari
-        // takes its bars' colours from that frame and keeps them.
+        // takes its bars' colours from that frame and keeps them. No live AI activity or session counts go into this
+        // unauthenticated HTML (R10-2): reloads read their own last state from localStorage, fresh scans show 正在读取….
         Some(asset) if file == "index.html" => {
-            let live = live_state(&RECENT.lock().expect("the live readings"), starmeter_core::runtime::now());
-            let page = with_look(&String::from_utf8_lossy(&asset.bytes), &computer_look(&app.state::<Data>()), &live);
+            let page = with_look(&String::from_utf8_lossy(&asset.bytes), &computer_look(&app.state::<Data>()));
             respond(&mut stream, 200, &asset.mime_type, page.as_bytes(), fresh_asset(file))
         }
         Some(asset) => respond(&mut stream, 200, &asset.mime_type, &asset.bytes, false),
@@ -655,43 +690,10 @@ fn computer_look(data: &Data) -> Value {
     json!({"theme": theme, "style": crate::style::current()})
 }
 
-/// Whether the AI is at work now, as 网页版 judges it (phoneLive.svelte.ts: a session running, or Summary's tokens grown
-/// within the last 40 seconds, readings either side of a gap not counting), from the last minutes kept, and how many
-/// sessions run: written into the page, so a page reloaded while the work goes on is at work from its first frame (it
-/// was resting until its first answer came, a flash of 休息中).
-fn live_state(recent: &VecDeque<Value>, now: f64) -> Value {
-    let counted = |reading: &Value| -> f64 {
-        reading["providers"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter(|p| p["available"] != Value::Bool(false) && p["summaryIncluded"] != Value::Bool(false))
-            .map(|p| p["counted"]["tokens"].as_f64().or_else(|| p["tokens"].as_f64()).unwrap_or(0.0))
-            .sum()
-    };
-    let grew = recent
-        .iter()
-        .zip(recent.iter().skip(1))
-        .filter(|(before, after)| {
-            before["date"] == after["date"]
-                && before["rangeKey"] == after["rangeKey"]
-                && after["at"].as_f64().zip(before["at"].as_f64()).is_some_and(|(a, b)| a - b <= 15.0)
-                && counted(after) > counted(before) + 0.5
-        })
-        .filter_map(|(_, after)| after["at"].as_f64())
-        .next_back();
-    let running = recent
-        .iter()
-        .rev()
-        .find_map(|reading| reading.get("sessions"))
-        .and_then(Value::as_array)
-        .map_or(0, |rows| rows.iter().filter(|row| row["statusLight"] == "new").count());
-    json!({"working": running > 0 || grew.is_some_and(|at| now - at < 40.0), "running": running})
-}
-
-/// The page with the computer's look, and whether the AI is at work, written in before its first script runs.
-fn with_look(page: &str, look: &Value, live: &Value) -> String {
-    let script = format!("<script>window.STARMETER_LOOK={look};window.STARMETER_LIVE={live};</script>\n    ");
+/// The page with the computer's look written in before its first script runs (no live activity or session counts in
+/// unauthenticated HTML, R10-2).
+fn with_look(page: &str, look: &Value) -> String {
+    let script = format!("<script>window.STARMETER_LOOK={look};</script>\n    ");
     match page.find("<script src=\"/first-frame.js\"") {
         Some(at) => format!("{}{script}{}", &page[..at], &page[at..]),
         None => page.to_string(),
@@ -835,15 +837,23 @@ const RECENT_FOR: f64 = 400.0;
 const RECENT_EVERY: f64 = 2.0;
 const RECENT_IDLE: f64 = 10.0;
 
+#[derive(Default)]
+struct SampleCache {
+    seen_today: f64,
+    seen_sessions: f64,
+    sessions_was_on: Option<bool>,
+    last_sessions: Option<Value>,
+}
+
 /// The last minutes recorded from the app's start: a reading every couple of seconds while the panel shows or the
-/// phone view is on, every ten otherwise. Cheap (STAGE-14): today's figures from the app's cache only, rendered only
-/// when that cache was written again (otherwise the last reading again, at this moment), never a read of the logs, never
-/// waiting on a render under way; whether the panel shows from its flag, not asked of the main thread.
+/// phone view is on, every ten otherwise. Cheap (STAGE-14, R10-9): today's figures and 会话 from their caches only,
+/// rendered only when their caches changed, never holding RECENT.lock() across disk I/O or waiting on a render under
+/// way; whether the panel shows from its flag, not asked of the main thread.
 pub fn keep_recording(app: AppHandle) {
     let _ = std::thread::Builder::new().name("starmeter-live-readings".into()).spawn(move || {
-        let mut seen = 0.0;
+        let mut cache = SampleCache::default();
         loop {
-            sample_cached(&app.state::<Data>(), &mut seen);
+            sample_cached(&app.state::<Data>(), &mut cache);
             let watched = crate::engine::PANEL_OPEN.load(Ordering::SeqCst)
                 || app
                     .state::<Phone>()
@@ -857,31 +867,61 @@ pub fn keep_recording(app: AppHandle) {
 
 /// A reading for the last minutes from what the source has cached: the app's today when its cache was written again
 /// (else the last reading's figures again, so the readings run on without a gap), SwiftBar's snapshot looked at, the
-/// fixtures. Nothing when the app is busy rendering: the next turn takes it.
-fn sample_cached(data: &Data, seen: &mut f64) {
+/// fixtures. Nothing when the app is busy rendering or within RECENT_EVERY of the last reading: the next turn takes it.
+fn sample_cached(data: &Data, cache: &mut SampleCache) {
     let Data::Engine(engine) = data else { return sample(data) };
-    let Some(mut sessions) = engine.sessions_if_free() else { return };
-    if sessions.is_object() {
-        phone_sessions(&mut sessions);
+    let moment = starmeter_core::runtime::now();
+    // Check throttle and grab any fallback dashboard before releasing RECENT so disk I/O never blocks requests (R10-9).
+    let fallback = {
+        let recent = RECENT.lock().expect("the live readings");
+        if recent
+            .back()
+            .and_then(|last| last["at"].as_f64())
+            .is_some_and(|at| moment - at < RECENT_EVERY && moment >= at)
+        {
+            return;
+        }
+        recent
+            .back()
+            .map(|last| json!({"date": last["date"], "rangeKey": last["rangeKey"], "providers": last["providers"]}))
+    };
+    let Some(updated_sessions) = engine.sessions_cached_if_free(&mut cache.seen_sessions, &mut cache.sessions_was_on)
+    else {
+        return;
+    };
+    if let Some(mut fresh) = updated_sessions {
+        if fresh.is_object() {
+            phone_sessions(&mut fresh);
+            cache.last_sessions = Some(fresh);
+        } else {
+            cache.last_sessions = None;
+        }
     }
-    let sessions = sessions.is_object().then_some(&sessions);
-    let mut recent = RECENT.lock().expect("the live readings");
-    let dashboard = match engine.today_cached(seen) {
-        Some(dashboard) => dashboard,
-        None => match recent.back() {
-            Some(last) => json!({"date": last["date"], "rangeKey": last["rangeKey"], "providers": last["providers"]}),
+    let fresh_today = engine.today_cached(cache.seen_today);
+    let (dashboard, next_today) = match fresh_today {
+        Some((dashboard, stamp)) => (dashboard, Some(stamp)),
+        None => match fallback {
+            Some(last) => (last, None),
             None => return,
         },
     };
-    keep_recent(&mut recent, starmeter_core::runtime::now(), &dashboard, sessions);
+    let sessions = cache.last_sessions.as_ref();
+    let stored = {
+        let mut recent = RECENT.lock().expect("the live readings");
+        keep_recent(&mut recent, starmeter_core::runtime::now(), &dashboard, sessions)
+    };
+    // Advance seen_today only once the reading actually landed in RECENT (R10-9: never drop an update to the throttle).
+    if stored && let Some(stamp) = next_today {
+        cache.seen_today = stamp;
+    }
 }
 
 /// A reading kept: when, the day and range, and each tool's figures the line counts (Summary's share, what a gateway
-/// alone logged).
-fn keep_recent(recent: &mut VecDeque<Value>, moment: f64, dashboard: &Value, sessions: Option<&Value>) {
-    let Some(providers) = dashboard.get("providers").and_then(Value::as_array) else { return };
+/// alone logged). Returns true if stored, false if skipped/throttled.
+fn keep_recent(recent: &mut VecDeque<Value>, moment: f64, dashboard: &Value, sessions: Option<&Value>) -> bool {
+    let Some(providers) = dashboard.get("providers").and_then(Value::as_array) else { return false };
     if recent.back().and_then(|last| last["at"].as_f64()).is_some_and(|at| moment - at < RECENT_EVERY && moment >= at) {
-        return;
+        return false;
     }
     let short: Vec<Value> = providers
         .iter()
@@ -944,6 +984,7 @@ fn keep_recent(recent: &mut VecDeque<Value>, moment: f64, dashboard: &Value, ses
         reading["sessions"] = sessions;
     }
     recent.push_back(reading);
+    true
 }
 
 /// 会话 as the readings keep it: each session's title, key, light and state, and its latest turn's line (tokens, cost,
@@ -1357,46 +1398,13 @@ mod tests {
     #[test]
     fn the_page_carries_the_computers_look_for_its_first_frame() {
         let page = "<head>\n    <title>Starmeter</title>\n    <script src=\"/first-frame.js\"></script>\n  </head>";
-        let live = serde_json::json!({"working": true, "running": 2});
-        let shown = super::with_look(page, &serde_json::json!({"theme": "dark", "style": "standard"}), &live);
+        let shown = super::with_look(page, &serde_json::json!({"theme": "dark", "style": "standard"}));
         let look = shown.find("window.STARMETER_LOOK={\"style\":\"standard\",\"theme\":\"dark\"};").expect("the look");
         assert!(look < shown.find("first-frame.js").unwrap());
-        assert!(shown.contains("window.STARMETER_LIVE={\"running\":2,\"working\":true};"));
+        // Unauthenticated HTML never carries live AI activity or session counts (R10-2).
+        assert!(!shown.contains("STARMETER_LIVE"));
         // A page without the script is left as it is.
-        assert_eq!(super::with_look("<html></html>", &serde_json::json!({}), &live), "<html></html>");
-    }
-
-    /// At work or resting as 网页版 would judge it, for the page's first frame: a session running; Summary's tokens grown
-    /// in the last 40 seconds; not tokens grown across a gap, nor long ago, nor by a tool left out of Summary.
-    #[test]
-    fn the_page_is_told_whether_the_ai_is_at_work() {
-        let reading = |at: f64, claude: f64, other: f64| {
-            serde_json::json!({"at": at, "date": "2026-11-25", "rangeKey": "today", "providers": [
-                {"id": "claude", "available": true, "summaryIncluded": true, "tokens": claude},
-                {"id": "left-out", "available": true, "summaryIncluded": false, "tokens": other}]})
-        };
-        let state = |readings: Vec<serde_json::Value>, now: f64| {
-            let recent: std::collections::VecDeque<_> = readings.into_iter().collect();
-            super::live_state(&recent, now)
-        };
-        let working = |value: serde_json::Value| value["working"].as_bool().unwrap();
-        assert!(!working(state(vec![], 1000.0)));
-        assert!(working(state(vec![reading(990.0, 100.0, 0.0), reading(992.0, 300.0, 0.0)], 1000.0)));
-        assert!(!working(state(
-            vec![reading(900.0, 100.0, 0.0), reading(902.0, 300.0, 0.0), reading(998.0, 300.0, 0.0)],
-            1000.0
-        )));
-        assert!(!working(state(vec![reading(960.0, 100.0, 0.0), reading(990.0, 300.0, 0.0)], 1000.0)), "across a gap");
-        assert!(
-            !working(state(vec![reading(990.0, 100.0, 0.0), reading(992.0, 100.0, 500.0)], 1000.0)),
-            "left out of Summary"
-        );
-        let mut quiet = reading(998.0, 100.0, 0.0);
-        quiet["sessions"] =
-            serde_json::json!([{"label": "a", "statusLight": "new"}, {"label": "b", "statusLight": "idle"}]);
-        let running = state(vec![reading(996.0, 100.0, 0.0), quiet], 1000.0);
-        assert!(working(running.clone()));
-        assert_eq!(running["running"], 1);
+        assert_eq!(super::with_look("<html></html>", &serde_json::json!({})), "<html></html>");
     }
 
     #[test]
@@ -1441,6 +1449,7 @@ mod tests {
             public: None,
             public_round: Arc::new(AtomicBool::new(false)),
             opening,
+            opening_active: opening,
         };
         let mut on = Some(running(true, 0));
         settle(&mut on);
