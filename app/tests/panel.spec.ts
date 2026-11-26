@@ -1283,6 +1283,45 @@ test('settings: theme segments, switches and the module grid answer at once', as
   await expect(page.locator('.card .name')).not.toContainText(['Claude']);
 });
 
+test('by night the solid panel lies on 网页版\'s sky, what floats on it in a blue of that sky; by day and in 手绘 as before', async ({ page }) => {
+  await open(page);
+  const look = () => page.locator('.window').evaluate((w) => {
+    const css = getComputedStyle(w);
+    return { colour: css.backgroundColor, image: css.backgroundImage, solid: css.getPropertyValue('--solid').trim() };
+  });
+  await button(page, '主页模块与设置').click();
+  await button(page, '外观').click();
+  await page.getByRole('radio', { name: '深色' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  // The phone's night: #1F3A7A at the top, #0E1D4C, #050A24 at the foot (the user: 电脑版的深色主页背景色弄成和手机版的一致).
+  let seen = await look();
+  expect(seen.image).toContain('rgb(31, 58, 122)');
+  expect(seen.image).toContain('rgb(14, 29, 76)');
+  expect(seen.image).toContain('rgb(5, 10, 36)');
+  expect(seen.solid).toBe('#182D68');
+  // The homepage too, and its range menu a blue of the sky, not the grey of before.
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.dashboard')).toBeVisible();
+  expect((await look()).image).toContain('rgb(31, 58, 122)');
+  await page.locator('button[aria-haspopup=listbox]').first().click();
+  await expect(page.locator('[role=listbox]')).toBeVisible();
+  expect(await page.locator('[role=listbox]').evaluate((m) => getComputedStyle(m).backgroundColor)).toBe('rgb(24, 45, 104)');
+  await page.keyboard.press('Escape');
+  // By day: the white of before, no sky.
+  await button(page, '主页模块与设置').click();
+  await button(page, '外观').click();
+  await page.getByRole('radio', { name: '浅色' }).click();
+  seen = await look();
+  expect(seen.image).toBe('none');
+  expect(seen.colour).toBe('rgb(253, 253, 253)');
+  // 手绘 by night keeps its blackboard.
+  await page.getByRole('radio', { name: '深色' }).click();
+  await page.getByRole('radio', { name: '手绘' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-style', 'sketch');
+  expect((await look()).image).not.toContain('rgb(31, 58, 122)');
+});
+
 test('全局快捷键 in 通用: off at first, a choice is kept, one already taken says so and keeps the old', async ({ page }) => {
   // 通用, with the row unfolded to its choices.
   const settings = async () => {
