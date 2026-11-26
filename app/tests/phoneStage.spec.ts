@@ -1018,6 +1018,28 @@ test('reloaded on a phone in dark mode, the page and the bars are the computer\'
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('starmeter.edges')!).top)).toBe(lit.meta);
 });
 
+test('reloaded, the first frame is the page\'s own sky, top to foot, not two halves meeting in a line across the middle', async ({ page }) => {
+  // 用户：刷新的时候会显示这个。就，总是很突兀 (the top's blue over the upper half, the foot's near black under it).
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await phone(page);
+  await page.route('**/api/snapshot**', () => {});
+  await page.route('**/api/live**', () => {});
+  // Without the page's own script (an empty one in its place): the first frame alone.
+  await page.route(/\/src\/main\.ts(\?|$)/, (route) => route.fulfill({ contentType: 'text/javascript', body: '' }));
+  await page.reload({ waitUntil: 'load' });
+  await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).backgroundImage)).toContain('gradient');
+  const { decodePng } = await import('./png');
+  const shot = decodePng(await page.screenshot());
+  const row = (f: number) => { const y = Math.round(shot.height * f), i = (y * shot.width + Math.round(shot.width / 2)) * 4; return [shot.pixels[i], shot.pixels[i + 1], shot.pixels[i + 2]]; };
+  const sum = (c: number[]) => c[0] + c[1] + c[2];
+  const top = row(0.02), middle = row(0.5), foot = row(0.98);
+  // The night's three colours, lighter at the top, the middle between them, the foot darkest.
+  expect(sum(top)).toBeGreaterThan(sum(middle));
+  expect(sum(middle)).toBeGreaterThan(sum(foot));
+  // No edge anywhere down the screen: each step of a hundredth changes the colour by a little.
+  for (let f = 0.03; f < 0.97; f += 0.01) expect(Math.abs(sum(row(f + 0.01)) - sum(row(f))), `at ${f.toFixed(2)}`).toBeLessThan(18);
+});
+
 test('reloaded while the work goes on, the page has the computer\'s last minutes: the speed at once, not 0; opened fresh, — until it has its own', async ({ page }) => {
   const clock = { now: Date.UTC(2026, 10, 25, 2, 0, 0) };
   const live = liveWork({ now: () => clock.now, length: 1000, claudeEnds: 300, codexEnds: 300 });

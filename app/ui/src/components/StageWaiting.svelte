@@ -18,7 +18,7 @@
     if (!here) return;
     const frame = requestAnimationFrame(() => {
       const css = getComputedStyle(here);
-      paintEdges(css.getPropertyValue('--edge-top').trim(), css.getPropertyValue('--edge-bottom').trim());
+      paintEdges(css.getPropertyValue('--edge-top').trim(), css.getPropertyValue('--edge-bottom').trim(), css.getPropertyValue('--sky-mid').trim() || undefined);
     });
     return () => cancelAnimationFrame(frame);
   });
@@ -37,6 +37,7 @@
     --ink: rgba(240, 245, 255, 0.95);
     --ink-2: rgba(214, 222, 255, 0.7);
     --edge-top: var(--night-top);
+    --sky-mid: var(--night-mid);
     --edge-bottom: var(--night-low);
     position: absolute;
     inset: 0;
@@ -54,6 +55,7 @@
     --ink: rgba(14, 24, 66, 0.94);
     --ink-2: rgba(14, 24, 66, 0.62);
     --edge-top: #DCE3FF;
+    --sky-mid: #EEF0FF;
     --edge-bottom: #F7F6FF;
     background: linear-gradient(180deg, var(--edge-top) 0, #DCE3FF 72px, #EEF0FF 48%, #F7F6FF calc(100% - 90px), var(--edge-bottom) 100%);
   }
@@ -61,6 +63,7 @@
     --ink: var(--label);
     --ink-2: var(--secondary);
     --edge-top: var(--paper);
+    --sky-mid: var(--paper);
     --edge-bottom: var(--paper);
     background-color: var(--paper);
     background-image: var(--grain), var(--glow), var(--shade), radial-gradient(circle, var(--dots) 0.75px, transparent 1.1px);

@@ -137,7 +137,7 @@
     if (!box) return;
     const frame = requestAnimationFrame(() => {
       const css = getComputedStyle(box);
-      paintEdges(css.getPropertyValue('--edge-top').trim(), css.getPropertyValue('--edge-bottom').trim());
+      paintEdges(css.getPropertyValue('--edge-top').trim(), css.getPropertyValue('--edge-bottom').trim(), css.getPropertyValue('--sky-mid').trim() || undefined);
     });
     return () => cancelAnimationFrame(frame);
   });

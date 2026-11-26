@@ -10,7 +10,7 @@
 // phone's own theme, its bars stay dark over a light page).
 
 const KEY = 'starmeter.edges';
-type Kept = { top?: string; bottom?: string; theme?: string };
+type Kept = { top?: string; mid?: string; bottom?: string; theme?: string };
 
 function kept(): Kept {
   try { return (JSON.parse(localStorage.getItem(KEY) ?? '{}') as Kept) ?? {}; } catch { return {}; }
@@ -21,9 +21,20 @@ function keep(change: Kept) {
 
 let painted = '';
 
-export function paintEdges(top: string, bottom: string) {
+/** The page's ground under everything, three screens tall and centred: the top's colour all the way up beyond the
+ *  page, the bottom's all the way down (Safari 26 shows the page's ground in its bars' bands: repeated, the gradient put
+ *  the bottom's colour under the status bar), and on the screen itself 网页版's sky as the page draws it (PhoneStage:
+ *  flat for 72 points, `mid` at 48%, the foot's 90 points flat), so a reload's first frame is the page's own ground, not
+ *  two halves meeting in a line across the middle (用户：刷新的时候会显示这个。就，总是很突兀). first-frame.js the same. */
+export function skyGround(top: string, mid: string | undefined, bottom: string): string {
+  return mid
+    ? `linear-gradient(${top} 0, ${top} calc(100% / 3 + 72px), ${mid} calc(100% / 3 + 16%), ${bottom} calc(200% / 3 - 90px), ${bottom} 100%)`
+    : `linear-gradient(${top} 0, ${top} calc(100% / 3), ${bottom} calc(200% / 3), ${bottom} 100%)`;
+}
+
+export function paintEdges(top: string, bottom: string, mid?: string) {
   if (typeof document === 'undefined' || !top || !bottom) return;
-  const key = `${top}|${bottom}`;
+  const key = `${top}|${mid ?? ''}|${bottom}`;
   if (key === painted) return;
   painted = key;
   let meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
@@ -31,16 +42,14 @@ export function paintEdges(top: string, bottom: string) {
   meta.content = top;
   const root = document.documentElement.style;
   root.backgroundColor = bottom;
-  // The top's colour all the way up beyond the page, the bottom's all the way down (Safari 26 shows the page's ground
-  // in its bars' bands: repeated, the gradient put the bottom's colour under the status bar).
-  root.backgroundImage = `linear-gradient(${top} 0 50%, ${bottom} 50% 100%)`;
+  root.backgroundImage = skyGround(top, mid, bottom);
   root.backgroundSize = '100% 300%';
   root.backgroundPosition = 'center';
   root.backgroundRepeat = 'no-repeat';
   root.setProperty('--bar-top', top);
   root.setProperty('--bar-bottom', bottom);
   document.documentElement.classList.add('phone-page');
-  keep({ top, bottom });
+  keep({ top, mid, bottom });
   rereadBars();
   watchBars();
 }

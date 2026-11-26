@@ -13,18 +13,18 @@
     var kept = {};
     try { kept = JSON.parse(localStorage.getItem('starmeter.edges') || 'null') || {}; } catch (e) { kept = {}; }
     var look = window.STARMETER_LOOK;
-    var top, bottom, theme;
+    var top, mid, bottom, theme;
     if (look) {
       theme = look.theme;
       var dark = theme === 'dark' || (theme !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
       var sketch = look.style === 'sketch';
       var paper = dark ? '#1f2924' : '#fdfaf4';
-      if (sketch) { top = paper; bottom = paper; }
-      else { top = dark ? '#1F3A7A' : '#DCE3FF'; bottom = dark ? '#050A24' : '#F7F6FF'; }
+      if (sketch) { top = paper; mid = paper; bottom = paper; }
+      else { top = dark ? '#1F3A7A' : '#DCE3FF'; mid = dark ? '#0E1D4C' : '#EEF0FF'; bottom = dark ? '#050A24' : '#F7F6FF'; }
       // The look itself too, so the page's first drawing is in it (style.svelte.ts reads this).
       try { localStorage.setItem('starmeter.style', sketch ? 'sketch' : 'standard'); } catch (e) { /* this load only */ }
     } else {
-      theme = kept.theme; top = kept.top; bottom = kept.bottom;
+      theme = kept.theme; top = kept.top; mid = kept.mid; bottom = kept.bottom;
     }
     if (theme === 'light' || theme === 'dark') root.dataset.theme = theme;
     if (!top || !bottom) return;
@@ -40,8 +40,11 @@
     root.style.minHeight = '100%';
     // And beyond the page: the top's colour all the way up, the bottom's all the way down. Safari 26 lays the page out
     // between its bars (the status bar's band, the toolbar's) and shows the page's ground in them; repeated, the
-    // gradient put the bottom's colour (near white by day) under the status bar.
-    root.style.backgroundImage = 'linear-gradient(' + top + ' 0 50%, ' + bottom + ' 50% 100%)';
+    // gradient put the bottom's colour (near white by day) under the status bar. On the screen itself, 网页版's sky as
+    // the page draws it (src/lib/edges.ts, skyGround), not two halves meeting in a line across the middle.
+    root.style.backgroundImage = mid
+      ? 'linear-gradient(' + top + ' 0, ' + top + ' calc(100% / 3 + 72px), ' + mid + ' calc(100% / 3 + 16%), ' + bottom + ' calc(200% / 3 - 90px), ' + bottom + ' 100%)'
+      : 'linear-gradient(' + top + ' 0, ' + top + ' calc(100% / 3), ' + bottom + ' calc(200% / 3), ' + bottom + ' 100%)';
     root.style.backgroundSize = '100% 300%';
     root.style.backgroundPosition = 'center';
     root.style.backgroundRepeat = 'no-repeat';
