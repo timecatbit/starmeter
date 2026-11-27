@@ -1236,6 +1236,15 @@ class OpenCodexParityTests(unittest.TestCase):
         self.states = {e: {'OCX_STATE_DIR': str(root / e / 'state'), 'OCX_CACHE_DIR': str(root / e / 'cache')} for e in ('python', 'swift')}
         self.common = {'HOME': str(home), 'OCX_HOME': str(home / '.opencodex'), 'OCX_BASE_URL': self.services.base, 'OCX_TIMEZONE': 'Asia/Shanghai',
                        'KOMARI_BASE_URL': self.services.base + '/komari', 'OCX_PLUGIN_PATH': str(ROOT / 'starmeter.30s.sh'), 'STARMETER_PRICING': str(ROOT / 'lib')}
+        self.on_mains()
+
+    def on_mains(self):
+        # Both engines on mains power, as CI runs: a closed panel stretches readings to 180 s there, to 300 s on battery.
+        # Each reads this before asking pmset, so the Mac the tests run on being unplugged changes nothing.
+        for engine in self.states.values():
+            scope = hashlib.sha256(os.path.abspath(engine['OCX_STATE_DIR']).encode()).hexdigest()[:16]
+            root = Path(engine['OCX_CACHE_DIR']) / ('opencodex-swiftbar-v5-%s-%s' % (os.getuid(), scope)); root.mkdir(mode=0o700, parents=True, exist_ok=True)
+            (root / 'power-state.json').write_text(json.dumps({'schema': 1, 'battery': False, 'checkedAt': time.time()}))
 
     def ok(self, value, status=200):
         return status, json.dumps(value).encode(), {'Content-Type': 'application/json'}
@@ -1277,6 +1286,7 @@ class OpenCodexParityTests(unittest.TestCase):
 
     def compare(self, call, *args, extra=None):
         for engine in self.states.values():shutil.rmtree(engine['OCX_CACHE_DIR'], ignore_errors=True)
+        self.on_mains()
         expected = self.python(call, *args, extra=extra)
         if isinstance(expected, list) and expected[1]:expected[1] = expected[1][1]
         got = self.swift(call, *args, extra=extra)
