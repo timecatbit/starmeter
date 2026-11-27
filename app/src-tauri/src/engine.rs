@@ -106,7 +106,22 @@ pub struct Engine {
 }
 
 fn to_value(json: Json) -> Value {
-    serde_json::from_str(&json.serialized()).unwrap_or(Value::Null)
+    // Convert starmeter_core::json::Json directly to serde_json::Value without intermediate string round-trip (PERF-6).
+    match json {
+        Json::Null => Value::Null,
+        Json::Bool(b) => Value::Bool(b),
+        Json::Int(n) => Value::Number(n.into()),
+        Json::Double(f) => serde_json::Number::from_f64(f).map_or(Value::Null, Value::Number),
+        Json::String(s) => Value::String(s),
+        Json::Array(items) => Value::Array(items.into_iter().map(to_value).collect()),
+        Json::Object(entries) => {
+            let mut map = serde_json::Map::with_capacity(entries.len());
+            for (k, v) in entries {
+                map.insert(k, to_value(v));
+            }
+            Value::Object(map)
+        }
+    }
 }
 
 /// Where the app's lib/ (price tables) and assets/ (logos) are: the bundle's resources; in a source checkout the core
@@ -276,7 +291,9 @@ impl Engine {
         if millis.saturating_sub(last) >= LIVE_EVERY.as_millis() as u64
             && LAST.compare_exchange(last, millis, Ordering::SeqCst, Ordering::SeqCst).is_ok()
         {
-            // Busy with another read of the ranges (a refresh, the panel's own tick): what is cached serves.
+            // Busy with another read of the ranges (a refresh, the panel's own tick): what is cached serves. The indexes
+            // are read one at a time (Claude's opens a deferred transaction, and two readers at once had one of them
+            // fail as locked), so a lock of its own would let this read write them alongside the other.
             let _ = runtime.with_lock("range-refresh.lock", false, || {
                 runtime.range_usage(Some("today"), Some(0.0));
             });
@@ -298,6 +315,10 @@ impl Engine {
 
     pub fn menu_bar_text(&self) -> String {
         let runtime = self.runtime();
+        // Fast path for the default "none" (只显示星星): skip render lock & ~25 cache file reads (PERF-6).
+        if runtime.settings().get("menuBar").and_then(Json::as_str).unwrap_or("none") == "none" {
+            return String::new();
+        }
         let _turn = self.rendering.lock().expect("the render lock");
         runtime.render(|| runtime.menu_bar_value(Some(&runtime.cached_data())))
     }
@@ -315,10 +336,12 @@ impl Engine {
         }
         // The macOS app queues its own reads after an action (the core leaves them to it); other shells are asked by
         // the core and the queue merges a repeat.
+        // Pure presentation/grouping preferences need no background network/disk refresh (PERF-6).
         match name.as_str() {
             "set-range" => self.queue(|jobs| jobs.range = true),
             "prefetch-ranges" => self.queue(|jobs| jobs.prefetch = true),
-            "refresh-live" => {}
+            "refresh-live" | "set-collapse" | "set-expanded" | "set-theme" | "set-appearance" | "set-group"
+            | "move-module" | "reset-module-order" => {}
             _ => self.queue(|jobs| jobs.refresh = true),
         }
         Ok(preferences)

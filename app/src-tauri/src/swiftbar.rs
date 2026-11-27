@@ -144,6 +144,30 @@ impl Files {
         read(&self.snapshot).unwrap_or_else(|| json!({"schema": 1, "entries": []}))
     }
 
+    /// When each session's latest turn began (in Unix seconds), read from the plugin's own `sessions.json` cache beside
+    /// `panel-view.json` so SwiftBar's 实时 tab and 网页版 show the exact `m:ss` clock just like the standalone app.
+    pub fn turns(&self) -> serde_json::Map<String, Value> {
+        let mut turns = serde_json::Map::new();
+        let Some(sessions) = read(&self.folder.join("sessions.json"))
+            .and_then(|record| record.get("payload")?.get("sessions")?.as_array().cloned())
+        else {
+            return turns;
+        };
+        for session in sessions {
+            let id = session.get("id").and_then(Value::as_str);
+            let began = session
+                .get("turns")
+                .and_then(Value::as_array)
+                .and_then(|turns| turns.first())
+                .and_then(|turn| turn.get("at"))
+                .and_then(Value::as_f64);
+            if let (Some(id), Some(began)) = (id, began) {
+                turns.insert(id.to_string(), json!(began));
+            }
+        }
+        turns
+    }
+
     /// The homepage or the module list, when the plugin's click asked within the last 30 seconds.
     pub fn requested_modules(&self) -> Option<bool> {
         let path = self.folder.join("panel-open.json");

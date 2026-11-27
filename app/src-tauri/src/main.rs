@@ -442,7 +442,7 @@ fn main() {
             // A check of the phone view without the panel: STARMETER_PHONE starts it at launch and prints where.
             // STARMETER_PHONE=public opens the public link too, as 任何网络 does after the user's yes.
             if let Some(which) = std::env::var_os("STARMETER_PHONE") {
-                match phone::phone_start(handle.clone()) {
+                match phone::start_local(handle.clone()) {
                     Ok(view) => eprintln!("phone: {}", serde_json::to_string(&view).unwrap_or_default()),
                     Err(error) => eprintln!("phone: {error}"),
                 }

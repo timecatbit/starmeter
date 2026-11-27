@@ -533,7 +533,7 @@ fn bind(port: Option<u16>) -> std::io::Result<TcpListener> {
 pub fn resume(app: &AppHandle) {
     let kept = read_kept(&kept_file(app));
     if kept.local.is_some() {
-        let _ = phone_start(app.clone());
+        let _ = start_local(app.clone());
     }
     if kept.public_until.is_some_and(|until| until > starmeter_core::runtime::now()) {
         let app = app.clone();
@@ -576,10 +576,8 @@ fn serving<'a>(app: &AppHandle, running: &'a mut Option<Running>) -> Result<&'a 
     Ok(running.as_mut().expect("the server just started"))
 }
 
-/// 同一个网络 on (or kept on) and where it is: its key as kept when it was on as the app quit (a phone's link keeps
-/// opening), else a new one, so a code from before its 停止 stays shut. The public link, if up, is left as it is.
-#[tauri::command]
-pub fn phone_start(app: AppHandle) -> Result<PhoneView, String> {
+/// Synchronous core for starting 同一个网络 (used by startup resume and async Tauri command).
+pub fn start_local(app: AppHandle) -> Result<PhoneView, String> {
     let state = app.state::<Phone>();
     let mut running = state.running.lock().expect("the phone lock");
     let current = serving(&app, &mut running)?;
@@ -594,37 +592,55 @@ pub fn phone_start(app: AppHandle) -> Result<PhoneView, String> {
     Ok(view(current))
 }
 
-/// Where the phone view stands, if it is on.
+/// 同一个网络 on (or kept on) and where it is: its key as kept when it was on as the app quit (a phone's link keeps
+/// opening), else a new one, so a code from before its 停止 stays shut. The public link, if up, is left as it is.
+/// Runs off the main thread so network interface enumeration and socket bind never stall AppKit (PERF-7).
 #[tauri::command]
-pub fn phone_status(app: AppHandle) -> Option<PhoneView> {
-    let state = app.state::<Phone>();
-    let mut running = state.running.lock().expect("the phone lock");
-    if running.as_ref().is_some_and(|current| current.stop.load(Ordering::SeqCst)) {
-        if let Some(mut over) = running.take() {
-            stop_running(&mut over);
+pub async fn phone_start(app: AppHandle) -> Result<PhoneView, String> {
+    tauri::async_runtime::spawn_blocking(move || start_local(app)).await.map_err(|error| error.to_string())?
+}
+
+/// Where the phone view stands, if it is on. Runs off the main thread (PERF-7).
+#[tauri::command]
+pub async fn phone_status(app: AppHandle) -> Option<PhoneView> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<Phone>();
+        let mut running = state.running.lock().expect("the phone lock");
+        if running.as_ref().is_some_and(|current| current.stop.load(Ordering::SeqCst)) {
+            if let Some(mut over) = running.take() {
+                stop_running(&mut over);
+            }
+            return None;
         }
-        return None;
-    }
-    // A public link whose hour is up, or whose cloudflared has ended, goes; the panel says so.
-    if let Some(current) = running.as_mut() {
-        close_public_if_over(&app, current);
-    }
-    settle(&mut running);
-    running.as_ref().and_then(visible_view)
+        // A public link whose hour is up, or whose cloudflared has ended, goes; the panel says so.
+        if let Some(current) = running.as_mut() {
+            close_public_if_over(&app, current);
+        }
+        settle(&mut running);
+        running.as_ref().and_then(visible_view)
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
 /// 同一个网络's 停止: its addresses (the network's and Tailscale's) no longer open, its key gone with them; the public
-/// link, if up, stays.
+/// link, if up, stays. Runs off the main thread so tunnel teardown never blocks AppKit (PERF-7).
 #[tauri::command]
-pub fn phone_stop(app: AppHandle) -> Option<PhoneView> {
-    let state = app.state::<Phone>();
-    let mut running = state.running.lock().expect("the phone lock");
-    if let Some(current) = running.as_mut() {
-        current.keys.lock().expect("the keys").local = None;
-    }
-    keep(&app, |kept| kept.local = None);
-    settle(&mut running);
-    running.as_ref().and_then(visible_view)
+pub async fn phone_stop(app: AppHandle) -> Option<PhoneView> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<Phone>();
+        let mut running = state.running.lock().expect("the phone lock");
+        if let Some(current) = running.as_mut() {
+            current.keys.lock().expect("the keys").local = None;
+        }
+        keep(&app, |kept| kept.local = None);
+        settle(&mut running);
+        running.as_ref().and_then(visible_view)
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
 /// The app quitting: the server and the public link with it, what was on kept for the next start.
@@ -792,21 +808,27 @@ async fn open_public(app: AppHandle, resuming: bool) -> Result<PhoneView, String
 }
 
 /// 任何网络's 停止: the public link closes (one still being made is closed as it comes); 同一个网络 stays as it is.
+/// Runs off the main thread so cloudflared process stop (up to 3s) never stalls AppKit (PERF-7).
 #[tauri::command]
-pub fn phone_private(app: AppHandle) -> Option<PhoneView> {
-    let state = app.state::<Phone>();
-    let mut running = state.running.lock().expect("the phone lock");
-    if let Some(current) = running.as_mut() {
-        current.public_round.store(true, Ordering::SeqCst);
-        current.public_round = Arc::new(AtomicBool::new(false));
-        current.opening_active = 0;
-        if let Some(public) = current.public.take() {
-            close_public(&current.keys, public);
+pub async fn phone_private(app: AppHandle) -> Option<PhoneView> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<Phone>();
+        let mut running = state.running.lock().expect("the phone lock");
+        if let Some(current) = running.as_mut() {
+            current.public_round.store(true, Ordering::SeqCst);
+            current.public_round = Arc::new(AtomicBool::new(false));
+            current.opening_active = 0;
+            if let Some(public) = current.public.take() {
+                close_public(&current.keys, public);
+            }
         }
-    }
-    keep(&app, |kept| kept.public_until = None);
-    settle(&mut running);
-    running.as_ref().and_then(visible_view)
+        keep(&app, |kept| kept.public_until = None);
+        settle(&mut running);
+        running.as_ref().and_then(visible_view)
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
 fn serve(app: AppHandle, listener: TcpListener, keys: Arc<Mutex<Keys>>, stop: Arc<AtomicBool>) {
@@ -1323,11 +1345,13 @@ fn live_from(data: &Data, history: bool) -> Value {
         Data::Engine(engine) => engine.live(),
         Data::SwiftBar(files) => {
             let snapshot = files.snapshot();
+            let sessions = sessions_of(&snapshot);
+            let turns = if sessions.is_object() { files.turns() } else { serde_json::Map::new() };
             json!({
                 "at": starmeter_core::runtime::now(),
                 "dashboard": snapshot.get("dashboard").cloned().unwrap_or(Value::Null),
-                "sessions": sessions_of(&snapshot),
-                "turns": {},
+                "sessions": sessions,
+                "turns": turns,
             })
         }
         Data::Fixtures(fixtures) => {
@@ -1758,6 +1782,19 @@ mod tests {
         assert_eq!(history.len(), 1);
         assert_eq!(history[0]["providers"][0]["tokens"], 100.0);
         assert!(super::live_from(&data, false).get("history").is_none());
+        // With sessions.json beside panel-view.json: turns stays empty when 会话 is off the homepage, and carries exact
+        // per-second turn start timestamps once 会话 is on the homepage (matching standalone's m:ss clock).
+        std::fs::write(
+            folder.join("sessions.json"),
+            serde_json::json!({"schema": 1, "payload": {"sessions": [{"id": "s1", "turns": [{"at": 1700000123.5}]}]}})
+                .to_string(),
+        )
+        .unwrap();
+        assert!(super::live_from(&data, false)["turns"].as_object().unwrap().is_empty());
+        let with_sessions = serde_json::json!({"schema": 1, "entries": [{"label": "会话", "onOpenAction": ["refresh-source", "sessions"], "children": []}],
+            "dashboard": {"date": "2026-11-25", "rangeKey": "today", "providers": [{"id": "claude", "available": true, "tokens": 100.0, "output": 1.0, "cost": 1.0}]}});
+        std::fs::write(&view, with_sessions.to_string()).unwrap();
+        assert_eq!(super::live_from(&data, false)["turns"]["s1"].as_f64(), Some(1700000123.5));
         let _ = std::fs::remove_dir_all(&folder);
     }
 

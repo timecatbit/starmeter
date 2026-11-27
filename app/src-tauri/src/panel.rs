@@ -204,7 +204,14 @@ fn place(app: &AppHandle, animate: bool) {
             None => macos::panel_frame(anchor, width, height),
         };
         let start = if animate { current } else { None };
-        let Some(start) = start.filter(|_| visible(app)) else {
+        // Skip animating sub-2px no-op adjustments; animate width and height smoothly in lockstep with CSS pageIn (320ms).
+        let instant = start.is_some_and(|s| {
+            (s.size.width - target.size.width).abs() < 2.0
+                && (s.size.height - target.size.height).abs() < 2.0
+                && (s.origin.x - target.origin.x).abs() < 2.0
+                && (s.origin.y - target.origin.y).abs() < 2.0
+        });
+        let Some(start) = start.filter(|_| !instant && visible(app)) else {
             let _ = app.run_on_main_thread(move || macos::set_frame(&window, target, true));
             return;
         };
@@ -298,7 +305,7 @@ where
             if done {
                 return;
             }
-            std::thread::sleep(Duration::from_millis(8));
+            std::thread::sleep(Duration::from_millis(16));
         }
     });
 }
@@ -688,7 +695,36 @@ pub fn resized(app: &AppHandle) {
     }
     #[cfg(target_os = "macos")]
     {
-        let _ = app.run_on_main_thread(move || macos::reshadow(&window));
+        // The shadow redrawn at most every 100 ms while an edge is dragged (PERF-8), and once more after the last
+        // change, so the size the drag ends at always has its own shadow (one skipped left the shadow of a size before).
+        const EVERY: Duration = Duration::from_millis(100);
+        static LAST_SHADOW: Mutex<Option<Instant>> = Mutex::new(None);
+        static TRAILING: AtomicBool = AtomicBool::new(false);
+        let wait = {
+            let mut last = LAST_SHADOW.lock().expect("the shadow lock");
+            match *last {
+                Some(at) if at.elapsed() < EVERY => Some(EVERY - at.elapsed()),
+                _ => {
+                    *last = Some(Instant::now());
+                    None
+                }
+            }
+        };
+        match wait {
+            None => {
+                let _ = app.run_on_main_thread(move || macos::reshadow(&window));
+            }
+            Some(wait) if !TRAILING.swap(true, Ordering::SeqCst) => {
+                let app = app.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(wait);
+                    TRAILING.store(false, Ordering::SeqCst);
+                    *LAST_SHADOW.lock().expect("the shadow lock") = Some(Instant::now());
+                    let _ = app.run_on_main_thread(move || macos::reshadow(&window));
+                });
+            }
+            Some(_) => {}
+        }
     }
     let _ = app.emit("panel-resized", Size { width: size.0, height: size.1 });
 }
@@ -867,13 +903,29 @@ fn mica_supported() -> bool {
 #[cfg(target_os = "macos")]
 #[tauri::command]
 pub fn system_symbol(app: AppHandle, name: String, points: f64) -> Option<String> {
+    use std::collections::HashMap;
+    use std::sync::OnceLock;
     const SYMBOLS: [&str; 7] =
         ["pin", "pin.fill", "gearshape", "square.and.arrow.up", "square.and.arrow.down", "doc.on.doc", "checkmark"];
     if !SYMBOLS.contains(&name.as_str()) {
         return None;
     }
-    let png = macos::on_main(&app, move || macos::symbol_png(&name, points.clamp(8.0, 48.0))).flatten()?;
-    Some(starmeter_core::dashboard::base64_encode(&png))
+    let clamped = points.clamp(8.0, 48.0);
+    let key = (name.clone(), (clamped * 10.0).round() as u32);
+    type SymbolCache = Mutex<HashMap<(String, u32), Option<String>>>;
+    static CACHE: OnceLock<SymbolCache> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(hit) = cache.lock().expect("the symbol cache lock").get(&key).cloned() {
+        return hit;
+    }
+    let rendered = macos::on_main(&app, move || macos::symbol_png(&name, clamped))
+        .flatten()
+        .map(|png| starmeter_core::dashboard::base64_encode(&png));
+    // Only a drawn symbol is kept: one the main thread couldn't draw this time is asked for again next time.
+    if rendered.is_some() {
+        cache.lock().expect("the symbol cache lock").insert(key, rendered.clone());
+    }
+    rendered
 }
 
 #[cfg(not(target_os = "macos"))]
