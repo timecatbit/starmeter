@@ -1639,7 +1639,7 @@ test('保持亮屏 on an http page (the same network, Tailscale): the sun there 
   await expect(button).toBeVisible();
   await expect(button).toHaveClass(/unoffered/);
   await button.click();
-  await expect(notice).toHaveText('保持亮屏要用 https 链接：在电脑上选“任何网络”，用它生成的链接打开就能用');
+  await expect(notice).toHaveText('保持亮屏要用 https 链接：用电脑上的 Cloudflare 临时链接或 https 的自有域名打开就能用');
   await expect(button).toHaveAttribute('aria-pressed', 'false');
   // Said whole within the screen, a little longer than the switch's own words, then gone.
   const said = await notice.boundingBox();

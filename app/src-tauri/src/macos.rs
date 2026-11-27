@@ -158,9 +158,8 @@ fn apply_level(panel: &WebviewWindow) {
 }
 
 /// A save dialog is up: the panel drops to the ordinary level so the dialog shows above it, then goes back up.
-pub fn step_aside(panel: &WebviewWindow, aside: bool, pinned: bool) {
+pub fn step_aside(panel: &WebviewWindow, aside: bool) {
     ASIDE.store(aside, Ordering::SeqCst);
-    PINNED.store(pinned, Ordering::SeqCst);
     apply_level(panel);
 }
 

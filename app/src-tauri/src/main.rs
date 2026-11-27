@@ -416,6 +416,8 @@ fn main() {
             phone::phone_stop,
             phone::phone_domain,
             phone::phone_domain_start,
+            phone::phone_vpn_start,
+            phone::phone_vpn_stop,
             phone::phone_domain_stop,
             phone::phone_domain_check,
             phone::phone_public,

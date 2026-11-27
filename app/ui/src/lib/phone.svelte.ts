@@ -12,17 +12,32 @@ try { localStorage.removeItem('starmeter.phone-stopped'); } catch { /* nothing k
  *  one left on is on again when the app starts again, an update too (the shell keeps it, phone.rs).
  *  `localStopped`, `publicStopped`: that way's 停止 pressed since the app started, so its page says 已停止 rather than
  *  未开始. `reach`: the page shown last, shown again when 在手机上看 is opened again. */
-export const phone = $state({ view: null as PhoneView | null, at: 0, localStopped: false, publicStopped: false, domainStopped: false,
-  reach: 'local' as 'local' | 'public', via: keptVia() ?? ('cloudflare' as Via), viaChosen: keptVia() !== null });
+export const phone = $state({ view: null as PhoneView | null, at: 0, localStopped: false, publicStopped: false, domainStopped: false, vpnStopped: false,
+  reach: 'local' as 'local' | 'public', near: keptNear() ?? ('local' as Near), nearChosen: keptNear() !== null,
+  via: keptVia() ?? ('cloudflare' as Via), viaChosen: keptVia() !== null });
 
-/** 任何网络's link: Cloudflare's, made for an hour, or the user's own domain through their own proxy (自有域名). The one
- *  chosen last is chosen again; never chosen, 自有域名 is once a domain has been set. */
-export type Via = 'cloudflare' | 'domain';
+/** The two kinds (用户：同一网络|反代，任何网络，就这两个分类。tailscale,等vpn, cloudflare放到任意网络里), each with two
+ *  pages, the one chosen last chosen again. 同一网络 / 反代: the same network's code, or the user's own domain through
+ *  their own reverse proxy (反代; never chosen, it is once a domain has been set). 任何网络: Cloudflare's link, made for
+ *  an hour, or the VPNs this computer is on (Tailscale, WireGuard). */
+export type Near = 'local' | 'domain';
+export type Via = 'cloudflare' | 'vpn';
+function keptNear(): Near | null {
+  try {
+    const kept = localStorage.getItem('starmeter.phone-near');
+    return kept === 'local' || kept === 'domain' ? kept : null;
+  } catch { return null; }
+}
 function keptVia(): Via | null {
   try {
     const kept = localStorage.getItem('starmeter.phone-via');
-    return kept === 'cloudflare' || kept === 'domain' ? kept : null;
+    return kept === 'cloudflare' || kept === 'vpn' ? kept : null;
   } catch { return null; }
+}
+export function chooseNear(near: Near) {
+  phone.near = near;
+  phone.nearChosen = true;
+  try { localStorage.setItem('starmeter.phone-near', near); } catch { /* chosen until the app quits */ }
 }
 export function chooseVia(via: Via) {
   phone.via = via;

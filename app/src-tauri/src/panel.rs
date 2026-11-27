@@ -484,15 +484,14 @@ pub fn focused(app: &AppHandle) {
 pub fn step_aside(app: &AppHandle, aside: bool) {
     let state = app.state::<Panel>();
     state.held.store(aside, Ordering::SeqCst);
-    let pinned = state.pinned.load(Ordering::SeqCst);
     let Some(window) = window(app) else { return };
     #[cfg(target_os = "macos")]
     {
         let w = window.clone();
-        let _ = macos::on_main(app, move || macos::step_aside(&w, aside, pinned));
+        let _ = macos::on_main(app, move || macos::step_aside(&w, aside));
     }
     #[cfg(not(target_os = "macos"))]
-    if pinned {
+    if state.pinned.load(Ordering::SeqCst) {
         let _ = window.set_always_on_top(!aside);
     }
     if !aside {

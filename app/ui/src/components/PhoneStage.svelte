@@ -190,7 +190,7 @@
   }
   /** Why the sun can't keep the screen on here. */
   const unoffered = () => t(typeof isSecureContext !== 'undefined' && !isSecureContext
-    ? '保持亮屏要用 https 链接：在电脑上选“任何网络”，用它生成的链接打开就能用' : '这个浏览器不支持保持亮屏（iPhone 需要 iOS 16.4 以上）');
+    ? '保持亮屏要用 https 链接：用电脑上的 Cloudflare 临时链接或 https 的自有域名打开就能用' : '这个浏览器不支持保持亮屏（iPhone 需要 iOS 16.4 以上）');
   const refused = () => t(screenLock?.refusal === 'NotAllowedError'
     ? '没能保持亮屏：浏览器没有允许（低电量模式下会这样）' : '没能保持亮屏：这个浏览器不支持');
   /** Each turn of the switch; only the last says what it did (STAGE-19: switched off before the lock came, the page

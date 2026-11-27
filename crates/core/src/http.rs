@@ -137,20 +137,25 @@ fn explain(error: &reqwest::Error) -> String {
     explained(&causes)
 }
 
-/// The reason from the chain of causes, outermost first.
+/// The reason from the chain of causes, outermost first. reqwest's own outermost line names the request (its address
+/// could hold any word), so only the causes under it are read; a connection cut off is told before a certificate (a
+/// TLS library's line for it says SSL or TLS too).
 fn explained(causes: &[String]) -> String {
-    let all = causes.join(" ").to_lowercase();
+    let under = if causes.len() > 1 { &causes[1..] } else { causes };
+    let all = under.join(" ").to_lowercase();
     let has = |words: &[&str]| words.iter().any(|word| all.contains(word));
     if has(&["dns error", "failed to lookup", "nodename nor servname", "name or service not known", "no such host"]) {
         "找不到这个域名".into()
     } else if has(&["connection refused", "actively refused"]) {
         "连接被拒绝".into()
-    } else if has(&["certificate", "ssl", "tls", "handshake"]) {
-        "证书有问题".into()
     } else if has(&["timed out", "time out"]) {
         "等了太久没有回应".into()
-    } else if has(&["connection reset", "connection closed", "unexpected eof", "broken pipe"]) {
+    } else if has(&["connection reset", "connection closed", "unexpected eof", "broken pipe", "forcibly closed"]) {
         "连接被中断".into()
+    } else if has(&["certificate", "verify", "self signed", "self-signed", "unknown issuer", "expired"]) {
+        "证书有问题".into()
+    } else if has(&["no route to host", "network is unreachable", "host is unreachable"]) {
+        "连不上这个地址".into()
     } else {
         causes.last().cloned().unwrap_or_default()
     }
@@ -213,6 +218,13 @@ mod tests {
             "证书有问题"
         );
         assert_eq!(said(&["error sending request", "connection closed before message completed"]), "连接被中断");
+        // A TLS library's line for a connection cut off says SSL too: still cut off, not a certificate.
+        assert_eq!(said(&["error sending request", "SSL error: unexpected EOF"]), "连接被中断");
+        // A word in the address (reqwest's outermost line) is no cause.
+        assert_eq!(
+            said(&["error sending request for url (https://tls.example.com/)", "No route to host (os error 65)"]),
+            "连不上这个地址"
+        );
         // Anything else: the innermost cause, not reqwest's line naming only the request.
         assert_eq!(said(&["error sending request for url (https://x/)", "something odd"]), "something odd");
         // Through a real request: a port nothing listens on. (A name no one has isn't tried: a proxy's fake-IP DNS, as

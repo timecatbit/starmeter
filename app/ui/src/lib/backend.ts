@@ -63,10 +63,11 @@ const quiet = () => Promise.resolve();
 
 const localGuide = () => { try { return localStorage.getItem('starmeter.guide') === '1'; } catch { return false; } };
 
-/** Where a phone can open the homepage, and how long the public link has left (0 without one). 同一个网络 and the public
- *  link are on and off on their own: `localOpen` says the first is on (its addresses, when this computer has them). */
+/** Where a phone can open the homepage, and how long the public link has left (0 without one). Each way is on and off
+ *  on its own: `localOpen` says 同一个网络 is on (its address, when this computer is on a network), `vpnOpen` the VPN
+ *  page (Tailscale's and WireGuard's addresses, on the VPNs this computer is on). */
 export interface PhoneView {
-  localOpen?: boolean; local: string | null; tailnet?: string | null; wireguard?: string | null; public: string | null; secondsLeft: number;
+  localOpen?: boolean; local: string | null; vpnOpen?: boolean; tailnet?: string | null; wireguard?: string | null; public: string | null; secondsLeft: number;
   /** 自有域名's link (https://meter.example.com/#k=…) while it is on: the user's own proxy hands it on to this server. */
   domain?: string | null;
   /** The server's port: 自有域名's proxy forwards to 127.0.0.1 on it. */
@@ -76,10 +77,9 @@ export interface PhoneView {
   /** A public link is being opened right now (e.g. startup resume or started before leaving the page, R10-8). */
   publicOpening?: boolean;
 }
-/** 自有域名 as set, for its page: its address, the port the user's proxy forwards to, this computer's network address. */
-/** 自有域名 as set: its address, the server's port, this computer's network address, and whether the user's proxy is on
- *  another device (a NAS, the router) rather than on this computer. */
-export interface DomainSetup { domain: string | null; port: number; lan: string | null; nearby: boolean }
+/** 自有域名 as set: its address, the server's port, this computer's network address, and its VPN addresses (the VPN
+ *  page says before its 开始 whether there are any). */
+export interface DomainSetup { domain: string | null; port: number; lan: string | null; tailnet?: string | null; wireguard?: string | null }
 /** How 自有域名's address answered this computer: this server through it, something else (`status`), or nothing (`reason`). */
 export interface DomainCheck { opens: boolean; status: number | null; reason: string | null }
 
@@ -88,19 +88,18 @@ export interface DomainCheck { opens: boolean; status: number | null; reason: st
  *  the page loads again, as the app keeps it in the settings folder and turns it on again as it starts (phone.rs). */
 const browserPhone = (() => {
   const KEPT = 'starmeter.test-phone';
-  type Kept = { local?: boolean; open?: boolean; domain?: string | null; domainOn?: boolean; port?: number; nearby?: boolean };
+  type Kept = { local?: boolean; vpn?: boolean; open?: boolean; domain?: string | null; domainOn?: boolean; port?: number };
   const kept = (() => { try { return JSON.parse(localStorage.getItem(KEPT) ?? '{}') as Kept; } catch { return {} as Kept; } })();
-  let local = !!kept.local, open = !!kept.open, domain = kept.domain ?? null, domainOn = !!kept.domainOn && !!domain;
-  let port = kept.port ?? 51234, nearby = !!kept.nearby;
-  const keep = () => { try { localStorage.setItem(KEPT, JSON.stringify({ local, open, domain, domainOn, port, nearby })); } catch { /* not kept */ } };
+  let local = !!kept.local, vpn = !!kept.vpn, open = !!kept.open, domain = kept.domain ?? null, domainOn = !!kept.domainOn && !!domain;
+  let port = kept.port ?? 51234;
+  const keep = () => { try { localStorage.setItem(KEPT, JSON.stringify({ local, vpn, open, domain, domainOn, port })); } catch { /* not kept */ } };
   const asked = (name: string) => new URLSearchParams(location.search).has(name);
-  // ?tailnet: this computer on a tailnet too.
-  const tailnet = () => (asked('tailnet') ? `http://100.76.55.73:${port}/#k=0123456789abcdef0123456789abcdef` : null);
-  // ?wireguard: a WireGuard tunnel up too.
-  const wireguard = () => (asked('wireguard') ? `http://10.0.0.2:${port}/#k=0123456789abcdef0123456789abcdef` : null);
-  const view = (): PhoneView | null => (local || open || domainOn ? { localOpen: local, local: local ? `http://192.168.1.20:${port}/#k=0123456789abcdef0123456789abcdef` : null,
-    tailnet: local ? tailnet() : null,
-    wireguard: local ? wireguard() : null,
+  // ?tailnet: this computer on a tailnet; ?wireguard: a WireGuard tunnel up. Their codes carry the VPN page's own key.
+  const tailnet = () => (asked('tailnet') ? `http://100.76.55.73:${port}/#k=9876543210abcdef9876543210abcdef` : null);
+  const wireguard = () => (asked('wireguard') ? `http://10.0.0.2:${port}/#k=9876543210abcdef9876543210abcdef` : null);
+  const view = (): PhoneView | null => (local || vpn || open || domainOn ? { localOpen: local, local: local ? `http://192.168.1.20:${port}/#k=0123456789abcdef0123456789abcdef` : null,
+    vpnOpen: vpn, tailnet: vpn ? tailnet() : null,
+    wireguard: vpn ? wireguard() : null,
     domain: domainOn ? `${domain}/#k=abcdefabcdefabcdefabcdefabcdefab` : null, port,
     public: open ? 'https://quiet-river-1234.trycloudflare.com/#k=fedcba9876543210fedcba9876543210' : null, secondsLeft: open ? 3540 : 0,
     // ?unchecked: the wait for the public link to open ran out.
@@ -117,17 +116,18 @@ const browserPhone = (() => {
   };
   return {
     view, start: () => { local = true; keep(); return view()!; }, stop: () => { local = false; keep(); return view(); },
+    vpnStart: () => { vpn = true; keep(); return view()!; }, vpnStop: () => { vpn = false; keep(); return view(); },
     open: () => { open = true; keep(); return view()!; }, close: () => { open = false; keep(); return view(); },
     // ?no-network: this computer on no network.
-    domainSetup: (): DomainSetup => ({ domain, port, lan: asked('no-network') ? null : '192.168.1.20', nearby }),
+    domainSetup: (): DomainSetup => ({ domain, port, lan: asked('no-network') ? null : '192.168.1.20', tailnet: asked('tailnet') ? '100.76.55.73' : null, wireguard: asked('wireguard') ? '10.0.0.2' : null }),
     // ?port-taken: the port asked for is another app's.
-    domainStart: (typed: string, asked_port: number, proxy_nearby: boolean) => {
+    domainStart: (typed: string, asked_port: number) => {
       const given = origin(typed);
       if (asked_port < 1024 || asked_port > 65535) throw '端口填 1024 到 65535 之间的数';
       if (asked('port-taken')) throw `端口 ${asked_port} 被别的程序占用`;
       // A port move closes the public link (phone.rs moved).
       if (asked_port !== port) open = false;
-      domain = given; port = asked_port; nearby = proxy_nearby; domainOn = true; keep(); return view()!;
+      domain = given; port = asked_port; domainOn = true; keep(); return view()!;
     },
     domainStop: () => { domainOn = false; keep(); return view(); },
     // ?domain-502, ?domain-redirect, ?domain-unreachable: how the user's proxy answers.
@@ -180,14 +180,20 @@ export const shell = {
   phoneStart: (): Promise<PhoneView> => (inTauri ? invoke<PhoneView>('phone_start') : Promise.resolve(browserPhone.start())),
   phoneStatus: (): Promise<PhoneView | null> => (inTauri ? invoke<PhoneView | null>('phone_status') : Promise.resolve(browserPhone.view())),
   phoneStop: (): Promise<PhoneView | null> => (inTauri ? invoke<PhoneView | null>('phone_stop') : Promise.resolve(browserPhone.stop())),
-  /** 任何网络 through the user's own domain (自有域名): as set (phoneDomain), on at an address and port, which are kept
+  /** 反代 through the user's own domain (自有域名): as set (phoneDomain), on at an address and port, which are kept
    *  (phoneDomainStart), off (phoneDomainStop), and whether its address opens this server from here (phoneDomainCheck). */
+  /** 任何网络 › Tailscale 等 VPN: on with its own key (phoneVpnStart), off (phoneVpnStop). */
+  phoneVpnStart: (): Promise<PhoneView> => (inTauri ? invoke<PhoneView>('phone_vpn_start') : Promise.resolve(browserPhone.vpnStart())),
+  phoneVpnStop: (): Promise<PhoneView | null> => (inTauri ? invoke<PhoneView | null>('phone_vpn_stop') : Promise.resolve(browserPhone.vpnStop())),
   phoneDomain: (): Promise<DomainSetup | null> => (inTauri ? invoke<DomainSetup | null>('phone_domain') : Promise.resolve(browserPhone.domainSetup())),
-  phoneDomainStart: (domain: string, port: number, nearby: boolean): Promise<PhoneView> =>
-    (inTauri ? invoke<PhoneView>('phone_domain_start', { domain, port, nearby })
-      // ?slow-domain: the host takes its time (a held port asked again).
-      : new Promise((done, failed) => setTimeout(() => { try { done(browserPhone.domainStart(domain, port, nearby)); } catch (error) { failed(error); } },
-        new URLSearchParams(location.search).has('slow-domain') ? 800 : 0))),
+  phoneDomainStart: (domain: string, port: number): Promise<PhoneView> =>
+    (inTauri ? invoke<PhoneView>('phone_domain_start', { domain, port })
+      // ?start-held: the host answers when the test says (window.answerStart()), as one asking a held port again.
+      : new Promise((done, failed) => {
+        const answer = () => { try { done(browserPhone.domainStart(domain, port)); } catch (error) { failed(error); } };
+        if (new URLSearchParams(location.search).has('start-held')) (window as unknown as { answerStart: () => void }).answerStart = answer;
+        else setTimeout(answer);
+      })),
   phoneDomainStop: (): Promise<PhoneView | null> => (inTauri ? invoke<PhoneView | null>('phone_domain_stop') : Promise.resolve(browserPhone.domainStop())),
   phoneDomainCheck: (): Promise<DomainCheck | null> => (inTauri ? invoke<DomainCheck | null>('phone_domain_check')
     // ?check-fails: the asking itself fails. ?check-held: the check answers when the test says (window.answerCheck()).
