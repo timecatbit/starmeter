@@ -73,6 +73,9 @@
     <span class="beat" aria-hidden="true"></span>
     <span class="state-text">{stateLine}</span>
   </div>
+  <!-- Everything under the state's line: on a computer's screen the card itself, the line its heading over it, level
+       with 正在运行's beside it (用户：这都没对齐). -->
+  <div class="body">
   <div class="headline">
     {#key working}
       <div class="figure-block" class:enter={!panel.reduceMotion && live.woke > 0}>
@@ -98,6 +101,7 @@
   <div class="curve" class:resting={!working} bind:clientHeight={room}>
     <StageLiveChart {live} height={curveHeight} bind:legendHeight={legend} />
   </div>
+  </div>
 </div>
 
 <style>
@@ -108,6 +112,16 @@
   .filling .curve { overflow: hidden; }
   .filling .curve > :global(*) { position: absolute; left: 0; right: 0; top: 0; }
   .state { display: flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 600; color: var(--ink); min-height: 24px; }
+  .body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  /* A computer's screen: the state's line is the column's heading, as tall as 正在运行's beside it and as far over its
+     card, and the rest is the card, its top on a line with the first card on the right, its foot with the last. */
+  :global(.stage.desk) .state { height: 24px; margin: 0 2px 10px; }
+  :global(.stage.desk) .body {
+    padding: 22px 26px 18px;
+    border-radius: 28px;
+    background: var(--glass);
+    box-shadow: inset 0 0 0 0.5px var(--glass-edge), var(--lift);
+  }
   .beat { position: relative; flex: none; pointer-events: none; width: 10px; height: 10px; border-radius: 50%; background: var(--ink-3); }
   .working .beat { background: var(--good); }
   /* The working light beats: a ring goes out from it, again and again. */

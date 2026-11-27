@@ -1084,25 +1084,96 @@ test('on its side under Safari\'s bars, the monitor held still fits what is seen
   expect(scrolled.curve).toBeLessThanOrEqual(scrolled.bottom + 0.5);
 });
 
-test('网页版 on a computer\'s screen: the monitor as tall as what is beside it, the two columns of figures ending close together, centred, in both languages', async ({ page }) => {
+test('网页版 on a computer\'s screen: the monitor as tall as what is beside it, the two columns of figures ending on one line, centred, in both languages', async ({ page }) => {
   for (const [hash, size] of [['', { width: 1440, height: 900 }], ['&l=en', { width: 1440, height: 900 }], ['', { width: 1920, height: 1080 }]] as const) {
     await phone(page, size, hash, { live: liveWork({ length: 1000, claudeEnds: 300, codexEnds: 300 }) });
     await expect(page.locator('.stage .feed')).toBeVisible({ timeout: 8000 });
     const seen = await page.evaluate(() => {
       const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
       const last = (selector: string) => [...document.querySelectorAll(selector)].map((e) => e.getBoundingClientRect().bottom).reduce((a, b) => Math.max(a, b), 0);
-      const tiles = document.querySelector('.stage .tiles')?.closest('.part')?.getBoundingClientRect().height ?? 0;
       return { lead: box('.stage .lead').bottom, activity: box('.stage .activity-box').bottom, feed: box('.stage .activity > :last-child').bottom,
-        left: last('.stage .stats-a > *'), right: last('.stage .stats-b > *'), tiles, frame: box('.stage .frame'), width: innerWidth };
+        left: last('.stage .stats-a > *'), right: last('.stage .stats-b > *'), frame: box('.stage .frame'), width: innerWidth };
     });
     // Side by side, the monitor and what happened end on one line.
     expect(Math.abs(seen.lead - seen.activity), hash).toBeLessThanOrEqual(1);
     expect(Math.abs(seen.feed - seen.lead), hash).toBeLessThanOrEqual(1);
-    // The figures' two columns end within the last block placed of each other (none could be moved to do better).
-    expect(Math.abs(seen.left - seen.right), hash).toBeLessThanOrEqual(seen.tiles);
+    // The figures' two columns end on one line (the shorter one's blocks grown into what was left).
+    expect(Math.abs(seen.left - seen.right), hash).toBeLessThanOrEqual(1);
     // At most 1320 wide, in the middle.
     expect(seen.frame.width).toBeLessThanOrEqual(1320);
     expect(Math.abs(seen.frame.left - (seen.width - seen.frame.right))).toBeLessThanOrEqual(1);
+  }
+});
+
+test('网页版 on a computer\'s screen is laid on one grid, however many tools, plans and tiles there are: one gutter down the page, the cards\' tops on a line, the two columns ending on a line, also with a card opened', async ({ context }) => {
+  // 用户：这都没对齐，能想办法对齐吗？就算选择的工具数量不同也自适应排版对齐。 The monitor's card began above the first
+  // card beside it, the figures' two columns were of another width than the monitor's, and they ended apart.
+  test.setTimeout(180_000);
+  const shapes = [
+    { tools: 7, plans: 5, tiles: 7 },
+    { tools: 4, plans: 4, tiles: 4 },
+    { tools: 1, plans: 0, tiles: 0 },
+    { tools: 2, plans: 5, tiles: 0 },
+    { tools: 7, plans: 0, tiles: 2 },
+    { tools: 3, plans: 1, tiles: 7 },
+    { tools: 5, plans: 2, tiles: 3 },
+  ];
+  for (const size of [{ width: 1440, height: 900 }, { width: 1100, height: 760 }]) for (const shape of shapes) {
+    const said = `${size.width} wide, ${shape.tools} tools, ${shape.plans} plans, ${shape.tiles} tiles`;
+    const page = await context.newPage();
+    page.on('pageerror', (error) => errors.push(String(error)));
+    await page.setViewportSize(size);
+    await servePhone(page, PHONE_KEY, { edit: (data) => {
+      for (const dashboard of Object.values(data.dashboards) as { providers: unknown[] }[]) dashboard.providers = dashboard.providers.slice(0, shape.tools);
+      const left = { plans: shape.plans, tiles: shape.tiles };
+      data.snapshot.entries = data.snapshot.entries.filter((e: { label?: string; value?: string; usageLevel?: string; onOpenAction?: string[] }) => {
+        if (!e.label || e.onOpenAction?.[1] === 'sessions') return true;
+        const kind = e.usageLevel !== undefined && /%/.test(e.value ?? '') ? 'plans' : 'tiles';
+        return left[kind]-- > 0;
+      });
+    } });
+    await page.goto('/#k=' + PHONE_KEY);
+    await expect(page.locator('.stage.desk')).toBeVisible();
+    await page.waitForTimeout(1600);
+    await expect(page.locator('.stage .placing')).toHaveCount(0);
+    await expect(page.locator('.stage .plan')).toHaveCount(shape.plans);
+    const look = () => page.evaluate(() => {
+      const box = (selector: string) => { const b = document.querySelector(selector)?.getBoundingClientRect(); return b ? { top: b.top, bottom: b.bottom, left: b.left, right: b.right, height: b.height } : null; };
+      const foot = (selector: string) => [...document.querySelectorAll(selector)].map((e) => e.getBoundingClientRect().bottom).reduce((a, b) => Math.max(a, b), 0);
+      return {
+        state: box('.stage .monitor .state')!, body: box('.stage .monitor .body')!, head: box('.stage .activity > .head')!, first: box('.stage .activity .session')!,
+        lead: box('.stage .lead')!, activity: box('.stage .activity-box')!, a: box('.stage .stats-a')!, b: box('.stage .stats-b')!,
+        left: foot('.stage .stats-a > *'), right: foot('.stage .stats-b > *'),
+        ranges: box('.stage .ranges')!, tabs: box('.stage .tabs')!, hero: box('.stage .hero')!, card: box('.stage .stats-b .card')!,
+        room: box('.stage .trend-chart')!, chart: box('.stage .trend-chart .chart')!, wide: (() => { const s = document.querySelector('.stage > .scroll')!; return s.scrollWidth > s.clientWidth; })(),
+      };
+    });
+    const seen = await look();
+    // The monitor's state is its column's heading, level with 正在运行's; the two cards under them start on one line,
+    // and the columns end on one.
+    expect(Math.abs(seen.state.top - seen.head.top), said).toBeLessThanOrEqual(1);
+    expect(Math.abs(seen.state.height - seen.head.height), said).toBeLessThanOrEqual(1);
+    expect(Math.abs(seen.body.top - seen.first.top), said).toBeLessThanOrEqual(1);
+    expect(Math.abs(seen.body.bottom - seen.activity.bottom), said).toBeLessThanOrEqual(1);
+    // One gutter from the top to the foot: the figures' columns are the monitor's.
+    expect(Math.abs(seen.lead.left - seen.a.left), said).toBeLessThanOrEqual(1);
+    expect(Math.abs(seen.lead.right - seen.a.right), said).toBeLessThanOrEqual(1);
+    expect(Math.abs(seen.activity.left - seen.b.left), said).toBeLessThanOrEqual(1);
+    expect(Math.abs(seen.activity.right - seen.b.right), said).toBeLessThanOrEqual(1);
+    // The ranges and the cards' tabs in one row, what follows them starting on one line.
+    expect(Math.abs(seen.ranges.top - seen.tabs.top), said).toBeLessThanOrEqual(1);
+    expect(Math.abs(seen.ranges.height - seen.tabs.height), said).toBeLessThanOrEqual(1);
+    expect(Math.abs(seen.hero.top - seen.card.top), said).toBeLessThanOrEqual(1);
+    // The two columns end on one line; the trend's chart fills the room it is given, never under its least.
+    expect(Math.abs(seen.left - seen.right), said).toBeLessThanOrEqual(1);
+    expect(seen.room.height, said).toBeGreaterThanOrEqual(190);
+    expect(Math.abs(seen.chart.height - seen.room.height), said).toBeLessThanOrEqual(1);
+    expect(seen.wide, said).toBe(false);
+    // A card opened: the columns still end on one line.
+    await page.locator('.stage .stats-b .card .head').first().click();
+    await expect.poll(async () => { const now = await look(); return Math.abs(now.left - now.right); }, { message: said }).toBeLessThanOrEqual(1);
+    await expect.poll(async () => { const now = await look(); return Math.abs(now.chart.height - now.room.height); }, { message: said }).toBeLessThanOrEqual(1);
+    await page.close();
   }
 });
 

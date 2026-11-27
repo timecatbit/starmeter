@@ -14,7 +14,11 @@
   import { panel } from '../lib/ui.svelte';
   import Glyph from './Glyph.svelte';
 
-  let { live, now }: { live: PhoneLive; now: number } = $props();
+  let { live, now, carded = false }: {
+    live: PhoneLive; now: number;
+    /** A computer's screen: with nothing in 动态 yet, its words in a card of their own, filling the column's foot. */
+    carded?: boolean;
+  } = $props();
   /** 动态: the newest twelve, none folded away (用户：你默认显示12个动作就很好……实时这里不用折叠). */
   const SHOWN = 12;
 
@@ -92,6 +96,9 @@
         </li>
       {/each}
     </ol>
+  {:else if carded}
+    <!-- A computer's screen: nothing yet, said in the card's place, so the column still ends where the monitor's does. -->
+    <div class="feed empty"><p class="quiet">{!live.answered ? t('正在读取…') : live.state === 'working' ? t('等下一笔请求…') : t('一有动静就会出现在这里')}</p></div>
   {:else}
     <p class="quiet">{!live.answered ? t('正在读取…') : live.state === 'working' ? t('等下一笔请求…') : t('一有动静就会出现在这里')}</p>
   {/if}
@@ -101,6 +108,9 @@
   .activity { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
   .head { display: flex; align-items: center; gap: 8px; font-size: var(--type-head, 13px); font-weight: 600; color: var(--ink-2); margin: 4px 2px -2px; }
   .feed-head { margin-top: 10px; }
+  /* A computer's screen: the first heading's row as tall as the monitor's state line beside it, the first card under
+     it on a line with the monitor's card. */
+  :global(.stage.desk) .activity > .head:first-child { height: 24px; margin: 0 2px; }
   .count { min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box; border-radius: 9px; font-size: 11px; line-height: 18px; text-align: center; color: #06281A; background: var(--good); }
   .sessions { display: flex; flex-direction: column; gap: 10px; }
   .session {
@@ -176,6 +186,7 @@
   .chip.lit { background: color-mix(in srgb, var(--good) 30%, transparent); color: var(--ink); box-shadow: 0 0 12px -2px var(--good); transition: none; }
   .quiet { margin: 0 2px; font-size: 12.5px; color: var(--ink-3); line-height: 1.5; }
   .feed { list-style: none; margin: 0; padding: 4px 14px; border-radius: 20px; background: var(--glass); box-shadow: inset 0 0 0 0.5px var(--glass-edge), var(--lift); }
+  .feed.empty { display: flex; align-items: center; justify-content: center; min-height: 64px; padding: 14px; }
   .event.rest .what { color: var(--ink-3); }
   .event { display: grid; grid-template-columns: auto auto minmax(0, auto) minmax(0, 1fr); align-items: center; gap: 8px; min-height: 34px; font-size: 12.5px; border-bottom: 0.5px solid var(--line-faint); }
   .event:last-child { border-bottom: 0; }

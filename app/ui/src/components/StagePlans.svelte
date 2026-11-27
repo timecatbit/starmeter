@@ -11,10 +11,13 @@
   import type { Entry } from '../lib/types';
   import Glyph from './Glyph.svelte';
 
-  let { entries, enter = true, only = null }: {
+  let { entries, enter = true, only = null, fill = false }: {
     entries: Entry[]; enter?: boolean;
     /** The plans alone or the tiles alone (a computer's screen places each in the shorter column). */
     only?: 'plans' | 'tiles' | null;
+    /** As tall as the room it is given (a computer's screen, its column evened with the other): the plans and the
+     *  tiles share what there is over. */
+    fill?: boolean;
   } = $props();
 
   const rows = $derived(entries.filter((e) => !e.separator && !e.section && e.label));
@@ -51,7 +54,7 @@
 </script>
 
 {#if plans.length}
-  <div class="plans">
+  <div class="plans" class:fill>
     {#each plans as e, i (e.module ?? e.label)}
       {@const used = usageShare(e) ?? 0}
       {@const level = e.shareLevel ?? e.usageLevel}
@@ -97,7 +100,7 @@
   </div>
 {/if}
 {#if tiles.length}
-  <div class="tiles">
+  <div class="tiles" class:fill>
     {#each tiles as e, i (e.module ?? e.label)}
       {@const state = configured(e.value)}
       <div class="tile" class:enter={enter && !panel.reduceMotion} class:attention={e.attention} style:--order={plans.length + i}>
@@ -110,6 +113,9 @@
 
 <style>
   .plans { display: flex; flex-direction: column; gap: 10px; }
+  .plans.fill { flex: 1 1 auto; }
+  .plans.fill .plan { flex: 1 1 auto; }
+  .tiles.fill { flex: 1 1 auto; grid-auto-rows: 1fr; }
   .plan {
     display: flex;
     align-items: center;

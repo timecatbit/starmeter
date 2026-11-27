@@ -255,27 +255,61 @@
     if (key !== wantedGrouping) ongroup(key);
   }
 
-  // MARK: A computer's screen: two columns of figures, even
-  // Under the monitor, the figures for a range (left) and the cards (right); the plans, and the other rows' tiles, go
-  // each to the column that is shorter, so the two end close together. Placed when the screen or what there is to
+  // MARK: A computer's screen: two columns of figures, level at both ends
+  // Under the monitor, in its two columns: the figures for a range and their trend head the left, the cards the
+  // right. The tools' shares, the plans and the other rows' tiles go to whichever column leaves the two closest in
+  // height, of every way to share them out, however many tools and plans there are (用户：就算选择的工具数量不同也
+  // 自适应排版对齐); what is left between them is taken up by the shorter column's blocks growing (the trend's chart
+  // first), so the two end on one line, and go on doing so as a card opens. Placed when the screen or what there is to
   // place changes, not as a card opens or a grouping is picked (nothing moves under the pointer); hidden till placed.
-  const heights = $state({ a: 0, b: 0, plans: 0, tiles: 0 });
-  let place = $state<{ plans: 'left' | 'right'; tiles: 'left' | 'right' }>({ plans: 'right', tiles: 'right' });
+  type Side = 'left' | 'right';
+  const BLOCKS = ['shares', 'plans', 'tiles'] as const;
+  type Block = (typeof BLOCKS)[number];
+  /** Where each goes when it makes no difference. */
+  const HOME: Record<Block, Side> = { shares: 'left', plans: 'right', tiles: 'right' };
+  let place = $state<Record<Block, Side>>({ ...HOME });
   let placed = $state(false);
+  let statsBox: HTMLDivElement | undefined = $state();
+  /** The columns' heads and the blocks, as they stand on the page, to be measured. */
+  const boxes: Partial<Record<Block | 'a' | 'b', HTMLElement | null>> = {};
+  /** The room the trend's chart has on a computer's screen: it fills it. */
+  let trendRoom = $state(0);
   const shownRows = $derived(entries.filter((e) => !e.separator && !e.section && e.label));
   const hasPlans = $derived(shownRows.some((e) => usageShare(e) !== null));
   const hasTiles = $derived(shownRows.some((e) => usageShare(e) === null));
   /** The plans and the tiles in different columns: each its own heading. */
   const apart = $derived(hasPlans && hasTiles && place.plans !== place.tiles);
   const shape = $derived(`${layout}|${screenW}|${shownRows.map((e) => e.label).join('·')}|${data.providers.length}|${summary}|${showingSessions}`);
+  /** The way to share the blocks out that leaves the columns closest; between ways as close, the one with most at home. */
+  function shared(a: number, b: number, sizes: number[], gap: number): Record<Block, Side> {
+    let best: { cost: number; sides: Side[] } | null = null;
+    for (let way = 0; way < 1 << BLOCKS.length; way++) {
+      const sides = BLOCKS.map((key, i): Side => (!sizes[i] ? HOME[key] : way & (1 << i) ? 'right' : 'left'));
+      let left = a, right = b, away = 0;
+      sides.forEach((side, i) => {
+        if (!sizes[i]) return;
+        if (side === 'left') left += gap + sizes[i]; else right += gap + sizes[i];
+        if (side !== HOME[BLOCKS[i]]) away++;
+      });
+      const cost = Math.abs(left - right) + away * 6;
+      if (!best || cost < best.cost) best = { cost, sides };
+    }
+    return Object.fromEntries(BLOCKS.map((key, i) => [key, best!.sides[i]])) as Record<Block, Side>;
+  }
   $effect(() => {
     void shape;
-    if (!desk) { placed = true; return; }
+    if (!desk) { place = { ...HOME }; placed = true; return; }
     const frame = requestAnimationFrame(() => untrack(() => {
-      let left = heights.a, right = heights.b;
-      const plans = left <= right ? 'left' : 'right';
-      if (plans === 'left') left += heights.plans; else right += heights.plans;
-      place = { plans, tiles: left <= right ? 'left' : 'right' };
+      const box = statsBox;
+      if (!box) return;
+      // Measured as they are of themselves, not grown to fill their column: for this one look the columns aren't
+      // stretched (read at once, nothing drawn in between).
+      box.classList.add('measuring');
+      const tall = (element: HTMLElement | null | undefined) => element?.offsetHeight ?? 0;
+      const a = tall(boxes.a), b = tall(boxes.b), sizes = BLOCKS.map((key) => tall(boxes[key]));
+      const gap = parseFloat(getComputedStyle(box.firstElementChild ?? box).rowGap) || 16;
+      box.classList.remove('measuring');
+      place = shared(a, b, sizes, gap);
       placed = true;
     }));
     return () => cancelAnimationFrame(frame);
@@ -422,11 +456,11 @@
       </section>
 
       <section class="rest">
-        <div class="activity-box"><StageActivity {live} {now} /></div>
+        <div class="activity-box"><StageActivity {live} {now} carded={desk} /></div>
 
-        <div class="stats">
+        <div class="stats" bind:this={statsBox}>
           <div class="stats-a" class:placing={!placed}>
-            <div class="part" bind:offsetHeight={heights.a}>
+            <div class="part figures-part" bind:this={boxes.a}>
             <div class="stats-head">{t('统计')}</div>
             {#if rangeChoices.length > 1}
               <div class="ranges"><StagePills options={rangeChoices} chosen={chosenRange} label={t('统计范围')} onpick={pickRange} busy={reading} scroll bare /></div>
@@ -452,22 +486,17 @@
               </div>
               <div class="trend" class:reading>
                 <div class="trend-head"><span>{t('{unit} Token', { unit: data.chartUnit })}</span><span class="span num">{data.chartSpan}</span></div>
-                <StageChart {data} height={layout === 'desk' ? 190 : 156} draw={intro} />
-              </div>
-              {#if counted.some((p) => p.available && p.tokens > 0)}
-                <div class="panel shares" class:reading>
-                  <div class="panel-head"><span>{t('工具占比')}</span><span class="quiet">{t('按 Token')}</span></div>
-                  <StageRing {data} draw={intro} size={128} />
+                <div class="trend-chart" bind:clientHeight={trendRoom}>
+                  <StageChart {data} height={desk ? Math.max(190, trendRoom) : 156} draw={intro} />
                 </div>
-              {/if}
+              </div>
             {/if}
             </div>
-            {#if desk && place.plans === 'left'}{@render plansBlock()}{/if}
-            {#if desk && place.tiles === 'left'}{@render tilesBlock()}{/if}
+            {@render blocks('left')}
           </div>
 
           <div class="stats-b" class:placing={!placed}>
-            <div class="part" bind:offsetHeight={heights.b}>
+            <div class="part cards" bind:this={boxes.b}>
             {#if tabs.length > 1}
               <div class="tabs"><StagePills options={tabs} chosen={showingSessions ? 'sessions' : wantedGrouping} label={t('卡片分组')} onpick={pickTab} small /></div>
             {/if}
@@ -498,30 +527,31 @@
             {/if}
 
             </div>
-            {#if !desk}
-              {#if entries.some((e) => !e.separator && e.label)}
-                <div class="plans-head">{t('订阅与服务')}</div>
-                <StagePlans {entries} enter={intro} />
-              {/if}
-            {:else}
-              {#if place.plans === 'right'}{@render plansBlock()}{/if}
-              {#if place.tiles === 'right'}{@render tilesBlock()}{/if}
+            {@render blocks('right')}
+            {#if !desk && entries.some((e) => !e.separator && e.label)}
+              <div class="plans-head">{t('订阅与服务')}</div>
+              <StagePlans {entries} enter={intro} />
             {/if}
           </div>
         </div>
-        {#snippet plansBlock()}
-          {#if hasPlans}
-            <div class="part" bind:offsetHeight={heights.plans}>
-              <div class="plans-head">{t(apart ? '订阅' : '订阅与服务')}</div>
-              <StagePlans {entries} enter={intro} only="plans" />
+        {#snippet blocks(side: Side)}
+          <!-- A column's blocks, in one order in either: the shares, the plans, the tiles. -->
+          {#if summary && place.shares === side && counted.some((p) => p.available && p.tokens > 0)}
+            <div class="panel shares" class:reading bind:this={boxes.shares}>
+              <div class="panel-head"><span>{t('工具占比')}</span><span class="quiet">{t('按 Token')}</span></div>
+              <div class="shares-ring"><StageRing {data} draw={intro} size={128} /></div>
             </div>
           {/if}
-        {/snippet}
-        {#snippet tilesBlock()}
-          {#if hasTiles}
-            <div class="part" bind:offsetHeight={heights.tiles}>
+          {#if desk && hasPlans && place.plans === side}
+            <div class="part fills" bind:this={boxes.plans}>
+              <div class="plans-head">{t(apart ? '订阅' : '订阅与服务')}</div>
+              <StagePlans {entries} enter={intro} only="plans" fill />
+            </div>
+          {/if}
+          {#if desk && hasTiles && place.tiles === side}
+            <div class="part fills" bind:this={boxes.tiles}>
               {#if apart || !hasPlans}<div class="plans-head">{t(apart ? '服务' : '订阅与服务')}</div>{/if}
-              <StagePlans {entries} enter={intro} only="tiles" />
+              <StagePlans {entries} enter={intro} only="tiles" fill />
             </div>
           {/if}
         {/snippet}
@@ -767,11 +797,14 @@
 
   /* A computer's or a tablet's window: a page, the monitor large beside what is happening, the figures under both. */
   .desk .frame {
+    /* One pair of columns down the whole page: the figures under the monitor keep its columns, one gutter from the top
+       to the foot (用户：这都没对齐). */
+    --columns: minmax(0, 1.6fr) minmax(340px, 1fr);
     max-width: 1320px;
     box-sizing: border-box;
     padding: 0 40px 40px;
     display: grid;
-    grid-template-columns: minmax(0, 1.6fr) minmax(340px, 1fr);
+    grid-template-columns: var(--columns);
     column-gap: 28px;
     align-items: start;
   }
@@ -785,10 +818,6 @@
     max-height: calc(var(--visible-h, 100dvh) - 64px - 30px);
     display: flex;
     flex-direction: column;
-    padding: 22px 26px 18px;
-    border-radius: 28px;
-    background: var(--glass);
-    box-shadow: inset 0 0 0 0.5px var(--glass-edge), var(--lift);
     margin-top: 6px;
   }
   .desk .monitor-box { flex: 1; display: flex; flex-direction: column; }
@@ -797,9 +826,23 @@
   .desk .activity-box { grid-column: 2; align-self: stretch; display: flex; flex-direction: column; margin-top: 6px; }
   .desk .activity-box > :global(.activity) { flex: 1; }
   .desk .activity-box :global(.feed) { flex: 1; }
-  .desk .stats { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 28px; align-items: start; margin-top: 22px; }
+  /* The two columns as tall as each other: the shorter one's blocks grow into what is left (the trend's chart most, then
+     the plans and the tiles, the shares' ring, the cards), so both end on one line. */
+  .desk .stats { grid-column: 1 / -1; display: grid; grid-template-columns: var(--columns); column-gap: 28px; align-items: stretch; margin-top: 22px; }
+  /* Measured (the script, for a moment): each column as tall as what is in it. */
+  .desk .stats:global(.measuring) { align-items: start; }
   .part { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
   .placing { visibility: hidden; }
+  .desk .part.figures-part { flex: 6 1 auto; }
+  .desk .trend { flex: 1 1 auto; display: flex; flex-direction: column; }
+  .desk .trend-chart { position: relative; flex: 1 1 auto; min-height: 190px; }
+  .desk .trend-chart > :global(.chart) { position: absolute; left: 0; right: 0; top: 0; }
+  .desk .shares { flex: 1 1 auto; display: flex; flex-direction: column; }
+  .desk .shares-ring { margin-block: auto; }
+  .desk .part.fills { flex: 2 1 auto; }
+  .desk .part.cards { flex: 1 1 auto; }
+  .desk .part.cards .list { flex: 1 1 auto; }
+  .desk .part.cards .list > :global(:is(.card, .session)) { flex: 1 1 auto; }
   .desk .foot { grid-column: 1 / -1; margin-top: 30px; }
 
   /* MARK: The bar */
@@ -947,7 +990,12 @@
   .trend-head, .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 8px; font-size: var(--type-head); font-weight: 600; }
   .span, .quiet { font-size: 11px; font-weight: 500; color: var(--ink-3); }
   .tabs { display: flex; justify-content: center; margin-top: 4px; }
-  .desk .tabs { justify-content: flex-start; margin-top: 30px; }
+  /* A computer's screen: 统计's heading in a row of its own, the ranges under it and the cards' tabs beside them in rows
+     as tall as each other, so what follows starts on one line in both columns. */
+  .desk .stats-head { display: flex; align-items: center; height: 24px; margin: 0 2px; }
+  .desk .ranges, .desk .tabs { display: flex; align-items: center; height: 38px; }
+  .desk .ranges > :global(*) { flex: 1; min-width: 0; }
+  .desk .tabs { justify-content: flex-start; margin-top: 40px; }
   .note { margin: -6px 0 0; font-size: 11.5px; color: var(--ink-3); text-align: center; }
   .note.center { margin: 8px 0; }
   .list { display: flex; flex-direction: column; gap: 10px; transition: opacity 0.3s; }
