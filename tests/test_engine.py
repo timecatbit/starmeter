@@ -1926,7 +1926,8 @@ class SessionParityTests(unittest.TestCase):
             for idx, response in enumerate(responses):
                 usage = pb((2, 1000), (3, 10), (10, 10), (11, response))
                 db.execute('INSERT INTO gen_metadata(idx, data) VALUES (?, ?)', (idx, pb((1, pb((3, 1427), (4, usage), (19, 'gemini-4-carbon'))))))
-                db.execute('INSERT INTO steps(idx, metadata) VALUES (?, ?)', (idx, pb((1, moment(now - 400 + idx)), (9, pb((11, response))))))
+                # Its steps come before the store's last write, 30 seconds ago at the latest, as in a real store.
+                db.execute('INSERT INTO steps(idx, metadata) VALUES (?, ?)', (idx, pb((1, moment(now - 900 + idx)), (9, pb((11, response))))))
             db.commit(); db.close()
             os.utime(path, (now - age, now - age))
         def listing(app, rows):
@@ -1955,7 +1956,9 @@ class SessionParityTests(unittest.TestCase):
                                'OCX_PLUGIN_PATH': str(ROOT / 'starmeter.30s.sh')}
                 with unittest.mock.patch.dict(os.environ, environment):
                     for name in ('CLAUDE_CONFIG_DIR', 'XDG_CONFIG_HOME', 'CODEX_HOME', 'OCX_CHATGPT_HOME', 'GEMINI_USAGE_DIR'):os.environ.pop(name, None)
-                    card = swift('range.usage', 'today', 0)['payload']['gemini']['summary']['requests']
+                    # The whole of time, not today: the copies are 10 and 1 minute old, and in the first minutes after
+                    # midnight today would leave the older one out as unwritten since (rightly), whatever it held.
+                    card = swift('range.usage', 'all', 0)['payload']['gemini']['summary']['requests']
                     listed = [s for s in swift('runtime', 'sessions')['payload']['sessions'] if s.get('title') == 'Two copies']
                 self.assertEqual(card, 3)
                 self.assertEqual(len(listed), 1)
