@@ -127,7 +127,8 @@ pub fn panel_entries(lines: &[String]) -> Vec<Json> {
     let mut nodes: Vec<Node> = Vec::new();
     let mut roots: Vec<usize> = Vec::new();
     let mut parents: HashMap<usize, usize> = HashMap::new();
-    let spaces = Regex::new(r"\s{2,}").expect("pattern");
+    static SPACES: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| Regex::new(r"\s{2,}").expect("pattern"));
+    let spaces = &*SPACES;
     for raw in lines.iter().filter(|line| !line.is_empty()) {
         let mut level = 0;
         let entry = if raw.chars().all(|c| c == '-') {

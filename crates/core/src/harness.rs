@@ -934,10 +934,11 @@ fn forget_missing(db: &Database, active: &HashSet<String>, archive: Option<&Path
 }
 
 /// One copy per event ID, whichever file was indexed first.
+/// Pre-filters candidate IDs using the `events_ts` index so short ranges (e.g. `today`) never full-scan history (PERF-5).
 fn unique_events(db: &Database, start: f64, end: f64) -> Fallible<Vec<Event>> {
-    events_in(
+    events_in_bounds(
         db,
-        "SELECT data FROM events WHERE rowid IN (SELECT MIN(rowid) FROM events GROUP BY id) AND ts>=? AND ts<=?",
+        "SELECT data FROM events WHERE rowid IN (SELECT MIN(rowid) FROM events WHERE id IN (SELECT DISTINCT id FROM events WHERE ts>=? AND ts<=?) GROUP BY id) AND ts>=? AND ts<=?",
         start,
         end,
     )
@@ -947,16 +948,16 @@ fn unique_events(db: &Database, start: f64, end: f64) -> Fallible<Vec<Event>> {
 /// generation kept by both Antigravity's app and its IDE can be dated by its own step in one and only by when its
 /// conversation began in the other (AGY-1). The copy is chosen first, then the range: the day is the exact one's.
 fn best_timed_events(db: &Database, start: f64, end: f64) -> Fallible<Vec<Event>> {
-    events_in(
+    events_in_bounds(
         db,
-        "SELECT data FROM events WHERE rowid IN (SELECT r FROM (SELECT rowid AS r, ROW_NUMBER() OVER (PARTITION BY id ORDER BY COALESCE(json_extract(data,'$.timing'),0) DESC, rowid) AS n FROM events) WHERE n=1) AND ts>=? AND ts<=?",
+        "SELECT data FROM events WHERE rowid IN (SELECT r FROM (SELECT rowid AS r, ROW_NUMBER() OVER (PARTITION BY id ORDER BY COALESCE(json_extract(data,'$.timing'),0) DESC, rowid) AS n FROM events WHERE id IN (SELECT DISTINCT id FROM events WHERE ts>=? AND ts<=?)) WHERE n=1) AND ts>=? AND ts<=?",
         start,
         end,
     )
 }
 
-fn events_in(db: &Database, query: &str, start: f64, end: f64) -> Fallible<Vec<Event>> {
-    let rows = db.rows(query, &[Value::Real(start), Value::Real(end)])?;
+fn events_in_bounds(db: &Database, query: &str, start: f64, end: f64) -> Fallible<Vec<Event>> {
+    let rows = db.rows(query, &[Value::Real(start), Value::Real(end), Value::Real(start), Value::Real(end)])?;
     Ok(rows
         .iter()
         .filter_map(|row| database::text(&row[0]).and_then(|text| Json::parse_str(text).ok()))
@@ -1328,6 +1329,39 @@ fn display_model(name: &str) -> String {
     if id.starts_with("claude-") { id.replace('.', "-") } else { id }
 }
 
+/// Real user prompt timestamps (`step_type = 14`) in an Antigravity conversation store, ordered oldest first.
+/// Cached by `(size, mtime)` so 2s live session polling does not re-scan unchanged stores.
+pub(crate) fn antigravity_prompts(path: &str) -> Vec<f64> {
+    use std::sync::{Mutex, OnceLock};
+    type PromptCache = HashMap<String, ((i64, i64), Vec<f64>)>;
+    static CACHE: OnceLock<Mutex<PromptCache>> = OnceLock::new();
+    let Some(state) = store_state(path) else { return Vec::new() };
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some((seen, times)) = cache.lock().expect("antigravity prompts cache").get(path)
+        && *seen == state
+    {
+        return times.clone();
+    }
+    let times = (|| -> Option<Vec<f64>> {
+        let db = Database::open(Path::new(path), 2.0, Mode::ReadOnly).ok()?;
+        db.execute("PRAGMA query_only=ON").ok()?;
+        let rows = db.rows("SELECT metadata FROM steps WHERE step_type=14 ORDER BY idx", &[]).ok()?;
+        let mut out = Vec::new();
+        for row in rows {
+            if let Some(at) = database::blob(&row[0])
+                .and_then(proto)
+                .and_then(|fields| proto_bytes(&fields, 1).and_then(proto_moment))
+            {
+                out.push(at);
+            }
+        }
+        Some(out)
+    })()
+    .unwrap_or_default();
+    cache.lock().expect("antigravity prompts cache").insert(path.to_string(), (state, times.clone()));
+    times
+}
+
 /// One Antigravity conversation's requests, from its store's gen_metadata: a row each, with its tokens
 /// (exa.codeium_common_pb.ModelUsageStats: 2 input not from the cache, 3 output, which is 9 thinking and 10 the
 /// answer, 4 written to the cache, 5 read from it, 11 the response), its model (19, else its display name 21) and
@@ -1668,5 +1702,64 @@ mod tests {
         ] {
             assert_eq!(display_model(name), model, "{name}");
         }
+    }
+
+    #[test]
+    fn best_timed_events_range_pushdown_respects_cross_boundary_timing() {
+        let path = std::env::temp_dir().join(format!("starmeter-harness-query-{}.sqlite3", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let db = crate::database::Database::open(&path, 5.0, crate::database::Mode::ReadWrite).unwrap();
+        db.execute(
+            "CREATE TABLE events(id TEXT, file TEXT, ts REAL, data TEXT, PRIMARY KEY(id, file));
+             CREATE INDEX events_ts ON events(ts);",
+        )
+        .unwrap();
+        // Copy 1 (coarse timing=1) sits inside [100, 200]; Copy 2 (exact timing=2) sits outside at ts=50.
+        // The exact copy (ts=50) wins for id="e1", so [100, 200] must NOT include e1.
+        db.run(
+            "INSERT INTO events VALUES (?,?,?,?)",
+            &[
+                crate::database::Value::Text("e1".into()),
+                crate::database::Value::Text("f1".into()),
+                crate::database::Value::Real(150.0),
+                crate::database::Value::Text(r#"{"id":"e1","timing":1,"timestamp":150}"#.into()),
+            ],
+        )
+        .unwrap();
+        db.run(
+            "INSERT INTO events VALUES (?,?,?,?)",
+            &[
+                crate::database::Value::Text("e1".into()),
+                crate::database::Value::Text("f2".into()),
+                crate::database::Value::Real(50.0),
+                crate::database::Value::Text(r#"{"id":"e1","timing":2,"timestamp":50}"#.into()),
+            ],
+        )
+        .unwrap();
+        // e2's exact copy sits inside [100, 200] while coarse copy is outside at ts=10.
+        db.run(
+            "INSERT INTO events VALUES (?,?,?,?)",
+            &[
+                crate::database::Value::Text("e2".into()),
+                crate::database::Value::Text("f1".into()),
+                crate::database::Value::Real(10.0),
+                crate::database::Value::Text(r#"{"id":"e2","timing":1,"timestamp":10}"#.into()),
+            ],
+        )
+        .unwrap();
+        db.run(
+            "INSERT INTO events VALUES (?,?,?,?)",
+            &[
+                crate::database::Value::Text("e2".into()),
+                crate::database::Value::Text("f2".into()),
+                crate::database::Value::Real(160.0),
+                crate::database::Value::Text(r#"{"id":"e2","timing":2,"timestamp":160}"#.into()),
+            ],
+        )
+        .unwrap();
+        let found = super::best_timed_events(&db, 100.0, 200.0).unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].get("id").and_then(crate::json::Json::as_str), Some("e2"));
+        let _ = std::fs::remove_file(&path);
     }
 }

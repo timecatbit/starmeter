@@ -25,7 +25,7 @@ use crate::{object, pricing, py};
 
 /// A session whose record changed this recently is running.
 const RUNNING: f64 = 60.0;
-/// Requests further apart than this are told as two turns.
+/// Requests further apart than this are told as two turns when a tool records no user prompt timestamps.
 const TURN_GAP: f64 = 180.0;
 
 /// The tools read here: module, the name a session carries, how its requests are priced when the record has no cost.
@@ -39,10 +39,11 @@ const TOOLS: [(&str, &str); 5] = [
 
 /// How a request is priced when its record carries no cost.
 type Pricing = dyn Fn(&Object) -> Option<f64>;
-/// What is known of a transcript by its path: the file's print when read, its title and its project.
-type Names = HashMap<String, (String, Option<String>, Option<String>)>;
+/// What is known of a transcript by its path: the file's print when read, its title, project and prompt timestamps.
+type Names = HashMap<String, (String, Option<String>, Option<String>, Vec<f64>)>;
 
 /// A session's file (or conversation) and what its record says beyond its requests.
+#[derive(Clone)]
 struct Record {
     key: String,
     changed: f64,
@@ -51,6 +52,8 @@ struct Record {
     project: Option<String>,
     /// The tool's own word on whether it is working, when it keeps one (Antigravity).
     running: Option<bool>,
+    /// Real user prompt timestamps (oldest first) when the tool records them (Antigravity, OpenCode, WorkBuddy, Qoder).
+    prompts: Option<Vec<f64>>,
 }
 
 fn hash(text: &str) -> String {
@@ -62,19 +65,20 @@ fn number(event: &Object, key: &str) -> f64 {
 }
 
 /// What a transcript in Claude Code's shape (WorkBuddy's, Qoder's) names itself: the title the user gave it, else the
-/// one its tool made, and the folder it works in. From its last half megabyte, else its start; kept while the file is
-/// unchanged, as a pinned panel reads the sessions every second or two.
-fn transcript_names(path: &str) -> (Option<String>, Option<String>) {
+/// one its tool made, the folder it works in, and any user prompt timestamps. From its last half megabyte, else its
+/// start; kept while the file is unchanged, as a pinned panel reads the sessions every second or two.
+fn transcript_names(path: &str) -> (Option<String>, Option<String>, Vec<f64>) {
     static KNOWN: std::sync::Mutex<Option<Names>> = std::sync::Mutex::new(None);
-    let Some(state) = state_of(Path::new(path)) else { return (None, None) };
+    let Some(state) = state_of(Path::new(path)) else { return (None, None, Vec::new()) };
     let print = format!("{}:{}:{}", state.inode, state.size, state.mtime);
-    if let Some((_, title, folder)) =
-        KNOWN.lock().ok().and_then(|known| known.as_ref()?.get(path).filter(|(seen, _, _)| *seen == print).cloned())
+    if let Some((_, title, folder, prompts)) =
+        KNOWN.lock().ok().and_then(|known| known.as_ref()?.get(path).filter(|(seen, _, _, _)| *seen == print).cloned())
     {
-        return (title, folder);
+        return (title, folder, prompts);
     }
     let scan = |rows: Vec<Object>| {
         let (mut named, mut made, mut folder) = (None::<String>, None::<String>, None::<String>);
+        let mut prompts = Vec::new();
         for row in rows {
             match row.get("type").and_then(Json::as_str) {
                 Some("custom-title") => named = text_of(row.get("customTitle")).or(named),
@@ -84,21 +88,42 @@ fn transcript_names(path: &str) -> (Option<String>, Option<String>) {
             if let Some(cwd) = text_of(row.get("cwd")) {
                 folder = Some(cwd);
             }
+            if crate::sessions::is_prompt(&row) {
+                if let Some(at) = py::stamp(row.get("timestamp")).ok().and_then(|v| v.number()) {
+                    prompts.push(at);
+                }
+            } else if row.get("type").and_then(Json::as_str) == Some("message")
+                && row.get("message").and_then(|m| m.get("role")).and_then(Json::as_str) == Some("user")
+            {
+                let content = row.get("message").and_then(|m| m.get("content"));
+                let tool_only = content.and_then(Json::as_array).is_some_and(|arr| {
+                    !arr.is_empty() && arr.iter().all(|item| item.get("type") == Some(&Json::from("tool_result")))
+                });
+                if !tool_only && let Some(at) = py::stamp(row.get("timestamp")).ok().and_then(|v| v.number()) {
+                    prompts.push(at);
+                }
+            } else if row.get("type").and_then(Json::as_str) == Some("user/message")
+                && let Some(at) = py::stamp(row.get("time")).ok().and_then(|v| v.number())
+            {
+                prompts.push(at);
+            }
         }
-        (named.or(made), folder)
+        (named.or(made), folder, prompts)
     };
-    let (mut title, mut folder) = scan(rows_at_end(path, 512 * 1024).unwrap_or_default());
+    let (mut title, mut folder, prompts) = scan(rows_at_end(path, 512 * 1024).unwrap_or_default());
     if title.is_none() || folder.is_none() {
-        let (early_title, early_folder) = scan(rows_at_start(path, 64 * 1024).unwrap_or_default());
+        let (early_title, early_folder, _) = scan(rows_at_start(path, 64 * 1024).unwrap_or_default());
         title = title.or(early_title);
         folder = folder.or(early_folder);
     }
     let project =
         folder.and_then(|folder| py::project_name(Some(&Json::from(folder.as_str()))).as_str().map(String::from));
     if let Ok(mut known) = KNOWN.lock() {
-        known.get_or_insert_with(HashMap::new).insert(path.to_string(), (print, title.clone(), project.clone()));
+        known
+            .get_or_insert_with(HashMap::new)
+            .insert(path.to_string(), (print, title.clone(), project.clone(), prompts.clone()));
     }
-    (title, project)
+    (title, project, prompts)
 }
 
 /// The requests the usage reader's index keeps for one file, oldest first.
@@ -134,7 +159,7 @@ fn jsonl_records(cache: &Path, source: &str, root: &str, since: f64) -> Vec<Reco
         .filter_map(|path| {
             let changed = state_of(Path::new(&path))?.mtime as f64 / 1e9;
             (changed >= since).then(|| {
-                let (title, project) = transcript_names(&path);
+                let (title, project, prompts) = transcript_names(&path);
                 Record {
                     key: format!("{source}:{path}"),
                     changed,
@@ -142,6 +167,7 @@ fn jsonl_records(cache: &Path, source: &str, root: &str, since: f64) -> Vec<Reco
                     title,
                     project,
                     running: None,
+                    prompts: (!prompts.is_empty()).then_some(prompts),
                 }
             })
         })
@@ -160,14 +186,20 @@ struct Summary {
     parent: Option<String>,
 }
 
-fn antigravity_summary(store: &str, conversation: &str) -> Summary {
+fn antigravity_summary(
+    store: &str,
+    conversation: &str,
+    lists: &mut HashMap<std::path::PathBuf, Option<Database>>,
+) -> Summary {
     // <root>/antigravity…/conversations[/implicit]/<id>.db, its list beside conversations/.
     let folder =
         Path::new(store).ancestors().find(|folder| folder.file_name().is_some_and(|name| name == "conversations"));
     let Some(list) = folder.and_then(Path::parent).map(|parent| parent.join("conversation_summaries.db")) else {
         return Summary::default();
     };
-    let Some(db) = open_index(&list) else { return Summary::default() };
+    // Open each conversation_summaries.db once per Antigravity root instead of N+1 opens per conversation (PERF-5).
+    let db_slot = lists.entry(list.clone()).or_insert_with(|| open_index(&list));
+    let Some(db) = db_slot.as_ref() else { return Summary::default() };
     let full = "SELECT title, status, not_fully_idle, workspace_uris, parent_conversation_id FROM conversation_summaries \
                 WHERE conversation_id=?";
     let short =
@@ -204,6 +236,7 @@ fn gemini_records(cache: &Path, root: &str, since: f64) -> Vec<Record> {
                 title: None,
                 project: None,
                 running: None,
+                prompts: None,
             })
         })
         .collect();
@@ -217,10 +250,11 @@ fn gemini_records(cache: &Path, root: &str, since: f64) -> Vec<Record> {
     // A conversation's record: its title, project and state from its newest copy; its requests from all of them, each
     // response once, from the copy that dates it best (its timing), as the usage counts it, since a copy may hold
     // responses another lacks (AGY-6).
-    let read = |id: &str| -> Option<(Record, Option<String>)> {
+    let mut summary_dbs: HashMap<std::path::PathBuf, Option<Database>> = HashMap::new();
+    let mut read = |id: &str| -> Option<(Record, Option<String>)> {
         let kept = copies.get(id)?;
         let (newest, changed) = kept.iter().max_by(|a, b| a.1.total_cmp(&b.1))?;
-        let summary = antigravity_summary(newest, id);
+        let summary = antigravity_summary(newest, id, &mut summary_dbs);
         let mut best: HashMap<String, Object> = HashMap::new();
         let mut order: Vec<String> = Vec::new();
         for (store, _) in kept {
@@ -239,6 +273,7 @@ fn gemini_records(cache: &Path, root: &str, since: f64) -> Vec<Record> {
         }
         let mut events: Vec<Object> = order.into_iter().filter_map(|key| best.remove(&key)).collect();
         events.sort_by(|a, b| number(a, "timestamp").total_cmp(&number(b, "timestamp")));
+        let prompts = harness::antigravity_prompts(newest);
         let record = Record {
             key: format!("antigravity:{id}"),
             changed: *changed,
@@ -246,6 +281,7 @@ fn gemini_records(cache: &Path, root: &str, since: f64) -> Vec<Record> {
             title: summary.title,
             project: summary.project,
             running: summary.running,
+            prompts: (!prompts.is_empty()).then_some(prompts),
         };
         Some((record, summary.parent))
     };
@@ -357,7 +393,24 @@ fn opencode_records(root: &str, since: f64) -> Vec<Record> {
             Value::Integer(number) => number.to_string(),
             _ => continue,
         };
-        records.push(Record { key: format!("opencode:{key}"), changed, events, title, project: None, running: None });
+        let prompts: Vec<f64> = db
+            .rows(
+                "SELECT time_created FROM message WHERE session_id=? AND json_extract(data,'$.role')='user' ORDER BY time_created",
+                std::slice::from_ref(&session),
+            )
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|row| row.first().and_then(database::double).map(|ms| ms / 1000.0))
+            .collect();
+        records.push(Record {
+            key: format!("opencode:{key}"),
+            changed,
+            events,
+            title,
+            project: None,
+            running: None,
+            prompts: (!prompts.is_empty()).then_some(prompts),
+        });
     }
     records
 }
@@ -392,9 +445,23 @@ fn session_of(
     let (mut requests, mut cost, mut unpriced) = (0i64, 0.0, 0i64);
     let mut days = Object::new();
     let mut spends: Vec<Json> = Vec::new();
+    // When real user prompt timestamps are known (Antigravity, OpenCode, WorkBuddy, Qoder), group events by those real
+    // turn boundaries so a long command/test (> TURN_GAP) never falsely splits the ongoing turn or resets its clock.
+    // Before the first prompt known (WorkBuddy's and Qoder's are read from the transcript's last half megabyte only),
+    // and with none known, requests further apart than TURN_GAP are two turns, as before: a long history read without
+    // its prompts would otherwise be one turn.
+    let prompts: Vec<f64> = record.prompts.unwrap_or_default().into_iter().filter(|&at| at <= now).collect();
+    let mut prompt_index = 0usize;
     for event in &events {
         let at = number(event, "timestamp");
-        if previous.is_none_or(|before| at - before > TURN_GAP) {
+        let mut advanced = None;
+        while prompt_index < prompts.len() && prompts[prompt_index] <= at {
+            advanced = Some(prompts[prompt_index]);
+            prompt_index += 1;
+        }
+        if let Some(prompt_at) = advanced {
+            turns.push(turn(Json::Double(prompt_at)));
+        } else if prompt_index == 0 && previous.is_none_or(|before| at - before > TURN_GAP) {
             turns.push(turn(Json::Double(at)));
         }
         previous = Some(at);
@@ -418,6 +485,11 @@ fn session_of(
         if at >= now - SPENDS_KEPT {
             spends.push(Json::Array(vec![Json::Double(at), priced.map_or(Json::Null, Json::Double)]));
         }
+    }
+    // If the session is actively running and a new user prompt arrived after the last completed request, start the
+    // active turn from that prompt timestamp immediately so the live clock ticks from the real prompt time.
+    if running && prompt_index < prompts.len() {
+        turns.push(turn(Json::Double(*prompts.last().expect("prompt"))));
     }
     let started = events.first().map_or(Json::Null, |event| Json::Double(number(event, "timestamp")));
     Some(object! {
@@ -677,7 +749,7 @@ mod tests {
     }
 
     fn record(changed: f64, events: Vec<Object>) -> Record {
-        Record { key: "t:1".into(), changed, events, title: None, project: None, running: None }
+        Record { key: "t:1".into(), changed, events, title: None, project: None, running: None, prompts: None }
     }
 
     /// A Gemini app conversation: its chat, its conversation, how long ago it was updated, its messages (how long ago,
@@ -1111,5 +1183,94 @@ mod reading {
             .unwrap();
         assert!(sessions.iter().all(|session| session.get("tool") != Some(&Json::from("WorkBuddy"))));
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn real_prompt_boundaries_survive_long_command_gaps_and_subagent_launches() {
+        use super::{Record, fold_subagents, session_of};
+        use jiff::tz::TimeZone;
+        use std::collections::HashMap;
+        let ev = |at: f64, model: &str, input: i64, cost: Option<f64>| {
+            object! {
+                "timestamp" => at, "model" => model, "input" => input, "output" => 10, "cached" => 0, "writes" => 0,
+                "cost" => cost.map_or(Json::Null, Json::Double), "project" => "repo",
+            }
+        };
+        let now = 1_800_000_000.0;
+        let ranges = vec![("today".to_string(), now - 3600.0, now)];
+        let zone = TimeZone::UTC;
+        let price = |_: &crate::json::Object| -> Option<f64> { None };
+        // One user prompt 20 minutes ago, then an 8-minute command gap between requests (would have been falsely
+        // split by TURN_GAP=180s), plus a running active prompt.
+        let mut rec = Record {
+            key: "antigravity:conv1".into(),
+            changed: now - 5.0,
+            events: vec![
+                ev(now - 1180.0, "gemini-4-neon", 1000, Some(0.1)),
+                ev(now - 700.0, "gemini-4-neon", 2000, Some(0.2)),
+                ev(now - 10.0, "gemini-4-neon", 3000, Some(0.3)),
+            ],
+            title: Some("Long task".into()),
+            project: Some("repo".into()),
+            running: Some(true),
+            prompts: Some(vec![now - 1200.0]),
+        };
+        // Fold a subagent whose own prompt occurred mid-turn: parent keeps ONLY its own prompt timestamp.
+        let mut conversations = HashMap::from([
+            ("parent".to_string(), rec.clone()),
+            (
+                "sub".to_string(),
+                Record {
+                    key: "antigravity:sub".into(),
+                    changed: now - 50.0,
+                    events: vec![ev(now - 60.0, "gemini-4-neon", 500, Some(0.05))],
+                    title: None,
+                    project: None,
+                    running: Some(false),
+                    prompts: Some(vec![now - 65.0]),
+                },
+            ),
+        ]);
+        fold_subagents(&mut conversations, HashMap::from([("sub".into(), "parent".into())]), |_| None);
+        rec = conversations.remove("parent").unwrap();
+        let session = session_of("Gemini", "gemini", rec, now, &price, &ranges, &zone).expect("session");
+        let turns = session.get("turns").and_then(Json::as_array).unwrap();
+        assert_eq!(turns.len(), 1, "8-minute command gap and subagent launch must NOT reset the turn timer");
+        assert_eq!(turns[0].get("at").and_then(Json::number), Some(now - 1200.0));
+        assert_eq!(turns[0].get("requests").and_then(Json::integer), Some(4));
+    }
+
+    #[test]
+    fn requests_before_the_first_prompt_known_keep_the_gap_split() {
+        use super::{Record, session_of};
+        use jiff::tz::TimeZone;
+        let ev = |at: f64| {
+            object! {
+                "timestamp" => at, "model" => "hy4-flash", "input" => 100, "output" => 10, "cached" => 0, "writes" => 0,
+                "cost" => 0.01, "project" => "repo",
+            }
+        };
+        let now = 1_800_000_000.0;
+        let ranges = vec![("today".to_string(), now - 7200.0, now)];
+        let price = |_: &crate::json::Object| -> Option<f64> { None };
+        // A long transcript whose prompts are read from its end only: two earlier turns (20 minutes apart) with no
+        // prompt known, then one prompt known and its two requests 8 minutes apart.
+        let record = Record {
+            key: "workbuddy:t".into(),
+            changed: now - 600.0,
+            events: vec![ev(now - 3000.0), ev(now - 1800.0), ev(now - 1180.0), ev(now - 700.0)],
+            title: None,
+            project: None,
+            running: Some(false),
+            prompts: Some(vec![now - 1200.0]),
+        };
+        let session =
+            session_of("WorkBuddy", "workbuddy", record, now, &price, &ranges, &TimeZone::UTC).expect("session");
+        let turns = session.get("turns").and_then(Json::as_array).unwrap();
+        let starts: Vec<f64> = turns.iter().filter_map(|turn| turn.get("at").and_then(Json::number)).collect();
+        assert_eq!(turns.len(), 3, "{starts:?}");
+        assert!(
+            starts.contains(&(now - 1200.0)) && starts.contains(&(now - 3000.0)) && starts.contains(&(now - 1800.0))
+        );
     }
 }

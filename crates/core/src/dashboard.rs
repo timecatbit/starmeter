@@ -597,11 +597,28 @@ impl Runtime {
     }
 
     pub fn logo(&self, file: &str) -> Option<String> {
+        use std::sync::{Mutex, OnceLock};
+        type LogoEntry = (u64, i128, Option<String>);
+        static CACHE: OnceLock<Mutex<HashMap<String, LogoEntry>>> = OnceLock::new();
         self.memoized(&format!("logo:{file}"), || {
-            std::fs::read(format!("{}/{file}", self.asset_dir()))
+            let path = format!("{}/{file}", self.asset_dir());
+            let meta = std::fs::metadata(&path).ok()?;
+            let len = meta.len();
+            let mtime = meta
+                .modified()
                 .ok()
-                .filter(|data| !data.is_empty())
-                .map(|data| base64_encode(&data))
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |d| d.as_nanos() as i128);
+            let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+            if let Some((cached_len, cached_mtime, hit)) = cache.lock().expect("logo cache").get(&path)
+                && *cached_len == len
+                && *cached_mtime == mtime
+            {
+                return hit.clone();
+            }
+            let encoded = std::fs::read(&path).ok().filter(|data| !data.is_empty()).map(|data| base64_encode(&data));
+            cache.lock().expect("logo cache").insert(path, (len, mtime, encoded.clone()));
+            encoded
         })
     }
 
@@ -940,7 +957,22 @@ impl Runtime {
     /// inside a render.
     pub fn range_dashboard(&self, range: &str, group: Option<&str>, loaded: runtime::Loaded, now: f64) -> Object {
         let (bundle, error) = loaded;
-        let mut data = self.cached_data();
+        // Only the caches dashboard_payload reads (the exchange rate, OpenCodex's health, the service statuses), each with
+        // the lifetime cached_data gives it, instead of every cache the panel has (PERF-6).
+        let mut data = Object::new();
+        let mut read = |name: &str| {
+            let ttl = crate::background::external_ttl(name).unwrap_or(60.0);
+            let (value, error) = self.cache_result(&self.read_cache(name), ttl);
+            data.insert(name, value.map(Json::Object).unwrap_or(Json::Null));
+            data.insert(format!("{name}_error"), error.map(Json::from).unwrap_or(Json::Null));
+        };
+        read("exchange_rate");
+        if self.opencodex_configured() {
+            read("healthz");
+        }
+        if self.settings().get("serviceStatus").is_some_and(Json::is_truthy) {
+            read("service_status");
+        }
         data.insert("range_usage", bundle.map(Json::Object).unwrap_or(Json::Null));
         data.insert("range_usage_error", error.clone().map(Json::from).unwrap_or(Json::Null));
         data.insert("displayed_range", range);

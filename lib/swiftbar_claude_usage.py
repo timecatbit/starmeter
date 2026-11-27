@@ -134,6 +134,57 @@ def store_canonical(conn,rows,first=0):
         ((first+index,row['ts'],row['model'],*row['metrics'],row['cost'],row['speed'],row['geo'],row['tier'],row['session'],row.get('project')) for index,row in enumerate(rows)))
 
 
+def best_of(rows):
+    """Winner among rows sharing the same dedupe key: strictly higher rank wins, ties keep the first."""
+    def rank(row):return (not row['sidechain'],sum(row['metrics']),row['speed'] is not None,row['cost'] is not None,-row['ts'])
+    winner=rows[0]
+    for row in rows[1:]:
+        if rank(row)>rank(winner):winner=row
+    return winner
+
+
+def patch_canonical(conn,added,allowed):
+    """Incremental in-place canonical update for streaming chunks sharing existing keys without route clashes."""
+    fresh={(row['file'],row['offset'],row['slot']) for row in added}
+    for row in added:
+        if row['message'] is not None:
+            for file_id,offset,slot,session,key in conn.execute(
+                    'SELECT file,offset,slot,session,key FROM everything WHERE message=? AND session=?',
+                    (row['message'],row['session'])):
+                if (file_id,offset,slot) not in fresh and (allowed is None or session in allowed) and key!=row['key']:
+                    return False
+    keys=[];seen=set()
+    for row in added:
+        if row['key'] not in seen:seen.add(row['key']);keys.append(row['key'])
+    def same_canonical(a,b):
+        return (a['ts']==b['ts'] and a['model']==b['model'] and a['metrics']==b['metrics'] and a['cost']==b['cost']
+                and a['speed']==b['speed'] and a['geo']==b['geo'] and a['tier']==b['tier'] and a['session']==b['session']
+                and a['project']==b['project'])
+    updates=[];updated_ids=set();fresh_only=[]
+    for key in keys:
+        old_rows=[];all_rows=[]
+        for row in conn.execute('SELECT file,offset,slot,'+COLUMNS+' FROM everything WHERE key=? ORDER BY file,offset,slot',(key,)):
+            if allowed is not None and row[6] not in allowed:continue
+            rec=stored_event(row[3:])
+            if (row[0],row[1],row[2]) not in fresh:old_rows.append(rec)
+            all_rows.append(rec)
+        if not old_rows:fresh_only.extend(all_rows);continue
+        old_w,new_w=best_of(old_rows),best_of(all_rows)
+        if same_canonical(old_w,new_w):continue
+        candidates=conn.execute(
+            'SELECT id,cost,speed,project FROM canonical WHERE ts=? AND model=? AND i=? AND o=? AND w5=? AND w1=? AND r=? AND geo=? AND tier=? AND session=?',
+            (old_w['ts'],old_w['model'],*old_w['metrics'],old_w['geo'],old_w['tier'],old_w['session'])).fetchall()
+        matches=[cid for cid,cost,speed,project in candidates if cost==old_w['cost'] and speed==old_w['speed'] and project==old_w['project']]
+        if len(matches)!=1 or matches[0] in updated_ids:return False
+        updated_ids.add(matches[0]);updates.append((matches[0],new_w))
+    for cid,row in updates:
+        conn.execute('UPDATE canonical SET ts=?,model=?,i=?,o=?,w5=?,w1=?,r=?,cost=?,speed=?,geo=?,tier=?,session=?,project=? WHERE id=?',
+                     (row['ts'],row['model'],*row['metrics'],row['cost'],row['speed'],row['geo'],row['tier'],row['session'],row['project'],cid))
+    if fresh_only:
+        store_canonical(conn,deduplicate(fresh_only),conn.execute('SELECT COALESCE(MAX(id)+1,0) FROM canonical').fetchone()[0])
+    return True
+
+
 def read_events(files,db_path,allowed_sessions=None,start=0,end=float('inf'),archive=None):
     """Reindex only changed files; retain only normalized counters and hashed IDs. archive: a durable file that
     keeps the records of transcripts that disappear (Claude Code cleans up after 30 days); they are deduplicated
@@ -217,7 +268,8 @@ def read_events(files,db_path,allowed_sessions=None,start=0,end=float('inf'),arc
         scope=digest(sorted(allowed_sessions) if allowed_sessions is not None else None,bool(archive)).hex()
         old_scope=conn.execute("SELECT value FROM metadata WHERE key='dedupe-scope'").fetchone()
         added=sorted((row for row in appended if allowed is None or row['session'] in allowed),key=lambda row:(row['file'],row['offset'],row['slot']))
-        if rebuild or not old_scope or old_scope[0]!=scope or (added and not isolated(conn,added,allowed)):
+        is_iso=bool(added) and isolated(conn,added,allowed)
+        if rebuild or not old_scope or old_scope[0]!=scope or (added and not is_iso and not patch_canonical(conn,added,allowed)):
             # Deduplicate before date filtering, once per file/ownership change.
             rows=conn.execute('SELECT '+COLUMNS+' FROM everything ORDER BY file,offset,slot')
             # Close the streaming cursor even when deduplication fails: an open read would keep
@@ -227,7 +279,7 @@ def read_events(files,db_path,allowed_sessions=None,start=0,end=float('inf'),arc
             conn.execute('DELETE FROM canonical')
             store_canonical(conn,unique)
             conn.execute("INSERT OR REPLACE INTO metadata VALUES ('dedupe-scope',?)",(scope,))
-        elif added:
+        elif added and is_iso:
             store_canonical(conn,deduplicate(added),conn.execute('SELECT COALESCE(MAX(id)+1,0) FROM canonical').fetchone()[0])
         conn.commit()
         events=[{'ts':ts,'model':model,'metrics':[i,o,w5,w1,r],'cost':cost,'speed':speed,'geo':geo,'tier':tier,'session':session,'project':project}

@@ -86,12 +86,44 @@ fn plist_strings(data: &[u8], keys: &[&str]) -> Option<HashMap<String, String>> 
 }
 
 /// An installed app's version, build and bundle ID, from /Applications or ~/Applications.
+/// Cached by Info.plist mtime so live 2s renders don't re-read and re-parse plist XML every tick (PERF-6).
 pub fn app_info(name: &str, home: &str) -> Object {
+    use std::sync::{Mutex, OnceLock};
+    // Each Info.plist read, by its path, with its modification time when read: None when it gave no version.
+    type Read = HashMap<String, (i128, Option<Object>)>;
+    static CACHE: OnceLock<Mutex<Read>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     for base in ["/Applications".to_string(), format!("{home}/Applications")] {
-        let Ok(data) = std::fs::read(format!("{base}/{name}.app/Contents/Info.plist")) else { continue };
-        let keys = ["CFBundleShortVersionString", "CFBundleVersion", "CFBundleIdentifier"];
-        let Some(values) = plist_strings(&data, &keys) else { continue };
-        return keys.iter().map(|key| (*key, values.get(*key).cloned().unwrap_or_default())).collect();
+        let path = format!("{base}/{name}.app/Contents/Info.plist");
+        let Some(mtime) = std::fs::metadata(&path)
+            .ok()
+            .and_then(|meta| meta.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_nanos() as i128)
+        else {
+            continue;
+        };
+        let kept = cache.lock().expect("app_info cache").get(&path).filter(|(seen, _)| *seen == mtime).cloned();
+        let info = match kept {
+            Some((_, info)) => info,
+            None => {
+                let info = std::fs::read(&path).ok().and_then(|data| {
+                    let keys = ["CFBundleShortVersionString", "CFBundleVersion", "CFBundleIdentifier"];
+                    let values = plist_strings(&data, &keys)?;
+                    Some(
+                        keys.iter()
+                            .map(|key| (*key, values.get(*key).cloned().unwrap_or_default()))
+                            .collect::<Object>(),
+                    )
+                });
+                cache.lock().expect("app_info cache").insert(path, (mtime, info.clone()));
+                info
+            }
+        };
+        // One that can't be read gives way to the copy in ~/Applications, as before the cache.
+        if let Some(info) = info {
+            return info;
+        }
     }
     Object::new()
 }

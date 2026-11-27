@@ -75,14 +75,22 @@ fn rows_at_end_from(path: &str, size: usize) -> Result<(Vec<Object>, u64), FileE
     Ok((rows, start))
 }
 
-/// A row that begins a Claude turn: the user's own words (or a picture, a file), or a message from another session
+/// A row that begins a Claude turn: the user's own words (or a picture, a file), a message from another session
 /// (written as a note, `isMeta`, from a peer: it sets the session to work as a prompt does; its turn's clock said the
-/// hours since the user last wrote, 用户：这个20小时3分钟是累积时间？); not a tool's result, not a subagent's, not
-/// another note of Claude Code's.
+/// hours since the user last wrote, 用户：这个20小时3分钟是累积时间？), or a background task's notice of its end, which
+/// wakes an idle session to work as a prompt does (in Claude Code's own records it comes after the turn before ended);
+/// not a tool's result, not a subagent's, not the summary an auto-compaction writes mid-turn, not a local command's
+/// output, not another note of Claude Code's.
+pub(crate) fn is_prompt(row: &Object) -> bool {
+    prompt(row)
+}
+
 fn prompt(row: &Object) -> bool {
     let from_peer = row.get("origin").and_then(|origin| origin.get("kind")).and_then(Json::as_str) == Some("peer");
     if !kind_is(row, "user")
         || row.get("isSidechain").is_some_and(Json::is_truthy)
+        || row.get("isCompactSummary").is_some_and(Json::is_truthy)
+        || row.get("isVisibleInTranscriptOnly").is_some_and(Json::is_truthy)
         || (row.get("isMeta").is_some_and(Json::is_truthy) && !from_peer)
     {
         return false;
@@ -94,7 +102,12 @@ fn prompt(row: &Object) -> bool {
         .flatten()
         .filter_map(|item| item.get("type").map(py::dumps))
         .collect();
-    let spoken = content.and_then(Json::as_str).is_some_and(|text| !text.trim().is_empty());
+    let spoken = content.and_then(Json::as_str).is_some_and(|text| {
+        let trimmed = text.trim();
+        !trimmed.is_empty()
+            && (from_peer
+                || (!trimmed.starts_with("<local-command-stdout>") && !trimmed.starts_with("<local-command-caveat>")))
+    });
     spoken || (!kinds.is_empty() && !kinds.contains(&py::dumps(&Json::from("tool_result"))))
 }
 
@@ -696,34 +709,85 @@ const DAYS_KEPT: i64 = 40;
 /// its own notices and lines with no tokens left out (a reading of 5 counted the first line).
 const SPENT_VERSION: i64 = 6;
 
-/// A digest of a file's first `offset` bytes, all that the last reading read: when it differs, something already
-/// counted was written over, wherever in the file (SESSION-6), and the file is read again from the start. It reads
-/// those bytes again each time a grown file is read on, so it is no cryptographic digest but four lanes of multiply
-/// and rotate that keep pace with the reading itself (a 257 MB transcript in about 22 ms, where SHA-256 takes 450):
-/// a change by accident, not by design, is all it has to catch.
-fn read_digest(path: &str, offset: u64) -> Option<String> {
+/// Incremental streaming version of `read_digest`: produces the exact same digest in a single pass so a growing
+/// transcript is never read twice (once to verify `old_offset` and a second time to hash `new_offset`, PERF-5).
+struct DigestHasher {
+    lanes: [u64; 4],
+    pending: [u8; 32],
+    pending_len: usize,
+    total: u64,
+}
+
+impl DigestHasher {
     const STEP: u64 = 0x9E37_79B9_7F4A_7C15;
-    let mut file = File::open(path).ok()?;
-    let mut lanes: [u64; 4] =
-        [0x243F_6A88_85A3_08D3, 0x1319_8A2E_0370_7344, 0xA409_3822_299F_31D0, 0x082E_FA98_EC4E_6C89];
-    let mut buffer = vec![0u8; 1 << 20];
-    let mut left = offset;
-    while left > 0 {
-        let size = left.min(buffer.len() as u64) as usize;
-        file.read_exact(&mut buffer[..size]).ok()?;
-        let (blocks, rest) = buffer[..size].as_chunks::<32>();
-        for block in blocks {
-            for (lane, word) in lanes.iter_mut().zip(block.as_chunks::<8>().0) {
-                *lane = (*lane ^ u64::from_le_bytes(*word)).wrapping_mul(STEP).rotate_left(29);
+
+    fn new() -> Self {
+        Self {
+            lanes: [0x243F_6A88_85A3_08D3, 0x1319_8A2E_0370_7344, 0xA409_3822_299F_31D0, 0x082E_FA98_EC4E_6C89],
+            pending: [0u8; 32],
+            pending_len: 0,
+            total: 0,
+        }
+    }
+
+    fn mix_block(lanes: &mut [u64; 4], block: &[u8; 32]) {
+        for (lane, word) in lanes.iter_mut().zip(block.as_chunks::<8>().0) {
+            *lane = (*lane ^ u64::from_le_bytes(*word)).wrapping_mul(Self::STEP).rotate_left(29);
+        }
+    }
+
+    fn update(&mut self, mut data: &[u8]) {
+        self.total += data.len() as u64;
+        if self.pending_len > 0 {
+            let take = (32 - self.pending_len).min(data.len());
+            self.pending[self.pending_len..self.pending_len + take].copy_from_slice(&data[..take]);
+            self.pending_len += take;
+            data = &data[take..];
+            if self.pending_len == 32 {
+                let block = self.pending;
+                Self::mix_block(&mut self.lanes, &block);
+                self.pending_len = 0;
             }
         }
-        for (k, byte) in rest.iter().enumerate() {
-            lanes[k % 4] = (lanes[k % 4] ^ u64::from(*byte)).wrapping_mul(STEP).rotate_left(29);
+        let (blocks, rest) = data.as_chunks::<32>();
+        for block in blocks {
+            Self::mix_block(&mut self.lanes, block);
         }
-        left -= size as u64;
+        if !rest.is_empty() {
+            self.pending[..rest.len()].copy_from_slice(rest);
+            self.pending_len = rest.len();
+        }
     }
-    let fold = |a: u64, b: u64| (a ^ b.rotate_left(32)).wrapping_mul(STEP);
-    Some(format!("{:016x}{:016x}", fold(lanes[0], lanes[2]), fold(lanes[1], lanes[3]) ^ offset))
+
+    fn update_reader(&mut self, reader: &mut impl Read, mut left: u64) -> std::io::Result<()> {
+        let mut buffer = vec![0u8; 1 << 20];
+        while left > 0 {
+            let size = left.min(buffer.len() as u64) as usize;
+            reader.read_exact(&mut buffer[..size])?;
+            self.update(&buffer[..size]);
+            left -= size as u64;
+        }
+        Ok(())
+    }
+
+    fn finish(&self) -> String {
+        let mut lanes = self.lanes;
+        for (k, byte) in self.pending[..self.pending_len].iter().enumerate() {
+            lanes[k % 4] = (lanes[k % 4] ^ u64::from(*byte)).wrapping_mul(Self::STEP).rotate_left(29);
+        }
+        let fold = |a: u64, b: u64| (a ^ b.rotate_left(32)).wrapping_mul(Self::STEP);
+        format!("{:016x}{:016x}", fold(lanes[0], lanes[2]), fold(lanes[1], lanes[3]) ^ self.total)
+    }
+}
+
+/// A digest of a file's first `offset` bytes, all that the last reading read: when it differs, something already
+/// counted was written over, wherever in the file (SESSION-6), and the file is read again from the start.
+#[cfg(test)]
+fn read_digest(path: &str, offset: u64) -> Option<String> {
+    let mut file = File::open(path).ok()?;
+    let mut hasher = DigestHasher::new();
+    hasher.update_reader(&mut file, offset).ok()?;
+    Some(hasher.finish())
 }
 
 /// A moment's day in a zone, as 2026-11-21.
@@ -910,17 +974,26 @@ fn spent(
     let unreadable = || FileError::of_kind("unreadable", "OSError");
     let state = state_of(Path::new(path)).ok_or_else(unreadable)?;
     let counted = zone_key(zone, since);
-    // Only read when the file changed: grown, it goes on from where the last reading stopped, provided what was read
-    // is still there as it was.
+    let mut file = File::open(path).map_err(|_| unreadable())?;
+    let mut hasher = DigestHasher::new();
+    // Only read when the file changed: grown, verify prefix in a single pass and keep hashing the newly appended bytes
+    // instead of reading the entire file twice (PERF-5).
     let resumed = kept.filter(|kept| {
         let offset = kept.get("offset").and_then(Json::integer).filter(|offset| (0..state.size).contains(offset));
-        kept.get("inode").and_then(Json::integer) == Some(state.inode)
-            && kept.get("zone").and_then(Json::as_str) == Some(counted.as_str())
-            && offset.is_some_and(|offset| {
-                kept.get("digest")
-                    .and_then(Json::as_str)
-                    .is_some_and(|digest| read_digest(path, offset as u64).as_deref() == Some(digest))
-            })
+        let matching_meta = kept.get("inode").and_then(Json::integer) == Some(state.inode)
+            && kept.get("zone").and_then(Json::as_str) == Some(counted.as_str());
+        if !matching_meta {
+            return false;
+        }
+        let Some(offset) = offset else { return false };
+        let Some(saved) = kept.get("digest").and_then(Json::as_str) else { return false };
+        let mut prefix = DigestHasher::new();
+        if prefix.update_reader(&mut file, offset as u64).is_ok() && prefix.finish() == saved {
+            hasher = prefix;
+            true
+        } else {
+            false
+        }
     });
     let field = |name: &str| resumed.and_then(|kept| kept.get(name)).cloned();
     let requests = field("requests").and_then(|value| value.integer()).unwrap_or(0);
@@ -940,12 +1013,14 @@ fn spent(
     let start = field("offset").and_then(|value| value.integer()).unwrap_or(0) as u64;
     let own = own_id(path);
 
-    let mut file = File::open(path).map_err(|_| unreadable())?;
-    file.seek(SeekFrom::Start(start)).map_err(|_| unreadable())?;
+    if resumed.is_none() {
+        file.seek(SeekFrom::Start(0)).map_err(|_| unreadable())?;
+    }
     let mut data = Vec::new();
     file.read_to_end(&mut data).map_err(|_| unreadable())?;
     // Complete lines only: one being written is read next time.
     let complete = data.iter().rposition(|&byte| byte == b'\n').map_or(0, |at| at + 1);
+    hasher.update(&data[..complete]);
     let mut known: HashSet<String> = seen.iter().cloned().collect();
     // Each Claude reply counted, by its key: its tokens, the time it was counted at and its cost then; a later line
     // with more (a reply streamed over several lines) is the reply as counted, at the same time.
@@ -1034,7 +1109,7 @@ fn spent(
         .collect();
     let offset = start + complete as u64;
     let tally = object! {
-        "inode" => state.inode, "offset" => offset as i64, "digest" => read_digest(path, offset).map_or(Json::Null, Json::from),
+        "inode" => state.inode, "offset" => offset as i64, "digest" => hasher.finish(),
         "requests" => requests,
         "cost" => cost, "unpriced" => unpriced, "seen" => Json::Array(seen.into_iter().map(Json::from).collect()),
         "model" => model, "total" => total.map_or(Json::Null, |value| object! { "value" => value.unwrap_or(Json::Null) }.into()),
@@ -2051,5 +2126,57 @@ mod tests {
         let touched = read(&mut tallies);
         assert_eq!(touched[0].get("state").and_then(Json::as_str), Some("waiting"));
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn incremental_digest_matches_full_file_digest_across_arbitrary_splits() {
+        let path = std::env::temp_dir().join(format!("starmeter-digest-split-{}", std::process::id()));
+        let bytes: Vec<u8> = (0..2500u32).map(|i| ((i * 37 + 11) % 251) as u8).collect();
+        std::fs::write(&path, &bytes).unwrap();
+        let path_str = path.to_string_lossy().into_owned();
+        for split in [0usize, 1, 17, 31, 32, 33, 63, 64, 65, 1000, bytes.len()] {
+            let mut hasher = super::DigestHasher::new();
+            hasher.update(&bytes[..split]);
+            assert_eq!(Some(hasher.finish()), super::read_digest(&path_str, split as u64), "prefix split={split}");
+            hasher.update(&bytes[split..]);
+            assert_eq!(
+                Some(hasher.finish()),
+                super::read_digest(&path_str, bytes.len() as u64),
+                "full after split={split}"
+            );
+        }
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_compaction_summary_or_a_local_commands_output_begins_no_turn_but_a_task_notice_does() {
+        use crate::object;
+        let user = object! { "type" => "user", "message" => object! { "content" => "fix bug" } };
+        let compact = object! {
+            "type" => "user", "isCompactSummary" => true,
+            "message" => object! { "content" => "This session is being continued from a previous conversation..." }
+        };
+        let transcript_only = object! {
+            "type" => "user", "isVisibleInTranscriptOnly" => true,
+            "message" => object! { "content" => "internal note" }
+        };
+        let task_notif = object! {
+            "type" => "user", "origin" => object! { "kind" => "task-notification" },
+            "message" => object! { "content" => "<task-notification><task-id>1</task-id></task-notification>" }
+        };
+        let command_output = object! {
+            "type" => "user", "message" => object! { "content" => "<local-command-stdout>Total cost: $0.12</local-command-stdout>" }
+        };
+        let peer = object! {
+            "type" => "user", "isMeta" => true, "origin" => object! { "kind" => "peer" },
+            "message" => object! { "content" => "handoff" }
+        };
+        assert!(super::prompt(&user));
+        assert!(!super::prompt(&compact));
+        assert!(!super::prompt(&transcript_only));
+        // A background task's end wakes an idle session: its turn's clock starts there, not at the user's last words.
+        assert!(super::prompt(&task_notif));
+        assert!(!super::prompt(&command_output));
+        assert!(super::prompt(&peer));
     }
 }

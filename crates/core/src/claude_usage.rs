@@ -331,6 +331,164 @@ fn isolated(db: &Database, added: &[Record], allowed: Option<&HashSet<Vec<u8>>>)
     Ok(true)
 }
 
+fn record_outranks(a: &Record, b: &Record) -> bool {
+    let rank = |row: &Record| {
+        [
+            if row.sidechain { 0.0 } else { 1.0 },
+            row.metrics.iter().sum::<i64>() as f64,
+            if row.speed.is_some() { 1.0 } else { 0.0 },
+            if row.cost.is_some() { 1.0 } else { 0.0 },
+            -row.ts,
+        ]
+    };
+    let (left, right) = (rank(a), rank(b));
+    left.iter().zip(right.iter()).find(|(x, y)| x != y).is_some_and(|(x, y)| x > y)
+}
+
+fn best_of(rows: &[Record]) -> &Record {
+    let mut winner = &rows[0];
+    for row in &rows[1..] {
+        if record_outranks(row, winner) {
+            winner = row;
+        }
+    }
+    winner
+}
+
+/// Incremental in-place update for `canonical` when appended rows only touch existing `key`s without cross-key
+/// `(message, session)` route clashes (the 99.9% Claude streaming-chunk hot path). Returns `Ok(true)` if applied
+/// cleanly (preserving exact `canonical.id` values), or `Ok(false)` to fall back to a full rebuild (PERF-5).
+fn patch_canonical(db: &Database, added: &[Record], allowed: Option<&HashSet<Vec<u8>>>) -> Fallible<bool> {
+    let fresh: HashSet<(Vec<u8>, i64, i64)> =
+        added.iter().map(|row| (row.file.clone(), row.offset, row.slot)).collect();
+    // Bail out to full rebuild if any appended row has a route clash with a pre-existing row of a different key.
+    for row in added {
+        if let Some(message) = &row.message {
+            for hit in db.rows(
+                "SELECT file,offset,slot,session,key FROM everything WHERE message=? AND session=?",
+                &[Value::Blob(message.clone()), Value::Blob(row.session.clone())],
+            )? {
+                let slot = (
+                    blob(&hit[0]).unwrap_or_default(),
+                    database::int(&hit[1]).unwrap_or(0),
+                    database::int(&hit[2]).unwrap_or(0),
+                );
+                let session = blob(&hit[3]).unwrap_or_default();
+                let key = blob(&hit[4]).unwrap_or_default();
+                if !fresh.contains(&slot) && allowed.is_none_or(|a| a.contains(&session)) && key != row.key {
+                    return Ok(false);
+                }
+            }
+        }
+    }
+    let mut keys: Vec<Vec<u8>> = Vec::new();
+    let mut seen_keys: HashSet<Vec<u8>> = HashSet::new();
+    for row in added {
+        if seen_keys.insert(row.key.clone()) {
+            keys.push(row.key.clone());
+        }
+    }
+    let same_canonical = |a: &Record, b: &Record| {
+        a.ts == b.ts
+            && a.model == b.model
+            && a.metrics == b.metrics
+            && a.cost == b.cost
+            && a.speed == b.speed
+            && a.geo == b.geo
+            && a.tier == b.tier
+            && a.session == b.session
+            && a.project == b.project
+    };
+    let mut updates: Vec<(i64, Record)> = Vec::new();
+    let mut updated_ids: HashSet<i64> = HashSet::new();
+    let mut fresh_only: Vec<Record> = Vec::new();
+    for key in &keys {
+        let mut old_rows: Vec<Record> = Vec::new();
+        let mut all_rows: Vec<Record> = Vec::new();
+        db.each(
+            &format!("SELECT file,offset,slot,{COLUMNS} FROM everything WHERE key=? ORDER BY file,offset,slot"),
+            &[Value::Blob(key.clone())],
+            |row| {
+                let session = blob(&row[6]).unwrap_or_default();
+                if allowed.is_some_and(|a| !a.contains(&session)) {
+                    return Ok(());
+                }
+                let slot = (
+                    blob(&row[0]).unwrap_or_default(),
+                    database::int(&row[1]).unwrap_or(0),
+                    database::int(&row[2]).unwrap_or(0),
+                );
+                let rec = stored_record(&row[3..]);
+                if !fresh.contains(&slot) {
+                    old_rows.push(rec.clone());
+                }
+                all_rows.push(rec);
+                Ok(())
+            },
+        )?;
+        if old_rows.is_empty() {
+            fresh_only.extend(all_rows);
+            continue;
+        }
+        let (old_w, new_w) = (best_of(&old_rows), best_of(&all_rows));
+        if same_canonical(old_w, new_w) {
+            continue;
+        }
+        // Locate the unique canonical row for `old_w` using the `canonical_ts` index.
+        let candidates = db.rows(
+            "SELECT id,cost,speed,project FROM canonical WHERE ts=? AND model=? AND i=? AND o=? AND w5=? AND w1=? AND r=? AND geo=? AND tier=? AND session=?",
+            &[
+                Value::Real(old_w.ts),
+                Value::Text(old_w.model.clone()),
+                Value::Integer(old_w.metrics[0]),
+                Value::Integer(old_w.metrics[1]),
+                Value::Integer(old_w.metrics[2]),
+                Value::Integer(old_w.metrics[3]),
+                Value::Integer(old_w.metrics[4]),
+                Value::Text(old_w.geo.clone()),
+                Value::Text(old_w.tier.clone()),
+                Value::Blob(old_w.session.clone()),
+            ],
+        )?;
+        let matches: Vec<i64> = candidates
+            .iter()
+            .filter(|r| {
+                database::double(&r[1]) == old_w.cost && text(&r[2]) == old_w.speed && text(&r[3]) == old_w.project
+            })
+            .filter_map(|r| database::int(&r[0]))
+            .collect();
+        if matches.len() != 1 || !updated_ids.insert(matches[0]) {
+            return Ok(false);
+        }
+        updates.push((matches[0], new_w.clone()));
+    }
+    for (id, row) in updates {
+        let mut values = vec![Value::Real(row.ts), Value::Text(row.model.clone())];
+        values.extend(row.metrics.iter().map(|&count| Value::Integer(count)));
+        values.extend([
+            optional_real(row.cost),
+            optional_text(&row.speed),
+            Value::Text(row.geo.clone()),
+            Value::Text(row.tier.clone()),
+            Value::Blob(row.session.clone()),
+            optional_text(&row.project),
+            Value::Integer(id),
+        ]);
+        db.run(
+            "UPDATE canonical SET ts=?,model=?,i=?,o=?,w5=?,w1=?,r=?,cost=?,speed=?,geo=?,tier=?,session=?,project=? WHERE id=?",
+            &values,
+        )?;
+    }
+    if !fresh_only.is_empty() {
+        let next = db
+            .first("SELECT COALESCE(MAX(id)+1,0) FROM canonical", &[])?
+            .and_then(|row| database::int(&row[0]))
+            .unwrap_or(0);
+        store_canonical(db, &deduplicate(fresh_only), next)?;
+    }
+    Ok(true)
+}
+
 fn optional_text(value: &Option<String>) -> Value {
     value.clone().map_or(Value::Null, Value::Text)
 }
@@ -640,10 +798,11 @@ fn index(
         .filter(|row| allowed.as_ref().is_none_or(|allowed| allowed.contains(&row.session)))
         .collect();
     added.sort_by(|a, b| a.file.cmp(&b.file).then(a.offset.cmp(&b.offset)).then(a.slot.cmp(&b.slot)));
-    if rebuild
+    let is_isolated = !added.is_empty() && isolated(db, &added, allowed.as_ref())?;
+    let needs_rebuild = rebuild
         || old_scope.as_deref() != Some(scope.as_str())
-        || (!added.is_empty() && !isolated(db, &added, allowed.as_ref())?)
-    {
+        || (!added.is_empty() && !is_isolated && !patch_canonical(db, &added, allowed.as_ref())?);
+    if needs_rebuild {
         // Deduplicate before date filtering, once per file/ownership change.
         let mut stored = Vec::new();
         db.each(&format!("SELECT {COLUMNS} FROM everything ORDER BY file,offset,slot"), &[], |row| {
@@ -656,7 +815,7 @@ fn index(
         db.run("DELETE FROM canonical", &[])?;
         store_canonical(db, &unique, 0)?;
         db.run("INSERT OR REPLACE INTO metadata VALUES ('dedupe-scope',?)", &[Value::Text(scope)])?;
-    } else if !added.is_empty() {
+    } else if is_isolated {
         let next = db
             .first("SELECT COALESCE(MAX(id)+1,0) FROM canonical", &[])?
             .and_then(|row| database::int(&row[0]))
@@ -683,4 +842,41 @@ fn index(
         })
         .collect();
     Ok((events, failures))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn streaming_chunk_append_patches_canonical_in_place() {
+        let dir = std::env::temp_dir().join(format!("starmeter-claude-patch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("s1.jsonl");
+        let db = dir.join("claude.sqlite3");
+        let chunk1 = r#"{"type":"assistant","sessionId":"s1","timestamp":"2026-11-20T10:00:00Z","requestId":"req_1","message":{"id":"msg_1","model":"claude-opus-5-5","usage":{"input_tokens":100,"output_tokens":10}}}"#;
+        let chunk2 = r#"{"type":"assistant","sessionId":"s1","timestamp":"2026-11-20T10:00:01Z","requestId":"req_1","message":{"id":"msg_1","model":"claude-opus-5-5","usage":{"input_tokens":100,"output_tokens":250}}}"#;
+        std::fs::write(&log, format!("{chunk1}\n")).unwrap();
+        let files = vec![log.to_string_lossy().into_owned()];
+        let (first, failures) = read_events(&files, &db, None, 0.0, f64::INFINITY, None).unwrap();
+        assert_eq!(failures, 0);
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].metrics[1], 10);
+        // Append streaming update for the same (msg_1, req_1): should update canonical row id=0 in place.
+        use std::io::Write;
+        let mut f = std::fs::OpenOptions::new().append(true).open(&log).unwrap();
+        writeln!(f, "{chunk2}").unwrap();
+        drop(f);
+        let (second, failures) = read_events(&files, &db, None, 0.0, f64::INFINITY, None).unwrap();
+        assert_eq!(failures, 0);
+        assert_eq!(second.len(), 1);
+        assert_eq!(second[0].metrics[1], 250);
+        let conn = Database::open(&db, 5.0, Mode::ReadOnly).unwrap();
+        let ids = conn.rows("SELECT id, o FROM canonical", &[]).unwrap();
+        assert_eq!(ids.len(), 1);
+        assert_eq!(database::int(&ids[0][0]), Some(0));
+        assert_eq!(database::int(&ids[0][1]), Some(250));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

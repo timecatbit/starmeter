@@ -194,15 +194,22 @@ PROMPT_FAR = 256 * 1024 * 1024
 
 
 def prompt(row):
-    """A row that begins a Claude turn: the user's own words (or a picture, a file), or a message from another session
-    (a note, isMeta, from a peer: it sets the session to work as a prompt does); not a tool's result, not a subagent's,
-    not another note of Claude Code's."""
+    """A row that begins a Claude turn: the user's own words (or a picture, a file), a message from another session
+    (a note, isMeta, from a peer: it sets the session to work as a prompt does), or a background task's notice of its
+    end, which wakes an idle session as a prompt does; not a tool's result, not a subagent's, not the summary an
+    auto-compaction writes mid-turn, not a local command's output, not another note of Claude Code's."""
     origin = row.get('origin') if isinstance(row.get('origin'), dict) else {}
-    if row.get('type') != 'user' or row.get('isSidechain') or (row.get('isMeta') and origin.get('kind') != 'peer'):return False
+    from_peer = origin.get('kind') == 'peer'
+    if (row.get('type') != 'user' or row.get('isSidechain') or row.get('isCompactSummary')
+            or row.get('isVisibleInTranscriptOnly') or (row.get('isMeta') and not from_peer)):return False
     message = row.get('message') if isinstance(row.get('message'), dict) else {}
     content = message.get('content')
     kinds = {item.get('type') for item in content if isinstance(item, dict)} if isinstance(content, list) else set()
-    return bool((isinstance(content, str) and content.strip()) or (kinds and 'tool_result' not in kinds))
+    spoken = False
+    if isinstance(content, str):
+        trimmed = content.strip()
+        spoken = bool(trimmed) and (from_peer or not trimmed.startswith(('<local-command-stdout>', '<local-command-caveat>')))
+    return bool(spoken or (kinds and 'tool_result' not in kinds))
 
 
 def prompt_before(path, before, own):
