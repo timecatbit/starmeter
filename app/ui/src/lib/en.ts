@@ -222,6 +222,29 @@ export const phrases: Record<string, string> = {
     'The first time, the system may ask whether Starmeter may accept incoming connections: allow it. The Tailscale and WireGuard codes open with the phone on that network, without Cloudflare.',
   '手机连着 Tailscale 或 WireGuard 时扫对应的二维码，不经过 Cloudflare': 'With the phone on Tailscale or WireGuard, scan that code, without Cloudflare',
   局域网: 'Local network', '手机连同一个 Wi-Fi': 'Phone on this Wi-Fi', '手机开着 Tailscale': 'Phone on your tailnet',
+  // 任何网络's two ways: Cloudflare's link, or the user's own domain through their own reverse proxy or tunnel.
+  'Cloudflare 临时链接': 'Cloudflare link', 自有域名: 'Your domain', 外网链接从哪来: 'Where the link comes from', 域名: 'Domain', 端口: 'Port',
+  '换了端口：同一个网络的二维码改用新端口，手机要重新扫；Cloudflare 链接会关闭':
+    'A new port: the same network\'s codes move to it, to scan again, and the Cloudflare link closes',
+  反代转发到: 'Forward to',
+  '用你自己的反代或隧道（Caddy、Nginx、frp、Cloudflare Tunnel、Tailscale Funnel 等）把这个域名转发到上面的地址：手机在哪都能打开，不经过 Starmeter 的 Cloudflare 临时链接，也没有一小时的限制。':
+    'Forward the domain to the address above with your own reverse proxy or tunnel (Caddy, Nginx, frp, Cloudflare Tunnel, Tailscale Funnel…): the phone opens it from anywhere, without Starmeter\'s Cloudflare link and its hour.',
+  '反代在另一台设备上（NAS、路由器）时，转发到这台电脑的 {target}。': 'With the proxy on another device (a NAS, the router), forward to this computer\'s {target}.',
+  '经你的反代转发到这台电脑的 {target}，不经过 Cloudflare。点“停止”或退出 App 前一直开着。':
+    'Your proxy forwards it to this computer\'s {target}, without Cloudflare. On until Stop, or until the app quits.',
+  '网页右上角的太阳可让手机屏幕保持常亮，适合放在桌边一直看': 'The sun at the top right keeps the phone\'s screen on, to watch from the desk',
+  '网页右上角的太阳可让手机屏幕保持常亮，适合放在桌边一直看；域名用 https 时才能用': 'The sun at the top right keeps the phone\'s screen on, to watch from the desk; it needs the domain on https',
+  '正在确认手机能打开…': 'Checking that it opens…', '已确认能通过 {host} 打开': 'Checked: it opens through {host}', 再检查: 'Check again',
+  '{host} 把请求转到了别处（HTTP {n}）：检查反代的设置；总是跳到 https 时，把域名改成 https://{host}':
+    '{host} sent the request elsewhere (HTTP {n}): check the proxy; if it always goes to https, change the domain to https://{host}',
+  '{host} 有回应（HTTP {n}），但不是 Starmeter：检查反代是否转发到 {target}': '{host} answered (HTTP {n}), but not with Starmeter: check that the proxy forwards to {target}',
+  '这台电脑没能打开 {host}（{reason}）：手机也打不开时，检查域名解析和反代是否转发到 {target}':
+    'This computer couldn\'t open {host} ({reason}): if the phone can\'t either, check the domain\'s DNS and that the proxy forwards to {target}',
+  '填写你的域名，比如 meter.example.com': 'Enter your domain, such as meter.example.com',
+  '域名的格式不对：只填域名，比如 meter.example.com': 'That isn\'t a domain: enter it alone, such as meter.example.com',
+  '端口填 1024 到 65535 之间的数': 'Use a port from 1024 to 65535', 还没有填写自有域名: 'No domain entered yet', 还没有端口: 'No port yet',
+  '自有域名固定用这个端口：退出占用它的程序，或在“任何网络 › 自有域名”换一个端口':
+    'Your domain keeps this port: quit the app holding it, or pick another under Any network › Your domain',
   '第一次打开时系统可能问是否允许 Starmeter 接收连接，选允许；Tailscale 的二维码在哪都能打开，不经过 Cloudflare':
     'The first time, the system may ask whether Starmeter may accept incoming connections: allow it. The Tailscale code opens from anywhere, without Cloudflare.',
   '只读：手机上只能看主页和工具页，不能改设置。': 'Read-only: the phone sees the homepage and tool pages and changes nothing.',
@@ -354,6 +377,7 @@ export const rules: Rule[] = [
   [/^(\d+) 个账户$/, (m) => `${m[1]} accounts`],
   [/^(\d+) 台电脑$/, (m) => `${m[1]} ${plural(m[1], 'computer', 'computers')}`],
   [/^还剩 (\d+) 分钟$/, (m) => `${m[1]} min left`],
+  [/^端口 (\d+) 被别的程序占用$/, (m) => `Port ${m[1]} is taken by another app`],
   [/^电脑暂时没有返回数据（HTTP (\d+)），稍后会自动重试$/, (m) => `The computer sent nothing this time (HTTP ${m[1]}); trying again shortly`],
   [/^(\d+) 分钟前同步$/, (m) => `Synced ${m[1]} min ago`],
   [/^(\d+) 小时前同步$/, (m) => `Synced ${m[1]} h ago`],

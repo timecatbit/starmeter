@@ -12,7 +12,23 @@ try { localStorage.removeItem('starmeter.phone-stopped'); } catch { /* nothing k
  *  one left on is on again when the app starts again, an update too (the shell keeps it, phone.rs).
  *  `localStopped`, `publicStopped`: that way's 停止 pressed since the app started, so its page says 已停止 rather than
  *  未开始. `reach`: the page shown last, shown again when 在手机上看 is opened again. */
-export const phone = $state({ view: null as PhoneView | null, at: 0, localStopped: false, publicStopped: false, reach: 'local' as 'local' | 'public' });
+export const phone = $state({ view: null as PhoneView | null, at: 0, localStopped: false, publicStopped: false, domainStopped: false,
+  reach: 'local' as 'local' | 'public', via: keptVia() ?? ('cloudflare' as Via), viaChosen: keptVia() !== null });
+
+/** 任何网络's link: Cloudflare's, made for an hour, or the user's own domain through their own proxy (自有域名). The one
+ *  chosen last is chosen again; never chosen, 自有域名 is once a domain has been set. */
+export type Via = 'cloudflare' | 'domain';
+function keptVia(): Via | null {
+  try {
+    const kept = localStorage.getItem('starmeter.phone-via');
+    return kept === 'cloudflare' || kept === 'domain' ? kept : null;
+  } catch { return null; }
+}
+export function chooseVia(via: Via) {
+  phone.via = via;
+  phone.viaChosen = true;
+  try { localStorage.setItem('starmeter.phone-via', via); } catch { /* chosen until the app quits */ }
+}
 
 export function setPhone(view: PhoneView | null) {
   phone.view = view;

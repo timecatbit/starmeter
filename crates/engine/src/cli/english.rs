@@ -178,7 +178,7 @@ pub static WHOLE: [Rule; 4] = [
 ];
 
 /// One part of the engine's text.
-pub static RULES: [Rule; 95] = [
+pub static RULES: [Rule; 96] = [
     rule!(r"^已用 (\d+(?:\.\d+)?%)$", |m| format!("{} used", group(m, 1))),
     rule!(r"^已用 (\d+(?:\.\d+)?%) 截至 (.+)$", |m| format!("{} used as of {}", group(m, 1), group(m, 2))),
     rule!(r"^已用 (.+)$", |m| format!("Used: {}", translate(group(m, 1)))),
@@ -192,6 +192,7 @@ pub static RULES: [Rule; 95] = [
     rule!(r"^(\d+) 个账户$", |m| format!("{} accounts", group(m, 1))),
     rule!(r"^(\d+) 台电脑$", |m| format!("{} {}", group(m, 1), plural(group(m, 1), "computer", "computers"))),
     rule!(r"^还剩 (\d+) 分钟$", |m| format!("{} min left", group(m, 1))),
+    rule!(r"^端口 (\d+) 被别的程序占用$", |m| format!("Port {} is taken by another app", group(m, 1))),
     rule!(r"^电脑暂时没有返回数据（HTTP (\d+)），稍后会自动重试$", |m| format!(
         "The computer sent nothing this time (HTTP {}); trying again shortly",
         group(m, 1)

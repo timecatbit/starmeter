@@ -79,13 +79,16 @@ pub struct Phone {
     running: Mutex<Option<Running>>,
 }
 
-/// The server runs while either way in is on, and the two come and go on their own (用户：同一网络和任何网络……互不影响):
-/// 同一个网络 (this computer's network address and its Tailscale one) with its key, and the public link with a key of its
-/// own, so stopping one leaves the other's code opening as it did.
+/// The server runs while a way in is on, and they come and go on their own (用户：同一网络和任何网络……互不影响):
+/// 同一个网络 (this computer's network address and its Tailscale one) with its key, the public link with a key of its
+/// own, and 自有域名 (the user's own domain, through their own reverse proxy or tunnel) with a third, so stopping one
+/// leaves the others' codes opening as they did.
 struct Running {
     port: u16,
     keys: Arc<Mutex<Keys>>,
     stop: Arc<AtomicBool>,
+    /// 自有域名's address (https://meter.example.com) while it is on.
+    origin: Option<String>,
     public: Option<Public>,
     /// The public link's round: closed (its 停止, or the server stopping), a link still being made is closed as it
     /// comes instead of shown.
@@ -96,12 +99,14 @@ struct Running {
     opening_active: usize,
 }
 
-/// The keys the server takes. Only the public link's comes from this computer itself (cloudflared hands its requests on
-/// from 127.0.0.1); a phone on the network (or the tailnet) needs 同一个网络's, and is turned away while it is off.
+/// The keys the server takes. The public link's comes from this computer itself only (cloudflared hands its requests
+/// on from 127.0.0.1). 同一个网络's and 自有域名's come from anywhere: the user's proxy may be on this computer or on
+/// another (a NAS, the router); from the network with both off, a connection is turned away at once.
 #[derive(Default)]
 struct Keys {
     local: Option<String>,
     public: Option<String>,
+    domain: Option<String>,
 }
 
 struct Public {
@@ -124,6 +129,10 @@ pub struct PhoneView {
     tailnet: Option<String>,
     /// http://10.x.y.z:51234/#k=… through a WireGuard tunnel this computer has up, the same way.
     wireguard: Option<String>,
+    /// https://meter.example.com/#k=… while 自有域名 is on: the user's own proxy hands it on to this server.
+    domain: Option<String>,
+    /// The server's port (自有域名's proxy forwards to 127.0.0.1 on it).
+    port: u16,
     /// https://….trycloudflare.com/#k=… once the public link is up.
     public: Option<String>,
     /// The public link's time left; 0 without one.
@@ -145,12 +154,15 @@ fn view(running: &Running) -> PhoneView {
     let local = running.keys.lock().expect("the keys").local.clone();
     let found = local.as_ref().map(|_| addresses()).unwrap_or_default();
     let address = |ip: IpAddr| format!("http://{ip}:{}/#k={}", running.port, local.as_deref().unwrap_or_default());
+    let domain = running.keys.lock().expect("the keys").domain.clone();
     let public = running.public.as_ref().filter(|public| usable(public));
     PhoneView {
         local_open: local.is_some(),
         local: found.lan.map(address),
         tailnet: found.tailnet.map(address),
         wireguard: found.wireguard.map(address),
+        domain: running.origin.as_ref().zip(domain).map(|(origin, key)| format!("{origin}/#k={key}")),
+        port: running.port,
         public: public.map(|public| format!("{}/#k={}", public.tunnel.url, public.key)),
         seconds_left: public.map_or(0, |public| public.until.saturating_duration_since(Instant::now()).as_secs()),
         public_checked: running.public.as_ref().is_none_or(|public| public.tunnel.checked),
@@ -158,10 +170,10 @@ fn view(running: &Running) -> PhoneView {
     }
 }
 
-/// The view shown to the panel, or None when neither way is on and no active-round public link is opening.
+/// The view shown to the panel, or None when no way is on and no active-round public link is opening.
 fn visible_view(running: &Running) -> Option<PhoneView> {
     let v = view(running);
-    (v.local_open || v.public.is_some() || v.public_opening).then_some(v)
+    (v.local_open || v.domain.is_some() || v.public.is_some() || v.public_opening).then_some(v)
 }
 
 /// This computer's addresses for 同一个网络's codes: on its network, on a tailnet, on a WireGuard network.
@@ -479,6 +491,13 @@ struct Kept {
     /// When the public link's hour is up, in seconds since 1970.
     #[serde(default)]
     public_until: Option<f64>,
+    /// 自有域名's address as the user gave it (https://meter.example.com). Kept while set, on or off: the server's port
+    /// is then held to `port` (the user's proxy forwards there) instead of moving to a free one when it is taken.
+    #[serde(default)]
+    domain: Option<String>,
+    /// 自有域名's key while it is on.
+    #[serde(default)]
+    domain_key: Option<String>,
 }
 
 fn kept_file(app: &AppHandle) -> PathBuf {
@@ -489,12 +508,44 @@ fn kept_file(app: &AppHandle) -> PathBuf {
     PathBuf::from(starmeter_core::desktop::state_dir(shell, &environment)).join(name)
 }
 
-/// The kept state; a key that isn't one of ours (32 hex digits) is left out.
+/// The kept state; a key that isn't one of ours (32 hex digits), or an address that isn't one, is left out.
 fn read_kept(path: &Path) -> Kept {
     let mut kept: Kept =
         std::fs::read(path).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default();
-    kept.local = kept.local.filter(|key| key.len() == 32 && key.bytes().all(|b| b.is_ascii_hexdigit()));
+    let ours = |key: &String| key.len() == 32 && key.bytes().all(|b| b.is_ascii_hexdigit());
+    kept.local = kept.local.filter(ours);
+    kept.domain = kept.domain.and_then(|domain| origin_of(&domain).ok());
+    kept.domain_key = kept.domain_key.filter(ours).filter(|_| kept.domain.is_some());
     kept
+}
+
+/// 自有域名's address as typed (meter.example.com, https://meter.example.com/, http://home.lan:8080) as an origin:
+/// https unless it says http, no path, query, # or user (the page's files and its /api/ are at the root, and its key
+/// travels after the #).
+fn origin_of(typed: &str) -> Result<String, String> {
+    let typed = typed.trim();
+    if typed.is_empty() {
+        return Err("填写你的域名，比如 meter.example.com".into());
+    }
+    let wrong = || "域名的格式不对：只填域名，比如 meter.example.com".to_string();
+    let url = tauri::Url::parse(&if typed.contains("://") { typed.to_string() } else { format!("https://{typed}") })
+        .map_err(|_| wrong())?;
+    if !matches!(url.scheme(), "http" | "https")
+        || url.host_str().is_none_or(str::is_empty)
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || !matches!(url.path(), "" | "/")
+    {
+        return Err(wrong());
+    }
+    Ok(url.origin().ascii_serialization())
+}
+
+/// A port the user can give: one an app may take without the system's say (1024 and above).
+fn valid_port(port: u16) -> Result<u16, String> {
+    if port >= 1024 { Ok(port) } else { Err("端口填 1024 到 65535 之间的数".into()) }
 }
 
 /// Written whole (a file beside it, then put in its place), readable by this user alone: it holds the key; nothing
@@ -528,9 +579,53 @@ fn keep(app: &AppHandle, change: impl FnOnce(&mut Kept)) {
     write_kept(&path, &kept);
 }
 
-/// The server's socket, on the port it had before when it is free (a phone's link names it), else on a new one.
-fn bind(port: Option<u16>) -> std::io::Result<TcpListener> {
-    port.and_then(|port| TcpListener::bind(("0.0.0.0", port)).ok()).map_or_else(|| TcpListener::bind("0.0.0.0:0"), Ok)
+/// The server's socket, on the port it had before when it is free (a phone's link names it), else on a new one. Held
+/// (自有域名 set: the user's proxy forwards to that port), only that port: taken, a reason saying so. A server just
+/// stopped lets go of it within a beat of its loop, so a taken port is asked again for a moment before giving up.
+fn bind(port: Option<u16>, held: bool) -> Result<TcpListener, String> {
+    match port.filter(|_| held) {
+        Some(port) => {
+            let given_up = Instant::now() + Duration::from_millis(800);
+            loop {
+                match TcpListener::bind(("0.0.0.0", port)) {
+                    Ok(listener) => return Ok(listener),
+                    Err(error) if error.kind() == std::io::ErrorKind::AddrInUse && Instant::now() < given_up => {
+                        std::thread::sleep(Duration::from_millis(50))
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => {
+                        return Err(format!("端口 {port} 被别的程序占用"));
+                    }
+                    Err(error) => return Err(format!("没能开始：{error}")),
+                }
+            }
+        }
+        None => port
+            .and_then(|port| TcpListener::bind(("0.0.0.0", port)).ok())
+            .map_or_else(|| TcpListener::bind("0.0.0.0:0"), Ok)
+            .map_err(|error| format!("没能开始：{error}")),
+    }
+}
+
+/// A server on `listener`, its ways in all off.
+fn spawn(app: &AppHandle, listener: TcpListener) -> Result<Running, String> {
+    let port = listener.local_addr().map_err(|error| error.to_string())?.port();
+    listener.set_nonblocking(true).map_err(|error| error.to_string())?;
+    let keys = Arc::new(Mutex::new(Keys::default()));
+    let stop = Arc::new(AtomicBool::new(false));
+    {
+        let (app, keys, stop) = (app.clone(), keys.clone(), stop.clone());
+        std::thread::spawn(move || serve(app, listener, keys, stop));
+    }
+    Ok(Running {
+        port,
+        keys,
+        stop,
+        origin: None,
+        public: None,
+        public_round: Arc::new(AtomicBool::new(false)),
+        opening: 0,
+        opening_active: 0,
+    })
 }
 
 /// The app started (an update too): what the user left on, on again, before anyone opens the panel.
@@ -547,6 +642,9 @@ pub fn resume(app: &AppHandle) {
     } else if kept.public_until.is_some() {
         keep(app, |kept| kept.public_until = None);
     }
+    if kept.domain_key.is_some() {
+        let _ = start_domain(app, None);
+    }
 }
 
 /// The server running (started if it isn't, with neither way in on yet).
@@ -557,25 +655,10 @@ fn serving<'a>(app: &AppHandle, running: &'a mut Option<Running>) -> Result<&'a 
         stop_running(&mut over);
     }
     if running.is_none() {
-        let listener = bind(read_kept(&kept_file(app)).port).map_err(|error| format!("没能开始：{error}"))?;
-        let port = listener.local_addr().map_err(|error| error.to_string())?.port();
-        listener.set_nonblocking(true).map_err(|error| error.to_string())?;
-        keep(app, |kept| kept.port = Some(port));
-        let keys = Arc::new(Mutex::new(Keys::default()));
-        let stop = Arc::new(AtomicBool::new(false));
-        {
-            let (app, keys, stop) = (app.clone(), keys.clone(), stop.clone());
-            std::thread::spawn(move || serve(app, listener, keys, stop));
-        }
-        *running = Some(Running {
-            port,
-            keys,
-            stop,
-            public: None,
-            public_round: Arc::new(AtomicBool::new(false)),
-            opening: 0,
-            opening_active: 0,
-        });
+        let kept = read_kept(&kept_file(app));
+        let fresh = spawn(app, bind(kept.port, kept.domain.is_some())?)?;
+        keep(app, |kept| kept.port = Some(fresh.port));
+        *running = Some(fresh);
     }
     Ok(running.as_mut().expect("the server just started"))
 }
@@ -647,6 +730,165 @@ pub async fn phone_stop(app: AppHandle) -> Option<PhoneView> {
     .flatten()
 }
 
+/// 自有域名 as set, for its page: the address, the port the user's proxy forwards to, and this computer's network
+/// address (for a proxy on another device).
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainSetup {
+    /// https://meter.example.com; None until one is set.
+    domain: Option<String>,
+    /// The server's port: the one it is on, else the one kept, else a free one now, kept so it is the same next time.
+    port: u16,
+    /// 192.168.1.5, when this computer is on a network.
+    lan: Option<String>,
+}
+
+#[tauri::command]
+pub async fn phone_domain(app: AppHandle) -> Option<DomainSetup> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let on = app.state::<Phone>().running.lock().expect("the phone lock").as_ref().map(|current| current.port);
+        let kept = read_kept(&kept_file(&app));
+        let port = on.or(kept.port).unwrap_or_else(|| {
+            let free =
+                TcpListener::bind("0.0.0.0:0").and_then(|socket| socket.local_addr()).map_or(51234, |a| a.port());
+            keep(&app, |kept| kept.port = Some(free));
+            free
+        });
+        DomainSetup { domain: kept.domain, port, lan: addresses().lan.map(|ip| ip.to_string()) }
+    })
+    .await
+    .ok()
+}
+
+/// 自有域名's 开始, with the address and port on its page: both kept (the port held from now on), the server moved to
+/// the port if it runs on another, and the way on with its key: the one kept for this address (a phone's link from
+/// before keeps opening), else a new one. Off the main thread (PERF-7).
+#[tauri::command]
+pub async fn phone_domain_start(app: AppHandle, domain: String, port: u16) -> Result<PhoneView, String> {
+    tauri::async_runtime::spawn_blocking(move || start_domain(&app, Some((domain, port))))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+/// 自有域名 on: at the address and port given, or as kept (the app starting again).
+fn start_domain(app: &AppHandle, given: Option<(String, u16)>) -> Result<PhoneView, String> {
+    let path = kept_file(app);
+    let mut kept = read_kept(&path);
+    let (origin, port) = match given {
+        Some((domain, port)) => (origin_of(&domain)?, valid_port(port)?),
+        None => (kept.domain.clone().ok_or("还没有填写自有域名")?, kept.port.ok_or("还没有端口")?),
+    };
+    let state = app.state::<Phone>();
+    let mut running = state.running.lock().expect("the phone lock");
+    // Another address: a link to the one before stops opening.
+    if kept.domain.as_deref() != Some(origin.as_str()) {
+        kept.domain_key = None;
+        if let Some(current) = running.as_mut() {
+            current.keys.lock().expect("the keys").domain = None;
+        }
+    }
+    // On another port while it runs: moved there, a taken port leaving it as it was.
+    if running.as_ref().is_some_and(|current| current.port != port && !current.stop.load(Ordering::SeqCst)) {
+        let listener = bind(Some(port), true)?;
+        moved(app, &mut running, listener)?;
+    }
+    kept.domain = Some(origin.clone());
+    kept.port = Some(port);
+    write_kept(&path, &kept);
+    let current = serving(app, &mut running)?;
+    let key = current
+        .keys
+        .lock()
+        .expect("the keys")
+        .domain
+        .get_or_insert_with(|| kept.domain_key.clone().unwrap_or_else(new_key))
+        .clone();
+    current.origin = Some(origin);
+    keep(app, |kept| kept.domain_key = Some(key));
+    Ok(view(current))
+}
+
+/// The server on another port (自有域名's, changed): 同一个网络 and 自有域名 go on, their keys with them; the public
+/// link, Cloudflare's to the port before, is closed.
+fn moved(app: &AppHandle, running: &mut Option<Running>, listener: TcpListener) -> Result<(), String> {
+    let Some(mut over) = running.take() else { return Ok(()) };
+    let kept_keys = std::mem::take(&mut *over.keys.lock().expect("the keys"));
+    let origin = over.origin.take();
+    stop_running(&mut over);
+    keep(app, |kept| kept.public_until = None);
+    let fresh = spawn(app, listener)?;
+    *fresh.keys.lock().expect("the keys") = Keys { local: kept_keys.local, domain: kept_keys.domain, public: None };
+    *running = Some(Running { origin, ..fresh });
+    Ok(())
+}
+
+/// 自有域名's 停止: its address no longer opens, its key gone with it; the address and port stay for its next 开始, and
+/// the other ways as they are.
+#[tauri::command]
+pub async fn phone_domain_stop(app: AppHandle) -> Option<PhoneView> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<Phone>();
+        let mut running = state.running.lock().expect("the phone lock");
+        if let Some(current) = running.as_mut() {
+            current.keys.lock().expect("the keys").domain = None;
+            current.origin = None;
+        }
+        keep(&app, |kept| kept.domain_key = None);
+        settle(&mut running);
+        running.as_ref().and_then(visible_view)
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+/// How 自有域名's address answered this computer: through the user's proxy to this server, or why not.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainCheck {
+    /// This server answered through it.
+    opens: bool,
+    /// Something else answered, with this status (a proxy's 502, a redirect).
+    status: Option<u16>,
+    /// Nothing answered: why (a name not found, a time out, a certificate).
+    reason: Option<String>,
+}
+
+/// Whether 自有域名's address opens this server from here, asked once it is on (and on 再检查). This computer getting
+/// through is a good sign, not a promise for a phone outside (and a router may not hand its own network's requests
+/// back in, so a miss here is said as a caution).
+#[tauri::command]
+pub async fn phone_domain_check(app: AppHandle) -> Option<DomainCheck> {
+    let (origin, key) = {
+        let state = app.state::<Phone>();
+        let running = state.running.lock().expect("the phone lock");
+        let current = running.as_ref()?;
+        (current.origin.clone()?, current.keys.lock().expect("the keys").domain.clone()?)
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        let request = starmeter_core::http::Request {
+            headers: vec![("X-Starmeter-Key", key)],
+            timeout: 8.0,
+            follow_redirects: false,
+            limit: 1024,
+            ..Default::default()
+        };
+        checked(starmeter_core::http::send(&format!("{origin}/api/ping"), request))
+    })
+    .await
+    .ok()
+}
+
+fn checked(answer: Result<starmeter_core::http::Response, starmeter_core::http::Unreachable>) -> DomainCheck {
+    match answer {
+        Ok(answer) if answer.status == 200 && answer.body == PING => {
+            DomainCheck { opens: true, status: None, reason: None }
+        }
+        Ok(answer) => DomainCheck { opens: false, status: Some(answer.status), reason: None },
+        Err(why) => DomainCheck { opens: false, status: None, reason: Some(why.0) },
+    }
+}
+
 /// The app quitting: the server and the public link with it, what was on kept for the next start.
 pub fn phone_quit(app: &AppHandle) {
     let state = app.state::<Phone>();
@@ -664,10 +906,11 @@ fn stop_running(running: &mut Running) {
     }
 }
 
-/// The server stays while something is on: 同一个网络, the public link, or an ask for it on its way.
+/// The server stays while something is on: 同一个网络, 自有域名, the public link, or an ask for it on its way.
 fn settle(running: &mut Option<Running>) {
     let idle = running.as_ref().is_some_and(|current| {
-        current.keys.lock().expect("the keys").local.is_none() && current.public.is_none() && current.opening == 0
+        let keys = current.keys.lock().expect("the keys");
+        keys.local.is_none() && keys.domain.is_none() && current.public.is_none() && current.opening == 0
     });
     if idle && let Some(mut over) = running.take() {
         stop_running(&mut over);
@@ -853,9 +1096,10 @@ fn serve(app: AppHandle, listener: TcpListener, keys: Arc<Mutex<Keys>>, stop: Ar
         }
         match listener.accept() {
             Ok((stream, peer)) => {
-                // From the network (or the tailnet) with 同一个网络 off: turned away at once, as if nothing listened.
+                // From the network (or the tailnet) with 同一个网络 and 自有域名 off: turned away at once, as if nothing
+                // listened.
                 let nearby = !peer.ip().is_loopback();
-                if nearby && keys.lock().expect("the keys").local.is_none() {
+                if nearby && keys.lock().map(|keys| keys.local.is_none() && keys.domain.is_none()).unwrap_or(true) {
                     continue;
                 }
                 // Past the limit, or with no thread to be had, the connection is closed and the server goes on.
@@ -882,11 +1126,12 @@ fn serve(app: AppHandle, listener: TcpListener, keys: Arc<Mutex<Keys>>, stop: Ar
     }
 }
 
-/// Whether a request's key opens the page's figures: 同一个网络's from anywhere while it is on; the public link's only
-/// as cloudflared hands it on, from this computer itself.
+/// Whether a request's key opens the page's figures: 同一个网络's and 自有域名's from anywhere while they are on (the
+/// user's proxy may be another device); the public link's only as cloudflared hands it on, from this computer itself.
 fn admitted(keys: &Mutex<Keys>, given: &str, nearby: bool) -> bool {
     let keys = keys.lock().expect("the keys");
     keys.local.as_deref().is_some_and(|key| same(given, key))
+        || keys.domain.as_deref().is_some_and(|key| same(given, key))
         || (!nearby && keys.public.as_deref().is_some_and(|key| same(given, key)))
 }
 
@@ -1469,8 +1714,9 @@ fn strip(entry: &mut Value) {
 #[cfg(test)]
 mod tests {
     use super::{
-        Addresses, AtomicBool, AtomicUsize, CONNECTIONS, Deadline, Kept, Keys, Mutex, Nic, Ordering, Running, Slot,
-        Slots, admitted, bind, lan_choice, networks, new_key, nic, read_kept, same, settle, tailnet_ip, write_kept,
+        Addresses, AtomicBool, AtomicUsize, CONNECTIONS, Deadline, DomainCheck, Kept, Keys, Mutex, Nic, Ordering, PING,
+        Running, Slot, Slots, admitted, bind, checked, lan_choice, networks, new_key, nic, origin_of, read_kept, same,
+        settle, tailnet_ip, valid_port, write_kept,
     };
 
     fn ip(text: &str) -> std::net::IpAddr {
@@ -1903,7 +2149,7 @@ mod tests {
     fn each_way_in_takes_its_own_key_and_stops_on_its_own() {
         // 用户：同一网络和任何网络……互不影响.
         let (local, public) = (new_key(), new_key());
-        let keys = Mutex::new(Keys { local: Some(local.clone()), public: Some(public.clone()) });
+        let keys = Mutex::new(Keys { local: Some(local.clone()), public: Some(public.clone()), domain: None });
         // 同一个网络's key from the network (or the tailnet) and from this computer.
         assert!(admitted(&keys, &local, true));
         assert!(admitted(&keys, &local, false));
@@ -1917,19 +2163,29 @@ mod tests {
         assert!(admitted(&keys, &public, false));
         // The public link stopped and 同一个网络 on again, with a new key: only that one opens.
         let again = new_key();
-        *keys.lock().unwrap() = Keys { local: Some(again.clone()), public: None };
+        *keys.lock().unwrap() = Keys { local: Some(again.clone()), public: None, domain: None };
         assert!(admitted(&keys, &again, true));
         assert!(!admitted(&keys, &local, true));
         assert!(!admitted(&keys, &public, false));
         assert!(!admitted(&keys, "", false));
+        // 自有域名's key from the user's proxy, on this computer or on another (a NAS), 同一个网络 on or off.
+        let domain = new_key();
+        *keys.lock().unwrap() = Keys { local: None, public: None, domain: Some(domain.clone()) };
+        assert!(admitted(&keys, &domain, false));
+        assert!(admitted(&keys, &domain, true));
+        assert!(!admitted(&keys, &again, true));
+        // Its 停止: its links no longer open.
+        keys.lock().unwrap().domain = None;
+        assert!(!admitted(&keys, &domain, false));
     }
 
     #[test]
     fn the_server_stays_while_either_way_in_is_on() {
         let running = |local: bool, opening: usize| Running {
             port: 1,
-            keys: Arc::new(Mutex::new(Keys { local: local.then(new_key), public: None })),
+            keys: Arc::new(Mutex::new(Keys { local: local.then(new_key), public: None, domain: None })),
             stop: Arc::new(AtomicBool::new(false)),
+            origin: None,
             public: None,
             public_round: Arc::new(AtomicBool::new(false)),
             opening,
@@ -1938,6 +2194,11 @@ mod tests {
         let mut on = Some(running(true, 0));
         settle(&mut on);
         assert!(on.is_some());
+        // 自有域名 alone on: kept for it.
+        let mut domain = Some(running(false, 0));
+        domain.as_ref().unwrap().keys.lock().unwrap().domain = Some(new_key());
+        settle(&mut domain);
+        assert!(domain.is_some());
         // 同一个网络 off while the public link is still being made: kept for it.
         let mut making = Some(running(false, 1));
         settle(&mut making);
@@ -1957,7 +2218,13 @@ mod tests {
         let folder = std::env::temp_dir().join(format!("starmeter-phone-kept-{}", new_key()));
         let path = folder.join("phone.json");
         assert_eq!(read_kept(&path), Kept::default());
-        let on = Kept { port: Some(51234), local: Some(new_key()), public_until: Some(1_800_000_000.5) };
+        let on = Kept {
+            port: Some(51234),
+            local: Some(new_key()),
+            public_until: Some(1_800_000_000.5),
+            domain: Some("https://meter.example.com".into()),
+            domain_key: Some(new_key()),
+        };
         write_kept(&path, &on);
         assert_eq!(read_kept(&path), on);
         #[cfg(unix)]
@@ -1967,7 +2234,21 @@ mod tests {
         }
         // A key not one of ours is left out; the rest stands.
         std::fs::write(&path, r#"{"port":51234,"local":"not a key","publicUntil":null}"#).unwrap();
-        assert_eq!(read_kept(&path), Kept { port: Some(51234), local: None, public_until: None });
+        assert_eq!(read_kept(&path), Kept { port: Some(51234), ..Kept::default() });
+        // An address that isn't one is left out, and 自有域名's key with it.
+        let key = new_key();
+        std::fs::write(&path, format!(r#"{{"port":51234,"domain":"ftp://x","domainKey":"{key}"}}"#)).unwrap();
+        assert_eq!(read_kept(&path), Kept { port: Some(51234), ..Kept::default() });
+        std::fs::write(&path, format!(r#"{{"port":51234,"domain":"meter.example.com","domainKey":"{key}"}}"#)).unwrap();
+        assert_eq!(
+            read_kept(&path),
+            Kept {
+                port: Some(51234),
+                domain: Some("https://meter.example.com".into()),
+                domain_key: Some(key),
+                ..Kept::default()
+            }
+        );
         // Both ways stopped, the port forgotten too: no file left.
         write_kept(&path, &Kept::default());
         assert!(!path.exists());
@@ -1979,13 +2260,64 @@ mod tests {
         let held = std::net::TcpListener::bind("0.0.0.0:0").unwrap();
         let port = held.local_addr().unwrap().port();
         // Taken by something else: another port, the server still starts.
-        let other = bind(Some(port)).unwrap();
+        let other = bind(Some(port), false).unwrap();
         assert_ne!(other.local_addr().unwrap().port(), port);
+        // Held for 自有域名 (the user's proxy forwards there): not another, a reason naming it.
+        let taken = bind(Some(port), true).map(|_| ()).unwrap_err();
+        assert_eq!(taken, format!("端口 {port} 被别的程序占用"));
         drop(held);
         drop(other);
         // Free again: the same port, so a phone's link from before opens.
-        let again = bind(Some(port)).unwrap();
+        let again = bind(Some(port), false).unwrap();
         assert_eq!(again.local_addr().unwrap().port(), port);
-        assert!(bind(None).unwrap().local_addr().unwrap().port() > 0);
+        drop(again);
+        // Held, and let go of by a server stopping a moment later: taken once it is free.
+        let stopping = std::net::TcpListener::bind(("0.0.0.0", port)).unwrap();
+        let letting_go = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            drop(stopping);
+        });
+        assert_eq!(bind(Some(port), true).unwrap().local_addr().unwrap().port(), port);
+        letting_go.join().unwrap();
+        assert!(bind(None, false).unwrap().local_addr().unwrap().port() > 0);
+    }
+
+    #[test]
+    fn the_domain_is_its_origin_as_typed_with_or_without_https() {
+        // 自有域名 as the user types it.
+        assert_eq!(origin_of("meter.example.com").unwrap(), "https://meter.example.com");
+        assert_eq!(origin_of("  https://Meter.Example.com/ ").unwrap(), "https://meter.example.com");
+        assert_eq!(origin_of("http://home.lan:8080").unwrap(), "http://home.lan:8080");
+        assert_eq!(origin_of("https://meter.example.com:443").unwrap(), "https://meter.example.com");
+        assert_eq!(origin_of("mac.tail1234.ts.net").unwrap(), "https://mac.tail1234.ts.net");
+        // Only the address: no path, query, # or user, and a web address at all.
+        for wrong in [
+            "https://meter.example.com/starmeter",
+            "meter.example.com/?a=1",
+            "meter.example.com/#k=1",
+            "https://me:pw@meter.example.com",
+            "ftp://meter.example.com",
+            "https://",
+            "a b",
+        ] {
+            assert!(origin_of(wrong).is_err(), "{wrong}");
+        }
+        assert_eq!(origin_of(" ").unwrap_err(), "填写你的域名，比如 meter.example.com");
+        assert!(valid_port(80).is_err());
+        assert_eq!(valid_port(8765), Ok(8765));
+    }
+
+    #[test]
+    fn the_domain_check_tells_this_server_from_another_answer() {
+        use starmeter_core::http::{Response, Unreachable};
+        let answer = |status: u16, body: &[u8]| Ok(Response { status, body: body.to_vec(), headers: Vec::new() });
+        assert_eq!(checked(answer(200, PING)), DomainCheck { opens: true, status: None, reason: None });
+        // A proxy's own page (or a 200 from something else): not this server.
+        assert_eq!(checked(answer(200, b"<html>")), DomainCheck { opens: false, status: Some(200), reason: None });
+        assert_eq!(checked(answer(502, b"Bad Gateway")), DomainCheck { opens: false, status: Some(502), reason: None });
+        assert_eq!(
+            checked(Err(Unreachable("timed out".into()))),
+            DomainCheck { opens: false, status: None, reason: Some("timed out".into()) }
+        );
     }
 }

@@ -67,32 +67,70 @@ const localGuide = () => { try { return localStorage.getItem('starmeter.guide') 
  *  link are on and off on their own: `localOpen` says the first is on (its addresses, when this computer has them). */
 export interface PhoneView {
   localOpen?: boolean; local: string | null; tailnet?: string | null; wireguard?: string | null; public: string | null; secondsLeft: number;
+  /** 自有域名's link (https://meter.example.com/#k=…) while it is on: the user's own proxy hands it on to this server. */
+  domain?: string | null;
+  /** The server's port: 自有域名's proxy forwards to 127.0.0.1 on it. */
+  port?: number;
   /** The public link seen to open from outside before it was shown; false when the wait for it ran out (PHONE-11). */
   publicChecked?: boolean;
   /** A public link is being opened right now (e.g. startup resume or started before leaving the page, R10-8). */
   publicOpening?: boolean;
 }
-/** The browser's stand-in for the phone server, for the tests and the dev server: 同一个网络 and the public link, each
- *  on and off on its own, the server on while either is; what is on kept in the page's storage, on again as the page
- *  loads again, as the app keeps it in the settings folder and turns it on again as it starts (phone.rs). */
+/** 自有域名 as set, for its page: its address, the port the user's proxy forwards to, this computer's network address. */
+export interface DomainSetup { domain: string | null; port: number; lan: string | null }
+/** How 自有域名's address answered this computer: this server through it, something else (`status`), or nothing (`reason`). */
+export interface DomainCheck { opens: boolean; status: number | null; reason: string | null }
+
+/** The browser's stand-in for the phone server, for the tests and the dev server: 同一个网络, the public link and
+ *  自有域名, each on and off on its own, the server on while any is; what is on kept in the page's storage, on again as
+ *  the page loads again, as the app keeps it in the settings folder and turns it on again as it starts (phone.rs). */
 const browserPhone = (() => {
   const KEPT = 'starmeter.test-phone';
-  const kept = (() => { try { return JSON.parse(localStorage.getItem(KEPT) ?? '{}') as { local?: boolean; open?: boolean }; } catch { return {}; } })();
-  let local = !!kept.local, open = !!kept.open;
-  const keep = () => { try { localStorage.setItem(KEPT, JSON.stringify({ local, open })); } catch { /* not kept */ } };
+  type Kept = { local?: boolean; open?: boolean; domain?: string | null; domainOn?: boolean; port?: number };
+  const kept = (() => { try { return JSON.parse(localStorage.getItem(KEPT) ?? '{}') as Kept; } catch { return {} as Kept; } })();
+  let local = !!kept.local, open = !!kept.open, domain = kept.domain ?? null, domainOn = !!kept.domainOn && !!domain;
+  let port = kept.port ?? 51234;
+  const keep = () => { try { localStorage.setItem(KEPT, JSON.stringify({ local, open, domain, domainOn, port })); } catch { /* not kept */ } };
+  const asked = (name: string) => new URLSearchParams(location.search).has(name);
   // ?tailnet: this computer on a tailnet too.
-  const tailnet = () => (new URLSearchParams(location.search).has('tailnet') ? 'http://100.76.55.73:51234/#k=0123456789abcdef0123456789abcdef' : null);
+  const tailnet = () => (asked('tailnet') ? `http://100.76.55.73:${port}/#k=0123456789abcdef0123456789abcdef` : null);
   // ?wireguard: a WireGuard tunnel up too.
-  const wireguard = () => (new URLSearchParams(location.search).has('wireguard') ? 'http://10.0.0.2:51234/#k=0123456789abcdef0123456789abcdef' : null);
-  const view = (): PhoneView | null => (local || open ? { localOpen: local, local: local ? 'http://192.168.1.20:51234/#k=0123456789abcdef0123456789abcdef' : null,
+  const wireguard = () => (asked('wireguard') ? `http://10.0.0.2:${port}/#k=0123456789abcdef0123456789abcdef` : null);
+  const view = (): PhoneView | null => (local || open || domainOn ? { localOpen: local, local: local ? `http://192.168.1.20:${port}/#k=0123456789abcdef0123456789abcdef` : null,
     tailnet: local ? tailnet() : null,
     wireguard: local ? wireguard() : null,
+    domain: domainOn ? `${domain}/#k=abcdefabcdefabcdefabcdefabcdefab` : null, port,
     public: open ? 'https://quiet-river-1234.trycloudflare.com/#k=fedcba9876543210fedcba9876543210' : null, secondsLeft: open ? 3540 : 0,
     // ?unchecked: the wait for the public link to open ran out.
-    publicChecked: !new URLSearchParams(location.search).has('unchecked') } : null);
+    publicChecked: !asked('unchecked') } : null);
+  /** The address as the shell takes it (phone.rs origin_of). */
+  const origin = (typed: string) => {
+    const text = typed.trim();
+    if (!text) throw '填写你的域名，比如 meter.example.com';
+    let url: URL;
+    try { url = new URL(text.includes('://') ? text : `https://${text}`); } catch { throw '域名的格式不对：只填域名，比如 meter.example.com'; }
+    if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password || url.search || url.hash
+      || !['', '/'].includes(url.pathname)) throw '域名的格式不对：只填域名，比如 meter.example.com';
+    return url.origin;
+  };
   return {
     view, start: () => { local = true; keep(); return view()!; }, stop: () => { local = false; keep(); return view(); },
     open: () => { open = true; keep(); return view()!; }, close: () => { open = false; keep(); return view(); },
+    domainSetup: (): DomainSetup => ({ domain, port, lan: '192.168.1.20' }),
+    // ?port-taken: the port asked for is another app's.
+    domainStart: (typed: string, asked_port: number) => {
+      const given = origin(typed);
+      if (asked_port < 1024 || asked_port > 65535) throw '端口填 1024 到 65535 之间的数';
+      if (asked('port-taken')) throw `端口 ${asked_port} 被别的程序占用`;
+      domain = given; port = asked_port; domainOn = true; keep(); return view()!;
+    },
+    domainStop: () => { domainOn = false; keep(); return view(); },
+    // ?domain-502, ?domain-redirect, ?domain-unreachable: how the user's proxy answers.
+    domainCheck: (): DomainCheck | null => (!domainOn ? null
+      : asked('domain-502') ? { opens: false, status: 502, reason: null }
+        : asked('domain-redirect') ? { opens: false, status: 308, reason: null }
+          : asked('domain-unreachable') ? { opens: false, status: null, reason: 'timed out' }
+            : { opens: true, status: null, reason: null }),
   };
 })();
 const base64 = (bytes: Uint8Array) => {
@@ -137,6 +175,14 @@ export const shell = {
   phoneStart: (): Promise<PhoneView> => (inTauri ? invoke<PhoneView>('phone_start') : Promise.resolve(browserPhone.start())),
   phoneStatus: (): Promise<PhoneView | null> => (inTauri ? invoke<PhoneView | null>('phone_status') : Promise.resolve(browserPhone.view())),
   phoneStop: (): Promise<PhoneView | null> => (inTauri ? invoke<PhoneView | null>('phone_stop') : Promise.resolve(browserPhone.stop())),
+  /** 任何网络 through the user's own domain (自有域名): as set (phoneDomain), on at an address and port, which are kept
+   *  (phoneDomainStart), off (phoneDomainStop), and whether its address opens this server from here (phoneDomainCheck). */
+  phoneDomain: (): Promise<DomainSetup | null> => (inTauri ? invoke<DomainSetup | null>('phone_domain') : Promise.resolve(browserPhone.domainSetup())),
+  phoneDomainStart: (domain: string, port: number): Promise<PhoneView> =>
+    (inTauri ? invoke<PhoneView>('phone_domain_start', { domain, port }) : Promise.resolve().then(() => browserPhone.domainStart(domain, port))),
+  phoneDomainStop: (): Promise<PhoneView | null> => (inTauri ? invoke<PhoneView | null>('phone_domain_stop') : Promise.resolve(browserPhone.domainStop())),
+  phoneDomainCheck: (): Promise<DomainCheck | null> => (inTauri ? invoke<DomainCheck | null>('phone_domain_check')
+    : new Promise((done) => setTimeout(() => done(browserPhone.domainCheck()), 400))),
   phonePublic: (): Promise<PhoneView> => (inTauri ? invoke<PhoneView>('phone_public')
     // ?tunnel-fails: the public link fails as on a network Cloudflare can't be reached from.
     : new URLSearchParams(location.search).has('tunnel-fails') ? Promise.reject('Cloudflare 这次没有连上，稍后再试') : Promise.resolve(browserPhone.open())),
