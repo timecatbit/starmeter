@@ -108,6 +108,15 @@ class UpdatePricingTests(unittest.TestCase):
         # 100K input at $2, 50K cached at $0.10, 10K output at $10, per million.
         self.assertAlmostEqual(cost, 0.305)
 
+    def test_the_bundled_table_prices_tencent_hy4_models(self):
+        table = sources.pricing('model-pricing.json')
+        self.assertTrue(sources.valid_pricing('model-pricing.json', table))
+        for name in ('hy4-flash', 'workbuddy/hy4flash'):
+            cost = sources.model_cost({'model': name, 'input': 1_000_000, 'cached': 1_000_000, 'output': 1_000_000, 'writes': 0})
+            self.assertAlmostEqual(cost, 0.07 + 0.003 + 0.281, places=6, msg=name)
+        flagship = sources.model_cost({'model': 'hy4', 'input': 1_000_000, 'cached': 1_000_000, 'output': 1_000_000, 'writes': 0})
+        self.assertAlmostEqual(flagship, 0.834 + 0.042 + 2.501, places=6)
+
 
 if __name__ == '__main__':
     unittest.main()

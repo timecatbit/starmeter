@@ -24,7 +24,18 @@ import subprocess
 ROOT = Path(__file__).resolve().parents[1]
 OPENAI = re.compile(r'(?:gpt-|o\d|codex-|chatgpt-)[^/@:]*')
 # First-party names only; provider-prefixed resellers ("together-ai/…") price differently.
-VENDORS = re.compile(r'(?:deepseek|glm|kimi|moonshot|minimax|qwen|gemini|grok)[^/@:~]*', re.I)
+VENDORS = re.compile(r'(?:deepseek|glm|kimi|moonshot|minimax|qwen|gemini|grok|hunyuan|hy4)[^/@:~]*', re.I)
+
+# Verified first-party vendor models not yet in ccusage's snapshot (USD per 1M tokens). Never overrides ccusage.
+# Tencent Hunyuan 4 (TokenHub / Tencent AI official catalog, verified 2026-11-27):
+#   hy4-flash: ¥0.50 / ¥2.00 / ¥0.02 (CNY) -> $0.070 / $0.281 / $0.003 (USD)
+#   hy4:       $0.834 / $2.501 / $0.042 (USD)
+SUPPLEMENT_OTHER_MODELS = {
+    'hy4': {'input': 0.834, 'output': 2.501, 'cacheRead': 0.042, 'cacheWrite': 1.0425},
+    'hy4-preview': {'input': 0.834, 'output': 2.501, 'cacheRead': 0.042, 'cacheWrite': 1.0425},
+    'hy4-flash': {'input': 0.07, 'output': 0.281, 'cacheRead': 0.003, 'cacheWrite': 0.0875},
+    'hy4flash': {'input': 0.07, 'output': 0.281, 'cacheRead': 0.003, 'cacheWrite': 0.0875},
+}
 
 
 def rates(cost):
@@ -140,6 +151,8 @@ def main():
     path.write_text(json.dumps(stamped(path, result, committed), ensure_ascii=False, indent=1) + '\n')
     # Lower-case keys: harness logs spell vendor model names inconsistently.
     others = table(snapshot, VENDORS, key=str.lower)
+    for name, entry in SUPPLEMENT_OTHER_MODELS.items():
+        others.setdefault(name, entry)
     path = ROOT / 'lib/model-pricing.json'
     path.write_text(json.dumps(stamped(path, {'source': dict(source), 'models': others}, committed), ensure_ascii=False, indent=1) + '\n')
     print('codex models:', len(models), 'other models:', len(others), 'commit:', commit[:8], 'from models.dev:', ', '.join(sorted(added)) or 'none')
