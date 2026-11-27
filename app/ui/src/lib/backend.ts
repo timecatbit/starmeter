@@ -97,7 +97,8 @@ const browserPhone = (() => {
   // ?tailnet: this computer on a tailnet; ?wireguard: a WireGuard tunnel up. Their codes carry the VPN page's own key.
   const tailnet = () => (asked('tailnet') ? `http://100.76.55.73:${port}/#k=9876543210abcdef9876543210abcdef` : null);
   const wireguard = () => (asked('wireguard') ? `http://10.0.0.2:${port}/#k=9876543210abcdef9876543210abcdef` : null);
-  const view = (): PhoneView | null => (local || vpn || open || domainOn ? { localOpen: local, local: local ? `http://192.168.1.20:${port}/#k=0123456789abcdef0123456789abcdef` : null,
+  // ?no-network: this computer on no network, so the same network has no address to show.
+  const view = (): PhoneView | null => (local || vpn || open || domainOn ? { localOpen: local, local: local && !asked('no-network') ? `http://192.168.1.20:${port}/#k=0123456789abcdef0123456789abcdef` : null,
     vpnOpen: vpn, tailnet: vpn ? tailnet() : null,
     wireguard: vpn ? wireguard() : null,
     domain: domainOn ? `${domain}/#k=abcdefabcdefabcdefabcdefabcdefab` : null, port,
@@ -130,6 +131,7 @@ const browserPhone = (() => {
       domain = given; port = asked_port; domainOn = true; keep(); return view()!;
     },
     domainStop: () => { domainOn = false; keep(); return view(); },
+    stopNear: () => { local = false; domainOn = false; keep(); return view(); },
     // ?domain-502, ?domain-redirect, ?domain-unreachable: how the user's proxy answers.
     domainCheck: (): DomainCheck | null => (!domainOn ? null
       : asked('domain-502') ? { opens: false, status: 502, reason: null }
@@ -195,6 +197,8 @@ export const shell = {
         else setTimeout(answer);
       })),
   phoneDomainStop: (): Promise<PhoneView | null> => (inTauri ? invoke<PhoneView | null>('phone_domain_stop') : Promise.resolve(browserPhone.domainStop())),
+  /** 同一网络 / 反代's 停止: the same network and 自有域名 off together, in one step. */
+  phoneStopNear: (): Promise<PhoneView | null> => (inTauri ? invoke<PhoneView | null>('phone_stop_near') : Promise.resolve(browserPhone.stopNear())),
   phoneDomainCheck: (): Promise<DomainCheck | null> => (inTauri ? invoke<DomainCheck | null>('phone_domain_check')
     // ?check-fails: the asking itself fails. ?check-held: the check answers when the test says (window.answerCheck()).
     : new URLSearchParams(location.search).has('check-fails') ? Promise.reject(new Error('no answer'))

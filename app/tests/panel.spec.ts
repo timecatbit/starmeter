@@ -1591,7 +1591,7 @@ test('在手机上看: each way stops on its own, the other\'s code staying as i
     const shell = await eval(source);
     const w = window as unknown as { calls: string[] };
     w.calls = [];
-    for (const name of ['phoneStart', 'phoneStop', 'phonePublic', 'phonePrivate']) {
+    for (const name of ['phoneStart', 'phoneStop', 'phoneStopNear', 'phonePublic', 'phonePrivate']) {
       const real = shell[name];
       shell[name] = () => { w.calls.push(name); return real(); };
     }
@@ -1616,7 +1616,7 @@ test('在手机上看: each way stops on its own, the other\'s code staying as i
   await anywhere.click();
   await expect(phone.locator('svg.qr')).toBeVisible();
   await expect(phone.locator('.address')).toHaveText('https://quiet-river-1234.trycloudflare.com/');
-  expect(await calls()).toEqual(['phoneStart', 'phonePublic', 'phoneStop']);
+  expect(await calls()).toEqual(['phoneStart', 'phonePublic', 'phoneStopNear']);
   // The same network started again, the public link's code untouched; then the public link's 停止, the same network's
   // codes untouched.
   await local.click();
@@ -1633,7 +1633,7 @@ test('在手机上看: each way stops on its own, the other\'s code staying as i
   await local.click();
   await expect(phone.locator('svg.qr')).toHaveCount(1);
   await expect(phone.locator('.address')).toHaveText('http://192.168.1.20:51234/');
-  expect(await calls()).toEqual(['phoneStart', 'phonePublic', 'phoneStop', 'phoneStart', 'phonePrivate']);
+  expect(await calls()).toEqual(['phoneStart', 'phonePublic', 'phoneStopNear', 'phoneStart', 'phonePrivate']);
   // 开始 again on 任何网络: a new link.
   await anywhere.click();
   await button(page, '开始').click();
@@ -3341,7 +3341,7 @@ test('在手机上看: 同时开启反代: the same network and your own domain 
   // The form back: the port's field there, but the focus left where it was, not taken by it.
   await expect(port).toBeVisible();
   await expect(port).not.toBeFocused();
-  await expect(phone.getByText('原来的二维码和链接已失效')).toBeVisible();
+  await expect(phone.getByText('原来的反代链接已失效')).toBeVisible();
   // On again, then the app started again: on as it was left, both codes.
   await button(page, '开始').click();
   await expect(phone.locator('.card-title')).toHaveText(['局域网', '反代']);
@@ -3513,6 +3513,127 @@ test('在手机上看: 同时开启反代 turned off while its domain is still s
   await open(page, '?start-held');
   await button(page, '在手机上看').click();
   await expect(phone.getByRole('img', { name: '手机在哪都能扫这个二维码' })).toHaveCount(0);
+});
+
+test('在手机上看: 同一网络 / 反代\'s 停止 is one step, no code coming back on its way, and a page closed meanwhile leaves the dot as the host has it (R12-3, R12-4)', async ({ page }) => {
+  const watch = () => page.evaluate(async (source) => {
+    const shell = await eval(source);
+    const w = window as unknown as { calls: string[]; letStop: () => void; codesSeen: number };
+    w.calls = [];
+    for (const name of ['phoneStart', 'phoneStop', 'phoneDomainStop']) {
+      const real = shell[name];
+      shell[name] = () => { w.calls.push(name); return real(); };
+    }
+    // The one-step stop held until the test says; every code that appears meanwhile counted.
+    const real = shell.phoneStopNear;
+    shell.phoneStopNear = () => { w.calls.push('phoneStopNear'); return new Promise((done) => { w.letStop = () => done(real()); }); };
+    w.codesSeen = 0;
+    new MutationObserver(() => { w.codesSeen = Math.max(w.codesSeen, document.querySelectorAll('.phone-page svg.qr').length); })
+      .observe(document.body, { subtree: true, childList: true });
+  }, panelShell);
+  const seen = () => page.evaluate(() => {
+    const w = window as unknown as { calls: string[]; codesSeen: number };
+    return { calls: w.calls, codesSeen: w.codesSeen };
+  });
+  const letStop = () => page.evaluate(() => (window as unknown as { letStop: () => void }).letStop());
+  await open(page);
+  await watch();
+  await button(page, '在手机上看').click();
+  const phone = page.locator('.phone-page');
+  await page.getByRole('switch', { name: '同时开启反代' }).click();
+  await phone.getByRole('textbox', { name: '域名' }).fill('meter.example.com');
+  await button(page, '开始').click();
+  await expect(phone.locator('.card-title')).toHaveText(['局域网', '反代']);
+  // Its check said first (the line it takes in place, so 停止 doesn't move under the click).
+  await expect(phone.locator('.check.ok')).toBeVisible();
+  // Both off at once: one call, and no code shows again while it is on its way or after (the domain's answer alone once
+  // said the same network was still on).
+  await button(page, '停止').click();
+  await expect(phone.locator('svg.qr')).toHaveCount(0);
+  await page.evaluate(() => { (window as unknown as { codesSeen: number }).codesSeen = 0; });
+  await letStop();
+  await page.waitForTimeout(300);
+  expect((await seen()).codesSeen).toBe(0);
+  expect((await seen()).calls).toEqual(['phoneStart', 'phoneStopNear']);
+  await expect(phone.getByText('原来的反代链接已失效')).toBeVisible();
+  // Closed while the stop is on its way: the homepage's dot goes and stays gone.
+  await button(page, '开始').click();
+  await expect(phone.locator('.card-title')).toHaveText(['局域网', '反代']);
+  await expect(phone.locator('.check.ok')).toBeVisible();
+  await button(page, '停止').click();
+  await expect(phone.locator('svg.qr')).toHaveCount(0);
+  await button(page, '返回').click();
+  await expect(phoneDot(page)).toHaveCount(0);
+  await letStop();
+  await page.waitForTimeout(300);
+  await expect(phoneDot(page)).toHaveCount(0);
+  // Closed while the domain is still starting (its port asked again): nothing more is started for the page that went,
+  // and the dot says what the host has on once the start is done.
+  await open(page, '?start-held');
+  await watch();
+  const answerStart = () => page.evaluate(() => (window as unknown as { answerStart: () => void }).answerStart());
+  await button(page, '在手机上看').click();
+  await button(page, '开始').click();
+  await expect(phone.locator('.spinner')).toBeVisible();
+  await button(page, '返回').click();
+  await answerStart();
+  await expect(phoneDot(page)).toBeVisible();
+  await page.waitForTimeout(300);
+  expect((await seen()).calls).toEqual([]);
+  await button(page, '在手机上看').click();
+  await expect(phone.getByRole('img', { name: '手机在哪都能扫这个二维码' })).toBeVisible();
+  await expect(phone.locator('.card')).toHaveCount(0);
+});
+
+test('在手机上看: 反代\'s port 0 is said on 开始, 重试 after the same network failed shows one reason at a time, and the address to forward to follows the network with the fields as typed (R12-6, R12-8)', async ({ page }) => {
+  await open(page, '?start-held');
+  const answerStart = () => page.evaluate(() => (window as unknown as { answerStart: () => void }).answerStart());
+  // The same network fails once; later, this computer on another network (its address there).
+  await page.evaluate(async (source) => {
+    const shell = await eval(source);
+    const start = shell.phoneStart, setup = shell.phoneDomain;
+    const w = window as unknown as { moved: boolean };
+    let once = true;
+    shell.phoneStart = () => (once ? ((once = false), Promise.reject('这台电脑暂时开不了端口，稍后再试')) : start());
+    shell.phoneDomain = async () => ({ ...(await setup()), ...(w.moved ? { lan: '192.168.50.7' } : {}) });
+  }, panelShell);
+  await page.clock.install();
+  await button(page, '在手机上看').click();
+  const phone = page.locator('.phone-page');
+  const target = phone.locator('.forward .address');
+  await button(page, '开始').click();
+  await expect(phone.locator('.failed')).toHaveText('这台电脑暂时开不了端口，稍后再试');
+  // 反代 on, its form under the failure: 重试 starts the domain first, its spinner shown and the old reason gone.
+  await page.getByRole('switch', { name: '同时开启反代' }).click();
+  const domain = phone.getByRole('textbox', { name: '域名' });
+  await domain.fill('meter.example.com');
+  // The setup read (the address to forward to in place, so 重试 doesn't move under the click).
+  await expect(target).toHaveText('192.168.1.20:51234');
+  await button(page, '重试').click();
+  await expect(phone.locator('.spinner')).toBeVisible();
+  await expect(phone.locator('.failed')).toHaveCount(0);
+  await answerStart();
+  await expect(phone.locator('.card-title')).toHaveText(['局域网', '反代']);
+  // Its check said (the line it takes is in place), then 停止.
+  await expect(phone.locator('.check.ok')).toBeVisible();
+  await button(page, '停止').click();
+  await expect(phone.locator('svg.qr')).toHaveCount(0);
+  // Port 0: the address to forward to stays, 开始 can be pressed, and says the range.
+  await phone.getByRole('button', { name: '换端口' }).click();
+  const port = phone.getByRole('textbox', { name: '端口' });
+  await port.fill('0');
+  await expect(target).toHaveText('192.168.1.20:0');
+  await expect(button(page, '开始')).toBeEnabled();
+  await button(page, '开始').click();
+  await expect(phone.locator('.failed')).toHaveText('端口填 1024 到 65535 之间的数');
+  // On another network: the address to forward to follows within the next look, the fields as typed.
+  await port.fill('8765');
+  await domain.fill('other.example.com');
+  await page.evaluate(() => { (window as unknown as { moved: boolean }).moved = true; });
+  await page.clock.fastForward(10_500);
+  await expect(target).toHaveText('192.168.50.7:8765');
+  await expect(domain).toHaveValue('other.example.com');
+  await expect(port).toHaveValue('8765');
 });
 
 test('typing into a field lets the input method\'s candidate window show above the panel, and Return or Esc that end its composition stay with it', async ({ page }) => {

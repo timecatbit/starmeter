@@ -221,8 +221,8 @@ export const phrases: Record<string, string> = {
     'On the same Wi-Fi, scan Local network; anywhere else, scan Reverse proxy: your proxy forwards it to this computer\'s {target}.',
   '网页右上角的太阳可让手机屏幕保持常亮，适合放在桌边一直看；扫“反代”打开时能用':
     'The sun at the top right of the page keeps the phone\'s screen on, to watch from beside the desk; it works when opened from Reverse proxy',
-  '自有域名固定用这个端口：退出占用它的程序，或在“同时开启反代”下面换一个端口':
-    'Your domain keeps this port: quit the app holding it, or pick another under Also through a reverse proxy',
+  '原来的反代链接已失效：重新开启后生成新的二维码，手机再扫一次就能看。':
+    'The proxy\'s old link no longer opens: turn it on again for a new code, and scan it once more on the phone.',
   '点“开始”生成二维码：手机和电脑连同一个网络（Wi-Fi）时扫码就能看。有自己的域名和反代时，打开“同时开启反代”；手机不在身边时，也可以用“任何网络”。':
     'Start for a code: with the phone on the same network (Wi-Fi) as this computer, scan it to watch. With a domain and proxy of your own, turn on Also through a reverse proxy; for a phone elsewhere, there is Any network too.',
   '用你的反代或隧道（Caddy、Nginx、frp、Cloudflare Tunnel、Tailscale Funnel 等）把域名转发到上面的地址，反代在这台电脑上或 NAS、路由器上都行，手机在哪都能打开，也没有一小时的限制。这台电脑的地址变了，反代里也要跟着改，最好在路由器里给它固定一个地址。':
@@ -298,7 +298,7 @@ export const phrases: Record<string, string> = {
   关闭外网链接: 'Close the public link', 停止: 'Stop', 已停止: 'Stopped', 重新开始: 'Start again',
   手机上的页面已断开: "The phone's page is disconnected",
   没能开启: "Couldn't start", 没能开始: "Couldn't start", '原因在下面，可以再试一次': 'See why below, then try again', 重试: 'Try again',
-  '中国大陆部分地区打不开 Cloudflare 的链接。手机和电脑能连同一个 Wi-Fi 时，用“同一个网络”更稳。': 'In parts of mainland China, Cloudflare links don\'t open. When the phone can join the same Wi-Fi, Same network is more reliable.',
+  '中国大陆部分地区打不开 Cloudflare 的链接。手机和电脑能连同一个 Wi-Fi 时，用“同一网络”更稳。': 'In parts of mainland China, Cloudflare links don\'t open. When the phone can join the same Wi-Fi, Same network is more reliable.',
   '原来的二维码和链接已失效。点“开始”生成新的二维码，手机再扫一次就能看。': 'The old code and link no longer open. Start for a new code, and scan it once more.',
   '原来的二维码和链接已失效。点“重新开始”生成新的二维码，手机再扫一次就能看。': 'The old code and link no longer open. Start again for a new code, and scan it once more.',
   先打开手机查看: 'Turn on the phone view first', 手机查看已经关闭: 'The phone view was stopped',

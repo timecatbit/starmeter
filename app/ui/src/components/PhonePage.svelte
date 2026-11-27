@@ -1,3 +1,9 @@
+<script lang="ts" module>
+  /** The page opened last: a page closed with a step on its way reads where things stand once that step is done, unless
+   *  the page has been opened again since (it reads them itself). */
+  let opened = 0;
+</script>
+
 <script lang="ts">
   // 在手机上看: a QR code a phone scans to open the homepage in its browser, read-only. Two ways, each on and off by
   // itself (用户：同一网络和任何网络为什么是一切开始和结束？互不影响啊): 同一个网络, which the app serves itself, its
@@ -49,13 +55,16 @@
   let setup = $state<DomainSetup | null>(null);
   let domainInput = $state('');
   let portInput = $state('');
+  /** The fields typed into since they were filled: the setup read again (every ten seconds, for this computer's addresses
+   *  on another network) leaves them as typed. */
+  let domainEdited = false, portEdited = false;
   let portOpen = $state(false);
   /** The port's field to take the focus once it is there: as 换端口 opens it, or a start fails on the port. */
   let focusPort = $state(false);
   let portField: HTMLInputElement | undefined = $state();
-  /** The kind's 开始 on its way, both of its steps: the domain's check waits for it (a proxy on a NAS gets in once the same
-   *  network is on). */
-  let nearStarting = $state(false);
+  /** The kind's 开始s on their way, both of their steps: the domain's check waits for them (a proxy on a NAS gets in once
+   *  the same network is on). A count, so a second 开始 pressed while the first is on its way keeps it waiting (R12-5). */
+  let nearStarting = $state(0);
   /** 自有域名 being started; its start that failed (the address, or the port taken): the reason, under its fields. */
   let domainStarting = $state(false);
   let domainFailed = $state<string | null>(null);
@@ -93,11 +102,11 @@
    *  proxy on this computer and one on a NAS or the router alike, the same network being on with the proxy; this
    *  computer itself (127.0.0.1) without a network. Not 0.0.0.0: that is where the server listens, not an address to
    *  send to. */
-  const forwardTo = $derived(forwardPort ? `http://${setup?.lan ?? '127.0.0.1'}:${forwardPort}` : null);
+  const forwardTo = $derived(forwardPort != null ? `http://${setup?.lan ?? '127.0.0.1'}:${forwardPort}` : null);
   /** For a proxy on this computer, 127.0.0.1 does too. */
-  const forwardHere = $derived(forwardPort && setup?.lan ? `127.0.0.1:${forwardPort}` : null);
+  const forwardHere = $derived(forwardPort != null && setup?.lan ? `127.0.0.1:${forwardPort}` : null);
   /** A proxy elsewhere reaching this computer over a VPN: its Tailscale (or WireGuard) address, with the VPN page on. */
-  const forwardVpn = $derived(forwardPort && (setup?.tailnet || setup?.wireguard) ? `${setup?.tailnet ?? setup?.wireguard}:${forwardPort}` : null);
+  const forwardVpn = $derived(forwardPort != null && (setup?.tailnet || setup?.wireguard) ? `${setup?.tailnet ?? setup?.wireguard}:${forwardPort}` : null);
   /** What the check found, said with what to look at. */
   const checkText = $derived.by(() => {
     if (domainCheck === 'failed') return t('没能检查 {host} 能不能打开', { host: ownHost });
@@ -133,6 +142,17 @@
    *  start after a 停止, a link closed while it was made. Every step also moves `epoch`, so the status asked every ten
    *  seconds, if a step came between its asking and its answer, is dropped instead of putting back what has gone. */
   let localRound = 0, vpnRound = 0, publicRound = 0, domainRound = 0, epoch = 0;
+  /** The steps on their way to the host: a page closed meanwhile drops their answers, then reads where things stand
+   *  once they are done, so the homepage's dot is right (R12-3, R12-4). */
+  const inflight = new Set<Promise<unknown>>();
+  function sent<T>(step: Promise<T>): Promise<T> {
+    inflight.add(step);
+    const done = () => { inflight.delete(step); };
+    step.then(done, done);
+    return step;
+  }
+  let page = 0;
+  let destroyed = false;
   /** A 自有域名 start moving the server on its way: Cloudflare's link waits for it before saying it failed (the move
    *  closes it, and the host answers that the phone view closed). */
   let moving: Promise<void> | null = null;
@@ -152,25 +172,13 @@
     localFailed = null;
     starting = true;
     try {
-      const started = await serial(() => shell.phoneStart());
+      const started = await serial(() => sent(shell.phoneStart()));
       if (mine === localRound) setPhone(started);
     } catch (error) {
       if (mine === localRound) localFailed = String(error);
     }
     if (mine === localRound) starting = false;
   }
-  /** 同一个网络's 停止: its codes stop opening; the public link, if up, stays as it is. */
-  async function stopLocal() {
-    const mine = ++localRound;
-    epoch++;
-    starting = false;
-    localFailed = null;
-    phone.localStopped = true;
-    without({ localOpen: false, local: null });
-    const left = await serial(() => shell.phoneStop()).catch(() => phone.view);
-    if (mine === localRound) setPhone(left ?? null);
-  }
-
   /** The VPN page's 开始 (重试): on with its own key; a start that fails stays in the code's place with its reason. */
   async function startVpn() {
     const mine = ++vpnRound;
@@ -178,7 +186,7 @@
     vpnFailed = null;
     vpnStarting = true;
     try {
-      const started = await shell.phoneVpnStart();
+      const started = await sent(shell.phoneVpnStart());
       if (mine === vpnRound) { phone.vpnStopped = false; setPhone(started); }
     } catch (error) {
       if (mine === vpnRound) vpnFailed = String(error);
@@ -193,7 +201,7 @@
     vpnFailed = null;
     phone.vpnStopped = true;
     without({ vpnOpen: false, tailnet: null, wireguard: null });
-    const left = await shell.phoneVpnStop().catch(() => phone.view);
+    const left = await sent(shell.phoneVpnStop()).catch(() => phone.view);
     if (mine === vpnRound) setPhone(left ?? null);
   }
 
@@ -206,21 +214,27 @@
     if (mine !== epoch) return;
     setPhone(status);
     if (had && !phone.view?.public && !opening) { publicFailed = null; lost = 'dropped'; }
+    readSetup();
+  }
+  /** 自有域名 as set and this computer's addresses, read again as the page opens and every ten seconds after (on another
+   *  network, or a VPN joined, the addresses to forward to change); an answer after a 开始 or 停止 of it is dropped. */
+  function readSetup() {
+    const asked = domainRound;
+    void shell.phoneDomain().then((next) => { if (next && asked === domainRound && !destroyed) settled(next); }).catch(() => {});
   }
   /** 自有域名 as the shell has it: its fields filled from it, and its page chosen when a domain is set and nothing else has
    *  been chosen. */
   function settled(next: DomainSetup) {
     setup = next;
-    domainInput = next.domain ? next.domain.replace(/^https:\/\//, '') : domainInput;
-    portInput = String(next.port);
+    if (!domainEdited) domainInput = next.domain ? next.domain.replace(/^https:\/\//, '') : domainInput;
+    if (!portEdited) portInput = String(next.port);
     if (next.domain && !phone.nearChosen) phone.near = 'domain';
   }
   onMount(() => {
     // Nothing starts by opening the page: each way as it was left, off until its 开始. What is set for 自有域名, unless
     // a 开始 or 停止 of it came first (its answer is newer).
+    page = ++opened;
     void pollStatus();
-    const asked = domainRound;
-    void shell.phoneDomain().then((next) => { if (next && asked === domainRound) settled(next); }).catch(() => {});
     if (phone.reach === 'public') void checkTunnel();
     // Asked after while the page is open: a public link whose cloudflared has ended is taken down, and said so.
     tick = setInterval(() => void pollStatus(), 10_000);
@@ -233,7 +247,15 @@
     fast = timer;
     return () => { clearInterval(timer); if (fast === timer) fast = undefined; };
   });
-  onDestroy(() => { localRound++; vpnRound++; publicRound++; epoch++; clearInterval(tick); clearInterval(fast); clearTimeout(copiedTimer); });
+  onDestroy(() => {
+    destroyed = true;
+    localRound++; vpnRound++; publicRound++; domainRound++; epoch++;
+    clearInterval(tick); clearInterval(fast); clearTimeout(copiedTimer);
+    // Steps still on their way: their answers dropped with the page, where things stand read once they are done.
+    if (inflight.size) {
+      void Promise.allSettled([...inflight]).then(() => shell.phoneStatus()).then((status) => { if (page === opened) setPhone(status); }).catch(() => {});
+    }
+  });
 
   /** Whether cloudflared is there, for 任何网络's 开始 to say 下载并开始 when it isn't; an answer that comes back after a
    *  later look is dropped. */
@@ -269,7 +291,7 @@
     if (moves) moving = new Promise((done) => (moved = done));
     domainStarting = true;
     try {
-      const started = await serial(() => shell.phoneDomainStart(domainInput, port));
+      const started = await serial(() => sent(shell.phoneDomainStart(domainInput, port)));
       if (moves && publicRound === publicBefore) {
         publicRound++;
         busy = false;
@@ -280,6 +302,9 @@
       if (mine !== domainRound) return;
       phone.domainStopped = false;
       setPhone(started);
+      // As kept now: the fields show what was saved.
+      domainEdited = false;
+      portEdited = false;
       const next = await shell.phoneDomain().catch(() => null);
       if (next && mine === domainRound) settled(next);
     } catch (error) {
@@ -298,20 +323,36 @@
    *  port taken can be changed there), then the same network on the same server; a domain that fails starts nothing
    *  else, its reason under its form. Without, the same network alone. */
   async function startNear() {
-    nearStarting = true;
+    nearStarting++;
+    // 重试 after the same network failed: its reason goes as this start shows its spinner, and a new one says why (R12-6).
+    localFailed = null;
     try {
       if (phone.near === 'domain' && !own) {
         await startDomain();
-        if (!own) return;
+        if (!own || destroyed) return;
       }
-      if (!localOn) await startLocal();
+      if (!localOn && !destroyed) await startLocal();
     } finally {
-      nearStarting = false;
+      nearStarting--;
     }
   }
   /** The kind's 停止: whatever of it is on, or on its way (stopped after its start, in the order pressed). */
   async function stopNear() {
-    await Promise.all([own || domainStarting ? stopDomain() : null, localOn || localFailed || starting ? stopLocal() : null]);
+    // In one step (R12-3): the domain's answer alone would say the same network still on, and its code would come back
+    // for a moment.
+    const local = ++localRound, domain = ++domainRound;
+    epoch++;
+    const wasDomain = !!own || domainStarting;
+    const wasLocal = localOn || !!localFailed || starting;
+    starting = false;
+    domainStarting = false;
+    localFailed = null;
+    domainFailed = null;
+    if (wasLocal) phone.localStopped = true;
+    if (wasDomain) phone.domainStopped = true;
+    without({ localOpen: false, local: null, domain: null });
+    const left = await serial(() => sent(shell.phoneStopNear())).catch(() => phone.view);
+    if (local === localRound && domain === domainRound) setPhone(left ?? null);
   }
   /** 同时开启反代: off takes the domain's link down with it (one on its way too); on again, its 开始 is on the form, on
    *  the same page. */
@@ -327,7 +368,7 @@
     domainFailed = null;
     phone.domainStopped = true;
     without({ domain: null });
-    const left = await serial(() => shell.phoneDomainStop()).catch(() => phone.view);
+    const left = await serial(() => sent(shell.phoneDomainStop())).catch(() => phone.view);
     if (mine === domainRound) setPhone(left ?? null);
   }
   // 换端口, or a start that failed on the port: the field takes the focus once, as it is asked for (the form coming back
@@ -354,8 +395,9 @@
     const group = event.currentTarget as HTMLElement;
     requestAnimationFrame(() => group.querySelectorAll<HTMLElement>('[role="radio"]')[to]?.focus());
   }
-  /** 开始 can be pressed (and Return starts it): an address typed, and the port known (the setup read), none on its way. */
-  const canStart = $derived(!domainStarting && !starting && !!domainInput.trim() && !!forwardPort);
+  /** 开始 can be pressed (and Return starts it): an address typed, and a port typed or known (the setup read), none on
+   *  its way. A port out of range is said on the press, under the form (R12-8). */
+  const canStart = $derived(!domainStarting && !starting && !!domainInput.trim() && (portInput.trim() !== '' || !!setup));
   const enter = (event: KeyboardEvent) => { if (event.key === 'Enter' && !composing(event) && canStart) void startNear(); };
   const ownLink = $derived(view?.domain ?? null);
   $effect(() => {
@@ -386,9 +428,9 @@
     lost = null;
     for (let attempt = 0; ; attempt++) {
       try {
-        const opened = await shell.phonePublic();
+        const made = await sent(shell.phonePublic());
         if (mine !== publicRound) return;
-        setPhone(opened);
+        setPhone(made);
         break;
       } catch (error) {
         // A 自有域名 start moving the server closes this link: whether it did is known once that start is done.
@@ -413,7 +455,7 @@
     phone.publicStopped = true;
     without({ public: null, secondsLeft: 0, publicOpening: false });
     void checkTunnel();
-    const left = await shell.phonePrivate().catch(() => phone.view);
+    const left = await sent(shell.phonePrivate()).catch(() => phone.view);
     if (mine === publicRound) setPhone(left);
   }
   async function copy(key: string, link: string) {
@@ -461,14 +503,14 @@
     <label class="field">
       <span class="field-label">{t('域名')}</span>
       <input class="field-input" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
-        placeholder="meter.example.com" bind:value={domainInput} onkeydown={enter} />
+        placeholder="meter.example.com" bind:value={domainInput} oninput={() => (domainEdited = true)} onkeydown={enter} />
     </label>
     <div class="forward">
       <span class="field-label">{t('转发到')}</span>
       {#if forwardTo}{@render link('target', forwardTo, true, true)}{/if}
       {#if portOpen}
         <input class="field-input num port-field" type="text" inputmode="numeric" autocomplete="off" autocorrect="off" spellcheck="false"
-          maxlength="5" aria-label={t('端口')} bind:this={portField} bind:value={portInput} onkeydown={enter} />
+          maxlength="5" aria-label={t('端口')} bind:this={portField} bind:value={portInput} oninput={() => (portEdited = true)} onkeydown={enter} />
       {:else}
         <button class="change pressable" onclick={openPort}>{t('换端口')}</button>
       {/if}
@@ -477,7 +519,7 @@
   </div>
   {#if domainFailed}<p class="failed">{t(domainFailed)}</p>{/if}
   {#if movesServer}<p class="note caution">{t('换了端口：同一个网络和 VPN 的二维码改用新端口，手机要重新扫；Cloudflare 链接会关闭')}</p>{/if}
-  {#if phone.domainStopped}<p class="note">{t('原来的二维码和链接已失效。点“开始”生成新的二维码，手机再扫一次就能看。')}</p>{/if}
+  {#if phone.domainStopped}<p class="note">{t('原来的反代链接已失效：重新开启后生成新的二维码，手机再扫一次就能看。')}</p>{/if}
   <p class="note">{t('用你的反代或隧道（Caddy、Nginx、frp、Cloudflare Tunnel、Tailscale Funnel 等）把域名转发到上面的地址，反代在这台电脑上或 NAS、路由器上都行，手机在哪都能打开，也没有一小时的限制。这台电脑的地址变了，反代里也要跟着改，最好在路由器里给它固定一个地址。')}</p>
   {#if forwardHere}
     <p class="note">{t('反代就在这台电脑上时，也可以转发到 {target}。', { target: forwardHere })}</p>
@@ -546,9 +588,6 @@
           {#if localFailed}
             {@render halted('没能开启', '原因在下面，可以再试一次')}
             <p class="failed">{t(localFailed)}</p>
-            {#if setup?.domain && /^端口 \d+ 被别的程序占用$/.test(localFailed)}
-              <p class="note">{t('自有域名固定用这个端口：退出占用它的程序，或在“同时开启反代”下面换一个端口')}</p>
-            {/if}
             {#if phone.near === 'domain'}{@render domainForm()}{/if}
             <div class="actions"><button class="action primary pressable" disabled={phone.near === 'domain' && !canStart} onclick={startNear}>{t('重试')}</button></div>
           {:else if localOn || own}
@@ -621,9 +660,6 @@
             {#if vpnFailed}
               {@render halted('没能开启', '原因在下面，可以再试一次')}
               <p class="failed">{t(vpnFailed)}</p>
-              {#if setup?.domain && /^端口 \d+ 被别的程序占用$/.test(vpnFailed)}
-                <p class="note">{t('自有域名固定用这个端口：退出占用它的程序，或在“同时开启反代”下面换一个端口')}</p>
-              {/if}
               <div class="actions"><button class="action primary pressable" onclick={startVpn}>{t('重试')}</button></div>
             {:else if vpnOn}
               {#if vpnCodes.length > 1}
@@ -699,7 +735,7 @@
             {/if}
             <p class="note">{t('手机不在同一个网络时用：Cloudflare 给一个临时的 https 地址，转到这台电脑。主页的数字会经过 Cloudflare；链接带一次性口令，停止或一小时后失效。')}</p>
             <!-- Measured from 29 points across mainland China, the link failed at most of them: said before it starts. -->
-            <p class="note">{t('中国大陆部分地区打不开 Cloudflare 的链接。手机和电脑能连同一个 Wi-Fi 时，用“同一个网络”更稳。')}</p>
+            <p class="note">{t('中国大陆部分地区打不开 Cloudflare 的链接。手机和电脑能连同一个 Wi-Fi 时，用“同一网络”更稳。')}</p>
             {#if download}<p class="note">{t('第一次要从 Cloudflare 的 GitHub 发布页下载 cloudflared（约 20 MB），校验后存在 App 的数据文件夹。')}</p>{/if}
             <div class="actions"><button class="action primary pressable" onclick={openPublic}>{t(download ? '下载并开始' : '开始')}</button></div>
           {/if}
