@@ -3421,3 +3421,68 @@ test('在手机上看: your own domain says why it didn\'t start or doesn\'t ope
   await expect(caution).toContainText('总是跳到 https 时，把域名改成 https://home.lan:8080');
   await expect(phone.getByText('域名用 https 时才能用')).toBeVisible();
 });
+
+test('typing into a field lets the input method\'s candidate window show above the panel, and Return or Esc that end its composition stay with it', async ({ page }) => {
+  // 用户：在域名那里打字，联想框会出现在下方被覆盖. 简体拼音's candidate window sits at level 20 to 24, under the unpinned
+  // panel's pop-up level (101): while a field has the focus the page tells the shell, which floats the panel meanwhile.
+  await open(page);
+  await page.evaluate(async () => {
+    const { shell } = await import('/src/lib/backend.ts');
+    (window as unknown as { told: boolean[] }).told = [];
+    shell.typing = (typing: boolean) => { (window as unknown as { told: boolean[] }).told.push(typing); return Promise.resolve(); };
+  });
+  const told = () => page.evaluate(() => (window as unknown as { told: boolean[] }).told);
+  const typing = async () => (await told()).at(-1) ?? false;
+  // A key as WebKit hands it over while 拼音 is composing: Return after the composition has ended, so only its key code
+  // says so; Esc while it is still on.
+  const imeKey = (field: ReturnType<Page['locator']>, key: string) => field.evaluate((element, key) => element.dispatchEvent(
+    new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, keyCode: 229, isComposing: key === 'Escape' })), key);
+
+  await button(page, '在手机上看').click();
+  const phone = page.locator('.phone-page');
+  await page.getByRole('radio', { name: '任何网络' }).click();
+  await page.getByRole('radio', { name: '自有域名' }).click();
+  const domain = phone.getByRole('textbox', { name: '域名' }), port = phone.getByRole('textbox', { name: '端口' });
+  await domain.click();
+  await expect.poll(typing).toBe(true);
+  // From the domain to the port is one stretch of typing: nothing goes back up in between.
+  await page.keyboard.press('Tab');
+  await expect(port).toBeFocused();
+  await page.waitForTimeout(100);
+  expect(await told()).toEqual([true]);
+  await domain.click();
+  await page.keyboard.type('meter.example.com');
+  // Return that puts 拼音's letters in, and Esc that drops them: the page neither starts nor goes back.
+  await imeKey(domain, 'Enter');
+  await imeKey(domain, 'Escape');
+  await page.waitForTimeout(300);
+  await expect(phone).toBeVisible();
+  await expect(phone.locator('svg.qr')).toHaveCount(0);
+  await expect(button(page, '开始')).toBeVisible();
+  // Return of its own starts it.
+  await domain.press('Enter');
+  await expect(phone.locator('svg.qr')).toHaveCount(1);
+  // No field left: the panel is back at its level.
+  await expect.poll(typing).toBe(false);
+  expect(await told()).toEqual([true, false]);
+  await page.keyboard.press('Escape');
+  await expect(phone).toHaveCount(0);
+
+  // A question under its row the same: typing into it, and the input method's Return and Esc left to it.
+  await page.locator('.row').filter({ hasText: 'ChatGPT 订阅' }).click();
+  await page.getByText('订阅月费…').click();
+  const field = page.locator('.ask .field');
+  await expect(field).toBeFocused();
+  await expect.poll(typing).toBe(true);
+  await field.fill('30');
+  await imeKey(field, 'Enter');
+  await imeKey(field, 'Escape');
+  await page.waitForTimeout(300);
+  await expect(field).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.ask')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /订阅月费/ })).toContainText('$30.00');
+  await expect.poll(typing).toBe(false);
+  // Told once as each field took the focus and once as it went, no more.
+  expect(await told()).toEqual([true, false, true, false]);
+});

@@ -404,6 +404,12 @@ pub fn close(app: &AppHandle, return_focus: bool) {
     set_pinned_state(app, false);
     // A question still waiting under a row is answered as cancelled.
     crate::ask::cancel_all();
+    // No field keeps the focus away: the panel opens again at its own level, the page saying so if one takes it back.
+    #[cfg(target_os = "macos")]
+    {
+        let window = panel.clone();
+        let _ = app.run_on_main_thread(move || macos::set_typing(&window, false));
+    }
     let _ = panel.hide();
     if was_visible {
         state.stale.store(state.menu.swap(false, Ordering::SeqCst), Ordering::SeqCst);
@@ -835,6 +841,18 @@ pub fn panel_shown(app: AppHandle) {
 #[tauri::command]
 pub fn panel_menu(app: AppHandle, open: bool) {
     app.state::<Panel>().menu.store(open, Ordering::SeqCst);
+}
+
+/// A field on the page took the focus or let it go. On a Mac the panel floats while it is typed into, below the input
+/// method's candidate window, which the pop-up level hid; elsewhere the input method shows above it already.
+#[tauri::command]
+pub fn panel_typing(app: AppHandle, typing: bool) {
+    #[cfg(target_os = "macos")]
+    if let Some(window) = window(&app) {
+        let _ = app.run_on_main_thread(move || macos::set_typing(&window, typing));
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (app, typing);
 }
 
 #[tauri::command]

@@ -193,6 +193,9 @@ export const shell = {
   shown: () => (inTauri ? invoke<void>('panel_shown') : quiet()),
   /** One of the page's menus opened or folded: hidden with one open, the next opening waits for the page to draw. */
   menuOpen: (open: boolean) => (inTauri ? invoke<void>('panel_menu', { open }) : quiet()),
+  /** A field on the page took the focus or let it go: on a Mac the panel floats meanwhile, so the input method's candidate
+   *  window shows above it. */
+  typing: (typing: boolean) => (inTauri ? invoke<void>('panel_typing', { typing }) : quiet()),
   /** Theme (system, light, dark) and background (solid, frosted or glass) for the window and the material under it.
    *  Returns whether a material shows; when it doesn't, the page paints its solid background. */
   setLook: (theme: string, material: string): Promise<boolean> =>

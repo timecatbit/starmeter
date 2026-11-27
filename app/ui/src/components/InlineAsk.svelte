@@ -5,7 +5,7 @@
   import { shown, t } from '../lib/i18n.svelte';
   import { answer, ask } from '../lib/ask.svelte';
   import { pageCurve } from '../lib/motion';
-  import { panel } from '../lib/ui.svelte';
+  import { composing, panel } from '../lib/ui.svelte';
   import type { Question } from '../lib/types';
 
   let { question, indent = 0, sheet = false }: { question: Question; indent?: number; sheet?: boolean } = $props();
@@ -30,8 +30,10 @@
   function keydown(event: KeyboardEvent) {
     // The panel's own Esc (back) and Return stay out of it while the question is open.
     event.stopPropagation();
+    // Return and Esc that end the input method's composition are the input method's, not the question's.
+    if (composing(event)) return;
     if (event.key === 'Escape') { event.preventDefault(); answer(null); }
-    if (event.key === 'Enter' && question.kind === 'text' && !event.isComposing) { event.preventDefault(); answer(text); }
+    if (event.key === 'Enter' && question.kind === 'text') { event.preventDefault(); answer(text); }
   }
 
   const grow = (_node: Element) => ({
@@ -47,7 +49,7 @@
   {#if sheet || question.kind !== 'text'}<p class="title">{shown(question.title)}</p>{/if}
   {#if question.detail}<p class="detail" class:lead={!sheet && question.kind === 'text'}>{shown(question.detail)}</p>{/if}
   {#if question.kind === 'text'}
-    <input bind:this={field} class="field" type={question.hidden ? 'password' : 'text'} bind:value={text} autocomplete="off" spellcheck="false"
+    <input bind:this={field} class="field" type={question.hidden ? 'password' : 'text'} bind:value={text} autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
       aria-label={shown(question.title)} />
   {/if}
   <div class="buttons" bind:this={buttons}>

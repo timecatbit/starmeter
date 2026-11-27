@@ -14,7 +14,7 @@
   import { style } from '../lib/style.svelte';
   import { shell, type DomainCheck, type DomainSetup, type PhoneView } from '../lib/backend';
   import { chooseVia, phone, secondsLeft, setPhone, type Via } from '../lib/phone.svelte';
-  import { grabWindow, panel } from '../lib/ui.svelte';
+  import { composing, grabWindow, panel } from '../lib/ui.svelte';
   import HintButton from './HintButton.svelte';
   import Icon from './Icon.svelte';
   import QrCode from './QrCode.svelte';
@@ -429,13 +429,13 @@
               <div class="setup">
                 <label class="field host">
                   <span class="field-label">{t('域名')}</span>
-                  <input class="field-input" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="meter.example.com"
-                    bind:value={domainInput} onkeydown={(event) => { if (event.key === 'Enter') void startDomain(); }} />
+                  <input class="field-input" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="meter.example.com"
+                    bind:value={domainInput} onkeydown={(event) => { if (event.key === 'Enter' && !composing(event)) void startDomain(); }} />
                 </label>
                 <label class="field port">
                   <span class="field-label">{t('端口')}</span>
-                  <input class="field-input num" type="text" inputmode="numeric" autocomplete="off" maxlength="5"
-                    bind:value={portInput} onkeydown={(event) => { if (event.key === 'Enter') void startDomain(); }} />
+                  <input class="field-input num" type="text" inputmode="numeric" autocomplete="off" autocorrect="off" spellcheck="false" maxlength="5"
+                    bind:value={portInput} onkeydown={(event) => { if (event.key === 'Enter' && !composing(event)) void startDomain(); }} />
                 </label>
                 {#if forwardTo}
                   <div class="forward"><span class="field-label">{t('反代转发到')}</span>{@render link('target', forwardTo, true)}</div>

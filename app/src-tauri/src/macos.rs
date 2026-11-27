@@ -131,27 +131,48 @@ fn reduce_transparency() -> bool {
     }
 }
 
-/// A save dialog is up: the panel drops to the ordinary level so the dialog shows above it, then goes back up.
-pub fn step_aside(panel: &WebviewWindow, aside: bool, pinned: bool) {
-    let Ok(window) = panel.ns_window() else { return };
-    let level = if aside {
+/// A save dialog is up: the panel sits at the ordinary level meanwhile.
+static ASIDE: AtomicBool = AtomicBool::new(false);
+/// A field on the panel's page has the focus. An input method's candidate window (简体拼音's sits at level 20 to 24) is
+/// below the pop-up level and showed under the panel as it was typed into: the panel floats instead until the field
+/// lets the focus go.
+static TYPING: AtomicBool = AtomicBool::new(false);
+
+/// Where the panel stands: under a save dialog while one is up; floating while pinned or typed into; the pop-up level
+/// otherwise.
+fn panel_level() -> isize {
+    if ASIDE.load(Ordering::SeqCst) {
         0
-    } else if pinned {
+    } else if PINNED.load(Ordering::SeqCst) || TYPING.load(Ordering::SeqCst) {
         FLOATING_LEVEL
     } else {
         POPUP_MENU_LEVEL
-    };
-    unsafe {
-        let _: () = msg_send![window.cast::<AnyObject>(), setLevel: level];
     }
+}
+
+fn apply_level(panel: &WebviewWindow) {
+    let Ok(window) = panel.ns_window() else { return };
+    unsafe {
+        let _: () = msg_send![window.cast::<AnyObject>(), setLevel: panel_level()];
+    }
+}
+
+/// A save dialog is up: the panel drops to the ordinary level so the dialog shows above it, then goes back up.
+pub fn step_aside(panel: &WebviewWindow, aside: bool, pinned: bool) {
+    ASIDE.store(aside, Ordering::SeqCst);
+    PINNED.store(pinned, Ordering::SeqCst);
+    apply_level(panel);
 }
 
 pub fn set_pinned(panel: &WebviewWindow, pinned: bool) {
     PINNED.store(pinned, Ordering::SeqCst);
-    let Ok(window) = panel.ns_window() else { return };
-    unsafe {
-        let _: () =
-            msg_send![window.cast::<AnyObject>(), setLevel: if pinned { FLOATING_LEVEL } else { POPUP_MENU_LEVEL }];
+    apply_level(panel);
+}
+
+/// A field on the page took the focus or let it go (the panel closing lets it go too).
+pub fn set_typing(panel: &WebviewWindow, typing: bool) {
+    if TYPING.swap(typing, Ordering::SeqCst) != typing {
+        apply_level(panel);
     }
 }
 

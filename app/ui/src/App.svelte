@@ -18,7 +18,7 @@
   import { phone, phoneStatus } from './lib/phone.svelte';
   import { keepTheme, keptTheme, paintEdges } from './lib/edges';
   import { chooseShortcut, restoreShortcut, shortcut } from './lib/shortcut.svelte';
-  import { grabWindow, panel } from './lib/ui.svelte';
+  import { composing, grabWindow, panel, watchTyping } from './lib/ui.svelte';
   import type { Dashboard as DashboardData, Entry, ShellInfo, Snapshot } from './lib/types';
   import Dashboard from './components/Dashboard.svelte';
   import DetailPage from './components/DetailPage.svelte';
@@ -890,7 +890,8 @@
   }
 
   function keydown(event: KeyboardEvent) {
-    if (event.key === 'Escape') { event.preventDefault(); back(); }
+    // Esc that drops an input method's letters (the domain typed with 拼音 on) stays on the page.
+    if (event.key === 'Escape' && !composing(event)) { event.preventDefault(); back(); }
   }
 
   // Right-click does nothing inside the panel (no web page menu): the gear opens the settings, and a hidden way in
@@ -910,6 +911,7 @@
     window.addEventListener('pointerdown', down, true);
     window.addEventListener('pointerup', up, true);
     window.addEventListener('pointercancel', up, true);
+    const stopTyping = watchTyping();
     // A phone link without its key reads nothing: there is no computer behind it to ask (PHONE-13).
     const stops = [...(keyless ? [] : [backend.onSnapshot(() => void reload())]), shell.onOpened(opened), shell.onClosed(closed),
       shell.onResized((width, height) => {
@@ -937,6 +939,7 @@
     });
     return () => {
       stops.forEach((stop) => stop());
+      stopTyping();
       clearInterval(liveTimer);
       window.removeEventListener('pointerdown', down, true);
       window.removeEventListener('pointerup', up, true);

@@ -423,6 +423,7 @@ fn main() {
             tunnel::tunnel_ready,
             panel::panel_shown,
             panel::panel_menu,
+            panel::panel_typing,
             panel::hold_open,
             panel::set_look,
             panel::system_symbol,
