@@ -356,7 +356,12 @@ pub fn open(app: &AppHandle, anchor: (f64, f64), modules: bool) {
     #[cfg(not(target_os = "macos"))]
     let _ = opening;
     #[cfg(target_os = "macos")]
-    macos::remember_focus();
+    {
+        macos::remember_focus();
+        // Opened with no field typed into yet: at its own level, whatever a late word from before said (R12-7).
+        let level = panel.clone();
+        let _ = macos::on_main(app, move || macos::set_typing(&level, false));
+    }
     place(app, false);
     let _ = panel.show();
     let _ = panel.set_focus();
@@ -846,9 +851,14 @@ pub fn panel_menu(app: AppHandle, open: bool) {
 /// method's candidate window, which the pop-up level hid; elsewhere the input method shows above it already.
 #[tauri::command]
 pub fn panel_typing(app: AppHandle, typing: bool) {
+    // A field's focus told late, the panel already closed: nothing typed into, so the level stays as it is (R12-7).
     #[cfg(target_os = "macos")]
     if let Some(window) = window(&app) {
-        let _ = app.run_on_main_thread(move || macos::set_typing(&window, typing));
+        let _ = app.run_on_main_thread(move || {
+            if !typing || window.is_visible().unwrap_or(false) {
+                macos::set_typing(&window, typing);
+            }
+        });
     }
     #[cfg(not(target_os = "macos"))]
     let _ = (app, typing);

@@ -679,6 +679,10 @@
    *  same as 取消. One the homepage or the grid asked, at the panel's foot, stays. */
   function leavePage() {
     if (ask.current && ask.placed > 0) answerQuestion(null);
+    // A field on the page left lets go of the focus: Return while the page slides out does nothing there, and the panel
+    // goes back to its own level (R12-7).
+    const field = document.activeElement;
+    if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) field.blur();
   }
 
   function push(entry: Entry) {
