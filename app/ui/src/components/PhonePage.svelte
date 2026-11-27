@@ -39,16 +39,23 @@
   let copied = $state<{ key: string; state: 'ok' | 'failed' } | null>(null);
   let manual: HTMLInputElement | undefined = $state();
   let copiedTimer: ReturnType<typeof setTimeout> | undefined;
-  /** 自有域名 as set (its address, the port its proxy forwards to, this computer's network address), and its page's two
-   *  fields: what the user typed, as they left it. */
+  /** 自有域名 as set (its address, the server's port, this computer's network address, where the user's proxy is), and
+   *  its page's fields as the user left them: the address, where the proxy is (this computer, or a NAS or the router:
+   *  only then does the network get in, with this domain's key: 用户：这样不就把同一网络访问打开了？应该怎么区分呢？),
+   *  and the port, shown in the address to forward to and changed only when asked (it is the server's: 同一个网络's
+   *  codes use it too). */
   let setup = $state<DomainSetup | null>(null);
   let domainInput = $state('');
   let portInput = $state('');
+  let nearbyInput = $state(false);
+  let portOpen = $state(false);
+  let portField: HTMLInputElement | undefined = $state();
   /** 自有域名 being started; its start that failed (the address, or the port taken): the reason, under its fields. */
   let domainStarting = $state(false);
   let domainFailed = $state<string | null>(null);
-  /** Whether its address opens this server from here, asked once it is on. */
-  let domainCheck = $state<'checking' | DomainCheck | null>(null);
+  /** Whether its address opens this server from here, asked once it is on; 'failed' when the asking itself failed. */
+  let domainCheck = $state<'checking' | 'failed' | DomainCheck | null>(null);
+  const checked = $derived(typeof domainCheck === 'object' ? domainCheck : null);
 
   const view = $derived(phone.view);
   const reach = $derived(phone.reach);
@@ -82,22 +89,28 @@
   const ownHost = $derived(ownOrigin?.replace(/^https?:\/\//, '') ?? '');
   const portTyped = $derived(/^\d+$/.test(portInput.trim()) ? Number(portInput.trim()) : null);
   const forwardPort = $derived(own ? view?.port : portTyped ?? setup?.port);
-  const forwardTo = $derived(forwardPort ? `http://127.0.0.1:${forwardPort}` : null);
+  /** Where the user's proxy hands requests on to: this computer itself when it runs here, its network address when it
+   *  runs on a NAS or the router. (Not 0.0.0.0: that is where the server listens, not an address to send to.) */
+  const forwardHost = $derived(nearbyInput ? setup?.lan ?? null : '127.0.0.1');
+  const forwardTo = $derived(forwardPort && forwardHost ? `http://${forwardHost}:${forwardPort}` : null);
   /** What the check found, said with what to look at. */
   const checkText = $derived.by(() => {
-    if (!domainCheck || domainCheck === 'checking') return '';
+    if (domainCheck === 'failed') return t('没能检查 {host} 能不能打开', { host: ownHost });
+    if (!checked) return '';
     const target = forwardTo?.replace(/^http:\/\//, '') ?? '';
-    if (domainCheck.opens) return t('已确认能通过 {host} 打开', { host: ownHost });
-    if (domainCheck.status && domainCheck.status >= 300 && domainCheck.status < 400 && ownOrigin?.startsWith('http:')) {
-      return t('{host} 把请求转到了别处（HTTP {n}）：检查反代的设置；总是跳到 https 时，把域名改成 https://{host}', { host: ownHost, n: domainCheck.status });
+    if (checked.opens) return t('已确认能通过 {host} 打开', { host: ownHost });
+    if (checked.status && checked.status >= 300 && checked.status < 400 && ownOrigin?.startsWith('http:')) {
+      return t('{host} 把请求转到了别处（HTTP {n}）：检查反代的设置；总是跳到 https 时，把域名改成 https://{host}', { host: ownHost, n: checked.status });
     }
-    if (domainCheck.status) return t('{host} 有回应（HTTP {n}），但不是 Starmeter：检查反代是否转发到 {target}', { host: ownHost, n: domainCheck.status, target });
-    return t('这台电脑没能打开 {host}（{reason}）：手机也打不开时，检查域名解析和反代是否转发到 {target}', { host: ownHost, reason: domainCheck.reason ?? '', target });
+    if (checked.status) return t('{host} 有回应（HTTP {n}），但不是 Starmeter：检查反代是否转发到 {target}', { host: ownHost, n: checked.status, target });
+    return t('这台电脑没能打开 {host}（{reason}）：手机也打不开时，检查域名解析和反代是否转发到 {target}', { host: ownHost, reason: t(checked.reason ?? ''), target });
   });
   const opening = $derived(busy || !!view?.publicOpening);
   const minutes = $derived(view ? Math.max(1, Math.round(secondsLeft() / 60)) : 0);
   const choices = ['local', 'public'] as const;
   const vias: Via[] = ['cloudflare', 'domain'];
+  /** Where the user's proxy is: this computer (false), or a NAS or the router (true). */
+  const wheres = [false, true] as const;
   /** Which of 任何网络's two links are on. */
   const viaOn = $derived({ cloudflare: !!outside || opening, domain: !!own });
   /** 自有域名 started on another port than the server's: the same network's codes and Cloudflare's link go with it. */
@@ -161,12 +174,15 @@
     setup = next;
     domainInput = next.domain ? next.domain.replace(/^https:\/\//, '') : domainInput;
     portInput = String(next.port);
+    nearbyInput = next.nearby;
     if (next.domain && !phone.viaChosen) phone.via = 'domain';
   }
   onMount(() => {
-    // Nothing starts by opening the page: each way as it was left, off until its 开始.
+    // Nothing starts by opening the page: each way as it was left, off until its 开始. What is set for 自有域名, unless
+    // a 开始 or 停止 of it came first (its answer is newer).
     void pollStatus();
-    void shell.phoneDomain().then((next) => { if (next) settled(next); }).catch(() => {});
+    const asked = domainRound;
+    void shell.phoneDomain().then((next) => { if (next && asked === domainRound) settled(next); }).catch(() => {});
     if (phone.reach === 'public') void checkTunnel();
     // Asked after while the page is open: a public link whose cloudflared has ended is taken down, and said so.
     tick = setInterval(() => void pollStatus(), 10_000);
@@ -189,27 +205,50 @@
     const ready = await shell.tunnelReady().catch(() => false);
     if (mine === checking) download = !ready;
   }
-  /** 自有域名's 开始: its address and port kept (the port held from now on), and its link on. */
+  /** 自有域名's 开始 and 停止 reach the host in the order they were pressed: each waits for the one before, so a quick
+   *  停止 then 开始 can't land the other way round and leave a code shown for a way that is off. */
+  let domainQueue: Promise<unknown> = Promise.resolve();
+  function serial<T>(step: () => Promise<T>): Promise<T> {
+    const next = domainQueue.then(step, step);
+    domainQueue = next.catch(() => {});
+    return next;
+  }
+  /** 自有域名's 开始 (the button, or Return in a field): its address, port and where the proxy is kept once it is on (the
+   *  port held from then on), and its link on. One at a time: Return while one is on its way does nothing. */
   async function startDomain() {
+    if (domainStarting) return;
+    domainFailed = null;
+    const port = portTyped;
+    if (port === null || port < 1024 || port > 65535) { domainFailed = '端口填 1024 到 65535 之间的数'; portOpen = true; return; }
     const mine = ++domainRound;
     epoch++;
-    domainFailed = null;
-    if (portTyped === null || portTyped < 1024 || portTyped > 65535) { domainFailed = '端口填 1024 到 65535 之间的数'; return; }
+    // A port move closes Cloudflare's link (and one still being made): its round ends here, as its 停止 would, so the
+    // host's answer to it doesn't read as a failure.
+    if (movesServer && (outside || opening)) {
+      publicRound++;
+      busy = false;
+      lost = null;
+      publicFailed = null;
+      phone.publicStopped = true;
+    }
     domainStarting = true;
     try {
-      const started = await shell.phoneDomainStart(domainInput, portTyped);
+      const started = await serial(() => shell.phoneDomainStart(domainInput, port, nearbyInput));
       if (mine !== domainRound) return;
       phone.domainStopped = false;
       setPhone(started);
       const next = await shell.phoneDomain().catch(() => null);
       if (next && mine === domainRound) settled(next);
     } catch (error) {
-      if (mine === domainRound) domainFailed = String(error);
+      if (mine !== domainRound) return;
+      domainFailed = String(error);
+      // A port another app holds: the port's field open, to pick another.
+      if (/^端口 \d+ 被别的程序占用$/.test(domainFailed)) portOpen = true;
     } finally {
       if (mine === domainRound) domainStarting = false;
     }
   }
-  /** 自有域名's 停止: its links stop opening; its address and port stay in its fields for the next 开始. */
+  /** 自有域名's 停止: its links stop opening; its address, port and where the proxy is stay for the next 开始. */
   async function stopDomain() {
     const mine = ++domainRound;
     epoch++;
@@ -217,17 +256,32 @@
     domainFailed = null;
     phone.domainStopped = true;
     without({ domain: null });
-    const left = await shell.phoneDomainStop().catch(() => phone.view);
+    const left = await serial(() => shell.phoneDomainStop()).catch(() => phone.view);
     if (mine === domainRound) setPhone(left ?? null);
   }
+  // 换端口: the field takes the focus as it opens.
+  $effect(() => { if (portOpen && portField && document.activeElement !== portField) { portField.focus(); portField.select(); } });
   /** Whether its address opens this server from here: asked once each link of it is on, and on 再检查. */
   let checkRound = 0;
   async function checkDomain() {
     const mine = ++checkRound;
     domainCheck = 'checking';
     const found = await shell.phoneDomainCheck().catch(() => null);
-    if (mine === checkRound) domainCheck = found;
+    if (mine === checkRound) domainCheck = found ?? 'failed';
   }
+  /** A segmented choice moved with the arrow keys (Home and End to its ends): the choice and the focus go together. */
+  function arrows<T>(event: KeyboardEvent, list: readonly T[], current: T, pick: (next: T) => void) {
+    const at = list.indexOf(current);
+    const to = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? Math.min(list.length - 1, at + 1)
+      : event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? Math.max(0, at - 1)
+        : event.key === 'Home' ? 0 : event.key === 'End' ? list.length - 1 : -1;
+    if (to < 0) return;
+    event.preventDefault();
+    pick(list[to]);
+    const group = event.currentTarget as HTMLElement;
+    requestAnimationFrame(() => group.querySelectorAll<HTMLElement>('[role="radio"]')[to]?.focus());
+  }
+  const enter = (event: KeyboardEvent) => { if (event.key === 'Enter' && !composing(event)) void startDomain(); };
   const ownLink = $derived(view?.domain ?? null);
   $effect(() => {
     if (ownLink) void checkDomain();
@@ -340,11 +394,11 @@
     <Scroller onswipeback={onback}>
       <div class="content" bind:this={body}>
         <!-- The two pages: looking starts nothing and stops nothing; a green dot after each way that is on. -->
-        <div class="reach" role="radiogroup" aria-label={t('手机在哪')}>
+        <div class="reach" role="radiogroup" tabindex="-1" aria-label={t('手机在哪')} onkeydown={(event) => arrows(event, choices, reach, choose)}>
           <span class="pill" style:transform="translateX({reach === 'public' ? 100 : 0}%)"></span>
           {#each choices as choice (choice)}
             <button class="choice pressable" class:chosen={reach === choice} role="radio" aria-checked={reach === choice}
-              onclick={() => choose(choice)}>{t(choice === 'local' ? '同一个网络' : '任何网络')}{#if on[choice]}<span class="on" aria-hidden="true"></span>{/if}</button>
+              tabindex={reach === choice ? 0 : -1} onclick={() => choose(choice)}>{t(choice === 'local' ? '同一个网络' : '任何网络')}{#if on[choice]}<span class="on" aria-hidden="true"></span>{/if}</button>
           {/each}
         </div>
 
@@ -400,11 +454,11 @@
           <!-- 任何网络's two links, each a page of its own and each on and off by itself, so both can be on at once:
                Cloudflare's for an hour, and the user's own domain through their own proxy. Looking starts nothing; a
                green dot after each that is on. -->
-          <div class="via" role="radiogroup" aria-label={t('外网链接从哪来')}>
+          <div class="via" role="radiogroup" tabindex="-1" aria-label={t('外网链接从哪来')} onkeydown={(event) => arrows(event, vias, phone.via, chooseVia)}>
             <span class="via-pill" style:transform="translateX({phone.via === 'domain' ? 100 : 0}%)"></span>
             {#each vias as choice (choice)}
               <button class="via-choice pressable" class:chosen={phone.via === choice} role="radio" aria-checked={phone.via === choice}
-                onclick={() => chooseVia(choice)}>{t(choice === 'cloudflare' ? 'Cloudflare 临时链接' : '自有域名')}{#if viaOn[choice]}<span class="on" aria-hidden="true"></span>{/if}</button>
+                tabindex={phone.via === choice ? 0 : -1} onclick={() => chooseVia(choice)}>{t(choice === 'cloudflare' ? 'Cloudflare 临时链接' : '自有域名')}{#if viaOn[choice]}<span class="on" aria-hidden="true"></span>{/if}</button>
             {/each}
           </div>
           {#if phone.via === 'domain'}
@@ -414,41 +468,56 @@
               {@render link('domain', own)}
               {#if domainCheck === 'checking'}
                 <p class="check"><span class="spinner small" aria-hidden="true"></span>{t('正在确认手机能打开…')}</p>
-              {:else if domainCheck?.opens}
+              {:else if checked?.opens}
                 <p class="check ok">{checkText}</p>
               {:else if domainCheck}
                 <div class="check caution" role="status"><span>{checkText}</span><button class="again pressable" onclick={checkDomain}>{t('再检查')}</button></div>
               {/if}
-              <p class="note">{t('经你的反代转发到这台电脑的 {target}，不经过 Cloudflare。点“停止”或退出 App 前一直开着。', { target: forwardTo?.replace(/^http:\/\//, '') ?? '' })}</p>
+              <p class="note">{t(nearbyInput
+                ? '经 NAS 或路由器上的反代转发到这台电脑的 {target}，局域网里的设备要带这个域名的口令才能连上。点“停止”或退出 App 前一直开着。'
+                : '经这台电脑上的反代转发到 {target}，局域网里的设备连不上。点“停止”或退出 App 前一直开着。', { target: forwardTo?.replace(/^http:\/\//, '') ?? '' })}</p>
               <p class="note">{t('只读：手机上只能看主页和工具页，不能改设置。')}</p>
               <p class="note">{t(ownOrigin?.startsWith('https:') ? '网页右上角的太阳可让手机屏幕保持常亮，适合放在桌边一直看' : '网页右上角的太阳可让手机屏幕保持常亮，适合放在桌边一直看；域名用 https 时才能用')}</p>
               <div class="actions"><button class="action danger pressable" onclick={stopDomain}>{t('停止')}</button></div>
             {:else}
-              <!-- The address the user's proxy opens, the port it forwards to (kept, and held, from its 开始), and that
-                   address to copy into the proxy. -->
+              <!-- Off: the address the user's proxy opens; where the proxy is (this computer, or a NAS or the router: only then
+                   does the network get in, with this domain's key); the address to forward to, with the server's port,
+                   changed only when asked (同一个网络's codes use the same port). -->
               <div class="setup">
-                <label class="field host">
+                <label class="field">
                   <span class="field-label">{t('域名')}</span>
-                  <input class="field-input" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="meter.example.com"
-                    bind:value={domainInput} onkeydown={(event) => { if (event.key === 'Enter' && !composing(event)) void startDomain(); }} />
+                  <input class="field-input" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
+                    placeholder="meter.example.com" bind:value={domainInput} onkeydown={enter} />
                 </label>
-                <label class="field port">
-                  <span class="field-label">{t('端口')}</span>
-                  <input class="field-input num" type="text" inputmode="numeric" autocomplete="off" autocorrect="off" spellcheck="false" maxlength="5"
-                    bind:value={portInput} onkeydown={(event) => { if (event.key === 'Enter' && !composing(event)) void startDomain(); }} />
-                </label>
-                {#if forwardTo}
-                  <div class="forward"><span class="field-label">{t('反代转发到')}</span>{@render link('target', forwardTo, true)}</div>
-                {/if}
+                <div class="field">
+                  <span class="field-label" id="proxy-where">{t('反代在哪')}</span>
+                  <div class="where" role="radiogroup" tabindex="-1" aria-labelledby="proxy-where"
+                    onkeydown={(event) => arrows(event, wheres, nearbyInput, (next) => (nearbyInput = next))}>
+                    <span class="where-pill" style:transform="translateX({nearbyInput ? 100 : 0}%)"></span>
+                    {#each wheres as choice (choice)}
+                      <button class="where-choice pressable" class:chosen={nearbyInput === choice} role="radio" aria-checked={nearbyInput === choice}
+                        tabindex={nearbyInput === choice ? 0 : -1} onclick={() => (nearbyInput = choice)}>{t(choice ? 'NAS、路由器上' : '这台电脑上')}</button>
+                    {/each}
+                  </div>
+                </div>
+                <div class="forward">
+                  <span class="field-label">{t('转发到')}</span>
+                  {#if forwardTo}{@render link('target', forwardTo, true)}{:else}<span class="no-address">{t('这台电脑没有连上网络')}</span>{/if}
+                  {#if portOpen}
+                    <input class="field-input num port-field" type="text" inputmode="numeric" autocomplete="off" autocorrect="off" spellcheck="false"
+                      maxlength="5" aria-label={t('端口')} bind:this={portField} bind:value={portInput} onkeydown={enter} />
+                  {:else}
+                    <button class="change pressable" onclick={() => (portOpen = true)}>{t('换端口')}</button>
+                  {/if}
+                </div>
               </div>
               {#if domainFailed}<p class="failed">{t(domainFailed)}</p>{/if}
               {#if movesServer}<p class="note caution">{t('换了端口：同一个网络的二维码改用新端口，手机要重新扫；Cloudflare 链接会关闭')}</p>{/if}
               {#if phone.domainStopped}<p class="note">{t('原来的二维码和链接已失效。点“开始”生成新的二维码，手机再扫一次就能看。')}</p>{/if}
-              <p class="note">{t('用你自己的反代或隧道（Caddy、Nginx、frp、Cloudflare Tunnel、Tailscale Funnel 等）把这个域名转发到上面的地址：手机在哪都能打开，不经过 Starmeter 的 Cloudflare 临时链接，也没有一小时的限制。')}</p>
-              {#if setup?.lan && forwardPort}
-                <p class="note">{t('反代在另一台设备上（NAS、路由器）时，转发到这台电脑的 {target}。', { target: `${setup.lan}:${forwardPort}` })}</p>
-              {/if}
-              <div class="actions"><button class="action primary pressable" disabled={domainStarting || !domainInput.trim()} onclick={startDomain}>{t('开始')}</button></div>
+              <p class="note">{t(nearbyInput
+                ? '在 NAS 或路由器的反代里把域名转发到上面的地址，手机在哪都能打开，也没有一小时的限制。局域网里的设备要带这个域名的口令才能连上，同一个网络的二维码不受影响。'
+                : '用这台电脑上的反代或隧道（Caddy、Nginx、frp、Cloudflare Tunnel、Tailscale Funnel 等）把域名转发到上面的地址，手机在哪都能打开，也没有一小时的限制。只接受这台电脑转来的连接，局域网里的设备连不上。')}</p>
+              <div class="actions"><button class="action primary pressable" disabled={domainStarting || !domainInput.trim() || !forwardTo} onclick={startDomain}>{t('开始')}</button></div>
             {/if}
           {:else if opening}
             <div class="code">
@@ -591,9 +660,9 @@
     font-size: 11.5px; color: var(--secondary); border-radius: 6px; white-space: nowrap;
   }
   .via-choice.chosen { color: var(--label); font-weight: 600; }
-  /* 自有域名's fields, in the code's place: its address and port side by side, the address to forward to under them. */
+  /* 自有域名's fields, in the code's place: the address, where the proxy is, and the address to forward to. */
   .setup {
-    display: grid; grid-template-columns: minmax(0, 1fr) 72px; gap: 8px 8px; padding: 10px 10px 8px; border-radius: 12px;
+    display: flex; flex-direction: column; gap: 10px; padding: 10px 10px 8px; border-radius: 12px;
     background: color-mix(in srgb, var(--label) 4%, transparent);
   }
   .field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
@@ -606,9 +675,28 @@
   .field-input:focus { box-shadow: inset 0 0 0 1.2px var(--accent); }
   .field-input::placeholder { color: var(--tertiary); }
   .field-input.num { font-variant-numeric: tabular-nums; }
-  .forward { grid-column: 1 / -1; display: flex; align-items: center; gap: 4px; min-width: 0; }
+  .where {
+    position: relative; display: flex; height: 26px; padding: 2px; box-sizing: border-box; border-radius: 7px;
+    background: color-mix(in srgb, var(--label) 6%, transparent);
+  }
+  .where-pill {
+    position: absolute; top: 2px; bottom: 2px; left: 2px; width: calc(50% - 2px); border-radius: 5px; background: var(--solid);
+    box-shadow: 0 0 0 0.5px var(--separator), 0 1px 2px rgba(0, 0, 0, 0.08); transition: transform 0.22s var(--page-curve);
+  }
+  .where-choice {
+    --press-scale: 0.96; position: relative; flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 11.5px; color: var(--secondary); border-radius: 5px; white-space: nowrap;
+  }
+  .where-choice.chosen { color: var(--label); font-weight: 600; }
+  .forward { display: flex; align-items: center; gap: 4px; min-width: 0; min-height: 26px; }
   .forward .field-label { flex: none; }
   .forward .address { margin-left: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; }
+  .no-address { margin-left: auto; font-size: 10.5px; color: var(--orange); }
+  .change {
+    --press-scale: 0.95; flex: none; height: 22px; padding: 0 7px; border-radius: 6px; font-size: 10.5px; color: var(--accent);
+  }
+  .change:hover { background: var(--hover); }
+  .port-field { flex: none; width: 62px; height: 24px; text-align: center; }
   .check { margin: -4px 0 0; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 11px; line-height: 1.45; color: var(--secondary); text-align: center; }
   .check.ok { color: var(--green); }
   .check.caution {

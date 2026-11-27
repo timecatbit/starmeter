@@ -77,7 +77,9 @@ export interface PhoneView {
   publicOpening?: boolean;
 }
 /** 自有域名 as set, for its page: its address, the port the user's proxy forwards to, this computer's network address. */
-export interface DomainSetup { domain: string | null; port: number; lan: string | null }
+/** 自有域名 as set: its address, the server's port, this computer's network address, and whether the user's proxy is on
+ *  another device (a NAS, the router) rather than on this computer. */
+export interface DomainSetup { domain: string | null; port: number; lan: string | null; nearby: boolean }
 /** How 自有域名's address answered this computer: this server through it, something else (`status`), or nothing (`reason`). */
 export interface DomainCheck { opens: boolean; status: number | null; reason: string | null }
 
@@ -86,11 +88,11 @@ export interface DomainCheck { opens: boolean; status: number | null; reason: st
  *  the page loads again, as the app keeps it in the settings folder and turns it on again as it starts (phone.rs). */
 const browserPhone = (() => {
   const KEPT = 'starmeter.test-phone';
-  type Kept = { local?: boolean; open?: boolean; domain?: string | null; domainOn?: boolean; port?: number };
+  type Kept = { local?: boolean; open?: boolean; domain?: string | null; domainOn?: boolean; port?: number; nearby?: boolean };
   const kept = (() => { try { return JSON.parse(localStorage.getItem(KEPT) ?? '{}') as Kept; } catch { return {} as Kept; } })();
   let local = !!kept.local, open = !!kept.open, domain = kept.domain ?? null, domainOn = !!kept.domainOn && !!domain;
-  let port = kept.port ?? 51234;
-  const keep = () => { try { localStorage.setItem(KEPT, JSON.stringify({ local, open, domain, domainOn, port })); } catch { /* not kept */ } };
+  let port = kept.port ?? 51234, nearby = !!kept.nearby;
+  const keep = () => { try { localStorage.setItem(KEPT, JSON.stringify({ local, open, domain, domainOn, port, nearby })); } catch { /* not kept */ } };
   const asked = (name: string) => new URLSearchParams(location.search).has(name);
   // ?tailnet: this computer on a tailnet too.
   const tailnet = () => (asked('tailnet') ? `http://100.76.55.73:${port}/#k=0123456789abcdef0123456789abcdef` : null);
@@ -116,20 +118,23 @@ const browserPhone = (() => {
   return {
     view, start: () => { local = true; keep(); return view()!; }, stop: () => { local = false; keep(); return view(); },
     open: () => { open = true; keep(); return view()!; }, close: () => { open = false; keep(); return view(); },
-    domainSetup: (): DomainSetup => ({ domain, port, lan: '192.168.1.20' }),
+    // ?no-network: this computer on no network.
+    domainSetup: (): DomainSetup => ({ domain, port, lan: asked('no-network') ? null : '192.168.1.20', nearby }),
     // ?port-taken: the port asked for is another app's.
-    domainStart: (typed: string, asked_port: number) => {
+    domainStart: (typed: string, asked_port: number, proxy_nearby: boolean) => {
       const given = origin(typed);
       if (asked_port < 1024 || asked_port > 65535) throw '端口填 1024 到 65535 之间的数';
       if (asked('port-taken')) throw `端口 ${asked_port} 被别的程序占用`;
-      domain = given; port = asked_port; domainOn = true; keep(); return view()!;
+      // A port move closes the public link (phone.rs moved).
+      if (asked_port !== port) open = false;
+      domain = given; port = asked_port; nearby = proxy_nearby; domainOn = true; keep(); return view()!;
     },
     domainStop: () => { domainOn = false; keep(); return view(); },
     // ?domain-502, ?domain-redirect, ?domain-unreachable: how the user's proxy answers.
     domainCheck: (): DomainCheck | null => (!domainOn ? null
       : asked('domain-502') ? { opens: false, status: 502, reason: null }
         : asked('domain-redirect') ? { opens: false, status: 308, reason: null }
-          : asked('domain-unreachable') ? { opens: false, status: null, reason: 'timed out' }
+          : asked('domain-unreachable') ? { opens: false, status: null, reason: '找不到这个域名' }
             : { opens: true, status: null, reason: null }),
   };
 })();
@@ -178,11 +183,18 @@ export const shell = {
   /** 任何网络 through the user's own domain (自有域名): as set (phoneDomain), on at an address and port, which are kept
    *  (phoneDomainStart), off (phoneDomainStop), and whether its address opens this server from here (phoneDomainCheck). */
   phoneDomain: (): Promise<DomainSetup | null> => (inTauri ? invoke<DomainSetup | null>('phone_domain') : Promise.resolve(browserPhone.domainSetup())),
-  phoneDomainStart: (domain: string, port: number): Promise<PhoneView> =>
-    (inTauri ? invoke<PhoneView>('phone_domain_start', { domain, port }) : Promise.resolve().then(() => browserPhone.domainStart(domain, port))),
+  phoneDomainStart: (domain: string, port: number, nearby: boolean): Promise<PhoneView> =>
+    (inTauri ? invoke<PhoneView>('phone_domain_start', { domain, port, nearby })
+      // ?slow-domain: the host takes its time (a held port asked again).
+      : new Promise((done, failed) => setTimeout(() => { try { done(browserPhone.domainStart(domain, port, nearby)); } catch (error) { failed(error); } },
+        new URLSearchParams(location.search).has('slow-domain') ? 800 : 0))),
   phoneDomainStop: (): Promise<PhoneView | null> => (inTauri ? invoke<PhoneView | null>('phone_domain_stop') : Promise.resolve(browserPhone.domainStop())),
   phoneDomainCheck: (): Promise<DomainCheck | null> => (inTauri ? invoke<DomainCheck | null>('phone_domain_check')
-    : new Promise((done) => setTimeout(() => done(browserPhone.domainCheck()), 400))),
+    // ?check-fails: the asking itself fails. ?check-held: the check answers when the test says (window.answerCheck()).
+    : new URLSearchParams(location.search).has('check-fails') ? Promise.reject(new Error('no answer'))
+    : new URLSearchParams(location.search).has('check-held')
+      ? new Promise((done) => { (window as unknown as { answerCheck: () => void }).answerCheck = () => done(browserPhone.domainCheck()); })
+      : new Promise((done) => setTimeout(() => done(browserPhone.domainCheck()), 400))),
   phonePublic: (): Promise<PhoneView> => (inTauri ? invoke<PhoneView>('phone_public')
     // ?tunnel-fails: the public link fails as on a network Cloudflare can't be reached from.
     : new URLSearchParams(location.search).has('tunnel-fails') ? Promise.reject('Cloudflare 这次没有连上，稍后再试') : Promise.resolve(browserPhone.open())),

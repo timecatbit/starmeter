@@ -226,12 +226,21 @@ export const phrases: Record<string, string> = {
   'Cloudflare 临时链接': 'Cloudflare link', 自有域名: 'Your domain', 外网链接从哪来: 'Where the link comes from', 域名: 'Domain', 端口: 'Port',
   '换了端口：同一个网络的二维码改用新端口，手机要重新扫；Cloudflare 链接会关闭':
     'A new port: the same network\'s codes move to it, to scan again, and the Cloudflare link closes',
-  反代转发到: 'Forward to',
-  '用你自己的反代或隧道（Caddy、Nginx、frp、Cloudflare Tunnel、Tailscale Funnel 等）把这个域名转发到上面的地址：手机在哪都能打开，不经过 Starmeter 的 Cloudflare 临时链接，也没有一小时的限制。':
-    'Forward the domain to the address above with your own reverse proxy or tunnel (Caddy, Nginx, frp, Cloudflare Tunnel, Tailscale Funnel…): the phone opens it from anywhere, without Starmeter\'s Cloudflare link and its hour.',
-  '反代在另一台设备上（NAS、路由器）时，转发到这台电脑的 {target}。': 'With the proxy on another device (a NAS, the router), forward to this computer\'s {target}.',
-  '经你的反代转发到这台电脑的 {target}，不经过 Cloudflare。点“停止”或退出 App 前一直开着。':
-    'Your proxy forwards it to this computer\'s {target}, without Cloudflare. On until Stop, or until the app quits.',
+  // Where the user's proxy is: on this computer (only this computer's connections are taken), or on a NAS or the router
+  // (the network gets in, with the domain's key).
+  转发到: 'Forward to', 反代在哪: 'Where the proxy runs', 这台电脑上: 'This computer', 'NAS、路由器上': 'NAS or router', 换端口: 'Change port',
+  '用这台电脑上的反代或隧道（Caddy、Nginx、frp、Cloudflare Tunnel、Tailscale Funnel 等）把域名转发到上面的地址，手机在哪都能打开，也没有一小时的限制。只接受这台电脑转来的连接，局域网里的设备连不上。':
+    'Point the domain at the address above with a reverse proxy or tunnel on this computer (Caddy, Nginx, frp, Cloudflare Tunnel, Tailscale Funnel…): the phone opens it from anywhere, with no hour\'s limit. Only connections from this computer are taken; devices on your network can\'t connect.',
+  '在 NAS 或路由器的反代里把域名转发到上面的地址，手机在哪都能打开，也没有一小时的限制。局域网里的设备要带这个域名的口令才能连上，同一个网络的二维码不受影响。':
+    'Point the domain at the address above in the proxy on your NAS or router: the phone opens it from anywhere, with no hour\'s limit. Devices on your network get in only with this domain\'s key; the same network\'s codes are untouched.',
+  '经这台电脑上的反代转发到 {target}，局域网里的设备连不上。点“停止”或退出 App 前一直开着。':
+    'A proxy on this computer forwards it to {target}; devices on your network can\'t connect. On until Stop, or until the app quits.',
+  '经 NAS 或路由器上的反代转发到这台电脑的 {target}，局域网里的设备要带这个域名的口令才能连上。点“停止”或退出 App 前一直开着。':
+    'The proxy on your NAS or router forwards it to this computer\'s {target}; devices on your network get in only with this domain\'s key. On until Stop, or until the app quits.',
+  '没能检查 {host} 能不能打开': 'Couldn\'t check whether {host} opens',
+  // Why the domain didn't answer this computer (phone_domain_check).
+  找不到这个域名: 'The domain wasn\'t found', 连接被拒绝: 'The connection was refused', 证书有问题: 'A certificate problem',
+  连接被中断: 'The connection was cut off', 等了太久没有回应: 'Nothing answered in time',
   '网页右上角的太阳可让手机屏幕保持常亮，适合放在桌边一直看': 'The sun at the top right keeps the phone\'s screen on, to watch from the desk',
   '网页右上角的太阳可让手机屏幕保持常亮，适合放在桌边一直看；域名用 https 时才能用': 'The sun at the top right keeps the phone\'s screen on, to watch from the desk; it needs the domain on https',
   '正在确认手机能打开…': 'Checking that it opens…', '已确认能通过 {host} 打开': 'Checked: it opens through {host}', 再检查: 'Check again',

@@ -3288,14 +3288,17 @@ test('a running tool keeps its live line continuous along 0 to 现在 instead of
   expect(result.runningAlpha).toBeGreaterThan(result.stoppedAlpha * 4);
 });
 
-test('在手机上看: 任何网络 through your own domain: its address and port, where to forward, its code checked, 停止 on its own, kept for next time', async ({ page }) => {
+test('在手机上看: 任何网络 through your own domain: its address, where the proxy runs, the address to forward to, its code checked, 停止 on its own, kept for next time', async ({ page }) => {
   // 用户：域名和固定端口那里……逻辑上感觉怪怪的不符合直觉. A domain is for a phone anywhere: one of 任何网络's two links,
-  // beside Cloudflare's, with the port its proxy forwards to in the same place.
+  // beside Cloudflare's. 用户：反代转发到，应该是0.0.0.0吧，127.0.0.1感觉不太对？……这样不就把同一网络访问打开了？应该
+  //怎么区分呢？ Where the proxy runs decides both the address to forward to and whether the network gets in.
   await open(page, '?tailnet');
   await button(page, '在手机上看').click();
   const phone = page.locator('.phone-page');
   const local = page.getByRole('radio', { name: '同一个网络' }), anywhere = page.getByRole('radio', { name: '任何网络' });
   const cloudflare = page.getByRole('radio', { name: 'Cloudflare 临时链接' }), own = page.getByRole('radio', { name: '自有域名' });
+  const here = page.getByRole('radio', { name: '这台电脑上' }), nearby = page.getByRole('radio', { name: 'NAS、路由器上' });
+  const target = phone.locator('.forward .address');
   await button(page, '开始').click();
   await expect(phone.locator('svg.qr')).toHaveCount(2);
   // The same network's page as it was: no domain, no port there.
@@ -3305,16 +3308,32 @@ test('在手机上看: 任何网络 through your own domain: its address and por
   await expect(cloudflare).toHaveAttribute('aria-checked', 'true');
   await expect(phone.getByRole('status')).toContainText('经 Cloudflare 的临时链接');
   await own.click();
-  const domain = phone.getByRole('textbox', { name: '域名' }), port = phone.getByRole('textbox', { name: '端口' });
-  // The port the server is on, and the address to forward to with it.
-  await expect(port).toHaveValue('51234');
-  await expect(phone.locator('.forward .address')).toHaveText('127.0.0.1:51234');
-  await expect(phone.getByText('转发到这台电脑的 192.168.1.20:51234')).toBeVisible();
+  const domain = phone.getByRole('textbox', { name: '域名' });
+  // The proxy on this computer to begin with: this computer's own address with the server's port, the network kept out.
+  await expect(here).toHaveAttribute('aria-checked', 'true');
+  await expect(target).toHaveText('127.0.0.1:51234');
+  await expect(phone.getByText('只接受这台电脑转来的连接，局域网里的设备连不上')).toBeVisible();
+  // On a NAS or the router: this computer's network address, the network let in with the domain's key only.
+  await nearby.click();
+  await expect(target).toHaveText('192.168.1.20:51234');
+  await expect(phone.getByText('局域网里的设备要带这个域名的口令才能连上，同一个网络的二维码不受影响')).toBeVisible();
+  // The arrow keys move the choice, as on a segmented control.
+  await nearby.focus();
+  await page.keyboard.press('ArrowLeft');
+  await expect(here).toHaveAttribute('aria-checked', 'true');
+  await expect(here).toBeFocused();
+  await expect(target).toHaveText('127.0.0.1:51234');
+  // The port is the server's (同一个网络's codes use it too): no field for it until 换端口.
+  await expect(phone.getByRole('textbox', { name: '端口' })).toHaveCount(0);
   await expect(button(page, '开始')).toBeDisabled();
+  await phone.getByRole('button', { name: '换端口' }).click();
+  const port = phone.getByRole('textbox', { name: '端口' });
+  await expect(port).toBeFocused();
+  await expect(port).toHaveValue('51234');
   // Another port: the address to forward to with it at once, and what moving the server does.
   await domain.fill('meter.example.com/starmeter');
   await port.fill('8765');
-  await expect(phone.locator('.forward .address')).toHaveText('127.0.0.1:8765');
+  await expect(target).toHaveText('127.0.0.1:8765');
   await expect(phone.locator('.note.caution')).toHaveText('换了端口：同一个网络的二维码改用新端口，手机要重新扫；Cloudflare 链接会关闭');
   await button(page, '开始').click();
   await expect(phone.locator('.failed')).toHaveText('域名的格式不对：只填域名，比如 meter.example.com');
@@ -3325,31 +3344,34 @@ test('在手机上看: 任何网络 through your own domain: its address and por
   await expect(phone.locator('svg.qr')).toHaveCount(1);
   await expect(phone.locator('.address')).toHaveText('https://meter.example.com/');
   await expect(phone.locator('.check.ok')).toHaveText('已确认能通过 meter.example.com 打开');
-  await expect(phone.getByText('经你的反代转发到这台电脑的 127.0.0.1:8765')).toBeVisible();
+  await expect(phone.getByText('经这台电脑上的反代转发到 127.0.0.1:8765，局域网里的设备连不上')).toBeVisible();
   await expect(own.locator('.on')).toHaveCount(1);
   await expect(cloudflare.locator('.on')).toHaveCount(0);
   await expect(anywhere.locator('.on')).toHaveCount(1);
   // One server, one port: the same network's codes moved to it, still opening.
   await local.click();
   await expect(phone.locator('.address')).toHaveText(['192.168.1.20:8765', '100.76.55.73:8765']);
-  // Its 停止: its own link only; its address and port stay for the next 开始.
+  // Its 停止: its own link only; its address, port and where the proxy runs stay for the next 开始.
   await anywhere.click();
   await button(page, '停止').click();
   await expect(phone.locator('svg.qr')).toHaveCount(0);
   await expect(domain).toHaveValue('meter.example.com');
-  await expect(port).toHaveValue('8765');
+  await expect(target).toHaveText('127.0.0.1:8765');
   await expect(phone.getByText('原来的二维码和链接已失效')).toBeVisible();
   await expect(anywhere.locator('.on')).toHaveCount(0);
   await expect(local.locator('.on')).toHaveCount(1);
-  // On again, then the app started again: on as it was left, its page shown.
+  // On again with the proxy on a NAS, then the app started again: on as it was left, its page shown.
+  await nearby.click();
   await button(page, '开始').click();
   await expect(phone.locator('.address')).toHaveText('https://meter.example.com/');
+  await expect(phone.getByText('经 NAS 或路由器上的反代转发到这台电脑的 192.168.1.20:8765')).toBeVisible();
   await open(page, '?tailnet');
   await expect(phoneDot(page)).toBeVisible();
   await button(page, '在手机上看').click();
   await anywhere.click();
   await expect(own).toHaveAttribute('aria-checked', 'true');
   await expect(phone.locator('.address')).toHaveText('https://meter.example.com/');
+  await expect(phone.getByText('经 NAS 或路由器上的反代转发到这台电脑的 192.168.1.20:8765')).toBeVisible();
 });
 
 test('在手机上看: Cloudflare\'s link and your own domain on at once, each stopping on its own', async ({ page }) => {
@@ -3400,26 +3422,71 @@ test('在手机上看: your own domain says why it didn\'t start or doesn\'t ope
     await button(page, '开始').click();
   };
   const phone = page.locator('.phone-page');
-  // The port taken by another app: said under the fields, nothing on.
+  const answerCheck = () => page.evaluate(() => (window as unknown as { answerCheck: () => void }).answerCheck());
+  // The port taken by another app: said under the fields, nothing on, the port's field open to pick another.
   await start('?port-taken', 'meter.example.com');
   await expect(phone.locator('.failed')).toHaveText('端口 51234 被别的程序占用');
   await expect(phone.locator('svg.qr')).toHaveCount(0);
-  // The proxy answering with its own page: on, with what to look at, and 再检查.
-  await start('?domain-502', 'meter.example.com');
+  await expect(phone.getByRole('textbox', { name: '端口' })).toBeFocused();
+  // The proxy answering with its own page: on, with what to look at, and 再检查 (the check held until answered, so
+  // its wait is seen whatever the machine's pace).
+  await start('?domain-502&check-held', 'meter.example.com');
+  await expect(phone.locator('.check')).toHaveText('正在确认手机能打开…');
+  await answerCheck();
   const caution = phone.locator('.check.caution');
   await expect(caution).toContainText('meter.example.com 有回应（HTTP 502），但不是 Starmeter：检查反代是否转发到 127.0.0.1:51234');
   await caution.getByRole('button', { name: '再检查' }).click();
   await expect(phone.locator('.check')).toHaveText('正在确认手机能打开…');
+  await answerCheck();
   await expect(caution).toBeVisible();
   await button(page, '停止').click();
-  // Nothing answering: why, as a caution (a phone outside may still get through).
+  // Nothing answering: why, in words to act on, as a caution (a phone outside may still get through).
   await start('?domain-unreachable', 'meter.example.com');
-  await expect(caution).toContainText('这台电脑没能打开 meter.example.com（timed out）');
+  await expect(caution).toContainText('这台电脑没能打开 meter.example.com（找不到这个域名）');
+  await button(page, '停止').click();
+  // The asking itself failing: said so, with 再检查, not left blank.
+  await start('?check-fails', 'meter.example.com');
+  await expect(caution).toContainText('没能检查 meter.example.com 能不能打开');
+  await expect(caution.getByRole('button', { name: '再检查' })).toBeVisible();
   await button(page, '停止').click();
   // An http address sent on to https: to give it as https.
   await start('?domain-redirect', 'http://home.lan:8080');
   await expect(caution).toContainText('总是跳到 https 时，把域名改成 https://home.lan:8080');
   await expect(phone.getByText('域名用 https 时才能用')).toBeVisible();
+});
+
+test('在手机上看: your own domain starts once for Return pressed twice, and moving the port closes Cloudflare\'s link without calling it a failure', async ({ page }) => {
+  // The host takes its time (a held port asked again): a second Return while it is on its way does nothing, and the
+  // first start's answer is shown.
+  await open(page, '?slow-domain');
+  await button(page, '在手机上看').click();
+  const phone = page.locator('.phone-page');
+  const cloudflare = page.getByRole('radio', { name: 'Cloudflare 临时链接' }), own = page.getByRole('radio', { name: '自有域名' });
+  await page.getByRole('radio', { name: '任何网络' }).click();
+  // Cloudflare's link on first.
+  await button(page, '开始').click();
+  await expect(phone.locator('.address')).toHaveText('https://quiet-river-1234.trycloudflare.com/');
+  await own.click();
+  const domain = phone.getByRole('textbox', { name: '域名' });
+  await domain.fill('meter.example.com');
+  await phone.getByRole('button', { name: '换端口' }).click();
+  await phone.getByRole('textbox', { name: '端口' }).fill('8765');
+  await expect(phone.locator('.note.caution')).toContainText('Cloudflare 链接会关闭');
+  await domain.press('Enter');
+  // While it is on its way: the port emptied and Return again, which once dropped the first start's answer and left
+  // 开始 greyed out for good.
+  await phone.getByRole('textbox', { name: '端口' }).fill('');
+  await domain.press('Enter');
+  await expect(phone.locator('.failed')).toHaveCount(0);
+  await expect(phone.locator('svg.qr')).toHaveCount(1);
+  await expect(phone.locator('.address')).toHaveText('https://meter.example.com/');
+  await expect(button(page, '停止')).toBeEnabled();
+  // Cloudflare's page: closed by the move, said as stopped, not as a link that failed.
+  await cloudflare.click();
+  await expect(phone.getByRole('status')).toContainText('外网链接已关闭');
+  await expect(phone.getByText('没能生成外网链接')).toHaveCount(0);
+  await expect(cloudflare.locator('.on')).toHaveCount(0);
+  await expect(own.locator('.on')).toHaveCount(1);
 });
 
 test('typing into a field lets the input method\'s candidate window show above the panel, and Return or Esc that end its composition stay with it', async ({ page }) => {
@@ -3442,12 +3509,15 @@ test('typing into a field lets the input method\'s candidate window show above t
   const phone = page.locator('.phone-page');
   await page.getByRole('radio', { name: '任何网络' }).click();
   await page.getByRole('radio', { name: '自有域名' }).click();
+  await phone.getByRole('button', { name: '换端口' }).click();
   const domain = phone.getByRole('textbox', { name: '域名' }), port = phone.getByRole('textbox', { name: '端口' });
-  await domain.click();
   await expect.poll(typing).toBe(true);
-  // From the domain to the port is one stretch of typing: nothing goes back up in between.
-  await page.keyboard.press('Tab');
-  await expect(port).toBeFocused();
+  // From the port to the domain is one stretch of typing: nothing goes back up in between.
+  await domain.click();
+  await page.waitForTimeout(100);
+  expect(await told()).toEqual([true]);
+  await port.click();
+  await domain.click();
   await page.waitForTimeout(100);
   expect(await told()).toEqual([true]);
   await domain.click();
