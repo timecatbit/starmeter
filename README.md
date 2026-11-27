@@ -14,7 +14,7 @@
 <p align="center">
   <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/home-dark.png"><img src="docs/images/home-light.png" width="250" align="top" alt="主页：今天的 API 估算、Token 和请求，趋势图、热力图和各工具卡片"></picture>
   <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/subscription-dark.png"><img src="docs/images/subscription-light.png" width="250" align="top" alt="Claude 订阅：每个窗口已用多少、何时重置、比匀速多用还是少用"></picture>
-  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/live-dark.png"><img src="docs/images/live-light.png" width="250" align="top" alt="钉住后的实时图：近 1 分钟每个工具新增的 Token，下面是正在运行的会话和动态"></picture>
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/live-dark.png"><img src="docs/images/live-light.png" width="250" align="top" alt="钉住后的实时图：近 1 分钟每个工具每秒输出的 Token，下面是正在运行的会话和动态"></picture>
 </p>
 
 Starmeter 是 macOS 菜单栏（独立 App 或 SwiftBar 插件）和 Windows、Linux 托盘里的一颗星星，终端里也能用 `starmeter` 命令看。它只读本机已有的用量记录和你启用的官方接口，不需要账号、不经过任何中转服务器。免费开源。界面有简体中文、繁體中文和英文，在“齿轮 → 通用 → 语言”切换。

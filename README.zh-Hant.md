@@ -14,7 +14,7 @@
 <p align="center">
   <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/zh-Hant/home-dark.png"><img src="docs/images/zh-Hant/home-light.png" width="250" align="top" alt="主頁：今天的 API 估算、Token 和請求，趨勢圖、熱力圖和各工具卡片"></picture>
   <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/zh-Hant/subscription-dark.png"><img src="docs/images/zh-Hant/subscription-light.png" width="250" align="top" alt="Claude 訂閱：每個窗口已用多少、何時重置、比勻速多用還是少用"></picture>
-  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/zh-Hant/live-dark.png"><img src="docs/images/zh-Hant/live-light.png" width="250" align="top" alt="釘住後的實時圖：近 1 分鐘每個工具新增的 Token，下面是正在運行的會話和動態"></picture>
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/zh-Hant/live-dark.png"><img src="docs/images/zh-Hant/live-light.png" width="250" align="top" alt="釘住後的實時圖：近 1 分鐘每個工具每秒輸出的 Token，下面是正在運行的會話和動態"></picture>
 </p>
 
 Starmeter 是 macOS 菜單欄（獨立 App 或 SwiftBar 插件）和 Windows、Linux 托盤裡的一顆星星，終端裡也能用 `starmeter` 命令看。它只讀本機已有的用量記錄和你啟用的官方接口，不需要賬號、不經過任何中轉服務器。免費開源。界面有簡體中文、繁體中文和英文，在“齒輪 → 通用 → 語言”切換。

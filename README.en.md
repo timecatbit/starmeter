@@ -14,7 +14,7 @@ Each tool's tokens and API-equivalent cost, subscription limits, API balances an
 <p align="center">
   <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/en/home-dark.png"><img src="docs/images/en/home-light.png" width="250" align="top" alt="Home: today's API estimate, tokens and requests, the trend, the heatmap and a card per tool"></picture>
   <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/en/subscription-dark.png"><img src="docs/images/en/subscription-light.png" width="250" align="top" alt="Claude subscription: how much of each window is used, when it resets, and whether you are ahead of an even pace"></picture>
-  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/en/live-dark.png"><img src="docs/images/en/live-light.png" width="250" align="top" alt="The live chart after pinning: each tool's tokens added in the last minute, the running sessions and the activity below"></picture>
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/en/live-dark.png"><img src="docs/images/en/live-light.png" width="250" align="top" alt="The live chart after pinning: each tool's output tokens a second over the last minute, the running sessions and the activity below"></picture>
 </p>
 
 Starmeter is a star in the macOS menu bar (a standalone app or a SwiftBar plugin) and the Windows or Linux tray, with a `starmeter` command for the terminal too. It reads only the usage records already on your computer and the official APIs you turn on: no account, no relay server in between. Free and open source. The panel is in Simplified Chinese, Traditional Chinese or English: switch under the gear → General → Language.
