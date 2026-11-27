@@ -70,7 +70,7 @@
     <div bind:this={content}>{@render children()}</div>
   </div>
   {#if knob}
-    <span class="knob" class:shown={scrolling} style:top="{knob.top + 2}px" style:height="{Math.max(0, knob.height - 4)}px"></span>
+    <span class="knob" class:shown={scrolling} style:transform="translateY({knob.top + 2}px)" style:height="{Math.max(0, knob.height - 4)}px"></span>
   {/if}
 </div>
 
@@ -91,6 +91,7 @@
   .viewport::-webkit-scrollbar { display: none; }
   .knob {
     position: absolute;
+    top: 0;
     right: 0.5px;
     width: 3px;
     border-radius: 1.5px;
@@ -98,6 +99,7 @@
     opacity: 0;
     transition: opacity 0.3s;
     pointer-events: none;
+    will-change: transform;
   }
   .knob.shown { opacity: 1; transition-duration: 0.1s; }
 </style>

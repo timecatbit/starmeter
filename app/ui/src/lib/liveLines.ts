@@ -85,13 +85,22 @@ export function drawLines(ctx: CanvasRenderingContext2D, o: {
     ctx.strokeStyle = alpha(tool.colour, LINE.toolAlpha);
     for (const run of runs(tool.points, on)) { curve(run); ctx.stroke(); o.again?.(run); }
   }
-  // The total's line over them.
+  // The total's line over them. Use a fast translucent halo pass instead of ctx.shadowBlur (which forces expensive
+  // Gaussian blur over the whole Bezier path on every frame in CoreGraphics/Skia, PERF-2).
   if (o.total.length > 1) {
-    ctx.save();
-    if (o.glow) { ctx.shadowColor = o.glow; ctx.shadowBlur = 8; }
+    if (o.glow) {
+      // Two widening strokes, fainter outward: soft at its edge as the blur was, not a band.
+      ctx.save();
+      ctx.strokeStyle = o.glow;
+      for (const [wider, strength] of [[8, 0.12], [4, 0.2]] as const) {
+        ctx.lineWidth = LINE.total + wider;
+        ctx.globalAlpha = strength;
+        curve(o.total); ctx.stroke();
+      }
+      ctx.restore();
+    }
     ctx.lineWidth = LINE.total; ctx.strokeStyle = o.totalColour;
     curve(o.total); ctx.stroke();
-    ctx.restore();
     o.again?.(o.total);
   }
   // A dot at the end of each tool still writing at the end, one a little off the total's; none on top of it or of

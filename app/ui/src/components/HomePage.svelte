@@ -4,17 +4,42 @@
   // row in focus. The tool cards keep their order by usage.
   import { tick, type Snippet } from 'svelte';
   import { onPhone } from '../lib/backend';
-  import { entryKey } from '../lib/detail';
+  import { usageColor } from '../lib/colors';
+  import { entryKey, usageShare } from '../lib/detail';
+  import { closeList, listOpen, openList } from '../lib/expanded.svelte';
   import { t } from '../lib/i18n.svelte';
   import type { Entry } from '../lib/types';
   import { panel } from '../lib/ui.svelte';
   import HomeRow from './HomeRow.svelte';
   import Scroller from './Scroller.svelte';
 
-  let { entries, dashboard, scrollTop = $bindable(0), onactivate, onmove, onheight }: {
-    entries: Entry[]; dashboard: Snippet | null; scrollTop?: number; onactivate: (e: Entry) => void;
+  let { entries, dashboard, collapsible = false, scrollTop = $bindable(0), onactivate, onmove, onheight }: {
+    entries: Entry[]; dashboard: Snippet | null; collapsible?: boolean; scrollTop?: number; onactivate: (e: Entry) => void;
     onmove: (action: string[]) => void; onheight: (height: number) => void;
   } = $props();
+
+  // FOLD-1: Subscriptions, API, and Other fold together as one combined block when 允许折叠 is on, keeping a compact
+  // quick-glance subscription summary on the fold bar so plan usage stays immediately accessible.
+  const canFoldRows = $derived(collapsible && !onPhone && entries.some((e) => !e.separator));
+  const rowsOpen = $derived(!canFoldRows || listOpen('home-rows'));
+  const toggleRows = () => (listOpen('home-rows') ? closeList('home-rows') : openList('home-rows'));
+  const shortPlan = (label: string) => label.replace(/(?:\s*(?:订阅|訂閱|plan|Plan))$/i, '').trim() || label;
+  const shortShare = (value: string) => {
+    const pct = /(\d[\d.]*%)/.exec(value);
+    return pct ? pct[1] : value;
+  };
+  const planPreview = $derived.by(() => {
+    const items: { label: string; value: string; level?: string }[] = [];
+    for (const e of entries) {
+      if (e.separator) continue;
+      if (usageShare(e) !== null || (e.gauges?.length ?? 0) > 0) {
+        if (e.value) items.push({ label: shortPlan(e.label), value: shortShare(e.value), level: e.usageLevel });
+      }
+    }
+    return items.slice(0, 3);
+  });
+  const attentionCount = $derived(entries.filter((e) => !e.separator && e.attention).length);
+  const rowCount = $derived(entries.filter((e) => !e.separator).length);
 
   const hasIcon = (e: Entry) => e.image !== undefined || e.symbol !== undefined || e.checked !== undefined || e.statusLight !== undefined;
   const column = $derived(entries.some(hasIcon) ? 36 : 12);
@@ -145,6 +170,30 @@
     {/if}
     <div class="rows" class:dragging={lifted !== null}>
       <div class="divider lead"></div>
+      {#if canFoldRows}
+        <button class="rows-fold pressable" aria-expanded={rowsOpen} aria-label={t(rowsOpen ? '收起订阅与服务' : '展开订阅与服务')} onclick={toggleRows}>
+          <svg class="fold-chevron" class:open={rowsOpen} width="8" height="10" viewBox="0 0 8 10" aria-hidden="true">
+            <path d="M2 1 6 5 2 9" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <span class="fold-title">{t('订阅与服务')}</span>
+          {#if !rowsOpen}
+            <span class="fold-preview">
+              {#if planPreview.length}
+                {#each planPreview as item, idx (idx)}
+                  {#if idx > 0}<span class="fold-dot">·</span>{/if}
+                  <span class="fold-item">{item.label} <span class="num" style:color={usageColor(item.level)}>{item.value}</span></span>
+                {/each}
+              {:else}
+                <span class="fold-item">{t('共 {n} 项', { n: rowCount })}</span>
+              {/if}
+              {#if attentionCount > 0}<span class="fold-ping" aria-hidden="true"></span>{/if}
+            </span>
+          {:else}
+            <span class="fold-hint">{t('收起')}</span>
+          {/if}
+        </button>
+      {/if}
+      {#if rowsOpen}
       {#each entries as entry, i (entry.module ?? entryKey(entry) + ':' + i)}
         {#if entry.separator}
           <div class="divider"></div>
@@ -159,6 +208,7 @@
           <HomeRow {entry} {column} rowWidth={panel.width - 16} {onactivate} />
         {/if}
       {/each}
+      {/if}
     </div>
   </Scroller>
 </div>
@@ -205,4 +255,59 @@
     cursor: grabbing;
   }
   .dragging :global(.row) { pointer-events: none; }
+  .rows-fold {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    min-height: 28px;
+    padding: 4px 12px;
+    box-sizing: border-box;
+    border-radius: 7px;
+    text-align: left;
+  }
+  .rows-fold:hover { background: var(--hover); }
+  .rows-fold:active { background: var(--press); }
+  .fold-chevron {
+    flex: none;
+    color: var(--secondary);
+    transition: transform 0.2s var(--page-curve);
+  }
+  .fold-chevron.open { transform: rotate(90deg); }
+  .fold-title {
+    flex: none;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--label);
+  }
+  .fold-preview {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: 10.5px;
+    color: var(--secondary);
+  }
+  .fold-item {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .fold-dot { opacity: 0.45; flex: none; }
+  .fold-ping {
+    flex: none;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+  .fold-hint {
+    margin-left: auto;
+    font-size: 10.5px;
+    color: var(--secondary);
+  }
 </style>

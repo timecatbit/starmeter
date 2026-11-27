@@ -29,12 +29,21 @@
   let pointed = $state<number | null>(null);
   const caption = $derived(pointed !== null ? detail(heatmap, pointed) : note(heatmap));
   let box: SVGSVGElement | undefined = $state();
+  let moveFrame = 0;
 
+  function leave() { cancelAnimationFrame(moveFrame); pointed = null; }
+  // Once a frame at most (PERF-8), and where the squares are then: the homepage scrolls under a still pointer, so a
+  // place kept from when the pointer came in pointed at the wrong day after a scroll.
   function move(event: PointerEvent) {
     if (!box) return;
-    const frame = box.getBoundingClientRect();
-    const index = layout.index(event.clientX - frame.left + layout.x - 2, event.clientY - frame.top + layout.y - 2);
-    pointed = index !== null && index < past ? index : null;
+    const cx = event.clientX, cy = event.clientY;
+    cancelAnimationFrame(moveFrame);
+    moveFrame = requestAnimationFrame(() => {
+      if (!box) return;
+      const frame = box.getBoundingClientRect();
+      const index = layout.index(cx - frame.left + layout.x - 2, cy - frame.top + layout.y - 2);
+      pointed = index !== null && index < past ? index : null;
+    });
   }
 </script>
 
@@ -45,7 +54,7 @@
     {/if}
   {/each}
   <svg bind:this={box} class="squares" style:left="{layout.x - 2}px" style:top="{8 - 2}px" width={layout.width + 4} height={layout.height + 4}
-    onpointermove={move} onpointerleave={() => (pointed = null)} role="img" aria-label={t('用量热力图')}>
+    onpointermove={move} onpointerleave={leave} role="img" aria-label={t('用量热力图')}>
     <g transform="translate({2 - layout.x}, {2 - layout.y})">
       {#each squares as square, i (i)}
         <circle class="cell" cx={square.x + square.size / 2} cy={square.y + square.size / 2} r={dotRadius(square.size, levels[i], i >= past)}

@@ -483,10 +483,10 @@ test('a request a gateway counts adds to the live line, however long its prompt 
   });
   expect(seen.carried).toBe(true);
   expect(seen.added).toBe(9000);
-  expect(seen.rate).toBeCloseTo(10 / 60, 5);
+  expect(seen.rate).toBeCloseTo(10 / 10, 5);
 });
 
-test('Token/s is the last minute\'s output over 60 seconds, even just after pinning', async ({ page }) => {
+test('Token/s uses exponential decay over RATE_TAU instead of dividing by pin time or holding a flat 60s plateau', async ({ page }) => {
   await open(page);
   const rates = await page.evaluate(async () => {
     const { backend } = await import('/src/lib/backend.ts');
@@ -497,14 +497,13 @@ test('Token/s is the last minute\'s output over 60 seconds, even just after pinn
     feed.add(today, t);
     // Two seconds after pinning, a request that wrote 4,000 tokens over its whole run is logged at once.
     feed.add(out(4000), t + 2000);
-    // Read the same way every few seconds; the 4,000 leaves the window 60 seconds after it landed.
-    return [feed.rateAt(t + 2000) ?? 0, feed.rateAt(t + 30_000) ?? 0, feed.rateAt(t + 61_000) ?? 0, feed.rateAt(t + 63_000) ?? 0];
+    // Peaks immediately at 4000 / 10s = 400 Token/s (not 4000 / 2s = 2000), then smoothly decays once idle.
+    return [feed.rateAt(t + 2000) ?? 0, feed.rateAt(t + 12_000) ?? 0, feed.rateAt(t + 32_000) ?? 0, feed.rateAt(t + 100_000) ?? 0];
   });
-  // 4,000 over 60 seconds, not over the 2 since pinning (which read as 2,000 a second); gone once the minute passes it.
-  expect(Math.round(rates[0])).toBe(67);
-  expect(Math.round(rates[1])).toBe(67);
-  expect(Math.round(rates[2])).toBe(67);
-  expect(Math.round(rates[3])).toBe(0);
+  expect(Math.round(rates[0])).toBe(400);
+  expect(Math.round(rates[1])).toBe(Math.round(400 * Math.exp(-1)));
+  expect(Math.round(rates[2])).toBe(Math.round(400 * Math.exp(-3)));
+  expect(rates[3]).toBe(0);
 });
 
 test('会话 sits beside the groupings: running first, what each cost in the range, five shown and the rest behind 查看更多', async ({ page }) => {
@@ -3141,4 +3140,86 @@ test('the page carries no inline style: in the app, under its CSP, nothing stand
     above: document.getElementById('app')!.getBoundingClientRect().top - document.body.getBoundingClientRect().top,
     filters: getComputedStyle(document.querySelector('svg.filters')!).position,
   }))).toEqual({ above: 0, filters: 'absolute' });
+});
+
+test('FOLD-1: 允许折叠 folds subscriptions, API and other into one bar with quick-glance plan usage, unfolding in place', async ({ page }) => {
+  await open(page);
+  // Before enabling 允许折叠: lower rows are shown directly with no combined fold toggle.
+  await expect(page.locator('.rows-fold')).toHaveCount(0);
+  await expect(page.locator('.row', { hasText: 'Kimi API' })).toBeVisible();
+  // Enable 允许折叠 in 外观.
+  await button(page, '主页模块与设置').click();
+  await page.getByText('外观', { exact: true }).click();
+  await page.getByRole('switch', { name: /^允许折叠/ }).click();
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  // Lower groups collapse into one combined bar showing subscription preview; individual rows are hidden.
+  const toggle = page.locator('.rows-fold');
+  await expect(toggle).toBeVisible();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(toggle.locator('.fold-preview')).toBeVisible();
+  await expect(toggle).toContainText('ChatGPT');
+  await expect(page.locator('.row', { hasText: 'Kimi API' })).toHaveCount(0);
+  // Clicking the bar expands subscriptions, API, and other rows in place.
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator('.row', { hasText: 'Kimi API' })).toBeVisible();
+  // Clicking again collapses them back into one bar.
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('.row', { hasText: 'Kimi API' })).toHaveCount(0);
+});
+
+test('PERF-10: LiveFeed.smoothRates reacts immediately on landing without 10s delay and decays naturally when idle', async ({ page }) => {
+  await open(page);
+  const result = await page.evaluate(async () => {
+    const { LiveFeed } = await import('/src/lib/live.ts');
+    const feed = new LiveFeed();
+    const base = {
+      rangeKey: 'today', rangeLabel: '今天', chartUnit: '小时', chartSpan: '00:00–10:00',
+      providers: [{ id: 'codex', name: 'ChatGPT', available: true, tokens: 1000, output: 1000, requests: 1, cost: 0.01, unpriced: 0, cache: null, models: [], history: [] }],
+      dates: ['09:00', '10:00'],
+    };
+    const t0 = 1_700_000_000_000;
+    // Steady baseline for 60s, then a sudden 1000-token output burst lands at t0 + 60_000 (= 100 Token/s instantaneous peak).
+    for (let s = 0; s < 60; s += 2) feed.add(base as never, t0 + s * 1000);
+    const burst = { ...base, providers: [{ ...base.providers[0], tokens: 2000, output: 2000, requests: 2 }] };
+    feed.add(burst as never, t0 + 60_000);
+    // Right at landing (t = t0 + 60_000): leading edge jumps immediately (>= 60% of raw peak).
+    const timesAtLand = Array.from({ length: 61 }, (_, i) => t0 + i * 1000);
+    const atLand = feed.smoothRates(timesAtLand).at(-1)!;
+    // Two seconds later: crests smoothly; 20 seconds later with no more output: clearly decaying (no 60s flat plateau).
+    feed.add(burst as never, t0 + 62_000);
+    const times = Array.from({ length: 81 }, (_, i) => t0 + i * 1000);
+    const smoothed = feed.smoothRates(times);
+    const raw60 = feed.rateSeries([t0 + 60_000])[0] ?? 0;
+    const at2s = smoothed[62];
+    const at20s = smoothed[80];
+    const solo = feed.smoothRates([t0 + 80_000])[0];
+    return { raw60, atLand, at2s, at20s, solo, minVal: Math.min(...smoothed) };
+  });
+  expect(result.raw60).toBeCloseTo(100, 1);
+  // Immediate onset: >= 60% of raw peak visible at landing (t=0) and >= 75% crest by t=+2s.
+  expect(result.atLand / result.raw60).toBeGreaterThanOrEqual(0.6);
+  expect(result.at2s / result.raw60).toBeGreaterThanOrEqual(0.75);
+  // Natural decay once idle (after 20s, down below 25% of peak instead of staying flat for 60s).
+  expect(result.at20s).toBeLessThan(result.at2s * 0.25);
+  // Headline rate (solo) stays consistent with curve endpoint and curve is non-negative.
+  expect(Math.abs(result.solo - result.at20s)).toBeLessThan(0.05);
+  expect(result.minVal).toBeGreaterThanOrEqual(0);
+});
+
+test('closing the panel from 模型/项目/会话 resets to 工具 while hidden so reopening never visibly jumps', async ({ page }) => {
+  await open(page);
+  const tab = (name: string) => page.getByRole('radiogroup', { name: '卡片分组' }).getByRole('radio', { name, exact: true });
+  await tab('模型').click();
+  await expect(tab('模型')).toHaveAttribute('aria-checked', 'true');
+  // Closing the panel immediately resets back to 工具 while hidden (before panel-opened even arrives).
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('panel-closed')));
+  await expect(tab('工具')).toHaveAttribute('aria-checked', 'true');
+  await expect(page.locator('.list .card .name').first()).toHaveText('Claude');
+  // Reopening finds 工具 already painted on the first frame.
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('panel-opened', { detail: { modules: false, maxHeight: 900 } })));
+  await expect(tab('工具')).toHaveAttribute('aria-checked', 'true');
+  await expect(page.locator('.list .card .name').first()).toHaveText('Claude');
 });

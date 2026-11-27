@@ -14,21 +14,24 @@
 
   const live = new PhoneLive();
   let now = $state(Date.now());
-  // Read and ticking only while the panel is on screen (STAGE-11: closed, it went on asking every couple of seconds and
-  // counting the seconds in a hidden window). Back on screen, the minutes it missed come in at once from the app's
-  // last minutes (PhoneLive asks for them after being away), 动态 too.
+  // Read only while the panel is on screen (STAGE-11).
   $effect(() => {
     if (!panel.shown) return;
     live.start();
-    now = Date.now();
-    const ticking = setInterval(() => (now = Date.now()), 1000);
-    return () => { live.stop(); clearInterval(ticking); };
+    return () => live.stop();
   });
 
   /** 动态: the newest twelve, none folded away (用户：你默认显示12个动作就很好……实时这里不用折叠); pinned, the panel fits
    *  down to the third (Dashboard), the rest a scroll away. */
   const SHOWN = 12;
   const running = $derived(live.sessions.filter((s) => s.running));
+  // Only run the 1s clock interval while at least one session is actively running (PERF-4).
+  $effect(() => {
+    if (!panel.shown || !running.length) return;
+    now = Date.now();
+    const ticking = setInterval(() => (now = Date.now()), 1000);
+    return () => clearInterval(ticking);
+  });
   const latest = $derived(live.sessions.find((s) => !s.running) ?? null);
   /** The cards: the sessions running, else the one last at work, greyed (as 网页版's 正在运行). */
   const shown = $derived(running.length ? running : latest ? [latest] : []);

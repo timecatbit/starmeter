@@ -27,6 +27,7 @@
   import PhoneStage from './components/PhoneStage.svelte';
   import StageWaiting from './components/StageWaiting.svelte';
   import HomePage from './components/HomePage.svelte';
+  import { closeList } from './lib/expanded.svelte';
   import InlineAsk from './components/InlineAsk.svelte';
   import ModulesPage from './components/ModulesPage.svelte';
   import SharePage from './components/SharePage.svelte';
@@ -38,8 +39,10 @@
   let busyNow = $state<string[] | null>(null);
   const syncBusy = () => { busyNow = interaction.active ? [...interaction.active] : null; };
   let version = $state(0);
+  // Single displayed() clone shared between snapshot and pending updates (PERF-4).
+  const rawSnapshot: Snapshot | null = $derived.by(() => { void version; return interaction.displayed(); });
   // As the panel shows it: in the language chosen, with the 语言 row in 通用.
-  const snapshot: Snapshot | null = $derived.by(() => { void version; const shown = interaction.displayed(); return shown && localize(shown); });
+  const snapshot: Snapshot | null = $derived(rawSnapshot && localize(rawSnapshot));
   let info = $state<ShellInfo>({ platform: 'browser', mode: 'browser', version: '', maxHeight: 900, modules: false });
 
   // MARK: Where the panel is
@@ -128,7 +131,7 @@
   let toolId = $state<string | null>(null);
   const tool = $derived(toolId ? snapshot?.dashboard?.providers.find((p) => p.id === toolId) ?? null : null);
   /** A newer version waiting (updateHints.svelte.ts), judged on the engine's own words, before any translation. */
-  const pending = $derived.by(() => { void version; const raw = interaction.displayed(); return raw ? pendingUpdates(raw.entries) : null; });
+  const pending = $derived(rawSnapshot ? pendingUpdates(rawSnapshot.entries) : null);
   const updateMark = $derived(pending && updateHints.on && !onPhone ? { count: pending.count, own: pending.own, fresh: pending.key !== updateHints.seen } : null);
   /** What the mark says on hover: Starmeter's new version, the tools with one, or both. */
   const updateSaid = $derived.by(() => {
@@ -168,9 +171,12 @@
    *  看工具，无论上次停留在哪里). Picked again while it is open, a tab or grouping holds until it closes. The grouping is
    *  the computer's own (set-group, kept in its preferences: the cards are read for it), so it is set back to 工具 when it
    *  is another; a phone's 网页版 keeps its own. */
-  function homeOnTools() {
+  function homeOnTools(silent = false) {
     const shown = snapshot?.dashboard;
-    if (shown && groupShown(shown) !== 'tool' && interaction.latest('set-group') === null) perform(['set-group', 'tool']);
+    if (shown && groupShown(shown) !== 'tool' && interaction.latest('set-group') === null) {
+      if (silent) pickedGroup = null;
+      perform(['set-group', 'tool']);
+    }
   }
   /** The size the user gave the pinned panel at its edges: the homepage and the pages take it (the module grid keeps
    *  its own) until unpinned. */
@@ -190,20 +196,34 @@
   // Pinned, the homepage is never shorter than its top down to the heatmap, whatever size it was given.
   let floorHeight = $state(0);
   const homeFloor = $derived(Math.max(220, Math.round(8 + floorHeight + 8)));
-  $effect(() => { if (pinned) void shell.setMinHeight(onPage || grid ? 220 : homeFloor); });
+  let lastMinHeight = -1;
+  $effect(() => {
+    if (!pinned) { lastMinHeight = -1; return; }
+    const target = onPage || grid ? 220 : homeFloor;
+    if (target === lastMinHeight) return;
+    lastMinHeight = target;
+    void shell.setMinHeight(target);
+  });
   const panelHeight = $derived(free && !grid && !onPage ? Math.max(free.height, homeFloor)
     : free && onPage && pageHeight !== null ? pageHeight
     : Math.min(phoneOpen ? wanted.phone : sharing ? wanted.share : toolId ? wanted.tool : pageEntry ? wanted.page : managerOnly ? wanted.grid : wanted.home, info.maxHeight));
   $effect(() => { panel.width = onPhone ? phoneWidth : free?.width ?? 360; });
   let lastSize = '';
+  let resizeFrame = 0;
   /** The latest size asked of the shell, for an opening to wait on. */
   let sizing: Promise<void> = Promise.resolve();
   $effect(() => {
-    const resizable = pinned && !grid;
-    const size = `${panelWidth}x${Math.round(panelHeight)}${resizable ? ' resizable' : ''}`;
+    const w = panelWidth, h = Math.round(panelHeight), resizable = pinned && !grid;
+    const size = `${w}x${h}${resizable ? ' resizable' : ''}`;
     if (size === lastSize) return;
-    lastSize = size;
-    sizing = shell.resize(panelWidth, Math.round(panelHeight), !panel.reduceMotion, resizable).catch(() => {});
+    // Coalesce rapid same-transition size changes (e.g. viewKey width change + Scroller's real height 1 frame later)
+    // into a single shell.resize call so entering settings/detail pages never triggers two back-to-back animations (PERF-11).
+    cancelAnimationFrame(resizeFrame);
+    resizeFrame = requestAnimationFrame(() => {
+      if (size === lastSize) return;
+      lastSize = size;
+      sizing = shell.resize(w, h, !panel.reduceMotion, resizable).catch(() => {});
+    });
   });
 
   // MARK: Theme and background
@@ -211,12 +231,17 @@
   // 实色 (the default), 磨砂 or 玻璃; the shell says whether a material shows (not on Linux, not with Reduce
   // Transparency), and otherwise the page paints the solid colour.
   let glass = $state(false);
+  let lastLook = '';
   $effect(() => {
     // A phone keeps the computer's theme for its next load: until the computer answers, that one, not the phone's own.
     if (onPhone && snapshot?.theme) keepTheme(snapshot.theme);
     const theme = snapshot?.theme ?? (onPhone ? keptTheme() : 'system'), material = snapshot?.appearance ?? 'solid';
     panel.theme = theme;
     if (theme === 'system') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = theme;
+    // Deduplicate setLook IPC so every 2s snapshot tick does not call AppKit set_material on the main thread (PERF-4).
+    const key = `${theme}:${material}`;
+    if (key === lastLook) return;
+    lastLook = key;
     void shell.setLook(theme, material).then((shown) => (glass = shown));
   });
   /** The material under the window where it shows (for 手绘's papers, sketch.css); a phone's page has none under it. */
@@ -325,13 +350,22 @@
     const summaryGrew = summaryTotal(next) > summaryTotal(old);
     const rolling = readings(old) !== readings(next);
     if (!rolling && !Object.keys(grew).length && !summaryGrew) { shown = next; return; }
-    const start = performance.now();
+    const grewIds = Object.keys(grew);
+    const hasGlow = grewIds.length > 0 || summaryGrew;
+    if (!rolling && !hasGlow) { shown = next; return; }
+    const start = performance.now(), duration = hasGlow ? 1600 : 700;
+    let lastFrame = 0;
     const step = (now: number) => {
-      const elapsed = now - start, t = Math.min(1, elapsed / 700), fade = Math.max(0, 1 - elapsed / 1600) ** 2;
+      const elapsed = now - start;
+      if (elapsed < duration && lastFrame && now - lastFrame < 30) { motion = requestAnimationFrame(step); return; }
+      lastFrame = now;
+      const t = Math.min(1, elapsed / 700), fade = Math.max(0, 1 - elapsed / 1600) ** 2;
       shown = rolling && t < 1 ? mix(old, next, 1 - Math.pow(1 - t, 3)) : next;
-      glows = Object.fromEntries(Object.keys(grew).map((id) => [id, fade]));
-      summaryGlow = summaryGrew ? fade : 0;
-      if (elapsed < 1600) motion = requestAnimationFrame(step); else { shown = next; glows = {}; summaryGlow = 0; }
+      if (hasGlow) {
+        glows = Object.fromEntries(grewIds.map((id) => [id, fade]));
+        summaryGlow = summaryGrew ? fade : 0;
+      }
+      if (elapsed < duration) motion = requestAnimationFrame(step); else { shown = next; glows = {}; summaryGlow = 0; }
     };
     motion = requestAnimationFrame(step);
   }
@@ -589,6 +623,7 @@
       });
       return;
     }
+    if (action[0] === 'set-collapse' && action[1] === 'true') closeList('home-rows');
     if (action[0] === 'set-range') {
       pickedRange = action[1] === snapshot?.dashboard?.rangeKey && !waiting ? null : action[1];
       pickedAt = Date.now();
@@ -646,7 +681,8 @@
     const check = entry.onOpenAction;
     if (check?.length === 2 && Date.now() - (sourceChecks.get(check[1]) ?? 0) >= 5000) {
       sourceChecks.set(check[1], Date.now());
-      setTimeout(() => perform(check), 0);
+      // Let the slide-in transition finish before triggering a background refresh + reload (PERF-11).
+      setTimeout(() => perform(check), panel.reduceMotion ? 0 : 320);
     }
     if (!managerOnly) savedHome = homeScroll;
     panel.hint = null;
@@ -792,29 +828,44 @@
     void revealWhenDrawn();
   }
 
-  // The shell knows when a menu is open: the panel hidden like that, its window still holds the open menu as last
-  // drawn, so the next opening waits for the page to draw it folded.
-  $effect(() => { void shell.menuOpen(panel.menuOpen); });
+  // The shell knows when a menu is open or the window is away from the default homepage 工具 view: on macOS, hiding
+  // the panel freezes the last painted surface, so marking it stale lets the next open reveal only after the clean
+  // 工具 homepage has painted (eliminating any visible jump from 模型/项目/会话/实时 back to 工具).
+  const awayFromHomeTools = $derived(
+    panel.menuOpen || phoneOpen || sharing || !!toolId || !!pageEntry || managerOnly || pinned || view !== 'cards'
+    || (!!shown && groupShown(shown) !== 'tool'),
+  );
+  let lastStale: boolean | null = null;
+  $effect(() => {
+    const dirty = awayFromHomeTools;
+    if (dirty === lastStale) return;
+    lastStale = dirty;
+    void shell.menuOpen(dirty);
+  });
 
   const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-  /** Opening on another page than the closed panel drew (the module grid), the shell keeps the window clear until the
-   *  window has the page's size and the page has drawn into it. */
+  /** Opening on another page than the closed panel drew (the module grid, or back to 工具 from another tab), the shell
+   *  keeps the window clear until the window has the page's size and the page has drawn into it. */
   async function revealWhenDrawn() {
     if (!inTauri) return;
     await tick();
     await nextFrame();
     for (let i = 0; i < 30; i++) {
       await sizing;
-      if (Math.abs(window.innerWidth - panelWidth) <= 1 && Math.abs(window.innerHeight - Math.round(panelHeight)) <= 1) break;
+      const sized = Math.abs(window.innerWidth - panelWidth) <= 1 && Math.abs(window.innerHeight - Math.round(panelHeight)) <= 1;
+      const onHomeTools = managerOnly || pinned || onPhone || !shown || groupShown(shown) === 'tool';
+      if (sized && (onHomeTools || i >= 14)) break;
       await nextFrame();
     }
+    // Two frames: the first runs before the frame with the page is painted, the second after it, so the window is shown
+    // with the page drawn rather than the surface it froze on as it hid (MENU-4).
     await nextFrame();
     await nextFrame();
     void shell.shown();
   }
 
-  /** Closed: back to the homepage at once, so the next opening shows it rather than the page left open, with nothing
-   *  left focused. */
+  /** Closed: back to the homepage's 工具 immediately while hidden, so the next opening lands straight on 工具 without
+   *  flashing the previous tab/grouping or visibly jumping back. */
   function closed() {
     panel.shown = false;
     phoneOpen = false;
@@ -825,6 +876,11 @@
     ask.current = null;
     free = null;
     startOver(false);
+    if (!onPhone) {
+      view = 'cards';
+      viewBeforePin = null;
+      homeOnTools(true);
+    }
     (document.activeElement as HTMLElement | null)?.blur?.();
   }
 
@@ -890,7 +946,7 @@
   })() : null);
 </script>
 
-<svelte:window onkeydown={keydown} onresize={() => (screenWidth = window.innerWidth)} />
+<svelte:window onkeydown={keydown} onresize={() => { if (onPhone || keyless) screenWidth = window.innerWidth; }} />
 
 <div class="window" bind:this={windowBox} data-material={windowMaterial} class:solid={!glass} class:browser={!inTauri && !onPhone && !keyless} class:phone={onPhone || keyless} class:staged={stageShown || awaitingStage} oncontextmenu={contextmenu} role="application" aria-label={t('AI 用量面板')}
   onpointermove={() => { if (pinned) showChrome(); }} onpointerleave={() => { if (pinned && !cornerFrom) showChrome(700); }}
@@ -928,7 +984,7 @@
       {:else if snapshot && onPhone}
         <StageWaiting />
       {:else if snapshot}
-        <HomePage entries={shown ? without(snapshot.entries, sessions) : snapshot.entries} dashboard={shown ? dashboardView : null} bind:scrollTop={homeScroll} onactivate={activate}
+        <HomePage entries={shown ? without(snapshot.entries, sessions) : snapshot.entries} dashboard={shown ? dashboardView : null} collapsible={shown?.allowCollapse === true && !onPhone} bind:scrollTop={homeScroll} onactivate={activate}
           onmove={perform} onheight={(h) => (wanted.home = h)} />
       {/if}
     </div>

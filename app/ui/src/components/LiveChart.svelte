@@ -14,6 +14,7 @@
   import { compact, easeTwice, nice, rateText, type LiveFeed, type Sample, type Scale } from '../lib/live';
   import { drawLines, gridLine, halo, LINE } from '../lib/liveLines';
   import { font, ROUNDED, SANS, width } from '../lib/measure';
+  import { style } from '../lib/style.svelte';
   import { untrack } from 'svelte';
   import { panel } from '../lib/ui.svelte';
   import type { Dashboard, ProviderUsage } from '../lib/types';
@@ -65,6 +66,16 @@
   // Read by the drawing each frame.
   let leavingAt: number | null = null;
   $effect(() => { leavingAt = leaving; });
+  // Cached computed fonts: refreshed only when canvas, theme, or style changes instead of every 33ms frame (PERF-3).
+  let sansFont = SANS, roundedFont = ROUNDED;
+  $effect(() => {
+    void panel.dark; void style.current;
+    if (!canvas) return;
+    const css = getComputedStyle(canvas);
+    sansFont = css.fontFamily || SANS;
+    roundedFont = css.getPropertyValue('--rounded').trim() || ROUNDED;
+  });
+  const setAttr = (d: DOMStringMap, key: string, value: string) => { if (d[key] !== value) d[key] = value; };
 
   // The drawing runs for as long as the canvas is there; it reads the feed each frame, never the props reactively.
   $effect(() => {
@@ -128,11 +139,13 @@
       const rating = modeNow === 'rate';
       // A new mode, or a new range moving the line's height on the axis: the scale goes straight there, not sliding.
       if (drawnMode !== modeNow || drawnOffset !== feed.offset) { drawnMode = modeNow; drawnOffset = feed.offset; shown = null; }
-      const rates: [number, number][] = [];
-      // A point a second across the window, to now, in either mode.
+      // A point a second across the window, to now, in either mode: computed each frame, the last at this frame's now,
+      // so the line's end and its dot stay at the right edge (kept for the second, they slid left and jumped back).
+      // The whole series is a few hundred sums, nothing beside the drawing.
       const times: number[] = [];
       for (let t = Math.floor(start / 1000) * 1000; t < now; t += 1000) times.push(t);
       times.push(now);
+      const rates: [number, number][] = [];
       if (rating) {
         // Eased (smoothRates): a request rises and settles as a curve; the figure at the top right is the end's height.
         const eased = feed.smoothRates(times);
@@ -153,7 +166,7 @@
       const spread = amounts.length > 1 ? Math.max(...amounts) / Math.min(...amounts) : 1;
       if (!logNow && spread >= 20) { logNow = true; shown = null; }
       else if (logNow && spread < 10) { logNow = false; shown = null; }
-      canvas.dataset.scale = logNow ? 'log' : 'linear';
+      setAttr(canvas.dataset, 'scale', logNow ? 'log' : 'linear');
       // Room over the highest the line reaches (LINE.headroom), so a rise is never at the top edge.
       const target = rating ? { lo: 0, height: nice(Math.max(5, ...rates.map(([, r]) => r * LINE.headroom))) }
         : { lo: 0, height: nice(Math.max(2000, ...points.map((s) => (feed.value(s) - from) * LINE.headroom))) };
@@ -173,10 +186,8 @@
       const accentColour = starAccent(dark), total = summaryColour(dark);
       ctx.setTransform(scale, 0, 0, scale, 0, 0);
       ctx.clearRect(0, 0, W + PAD, H);
-      // The page's own fonts (手绘 writes in its hand, the default in the system's): the labels in its text font, the
-      // rate in the rounded figures every other number on the panel uses.
-      const sans = getComputedStyle(canvas).fontFamily || SANS;
-      const rounded = getComputedStyle(canvas).getPropertyValue('--rounded').trim() || ROUNDED;
+      // The page's own fonts (手绘 writes in its hand, the default in the system's): cached when theme/style changes.
+      const sans = sansFont, rounded = roundedFont;
       const text = (value: string, x: number, top: number, size: number, colour: string, align: CanvasTextAlign = 'left', weight = 400, family = sans) => {
         ctx.font = font(size, weight, family); ctx.fillStyle = colour; ctx.textAlign = align; ctx.textBaseline = 'top';
         ctx.fillText(value, x, top + 1);
@@ -279,9 +290,9 @@
         const added = base ? Math.max(0, (samples.at(-1)?.total ?? base.total) - base.total) : 0;
         const rate = feed.rate(now);
         // What the top right says, for whatever reads the page rather than the pixels (tests among them).
-        canvas.dataset.added = String(Math.round(added));
-        canvas.dataset.rate = String(Math.round(rate ?? 0));
-        canvas.dataset.samples = String(samples.length);
+        setAttr(canvas.dataset, 'added', String(Math.round(added)));
+        setAttr(canvas.dataset, 'rate', String(Math.round(rate ?? 0)));
+        setAttr(canvas.dataset, 'samples', String(samples.length));
         const unit = ' Token/s', figure = rateText(rate ?? 0);
         const lead = t('近 1 分钟 +{n} Token · 输出 ', { n: tokens(added) });
         const baseline = 11;
@@ -331,8 +342,8 @@
         ? toolRates.map((tool) => ({ id: tool.id, points: tool.points.map(([at, r]): Point => [x(at), clamped(r)]) }))
         : order.map((id) => ({ id, points: readingLine(id) }))).map((tool) => ({ ...tool, colour: toolColour(tool.id, dark) }));
       // Which lines are drawn, and each tool's rate now, for whatever reads the page rather than the pixels (tests).
-      canvas.dataset.lines = toolLines.map((tool) => tool.id).join(',');
-      canvas.dataset.toolRates = JSON.stringify(Object.fromEntries(toolRates.map((tool) => [tool.id, Math.round(tool.points.at(-1)![1] * 10) / 10])));
+      setAttr(canvas.dataset, 'lines', toolLines.map((tool) => tool.id).join(','));
+      setAttr(canvas.dataset, 'toolRates', JSON.stringify(Object.fromEntries(toolRates.map((tool) => [tool.id, Math.round(tool.points.at(-1)![1] * 10) / 10]))));
       let liveTip: Point = [liveRight, totalLine.at(-1)?.[1] ?? bottom];
       if (reach > 0.001) {
         // The live line opens out leftward from the end dot as the zoom finishes: in the live line's one look
@@ -344,8 +355,8 @@
         const drawn = drawLines(ctx, { total: totalLine, tools: toolLines, base: bottom, plotTop: plot.y, totalColour: total, areaColour: total, dark });
         liveTip = drawn.end;
         ctx.restore();
-        canvas.dataset.under = drawn.under.join(',');
-        canvas.dataset.ends = JSON.stringify(Object.fromEntries(drawn.dots.map((id) => [id, [Math.round(liveRight * 10) / 10, Math.round(drawn.ends[id] * 10) / 10]])));
+        setAttr(canvas.dataset, 'under', drawn.under.join(','));
+        setAttr(canvas.dataset, 'ends', JSON.stringify(Object.fromEntries(drawn.dots.map((id) => [id, [Math.round(liveRight * 10) / 10, Math.round(drawn.ends[id] * 10) / 10]]))));
       }
       // The end dot carries the eye between the charts: from the trend's newest point to the live line's end.
       const move = trendEnd ? ramp(0.1, 0.8, p) : 1;
@@ -362,7 +373,7 @@
       ctx.fillStyle = alpha(total, breath.strength); ctx.beginPath(); ctx.arc(tip[0], tip[1], breath.radius, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = total; ctx.beginPath(); ctx.arc(tip[0], tip[1], LINE.dot, 0, Math.PI * 2); ctx.fill();
       // Where the end is, and the canvas around it: for the tests, which ask its halo be whole.
-      canvas.dataset.tip = `${Math.round(tip[0] * 10) / 10},${Math.round(tip[1] * 10) / 10},${W + PAD},${H}`;
+      setAttr(canvas.dataset, 'tip', `${Math.round(tip[0] * 10) / 10},${Math.round(tip[1] * 10) / 10},${W + PAD},${H}`);
     };
     frame = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(frame);

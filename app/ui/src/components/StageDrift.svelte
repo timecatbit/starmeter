@@ -28,6 +28,16 @@
 
   let canvas: HTMLCanvasElement | undefined = $state();
   let width = 0, height = 0, ratio = 1;
+  let canvasLeft = 0, canvasTop = 0;
+  /** Cached from live.version so 60fps tick() never recomputes smoothRates() on every frame (PERF-1). */
+  let cachedRate: number | null = null;
+  let cachedWorking = false;
+  $effect(() => {
+    void live.version;
+    cachedWorking = live.state === 'working';
+    cachedRate = untrack(() => live.rate());
+  });
+  const setAttr = (d: DOMStringMap, key: string, value: string) => { if (d[key] !== value) d[key] = value; };
   const sketchy = () => look.startsWith('sketch');
   const dark = () => look === 'dark' || look === 'sketch-dark';
 
@@ -217,6 +227,7 @@
   function size() {
     if (!canvas) return;
     const box = canvas.getBoundingClientRect();
+    canvasLeft = box.left; canvasTop = box.top;
     width = box.width; height = box.height;
     const next = Math.min(2, window.devicePixelRatio || 1);
     if (next !== ratio) { ratio = next; clearSprites(); }
@@ -263,8 +274,8 @@
     const dt = last ? Math.min(0.1, (time - last) / 1000) : 0.016;
     last = time;
     // The work's own energy: the speed on a log scale while writing; resting, a little.
-    const rate = live.rate();
-    const target = live.state === 'working' ? (rate === null ? 0.45 : Math.min(1, Math.max(0.3, 0.3 + Math.log10(1 + rate) / 3.2))) : 0.06;
+    const rate = cachedRate;
+    const target = cachedWorking ? (rate === null ? 0.45 : Math.min(1, Math.max(0.3, 0.3 + Math.log10(1 + rate) / 3.2))) : 0.06;
     energy += (target - energy) * (1 - Math.exp(-dt / 1.6));
     // The marks floating: the tools at work now, or the Starmeter mark; a logo no longer among them fades and comes back
     // as one that is.
@@ -340,7 +351,7 @@
       const k = (now - r.born) / 0.9;
       if (stamp(top ?? ctx, ringSprite(), r.x, r.y, 0, 12 + 110 * (1 - Math.pow(1 - k, 3)), (sketchy() ? 0.55 : 0.45) * (1 - k)) && top) overlayDrawn = true;
     }
-    if (top) {
+    if (top && beams.length) {
       for (const b of beams) {
         const k = (now - b.born) / 0.7, ink = pens()?.[0] ?? INK[look];
         top.setTransform(ratio, 0, 0, ratio, 0, 0);
@@ -359,24 +370,26 @@
     ctx.globalAlpha = 1;
     frames++;
     const d = canvas.dataset;
-    d.energy = energy.toFixed(2);
-    d.active = String(active);
-    d.frames = String(frames);
-    d.bursts = String(sparks.length);
-    d.ripples = String(ripples.length);
-    d.pokes = String(pokes);
-    d.tap = lastTap;
-    d.overlay = String(overlayDrawn);
+    setAttr(d, 'energy', energy.toFixed(2));
+    setAttr(d, 'active', String(active));
+    setAttr(d, 'frames', String(frames));
+    setAttr(d, 'bursts', String(sparks.length));
+    setAttr(d, 'ripples', String(ripples.length));
+    setAttr(d, 'pokes', String(pokes));
+    setAttr(d, 'tap', lastTap);
+    setAttr(d, 'overlay', String(overlayDrawn));
     // A logo halfway deep: how fast it rises now, points a second.
-    d.rise = ((RISE.logo[0] + RISE.logo[1] / 2) * pace).toFixed(1);
-    d.pushed = pushed.toFixed(1);
-    d.marks = current.map((m) => (m.image ? 'tool' : 'starmeter')).join(',');
-    d.logos = String(shownLogos);
+    setAttr(d, 'rise', ((RISE.logo[0] + RISE.logo[1] / 2) * pace).toFixed(1));
+    setAttr(d, 'pushed', pushed.toFixed(1));
+    setAttr(d, 'marks', current.map((m) => (m.image ? 'tool' : 'starmeter')).join(','));
+    setAttr(d, 'logos', String(shownLogos));
     // The logos seen this frame (drawn, faded in, on the sky's clear middle, not under its faded top or foot), by kind:
     // a tool's, or the Starmeter mark.
-    d.drawn = [...new Set(drawn)].sort().join(',');
-    d.drawnCount = String(drawn.length);
-    d.stars = String(things.filter((t) => t.kind === 'star').length);
+    setAttr(d, 'drawn', [...new Set(drawn)].sort().join(','));
+    setAttr(d, 'drawnCount', String(drawn.length));
+    setAttr(d, 'stars', String(things.filter((t) => t.kind === 'star').length));
+    // Every frame, resting too: the drift is what the page shows while the AI rests, and at a lower rate it stuttered
+    // (用户：漂浮物的帧率特别特别低，不可以).
     queue();
   }
   function queue() {
@@ -465,8 +478,7 @@
   }
   function move(event: PointerEvent) {
     if (event.pointerType !== 'mouse' || still || !canvas) { pointer = null; return; }
-    const box = canvas.getBoundingClientRect();
-    pointer = onSky(event.target) ? { x: event.clientX - box.left, y: event.clientY - box.top } : null;
+    pointer = onSky(event.target) ? { x: event.clientX - canvasLeft, y: event.clientY - canvasTop } : null;
   }
   const cancel = () => { press = null; };
   const leave = () => { pointer = null; };

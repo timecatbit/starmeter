@@ -121,7 +121,7 @@ export const phrases: Record<string, string> = {
   新版本的签名者与已安装的不一致: 'The new version isn\'t signed by the same developer as the installed one',
   发布中没有安装包: 'The release has no package', 发布中没有校验值: 'The release has no checksum', 校验值格式错误: 'The checksum is malformed',
   // The settings: 外观, 通用, 提醒 and 数据
-  允许折叠: 'Allow folding', '卡片折成两行，点卡片就地展开': 'Cards fold to two lines and open where they are', 外观: 'Appearance', 通用: 'General', 提醒: 'Alerts', 跟随系统: 'System', 浅色: 'Light', 深色: 'Dark', 实色: 'Solid',
+  允许折叠: 'Allow folding', '卡片折成两行，点卡片就地展开': 'Cards fold to two lines and open where they are', 展开订阅与服务: 'Expand plans and services', 收起订阅与服务: 'Collapse plans and services', '共 {n} 项': '{n} items', 外观: 'Appearance', 通用: 'General', 提醒: 'Alerts', 跟随系统: 'System', 浅色: 'Light', 深色: 'Dark', 实色: 'Solid',
   磨砂: 'Frosted', 玻璃: 'Glass', 显示: 'Display', '语言 Language': 'Language', 金额显示: 'Currency', '美元（$）': 'US dollar ($)',
   '人民币（¥）': 'Chinese yuan (¥)', '汇率…': 'Exchange rate…', 美元: 'US dollar', 人民币: 'Chinese yuan', 每天自动更新: 'Updated daily',
   手动: 'set by hand', 菜单栏显示: 'Menu bar', 只显示星星: 'Star only', '今天的 API 估算': 'Today\'s API estimate',

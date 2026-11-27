@@ -87,7 +87,7 @@
    *  panel, the figures for a range are the cards and the plans. */
   const summary = $derived(data.showSummary !== false);
   let scroller: HTMLDivElement | undefined = $state();
-  let scrolled = $state(0);
+  let raised = $state(false);
   let headline: HTMLDivElement | undefined = $state();
   let headlineAway = $state(false);
   $effect(() => {
@@ -120,8 +120,9 @@
   });
   function onscroll() {
     if (!scroller) return;
-    scrolled = scroller.scrollTop;
-    kept = scrolled;
+    kept = scroller.scrollTop;
+    const next = kept > 6;
+    if (next !== raised) raised = next;
   }
   // The browser's bars take the sky's own edges (its top band and its foot are flat for them), in the computer's theme,
   // look and background.
@@ -389,7 +390,7 @@
   {/if}
   <div class="scroll" bind:this={scroller} {onscroll}>
     <div class="frame">
-      <header class="bar" class:raised={!wide && scrolled > 6}>
+      <header class="bar" class:raised={!wide && raised}>
         <span class="brand">
           <svg class="mark" class:reading={reading || live.trouble} viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
             {#each DOTS as [cx, cy, r], i (i)}
@@ -660,7 +661,7 @@
   }
   .light .star { display: none; }
   @keyframes twinkle { 50% { opacity: 0.85; } }
-  .asleep .aurora, .asleep .star { animation-play-state: paused; }
+  .asleep .aurora, .asleep .star, .asleep :global(.tip), .asleep :global(.orbit), .asleep :global(.beat::after) { animation-play-state: paused; }
   .still .aurora, .still .star { animation: none; }
   /* Waking: a light runs down the page. */
   .sweep {
@@ -972,7 +973,7 @@
 
   /* MARK: The computer's background as the panes' material. 实色 (the default): panes of their own faint tint, as above.
      磨砂: frosted panes, the sky blurred through them. 玻璃: clear glass, a bright rim and a light along its top edge. */
-  .stage.frosted { --glass: rgba(255, 255, 255, 0.09); --glass-edge: rgba(255, 255, 255, 0.14); --pane-blur: blur(22px) saturate(1.5); }
+  .stage.frosted { --glass: rgba(255, 255, 255, 0.09); --glass-edge: rgba(255, 255, 255, 0.14); --pane-blur: blur(14px) saturate(1.4); }
   .stage.frosted.light { --glass: rgba(255, 255, 255, 0.5); --glass-edge: rgba(255, 255, 255, 0.7); }
   .stage.glass {
     --glass: rgba(255, 255, 255, 0.03);

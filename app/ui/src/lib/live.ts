@@ -6,9 +6,14 @@ import type { Dashboard, LiveReading } from './types';
 /** Two readings further apart than this are either side of a gap (a page out of sight, the computer out of reach):
  *  what was added between them happened at no moment the line knows. */
 export const GAP = 15_000;
-/** How long the rate takes to come round to a change (an exponential moving average's time constant): the lines and
- *  the Token/s figures alike, so a dot and its figure agree. */
+/** Exponential decay time constant for instantaneous output Token/s: each output burst peaks immediately on landing
+ *  and decays naturally towards 0 when the session goes idle instead of holding a flat 60s plateau; sustained output
+ *  converges to its exact true Token/s because ∫(1/τ)e^(-u/τ)du = 1. */
+export const RATE_TAU = 10_000;
 export const EASE = 15_000;
+const ATTACK_TAU = 950;
+const RELEASE_TAU = 1_500;
+const RATE_FLOOR = 0.05;
 
 /** `values` at `times` (rising) eased twice over (two exponential moving averages in a row, each over `tau`): a step
  *  becomes an S, flat where it starts and where it ends. Eased once, a step still began with a corner (the user: 图的曲线
@@ -25,6 +30,45 @@ export function easeTwice(times: number[], values: (number | null)[], tau: numbe
       previous = times[i];
     }
     out.push(second ?? 0);
+  }
+  return out;
+}
+
+/** Instant-onset live rate smoother (PERF-10): fast attack on rising rates (65% at t=0, rounded crest by t=1–2s) +
+ *  responsive release that follows the exponential decay smoothly, followed by two zero-phase interior smoothing passes
+ *  so the trailing curve has no sharp corners without delaying the live leading edge. */
+function smoothLive(times: number[], values: (number | null)[]): number[] {
+  const n = times.length;
+  const out = new Array<number>(n);
+  let cur: number | null = null, previous = times[0] ?? 0;
+  for (let i = 0; i < n; i++) {
+    const v = values[i];
+    if (v !== null && v !== undefined) {
+      if (cur === null) {
+        cur = v;
+      } else {
+        const dt = Math.max(0, times[i] - previous);
+        if (dt > 0) {
+          const tau: number = v >= cur ? ATTACK_TAU : RELEASE_TAU;
+          const k: number = 1 - Math.exp(-dt / tau);
+          cur = cur + (v - cur) * k;
+        }
+      }
+      previous = times[i];
+    }
+    out[i] = cur !== null && cur >= RATE_FLOOR ? cur : 0;
+  }
+  if (n >= 3) {
+    let src = out;
+    let dst = new Array<number>(n);
+    for (let pass = 0; pass < 2; pass++) {
+      dst[0] = src[0];
+      dst[n - 1] = src[n - 1];
+      for (let i = 1; i < n - 1; i++) dst[i] = 0.25 * src[i - 1] + 0.5 * src[i] + 0.25 * src[i + 1];
+      [src, dst] = [dst, src];
+    }
+    for (let i = 0; i < n; i++) if (src[i] < RATE_FLOOR) src[i] = 0;
+    return src;
   }
   return out;
 }
@@ -171,48 +215,56 @@ export class LiveFeed {
 
   span() { return LiveFeed.window; }
 
-  /** Output tokens a second over the last minute, up to now: what the models generated since the window's left edge
-   *  over its 60 seconds, so a burst eases off as the window moves past it. Over 60 seconds in the first minute after
-   *  pinning too: a request is logged whole when it finishes, with output written long before, and over the few seconds
-   *  since pinning it read as thousands a second for a moment. Not all tokens: each request re-reads its whole context
-   *  from the cache, so those run to tens of thousands a second and say nothing about speed. Eased as the lines are
-   *  (smoothRates), so the figure is the height of the line's end. */
+  /** Instantaneous output tokens a second (exponentially decayed with time constant RATE_TAU): peaks immediately when
+   *  new output lands and glides smoothly back to 0 once the session stops generating instead of holding a 60s plateau.
+   *  Eased as the lines are (smoothRates), so the figure is the height of the line's end. */
   rate(now: number): number | null { return this.samples.length ? this.smoothRates([now])[0] : null; }
 
-  /** The last minute's rate as it stood at an earlier moment, from the readings up to then, before it is eased; with a
-   *  source, that source's own. */
+  /** Unsmoothed exponentially-decayed output rate at a moment `at`; with a source, that source's own. */
   rateAt(at: number, id?: string): number | null {
-    const upto = this.samples.filter((s) => s.at <= at), last = upto.at(-1);
-    if (!last) return null;
-    const start = at - LiveFeed.window;
-    const from = [...upto].reverse().find((s) => s.at <= start) ?? upto[0];
-    const output = (sample: Sample) => (id === undefined ? sample.output : sample.outputs?.[id] ?? 0);
-    return Math.max(0, output(last) - output(from)) / (LiveFeed.window / 1000);
+    return this.rateSeries([at], id)[0] ?? null;
   }
 
-  /** The rate as the lines draw it and the figures say it, at each of `times` (rising): the last minute's (rateAt),
-   *  eased twice over half of EASE (easeTwice, begun EASE × 3 earlier so it has settled by the first). A request
-   *  landing rises and settles as an S, and leaves the minute the same way, never as a step or a corner: drawn as a
-   *  step function, the curve through it was straight plateaus and sharp corners; eased once, a corner where it rose. */
+  /** The rate as the lines draw it and the figures say it, at each of `times` (rising): instant-onset fast attack with
+   *  exponential decay and zero-phase trailing smoothing (PERF-10). */
   smoothRates(times: number[], id?: string): number[] {
     if (!times.length) return [];
     const warm: number[] = [];
-    for (let at = times[0] - EASE * 3; at < times[0]; at += 1000) warm.push(at);
+    const warmSpan = Math.max(ATTACK_TAU, RELEASE_TAU) * 6;
+    for (let at = times[0] - warmSpan; at < times[0]; at += 1000) warm.push(at);
     const all = [...warm, ...times];
-    return easeTwice(all, this.rateSeries(all, id), EASE / 2).slice(warm.length);
+    return smoothLive(all, this.rateSeries(all, id)).slice(warm.length);
   }
 
-  /** rateAt at each of `times` (rising) in one pass over the readings; null before the first. */
+  /** Exponentially-decayed output rate at each of `times` (rising) in one pass over the readings; null before the first. */
   rateSeries(times: number[], id?: string): (number | null)[] {
     const list = this.samples, output = (s: Sample) => (id === undefined ? s.output : s.outputs?.[id] ?? 0);
     const out: (number | null)[] = [];
-    let last = -1, from = 0;
+    const tauSec = RATE_TAU / 1000;
+    let idx = 0, seen = false, state = 0, stateAt = 0, prevOut = 0;
     for (const at of times) {
-      while (last + 1 < list.length && list[last + 1].at <= at) last++;
-      if (last < 0) { out.push(null); continue; }
-      while (from + 1 <= last && list[from + 1].at <= at - LiveFeed.window) from++;
-      const first = list[from].at <= at - LiveFeed.window ? list[from] : list[0];
-      out.push(Math.max(0, output(list[last]) - output(first)) / (LiveFeed.window / 1000));
+      while (idx < list.length && list[idx].at <= at) {
+        const s = list[idx];
+        const current = output(s);
+        if (!seen) {
+          seen = true;
+          state = 0;
+          stateAt = s.at;
+          prevOut = current;
+        } else {
+          const dt = Math.max(0, s.at - stateAt);
+          if (dt > 0 && state > 0) state *= Math.exp(-dt / RATE_TAU);
+          const delta = Math.max(0, current - prevOut);
+          if (delta > 0) state += delta / tauSec;
+          stateAt = s.at;
+          prevOut = current;
+        }
+        idx++;
+      }
+      if (!seen) { out.push(null); continue; }
+      const dt = Math.max(0, at - stateAt);
+      const value = dt > 0 && state > 0 ? state * Math.exp(-dt / RATE_TAU) : state;
+      out.push(value < RATE_FLOOR ? 0 : value);
     }
     return out;
   }

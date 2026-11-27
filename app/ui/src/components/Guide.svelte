@@ -92,16 +92,19 @@
   /** The lit area: everything the stop names, together, a little roomier than its parts, inside the panel. */
   function measure() {
     const box = container.getBoundingClientRect();
-    width = box.width;
-    height = box.height;
+    if (Math.abs(width - box.width) > 0.5) width = box.width;
+    if (Math.abs(height - box.height) > 0.5) height = box.height;
     const found = matches(stop);
-    if (!found.length) { hole = null; return; }
+    if (!found.length) { if (hole !== null) hole = null; return; }
     const rects = found.map((e) => e.getBoundingClientRect());
     const left = Math.max(4, Math.min(...rects.map((r) => r.left)) - box.left - 5);
     const top = Math.max(4, Math.min(...rects.map((r) => r.top)) - box.top - 5);
     const right = Math.min(box.width - 4, Math.max(...rects.map((r) => r.right)) - box.left + 5);
     const bottom = Math.min(box.height - 4, Math.max(...rects.map((r) => r.bottom)) - box.top + 5);
-    hole = { left, top, width: Math.max(0, right - left), height: Math.max(0, bottom - top) };
+    const w = Math.max(0, right - left), h = Math.max(0, bottom - top);
+    if (!hole || Math.abs(hole.left - left) > 0.5 || Math.abs(hole.top - top) > 0.5 || Math.abs(hole.width - w) > 0.5 || Math.abs(hole.height - h) > 0.5) {
+      hole = { left, top, width: w, height: h };
+    }
   }
 
   /** The words sit under the lit area when they fit there, else above it; with nothing lit, in the middle. */

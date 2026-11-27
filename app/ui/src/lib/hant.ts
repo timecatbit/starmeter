@@ -34,6 +34,7 @@ const LONGEST = 2;
 
 let chars: Map<string, string> | null = null;
 let phrases: Map<string, string> | null = null;
+const hantCache = new Map<string, string>();
 
 /** Where a path (/…, ~/…, C:\…) that starts at `i` ends, or -1: a name on disk stays as it is written. */
 function pathEnd(text: string, i: number): number {
@@ -47,8 +48,10 @@ function pathEnd(text: string, i: number): number {
 }
 
 /** The text in Traditional Chinese: the longest phrase known at each place, else each character on its own; a path
- *  in it stays as it is. */
+ *  in it stays as it is. Memoized so repeated snapshot localizations avoid re-scanning unchanged strings (PERF-4). */
 export function toHant(text: string): string {
+  const hit = hantCache.get(text);
+  if (hit !== undefined) return hit;
   if (!/[\u3400-\u9fff]/.test(text)) return text;
   if (!chars) {
     chars = new Map();
@@ -69,5 +72,7 @@ export function toHant(text: string): string {
     out += chars.get(text[i]) ?? text[i];
     i++;
   }
+  if (hantCache.size >= 4000) hantCache.clear();
+  hantCache.set(text, out);
   return out;
 }

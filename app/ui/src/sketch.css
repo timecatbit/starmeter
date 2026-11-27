@@ -195,8 +195,8 @@
 :root[data-style='sketch'] .window.window[data-material='glass']::after {
   box-shadow: inset 0 1px 0 var(--sheen-edge), inset 0 0 0 0.5px var(--separator);
 }
-/* The hand's lines. */
-:root[data-style='sketch'] :is(svg.chart, svg.squares, svg.icon, svg.chevron, svg.arrow, canvas.live, .fill, .gauge-fill, .bar-fill) {
+/* The hand's lines (canvas.live omitted: 30fps live chart must not run feTurbulence+feDisplacementMap every frame, PERF-2). */
+:root[data-style='sketch'] :is(svg.chart, svg.squares, svg.icon, svg.chevron, svg.arrow, .fill, .gauge-fill, .bar-fill) {
   filter: url(#hand);
 }
 

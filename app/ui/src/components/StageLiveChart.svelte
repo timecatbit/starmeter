@@ -128,10 +128,12 @@
 
   const ease = (x: number) => 1 - Math.pow(1 - Math.min(1, Math.max(0, x)), 3);
   const bounce = (x: number) => { const k = Math.min(1, Math.max(0, x)); return k < 0.8 ? ease(k / 0.8) * 1.04 : 1.04 - 0.04 * ease((k - 0.8) / 0.2); };
+  const setAttr = (d: DOMStringMap, key: string, value: string) => { if (d[key] !== value) d[key] = value; };
 
   function draw() {
     running = false;
     if (!canvas || width <= 0) return;
+    // At the screen's own density: the curve is the page's main figure, and at 2x on a phone's 3x screen it went soft.
     const ratio = window.devicePixelRatio || 1, W = width, H = plotHeight;
     if (canvas.width !== Math.round(W * ratio) || canvas.height !== Math.round(H * ratio)) {
       canvas.width = Math.round(W * ratio); canvas.height = Math.round(H * ratio);
@@ -203,12 +205,12 @@
       ctx.fillStyle = sketch ? summaryColour(panel.dark) : panel.dark ? '#F5F8FF' : '#0E1D4C';
       ctx.beginPath(); ctx.arc(ex, ey, LINE.dot, 0, Math.PI * 2); ctx.fill();
       if (tip) { tip.style.translate = `${ex}px ${ey}px`; tip.style.opacity = '1'; tip.style.color = ctx.fillStyle as string; }
-      canvas.dataset.lines = String(ids.length);
-      canvas.dataset.end = `${Math.round(ex * 10) / 10},${Math.round(ey * 10) / 10},${W},${H}`;
-      canvas.dataset.dots = JSON.stringify(Object.fromEntries(drawn.dots.map((id) => [id, Math.round(drawn!.ends[id] * 10) / 10])));
-      canvas.dataset.under = drawn.under.join(',');
-      canvas.dataset.top = String(Math.round(shownTop * 10) / 10);
-      canvas.dataset.highest = String(Math.round(highest * 10) / 10);
+      setAttr(canvas.dataset, 'lines', String(ids.length));
+      setAttr(canvas.dataset, 'end', `${Math.round(ex * 10) / 10},${Math.round(ey * 10) / 10},${W},${H}`);
+      setAttr(canvas.dataset, 'dots', JSON.stringify(Object.fromEntries(drawn.dots.map((id) => [id, Math.round(drawn!.ends[id] * 10) / 10]))));
+      setAttr(canvas.dataset, 'under', drawn.under.join(','));
+      setAttr(canvas.dataset, 'top', String(Math.round(shownTop * 10) / 10));
+      setAttr(canvas.dataset, 'highest', String(Math.round(highest * 10) / 10));
       {
         // Sparks off the end as each lands, rising and fading.
         for (const s of sparks) {
@@ -227,9 +229,13 @@
           if (age < DROP) {
             const fy = padTop - 6 + (ey - padTop + 6) * bounce(age / DROP);
             ctx.fillStyle = colour;
-            ctx.shadowColor = sketch ? 'transparent' : colour; ctx.shadowBlur = 10;
+            // Translucent halo ring instead of shadowBlur=10 (avoids per-frame Gaussian blur on WebKit, PERF-2).
+            if (!sketch) {
+              ctx.globalAlpha = 0.28;
+              ctx.beginPath(); ctx.arc(ex, fy, 8, 0, Math.PI * 2); ctx.fill();
+              ctx.globalAlpha = 1;
+            }
             ctx.beginPath(); ctx.arc(ex, fy, 4.5, 0, Math.PI * 2); ctx.fill();
-            ctx.shadowBlur = 0;
           } else {
             const after = age - DROP;
             if (after < RIPPLE) {
@@ -250,8 +256,8 @@
         }
       }
     } else if (tip) tip.style.opacity = '0';
-    canvas.dataset.hand = sketch ? 'twice' : '';
-    canvas.dataset.draws = String(++draws);
+    setAttr(canvas.dataset, 'hand', sketch ? 'twice' : '');
+    setAttr(canvas.dataset, 'draws', String(++draws));
     // Keep flowing while the page shows it; reduced motion draws only at readings. Every frame while something moves on
     // it (a request landing, its sparks, the scale easing); otherwise only as the flow left moves it half a point (a
     // minute across the width: about 12 times a second).

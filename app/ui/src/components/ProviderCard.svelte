@@ -43,7 +43,7 @@
     return out;
   });
   const lead = $derived(tokenLine(p));
-  const leadWidth = $derived(width(lead, font(11, 600)) + 1);
+  const leadWidth = $derived(figureWidth(lead, font(11, 600)) + 1);
   const stats = $derived.by(() => {
     const room = Math.max(0, right - left - 21 - leadWidth - 4), forms = statsForms(p);
     return forms.find((form) => width('· ' + form, font(10)) <= room) ?? forms[forms.length - 1];

@@ -162,7 +162,7 @@ async function seed(page: Page, span: number, rise: { id: string; tokens: number
 }
 const asked = (page: Page) => page.evaluate(() => (window as unknown as { starmeterFixtures: { liveAsked: () => number } }).starmeterFixtures.liveAsked());
 
-test('实时 opens with what happened in the last minutes, and reads only while the panel is on screen (STAGE-11)', async ({ page }) => {
+test('实时 opens with what happened in the last minutes, and reads only while the panel is on screen: closed, it is back on 工具 (STAGE-11)', async ({ page }) => {
   await open(page);
   await seed(page, 60, { id: 'claude', tokens: 5000, output: 50 });
   await radio(page, '实时').click();
@@ -172,22 +172,25 @@ test('实时 opens with what happened in the last minutes, and reads only while 
   await expect(live.locator('.event')).toHaveCount(12, { timeout: 1500 });
   await expect(live.getByRole('button', { name: /^查看更多/ })).toHaveCount(0);
   await expect(live.locator('.event .what').first()).toHaveText(/^\+5(\.0)?K Token/);
-  // Closed: nothing more asked, the clock no longer counting.
+  // Closed: back on the homepage's 工具 while hidden (the next opening shows it at once, with no jump from 实时), 实时
+  // gone with it and nothing more asked.
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('panel-closed')));
-  await page.waitForTimeout(300);
+  await expect(radio(page, '工具')).toHaveAttribute('aria-checked', 'true');
+  await expect(live).toHaveCount(0);
   const closed = await asked(page);
-  const clock = await live.locator('.live-session .clock').first().textContent();
   await page.waitForTimeout(4500);
   expect(await asked(page)).toBe(closed);
-  await expect(live.locator('.live-session .clock').first()).toHaveText(clock!);
-  // Open again: on the homepage's 工具 (nothing of 实时 read); 实时 picked, asked at once, the clock going.
+  // Open again: on 工具 (nothing of 实时 read); 实时 picked, asked at once, the clock going.
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('panel-opened', { detail: { modules: false, maxHeight: 900 } })));
   await expect(radio(page, '工具')).toHaveAttribute('aria-checked', 'true');
   await page.waitForTimeout(500);
   expect(await asked(page)).toBe(closed);
   await radio(page, '实时').click();
   await expect.poll(() => asked(page), { timeout: 1500 }).toBeGreaterThan(closed);
-  await expect(live.locator('.live-session .clock').first()).not.toHaveText(clock!, { timeout: 2500 });
+  const clock = live.locator('.live-session .clock').first();
+  await expect(clock).toBeVisible();
+  const shown = await clock.textContent();
+  await expect(clock).not.toHaveText(shown!, { timeout: 2500 });
 });
 
 test('实时\'s 动态 shows its newest twelve, none folded away; pinned, the panel fits down to the third, the rest a scroll away', async ({ page }) => {
@@ -282,9 +285,11 @@ test('pinned, the live line opens with the last minutes the app kept: its speed 
   const canvas = page.locator('canvas.live');
   // The first frames already have the minutes: the readings, and a speed (not 0, not waiting a minute for it).
   await expect.poll(async () => Number(await canvas.getAttribute('data-samples')), { timeout: 1200 }).toBeGreaterThan(20);
+  // 25 a second written, read as an instant rate (PERF-10: each reading's output lands at once and eases off): about 25,
+  // more just after a reading lands. Not a burst: the minutes replayed whole would read as tens of thousands.
   const steady = Number(await canvas.getAttribute('data-rate'));
   expect(steady).toBeGreaterThan(10);
-  expect(steady).toBeLessThan(30);
+  expect(steady).toBeLessThan(60);
   await page.getByRole('button', { name: '取消钉住面板', exact: true }).click();
   await page.waitForTimeout(800);
   // A gap of a minute and a half, after which 600,000 more output had been written at moments unknown: not a speed.
@@ -292,7 +297,8 @@ test('pinned, the live line opens with the last minutes the app kept: its speed 
   await page.getByRole('button', { name: '钉住面板', exact: true }).click();
   await expect.poll(async () => Number(await canvas.getAttribute('data-samples')), { timeout: 1200 }).toBeGreaterThan(10);
   await page.waitForTimeout(300);
-  expect(Number(await canvas.getAttribute('data-rate'))).toBeLessThan(30);
+  // The 600,000 taken as a speed would read 60,000 a second.
+  expect(Number(await canvas.getAttribute('data-rate'))).toBeLessThan(60);
 });
 
 test('pinned, the live line\'s end keeps its halo and ring inside the canvas, narrow and wide', async ({ page }) => {

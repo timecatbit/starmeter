@@ -217,6 +217,8 @@ export class PhoneLive {
    *  new from there on. Not this phone's clock less the skew, which moves with each request's time on the way (STAGE-18:
    *  a slower answer made readings already taken look new, and they were taken again). */
   private lastAt = 0;
+  private lastKept = '';
+  private lastKeptAt = 0;
   private nextId = 1;
   private visible = () => typeof document === 'undefined' || document.visibilityState === 'visible';
   /** The next reading asks for the computer's last minutes too: the first, and the first after being away (out of
@@ -373,7 +375,15 @@ export class PhoneLive {
     if (!replay) {
       this.known = true;
       this.answered = true;
-      try { localStorage.setItem(KEPT_STATE, JSON.stringify({ state: this.state, running: sessions.filter((s) => s.running).length, at: Date.now() })); } catch { /* this load only */ }
+      // Throttle localStorage writes: only write when state/running changed or >= 15s elapsed (PERF-4).
+      const runningCount = sessions.filter((s) => s.running).length;
+      const sig = `${this.state}:${runningCount}`;
+      const stamp = Date.now();
+      if (sig !== this.lastKept || stamp - this.lastKeptAt >= 15_000) {
+        this.lastKept = sig;
+        this.lastKeptAt = stamp;
+        try { localStorage.setItem(KEPT_STATE, JSON.stringify({ state: this.state, running: runningCount, at: stamp })); } catch { /* this load only */ }
+      }
     }
     this.dashboardSeen = true;
 
