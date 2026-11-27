@@ -3914,6 +3914,7 @@ dependencies = [
  "serde",
  "serde_json",
  "starmeter-core",
+ "system-configuration",
  "tauri",
  "tauri-build",
  "tauri-plugin-autostart",

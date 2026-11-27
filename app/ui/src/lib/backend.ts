@@ -66,7 +66,7 @@ const localGuide = () => { try { return localStorage.getItem('starmeter.guide') 
 /** Where a phone can open the homepage, and how long the public link has left (0 without one). 同一个网络 and the public
  *  link are on and off on their own: `localOpen` says the first is on (its addresses, when this computer has them). */
 export interface PhoneView {
-  localOpen?: boolean; local: string | null; tailnet?: string | null; public: string | null; secondsLeft: number;
+  localOpen?: boolean; local: string | null; tailnet?: string | null; wireguard?: string | null; public: string | null; secondsLeft: number;
   /** The public link seen to open from outside before it was shown; false when the wait for it ran out (PHONE-11). */
   publicChecked?: boolean;
   /** A public link is being opened right now (e.g. startup resume or started before leaving the page, R10-8). */
@@ -82,8 +82,11 @@ const browserPhone = (() => {
   const keep = () => { try { localStorage.setItem(KEPT, JSON.stringify({ local, open })); } catch { /* not kept */ } };
   // ?tailnet: this computer on a tailnet too.
   const tailnet = () => (new URLSearchParams(location.search).has('tailnet') ? 'http://100.76.55.73:51234/#k=0123456789abcdef0123456789abcdef' : null);
+  // ?wireguard: a WireGuard tunnel up too.
+  const wireguard = () => (new URLSearchParams(location.search).has('wireguard') ? 'http://10.0.0.2:51234/#k=0123456789abcdef0123456789abcdef' : null);
   const view = (): PhoneView | null => (local || open ? { localOpen: local, local: local ? 'http://192.168.1.20:51234/#k=0123456789abcdef0123456789abcdef' : null,
     tailnet: local ? tailnet() : null,
+    wireguard: local ? wireguard() : null,
     public: open ? 'https://quiet-river-1234.trycloudflare.com/#k=fedcba9876543210fedcba9876543210' : null, secondsLeft: open ? 3540 : 0,
     // ?unchecked: the wait for the public link to open ran out.
     publicChecked: !new URLSearchParams(location.search).has('unchecked') } : null);

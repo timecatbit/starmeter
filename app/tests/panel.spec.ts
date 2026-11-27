@@ -1925,6 +1925,44 @@ test('在手机上看: on a tailnet, the same network\'s page has its own code a
   await expect(phone.locator('.address')).toHaveText(['192.168.1.20:51234', '已复制链接']);
 });
 
+test('在手机上看: a WireGuard tunnel has its own code like Tailscale\'s: two side by side, a third under them in the middle', async ({ page }) => {
+  // 用户：如果有wireguard也和tailscale一样处理哈。
+  await open(page, '?wireguard');
+  await button(page, '在手机上看').click();
+  const phone = page.locator('.phone-page');
+  await button(page, '开始').click();
+  await expect(phone.locator('.card-title')).toHaveText(['局域网', 'WireGuard']);
+  await expect(phone.locator('.card-detail')).toHaveText(['手机连同一个 Wi-Fi', '手机开着 WireGuard']);
+  await expect(phone.getByRole('img', { name: '连着 WireGuard 的手机扫这个二维码' })).toBeVisible();
+  await expect(phone.locator('.address')).toHaveText(['192.168.1.20:51234', '10.0.0.2:51234']);
+  await expect(phone.locator('.note').first()).toContainText('WireGuard 的二维码在手机连着同一个 WireGuard 网络时打开');
+  await page.evaluate(() => localStorage.removeItem('starmeter.test-phone'));
+
+  // With Tailscale too: three codes, the same size; two in a row, the third under them in the middle.
+  await open(page, '?tailnet&wireguard');
+  await button(page, '在手机上看').click();
+  await button(page, '开始').click();
+  await expect(phone.locator('.card-title')).toHaveText(['局域网', 'Tailscale', 'WireGuard']);
+  await expect(phone.locator('.address')).toHaveText(['192.168.1.20:51234', '100.76.55.73:51234', '10.0.0.2:51234']);
+  await expect(phone.locator('.note').first()).toContainText('Tailscale 和 WireGuard 的二维码在手机连着对应的网络时打开');
+  await expect(async () => {
+    const [a, b, c] = await Promise.all([0, 1, 2].map(async (i) => (await phone.locator('.card').nth(i).boundingBox())!));
+    const codes = (await phone.locator('.codes').boundingBox())!;
+    expect(Math.abs(a.y - b.y)).toBeLessThan(1);
+    for (const card of [b, c]) {
+      expect(Math.abs(card.width - a.width)).toBeLessThan(1);
+      expect(Math.abs(card.height - a.height)).toBeLessThan(1);
+    }
+    expect(c.y).toBeGreaterThan(a.y + a.height);
+    expect(Math.abs(c.x + c.width / 2 - (codes.x + codes.width / 2))).toBeLessThan(1);
+    expect(Math.abs(a.x - codes.x)).toBeLessThan(1);
+    expect(Math.abs(b.x + b.width - (codes.x + codes.width))).toBeLessThan(1);
+  }).toPass();
+  await phone.locator('.address').nth(2).click();
+  await expect(phone.locator('.address')).toHaveText(['192.168.1.20:51234', '100.76.55.73:51234', '已复制链接']);
+  await page.evaluate(() => localStorage.removeItem('starmeter.test-phone'));
+});
+
 test('在手机上看: the Tailscale code comes and goes with the tailnet, the same network\'s code staying', async ({ page }) => {
   await open(page);
   // Off a tailnet at first; then on it, then off it again: the status asked every ten seconds says which.

@@ -2,8 +2,8 @@
 //! by scanning a QR code. It serves the panel's own page and, behind a key, the homepage's figures; it never takes an
 //! action, and it leaves out the settings and every row's insides (folders, key files, connection addresses).
 //!
-//! Two ways in, each turned on and off on its own: 同一个网络 (this computer's network address, and its Tailscale one)
-//! until its 停止, and the public link (Cloudflare's quick tunnel, see `tunnel`) for an hour at most. Each has a key of
+//! Two ways in, each turned on and off on its own: 同一个网络 (this computer's network address, and its Tailscale and
+//! WireGuard ones) until its 停止, and the public link (Cloudflare's quick tunnel, see `tunnel`) for an hour at most. Each has a key of
 //! its own; the server runs while either is on. A key travels in the address's fragment (#k=…), which a browser never
 //! sends; the page sends it back in a header, so it stays out of logs.
 
@@ -122,6 +122,8 @@ pub struct PhoneView {
     /// http://100.x.y.z:51234/#k=… through Tailscale, when this computer is on a tailnet: a phone on it opens the page
     /// from anywhere, nothing going through Cloudflare.
     tailnet: Option<String>,
+    /// http://10.x.y.z:51234/#k=… through a WireGuard tunnel this computer has up, the same way.
+    wireguard: Option<String>,
     /// https://….trycloudflare.com/#k=… once the public link is up.
     public: Option<String>,
     /// The public link's time left; 0 without one.
@@ -141,13 +143,14 @@ fn usable(public: &Public) -> bool {
 
 fn view(running: &Running) -> PhoneView {
     let local = running.keys.lock().expect("the keys").local.clone();
-    let lan = local.as_ref().and_then(|_| lan_address());
+    let found = local.as_ref().map(|_| addresses()).unwrap_or_default();
     let address = |ip: IpAddr| format!("http://{ip}:{}/#k={}", running.port, local.as_deref().unwrap_or_default());
     let public = running.public.as_ref().filter(|public| usable(public));
     PhoneView {
         local_open: local.is_some(),
-        local: lan.map(address),
-        tailnet: local.as_ref().and_then(|_| tailnet_address(lan)).map(address),
+        local: found.lan.map(address),
+        tailnet: found.tailnet.map(address),
+        wireguard: found.wireguard.map(address),
         public: public.map(|public| format!("{}/#k={}", public.tunnel.url, public.key)),
         seconds_left: public.map_or(0, |public| public.until.saturating_duration_since(Instant::now()).as_secs()),
         public_checked: running.public.as_ref().is_none_or(|public| public.tunnel.checked),
@@ -161,87 +164,295 @@ fn visible_view(running: &Running) -> Option<PhoneView> {
     (v.local_open || v.public.is_some() || v.public_opening).then_some(v)
 }
 
-/// This computer's address on its network, for 同一个网络's code. Usually the one its traffic leaves from (a UDP
-/// socket "connected" to an outside address picks it without sending anything). A proxy's TUN mode (Clash, Surge: a
-/// point-to-point utun with an address in 198.18.0.0/15) or a VPN can hold that route, and a phone on the Wi-Fi can't
-/// reach the tunnel's address; then it is the address of the network the computer is on (用户：网卡选择了198的网段……
-/// 这个是clash的tunnel，应该选192网段).
-fn lan_address() -> Option<IpAddr> {
-    let routed = UdpSocket::bind("0.0.0.0:0")
-        .and_then(|socket| socket.connect("192.0.2.1:9").and_then(|()| socket.local_addr()))
-        .map(|address| address.ip())
-        .ok();
+/// This computer's addresses for 同一个网络's codes: on its network, on a tailnet, on a WireGuard network.
+#[derive(Default, Debug, PartialEq)]
+struct Addresses {
+    lan: Option<IpAddr>,
+    tailnet: Option<IpAddr>,
+    wireguard: Option<IpAddr>,
+}
+
+/// The network's address is usually the one this computer's traffic leaves from (a UDP socket "connected" to an outside
+/// address picks it without sending anything). A proxy's TUN mode (Clash, Surge: a point-to-point utun with an address
+/// in 198.18.0.0/15) or a VPN can hold that route, and a phone on the Wi-Fi can't reach the tunnel's address; then it is
+/// the address of the network the computer is on (用户：网卡选择了198的网段……这个是clash的tunnel，应该选192网段).
+/// Tailscale's is the one its traffic to Tailscale's own service address (100.100.100.100) leaves from; WireGuard's is
+/// its tunnel's (用户：如果有wireguard也和tailscale一样处理哈).
+fn addresses() -> Addresses {
+    let routed = leaves_from("192.0.2.1:9");
+    let tailscale = leaves_from("100.100.100.100:53");
+    let wireguard = wireguard_interfaces();
+    let adapters = adapter_descriptions();
     let nics: Vec<Nic> = if_addrs::get_if_addrs()
         .unwrap_or_default()
         .into_iter()
         .filter(|interface| interface.is_oper_up())
-        .map(|interface| Nic { tunnel: interface.is_p2p(), ip: interface.ip(), name: interface.name })
+        .map(|interface| {
+            let described = adapters
+                .iter()
+                .find(|(friendly, _, _)| *friendly == interface.name)
+                .map(|(_, description, kind)| (description.clone(), *kind));
+            nic(interface.name.clone(), interface.is_p2p(), interface.ip(), described, &wireguard)
+        })
         .collect();
-    lan_choice(routed, &nics)
+    networks(routed, tailscale, &nics)
 }
 
-/// One of the computer's addresses: its interface's name, and whether that interface is a tunnel (point-to-point).
+fn leaves_from(target: &str) -> Option<IpAddr> {
+    let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect(target).ok()?;
+    Some(socket.local_addr().ok()?.ip())
+}
+
+/// One of the computer's addresses: its interface's name, whether that interface is a tunnel (point-to-point, or a
+/// VPN's or a proxy's adapter known by its name or its description), and whether it is a WireGuard tunnel.
 struct Nic {
     name: String,
     tunnel: bool,
+    wireguard: bool,
     ip: IpAddr,
 }
 
-/// The route's own address when a phone on the network can reach it, as it always was; otherwise the computer's
-/// address on a network: not a tunnel's, not in the range proxies take for their TUN (198.18.0.0/15, which Clash's TUN
-/// also has on Windows, where it isn't point-to-point), a private address (192.168…, 10…, 172.16–31…) before another,
-/// and a real network card before a virtual machine's or a container's bridge. None when the interfaces can't be
-/// listed and the route's address is a proxy's.
-fn lan_choice(routed: Option<IpAddr>, nics: &[Nic]) -> Option<IpAddr> {
-    let proxied = |ip: IpAddr| matches!(ip, IpAddr::V4(v4) if v4.octets()[0] == 198 && v4.octets()[1] & 0xFE == 18);
-    let usable = |ip: IpAddr| match ip {
+/// An interface's address as the system lists it: point-to-point or not, on Windows with its adapter's description and
+/// type, and the names of the WireGuard tunnels up (macOS, Linux).
+fn nic(name: String, p2p: bool, ip: IpAddr, described: Option<(String, u32)>, wireguard: &[String]) -> Nic {
+    let wireguard = wireguard.contains(&name)
+        || described.as_ref().is_some_and(|(description, _)| description.to_lowercase().contains("wireguard"));
+    Nic { tunnel: p2p || wireguard || tunnel_named(&name, described.as_ref()), wireguard, ip, name }
+}
+
+/// The three addresses from the routes' and the interfaces': Tailscale's when its route isn't the default one (with an
+/// exit node both are its, and its interface is a tunnel), never the network's; WireGuard's tunnel's, beside them.
+fn networks(routed: Option<IpAddr>, tailscale: Option<IpAddr>, nics: &[Nic]) -> Addresses {
+    let tailnet_route = tailscale.filter(|ip| Some(*ip) != routed && in_tailscales_range(*ip));
+    let lan = lan_choice(routed, nics, tailnet_route);
+    let tailnet = tailscale.and_then(|ip| tailnet_ip(ip, lan));
+    let wireguard = nics
+        .iter()
+        .find(|nic| nic.wireguard && sendable(nic.ip) && Some(nic.ip) != lan && Some(nic.ip) != tailnet)
+        .map(|nic| nic.ip);
+    Addresses { lan, tailnet, wireguard }
+}
+
+/// In the range proxies take for their TUN (198.18.0.0/15, which Clash's TUN also has on Windows, where it isn't
+/// point-to-point).
+fn proxied(ip: IpAddr) -> bool {
+    matches!(ip, IpAddr::V4(v4) if v4.octets()[0] == 198 && v4.octets()[1] & 0xFE == 18)
+}
+
+/// An address a phone could be sent to: IPv4, not the loopback, a link-local one or a proxy's.
+fn sendable(ip: IpAddr) -> bool {
+    match ip {
         IpAddr::V4(v4) => !v4.is_loopback() && !v4.is_unspecified() && !v4.is_link_local() && !proxied(ip),
         IpAddr::V6(_) => false,
-    };
-    let reachable = |nic: &&Nic| !nic.tunnel && usable(nic.ip);
+    }
+}
+
+fn in_tailscales_range(ip: IpAddr) -> bool {
+    matches!(ip, IpAddr::V4(v4) if v4.octets()[0] == 100 && v4.octets()[1] & 0xC0 == 64)
+}
+
+/// The route's own address when a phone on the network can reach it, as it always was; otherwise the computer's
+/// address on a network: not a tunnel's (nor Tailscale's, known from its route), not a proxy's, a real network card
+/// before a virtual machine's or a container's bridge (whatever its address: a campus's Wi-Fi can hand out 100.64/10,
+/// and a bridge has 192.168…, R11-1), and a private address (192.168…, 10…, 172.16–31…) before another. None when the
+/// interfaces can't be listed and the route's address is a proxy's.
+fn lan_choice(routed: Option<IpAddr>, nics: &[Nic], tailnet: Option<IpAddr>) -> Option<IpAddr> {
+    let reachable = |nic: &&Nic| !nic.tunnel && sendable(nic.ip) && Some(nic.ip) != tailnet;
     if let Some(ip) = routed {
         match nics.iter().find(|nic| nic.ip == ip) {
             Some(nic) if reachable(&nic) => return Some(ip),
-            None if nics.is_empty() && usable(ip) => return Some(ip),
+            None if nics.is_empty() && sendable(ip) && Some(ip) != tailnet => return Some(ip),
             _ => {}
         }
     }
-    const BRIDGES: [&str; 14] = [
-        "bridge",
-        "vmnet",
-        "vboxnet",
-        "docker",
-        "br-",
-        "veth",
-        "virbr",
-        "vethernet",
-        "lxc",
-        "lxdbr",
-        "podman",
-        "cni",
-        "vmware",
-        "virtualbox",
-    ];
-    let bridge = |nic: &Nic| BRIDGES.iter().any(|prefix| nic.name.to_lowercase().starts_with(prefix));
+    let bridge = |nic: &Nic| named(&nic.name, &BRIDGES);
     let private = |nic: &Nic| matches!(nic.ip, IpAddr::V4(v4) if v4.is_private());
-    nics.iter().filter(reachable).min_by_key(|nic| (!private(nic), bridge(nic))).map(|nic| nic.ip)
+    nics.iter().filter(reachable).min_by_key(|nic| (bridge(nic), !private(nic))).map(|nic| nic.ip)
 }
 
-/// This computer's Tailscale address: the one its traffic to Tailscale's own service address (100.100.100.100, on the
-/// tailnet's route) would leave from, when that is a Tailscale address (100.64.0.0/10) and not the network's own.
-fn tailnet_address(lan: Option<IpAddr>) -> Option<IpAddr> {
-    let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
-    socket.connect("100.100.100.100:53").ok()?;
-    tailnet_ip(socket.local_addr().ok()?.ip(), lan)
+/// A virtual machine's or a container's network (Parallels' vnic, macOS's feth among them), behind a real card.
+const BRIDGES: [&str; 16] = [
+    "bridge",
+    "vmnet",
+    "vboxnet",
+    "docker",
+    "br-",
+    "veth",
+    "virbr",
+    "vethernet",
+    "lxc",
+    "lxdbr",
+    "podman",
+    "cni",
+    "vmware",
+    "virtualbox",
+    "vnic",
+    "feth",
+];
+
+/// A VPN's or a proxy's adapter, by its name: Windows calls Wintun's and TAP's neither point-to-point nor a tunnel
+/// (if-addrs knows only PPP's and the system's own tunnels), and Linux's are named so too (R11-2).
+const TUNNELS: [&str; 26] = [
+    "utun",
+    "tun",
+    "tap",
+    "wg",
+    "ppp",
+    "ipsec",
+    "gpd",
+    "cscotun",
+    "tailscale",
+    "wireguard",
+    "zerotier",
+    "zt",
+    "wintun",
+    "openvpn",
+    "nordlynx",
+    "mullvad",
+    "proton",
+    "sing-box",
+    "singbox",
+    "mihomo",
+    "clash",
+    "meta",
+    "v2ray",
+    "xray",
+    "nekoray",
+    "cloudflarewarp",
+];
+
+/// The same by a Windows adapter's description (WireGuard names its adapter after the tunnel, "WireGuard Tunnel" its
+/// description; a TAP adapter keeps "Local Area Connection 2"), or its type: Wintun's is a virtual one (53).
+const TUNNEL_DESCRIPTIONS: [&str; 11] = [
+    "wintun",
+    "wireguard",
+    "tap-",
+    "tap adapter",
+    "tailscale",
+    "zerotier",
+    "openvpn",
+    "vpn",
+    "anyconnect",
+    "pangp",
+    "fortinet",
+];
+
+fn named(name: &str, prefixes: &[&str]) -> bool {
+    let name = name.to_lowercase();
+    prefixes.iter().any(|prefix| name.starts_with(prefix))
+}
+
+fn tunnel_named(name: &str, described: Option<&(String, u32)>) -> bool {
+    named(name, &TUNNELS)
+        || described.is_some_and(|(description, kind)| {
+            let description = description.to_lowercase();
+            *kind == 53 || TUNNEL_DESCRIPTIONS.iter().any(|word| description.contains(word))
+        })
+}
+
+/// Every Windows adapter's friendly name (if-addrs's name there), description and interface type; none elsewhere.
+#[cfg(not(windows))]
+fn adapter_descriptions() -> Vec<(String, String, u32)> {
+    Vec::new()
+}
+#[cfg(windows)]
+fn adapter_descriptions() -> Vec<(String, String, u32)> {
+    use windows::Win32::NetworkManagement::IpHelper::{
+        GAA_FLAG_SKIP_ANYCAST, GAA_FLAG_SKIP_DNS_SERVER, GAA_FLAG_SKIP_MULTICAST, GetAdaptersAddresses,
+        IP_ADAPTER_ADDRESSES_LH,
+    };
+    use windows::Win32::Networking::WinSock::AF_UNSPEC;
+    let flags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER;
+    let mut size: u32 = 16 * 1024;
+    for _ in 0..3 {
+        // u64s, so the list lies on the alignment its structures need.
+        let mut buffer = vec![0u64; (size as usize).div_ceil(8)];
+        let first = buffer.as_mut_ptr().cast::<IP_ADAPTER_ADDRESSES_LH>();
+        let result = unsafe { GetAdaptersAddresses(u32::from(AF_UNSPEC.0), flags, None, Some(first), &mut size) };
+        if result == 111 {
+            continue; // ERROR_BUFFER_OVERFLOW: size now says how much it needs.
+        }
+        if result != 0 {
+            return Vec::new();
+        }
+        let mut adapters = Vec::new();
+        let mut next = first;
+        while !next.is_null() {
+            let adapter = unsafe { &*next };
+            let text = |text: windows::core::PWSTR| {
+                if text.is_null() { String::new() } else { unsafe { text.to_string() }.unwrap_or_default() }
+            };
+            adapters.push((text(adapter.FriendlyName), text(adapter.Description), adapter.IfType));
+            next = adapter.Next;
+        }
+        return adapters;
+    }
+    Vec::new()
+}
+
+/// The interfaces of the WireGuard tunnels up. macOS: a VPN service of WireGuard's app (its SubType says so) with an
+/// address, from the system's configuration store. Linux: a device of WireGuard's type (or named wg…, as wireguard-go's
+/// are). Windows knows it from the adapter's description instead.
+#[cfg(target_os = "macos")]
+fn wireguard_interfaces() -> Vec<String> {
+    vpn_interfaces("wireguard")
+}
+
+/// The interfaces of the VPN services up whose SubType (their app's identifier) has the word in it.
+#[cfg(target_os = "macos")]
+fn vpn_interfaces(word: &str) -> Vec<String> {
+    use system_configuration::core_foundation::base::{CFType, TCFType};
+    use system_configuration::core_foundation::dictionary::CFDictionary;
+    use system_configuration::core_foundation::string::CFString;
+    use system_configuration::dynamic_store::SCDynamicStoreBuilder;
+    let Some(store) = SCDynamicStoreBuilder::new("starmeter-phone").build() else { return Vec::new() };
+    let text = |dictionary: &CFDictionary<CFString, CFType>, key: &'static str| {
+        dictionary
+            .find(CFString::from_static_string(key))
+            .and_then(|value| value.downcast::<CFString>())
+            .map(|value| value.to_string())
+    };
+    let dictionary = |key: String| {
+        store
+            .get(CFString::new(&key))
+            .and_then(|value| value.downcast_into::<CFDictionary>())
+            .map(|value| unsafe { CFDictionary::<CFString, CFType>::wrap_under_get_rule(value.as_concrete_TypeRef()) })
+    };
+    let Some(keys) = store.get_keys("Setup:/Network/Service/[^/]+/Interface") else { return Vec::new() };
+    keys.iter()
+        .filter_map(|key| {
+            let key = key.to_string();
+            let interface = dictionary(key.clone())?;
+            if !text(&interface, "SubType")?.to_lowercase().contains(word) {
+                return None;
+            }
+            let service = key.strip_prefix("Setup:")?.strip_suffix("/Interface")?;
+            text(&dictionary(format!("State:{service}/IPv4"))?, "InterfaceName")
+        })
+        .collect()
+}
+#[cfg(target_os = "linux")]
+fn wireguard_interfaces() -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir("/sys/class/net") else { return Vec::new() };
+    entries
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let uevent = std::fs::read_to_string(entry.path().join("uevent")).unwrap_or_default();
+            (uevent.lines().any(|line| line.trim() == "DEVTYPE=wireguard") || name.starts_with("wg")).then_some(name)
+        })
+        .collect()
+}
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn wireguard_interfaces() -> Vec<String> {
+    Vec::new()
 }
 
 /// A Wi-Fi of its own can hand out 100.64.0.0/10 too (a carrier's or a campus's): without Tailscale the route to
 /// 100.100.100.100 is the default one, from the network's own address, which is no tailnet's.
 fn tailnet_ip(ip: IpAddr, lan: Option<IpAddr>) -> Option<IpAddr> {
-    match ip {
-        IpAddr::V4(v4) if Some(ip) != lan && v4.octets()[0] == 100 && v4.octets()[1] & 0xC0 == 64 => Some(ip),
-        _ => None,
-    }
+    (Some(ip) != lan && in_tailscales_range(ip)).then_some(ip)
 }
 
 fn new_key() -> String {
@@ -1228,47 +1439,170 @@ fn strip(entry: &mut Value) {
 #[cfg(test)]
 mod tests {
     use super::{
-        AtomicBool, AtomicUsize, CONNECTIONS, Deadline, Kept, Keys, Mutex, Nic, Ordering, Running, Slot, Slots,
-        admitted, bind, lan_choice, new_key, read_kept, same, settle, tailnet_ip, write_kept,
+        Addresses, AtomicBool, AtomicUsize, CONNECTIONS, Deadline, Kept, Keys, Mutex, Nic, Ordering, Running, Slot,
+        Slots, admitted, bind, lan_choice, networks, new_key, nic, read_kept, same, settle, tailnet_ip, write_kept,
     };
+
+    fn ip(text: &str) -> std::net::IpAddr {
+        text.parse().unwrap()
+    }
+    /// An interface as macOS or Linux list it: its name, point-to-point or not, its address.
+    fn unix(name: &str, p2p: bool, address: &str) -> Nic {
+        nic(name.into(), p2p, ip(address), None, &[])
+    }
+    /// One as Windows lists it, with its adapter's description and type (6 an Ethernet card's, 71 Wi-Fi's, 53 a virtual
+    /// one's such as Wintun's).
+    fn windows(name: &str, description: &str, kind: u32, address: &str) -> Nic {
+        nic(name.into(), false, ip(address), Some((description.into(), kind)), &[])
+    }
 
     /// The route's own address as before; a proxy's TUN or a VPN holding the route gives way to the Wi-Fi's.
     #[test]
     fn the_networks_address_is_the_wifis_not_a_proxys_tunnel() {
-        let ip = |text: &str| text.parse::<std::net::IpAddr>().unwrap();
-        let nic = |name: &str, tunnel: bool, address: &str| Nic { name: name.into(), tunnel, ip: ip(address) };
         // The report: Clash's TUN on macOS (utun1500, point-to-point, 198.18.0.0) holds the route; en0 is the Wi-Fi.
-        let clash =
-            [nic("lo0", false, "127.0.0.1"), nic("en0", false, "192.168.31.234"), nic("utun1500", true, "198.18.0.0")];
-        assert_eq!(lan_choice(Some(ip("198.18.0.0")), &clash), Some(ip("192.168.31.234")));
-        // Clash's TUN on Windows isn't point-to-point; its range gives it away.
-        let windows = [
-            nic("Meta", false, "198.18.0.1"),
-            nic("vEthernet (WSL)", false, "172.24.80.1"),
-            nic("Wi-Fi", false, "192.168.1.8"),
+        let clash = [
+            unix("lo0", false, "127.0.0.1"),
+            unix("en0", false, "192.168.31.234"),
+            unix("utun1500", true, "198.18.0.0"),
         ];
-        assert_eq!(lan_choice(Some(ip("198.18.0.1")), &windows), Some(ip("192.168.1.8")));
+        assert_eq!(lan_choice(Some(ip("198.18.0.0")), &clash, None), Some(ip("192.168.31.234")));
+        // Clash's TUN on Windows isn't point-to-point; its range gives it away.
+        let meta = [
+            windows("Meta", "Meta Tunnel", 53, "198.18.0.1"),
+            windows("vEthernet (WSL)", "Hyper-V Virtual Ethernet Adapter", 6, "172.24.80.1"),
+            windows("Wi-Fi", "Intel(R) Wi-Fi 6E AX211 160MHz", 71, "192.168.1.8"),
+        ];
+        assert_eq!(lan_choice(Some(ip("198.18.0.1")), &meta, None), Some(ip("192.168.1.8")));
         // A VPN's tunnel holds the route: the Wi-Fi before a virtual machine's bridge.
-        let vpn =
-            [nic("bridge100", false, "192.168.64.1"), nic("utun4", true, "10.8.0.2"), nic("en0", false, "192.168.1.5")];
-        assert_eq!(lan_choice(Some(ip("10.8.0.2")), &vpn), Some(ip("192.168.1.5")));
+        let vpn = [
+            unix("bridge100", false, "192.168.64.1"),
+            unix("utun4", true, "10.8.0.2"),
+            unix("en0", false, "192.168.1.5"),
+        ];
+        assert_eq!(lan_choice(Some(ip("10.8.0.2")), &vpn, None), Some(ip("192.168.1.5")));
         // Without a proxy, the route's address, even one outside the private ranges (a campus's 100.64/10 Wi-Fi).
-        let plain = [nic("en0", false, "100.69.38.146"), nic("utun3", true, "100.76.55.73")];
-        assert_eq!(lan_choice(Some(ip("100.69.38.146")), &plain), Some(ip("100.69.38.146")));
-        assert_eq!(lan_choice(Some(ip("192.168.1.5")), &vpn), Some(ip("192.168.1.5")));
+        let plain = [unix("en0", false, "100.69.38.146"), unix("utun3", true, "100.76.55.73")];
+        assert_eq!(lan_choice(Some(ip("100.69.38.146")), &plain, None), Some(ip("100.69.38.146")));
+        assert_eq!(lan_choice(Some(ip("192.168.1.5")), &vpn, None), Some(ip("192.168.1.5")));
         // The interfaces couldn't be listed: the route's address, unless it is a proxy's.
-        assert_eq!(lan_choice(Some(ip("192.168.1.5")), &[]), Some(ip("192.168.1.5")));
-        assert_eq!(lan_choice(Some(ip("198.18.0.0")), &[]), None);
+        assert_eq!(lan_choice(Some(ip("192.168.1.5")), &[], None), Some(ip("192.168.1.5")));
+        assert_eq!(lan_choice(Some(ip("198.18.0.0")), &[], None), None);
         // Only tunnels and the loopback: nothing a phone could reach.
         assert_eq!(
-            lan_choice(Some(ip("198.18.0.0")), &[nic("lo0", false, "127.0.0.1"), nic("utun1500", true, "198.18.0.0")]),
+            lan_choice(
+                Some(ip("198.18.0.0")),
+                &[unix("lo0", false, "127.0.0.1"), unix("utun1500", true, "198.18.0.0")],
+                None
+            ),
             None
+        );
+    }
+
+    /// R11-1: a campus's Wi-Fi hands out 100.64/10, outside the private ranges, and a proxy's TUN holds the route; a
+    /// virtual machine's or a container's bridge (192.168.64.1, WSL's 172.24…) is private, but a phone can't reach it.
+    #[test]
+    fn a_real_card_comes_before_a_bridge_whatever_their_addresses() {
+        let mac = [
+            unix("bridge100", false, "192.168.64.1"),
+            unix("en0", false, "100.69.38.146"),
+            unix("utun5", true, "198.18.0.1"),
+            unix("vnic0", false, "10.211.55.2"),
+            unix("feth2", false, "10.10.0.1"),
+        ];
+        assert_eq!(lan_choice(Some(ip("198.18.0.1")), &mac, None), Some(ip("100.69.38.146")));
+        let windows_campus = [
+            windows("vEthernet (WSL)", "Hyper-V Virtual Ethernet Adapter", 6, "172.24.80.1"),
+            windows("Meta", "Meta Tunnel", 53, "198.18.0.1"),
+            windows("WLAN", "Realtek 8852BE Wireless LAN WiFi 6 PCI-E NIC", 71, "100.69.38.146"),
+        ];
+        assert_eq!(lan_choice(Some(ip("198.18.0.1")), &windows_campus, None), Some(ip("100.69.38.146")));
+        // Only bridges: one still, a private one first (Hyper-V's external switch holds the card's own address).
+        let bridges = [unix("bridge100", false, "100.70.0.1"), unix("vEthernet (External)", false, "192.168.1.20")];
+        assert_eq!(lan_choice(Some(ip("198.18.0.1")), &bridges, None), Some(ip("192.168.1.20")));
+    }
+
+    /// R11-2: Windows lists Wintun's adapters (WireGuard, Tailscale, sing-box, Clash's) as virtual ones and TAP's as
+    /// Ethernet cards, neither point-to-point: their names, descriptions or type say they are tunnels, whatever their
+    /// addresses; the route through one gives way to the Wi-Fi's.
+    #[test]
+    fn windows_tunnels_are_known_by_their_adapters() {
+        let wifi = || windows("Wi-Fi", "Intel(R) Wi-Fi 6E AX211 160MHz", 71, "192.168.1.8");
+        let cases = [
+            (windows("sing-box", "sing-box Tunnel", 53, "172.19.0.1"), "172.19.0.1"),
+            (windows("office", "WireGuard Tunnel", 53, "10.8.0.2"), "10.8.0.2"),
+            (windows("Local Area Connection 2", "TAP-Windows Adapter V9", 6, "10.8.0.6"), "10.8.0.6"),
+            (windows("ZeroTier One [8056c2e21c000001]", "ZeroTier Virtual Port", 6, "10.147.17.5"), "10.147.17.5"),
+            (windows("Tailscale", "Tailscale Tunnel", 53, "100.76.55.73"), "100.76.55.73"),
+            (windows("Ethernet 3", "Some VPN Client Virtual Adapter", 6, "10.20.0.3"), "10.20.0.3"),
+        ];
+        for (tunnel, routed) in cases {
+            let name = tunnel.name.clone();
+            assert!(tunnel.tunnel, "{name}");
+            assert_eq!(lan_choice(Some(ip(routed)), &[tunnel, wifi()], None), Some(ip("192.168.1.8")), "{name}");
+        }
+        // Real cards are none: an Ethernet card, a Wi-Fi card, Hyper-V's switch (a bridge, not a tunnel).
+        for card in [
+            windows("Ethernet", "Intel(R) Ethernet Connection (17) I219-LM", 6, "192.168.1.9"),
+            windows("以太网", "Realtek PCIe GbE Family Controller", 6, "192.168.1.9"),
+            wifi(),
+            windows("vEthernet (Default Switch)", "Hyper-V Virtual Ethernet Adapter", 6, "172.17.0.1"),
+        ] {
+            assert!(!card.tunnel, "{}", card.name);
+        }
+    }
+
+    /// Tailscale's and WireGuard's addresses go on codes of their own, never on the network's: Tailscale's from its route
+    /// (an interface not known as its, an exit node holding the default route), WireGuard's from its tunnel (on macOS a
+    /// VPN service of its app, on Linux a device of its type, on Windows its adapter's description).
+    #[test]
+    fn tailscale_and_wireguard_have_codes_of_their_own() {
+        let (lan, tailnet, wireguard) = (Some(ip("192.168.1.5")), Some(ip("100.76.55.73")), Some(ip("10.0.0.2")));
+        // macOS: Tailscale and WireGuard both up beside the Wi-Fi.
+        let mac = [
+            unix("en0", false, "192.168.1.5"),
+            unix("utun4", true, "100.76.55.73"),
+            nic("utun6".into(), true, ip("10.0.0.2"), None, &["utun6".into()]),
+        ];
+        let both = Addresses { lan, tailnet, wireguard };
+        assert_eq!(networks(Some(ip("192.168.1.5")), Some(ip("100.76.55.73")), &mac), both);
+        // WireGuard holding every route (AllowedIPs 0.0.0.0/0), Tailscale's exit node too: the same three.
+        assert_eq!(networks(Some(ip("10.0.0.2")), Some(ip("100.76.55.73")), &mac), both);
+        assert_eq!(networks(Some(ip("100.76.55.73")), Some(ip("100.76.55.73")), &mac), both);
+        // Another VPN's utun is no WireGuard's.
+        let other = [unix("en0", false, "192.168.1.5"), unix("utun6", true, "10.0.0.2")];
+        assert_eq!(
+            networks(Some(ip("10.0.0.2")), Some(ip("192.168.1.5")), &other),
+            Addresses { lan, ..Addresses::default() }
+        );
+        // Linux's wg0 and tailscale0; Windows's tunnel named after its user's choice, described as WireGuard's.
+        let linux = [
+            unix("wlp2s0", false, "192.168.1.5"),
+            unix("tailscale0", true, "100.76.55.73"),
+            nic("wg0".into(), true, ip("10.0.0.2"), None, &["wg0".into()]),
+        ];
+        assert_eq!(networks(Some(ip("192.168.1.5")), Some(ip("100.76.55.73")), &linux), both);
+        let pc = [
+            windows("Wi-Fi", "Intel(R) Wi-Fi 6E AX211 160MHz", 71, "192.168.1.5"),
+            windows("Tailscale", "Tailscale Tunnel", 53, "100.76.55.73"),
+            windows("home", "WireGuard Tunnel", 53, "10.0.0.2"),
+        ];
+        assert_eq!(networks(Some(ip("100.76.55.73")), Some(ip("100.76.55.73")), &pc), both);
+        // A campus's 100.64/10 Wi-Fi with Tailscale on an interface not known as its: Tailscale's route tells them apart.
+        let campus = [unix("Ethernet 3", false, "100.76.55.73"), unix("Wi-Fi", false, "100.69.38.146")];
+        assert_eq!(
+            networks(Some(ip("198.18.0.1")), Some(ip("100.76.55.73")), &campus),
+            Addresses { lan: Some(ip("100.69.38.146")), tailnet, wireguard: None }
+        );
+        // No Tailscale on that campus: its route is the default one, the Wi-Fi's.
+        let alone = [unix("en0", false, "100.69.38.146")];
+        assert_eq!(
+            networks(Some(ip("100.69.38.146")), Some(ip("100.69.38.146")), &alone),
+            Addresses { lan: Some(ip("100.69.38.146")), tailnet: None, wireguard: None }
         );
     }
 
     #[test]
     fn a_tailnet_address_is_tailscales_range_and_not_the_networks_own() {
-        let ip = |text: &str| text.parse::<std::net::IpAddr>().unwrap();
         // Tailscale on: its own address, beside the Wi-Fi's.
         assert_eq!(tailnet_ip(ip("100.76.55.73"), Some(ip("192.168.1.5"))), Some(ip("100.76.55.73")));
         // A Wi-Fi that hands out 100.64.0.0/10 itself, and no Tailscale: the route is the default one, no tailnet.

@@ -1,7 +1,7 @@
 <script lang="ts">
   // 在手机上看: a QR code a phone scans to open the homepage in its browser, read-only. Two ways, each on and off by
   // itself (用户：同一网络和任何网络为什么是一切开始和结束？互不影响啊): 同一个网络, which the app serves itself, its
-  // network address and its Tailscale one side by side, until its 停止; and 任何网络, a public link through Cloudflare
+  // network address and its Tailscale and WireGuard ones side by side, until its 停止; and 任何网络, a public link through Cloudflare
   // (a download of cloudflared the first time), an hour at most, until its own 停止. Both start off, and only their own
   // 开始 starts them (用户：默认，同一网络，任何网络都是停止状态，用户点击开始才开始), and one left on is on again when the
   // app starts again, an update too, 同一个网络 at the same address (the shell keeps it): looking at a page starts nothing,
@@ -45,6 +45,24 @@
   const localOn = $derived(!localFailed && !!(view?.localOpen ?? view?.local));
   const lan = $derived(localOn ? looked(view?.local) : null);
   const tailnet = $derived(localOn ? looked(view?.tailnet) : null);
+  const wireguard = $derived(localOn ? looked(view?.wireguard) : null);
+  /** 同一个网络's codes: the network's, then Tailscale's and WireGuard's where this computer is on them (用户：如果有
+   *  wireguard也和tailscale一样处理哈). */
+  const codes = $derived([
+    lan && { key: 'local', url: lan, title: '局域网', label: '手机扫这个二维码', detail: '手机连同一个 Wi-Fi' },
+    tailnet && { key: 'tailnet', url: tailnet, title: 'Tailscale', label: '连着 Tailscale 的手机扫这个二维码', detail: '手机开着 Tailscale' },
+    wireguard && { key: 'wireguard', url: wireguard, title: 'WireGuard', label: '连着 WireGuard 的手机扫这个二维码', detail: '手机开着 WireGuard' },
+  ].filter((code) => !!code));
+  /** What the codes side by side say under them: the system's question the first time, and which open from anywhere. */
+  const codesNote = $derived(lan
+    ? tailnet && wireguard ? '第一次打开时系统可能问是否允许 Starmeter 接收连接，选允许；Tailscale 和 WireGuard 的二维码在手机连着对应的网络时打开，不经过 Cloudflare'
+      : wireguard ? '第一次打开时系统可能问是否允许 Starmeter 接收连接，选允许；WireGuard 的二维码在手机连着同一个 WireGuard 网络时打开，不经过 Cloudflare'
+        : '第一次打开时系统可能问是否允许 Starmeter 接收连接，选允许；Tailscale 的二维码在哪都能打开，不经过 Cloudflare'
+    : '手机连着 Tailscale 或 WireGuard 时扫对应的二维码，不经过 Cloudflare');
+  /** And what one code alone says. */
+  const codeNote = (key: string) => key === 'local' ? '手机和电脑连同一个网络（Wi-Fi）后扫码；第一次打开时系统可能问是否允许 Starmeter 接收连接，选允许'
+    : key === 'tailnet' ? '手机连上同一个 Tailscale 网络时扫这个，在哪都能打开，不经过 Cloudflare'
+      : '手机连上同一个 WireGuard 网络时扫这个，不经过 Cloudflare';
   const outside = $derived(looked(view?.public));
   const opening = $derived(busy || !!view?.publicOpening);
   const minutes = $derived(view ? Math.max(1, Math.round(secondsLeft() / 60)) : 0);
@@ -187,7 +205,7 @@
   // Refused: the whole link, key and all, selected for a copy by hand.
   $effect(() => { if (copied?.state === 'failed' && manual) { manual.focus(); manual.select(); } });
   // A new link (another network, a public link) starts afresh.
-  $effect(() => { void lan; void tailnet; void outside; copied = null; });
+  $effect(() => { void lan; void tailnet; void wireguard; void outside; copied = null; });
 
   let body: HTMLDivElement | undefined = $state();
   $effect(() => {
@@ -246,32 +264,28 @@
             <p class="failed">{t(localFailed)}</p>
             <div class="actions"><button class="action primary pressable" onclick={startLocal}>{t('重试')}</button></div>
           {:else if localOn}
-            {#if lan && tailnet}
-              <!-- This computer's network address and its Tailscale one, side by side: the same server, the same key. -->
+            {#if codes.length > 1}
+              <!-- This computer's network address and its Tailscale and WireGuard ones, side by side: the same server, the
+                   same key; a third under the two, in the middle. -->
               <div class="codes">
-                <div class="card">
-                  <span class="card-title">{t('局域网')}</span>
-                  <QrCode text={lan} size={132} label={t('手机扫这个二维码')} />
-                  {@render link('local', lan, true)}
-                  <span class="card-detail">{t('手机连同一个 Wi-Fi')}</span>
-                </div>
-                <div class="card">
-                  <span class="card-title">Tailscale</span>
-                  <QrCode text={tailnet} size={132} label={t('连着 Tailscale 的手机扫这个二维码')} />
-                  {@render link('tailnet', tailnet, true)}
-                  <span class="card-detail">{t('手机开着 Tailscale')}</span>
-                </div>
+                {#each codes as code (code.key)}
+                  <div class="card">
+                    <span class="card-title">{t(code.title)}</span>
+                    <QrCode text={code.url} size={132} label={t(code.label)} />
+                    {@render link(code.key, code.url, true)}
+                    <span class="card-detail">{t(code.detail)}</span>
+                  </div>
+                {/each}
               </div>
-              <p class="note">{t('第一次打开时系统可能问是否允许 Starmeter 接收连接，选允许；Tailscale 的二维码在哪都能打开，不经过 Cloudflare')}</p>
-            {:else if lan || tailnet}
-              <div class="code"><QrCode text={(lan ?? tailnet)!} size={188} label={t(lan ? '手机扫这个二维码' : '连着 Tailscale 的手机扫这个二维码')} /></div>
-              {@render link(lan ? 'local' : 'tailnet', (lan ?? tailnet)!)}
-              <p class="note">{t(lan ? '手机和电脑连同一个网络（Wi-Fi）后扫码；第一次打开时系统可能问是否允许 Starmeter 接收连接，选允许'
-                : '手机连上同一个 Tailscale 网络时扫这个，在哪都能打开，不经过 Cloudflare')}</p>
+              <p class="note">{t(codesNote)}</p>
+            {:else if codes.length === 1}
+              <div class="code"><QrCode text={codes[0].url} size={188} label={t(codes[0].label)} /></div>
+              {@render link(codes[0].key, codes[0].url)}
+              <p class="note">{t(codeNote(codes[0].key))}</p>
             {:else}
               <div class="code"><span class="wait">{t('这台电脑没有连上网络')}</span></div>
             {/if}
-            {#if lan || tailnet}
+            {#if codes.length}
               <p class="note">{t('只读：手机上只能看主页和工具页，不能改设置。点“停止”或退出 App 前一直开着。')}</p>
               <p class="note">{t('网页右上角的太阳可让手机屏幕保持常亮，适合放在桌边一直看；要用“任何网络”的 https 链接打开才能用')}</p>
             {/if}
@@ -285,7 +299,7 @@
               <p class="note">{t('原来的二维码和链接已失效。点“重新开始”生成新的二维码，手机再扫一次就能看。')}</p>
             {:else}
               {@render halted('未开始', '在同一个网络里直连这台电脑')}
-              <p class="note">{t('点“开始”生成二维码：手机和电脑连同一个网络（Wi-Fi）时扫码就能看；这台电脑连着 Tailscale 时，还有一张 Tailscale 的二维码。')}</p>
+              <p class="note">{t('点“开始”生成二维码：手机和电脑连同一个网络（Wi-Fi）时扫码就能看；这台电脑连着 Tailscale 或 WireGuard 时，还有它们的二维码。')}</p>
             {/if}
             <div class="actions"><button class="action primary pressable" onclick={startLocal}>{t(phone.localStopped ? '重新开始' : '开始')}</button></div>
           {/if}
@@ -378,9 +392,10 @@
     color: var(--label); background: color-mix(in srgb, var(--label) 6%, transparent); user-select: text; -webkit-user-select: text;
   }
   .note { margin: 0; font-size: 11px; line-height: 1.5; color: var(--secondary); }
-  .codes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  /* Two to a row, the same size; a third under them in the middle. */
+  .codes { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
   .card {
-    min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 6px 9px;
+    flex: 0 0 calc(50% - 5px); box-sizing: border-box; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 6px 9px;
     border-radius: 12px; background: color-mix(in srgb, var(--label) 4%, transparent);
   }
   .card-title { font-size: 12px; font-weight: 600; line-height: 16px; color: var(--label); }
