@@ -2,7 +2,7 @@
  "source": {
   "project": "ccusage",
   "commit": "7c6a60f58a665e95bd82dd666e1b2b2ed24904a9",
-  "committedAt": "2026-11-27T12:37:31Z",
+  "committedAt": "2026-11-27T12:37:32+00:00",
   "license": "MIT"
  },
  "models": {
@@ -2318,7 +2318,7 @@
   "hy4flash": {
    "input": 0.07,
    "output": 0.281,
-   "cacheRead": 0.003,
+   "cacheRead": 0.01,
    "cacheWrite": 0.0875
   }
  }

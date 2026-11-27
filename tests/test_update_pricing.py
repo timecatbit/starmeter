@@ -109,13 +109,34 @@ class UpdatePricingTests(unittest.TestCase):
         self.assertAlmostEqual(cost, 0.305)
 
     def test_the_bundled_table_prices_tencent_hy4_models(self):
+        # Whatever ccusage lists for them (its prices change, a sale's with them: the daily update once broke a test
+        # that wrote the catalogue's figures out): a price for each, and WorkBuddy's spelling at hy4-flash's.
         table = sources.pricing('model-pricing.json')
         self.assertTrue(sources.valid_pricing('model-pricing.json', table))
-        for name in ('hy4-flash', 'workbuddy/hy4flash'):
-            cost = sources.model_cost({'model': name, 'input': 1_000_000, 'cached': 1_000_000, 'output': 1_000_000, 'writes': 0})
-            self.assertAlmostEqual(cost, 0.07 + 0.003 + 0.281, places=6, msg=name)
-        flagship = sources.model_cost({'model': 'hy4', 'input': 1_000_000, 'cached': 1_000_000, 'output': 1_000_000, 'writes': 0})
-        self.assertAlmostEqual(flagship, 0.834 + 0.042 + 2.501, places=6)
+        cost = lambda name: sources.model_cost({'model': name, 'input': 1_000_000, 'cached': 1_000_000, 'output': 1_000_000, 'writes': 0})
+        for name in ('hy4', 'hy4-flash', 'workbuddy/hy4flash'):
+            self.assertIsNotNone(cost(name), name)
+            self.assertGreater(cost(name), 0, name)
+        self.assertEqual(cost('workbuddy/hy4flash'), cost('hy4-flash'))
+
+    def test_models_ccusage_lacks_are_added_never_over_its_own_and_a_tools_spelling_follows_the_listed_price(self):
+        # ccusage lists none of them: the catalogue's prices, WorkBuddy's hy4flash at hy4-flash's.
+        lacking = update.supplemented({'glm-5': {'input': 1.0, 'output': 2.0, 'cacheRead': 0.1, 'cacheWrite': 1.25}})
+        self.assertEqual(lacking['hy4-flash'], {'input': 0.07, 'output': 0.281, 'cacheRead': 0.003, 'cacheWrite': 0.0875})
+        self.assertEqual(lacking['hy4']['input'], 0.834)
+        self.assertEqual(lacking['hy4flash'], lacking['hy4-flash'])
+        self.assertEqual(lacking['glm-5']['input'], 1.0)
+        # It lists them at prices of its own: those stay, the spelling follows them, and what it still lacks is added.
+        own = {'hy4': {'input': 0.417, 'output': 1.2505, 'cacheRead': 0.021, 'cacheWrite': 0.52125},
+               'hy4-flash': {'input': 0.07, 'output': 0.281, 'cacheRead': 0.01, 'cacheWrite': 0.0875}}
+        listed = update.supplemented({name: dict(entry) for name, entry in own.items()})
+        self.assertEqual(listed['hy4'], own['hy4'])
+        self.assertEqual(listed['hy4-flash'], own['hy4-flash'])
+        self.assertEqual(listed['hy4flash'], own['hy4-flash'])
+        self.assertEqual(listed['hy4-preview']['input'], 0.834)
+        # The catalogue's own entries are never handed out to be changed.
+        listed['hy4-preview']['input'] = 9
+        self.assertEqual(update.SUPPLEMENT_OTHER_MODELS['hy4-preview']['input'], 0.834)
 
 
 if __name__ == '__main__':

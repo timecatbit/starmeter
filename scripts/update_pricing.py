@@ -26,7 +26,8 @@ OPENAI = re.compile(r'(?:gpt-|o\d|codex-|chatgpt-)[^/@:]*')
 # First-party names only; provider-prefixed resellers ("together-ai/…") price differently.
 VENDORS = re.compile(r'(?:deepseek|glm|kimi|moonshot|minimax|qwen|gemini|grok|hunyuan|hy4)[^/@:~]*', re.I)
 
-# Verified first-party vendor models not yet in ccusage's snapshot (USD per 1M tokens). Never overrides ccusage.
+# Verified first-party vendor models not yet in ccusage's snapshot (USD per 1M tokens). Never overrides ccusage: once
+# it lists a model, its price is the one used (it has listed these three since 2026-11-27, at prices of its own).
 # Tencent Hunyuan 4 (TokenHub / Tencent AI official catalog, verified 2026-11-27):
 #   hy4-flash: ¥0.50 / ¥2.00 / ¥0.02 (CNY) -> $0.070 / $0.281 / $0.003 (USD)
 #   hy4:       $0.834 / $2.501 / $0.042 (USD)
@@ -34,8 +35,21 @@ SUPPLEMENT_OTHER_MODELS = {
     'hy4': {'input': 0.834, 'output': 2.501, 'cacheRead': 0.042, 'cacheWrite': 1.0425},
     'hy4-preview': {'input': 0.834, 'output': 2.501, 'cacheRead': 0.042, 'cacheWrite': 1.0425},
     'hy4-flash': {'input': 0.07, 'output': 0.281, 'cacheRead': 0.003, 'cacheWrite': 0.0875},
-    'hy4flash': {'input': 0.07, 'output': 0.281, 'cacheRead': 0.003, 'cacheWrite': 0.0875},
 }
+# A model's name as a tool logs it, where that isn't the listed one (WorkBuddy writes hy4flash): priced as the listed
+# model is, whoever lists it, so the two never part when ccusage's price changes.
+OTHER_ALIASES = {'hy4flash': 'hy4-flash'}
+
+
+def supplemented(others):
+    """The other vendors' table with what ccusage lacks: the verified models it has not picked up (its own entries
+    stay as they are), and the spellings tools log for a model that is listed."""
+    for name, entry in SUPPLEMENT_OTHER_MODELS.items():
+        others.setdefault(name, dict(entry))
+    for alias, name in OTHER_ALIASES.items():
+        if name in others:
+            others[alias] = dict(others[name])
+    return others
 
 
 def rates(cost):
@@ -150,9 +164,7 @@ def main():
     path = ROOT / 'lib/codex-pricing.json'
     path.write_text(json.dumps(stamped(path, result, committed), ensure_ascii=False, indent=1) + '\n')
     # Lower-case keys: harness logs spell vendor model names inconsistently.
-    others = table(snapshot, VENDORS, key=str.lower)
-    for name, entry in SUPPLEMENT_OTHER_MODELS.items():
-        others.setdefault(name, entry)
+    others = supplemented(table(snapshot, VENDORS, key=str.lower))
     path = ROOT / 'lib/model-pricing.json'
     path.write_text(json.dumps(stamped(path, {'source': dict(source), 'models': others}, committed), ensure_ascii=False, indent=1) + '\n')
     print('codex models:', len(models), 'other models:', len(others), 'commit:', commit[:8], 'from models.dev:', ', '.join(sorted(added)) or 'none')
