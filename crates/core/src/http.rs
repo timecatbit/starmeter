@@ -70,16 +70,21 @@ impl Default for Request<'_> {
 }
 
 pub fn send(address: &str, request: Request) -> Result<Response, Unreachable> {
-    exchange(address, request, describe)
+    exchange(address, request, describe, describe_read)
 }
 
 /// As send, the reason for no answer said the way a person can act on: the name not found, the connection turned
 /// away, the certificate, the time out; else the innermost cause (reqwest's own text names only the request).
 pub fn send_explained(address: &str, request: Request) -> Result<Response, Unreachable> {
-    exchange(address, request, explain)
+    exchange(address, request, explain, explain_read)
 }
 
-fn exchange(address: &str, request: Request, why: fn(&reqwest::Error) -> String) -> Result<Response, Unreachable> {
+fn exchange(
+    address: &str,
+    request: Request,
+    why: fn(&reqwest::Error) -> String,
+    why_read: fn(&std::io::Error) -> String,
+) -> Result<Response, Unreachable> {
     let mut target = address.to_string();
     for (from, to) in ROUTES.read().expect("routes").iter() {
         if let Some(rest) = address.strip_prefix(from.as_str()) {
@@ -116,12 +121,31 @@ fn exchange(address: &str, request: Request, why: fn(&reqwest::Error) -> String)
         .map(|(name, value)| (name.as_str().to_string(), String::from_utf8_lossy(value.as_bytes()).into_owned()))
         .collect();
     let mut body = Vec::new();
-    response.take(request.limit as u64).read_to_end(&mut body).map_err(|error| Unreachable(error.to_string()))?;
+    response.take(request.limit as u64).read_to_end(&mut body).map_err(|error| Unreachable(why_read(&error)))?;
     Ok(Response { status, body, headers })
 }
 
 fn describe(error: &reqwest::Error) -> String {
     if error.is_timeout() { "timed out".into() } else { error.to_string() }
+}
+
+fn describe_read(error: &std::io::Error) -> String {
+    error.to_string()
+}
+
+/// The answer cut off while its body was read (R12-10): said as the others are, a connection cut off when nothing
+/// more is known (it answered, then stopped).
+fn explain_read(error: &std::io::Error) -> String {
+    if error.kind() == std::io::ErrorKind::TimedOut {
+        return "等了太久没有回应".into();
+    }
+    let mut causes = vec!["reading the answer".to_string()];
+    let mut source: Option<&dyn std::error::Error> = Some(error);
+    while let Some(cause) = source {
+        causes.push(cause.to_string());
+        source = cause.source();
+    }
+    reason(&causes).unwrap_or("连接被中断").into()
 }
 
 fn explain(error: &reqwest::Error) -> String {
@@ -141,26 +165,33 @@ fn explain(error: &reqwest::Error) -> String {
 /// could hold any word), so only the causes under it are read; a connection cut off is told before a certificate (a
 /// TLS library's line for it says SSL or TLS too).
 fn explained(causes: &[String]) -> String {
+    reason(causes).map_or_else(|| causes.last().cloned().unwrap_or_default(), str::to_string)
+}
+
+fn reason(causes: &[String]) -> Option<&'static str> {
     let under = if causes.len() > 1 { &causes[1..] } else { causes };
     let all = under.join(" ").to_lowercase();
     let has = |words: &[&str]| words.iter().any(|word| all.contains(word));
-    if has(&["dns error", "failed to lookup", "nodename nor servname", "name or service not known", "no such host"]) {
-        "找不到这个域名".into()
-    } else if has(&["connection refused", "actively refused"]) {
-        "连接被拒绝".into()
-    } else if has(&["timed out", "time out"]) {
-        "等了太久没有回应".into()
-    } else if has(&["connection reset", "connection closed", "unexpected eof", "broken pipe", "forcibly closed"]) {
-        "连接被中断".into()
-    } else if has(&["certificate", "verify", "self signed", "self-signed", "unknown issuer", "expired"]) {
-        "证书有问题".into()
-    } else if has(&["no route to host", "network is unreachable", "host is unreachable"]) {
-        "连不上这个地址".into()
-    } else if has(&["tls", "ssl", "handshake"]) {
-        "加密连接没能建立".into()
-    } else {
-        causes.last().cloned().unwrap_or_default()
-    }
+    Some(
+        if has(&["dns error", "failed to lookup", "nodename nor servname", "name or service not known", "no such host"])
+        {
+            "找不到这个域名"
+        } else if has(&["connection refused", "actively refused"]) {
+            "连接被拒绝"
+        } else if has(&["timed out", "time out"]) {
+            "等了太久没有回应"
+        } else if has(&["connection reset", "connection closed", "unexpected eof", "broken pipe", "forcibly closed"]) {
+            "连接被中断"
+        } else if has(&["certificate", "verify", "self signed", "self-signed", "unknown issuer", "expired"]) {
+            "证书有问题"
+        } else if has(&["no route to host", "network is unreachable", "host is unreachable"]) {
+            "连不上这个地址"
+        } else if has(&["tls", "ssl", "handshake"]) {
+            "加密连接没能建立"
+        } else {
+            return None;
+        },
+    )
 }
 
 /// An HTTP error status, as urllib raises HTTPError: the status and the start of the body.
@@ -203,6 +234,19 @@ pub fn get_json(url: &str, key: &str) -> Result<Object, JsonFailure> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_answer_cut_off_while_read_is_said_in_words_too() {
+        // R12-10: the body read failing after the answer began, said as the others are, never the system's English.
+        let cut = std::io::Error::other("error decoding response body");
+        assert_eq!(explain_read(&cut), "连接被中断");
+        let reset = std::io::Error::new(std::io::ErrorKind::ConnectionReset, "Connection reset by peer (os error 54)");
+        assert_eq!(explain_read(&reset), "连接被中断");
+        let slow = std::io::Error::new(std::io::ErrorKind::TimedOut, "operation timed out");
+        assert_eq!(explain_read(&slow), "等了太久没有回应");
+        let tls = std::io::Error::other("tls: bad record mac");
+        assert_eq!(explain_read(&tls), "加密连接没能建立");
+    }
 
     #[test]
     fn no_answer_is_said_in_words_a_person_can_act_on() {
