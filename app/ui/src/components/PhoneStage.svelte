@@ -458,7 +458,7 @@
       <section class="rest">
         <div class="activity-box"><StageActivity {live} {now} carded={desk} /></div>
 
-        <div class="stats" bind:this={statsBox}>
+        <div class="stats" class:bare={rangeChoices.length <= 1} bind:this={statsBox}>
           <div class="stats-a" class:placing={!placed}>
             <div class="part figures-part" bind:this={boxes.a}>
             <div class="stats-head">{t('统计')}</div>
@@ -499,6 +499,9 @@
             <div class="part cards" bind:this={boxes.b}>
             {#if tabs.length > 1}
               <div class="tabs"><StagePills options={tabs} chosen={showingSessions ? 'sessions' : wantedGrouping} label={t('卡片分组')} onpick={pickTab} small /></div>
+            {:else if desk}
+              <!-- A computer's screen with no tabs to show: their row all the same, the cards starting where the figures do. -->
+              <div class="tabs" aria-hidden="true"></div>
             {/if}
             {#if !showingSessions && !regrouping && data.groupNote}<p class="note">{data.groupNote}</p>{/if}
 
@@ -996,6 +999,12 @@
   .desk .ranges, .desk .tabs { display: flex; align-items: center; height: 38px; }
   .desk .ranges > :global(*) { flex: 1; min-width: 0; }
   .desk .tabs { justify-content: flex-start; margin-top: 40px; }
+  /* No ranges to pick (SwiftBar's panel gives its own range alone; 用户：这上面一行还是没有对齐): the tabs go up beside
+     统计, its heading's row as tall as theirs, and the figures and the first card start on one line under them. */
+  .desk .stats.bare .stats-head { height: 38px; }
+  .desk .stats.bare .tabs { margin-top: 0; }
+  /* The range's words start at the first card's top edge. */
+  .desk .hero { padding-top: 0; }
   .note { margin: -6px 0 0; font-size: 11.5px; color: var(--ink-3); text-align: center; }
   .note.center { margin: 8px 0; }
   .list { display: flex; flex-direction: column; gap: 10px; transition: opacity 0.3s; }

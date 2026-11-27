@@ -1177,6 +1177,29 @@ test('网页版 on a computer\'s screen is laid on one grid, however many tools,
   }
 });
 
+test('网页版 on a computer\'s screen from SwiftBar\'s panel (one range, no row of ranges): the cards\' tabs beside 统计, the figures and the first card starting on one line', async ({ page }) => {
+  // 用户：这上面一行还是没有对齐，其他地方还可以。 With no ranges to pick, the tabs kept the row the ranges would have had
+  // while the figures moved up into it: the estimate stood beside the tabs, the first card below both.
+  for (const size of [{ width: 1440, height: 900 }, { width: 1100, height: 760 }]) {
+    await phone(page, size, '', { swiftbar: true });
+    await expect(page.locator('.stage.desk')).toBeVisible();
+    await expect(page.locator('.stage .ranges')).toHaveCount(0);
+    await expect(page.locator('.stage .placing')).toHaveCount(0);
+    const seen = await page.evaluate(() => {
+      const box = (selector: string) => { const b = document.querySelector(selector)!.getBoundingClientRect(); return { top: b.top, bottom: b.bottom, middle: (b.top + b.bottom) / 2 }; };
+      const foot = (selector: string) => [...document.querySelectorAll(selector)].map((e) => e.getBoundingClientRect().bottom).reduce((a, b) => Math.max(a, b), 0);
+      return { head: box('.stage .stats-head'), tabs: box('.stage .tabs'), pills: box('.stage .tabs .pills'), hero: box('.stage .hero'), card: box('.stage .stats-b .card'),
+        left: foot('.stage .stats-a > *'), right: foot('.stage .stats-b > *') };
+    });
+    // 统计 and the tabs in one row, their middles on one line.
+    expect(Math.abs(seen.head.top - seen.tabs.top), String(size.width)).toBeLessThanOrEqual(1);
+    expect(Math.abs(seen.head.middle - seen.pills.middle), String(size.width)).toBeLessThanOrEqual(1);
+    // The range's figures and the first card start on one line, and the columns still end on one.
+    expect(Math.abs(seen.hero.top - seen.card.top), String(size.width)).toBeLessThanOrEqual(1);
+    expect(Math.abs(seen.left - seen.right), String(size.width)).toBeLessThanOrEqual(1);
+  }
+});
+
 test('the live curve has a line for each tool beside the total\'s, named in a legend, their ends apart, both ways up, on a computer\'s screen and in 手绘', async ({ page }) => {
   test.setTimeout(90_000);
   for (const [size, look] of [[PORTRAIT, ''], [LANDSCAPE, ''], [{ width: 1440, height: 900 }, ''], [PORTRAIT, 'sketch']] as const) {
