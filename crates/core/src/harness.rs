@@ -1356,10 +1356,13 @@ pub(crate) fn antigravity_prompts(path: &str) -> Vec<f64> {
             }
         }
         Some(out)
-    })()
-    .unwrap_or_default();
-    cache.lock().expect("antigravity prompts cache").insert(path.to_string(), (state, times.clone()));
-    times
+    })();
+    if let Some(times) = times {
+        cache.lock().expect("antigravity prompts cache").insert(path.to_string(), (state, times.clone()));
+        times
+    } else {
+        Vec::new()
+    }
 }
 
 /// One Antigravity conversation's requests, from its store's gen_metadata: a row each, with its tokens

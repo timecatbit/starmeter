@@ -37,7 +37,7 @@ export function halo(now: number, still: boolean): { radius: number; strength: n
   return { radius: LINE.halo[0] + (LINE.halo[1] - LINE.halo[0]) * k, strength: LINE.haloAlpha[0] + (LINE.haloAlpha[1] - LINE.haloAlpha[0]) * k };
 }
 
-export type ToolLine = { id: string; points: Point[]; colour: string };
+export type ToolLine = { id: string; points: Point[]; colour: string; running?: boolean };
 
 export interface Drawn {
   /** The total's end. */
@@ -75,11 +75,17 @@ export function drawLines(ctx: CanvasRenderingContext2D, o: {
     fill.addColorStop(1, alpha(o.areaColour, 0));
     ctx.fillStyle = fill; ctx.fill();
   }
-  // Each tool under the total: one not writing faint along the bottom; one writing where it writes (rising off the
-  // bottom and back), not along it the rest of the time.
+  // Each tool under the total: a tool with a running session stays continuous all the way to 现在 even while its rate
+  // rests at 0; a finished tool writes only where it rose off the bottom, and an idle tool stays faint along the bottom.
   for (const tool of o.tools) {
     if (tool.id === alone || tool.points.length < 2) continue;
-    ctx.lineWidth = LINE.tool; ctx.strokeStyle = alpha(tool.colour, active.includes(tool) ? LINE.idleAlpha * 0.6 : LINE.idleAlpha);
+    ctx.lineWidth = LINE.tool;
+    if (tool.running) {
+      ctx.strokeStyle = alpha(tool.colour, LINE.toolAlpha);
+      curve(tool.points); ctx.stroke(); o.again?.(tool.points);
+      continue;
+    }
+    ctx.strokeStyle = alpha(tool.colour, active.includes(tool) ? LINE.idleAlpha * 0.6 : LINE.idleAlpha);
     curve(tool.points); ctx.stroke();
     if (!active.includes(tool)) continue;
     ctx.strokeStyle = alpha(tool.colour, LINE.toolAlpha);
@@ -103,15 +109,16 @@ export function drawLines(ctx: CanvasRenderingContext2D, o: {
     curve(o.total); ctx.stroke();
     o.again?.(o.total);
   }
-  // A dot at the end of each tool still writing at the end, one a little off the total's; none on top of it or of
-  // another's.
+  // A dot at the end of each tool still writing (or running) at the end, one a little off the total's; none on top of
+  // it or of another's.
   const ends: Record<string, number> = {}, dots: string[] = [], under: string[] = [];
   for (const tool of o.tools) {
     const last = tool.points.at(-1);
     if (!last) continue;
     ends[tool.id] = last[1];
-    if (tool.id === alone || (on(last) && Math.abs(last[1] - end[1]) < 6)) { under.push(tool.id); continue; }
-    if (!on(last) || dots.some((id) => Math.abs(ends[id] - last[1]) < 4.5)) continue;
+    const liveEnd = on(last) || !!tool.running;
+    if (tool.id === alone || (liveEnd && Math.abs(last[1] - end[1]) < 6)) { under.push(tool.id); continue; }
+    if (!liveEnd || dots.some((id) => Math.abs(ends[id] - last[1]) < 4.5)) continue;
     dots.push(tool.id);
     ctx.fillStyle = tool.colour;
     ctx.beginPath(); ctx.arc(last[0], last[1], LINE.toolDot, 0, Math.PI * 2); ctx.fill();

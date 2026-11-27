@@ -3196,7 +3196,13 @@ test('PERF-10: LiveFeed.smoothRates reacts immediately on landing without 10s de
     feed.add(burst as never, t0 + 60_000);
     // Right at landing (t = t0 + 60_000): leading edge jumps immediately (>= 60% of raw peak).
     const timesAtLand = Array.from({ length: 61 }, (_, i) => t0 + i * 1000);
-    const atLand = feed.smoothRates(timesAtLand).at(-1)!;
+    const smoothedAtLand = feed.smoothRates(timesAtLand);
+    const atLand = smoothedAtLand.at(-1)!;
+    // Fractional millisecond check (t0 + 60_350): headline feed.rate(now) must exactly match curve endpoint smoothRates(times).at(-1).
+    const fracNow = t0 + 60_350;
+    const fracTimes = [...timesAtLand, fracNow];
+    const fracCurveEnd = feed.smoothRates(fracTimes).at(-1)!;
+    const fracHeadline = feed.rate(fracNow)!;
     // Two seconds later: crests smoothly; 20 seconds later with no more output: clearly decaying (no 60s flat plateau).
     feed.add(burst as never, t0 + 62_000);
     const times = Array.from({ length: 81 }, (_, i) => t0 + i * 1000);
@@ -3204,13 +3210,15 @@ test('PERF-10: LiveFeed.smoothRates reacts immediately on landing without 10s de
     const raw60 = feed.rateSeries([t0 + 60_000])[0] ?? 0;
     const at2s = smoothed[62];
     const at20s = smoothed[80];
-    const solo = feed.smoothRates([t0 + 80_000])[0];
-    return { raw60, atLand, at2s, at20s, solo, minVal: Math.min(...smoothed) };
+    const solo = feed.rate(t0 + 80_000)!;
+    return { raw60, atLand, fracCurveEnd, fracHeadline, at2s, at20s, solo, minVal: Math.min(...smoothed) };
   });
   expect(result.raw60).toBeCloseTo(100, 1);
   // Immediate onset: >= 60% of raw peak visible at landing (t=0) and >= 75% crest by t=+2s.
   expect(result.atLand / result.raw60).toBeGreaterThanOrEqual(0.6);
   expect(result.at2s / result.raw60).toBeGreaterThanOrEqual(0.75);
+  // Headline rate and curve endpoint agree identically even at fractional milliseconds right after landing.
+  expect(Math.abs(result.fracHeadline - result.fracCurveEnd)).toBeLessThan(0.01);
   // Natural decay once idle (after 20s, down below 25% of peak instead of staying flat for 60s).
   expect(result.at20s).toBeLessThan(result.at2s * 0.25);
   // Headline rate (solo) stays consistent with curve endpoint and curve is non-negative.
@@ -3231,4 +3239,51 @@ test('closing the panel from 模型/项目/会话 resets to 工具 while hidden 
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('panel-opened', { detail: { modules: false, maxHeight: 900 } })));
   await expect(tab('工具')).toHaveAttribute('aria-checked', 'true');
   await expect(page.locator('.list .card .name').first()).toHaveText('Claude');
+});
+
+test('a running tool keeps its live line continuous along 0 to 现在 instead of breaking off mid-chart', async ({ page }) => {
+  await open(page);
+  const result = await page.evaluate(async () => {
+    const { drawLines } = await import('/src/lib/liveLines.ts');
+    const canvas = document.createElement('canvas');
+    canvas.width = 300;
+    canvas.height = 100;
+    const ctx = canvas.getContext('2d')!;
+    const points = (ys: number[]) => ys.map((y, i): [number, number] => [i * 50, y]);
+    const base = 90;
+    const total = points([40, 50, 60, 50, 60, 60]);
+    const gemini = points([50, 55, 60, 50, 60, 60]);
+    // Claude was active on the left, then rested at 0 (y = base) on the right while still running.
+    const claude = points([80, 85, 90, 90, 90, 90]);
+    const drawnRunning = drawLines(ctx, {
+      total, base, plotTop: 10, totalColour: '#00ffaa', areaColour: '#00ffaa', dark: true,
+      tools: [
+        { id: 'gemini', points: gemini, colour: '#00aaff', running: true },
+        { id: 'claude', points: claude, colour: '#ff8800', running: true },
+      ],
+    });
+    // Continuous running line is clearly visible along 0 (1.2px stroke splits across y=89..90); stopped tool fades back.
+    const bandAlpha = () => Math.max(ctx.getImageData(225, base - 1, 1, 1).data[3], ctx.getImageData(225, base, 1, 1).data[3]);
+    const runningAlpha = bandAlpha();
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const drawnStopped = drawLines(ctx, {
+      total, base, plotTop: 10, totalColour: '#00ffaa', areaColour: '#00ffaa', dark: true,
+      tools: [
+        { id: 'gemini', points: gemini, colour: '#00aaff', running: true },
+        { id: 'claude', points: claude, colour: '#ff8800', running: false },
+      ],
+    });
+    const stoppedAlpha = bandAlpha();
+    return {
+      runningDots: drawnRunning.dots,
+      stoppedDots: drawnStopped.dots,
+      runningAlpha,
+      stoppedAlpha,
+    };
+  });
+  expect(result.runningDots).toContain('claude');
+  expect(result.stoppedDots).not.toContain('claude');
+  expect(result.runningAlpha).toBeGreaterThan(90);
+  expect(result.stoppedAlpha).toBeLessThan(40);
+  expect(result.runningAlpha).toBeGreaterThan(result.stoppedAlpha * 4);
 });

@@ -89,39 +89,28 @@ fn plist_strings(data: &[u8], keys: &[&str]) -> Option<HashMap<String, String>> 
 /// Cached by Info.plist mtime so live 2s renders don't re-read and re-parse plist XML every tick (PERF-6).
 pub fn app_info(name: &str, home: &str) -> Object {
     use std::sync::{Mutex, OnceLock};
-    // Each Info.plist read, by its path, with its modification time when read: None when it gave no version.
-    type Read = HashMap<String, (i128, Option<Object>)>;
+    // Each Info.plist read, by its path, keyed by (mtime, size); transient read failures are never cached.
+    type Read = HashMap<String, ((i128, u64), Object)>;
     static CACHE: OnceLock<Mutex<Read>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     for base in ["/Applications".to_string(), format!("{home}/Applications")] {
         let path = format!("{base}/{name}.app/Contents/Info.plist");
-        let Some(mtime) = std::fs::metadata(&path)
-            .ok()
-            .and_then(|meta| meta.modified().ok())
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_nanos() as i128)
-        else {
+        let Some(stamp) = std::fs::metadata(&path).ok().and_then(|meta| {
+            let mtime = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos() as i128;
+            Some((mtime, meta.len()))
+        }) else {
             continue;
         };
-        let kept = cache.lock().expect("app_info cache").get(&path).filter(|(seen, _)| *seen == mtime).cloned();
-        let info = match kept {
-            Some((_, info)) => info,
-            None => {
-                let info = std::fs::read(&path).ok().and_then(|data| {
-                    let keys = ["CFBundleShortVersionString", "CFBundleVersion", "CFBundleIdentifier"];
-                    let values = plist_strings(&data, &keys)?;
-                    Some(
-                        keys.iter()
-                            .map(|key| (*key, values.get(*key).cloned().unwrap_or_default()))
-                            .collect::<Object>(),
-                    )
-                });
-                cache.lock().expect("app_info cache").insert(path, (mtime, info.clone()));
-                info
-            }
-        };
-        // One that can't be read gives way to the copy in ~/Applications, as before the cache.
+        if let Some((_, info)) = cache.lock().expect("app_info cache").get(&path).filter(|(seen, _)| *seen == stamp) {
+            return info.clone();
+        }
+        let info = std::fs::read(&path).ok().and_then(|data| {
+            let keys = ["CFBundleShortVersionString", "CFBundleVersion", "CFBundleIdentifier"];
+            let values = plist_strings(&data, &keys)?;
+            Some(keys.iter().map(|key| (*key, values.get(*key).cloned().unwrap_or_default())).collect::<Object>())
+        });
         if let Some(info) = info {
+            cache.lock().expect("app_info cache").insert(path, (stamp, info.clone()));
             return info;
         }
     }

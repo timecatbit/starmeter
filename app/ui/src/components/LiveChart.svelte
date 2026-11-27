@@ -8,7 +8,7 @@
   // ripple, 实时 breathes, and the last minute's rate reads at the top right in Token/s. Beside 实时, Token / Token/s
   // turns the line into that rate over the last minute (remembered): how fast the models are writing, rising and easing.
   import { accent, alpha, label as labelColour, starAccent, toolColour, summaryColour } from '../lib/colors';
-  import { t } from '../lib/i18n.svelte';
+  import { language, t } from '../lib/i18n.svelte';
   import { chartAxis, chartPositions, seriesOf, smoothCurves, summaryProviders, tracePath, type Point } from '../lib/chart';
   import { tokens } from '../lib/format';
   import { compact, easeTwice, nice, rateText, type LiveFeed, type Sample, type Scale } from '../lib/live';
@@ -19,9 +19,9 @@
   import { panel } from '../lib/ui.svelte';
   import type { Dashboard, ProviderUsage } from '../lib/types';
 
-  let { feed, column, counted, data, note = '', leaving = null, onleft, width: wide = 320 }: {
+  let { feed, column, counted, data, note = '', leaving = null, onleft, runningTools = [], width: wide = 320 }: {
     feed: LiveFeed; column: number; counted: ProviderUsage[]; data: Dashboard; note?: string; leaving?: number | null; onleft?: () => void;
-    width?: number;
+    runningTools?: string[]; width?: number;
   } = $props();
 
   /** The canvas sits where the trend's plot is, so the two line up exactly while one turns into the other. */
@@ -63,13 +63,15 @@
   // The tools' lines, kept current without restarting the drawing (the figures roll every frame after a reading).
   let order: string[] = [];
   $effect(() => { order = counted.filter((p) => p.available).map((p) => p.id); });
+  let runningSet = new Set<string>();
+  $effect(() => { runningSet = new Set(runningTools); });
   // Read by the drawing each frame.
   let leavingAt: number | null = null;
   $effect(() => { leavingAt = leaving; });
   // Cached computed fonts: refreshed only when canvas, theme, or style changes instead of every 33ms frame (PERF-3).
   let sansFont = SANS, roundedFont = ROUNDED;
   $effect(() => {
-    void panel.dark; void style.current;
+    void panel.dark; void style.current; void language.current;
     if (!canvas) return;
     const css = getComputedStyle(canvas);
     sansFont = css.fontFamily || SANS;
@@ -288,7 +290,7 @@
         text(t('实时'), 12, 2, 8, accentColour, 'left', 500);
         ctx.globalAlpha = liveAlpha;
         const added = base ? Math.max(0, (samples.at(-1)?.total ?? base.total) - base.total) : 0;
-        const rate = feed.rate(now);
+        const rate = rating && rates.length ? rates.at(-1)![1] : feed.rate(now);
         // What the top right says, for whatever reads the page rather than the pixels (tests among them).
         setAttr(canvas.dataset, 'added', String(Math.round(added)));
         setAttr(canvas.dataset, 'rate', String(Math.round(rate ?? 0)));
@@ -340,7 +342,7 @@
       const totalLine: Point[] = rating ? rates.map(([at, r]): Point => [x(at), clamped(r)]) : readingLine(null);
       const toolLines = (rating
         ? toolRates.map((tool) => ({ id: tool.id, points: tool.points.map(([at, r]): Point => [x(at), clamped(r)]) }))
-        : order.map((id) => ({ id, points: readingLine(id) }))).map((tool) => ({ ...tool, colour: toolColour(tool.id, dark) }));
+        : order.map((id) => ({ id, points: readingLine(id) }))).map((tool) => ({ ...tool, colour: toolColour(tool.id, dark), running: runningSet.has(tool.id) }));
       // Which lines are drawn, and each tool's rate now, for whatever reads the page rather than the pixels (tests).
       setAttr(canvas.dataset, 'lines', toolLines.map((tool) => tool.id).join(','));
       setAttr(canvas.dataset, 'toolRates', JSON.stringify(Object.fromEntries(toolRates.map((tool) => [tool.id, Math.round(tool.points.at(-1)![1] * 10) / 10]))));

@@ -36,7 +36,8 @@ export function easeTwice(times: number[], values: (number | null)[], tau: numbe
 
 /** Instant-onset live rate smoother (PERF-10): fast attack on rising rates (65% at t=0, rounded crest by t=1–2s) +
  *  responsive release that follows the exponential decay smoothly, followed by two zero-phase interior smoothing passes
- *  so the trailing curve has no sharp corners without delaying the live leading edge. */
+ *  so the trailing curve has no sharp corners (用户：曲线有时还有直角): requests landing one after another would
+ *  otherwise draw a staircase. The passes leave the end alone, so the curve's end is still the rate the figure says. */
 function smoothLive(times: number[], values: (number | null)[]): number[] {
   const n = times.length;
   const out = new Array<number>(n);
@@ -101,11 +102,10 @@ export class LiveFeed {
   /** How far back the readings are kept: two windows for the panel's minute; a phone's live view draws five minutes. */
   history = 2 * LiveFeed.window;
   started = Date.now();
-  /** How far back a change is spread (0, the panel's own: not at all). Figures that change only now and then (SwiftBar's
-   *  plugin runs every half minute) would draw the speed as steps, flat between readings and jumping at each: a change
-   *  is spread evenly over the quiet stretch before it, up to this long, as the work was (a request's output is written
-   *  over its time, and logged when it ends). */
+  /** How far back a change is spread (0 by default: no retroactive smearing of past samples). */
   spread = 0;
+  /** Exponential decay time constant (ms) for Token/s: 10s for live 1.5s reads, 30s for SwiftBar's 30s plugin cadence. */
+  rateTau = RATE_TAU;
   /** The pinning zoom plays once per pin, not each time the homepage comes back. */
   zoomed = false;
   private rangeKey: string | null = null;
@@ -215,23 +215,28 @@ export class LiveFeed {
 
   span() { return LiveFeed.window; }
 
-  /** Instantaneous output tokens a second (exponentially decayed with time constant RATE_TAU): peaks immediately when
-   *  new output lands and glides smoothly back to 0 once the session stops generating instead of holding a 60s plateau.
-   *  Eased as the lines are (smoothRates), so the figure is the height of the line's end. */
-  rate(now: number): number | null { return this.samples.length ? this.smoothRates([now])[0] : null; }
+  /** Instantaneous output tokens a second (exponentially decayed with time constant `this.rateTau`): peaks immediately
+   *  when new output lands and glides smoothly back to 0 once idle. Evaluated on the same integer-second grid as the
+   *  chart's `smoothRates(times)` so the headline figure and the curve's end match at every millisecond. */
+  rate(now: number): number | null {
+    if (!this.samples.length) return null;
+    const grid = Math.floor(now / 1000) * 1000;
+    return this.smoothRates(grid < now ? [grid, now] : [now]).at(-1) ?? 0;
+  }
 
   /** Unsmoothed exponentially-decayed output rate at a moment `at`; with a source, that source's own. */
   rateAt(at: number, id?: string): number | null {
     return this.rateSeries([at], id)[0] ?? null;
   }
 
-  /** The rate as the lines draw it and the figures say it, at each of `times` (rising): instant-onset fast attack with
-   *  exponential decay and zero-phase trailing smoothing (PERF-10). */
+  /** The rate as the lines draw it and the figures say it, at each of `times` (rising): warmed up on integer Unix
+   *  seconds so `rate(now)` and `smoothRates(times).at(-1)` always evaluate the exact same causal sequence. */
   smoothRates(times: number[], id?: string): number[] {
     if (!times.length) return [];
     const warm: number[] = [];
-    const warmSpan = Math.max(ATTACK_TAU, RELEASE_TAU) * 6;
-    for (let at = times[0] - warmSpan; at < times[0]; at += 1000) warm.push(at);
+    const warmSpan = Math.max(ATTACK_TAU, RELEASE_TAU) * 8;
+    const anchor = Math.floor(times[0] / 1000) * 1000;
+    for (let at = anchor - warmSpan; at < times[0]; at += 1000) warm.push(at);
     const all = [...warm, ...times];
     return smoothLive(all, this.rateSeries(all, id)).slice(warm.length);
   }
@@ -240,7 +245,7 @@ export class LiveFeed {
   rateSeries(times: number[], id?: string): (number | null)[] {
     const list = this.samples, output = (s: Sample) => (id === undefined ? s.output : s.outputs?.[id] ?? 0);
     const out: (number | null)[] = [];
-    const tauSec = RATE_TAU / 1000;
+    const tauMs = this.rateTau, tauSec = tauMs / 1000;
     let idx = 0, seen = false, state = 0, stateAt = 0, prevOut = 0;
     for (const at of times) {
       while (idx < list.length && list[idx].at <= at) {
@@ -253,7 +258,7 @@ export class LiveFeed {
           prevOut = current;
         } else {
           const dt = Math.max(0, s.at - stateAt);
-          if (dt > 0 && state > 0) state *= Math.exp(-dt / RATE_TAU);
+          if (dt > 0 && state > 0) state *= Math.exp(-dt / tauMs);
           const delta = Math.max(0, current - prevOut);
           if (delta > 0) state += delta / tauSec;
           stateAt = s.at;
@@ -263,7 +268,7 @@ export class LiveFeed {
       }
       if (!seen) { out.push(null); continue; }
       const dt = Math.max(0, at - stateAt);
-      const value = dt > 0 && state > 0 ? state * Math.exp(-dt / RATE_TAU) : state;
+      const value = dt > 0 && state > 0 ? state * Math.exp(-dt / tauMs) : state;
       out.push(value < RATE_FLOOR ? 0 : value);
     }
     return out;

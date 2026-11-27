@@ -15,7 +15,7 @@
 import { backend } from './backend';
 import { currency, legendName, money, summaryPart, tokens as tokenText } from './format';
 import { english, localize, source, t } from './i18n.svelte';
-import { GAP, LiveFeed, readingDashboard } from './live';
+import { GAP, LiveFeed, RATE_TAU, readingDashboard } from './live';
 import type { Dashboard, Entry, LiveAnswer } from './types';
 
 /** Tokens added this recently still count as working, between requests of a turn that has no session to say so. */
@@ -32,6 +32,8 @@ export const LIVE_SPAN = 60_000;
 
 export interface LiveSession {
   key: string;
+  /** The tool module ID this session belongs to (claude, codex, gemini, …). */
+  tool?: string;
   title: string;
   image?: string;
   template?: boolean;
@@ -109,7 +111,7 @@ function readSession(e: Entry, turns: Record<string, number>, skew: number, befo
     if (before && !gap && count > was) called[name] = now;
   }
   return {
-    key, title: e.label, image: e.image, template: e.template, symbol: e.symbol, running, about,
+    key, tool: e.tool, title: e.label, image: e.image, template: e.template, symbol: e.symbol, running, about,
     model: shownParts.slice(1).filter((part) => !/%/.test(part)).slice(0, 2).join(' · '), context: context ? Number(context[1]) / 100 : null,
     began, exact, turnTokens: labelParts.length >= 3 ? labelParts[labelParts.length - 2] : null, turnCost: labelParts.length >= 3 ? labelParts[labelParts.length - 1] : null,
     requests: requests ? Number(requests[1]) : null, tools: [...tools].sort((a, b) => b[1] - a[1]), called, value: e.value ?? '',
@@ -228,8 +230,9 @@ export class PhoneLive {
 
   constructor() {
     this.feed.history = LIVE_SPAN + LiveFeed.window + 10_000;
-    // SwiftBar's figures change every half minute or so: the speed rises over the stretch, not in steps.
-    this.feed.spread = 30_000;
+    // Match the pinned panel's LiveFeed (spread = 0) so the web stage and pinned panel draw identical curves; SwiftBar's
+    // 30s plugin cadence is handled via a matching 30s decay constant (answer.slow) instead of retroactive smearing.
+    this.feed.spread = 0;
   }
 
   start() {
@@ -276,6 +279,7 @@ export class PhoneLive {
   /** A reading taken at `now` (this phone's clock). `replay`: one of the computer's last minutes, given with a page's
    *  first reading, taken as it was then: its moments, its 动态; no banner, no waking, nothing landing now. */
   take(answer: LiveAnswer, now: number, replay = false) {
+    if (!replay && answer.slow !== undefined) this.feed.rateTau = answer.slow ? 30_000 : RATE_TAU;
     if (Number.isFinite(answer.at)) this.skew = answer.at * 1000 - now;
     // Quiet and resting are judged on the computer's clock (the readings' own moments), not this phone's.
     const moment = Number.isFinite(answer.at) ? answer.at * 1000 : now;

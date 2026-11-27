@@ -146,13 +146,20 @@ def best_of(rows):
 def patch_canonical(conn,added,allowed):
     """Incremental in-place canonical update for streaming chunks sharing existing keys without route clashes."""
     fresh={(row['file'],row['offset'],row['slot']) for row in added}
+    checked_routes=set()
+    def route_clashes(message,session,expected_key):
+        pair=(message,session)
+        if pair in checked_routes:return False
+        checked_routes.add(pair)
+        for hit_session,hit_key in conn.execute(
+                'SELECT session,key FROM everything WHERE message=? AND session=?',
+                (message,session)):
+            if (allowed is None or hit_session in allowed) and hit_key!=expected_key:
+                return True
+        return False
     for row in added:
-        if row['message'] is not None:
-            for file_id,offset,slot,session,key in conn.execute(
-                    'SELECT file,offset,slot,session,key FROM everything WHERE message=? AND session=?',
-                    (row['message'],row['session'])):
-                if (file_id,offset,slot) not in fresh and (allowed is None or session in allowed) and key!=row['key']:
-                    return False
+        if row['message'] is not None and route_clashes(row['message'],row['session'],row['key']):
+            return False
     keys=[];seen=set()
     for row in added:
         if row['key'] not in seen:seen.add(row['key']);keys.append(row['key'])
@@ -168,6 +175,9 @@ def patch_canonical(conn,added,allowed):
             rec=stored_event(row[3:])
             if (row[0],row[1],row[2]) not in fresh:old_rows.append(rec)
             all_rows.append(rec)
+        for rec in all_rows:
+            if rec['message'] is not None and route_clashes(rec['message'],rec['session'],key):
+                return False
         if not old_rows:fresh_only.extend(all_rows);continue
         old_w,new_w=best_of(old_rows),best_of(all_rows)
         if same_canonical(old_w,new_w):continue

@@ -702,9 +702,9 @@ pub fn resized(app: &AppHandle) {
         static TRAILING: AtomicBool = AtomicBool::new(false);
         let wait = {
             let mut last = LAST_SHADOW.lock().expect("the shadow lock");
-            match *last {
-                Some(at) if at.elapsed() < EVERY => Some(EVERY - at.elapsed()),
-                _ => {
+            match last.and_then(|at| EVERY.checked_sub(at.elapsed())) {
+                Some(left) => Some(left),
+                None => {
                     *last = Some(Instant::now());
                     None
                 }

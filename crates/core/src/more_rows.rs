@@ -394,12 +394,18 @@ impl Runtime {
                 )
             };
             let tool = session.get("tool").and_then(Json::as_str).unwrap_or("");
+            let module = match (tool, session.get("module").and_then(Json::as_str)) {
+                ("Claude", _) => Some("claude"),
+                ("ChatGPT", _) => Some("codex"),
+                (_, module) => module,
+            };
             let options = merged(&[
                 &object! {
                     "badge" => badge, "paneldetail" => detail.join(" · "),
                     "panelstatus" => if running { "new" } else { "unknown" },
                     // Two sessions can share a name: the panel tells them apart by this.
                     "panelkey" => session.get("id").cloned().unwrap_or(Json::Null),
+                    "paneltool" => module.map(Json::from).unwrap_or(Json::Null),
                 },
                 &self.session_icon(tool, session.get("module").and_then(Json::as_str)),
             ]);

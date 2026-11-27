@@ -3290,8 +3290,9 @@ def sessions_lines(data):
         if spent.get('requests'):live=priced(ranges.get(selected) if isinstance(ranges,dict) and selected!='all' else spent)
         else:live=fmt_tokens(latest['tokens'])+' Token' if latest else ('运行中' if running else '空闲')
         # Two sessions can share a name: the panel tells them apart by panelkey.
+        module='claude' if s['tool']=='Claude' else 'codex' if s['tool']=='ChatGPT' else s.get('module')
         lines.append(item(name,level=1,badge=live,paneldetail=detail,panelstatus='new' if running else 'unknown',panelkey=s.get('id'),
-                          **session_icon(s['tool'],s.get('module'))))
+                          paneltool=module,**session_icon(s['tool'],s.get('module'))))
         lines.extend(turn_lines(turns,unit,s.get('project') if s.get('title') else None,total))
     if found is not None and not found:lines.append(item(label+'没有会话',level=1,color=MUTED,size=11))
     # Which sessions are listed and what their figures count.
@@ -4275,6 +4276,7 @@ def panel_entries(lines):
             if attrs.get("paneldetail"):
                 entry["detail"] = attrs["paneldetail"]
             if attrs.get("panelkey"):entry["key"] = attrs["panelkey"]
+            if attrs.get("paneltool"):entry["tool"] = attrs["paneltool"]
             if attrs.get("href"):
                 entry["href"] = attrs["href"]
             if attrs.get("param2") == "--action" and attrs.get("param3"):
@@ -4687,7 +4689,7 @@ def native_menu_line(line):
     label,separator,raw=line.partition(' | ')
     if not separator:return line
     options=dict(part.split('=',1) for part in shlex.split(raw) if '=' in part)
-    for key in ('color','sfcolor','sfcolors','panelattention','paneldetail','panelfallback','panelgauges','panelsection','panelstatus','panelradio','panelusagelevel','panelkey','panelshare','panelsharelevel'):options.pop(key,None)
+    for key in ('color','sfcolor','sfcolors','panelattention','paneldetail','panelfallback','panelgauges','panelsection','panelstatus','panelradio','panelusagelevel','panelkey','paneltool','panelshare','panelsharelevel'):options.pop(key,None)
     return label+separator+' '.join(as_option(k,v) for k,v in options.items())
 
 

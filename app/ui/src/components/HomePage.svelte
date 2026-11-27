@@ -178,14 +178,13 @@
           <span class="fold-title">{t('订阅与服务')}</span>
           {#if !rowsOpen}
             <span class="fold-preview">
-              {#if planPreview.length}
-                {#each planPreview as item, idx (idx)}
-                  {#if idx > 0}<span class="fold-dot">·</span>{/if}
-                  <span class="fold-item">{item.label} <span class="num" style:color={usageColor(item.level)}>{item.value}</span></span>
-                {/each}
-              {:else}
-                <span class="fold-item">{t('共 {n} 项', { n: rowCount })}</span>
-              {/if}
+              <span class="fold-summary">
+                {#if planPreview.length}
+                  {#each planPreview as item, idx (idx)}{#if idx > 0}<span class="fold-dot"> · </span>{/if}{item.label} <span class="num" style:color={usageColor(item.level)}>{item.value}</span>{/each}
+                {:else}
+                  {rowCount === 1 ? t('共 1 项') : t('共 {n} 项', { n: rowCount })}
+                {/if}
+              </span>
               {#if attentionCount > 0}<span class="fold-ping" aria-hidden="true"></span>{/if}
             </span>
           {:else}
@@ -286,18 +285,19 @@
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 4px;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
+    gap: 5px;
     font-size: 10.5px;
     color: var(--secondary);
   }
-  .fold-item {
+  .fold-summary {
+    min-width: 0;
+    max-width: 100%;
     overflow: hidden;
+    white-space: nowrap;
     text-overflow: ellipsis;
+    text-align: right;
   }
-  .fold-dot { opacity: 0.45; flex: none; }
+  .fold-dot { margin: 0 3px; opacity: 0.45; }
   .fold-ping {
     flex: none;
     width: 6px;

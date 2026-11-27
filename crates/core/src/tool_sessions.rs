@@ -93,13 +93,36 @@ fn transcript_names(path: &str) -> (Option<String>, Option<String>, Vec<f64>) {
                     prompts.push(at);
                 }
             } else if row.get("type").and_then(Json::as_str) == Some("message")
-                && row.get("message").and_then(|m| m.get("role")).and_then(Json::as_str) == Some("user")
+                && (row.get("role").and_then(Json::as_str) == Some("user")
+                    || row.get("message").and_then(|m| m.get("role")).and_then(Json::as_str) == Some("user"))
             {
-                let content = row.get("message").and_then(|m| m.get("content"));
+                // WorkBuddy writes top-level `role: "user"` (no nested `message`), and marks its own compaction
+                // summaries with `logicalParentId` (plus `<conversation_history_summary>` / `<cb_summary>` text).
+                let synthetic = row.get("logicalParentId").is_some()
+                    || row.get("isCompactSummary").is_some_and(Json::is_truthy)
+                    || row.get("isVisibleInTranscriptOnly").is_some_and(Json::is_truthy);
+                let content = row.get("content").or_else(|| row.get("message").and_then(|m| m.get("content")));
                 let tool_only = content.and_then(Json::as_array).is_some_and(|arr| {
                     !arr.is_empty() && arr.iter().all(|item| item.get("type") == Some(&Json::from("tool_result")))
                 });
-                if !tool_only && let Some(at) = py::stamp(row.get("timestamp")).ok().and_then(|v| v.number()) {
+                let summary_text = content
+                    .and_then(|c| {
+                        c.as_str().or_else(|| {
+                            c.as_array()
+                                .and_then(|arr| arr.first())
+                                .and_then(|item| item.get("text"))
+                                .and_then(Json::as_str)
+                        })
+                    })
+                    .is_some_and(|text| {
+                        let trimmed = text.trim();
+                        trimmed.starts_with("<conversation_history_summary>") || trimmed.starts_with("<cb_summary>")
+                    });
+                if !synthetic
+                    && !tool_only
+                    && !summary_text
+                    && let Some(at) = py::stamp(row.get("timestamp")).ok().and_then(|v| v.number())
+                {
                     prompts.push(at);
                 }
             } else if row.get("type").and_then(Json::as_str) == Some("user/message")
@@ -1272,5 +1295,27 @@ mod reading {
         assert!(
             starts.contains(&(now - 1200.0)) && starts.contains(&(now - 3000.0)) && starts.contains(&(now - 1800.0))
         );
+    }
+
+    #[test]
+    fn workbuddy_top_level_user_prompts_split_turns_and_skip_compaction_summaries() {
+        let dir = std::env::temp_dir().join(format!("starmeter-wb-prompts-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("wb.jsonl");
+        let content = concat!(
+            r#"{"type":"message","role":"user","timestamp":"2026-11-27T10:00:00Z","cwd":"/repo","content":[{"type":"input_text","text":"first"}]}"#,
+            "\n",
+            r#"{"type":"message","role":"user","logicalParentId":"old-1","timestamp":"2026-11-27T10:05:00Z","cwd":"/repo","content":[{"type":"input_text","text":"<cb_summary>\nSummary"}]}"#,
+            "\n",
+            r#"{"type":"message","role":"user","timestamp":"2026-11-27T10:15:00Z","cwd":"/repo","content":[{"type":"input_text","text":"second"}]}"#,
+            "\n",
+        );
+        std::fs::write(&log, content).unwrap();
+        let (_, project, prompts) = super::transcript_names(&log.to_string_lossy());
+        assert_eq!(project.as_deref(), Some("repo"));
+        assert_eq!(prompts.len(), 2, "must read top-level role=user prompts and skip logicalParentId summary");
+        assert!((prompts[1] - prompts[0] - 900.0).abs() < 1.0);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

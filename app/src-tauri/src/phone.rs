@@ -221,12 +221,16 @@ fn nic(name: String, p2p: bool, ip: IpAddr, described: Option<(String, u32)>, wi
     Nic { tunnel: p2p || wireguard || tunnel_named(&name, described.as_ref()), wireguard, ip, name }
 }
 
-/// The three addresses from the routes' and the interfaces': Tailscale's when its route isn't the default one (with an
-/// exit node both are its, and its interface is a tunnel), never the network's; WireGuard's tunnel's, beside them.
+/// The three addresses from the routes' and the interfaces': Tailscale's when its route leaves through a tunnel in
+/// 100.64.0.0/10 (with an exit node both routes are its), never the network's: a campus's 100.64/10 Wi-Fi card, the
+/// way to 100.100.100.100 with Tailscale off and a proxy's TUN leaving 100.64/10 out, stays the network's; WireGuard's
+/// tunnel's, beside them.
 fn networks(routed: Option<IpAddr>, tailscale: Option<IpAddr>, nics: &[Nic]) -> Addresses {
-    let tailnet_route = tailscale.filter(|ip| Some(*ip) != routed && in_tailscales_range(*ip));
+    let tailnets =
+        |ip: IpAddr| in_tailscales_range(ip) && (nics.is_empty() || nics.iter().any(|nic| nic.ip == ip && nic.tunnel));
+    let tailnet_route = tailscale.filter(|ip| Some(*ip) != routed && tailnets(*ip));
     let lan = lan_choice(routed, nics, tailnet_route);
-    let tailnet = tailscale.and_then(|ip| tailnet_ip(ip, lan));
+    let tailnet = tailscale.filter(|ip| tailnets(*ip)).and_then(|ip| tailnet_ip(ip, lan));
     let wireguard = nics
         .iter()
         .find(|nic| nic.wireguard && sendable(nic.ip) && Some(nic.ip) != lan && Some(nic.ip) != tailnet)
@@ -1352,6 +1356,8 @@ fn live_from(data: &Data, history: bool) -> Value {
                 "dashboard": snapshot.get("dashboard").cloned().unwrap_or(Value::Null),
                 "sessions": sessions,
                 "turns": turns,
+                // The plugin's figures change every half minute: the live rate eases off over as long (live.ts).
+                "slow": true,
             })
         }
         Data::Fixtures(fixtures) => {
@@ -1611,10 +1617,26 @@ mod tests {
             windows("home", "WireGuard Tunnel", 53, "10.0.0.2"),
         ];
         assert_eq!(networks(Some(ip("100.76.55.73")), Some(ip("100.76.55.73")), &pc), both);
-        // A campus's 100.64/10 Wi-Fi with Tailscale on an interface not known as its: Tailscale's route tells them apart.
-        let campus = [unix("Ethernet 3", false, "100.76.55.73"), unix("Wi-Fi", false, "100.69.38.146")];
+        // A campus's 100.64/10 Wi-Fi, a proxy's TUN leaving 100.64/10 out and a VM's bridge, Tailscale off: the way to
+        // 100.100.100.100 leaves through the Wi-Fi card, still the network's, never taken for Tailscale's.
+        let campus_off = [
+            unix("bridge100", false, "192.168.64.1"),
+            unix("en0", false, "100.69.38.146"),
+            unix("utun5", true, "198.18.0.1"),
+        ];
         assert_eq!(
-            networks(Some(ip("198.18.0.1")), Some(ip("100.76.55.73")), &campus),
+            networks(Some(ip("198.18.0.1")), Some(ip("100.69.38.146")), &campus_off),
+            Addresses { lan: Some(ip("100.69.38.146")), tailnet: None, wireguard: None }
+        );
+        // The same campus with Tailscale on (utun4): the Wi-Fi the network's, utun4 Tailscale's.
+        let campus_on = [
+            unix("bridge100", false, "192.168.64.1"),
+            unix("en0", false, "100.69.38.146"),
+            unix("utun4", true, "100.76.55.73"),
+            unix("utun5", true, "198.18.0.1"),
+        ];
+        assert_eq!(
+            networks(Some(ip("198.18.0.1")), Some(ip("100.76.55.73")), &campus_on),
             Addresses { lan: Some(ip("100.69.38.146")), tailnet, wireguard: None }
         );
         // No Tailscale on that campus: its route is the default one, the Wi-Fi's.

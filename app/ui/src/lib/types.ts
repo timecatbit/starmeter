@@ -37,6 +37,8 @@ export interface Entry {
   statusLight?: 'new' | 'ok' | 'issue' | 'unknown';
   /** What tells a row from siblings of the same name (a session's ID). */
   key?: string;
+  /** The tool module ID a session row belongs to (claude, codex, gemini, …). */
+  tool?: string;
   href?: string;
   action?: string[];
   /** Sent once when the row's page opens (refresh-source <key>), at most every 5 seconds. */
@@ -206,6 +208,8 @@ export interface LiveAnswer {
   /** Asked for with ?history=1 (the panel: live_now's `history`): the readings of the last few minutes, for a page
    *  opened or reloaded while the work goes on. */
   history?: LiveReading[];
+  /** True for SwiftBar's plugin (30s refresh cadence) so the live rate uses a matching decay constant. */
+  slow?: boolean;
 }
 
 /** One of the last minutes' readings the computer keeps (the computer's seconds): each tool's figures the live line

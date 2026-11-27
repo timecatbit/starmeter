@@ -226,6 +226,9 @@ pub fn panel_entries(lines: &[String]) -> Vec<Json> {
             if let Some(key) = attr("panelkey") {
                 entry.insert("key", key);
             }
+            if let Some(tool) = attr("paneltool") {
+                entry.insert("tool", tool);
+            }
             if let Some(href) = attr("href") {
                 entry.insert("href", href);
             }

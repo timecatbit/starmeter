@@ -215,10 +215,11 @@
   $effect(() => {
     const w = panelWidth, h = Math.round(panelHeight), resizable = pinned && !grid;
     const size = `${w}x${h}${resizable ? ' resizable' : ''}`;
+    // Always cancel any pending frame first so an A -> B -> A change never fires a stale resize for B.
+    cancelAnimationFrame(resizeFrame);
     if (size === lastSize) return;
     // Coalesce rapid same-transition size changes (e.g. viewKey width change + Scroller's real height 1 frame later)
     // into a single shell.resize call so entering settings/detail pages never triggers two back-to-back animations (PERF-11).
-    cancelAnimationFrame(resizeFrame);
     resizeFrame = requestAnimationFrame(() => {
       if (size === lastSize) return;
       lastSize = size;
@@ -413,7 +414,11 @@
       // dropped for the old one, which then let go, and the panel stayed pinned with the trend).
       const back = leaving !== null && feed !== null;
       leaving = null;
-      if (!back) void pinFeed(new LiveFeed());
+      if (!back) {
+        const next = new LiveFeed();
+        if (info.mode === 'swiftbar') next.rateTau = 30_000;
+        void pinFeed(next);
+      }
       schedule();
     } else {
       liveStamp = null;

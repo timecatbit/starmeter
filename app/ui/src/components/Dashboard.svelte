@@ -209,6 +209,17 @@
   const chosen = $derived(rangeOptions.find((o) => o.checked)?.action?.[1] ?? data.rangeKey);
 
 
+  let liveRunning = $state<string[]>([]);
+  $effect(() => { if (!showingLive) liveRunning = []; });
+  /** Tools with at least one running session: their live lines stay continuous to 现在 even while resting at 0. */
+  const runningTools = $derived.by(() => {
+    const ids = new Set<string>(liveRunning);
+    for (const c of sessions?.children ?? []) {
+      if (c.statusLight === 'new' && c.tool) ids.add(c.tool);
+    }
+    return [...ids];
+  });
+
   function pickRange(key: string) {
     const option = rangeOptions.find((o) => o.action?.[1] === key);
     if (option?.action && key !== chosen) onrange(option.action);
@@ -270,7 +281,7 @@
       {/each}
       <div class="trend" style:transform="translateY({extra}px)">
         {#if live}
-          <LiveChart feed={live} {column} {counted} {data} {note} {leaving} {onleft} width={right - left} />
+          <LiveChart feed={live} {column} {counted} {data} {note} {leaving} {onleft} {runningTools} width={right - left} />
         {:else}
           <SummaryChart {data} {note} {reveal} {right} />
         {/if}
@@ -286,7 +297,7 @@
         onchoose={(key) => { if (key === 'live' || key === 'sessions') onview?.(key); else { onview?.('cards'); if (key !== wantedGrouping) ongroup(key); } }} />
     {/if}
     {#if showingLive}
-      <div class="live-room" bind:this={liveBox}><PanelLive /></div>
+      <div class="live-room" bind:this={liveBox}><PanelLive onrunning={(ids) => (liveRunning = ids)} /></div>
     {:else if showingSessions && sessions}
       <div class="sessions" bind:this={sessionsBox}>
         <SessionList entry={sessions} {busy} onopen={(e) => onopen?.(e)} onchoose={(e) => onchoose?.(e)} onfit={(h) => (sessionsFit = h)} />

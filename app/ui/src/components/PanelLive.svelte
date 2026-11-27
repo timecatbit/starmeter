@@ -12,6 +12,8 @@
   import { panel } from '../lib/ui.svelte';
   import Glyph from './Glyph.svelte';
 
+  let { onrunning }: { onrunning?: (tools: string[]) => void } = $props();
+
   const live = new PhoneLive();
   let now = $state(Date.now());
   // Read only while the panel is on screen (STAGE-11).
@@ -25,6 +27,9 @@
    *  down to the third (Dashboard), the rest a scroll away. */
   const SHOWN = 12;
   const running = $derived(live.sessions.filter((s) => s.running));
+  $effect(() => {
+    onrunning?.([...new Set(running.map((s) => s.tool).filter((id): id is string => !!id))]);
+  });
   // Only run the 1s clock interval while at least one session is actively running (PERF-4).
   $effect(() => {
     if (!panel.shown || !running.length) return;

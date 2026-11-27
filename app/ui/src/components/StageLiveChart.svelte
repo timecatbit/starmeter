@@ -42,6 +42,7 @@
 
   /** The curve worked out at each reading (not each frame): the total's rate and each tool's, a point a second. */
   let ids: string[] = [];
+  let runningIds = new Set<string>();
   let times: number[] = [];
   let totals: number[] = [];
   let rates: number[][] = [];
@@ -63,6 +64,15 @@
       const feed = live.feed, samples = feed.samples, now = Date.now();
       const seen = new Set<string>();
       for (const s of samples) for (const id of Object.keys(s.outputs ?? {})) seen.add(id);
+      const runningNow = new Set<string>();
+      const countedIds = new Set((live.dashboard?.providers ?? []).filter((p) => p.available && p.summaryIncluded !== false).map((p) => p.id));
+      for (const s of live.sessions) {
+        if (s.running && s.tool) {
+          runningNow.add(s.tool);
+          if (countedIds.has(s.tool)) seen.add(s.tool);
+        }
+      }
+      runningIds = runningNow;
       // The busiest first (the legend in that order).
       const last = samples.at(-1);
       ids = [...seen].sort((a, b) => (last?.outputs?.[b] ?? 0) - (last?.outputs?.[a] ?? 0));
@@ -77,9 +87,9 @@
       }
       totals = feed.smoothRates(times);
       rates = ids.map((id) => feed.smoothRates(times, id));
-      // Named in the legend; a tool that wrote nothing in these minutes quieter there (and barely there on the curve).
+      // Named in the legend; a tool that wrote nothing in these minutes quieter there unless it has a running session.
       const names = new Map((live.dashboard?.providers ?? []).map((p) => [p.id, legendName(p)]));
-      const next = ids.map((id, k) => ({ id, name: names.get(id) ?? id, idle: rates[k].every((r) => r <= 0.05) }));
+      const next = ids.map((id, k) => ({ id, name: names.get(id) ?? id, idle: !runningIds.has(id) && rates[k].every((r) => r <= 0.05) }));
       const key = (list: typeof named) => list.map((n) => `${n.id}${n.name}${n.idle}`).join();
       if (key(next) !== key(named)) named = next;
       highest = Math.max(0, ...totals.slice(0, totals.length - AHEAD));
@@ -196,7 +206,7 @@
       } : undefined;
       drawn = drawLines(ctx, {
         total: line(totals), base, plotTop: padTop, totalColour: total, areaColour: summaryColour(panel.dark), dark: panel.dark,
-        tools: ids.map((id, k) => ({ id, points: line(rates[k]), colour: toolColour(id, panel.dark) })),
+        tools: ids.map((id, k) => ({ id, points: line(rates[k]), colour: toolColour(id, panel.dark), running: runningIds.has(id) })),
         // Starlight on the total at night; by day and by hand, none.
         glow: !sketch && panel.dark ? 'rgba(196, 216, 255, 0.7)' : null, again,
       });

@@ -361,24 +361,30 @@ fn best_of(rows: &[Record]) -> &Record {
 fn patch_canonical(db: &Database, added: &[Record], allowed: Option<&HashSet<Vec<u8>>>) -> Fallible<bool> {
     let fresh: HashSet<(Vec<u8>, i64, i64)> =
         added.iter().map(|row| (row.file.clone(), row.offset, row.slot)).collect();
-    // Bail out to full rebuild if any appended row has a route clash with a pre-existing row of a different key.
-    for row in added {
-        if let Some(message) = &row.message {
-            for hit in db.rows(
-                "SELECT file,offset,slot,session,key FROM everything WHERE message=? AND session=?",
-                &[Value::Blob(message.clone()), Value::Blob(row.session.clone())],
-            )? {
-                let slot = (
-                    blob(&hit[0]).unwrap_or_default(),
-                    database::int(&hit[1]).unwrap_or(0),
-                    database::int(&hit[2]).unwrap_or(0),
-                );
-                let session = blob(&hit[3]).unwrap_or_default();
-                let key = blob(&hit[4]).unwrap_or_default();
-                if !fresh.contains(&slot) && allowed.is_none_or(|a| a.contains(&session)) && key != row.key {
-                    return Ok(false);
-                }
+    let mut checked_routes: HashSet<(Vec<u8>, Vec<u8>)> = HashSet::new();
+    let mut route_clashes = |message: &Vec<u8>, session: &Vec<u8>, expected_key: &Vec<u8>| -> Fallible<bool> {
+        if !checked_routes.insert((message.clone(), session.clone())) {
+            return Ok(false);
+        }
+        for hit in db.rows(
+            "SELECT session,key FROM everything WHERE message=? AND session=?",
+            &[Value::Blob(message.clone()), Value::Blob(session.clone())],
+        )? {
+            let hit_session = blob(&hit[0]).unwrap_or_default();
+            let hit_key = blob(&hit[1]).unwrap_or_default();
+            if allowed.is_none_or(|a| a.contains(&hit_session)) && &hit_key != expected_key {
+                return Ok(true);
             }
+        }
+        Ok(false)
+    };
+    // Bail out to full rebuild if any appended row shares a (message, session) route with another key (pre-existing
+    // or in the same appended batch, such as a parent + subagent copy).
+    for row in added {
+        if let Some(message) = &row.message
+            && route_clashes(message, &row.session, &row.key)?
+        {
+            return Ok(false);
         }
     }
     let mut keys: Vec<Vec<u8>> = Vec::new();
@@ -426,6 +432,13 @@ fn patch_canonical(db: &Database, added: &[Record], allowed: Option<&HashSet<Vec
                 Ok(())
             },
         )?;
+        for rec in &all_rows {
+            if let Some(message) = &rec.message
+                && route_clashes(message, &rec.session, key)?
+            {
+                return Ok(false);
+            }
+        }
         if old_rows.is_empty() {
             fresh_only.extend(all_rows);
             continue;
@@ -877,6 +890,32 @@ mod tests {
         assert_eq!(ids.len(), 1);
         assert_eq!(database::int(&ids[0][0]), Some(0));
         assert_eq!(database::int(&ids[0][1]), Some(250));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn intra_batch_subagent_route_clash_does_not_duplicate_canonical_rows() {
+        let dir = std::env::temp_dir().join(format!("starmeter-claude-clash-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("s1.jsonl");
+        let db = dir.join("claude.sqlite3");
+        let initial = r#"{"type":"assistant","sessionId":"s1","timestamp":"2026-11-20T10:00:00Z","requestId":"req_1","message":{"id":"msg_1","model":"claude-opus-5-5","usage":{"input_tokens":100,"output_tokens":10}}}"#;
+        // Same batch appends both a streaming chunk for req_1 AND a sidechain replay of msg_1 with a different requestId.
+        let update = r#"{"type":"assistant","sessionId":"s1","timestamp":"2026-11-20T10:00:00Z","requestId":"req_1","message":{"id":"msg_1","model":"claude-opus-5-5","usage":{"input_tokens":100,"output_tokens":120}}}"#;
+        let sidechain = r#"{"type":"assistant","isSidechain":true,"sessionId":"s1","timestamp":"2026-11-20T10:00:00Z","requestId":"req_sub","message":{"id":"msg_1","model":"claude-opus-5-5","usage":{"input_tokens":100,"output_tokens":120}}}"#;
+        std::fs::write(&log, format!("{initial}\n")).unwrap();
+        let files = vec![log.to_string_lossy().into_owned()];
+        let (first, _) = read_events(&files, &db, None, 0.0, f64::INFINITY, None).unwrap();
+        assert_eq!(first.len(), 1);
+        use std::io::Write;
+        let mut f = std::fs::OpenOptions::new().append(true).open(&log).unwrap();
+        writeln!(f, "{update}").unwrap();
+        writeln!(f, "{sidechain}").unwrap();
+        drop(f);
+        let (second, _) = read_events(&files, &db, None, 0.0, f64::INFINITY, None).unwrap();
+        assert_eq!(second.len(), 1, "sidechain replay with same (message, session) must not duplicate canonical row");
+        assert_eq!(second[0].metrics[1], 120);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
