@@ -140,6 +140,24 @@ def _npm(package):
     return {'channel':'npm','channelId':'npm','releaseURL':'https://registry.npmjs.org/%s/latest'%package}
 
 
+def _cask_wrapper(path,cask):
+    if path.parent.name!='bin':return None
+    cask_dir=path.parent.parent/'Caskroom'/cask
+    if not cask_dir.is_dir():return None
+    try:
+        if not path.is_file() or path.stat().st_size>4096:return None
+        raw=path.read_bytes()
+    except OSError:return None
+    if not raw.startswith(b'#!'):return None
+    return cask_dir if ('Caskroom/%s/'%cask) in raw.decode('utf-8','replace') else None
+
+
+def _cask_channel(cask_dir,cask):
+    receipt=object_file(cask_dir/'.metadata/INSTALL_RECEIPT.json')
+    if (receipt.get('source') or {}).get('tap')!='homebrew/cask':return {'channel':'Homebrew 自定义 Cask'}
+    return _brew('brew-cask',cask)
+
+
 def cli_channel(id,binary):
     cask,formula,package=PACKAGES.get(id,('','',''))
     path=Path(binary).resolve()
@@ -147,9 +165,7 @@ def cli_channel(id,binary):
     for parent in path.parents:
         name,above=parent.name,parent.parent.name
         if cask and name==cask and above=='Caskroom':
-            receipt=object_file(parent/'.metadata/INSTALL_RECEIPT.json')
-            if (receipt.get('source') or {}).get('tap')!='homebrew/cask':return {'channel':'Homebrew 自定义 Cask'}
-            return _brew('brew-cask',cask)
+            return _cask_channel(parent,cask)
         if formula and name==formula and above=='Cellar':
             # The receipt is in the version's folder, the one below Cellar/<formula> on the way to the program.
             version=next((folder for folder in [path]+list(path.parents) if folder.parent==parent),None)
@@ -158,6 +174,10 @@ def cli_channel(id,binary):
             return _brew('brew-formula',formula)
         named=(name==last and above==scope) if scope else (bool(package) and name==package and above=='node_modules')
         if named and object_file(parent/'package.json').get('name')==package:return _npm(package)
+    # Homebrew Cask `command_wrapper` (e.g. antigravity-cli): a wrapper script in `<prefix>/bin/` rather than a symlink.
+    if cask:
+        cask_dir=_cask_wrapper(path,cask)
+        if cask_dir is not None:return _cask_channel(cask_dir,cask)
     # A Windows npm launcher sits beside node_modules; it isn't a symlink into the package.
     if package and path.suffix.lower() in ('.cmd','.bat') and object_file(path.parent.joinpath('node_modules',*package.split('/'),'package.json')).get('name')==package:
         return _npm(package)
@@ -261,6 +281,8 @@ def manager(binary,name):
         if name=='brew':candidates=[prefix/'bin/brew']
         elif prefix.name=='lib':candidates=[prefix.parent/'bin/npm']
         else:candidates=[prefix/'npm.cmd',prefix/'bin/npm']
+    elif name=='brew' and path.parent.name=='bin':
+        candidates=[path.parent/'brew']
     return next((str(candidate) for candidate in candidates if candidate.is_file()),None) or shutil.which(name)
 
 

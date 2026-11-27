@@ -2763,6 +2763,8 @@ class UpdateParityTests(unittest.TestCase):
         claude = root / 'Caskroom' / 'claude-code' / '2.1.311' / 'claude'; write(claude)
         write(root / 'Caskroom' / 'claude-code' / '.metadata' / 'INSTALL_RECEIPT.json', json.dumps({'source': {'tap': 'homebrew/cask'}}))
         agy = root / 'Caskroom' / 'antigravity-cli' / '1.5.14' / 'antigravity'; write(agy)
+        agy_wrapper = root / 'bin' / 'agy'
+        write(agy_wrapper, f"#!/bin/bash\nexport AGY_CLI_DISABLE_AUTO_UPDATE='true'\nexec '{agy}' \"$@\"\n")
         write(root / 'Caskroom' / 'antigravity-cli' / '.metadata' / 'INSTALL_RECEIPT.json', json.dumps({'source': {'tap': 'homebrew/cask'}}))
         gemini_formula = root / 'Cellar' / 'gemini-cli' / '0.70.0' / 'libexec' / 'bin' / 'gemini'; write(gemini_formula)
         write(root / 'Cellar' / 'gemini-cli' / '0.70.0' / 'INSTALL_RECEIPT.json', json.dumps({'source': {'tap': 'homebrew/core'}}))
@@ -2781,7 +2783,7 @@ class UpdateParityTests(unittest.TestCase):
                ['gemini', str(gemini_formula)], ['gemini', str(gemini_npm)], ['gemini', str(windows)], ['gemini', str(installer)],
                ['opencode', str(opencode_npm)], ['opencode', str(tapped)], ['opencode', str(installer)], ['deepseek-harness', str(dsh)],
                ['deepseek-harness', str(installer)], ['cursor-cli', str(installer)], ['qoder-cli', str(installer)], ['codex-cli', str(installer)],
-               ['codex-cli', str(cask)], ['codex-cli', str(npm)]]
+               ['codex-cli', str(cask)], ['codex-cli', str(npm)], ['antigravity-cli', str(agy_wrapper)]]
         bodies = [['npm', '{"version": "0.70.0"}'], ['brew-formula', '{"versions": {"stable": "0.70.0"}}'], ['brew-cask', '{"version": "1.5.14,5302690847260672"}'],
                   ['brew-cask', '{"version": "0.171.0"}'], ['github', '{"tag_name": "v1.19.6"}'], ['github', '{"message": "Not Found"}'], ['text', '2.1.330\n'],
                   ['qoder-manifest', '{"latest": "1.1.95"}'], ['agy-manifest', '{"version": "1.5.14"}'], ['cursor-api', '{"version": "3.31.15"}'],
@@ -2805,6 +2807,7 @@ class UpdateParityTests(unittest.TestCase):
         self.assertEqual([c['text'] for c in got['cli']][:9], ['brew upgrade --cask claude-code', 'tool update', 'brew upgrade --cask antigravity-cli',
                          'tool update', 'brew upgrade gemini-cli', 'npm install -g @google/gemini-cli@latest', 'npm install -g @google/gemini-cli@latest',
                          None, 'npm install -g opencode-ai@latest'])
+        self.assertEqual(got['cli'][-1]['text'], 'brew upgrade --cask antigravity-cli')
         def newest(kind, body):
             try:return update_channels.latest_version(kind, body.encode())
             except (KeyError, ValueError, TypeError):return None

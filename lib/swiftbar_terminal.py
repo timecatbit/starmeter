@@ -21,7 +21,7 @@ def bootstrap(command):
     # and echoes this command before it runs, so the screen is cleared and only the job shows.
     # Afterwards the tab waits for Return instead of starting another login shell, whose startup
     # lines would land under the result and read like an error.
-    return ('export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"\ncd "$HOME" || exit 1\n'
+    return ('export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$PATH"\ncd "$HOME" || exit 1\n'
             +"if [ -t 1 ]; then printf '\\033[H\\033[2J\\033[3J'; fi\n"
             +command+'\ntoken_terminal_status=$?\n'
             +"if [ -t 0 ]; then printf '\\n按回车键关闭…'; read -r _; fi\nexit \"$token_terminal_status\"\n")

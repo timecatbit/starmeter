@@ -556,7 +556,7 @@ impl Runtime {
         let selected = self.selected_update_ids();
         let mut parts: Vec<Json> = selected.iter().map(|key| Json::from(key.as_str())).collect();
         parts.push(Json::Bool(self.module_enabled("updates")));
-        parts.push("channels-v4".into());
+        parts.push("channels-v5".into());
         for key in &selected {
             let Some(product) = update_products::product(key) else { continue };
             if !product.apps.is_empty() {

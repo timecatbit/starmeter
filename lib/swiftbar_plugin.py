@@ -332,7 +332,7 @@ def connection_fingerprint(name):
 def connection_digest(name):
     parts=[]
     if name=='app_updates':
-        selected=selected_update_ids();parts.extend(selected);parts.extend([module_enabled('updates'),'channels-v4'])
+        selected=selected_update_ids();parts.extend(selected);parts.extend([module_enabled('updates'),'channels-v5'])
         for key in selected:
             product=update_channels.product(key)
             if not product:continue

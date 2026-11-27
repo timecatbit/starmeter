@@ -280,8 +280,38 @@ fn name_of(path: &Path) -> &str {
     path.file_name().and_then(|name| name.to_str()).unwrap_or("")
 }
 
-/// The package channel a CLI came from, from its executable alone: Homebrew's Caskroom or Cellar, an npm package
-/// (or Windows npm's launcher beside node_modules), else its vendor's own installer.
+/// A Homebrew Cask `command_wrapper` script (`<prefix>/bin/<cmd>` exec'ing `<prefix>/Caskroom/<cask>/...`): returns
+/// `<prefix>/Caskroom/<cask>` when `path` is a small `#!` wrapper pointing into that installed cask directory.
+fn cask_wrapper(path: &Path, cask: &str) -> Option<PathBuf> {
+    let bin = path.parent().filter(|parent| name_of(parent) == "bin")?;
+    let cask_dir = bin.parent()?.join("Caskroom").join(cask);
+    if !cask_dir.is_dir() {
+        return None;
+    }
+    let meta = std::fs::metadata(path).ok()?;
+    if !meta.is_file() || meta.len() > 4096 {
+        return None;
+    }
+    let raw = std::fs::read(path).ok()?;
+    if !raw.starts_with(b"#!") {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&raw);
+    let needle = format!("Caskroom/{cask}/");
+    text.contains(&needle).then_some(cask_dir)
+}
+
+fn cask_channel(cask_dir: &Path, cask: &str) -> Object {
+    let receipt = claude_app::read_object(&cask_dir.join(".metadata/INSTALL_RECEIPT.json").to_string_lossy());
+    if py::dict(receipt.get("source")).get("tap") != Some(&Json::from("homebrew/cask")) {
+        return object! { "channel" => "Homebrew 自定义 Cask" };
+    }
+    brew("brew-cask", cask)
+}
+
+/// The package channel a CLI came from, from its executable alone: Homebrew's Caskroom or Cellar (including Cask
+/// `command_wrapper` scripts in `<prefix>/bin`), an npm package (or Windows npm's launcher beside node_modules), else
+/// its vendor's own installer.
 pub fn cli_channel(id: &str, binary: &str) -> Object {
     let (cask, formula, package) = packages(id);
     let path = resolved(binary);
@@ -290,11 +320,7 @@ pub fn cli_channel(id: &str, binary: &str) -> Object {
         let name = name_of(parent);
         let above = parent.parent().map(name_of).unwrap_or("");
         if !cask.is_empty() && name == cask && above == "Caskroom" {
-            let receipt = claude_app::read_object(&parent.join(".metadata/INSTALL_RECEIPT.json").to_string_lossy());
-            if py::dict(receipt.get("source")).get("tap") != Some(&Json::from("homebrew/cask")) {
-                return object! { "channel" => "Homebrew 自定义 Cask" };
-            }
-            return brew("brew-cask", cask);
+            return cask_channel(parent, cask);
         }
         if !formula.is_empty() && name == formula && above == "Cellar" {
             // The receipt is in the version's folder, the one below Cellar/<formula> on the way to the program.
@@ -317,6 +343,12 @@ pub fn cli_channel(id: &str, binary: &str) -> Object {
         {
             return npm(package);
         }
+    }
+    // Homebrew Cask `command_wrapper` (e.g. antigravity-cli): a wrapper script in `<prefix>/bin/` rather than a symlink.
+    if !cask.is_empty()
+        && let Some(cask_dir) = cask_wrapper(&path, cask)
+    {
+        return cask_channel(&cask_dir, cask);
     }
     // A Windows npm launcher (codex.cmd) sits beside node_modules, not linked into the package.
     let batch = path
@@ -481,7 +513,7 @@ pub fn app_commit(app: &str) -> Option<String> {
 fn manager(binary: &str, name: &str, environment: &HashMap<String, String>) -> Option<String> {
     let path = resolved(binary);
     let folders: &[&str] = if name == "brew" { &["Caskroom", "Cellar"] } else { &["node_modules"] };
-    let candidates: Vec<PathBuf> = path
+    let mut candidates: Vec<PathBuf> = path
         .ancestors()
         .find(|folder| folders.contains(&name_of(folder)))
         .and_then(Path::parent)
@@ -495,6 +527,12 @@ fn manager(binary: &str, name: &str, environment: &HashMap<String, String>) -> O
             }
         })
         .unwrap_or_default();
+    if name == "brew"
+        && candidates.is_empty()
+        && let Some(bin) = path.parent().filter(|parent| name_of(parent) == "bin")
+    {
+        candidates.push(bin.join("brew"));
+    }
     candidates
         .into_iter()
         .find(|candidate| candidate.is_file())
@@ -647,6 +685,37 @@ mod tests {
         assert_eq!(plan_text(&plan), "brew upgrade --cask claude-code");
         // The brew found, as paths are resolved here (on Windows without canonicalize's \\?\ prefix).
         assert_eq!(Path::new(&plan[0]), paths::resolve(&root.join("bin/brew")).unwrap());
+        // Homebrew Cask `command_wrapper` (e.g. antigravity-cli): a wrapper script in `<prefix>/bin/` rather than a
+        // symlink into Caskroom, still detected as Homebrew Cask and updated with `brew upgrade --cask`.
+        let agy_wrapper = root.join("bin/agy");
+        write(
+            &agy_wrapper,
+            &format!(
+                "#!/bin/bash\nexport AGY_CLI_DISABLE_AUTO_UPDATE=\"true\"\nexec '{}/Caskroom/antigravity-cli/1.3.0,123/antigravity' \"$@\"\n",
+                root.to_string_lossy()
+            ),
+        );
+        write(
+            &root.join("Caskroom/antigravity-cli/.metadata/INSTALL_RECEIPT.json"),
+            r#"{"source": {"tap": "homebrew/cask"}}"#,
+        );
+        let agy_channel = cli_channel("antigravity-cli", &agy_wrapper.to_string_lossy());
+        assert_eq!(agy_channel.get("channelId").and_then(Json::as_str), Some("brew-cask"));
+        let agy_plan =
+            update_plan("antigravity-cli", &agy_wrapper.to_string_lossy(), &agy_channel, &environment).unwrap();
+        assert_eq!(plan_text(&agy_plan), "brew upgrade --cask antigravity-cli");
+        assert_eq!(Path::new(&agy_plan[0]), paths::resolve(&root.join("bin/brew")).unwrap());
+        // Official standalone `agy` under ~/.local/bin stays on the vendor manifest + `agy update`.
+        let agy_own = root.join("home/.local/bin/agy");
+        write(&agy_own, "binary");
+        let agy_own_channel = cli_channel("antigravity-cli", &agy_own.to_string_lossy());
+        assert_eq!(agy_own_channel.get("channelId").and_then(Json::as_str), Some("agy-manifest"));
+        assert_eq!(
+            plan_text(
+                &update_plan("antigravity-cli", &agy_own.to_string_lossy(), &agy_own_channel, &environment).unwrap()
+            ),
+            "agy update"
+        );
         // npm, scoped and not, with npm in the prefix's bin.
         let gemini = root.join("lib/node_modules/@google/gemini-cli/dist/index.js");
         write(&gemini, "");
