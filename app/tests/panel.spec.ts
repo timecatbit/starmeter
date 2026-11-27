@@ -1473,11 +1473,11 @@ test('在手机上看: both ways off until their own 开始, a code for the same
   await expect(phone.locator('.address')).toHaveText('https://quiet-river-1234.trycloudflare.com/');
   // The public link has its hour.
   await expect(phone.locator('.note').first()).toContainText('还能用 59 分钟');
-  // Its own 停止: the page stays 任何网络's, saying the link is closed, with 重新开始; the same network's code on all along.
+  // Its own 停止: the page stays 任何网络's, saying the link is closed, with 开始; the same network's code on all along.
   await button(page, '停止').click();
   await expect(page.getByRole('radio', { name: '任何网络' })).toHaveAttribute('aria-checked', 'true');
   await expect(phone.getByRole('status')).toContainText('外网链接已关闭');
-  await expect(button(page, '重新开始')).toBeVisible();
+  await expect(button(page, '开始')).toBeVisible();
   await page.getByRole('radio', { name: '同一个网络' }).click();
   await expect(phone.locator('.address')).toHaveText('http://192.168.1.20:51234/');
   // Left while on: back on the homepage, its button has a green dot; opened again, the code still there.
@@ -1489,16 +1489,16 @@ test('在手机上看: both ways off until their own 开始, a code for the same
   const code = phone.locator('svg.qr');
   await expect(code.locator('image')).toHaveCount(1);
   expect(await code.locator('circle').count()).toBeGreaterThan(100);
-  // 停止 stays on the page: the code's place says it has stopped, and 重新开始 is the way on.
+  // 停止 stays on the page: the code's place says it has stopped, and 开始 is the way on.
   await button(page, '停止').click();
   await expect(phone.getByRole('status')).toContainText('已停止');
   await expect(phone.locator('svg.qr')).toHaveCount(0);
   await expect(phone.locator('.address')).toHaveCount(0);
-  await expect(phone.locator('.note')).toHaveText(['原来的二维码和链接已失效。点“重新开始”生成新的二维码，手机再扫一次就能看。']);
+  await expect(phone.locator('.note')).toHaveText(['原来的二维码和链接已失效。点“开始”生成新的二维码，手机再扫一次就能看。']);
   // The choices stay, still to pick between (用户：停止之后三个页面全没了).
   await expect(page.getByRole('radio', { name: '任何网络' })).toBeEnabled();
   await expect(button(page, '停止')).toHaveCount(0);
-  await button(page, '重新开始').click();
+  await button(page, '开始').click();
   await expect(phone.locator('svg.qr')).toBeVisible();
   await expect(phone.locator('.address')).toHaveText('http://192.168.1.20:51234/');
   await expect(button(page, '停止')).toBeVisible();
@@ -1620,7 +1620,7 @@ test('在手机上看: each way stops on its own, the other\'s code staying as i
   // The same network started again, the public link's code untouched; then the public link's 停止, the same network's
   // codes untouched.
   await local.click();
-  await button(page, '重新开始').click();
+  await button(page, '开始').click();
   await expect(phone.locator('svg.qr')).toHaveCount(2);
   await anywhere.click();
   await expect(phone.locator('.address')).toHaveText('https://quiet-river-1234.trycloudflare.com/');
@@ -1634,9 +1634,9 @@ test('在手机上看: each way stops on its own, the other\'s code staying as i
   await expect(phone.locator('svg.qr')).toHaveCount(2);
   await expect(phone.locator('.address')).toHaveText(['192.168.1.20:51234', '100.76.55.73:51234']);
   expect(await calls()).toEqual(['phoneStart', 'phonePublic', 'phoneStop', 'phoneStart', 'phonePrivate']);
-  // 重新开始 on 任何网络: a new link.
+  // 开始 again on 任何网络: a new link.
   await anywhere.click();
-  await button(page, '重新开始').click();
+  await button(page, '开始').click();
   await expect(phone.locator('.address')).toHaveText('https://quiet-river-1234.trycloudflare.com/');
   // Left with only the public link on, the same network stopped: opened again, still stopped, the link still up.
   await local.click();
@@ -1649,21 +1649,30 @@ test('在手机上看: each way stops on its own, the other\'s code staying as i
   await expect(phone.locator('.address')).toHaveText('https://quiet-river-1234.trycloudflare.com/');
 });
 
-test('在手机上看: the 停止 button sits clear of the panel\'s bottom edge, on both pages', async ({ page }) => {
+test('在手机上看: the 停止 button sits symmetrically clear of the panel\'s bottom edge, centered at half width', async ({ page }) => {
   await open(page, '?tailnet');
   await button(page, '在手机上看').click();
   const phone = page.locator('.phone-page');
   await button(page, '开始').click();
-  const gap = async () => {
+  const metrics = async () => {
     const stop = (await button(page, '停止').boundingBox())!, panel = (await page.locator('.window').boundingBox())!;
-    return panel.y + panel.height - (stop.y + stop.height);
+    const reach = (await phone.locator('.reach').boundingBox())!;
+    return {
+      bottom: panel.y + panel.height - (stop.y + stop.height),
+      widthRatio: stop.width / reach.width,
+      centerDiff: Math.abs((stop.x + stop.width / 2) - (panel.x + panel.width / 2)),
+    };
   };
   await expect(phone.locator('svg.qr')).toHaveCount(2);
-  await expect.poll(gap).toBeGreaterThanOrEqual(26);
+  await expect.poll(async () => (await metrics()).bottom).toBeGreaterThanOrEqual(15);
+  await expect.poll(async () => (await metrics()).bottom).toBeLessThanOrEqual(18);
+  expect((await metrics()).widthRatio).toBeCloseTo(0.5, 1);
+  expect((await metrics()).centerDiff).toBeLessThanOrEqual(1.5);
   await page.getByRole('radio', { name: '任何网络' }).click();
   await button(page, '开始').click();
   await expect(phone.locator('svg.qr')).toBeVisible();
-  await expect.poll(gap).toBeGreaterThanOrEqual(26);
+  await expect.poll(async () => (await metrics()).bottom).toBeGreaterThanOrEqual(15);
+  await expect.poll(async () => (await metrics()).bottom).toBeLessThanOrEqual(18);
 });
 
 test('在手机上看: a public link still being made when 停止 is pressed leaves the next start alone (PHONE-3)', async ({ page }) => {
@@ -1750,7 +1759,7 @@ test('在手机上看: a start that fails once says why and offers 重试, which
     shell.phoneStart = () => (once ? ((once = false), Promise.reject('这台电脑暂时开不了端口，稍后再试')) : real());
   }, panelShell);
   await button(page, '停止').click();
-  await button(page, '重新开始').click();
+  await button(page, '开始').click();
   await expect(phone.getByRole('status')).toContainText('没能开启');
   await expect(phone.locator('.failed')).toHaveText('这台电脑暂时开不了端口，稍后再试');
   await button(page, '重试').click();
@@ -3018,7 +3027,7 @@ test('在手机上看: a status answer from before 停止 and 重新开始 leave
   await page.clock.fastForward(10_500);
   await expect.poll(() => page.evaluate(() => typeof (window as unknown as { answer?: () => void }).answer)).toBe('function');
   await button(page, '停止').click();
-  await button(page, '重新开始').click();
+  await button(page, '开始').click();
   await expect(phone.locator('.address')).toHaveText('http://192.168.1.20:49002/');
   await page.evaluate(() => (window as unknown as { answer: () => void }).answer());
   await page.waitForTimeout(200);

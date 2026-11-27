@@ -226,6 +226,7 @@ export const phrases: Record<string, string> = {
     'The first time, the system may ask whether Starmeter may accept incoming connections: allow it. The Tailscale code opens from anywhere, without Cloudflare.',
   '只读：手机上只能看主页和工具页，不能改设置。': 'Read-only: the phone sees the homepage and tool pages and changes nothing.',
   外网链接已关闭: 'The public link is closed', 外网链接已经关闭: 'The public link was closed',
+  '原来的外网链接已失效。点“开始”要一个新链接，手机再扫一次就能看。': 'The old link no longer opens. Start for a new one, and scan it once more.',
   '原来的外网链接已失效。点“重新开始”要一个新链接，手机再扫一次就能看。': 'The old link no longer opens. Start again for a new one, and scan it once more.',
   未开始: 'Not started', 在同一个网络里直连这台电脑: 'Straight to this computer on the same network', '经 Cloudflare 的临时链接': 'A temporary link through Cloudflare',
   '点“开始”生成二维码：手机和电脑连同一个网络（Wi-Fi）时扫码就能看；这台电脑连着 Tailscale 或 WireGuard 时，还有它们的二维码。':
@@ -256,6 +257,7 @@ export const phrases: Record<string, string> = {
   手机上的页面已断开: "The phone's page is disconnected",
   没能开启: "Couldn't start", 没能开始: "Couldn't start", '原因在下面，可以再试一次': 'See why below, then try again', 重试: 'Try again',
   '中国大陆部分地区打不开 Cloudflare 的链接。手机和电脑能连同一个 Wi-Fi 时，用“同一个网络”更稳。': 'In parts of mainland China, Cloudflare links don\'t open. When the phone can join the same Wi-Fi, Same network is more reliable.',
+  '原来的二维码和链接已失效。点“开始”生成新的二维码，手机再扫一次就能看。': 'The old code and link no longer open. Start for a new code, and scan it once more.',
   '原来的二维码和链接已失效。点“重新开始”生成新的二维码，手机再扫一次就能看。': 'The old code and link no longer open. Start again for a new code, and scan it once more.',
   先打开手机查看: 'Turn on the phone view first', 手机查看已经关闭: 'The phone view was stopped',
   这台电脑的系统没有对应的: 'No cloudflared for this system', '连不上 GitHub，没能下载 cloudflared': 'Couldn\'t reach GitHub to download cloudflared',

@@ -212,7 +212,7 @@
     const box = body;
     if (!box) return;
     let frame = 0;
-    const observer = new ResizeObserver(() => { cancelAnimationFrame(frame); frame = requestAnimationFrame(() => onheight(58 + box.offsetHeight + 8)); });
+    const observer = new ResizeObserver(() => { cancelAnimationFrame(frame); frame = requestAnimationFrame(() => onheight(58 + box.offsetHeight)); });
     observer.observe(box);
     return () => { observer.disconnect(); cancelAnimationFrame(frame); };
   });
@@ -296,12 +296,12 @@
             <!-- Off, as it starts: what its 开始 gives, and the button. -->
             {#if phone.localStopped}
               {@render halted('已停止', '手机上的页面已断开')}
-              <p class="note">{t('原来的二维码和链接已失效。点“重新开始”生成新的二维码，手机再扫一次就能看。')}</p>
+              <p class="note">{t('原来的二维码和链接已失效。点“开始”生成新的二维码，手机再扫一次就能看。')}</p>
             {:else}
               {@render halted('未开始', '在同一个网络里直连这台电脑')}
               <p class="note">{t('点“开始”生成二维码：手机和电脑连同一个网络（Wi-Fi）时扫码就能看；这台电脑连着 Tailscale 或 WireGuard 时，还有它们的二维码。')}</p>
             {/if}
-            <div class="actions"><button class="action primary pressable" onclick={startLocal}>{t(phone.localStopped ? '重新开始' : '开始')}</button></div>
+            <div class="actions"><button class="action primary pressable" onclick={startLocal}>{t('开始')}</button></div>
           {/if}
         {:else if opening}
           <div class="code">
@@ -333,7 +333,7 @@
           <!-- Off, as it starts: what its 开始 does (the figures go through Cloudflare) said before it is pressed. -->
           {#if phone.publicStopped}
             {@render halted('已停止', '外网链接已关闭')}
-            <p class="note">{t('原来的外网链接已失效。点“重新开始”要一个新链接，手机再扫一次就能看。')}</p>
+            <p class="note">{t('原来的外网链接已失效。点“开始”要一个新链接，手机再扫一次就能看。')}</p>
           {:else}
             {@render halted('未开始', '经 Cloudflare 的临时链接')}
           {/if}
@@ -341,7 +341,7 @@
           <!-- Measured from 29 points across mainland China, the link failed at most of them: said before it starts. -->
           <p class="note">{t('中国大陆部分地区打不开 Cloudflare 的链接。手机和电脑能连同一个 Wi-Fi 时，用“同一个网络”更稳。')}</p>
           {#if download}<p class="note">{t('第一次要从 Cloudflare 的 GitHub 发布页下载 cloudflared（约 20 MB），校验后存在 App 的数据文件夹。')}</p>{/if}
-          <div class="actions"><button class="action primary pressable" onclick={openPublic}>{t(download ? '下载并开始' : phone.publicStopped ? '重新开始' : '开始')}</button></div>
+          <div class="actions"><button class="action primary pressable" onclick={openPublic}>{t(download ? '下载并开始' : '开始')}</button></div>
         {/if}
       </div>
     </Scroller>
@@ -357,8 +357,8 @@
   .title { position: absolute; left: 73px; top: 15px; margin: 0; font-size: 14px; font-weight: 600; line-height: 20px; pointer-events: none; }
   .rule { position: absolute; left: 16px; right: 16px; top: 49px; height: 1px; background: var(--separator); }
   .scroll { position: absolute; left: 0; right: 0; top: 58px; bottom: 0; display: flex; }
-  /* The last button clear of the panel's bottom edge, as far below it as the choices sit below the title's rule. */
-  .content { padding: 0 16px 20px; display: flex; flex-direction: column; align-items: stretch; gap: 12px; }
+  /* Symmetrical 16px inset on left, right, and bottom edges. */
+  .content { padding: 0 16px 16px; display: flex; flex-direction: column; align-items: stretch; gap: 12px; }
   .reach {
     position: relative; display: flex; height: 28px; padding: 2px; box-sizing: border-box; border-radius: 8px;
     background: color-mix(in srgb, var(--label) 6%, transparent);
@@ -403,10 +403,29 @@
   .card .address { margin: -2px 0; }
   .note.caution { color: var(--orange); }
   .failed { margin: 0; padding: 8px 10px; border-radius: 8px; font-size: 11.5px; color: var(--label); background: color-mix(in srgb, var(--orange) 18%, transparent); }
-  .actions { display: flex; gap: 8px; justify-content: flex-end; }
-  .action { --press-scale: 0.97; height: 28px; padding: 0 14px; border-radius: 8px; font-size: 12px; font-weight: 600; background: color-mix(in srgb, var(--label) 8%, transparent); }
-  .action.danger { color: var(--red, #e5484d); }
-  .action.primary { color: var(--on-accent); background: var(--accent); }
+  /* Centered half-width tinted actions that blend into the panel's material; two actions share the row evenly. */
+  .actions { display: flex; gap: 8px; justify-content: center; }
+  .action {
+    --press-scale: 0.98; flex: 1; min-width: 0; height: 32px; padding: 0 14px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center; white-space: nowrap;
+    font-size: 12px; font-weight: 600; color: var(--label);
+    background: color-mix(in srgb, var(--label) 7%, transparent);
+    box-shadow: inset 0 0 0 0.5px var(--separator);
+  }
+  .action:only-child { flex: 0 0 50%; }
+  .action:hover { background: color-mix(in srgb, var(--label) 12%, transparent); }
+  .action.danger {
+    color: var(--red);
+    background: color-mix(in srgb, var(--red) 14%, transparent);
+    box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--red) 30%, transparent);
+  }
+  .action.danger:hover { background: color-mix(in srgb, var(--red) 22%, transparent); }
+  .action.primary {
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+    box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--accent) 32%, transparent);
+  }
+  .action.primary:hover { background: color-mix(in srgb, var(--accent) 24%, transparent); }
   .spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--separator); border-top-color: var(--secondary); animation: spin 0.8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 </style>
