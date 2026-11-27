@@ -79,7 +79,9 @@ export interface PhoneView {
 }
 /** 自有域名 as set: its address, the server's port, this computer's network address, and its VPN addresses (the VPN
  *  page says before its 开始 whether there are any). */
-export interface DomainSetup { domain: string | null; port: number; lan: string | null; tailnet?: string | null; wireguard?: string | null }
+export interface DomainSetup { domain: string | null; port: number;
+  /** The port is one the user gave (held from then on), not one the app picked. */
+  chosen: boolean; lan: string | null; tailnet?: string | null; wireguard?: string | null }
 /** How 自有域名's address answered this computer: this server through it, something else (`status`), or nothing (`reason`). */
 export interface DomainCheck { opens: boolean; status: number | null; reason: string | null }
 
@@ -88,11 +90,11 @@ export interface DomainCheck { opens: boolean; status: number | null; reason: st
  *  the page loads again, as the app keeps it in the settings folder and turns it on again as it starts (phone.rs). */
 const browserPhone = (() => {
   const KEPT = 'starmeter.test-phone';
-  type Kept = { local?: boolean; vpn?: boolean; open?: boolean; domain?: string | null; domainOn?: boolean; port?: number };
+  type Kept = { local?: boolean; vpn?: boolean; open?: boolean; domain?: string | null; domainOn?: boolean; port?: number; chosen?: boolean };
   const kept = (() => { try { return JSON.parse(localStorage.getItem(KEPT) ?? '{}') as Kept; } catch { return {} as Kept; } })();
   let local = !!kept.local, vpn = !!kept.vpn, open = !!kept.open, domain = kept.domain ?? null, domainOn = !!kept.domainOn && !!domain;
-  let port = kept.port ?? 51234;
-  const keep = () => { try { localStorage.setItem(KEPT, JSON.stringify({ local, vpn, open, domain, domainOn, port })); } catch { /* not kept */ } };
+  let port = kept.port ?? 51234, chosen = !!kept.chosen;
+  const keep = () => { try { localStorage.setItem(KEPT, JSON.stringify({ local, vpn, open, domain, domainOn, port, chosen })); } catch { /* not kept */ } };
   const asked = (name: string) => new URLSearchParams(location.search).has(name);
   // ?tailnet: this computer on a tailnet; ?wireguard: a WireGuard tunnel up. Their codes carry the VPN page's own key.
   const tailnet = () => (asked('tailnet') ? `http://100.76.55.73:${port}/#k=9876543210abcdef9876543210abcdef` : null);
@@ -116,19 +118,31 @@ const browserPhone = (() => {
     return url.origin;
   };
   return {
-    view, start: () => { local = true; keep(); return view()!; }, stop: () => { local = false; keep(); return view(); },
+    view, stop: () => { local = false; keep(); return view(); },
+    // 同一网络's 开始, with the port its field asked for (phone.rs start_local_if): a number, that port and held; 0, the
+    // app's own pick again; none, as it is. ?port-taken: the port asked for is another app's.
+    start: (asked_port: number | null = null) => {
+      if (asked_port === 0) chosen = false;
+      else if (asked_port !== null) {
+        if (asked_port < 1024 || asked_port > 65535) throw '端口填 1024 到 65535 之间的数';
+        if (asked('port-taken')) throw `端口 ${asked_port} 被别的程序占用`;
+        if (asked_port !== port) open = false;
+        port = asked_port; chosen = true;
+      }
+      local = true; keep(); return view()!;
+    },
     vpnStart: () => { vpn = true; keep(); return view()!; }, vpnStop: () => { vpn = false; keep(); return view(); },
     open: () => { open = true; keep(); return view()!; }, close: () => { open = false; keep(); return view(); },
     // ?no-network: this computer on no network.
-    domainSetup: (): DomainSetup => ({ domain, port, lan: asked('no-network') ? null : '192.168.1.20', tailnet: asked('tailnet') ? '100.76.55.73' : null, wireguard: asked('wireguard') ? '10.0.0.2' : null }),
+    domainSetup: (): DomainSetup => ({ domain, port, chosen, lan: asked('no-network') ? null : '192.168.1.20', tailnet: asked('tailnet') ? '100.76.55.73' : null, wireguard: asked('wireguard') ? '10.0.0.2' : null }),
     // ?port-taken: the port asked for is another app's.
-    domainStart: (typed: string, asked_port: number) => {
+    domainStart: (typed: string, asked_port: number, asked_chosen: boolean | null = null) => {
       const given = origin(typed);
       if (asked_port < 1024 || asked_port > 65535) throw '端口填 1024 到 65535 之间的数';
       if (asked('port-taken')) throw `端口 ${asked_port} 被别的程序占用`;
       // A port move closes the public link (phone.rs moved).
       if (asked_port !== port) open = false;
-      domain = given; port = asked_port; domainOn = true; keep(); return view()!;
+      domain = given; port = asked_port; chosen = asked_chosen ?? chosen; domainOn = true; keep(); return view()!;
     },
     domainStop: () => { domainOn = false; keep(); return view(); },
     stopNear: () => { local = false; domainOn = false; keep(); return view(); },
@@ -179,7 +193,8 @@ export const shell = {
   /** 在手机上看: 同一个网络 turned on and off (phoneStart, phoneStop), the public link through Cloudflare opened and
    *  closed (phonePublic, phonePrivate), each leaving the other as it is; and where they stand. In a browser, made-up
    *  addresses for the tests. */
-  phoneStart: (): Promise<PhoneView> => (inTauri ? invoke<PhoneView>('phone_start') : Promise.resolve(browserPhone.start())),
+  phoneStart: (port: number | null = null): Promise<PhoneView> => (inTauri ? invoke<PhoneView>('phone_start', { port })
+    : new Promise((done, failed) => { try { done(browserPhone.start(port)); } catch (error) { failed(error); } })),
   phoneStatus: (): Promise<PhoneView | null> => (inTauri ? invoke<PhoneView | null>('phone_status') : Promise.resolve(browserPhone.view())),
   phoneStop: (): Promise<PhoneView | null> => (inTauri ? invoke<PhoneView | null>('phone_stop') : Promise.resolve(browserPhone.stop())),
   /** 反代 through the user's own domain (自有域名): as set (phoneDomain), on at an address and port, which are kept
@@ -188,11 +203,11 @@ export const shell = {
   phoneVpnStart: (): Promise<PhoneView> => (inTauri ? invoke<PhoneView>('phone_vpn_start') : Promise.resolve(browserPhone.vpnStart())),
   phoneVpnStop: (): Promise<PhoneView | null> => (inTauri ? invoke<PhoneView | null>('phone_vpn_stop') : Promise.resolve(browserPhone.vpnStop())),
   phoneDomain: (): Promise<DomainSetup | null> => (inTauri ? invoke<DomainSetup | null>('phone_domain') : Promise.resolve(browserPhone.domainSetup())),
-  phoneDomainStart: (domain: string, port: number): Promise<PhoneView> =>
-    (inTauri ? invoke<PhoneView>('phone_domain_start', { domain, port })
+  phoneDomainStart: (domain: string, port: number, chosen: boolean | null = null): Promise<PhoneView> =>
+    (inTauri ? invoke<PhoneView>('phone_domain_start', { domain, port, chosen })
       // ?start-held: the host answers when the test says (window.answerStart()), as one asking a held port again.
       : new Promise((done, failed) => {
-        const answer = () => { try { done(browserPhone.domainStart(domain, port)); } catch (error) { failed(error); } };
+        const answer = () => { try { done(browserPhone.domainStart(domain, port, chosen)); } catch (error) { failed(error); } };
         if (new URLSearchParams(location.search).has('start-held')) (window as unknown as { answerStart: () => void }).answerStart = answer;
         else setTimeout(answer);
       })),

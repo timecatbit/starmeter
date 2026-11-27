@@ -65,6 +65,8 @@
   /** The kind's 开始s on their way, both of their steps: the domain's check waits for them (a proxy on a NAS gets in once
    *  the same network is on). A count, so a second 开始 pressed while the first is on its way keeps it waiting (R12-5). */
   let nearStarting = $state(0);
+  /** 同一网络's port that couldn't be had (not one to give, or another app's): said under its field, 开始 still there. */
+  let portSaid = $state<string | null>(null);
   /** 自有域名 being started; its start that failed (the address, or the port taken): the reason, under its fields. */
   let domainStarting = $state(false);
   let domainFailed = $state<string | null>(null);
@@ -89,8 +91,8 @@
   ].filter((code) => !!code));
   /** What one VPN's code alone says. */
   const vpnNote = (key: string) => key === 'tailnet'
-    ? '手机连上同一个 Tailscale 网络后扫这个，在哪都能打开，不经过 Cloudflare。点“停止”或退出 App 前一直开着。'
-    : '手机连上同一个 WireGuard 网络后扫这个，在哪都能打开，不经过 Cloudflare。点“停止”或退出 App 前一直开着。';
+    ? '手机连上同一个 Tailscale 后扫码，不经过 Cloudflare。只读，点“停止”前一直开着。'
+    : '手机连上同一个 WireGuard 后扫码，不经过 Cloudflare。只读，点“停止”前一直开着。';
   const outside = $derived(looked(view?.public));
   /** 自有域名's link while it is on, its address, and where its proxy forwards to (this computer's port). */
   const own = $derived(looked(view?.domain));
@@ -167,18 +169,65 @@
   /** 同一个网络's 开始 (重新开始, 重试). A start that fails stays in the code's place with its reason and 重试, instead of
    *  leaving a page with neither a code nor a way on. */
   async function startLocal() {
+    // The port as its field was left (用户：同一网络也支持指定端口号吧): untouched, as it is; emptied, the app picks
+    // again; a number, that port, held from then on.
+    const asked = portAsked();
+    portSaid = null;
+    if (asked === false) { portSaid = '端口填 1024 到 65535 之间的数'; openPort(); return; }
     const mine = ++localRound;
     epoch++;
     localFailed = null;
     starting = true;
+    const moved = holdPublic();
     try {
-      const started = await serial(() => sent(shell.phoneStart()));
-      if (mine === localRound) setPhone(started);
+      const started = await serial(() => sent(shell.phoneStart(asked)));
+      moved(true);
+      if (mine === localRound) {
+        setPhone(started);
+        // Its port as kept now: the row says it, the field put away.
+        if (asked !== null) { portEdited = false; portOpen = false; readSetup(); }
+      }
     } catch (error) {
-      if (mine === localRound) localFailed = String(error);
+      moved(false);
+      if (mine === localRound) {
+        // A port another app holds: said under its field, open to pick another, 开始 still there.
+        if (/^端口 \d+ 被别的程序占用$/.test(String(error))) { portSaid = String(error); openPort(); }
+        else localFailed = String(error);
+      }
     }
     if (mine === localRound) starting = false;
   }
+  /** The port's field as it was left: untouched, the port as it is (null); emptied, the app's own pick again (0); a
+   *  number, that port. `false`: not a port one can give. */
+  function portAsked(): number | null | false {
+    if (!portEdited) return null;
+    if (portInput.trim() === '') return 0;
+    return portTyped !== null && portTyped >= 1024 && portTyped <= 65535 ? portTyped : false;
+  }
+  /** A start that moves the server to another port closes Cloudflare's link (and one still being made). Its round is
+   *  held meanwhile, so the host's answer to it (手机查看已经关闭) isn't said as a failure; ended as its 停止 would once
+   *  the move is done, handed back as it was when the start fails before anything moved. What it returns is called
+   *  with how the start went. */
+  function holdPublic(): (went: boolean) => void {
+    if (!(movesServer && (outside || opening))) return () => {};
+    const before = publicRound;
+    let release = () => {};
+    moving = new Promise((done) => (release = done));
+    return (went) => {
+      if (went && publicRound === before) {
+        publicRound++;
+        busy = false;
+        lost = null;
+        publicFailed = null;
+        phone.publicStopped = true;
+      }
+      // Nothing moved: Cloudflare's link as the host has it now (an answer held meanwhile is in its status).
+      if (!went) void pollStatus();
+      release();
+      moving = null;
+    };
+  }
+
   /** The VPN page's 开始 (重试): on with its own key; a start that fails stays in the code's place with its reason. */
   async function startVpn() {
     const mine = ++vpnRound;
@@ -278,27 +327,18 @@
   async function startDomain() {
     if (domainStarting) return;
     domainFailed = null;
-    const port = portTyped;
+    // The port's field emptied: the port as it is, the app's own pick again from then on.
+    const typed = portInput.trim();
+    const port = typed === '' ? setup?.port ?? null : portTyped;
     if (port === null || port < 1024 || port > 65535) { domainFailed = '端口填 1024 到 65535 之间的数'; openPort(); return; }
+    const chosen = portEdited ? typed !== '' : null;
     const mine = ++domainRound;
     epoch++;
-    // A port move closes Cloudflare's link (and one still being made). Its round is held meanwhile, so the host's
-    // answer to it (手机查看已经关闭) isn't said as a failure; ended as its 停止 would once the move is done, handed
-    // back as it was when the start fails before anything moved.
-    const moves = movesServer && (outside || opening);
-    const publicBefore = publicRound;
-    let moved = () => {};
-    if (moves) moving = new Promise((done) => (moved = done));
+    const moved = holdPublic();
     domainStarting = true;
     try {
-      const started = await serial(() => sent(shell.phoneDomainStart(domainInput, port)));
-      if (moves && publicRound === publicBefore) {
-        publicRound++;
-        busy = false;
-        lost = null;
-        publicFailed = null;
-        phone.publicStopped = true;
-      }
+      const started = await serial(() => sent(shell.phoneDomainStart(domainInput, port, chosen)));
+      moved(true);
       if (mine !== domainRound) return;
       phone.domainStopped = false;
       setPhone(started);
@@ -308,14 +348,12 @@
       const next = await shell.phoneDomain().catch(() => null);
       if (next && mine === domainRound) settled(next);
     } catch (error) {
-      // Nothing moved: Cloudflare's link as the host has it now (an answer held meanwhile is in its status).
-      if (moves) void pollStatus();
+      moved(false);
       if (mine !== domainRound) return;
       domainFailed = String(error);
       // A port another app holds: the port's field open, to pick another.
       if (/^端口 \d+ 被别的程序占用$/.test(domainFailed)) openPort();
     } finally {
-      if (moves) { moved(); moving = null; }
       if (mine === domainRound) domainStarting = false;
     }
   }
@@ -348,6 +386,7 @@
     domainStarting = false;
     localFailed = null;
     domainFailed = null;
+    portSaid = null;
     if (wasLocal) phone.localStopped = true;
     if (wasDomain) phone.domainStopped = true;
     without({ localOpen: false, local: null, domain: null });
@@ -399,6 +438,7 @@
    *  its way. A port out of range is said on the press, under the form (R12-8). */
   const canStart = $derived(!domainStarting && !starting && !!domainInput.trim() && (portInput.trim() !== '' || !!setup));
   const enter = (event: KeyboardEvent) => { if (event.key === 'Enter' && !composing(event) && canStart) void startNear(); };
+  const enterPort = (event: KeyboardEvent) => { if (event.key === 'Enter' && !composing(event) && !starting) void startNear(); };
   const ownLink = $derived(view?.domain ?? null);
   $effect(() => {
     if (ownLink && !nearStarting) void checkDomain();
@@ -496,6 +536,25 @@
   {/if}
 {/snippet}
 
+{#snippet portRow()}
+  <!-- 同一网络's port (用户：同一网络也支持指定端口号吧): as it is, and a field for another under 换端口; emptied, the app
+       picks again. -->
+  <div class="setup">
+    <div class="forward">
+      <span class="field-label">{t('端口')}</span>
+      {#if portOpen}
+        <input class="field-input num port-field solo" type="text" inputmode="numeric" autocomplete="off" autocorrect="off" spellcheck="false"
+          maxlength="5" placeholder={t('自动')} aria-label={t('端口')} bind:this={portField} bind:value={portInput} oninput={() => (portEdited = true)} onkeydown={enterPort} />
+      {:else}
+        <span class="port-now num">{setup?.port ?? ''}</span>
+        <button class="change pressable" onclick={openPort}>{t('换端口')}</button>
+      {/if}
+    </div>
+  </div>
+  {#if portSaid}<p class="failed">{t(portSaid)}</p>{/if}
+  {#if movesServer}<p class="note caution">{t('换端口后二维码要重新扫，Cloudflare 链接会关闭')}</p>{/if}
+{/snippet}
+
 {#snippet domainForm()}
   <!-- The address the user's proxy opens, and the address its proxy or tunnel forwards to, with the server's port,
        changed only when asked (the same network's codes use the same port). -->
@@ -510,7 +569,7 @@
       {#if forwardTo}{@render link('target', forwardTo, true, true)}{/if}
       {#if portOpen}
         <input class="field-input num port-field" type="text" inputmode="numeric" autocomplete="off" autocorrect="off" spellcheck="false"
-          maxlength="5" aria-label={t('端口')} bind:this={portField} bind:value={portInput} oninput={() => (portEdited = true)} onkeydown={enter} />
+          maxlength="5" placeholder={t('自动')} aria-label={t('端口')} bind:this={portField} bind:value={portInput} oninput={() => (portEdited = true)} onkeydown={enter} />
       {:else}
         <button class="change pressable" onclick={openPort}>{t('换端口')}</button>
       {/if}
@@ -518,14 +577,14 @@
     {#if forwardTo}{@render byHand('target', forwardTo)}{/if}
   </div>
   {#if domainFailed}<p class="failed">{t(domainFailed)}</p>{/if}
-  {#if movesServer}<p class="note caution">{t('换了端口：同一个网络和 VPN 的二维码改用新端口，手机要重新扫；Cloudflare 链接会关闭')}</p>{/if}
-  {#if phone.domainStopped}<p class="note">{t('原来的反代链接已失效：重新开启后生成新的二维码，手机再扫一次就能看。')}</p>{/if}
-  <p class="note">{t('用你的反代或隧道（Caddy、Nginx、frp、Cloudflare Tunnel、Tailscale Funnel 等）把域名转发到上面的地址，反代在这台电脑上或 NAS、路由器上都行，手机在哪都能打开，也没有一小时的限制。这台电脑的地址变了，反代里也要跟着改，最好在路由器里给它固定一个地址。')}</p>
+  {#if movesServer}<p class="note caution">{t('换端口后二维码要重新扫，Cloudflare 链接会关闭')}</p>{/if}
+  {#if phone.domainStopped}<p class="note">{t('原来的反代链接已失效，重新开启后再扫。')}</p>{/if}
+  <p class="note">{t('用你的反代或隧道（Caddy、Nginx、frp 等）把域名转发到上面的地址。')}</p>
   {#if forwardHere}
-    <p class="note">{t('反代就在这台电脑上时，也可以转发到 {target}。', { target: forwardHere })}</p>
+    <p class="note">{t('反代在这台电脑上时也可用 {target}。', { target: forwardHere })}</p>
   {/if}
   {#if forwardVpn}
-    <p class="note">{t('反代在别处经 Tailscale 或 WireGuard 转发时，打开“任何网络 › Tailscale 等 VPN”，转发到这台电脑的 {target}。', { target: forwardVpn })}</p>
+    <p class="note">{t('经 Tailscale 或 WireGuard 转发时用 {target}，并开启“Tailscale 等 VPN”。', { target: forwardVpn })}</p>
   {/if}
 {/snippet}
 
@@ -588,7 +647,7 @@
           {#if localFailed}
             {@render halted('没能开启', '原因在下面，可以再试一次')}
             <p class="failed">{t(localFailed)}</p>
-            {#if phone.near === 'domain'}{@render domainForm()}{/if}
+            {#if phone.near === 'domain'}{@render domainForm()}{:else}{@render portRow()}{/if}
             <div class="actions"><button class="action primary pressable" disabled={phone.near === 'domain' && !canStart} onclick={startNear}>{t('重试')}</button></div>
           {:else if localOn || own}
             {#if nearCodes.length > 1}
@@ -615,17 +674,15 @@
               {@render domainForm()}
               <div class="actions"><button class="action primary pressable" disabled={!canStart} onclick={startDomain}>{t('开启反代')}</button></div>
             {/if}
+            <!-- Short (用户：图中说明能省就省，简洁点，字太多): what to scan, and that it stays on. -->
             {#if own && lan}
-              <p class="note">{t('手机连同一个 Wi-Fi 时扫“局域网”，在别处时扫“反代”：经你的反代转发到这台电脑的 {target}。', { target: forwardTo?.replace(/^http:\/\//, '') ?? '' })}</p>
+              <p class="note">{t('同一个 Wi-Fi 扫“局域网”，在别处扫“反代”。只读，点“停止”前一直开着。')}</p>
             {:else if own}
-              <p class="note">{t('手机在哪都能扫这个二维码：经你的反代转发到这台电脑的 {target}。', { target: forwardTo?.replace(/^http:\/\//, '') ?? '' })}</p>
+              <p class="note">{t('手机在哪都能扫。只读，点“停止”前一直开着。')}</p>
             {:else if lan}
-              <p class="note">{t('手机和电脑连同一个网络（Wi-Fi）后扫码；第一次打开时系统可能问是否允许 Starmeter 接收连接，选允许')}</p>
+              <p class="note">{t('手机连同一个 Wi-Fi 后扫码。只读，点“停止”前一直开着。')}</p>
             {/if}
-            {#if nearCodes.length}
-              <p class="note">{t('只读：手机上只能看主页和工具页，不能改设置。点“停止”或退出 App 前一直开着。')}</p>
-              <p class="note">{t(ownOrigin?.startsWith('https:') ? '网页右上角的太阳可让手机屏幕保持常亮，适合放在桌边一直看；扫“反代”打开时能用' : '网页右上角的太阳可让手机屏幕保持常亮，适合放在桌边一直看；要用 Cloudflare 临时链接或 https 的自有域名打开才能用')}</p>
-            {/if}
+            {#if own}<p class="note">{t('反代转发到 {target}', { target: forwardTo?.replace(/^http:\/\//, '') ?? '' })}</p>{/if}
             <div class="actions"><button class="action danger pressable" onclick={stopNear}>{t('停止')}</button></div>
           {:else if starting || domainStarting}
             <div class="code"><span class="spinner" aria-label={t('正在开启')}></span></div>
@@ -634,14 +691,15 @@
             {@render domainForm()}
             <div class="actions"><button class="action primary pressable" disabled={!canStart} onclick={startNear}>{t('开始')}</button></div>
           {:else}
-            <!-- Off, as it starts: what its 开始 gives, and the button. -->
+            <!-- Off, as it starts: what its 开始 gives, its port, and the button. -->
             {#if phone.localStopped}
               {@render halted('已停止', '手机上的页面已断开')}
-              <p class="note">{t('原来的二维码和链接已失效。点“开始”生成新的二维码，手机再扫一次就能看。')}</p>
+              <p class="note">{t('原来的二维码已失效，重新开始后再扫。')}</p>
             {:else}
               {@render halted('未开始', '在同一个网络里直连这台电脑')}
-              <p class="note">{t('点“开始”生成二维码：手机和电脑连同一个网络（Wi-Fi）时扫码就能看。有自己的域名和反代时，打开“同时开启反代”；手机不在身边时，也可以用“任何网络”。')}</p>
+              <p class="note">{t('手机连同一个 Wi-Fi，扫码就能看。')}</p>
             {/if}
+            {@render portRow()}
             <div class="actions"><button class="action primary pressable" onclick={startNear}>{t('开始')}</button></div>
           {/if}
         {:else}
@@ -660,6 +718,7 @@
             {#if vpnFailed}
               {@render halted('没能开启', '原因在下面，可以再试一次')}
               <p class="failed">{t(vpnFailed)}</p>
+              {#if /^端口 \d+ 被别的程序占用$/.test(vpnFailed)}<p class="note">{t('在“同一网络 / 反代”里换端口，或退出占用它的程序。')}</p>{/if}
               <div class="actions"><button class="action primary pressable" onclick={startVpn}>{t('重试')}</button></div>
             {:else if vpnOn}
               {#if vpnCodes.length > 1}
@@ -673,7 +732,7 @@
                     </div>
                   {/each}
                 </div>
-                <p class="note">{t('手机连着哪个 VPN 就扫哪个二维码，在哪都能打开，不经过 Cloudflare。点“停止”或退出 App 前一直开着。')}</p>
+                <p class="note">{t('手机连着哪个 VPN 就扫哪个，不经过 Cloudflare。只读，点“停止”前一直开着。')}</p>
               {:else if vpnCodes.length === 1}
                 <div class="code"><QrCode text={vpnCodes[0].url} size={188} label={t(vpnCodes[0].label)} /></div>
                 {@render link(vpnCodes[0].key, vpnCodes[0].url)}
@@ -681,22 +740,18 @@
               {:else}
                 {@render halted('没有连着 VPN', '这台电脑连上 Tailscale 或 WireGuard 后，这里就有二维码')}
               {/if}
-              {#if vpnCodes.length}
-                <p class="note">{t('只读：手机上只能看主页和工具页，不能改设置。')}</p>
-                <p class="note">{t('网页右上角的太阳可让手机屏幕保持常亮，适合放在桌边一直看；要用 Cloudflare 临时链接或 https 的自有域名打开才能用')}</p>
-              {/if}
               <div class="actions"><button class="action danger pressable" onclick={stopVpn}>{t('停止')}</button></div>
             {:else if vpnStarting}
               <div class="code"><span class="spinner" aria-label={t('正在开启')}></span></div>
             {:else}
               {#if phone.vpnStopped}
                 {@render halted('已停止', 'VPN 的链接已失效')}
-                <p class="note">{t('原来的二维码和链接已失效。点“开始”生成新的二维码，手机再扫一次就能看。')}</p>
+                <p class="note">{t('原来的二维码已失效，重新开始后再扫。')}</p>
               {:else}
                 {@render halted('未开始', '经 Tailscale 或 WireGuard 直连这台电脑')}
+                <p class="note">{t('手机和电脑连着同一个 Tailscale 或 WireGuard 时，在哪都能打开，不经过 Cloudflare。')}</p>
               {/if}
-              <p class="note">{t('点“开始”生成二维码：手机和这台电脑连着同一个 Tailscale 或 WireGuard 网络时，在哪都能打开，数据不经过 Cloudflare。')}</p>
-              {#if setup && !setup.tailnet && !setup.wireguard}<p class="note caution">{t('这台电脑现在没有连着 Tailscale 或 WireGuard：先连上再开始。')}</p>{/if}
+              {#if setup && !setup.tailnet && !setup.wireguard}<p class="note caution">{t('这台电脑还没连上 Tailscale 或 WireGuard。')}</p>{/if}
               <div class="actions"><button class="action primary pressable" onclick={startVpn}>{t('开始')}</button></div>
             {/if}
           {:else if opening}
@@ -710,6 +765,7 @@
           {:else if lost}
             {@render halted(lost === 'dropped' ? '外网链接断开了' : '没能生成外网链接', lost === 'dropped' ? '可以重新生成一个新链接' : '原因在下面，可以再试一次')}
             {#if publicFailed}<p class="failed">{t(publicFailed)}</p>{/if}
+            {#if publicFailed && /^端口 \d+ 被别的程序占用$/.test(publicFailed)}<p class="note">{t('在“同一网络 / 反代”里换端口，或退出占用它的程序。')}</p>{/if}
             <div class="actions">
               <button class="action pressable" onclick={useLocal}>{t('改用同一个网络')}</button>
               <button class="action primary pressable" onclick={openPublic}>{t(lost === 'dropped' ? '重新生成' : '重试')}</button>
@@ -721,22 +777,21 @@
               <!-- The wait for it to open ran out: shown all the same, with what to do if it doesn't open yet. -->
               <p class="note caution">{t('还没确认手机能打开：扫码打不开就等一分钟再试')}</p>
             {/if}
-            <p class="note">{t('任何网络都能打开，链接带一次性口令，还能用 {n} 分钟', { n: minutes })}</p>
-            <p class="note">{t('只读：手机上只能看主页和工具页，不能改设置。')}</p>
-            <p class="note">{t('网页右上角的太阳可让手机屏幕保持常亮，适合放在桌边一直看')}</p>
+            <p class="note">{t('任何网络都能打开，还能用 {n} 分钟。只读。', { n: minutes })}</p>
+            <p class="note">{t('网页右上角的太阳可让屏幕常亮。')}</p>
             <div class="actions"><button class="action danger pressable" onclick={stopPublic}>{t('停止')}</button></div>
           {:else}
             <!-- Off, as it starts: what its 开始 does (the figures go through Cloudflare) said before it is pressed. -->
             {#if phone.publicStopped}
               {@render halted('已停止', '外网链接已关闭')}
-              <p class="note">{t('原来的外网链接已失效。点“开始”要一个新链接，手机再扫一次就能看。')}</p>
+              <p class="note">{t('原来的外网链接已失效，重新开始后再扫。')}</p>
             {:else}
               {@render halted('未开始', '经 Cloudflare 的临时链接')}
             {/if}
-            <p class="note">{t('手机不在同一个网络时用：Cloudflare 给一个临时的 https 地址，转到这台电脑。主页的数字会经过 Cloudflare；链接带一次性口令，停止或一小时后失效。')}</p>
+            <p class="note">{t('经 Cloudflare 的临时 https 链接打开：数字会经过 Cloudflare，一小时后失效。')}</p>
             <!-- Measured from 29 points across mainland China, the link failed at most of them: said before it starts. -->
-            <p class="note">{t('中国大陆部分地区打不开 Cloudflare 的链接。手机和电脑能连同一个 Wi-Fi 时，用“同一网络”更稳。')}</p>
-            {#if download}<p class="note">{t('第一次要从 Cloudflare 的 GitHub 发布页下载 cloudflared（约 20 MB），校验后存在 App 的数据文件夹。')}</p>{/if}
+            <p class="note">{t('中国大陆部分地区打不开；能连同一个 Wi-Fi 时用“同一网络”更稳。')}</p>
+            {#if download}<p class="note">{t('第一次要下载 cloudflared（约 20 MB）。')}</p>{/if}
             <div class="actions"><button class="action primary pressable" onclick={openPublic}>{t(download ? '下载并开始' : '开始')}</button></div>
           {/if}
         {/if}
@@ -882,6 +937,9 @@
   }
   .change:hover { background: var(--hover); }
   .port-field { flex: none; width: 62px; height: 24px; text-align: center; }
+  /* 同一网络's row: the port, then 换端口 (or its field), at the row's end. */
+  .port-field.solo, .port-now { margin-left: auto; }
+  .port-now { font-size: 12px; color: var(--label); font-variant-numeric: tabular-nums; }
   .check { margin: -4px 0 0; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 11px; line-height: 1.45; color: var(--secondary); text-align: center; }
   .check.ok { color: var(--green); }
   .check.caution {

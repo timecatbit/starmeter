@@ -217,48 +217,44 @@ export const phrases: Record<string, string> = {
   // 同一网络 / 反代's two modes: the same network alone, or with the user's own domain beside it.
   同时开启反代: 'Also through a reverse proxy', '用你自己的域名，手机在哪都能打开': 'Your own domain, for a phone anywhere', 开启反代: 'Turn on the proxy',
   手机在哪都能扫这个二维码: 'Scan this from anywhere', 手机在哪都能扫: 'From anywhere',
-  '手机连同一个 Wi-Fi 时扫“局域网”，在别处时扫“反代”：经你的反代转发到这台电脑的 {target}。':
-    'On the same Wi-Fi, scan Local network; anywhere else, scan Reverse proxy: your proxy forwards it to this computer\'s {target}.',
-  '网页右上角的太阳可让手机屏幕保持常亮，适合放在桌边一直看；扫“反代”打开时能用':
-    'The sun at the top right of the page keeps the phone\'s screen on, to watch from beside the desk; it works when opened from Reverse proxy',
-  '原来的反代链接已失效：重新开启后生成新的二维码，手机再扫一次就能看。':
-    'The proxy\'s old link no longer opens: turn it on again for a new code, and scan it once more on the phone.',
-  '点“开始”生成二维码：手机和电脑连同一个网络（Wi-Fi）时扫码就能看。有自己的域名和反代时，打开“同时开启反代”；手机不在身边时，也可以用“任何网络”。':
-    'Start for a code: with the phone on the same network (Wi-Fi) as this computer, scan it to watch. With a domain and proxy of your own, turn on Also through a reverse proxy; for a phone elsewhere, there is Any network too.',
-  '用你的反代或隧道（Caddy、Nginx、frp、Cloudflare Tunnel、Tailscale Funnel 等）把域名转发到上面的地址，反代在这台电脑上或 NAS、路由器上都行，手机在哪都能打开，也没有一小时的限制。这台电脑的地址变了，反代里也要跟着改，最好在路由器里给它固定一个地址。':
-    'Point the domain at the address above with your reverse proxy or tunnel (Caddy, Nginx, frp, Cloudflare Tunnel, Tailscale Funnel…), on this computer or on a NAS or the router: the phone opens it from anywhere, with no hour\'s limit. If this computer\'s address changes, change it in the proxy too; better to fix its address in the router.',
-  '反代就在这台电脑上时，也可以转发到 {target}。': 'With the proxy on this computer, {target} works too.',
-  '反代在别处经 Tailscale 或 WireGuard 转发时，打开“任何网络 › Tailscale 等 VPN”，转发到这台电脑的 {target}。':
-    'With the proxy elsewhere reaching this computer over Tailscale or WireGuard, turn on Any network › Tailscale & VPNs and forward to this computer\'s {target}.',
-  '手机在哪都能扫这个二维码：经你的反代转发到这台电脑的 {target}。': 'Scan this from anywhere: your proxy forwards it to this computer\'s {target}.',
   连不上这个地址: 'The address can\'t be reached', 加密连接没能建立: 'The secure connection couldn\'t be set up',
-  '手机连上同一个 Tailscale 网络后扫这个，在哪都能打开，不经过 Cloudflare。点“停止”或退出 App 前一直开着。':
-    'With the phone on the same tailnet, scan this to open from anywhere, without Cloudflare. On until Stop, or until the app quits.',
-  '手机连上同一个 WireGuard 网络后扫这个，在哪都能打开，不经过 Cloudflare。点“停止”或退出 App 前一直开着。':
-    'With the phone on the same WireGuard network, scan this to open from anywhere, without Cloudflare. On until Stop, or until the app quits.',
-  '手机连着哪个 VPN 就扫哪个二维码，在哪都能打开，不经过 Cloudflare。点“停止”或退出 App 前一直开着。':
-    'Scan the code of the VPN the phone is on, to open from anywhere, without Cloudflare. On until Stop, or until the app quits.',
   '连着 Tailscale 的手机扫这个二维码': 'Scan this with a phone on the tailnet', '手机开着 Tailscale': 'Phone on your tailnet',
   '没有连着 VPN': 'No VPN connected', '这台电脑连上 Tailscale 或 WireGuard 后，这里就有二维码': 'Once this computer is on Tailscale or WireGuard, its code shows here',
   'VPN 的链接已失效': 'The VPN links no longer open', '经 Tailscale 或 WireGuard 直连这台电脑': 'Straight to this computer over Tailscale or WireGuard',
-  '点“开始”生成二维码：手机和这台电脑连着同一个 Tailscale 或 WireGuard 网络时，在哪都能打开，数据不经过 Cloudflare。':
-    'Start for a code: with the phone and this computer on the same tailnet or WireGuard network, it opens from anywhere, nothing going through Cloudflare.',
-  '这台电脑现在没有连着 Tailscale 或 WireGuard：先连上再开始。': 'This computer isn\'t on Tailscale or WireGuard now: connect, then start.',
   '连着 WireGuard 的手机扫这个二维码': 'Scan this with a phone on the WireGuard network',
   '手机开着 WireGuard': 'Phone on WireGuard',
+  自动: 'Auto', '换端口后二维码要重新扫，Cloudflare 链接会关闭': 'After a port change the codes are scanned again, and the Cloudflare link closes',
+  '原来的反代链接已失效，重新开启后再扫。': 'The proxy\'s old link no longer opens; turn it on again and scan anew.',
+  '用你的反代或隧道（Caddy、Nginx、frp 等）把域名转发到上面的地址。': 'Have your reverse proxy or tunnel (Caddy, Nginx, frp…) forward the domain to the address above.',
+  '反代在这台电脑上时也可用 {target}。': 'With the proxy on this computer, {target} works too.',
+  '经 Tailscale 或 WireGuard 转发时用 {target}，并开启“Tailscale 等 VPN”。': 'Forwarding over Tailscale or WireGuard: use {target}, with Tailscale & VPNs on.',
+  '同一个 Wi-Fi 扫“局域网”，在别处扫“反代”。只读，点“停止”前一直开着。': 'On this Wi-Fi scan Local network, elsewhere Reverse proxy. Read-only; on until you stop it.',
+  '手机在哪都能扫。只读，点“停止”前一直开着。': 'Scan it from anywhere. Read-only; on until you stop it.',
+  '手机连同一个 Wi-Fi 后扫码。只读，点“停止”前一直开着。': 'Scan it with the phone on this Wi-Fi. Read-only; on until you stop it.',
+  '反代转发到 {target}': 'Proxy forwards to {target}',
+  '原来的二维码已失效，重新开始后再扫。': 'The old code no longer opens; start again and scan anew.',
+  '手机连同一个 Wi-Fi，扫码就能看。': 'With the phone on this Wi-Fi, scan to watch.',
+  '在“同一网络 / 反代”里换端口，或退出占用它的程序。': 'Change the port under Same network / Proxy, or quit the app holding it.',
+  '手机连上同一个 Tailscale 后扫码，不经过 Cloudflare。只读，点“停止”前一直开着。': 'Scan it with the phone on the same Tailscale; nothing goes through Cloudflare. Read-only; on until you stop it.',
+  '手机连上同一个 WireGuard 后扫码，不经过 Cloudflare。只读，点“停止”前一直开着。': 'Scan it with the phone on the same WireGuard network; nothing goes through Cloudflare. Read-only; on until you stop it.',
+  '手机连着哪个 VPN 就扫哪个，不经过 Cloudflare。只读，点“停止”前一直开着。': 'Scan the code of the VPN the phone is on; nothing goes through Cloudflare. Read-only; on until you stop it.',
+  '手机和电脑连着同一个 Tailscale 或 WireGuard 时，在哪都能打开，不经过 Cloudflare。': 'With the phone and this computer on the same Tailscale or WireGuard, it opens from anywhere, not through Cloudflare.',
+  '这台电脑还没连上 Tailscale 或 WireGuard。': 'This computer isn\'t on Tailscale or WireGuard yet.',
+  '任何网络都能打开，还能用 {n} 分钟。只读。': 'Opens from any network, {n} more minutes. Read-only.',
+  '网页右上角的太阳可让屏幕常亮。': 'The sun at the page\'s top right keeps the screen on.',
+  '原来的外网链接已失效，重新开始后再扫。': 'The old link no longer opens; start again and scan anew.',
+  '经 Cloudflare 的临时 https 链接打开：数字会经过 Cloudflare，一小时后失效。': 'Opens through Cloudflare\'s temporary https link: the figures pass through Cloudflare, and it closes after an hour.',
+  '中国大陆部分地区打不开；能连同一个 Wi-Fi 时用“同一网络”更稳。': 'It doesn\'t open in parts of mainland China; on the same Wi-Fi, Same network is more reliable.',
+  '第一次要下载 cloudflared（约 20 MB）。': 'The first time, cloudflared is downloaded (about 20 MB).',
   局域网: 'Local network', '手机连同一个 Wi-Fi': 'Phone on this Wi-Fi',
   // 任何网络's three ways: Cloudflare's link, Tailscale, or the user's own domain through their own reverse proxy or tunnel.
   'Cloudflare 临时链接': 'Cloudflare link', 自有域名: 'Your domain', 外网链接从哪来: 'Where the link comes from', 域名: 'Domain', 端口: 'Port',
-  '换了端口：同一个网络和 VPN 的二维码改用新端口，手机要重新扫；Cloudflare 链接会关闭':
-    'A new port: the same network\'s and the VPNs\' codes move to it, to scan again, and the Cloudflare link closes',
   // 自有域名 through a proxy or tunnel on this computer; one on a NAS or the router comes in through 同一个网络.
   转发到: 'Forward to', 换端口: 'Change port',
   '没能检查 {host} 能不能打开': 'Couldn\'t check whether {host} opens',
   // Why the domain didn't answer this computer (phone_domain_check).
   找不到这个域名: 'The domain wasn\'t found', 连接被拒绝: 'The connection was refused', 证书有问题: 'A certificate problem',
   连接被中断: 'The connection was cut off', 等了太久没有回应: 'Nothing answered in time',
-  '网页右上角的太阳可让手机屏幕保持常亮，适合放在桌边一直看': 'The sun at the top right keeps the phone\'s screen on, to watch from the desk',
-  '网页右上角的太阳可让手机屏幕保持常亮，适合放在桌边一直看；域名用 https 时才能用': 'The sun at the top right keeps the phone\'s screen on, to watch from the desk; it needs the domain on https',
   '正在确认手机能打开…': 'Checking that it opens…', '已确认能通过 {host} 打开': 'Checked: it opens through {host}', 再检查: 'Check again',
   '{host} 把请求转到了别处（HTTP {n}）：检查反代的设置；总是跳到 https 时，把域名改成 https://{name}':
     '{host} sent the request elsewhere (HTTP {n}): check the proxy; if it always goes to https, change the domain to https://{name}',
@@ -268,10 +264,7 @@ export const phrases: Record<string, string> = {
   '填写你的域名，比如 meter.example.com': 'Enter your domain, such as meter.example.com',
   '域名的格式不对：只填域名，比如 meter.example.com': 'That isn\'t a domain: enter it alone, such as meter.example.com',
   '端口填 1024 到 65535 之间的数': 'Use a port from 1024 to 65535', 还没有填写自有域名: 'No domain entered yet', 还没有端口: 'No port yet',
-  '只读：手机上只能看主页和工具页，不能改设置。': 'Read-only: the phone sees the homepage and tool pages and changes nothing.',
   外网链接已关闭: 'The public link is closed', 外网链接已经关闭: 'The public link was closed',
-  '原来的外网链接已失效。点“开始”要一个新链接，手机再扫一次就能看。': 'The old link no longer opens. Start for a new one, and scan it once more.',
-  '原来的外网链接已失效。点“重新开始”要一个新链接，手机再扫一次就能看。': 'The old link no longer opens. Start again for a new one, and scan it once more.',
   未开始: 'Not started', 在同一个网络里直连这台电脑: 'Straight to this computer on the same network', '经 Cloudflare 的临时链接': 'A temporary link through Cloudflare',
   下载并开始: 'Download and start',
   '这个网络的 DNS 查不到 Cloudflare 隧道的地址（常见于代理或 VPN），换个网络或关掉代理再试':
@@ -283,24 +276,14 @@ export const phrases: Record<string, string> = {
   '外网链接连不上电脑：电脑可能睡着了、断了网，或者外网链接已关闭': 'The public link can\'t reach the computer: it may be asleep or offline, or the link was closed',
   '链接已失效：在电脑上重新打开“在手机上看”，再扫一次码': 'This link no longer works: open Phone view on the computer again and scan the new code',
   开着: 'On', 手机在哪: 'Where the phone is', 同一个网络: 'Same network', 任何网络: 'Any network',
-  '手机不在同一个网络时用：Cloudflare 给一个临时的 https 地址，转到这台电脑。主页的数字会经过 Cloudflare；链接带一次性口令，停止或一小时后失效。':
-    'For a phone on another network: Cloudflare gives a temporary https address that leads to this computer. The homepage\'s figures pass through Cloudflare; the link carries a one-time key and stops working when you stop it, or after an hour.',
-  '第一次要从 Cloudflare 的 GitHub 发布页下载 cloudflared（约 20 MB），校验后存在 App 的数据文件夹。':
-    'The first time, cloudflared (about 20 MB) is downloaded from Cloudflare\'s GitHub releases, checked, and kept in the app\'s data folder.',
   生成链接: 'Make the link', '正在向 Cloudflare 要链接…': 'Asking Cloudflare for a link…',
   '确认手机能打开后再显示，通常十几秒': 'Shown once a phone can open it, usually within 20 seconds',
   '还没确认手机能打开：扫码打不开就等一分钟再试': "Not yet seen to open: if the phone can't open it, try again in a minute",
   手机扫这个二维码: 'Scan this with your phone', 这台电脑没有连上网络: 'This computer isn\'t on a network', 正在开启: 'Starting',
-  已复制链接: 'Link copied', '任何网络都能打开，链接带一次性口令，还能用 {n} 分钟': 'Opens from any network with its one-time key; {n} min left',
-  '手机和电脑连同一个网络（Wi-Fi）后扫码；第一次打开时系统可能问是否允许 Starmeter 接收连接，选允许':
-    'Put the phone on the same network (Wi-Fi) as this computer, then scan; the first time, the system may ask whether Starmeter may accept incoming connections: allow it.',
-  '只读：手机上只能看主页和工具页，不能改设置。点“停止”或退出 App 前一直开着。': 'Read-only: the phone sees the homepage and tool pages and changes nothing. It stays on until you stop it or quit the app.',
+  已复制链接: 'Link copied',
   关闭外网链接: 'Close the public link', 停止: 'Stop', 已停止: 'Stopped', 重新开始: 'Start again',
   手机上的页面已断开: "The phone's page is disconnected",
   没能开启: "Couldn't start", 没能开始: "Couldn't start", '原因在下面，可以再试一次': 'See why below, then try again', 重试: 'Try again',
-  '中国大陆部分地区打不开 Cloudflare 的链接。手机和电脑能连同一个 Wi-Fi 时，用“同一网络”更稳。': 'In parts of mainland China, Cloudflare links don\'t open. When the phone can join the same Wi-Fi, Same network is more reliable.',
-  '原来的二维码和链接已失效。点“开始”生成新的二维码，手机再扫一次就能看。': 'The old code and link no longer open. Start for a new code, and scan it once more.',
-  '原来的二维码和链接已失效。点“重新开始”生成新的二维码，手机再扫一次就能看。': 'The old code and link no longer open. Start again for a new code, and scan it once more.',
   先打开手机查看: 'Turn on the phone view first', 手机查看已经关闭: 'The phone view was stopped',
   这台电脑的系统没有对应的: 'No cloudflared for this system', '连不上 GitHub，没能下载 cloudflared': 'Couldn\'t reach GitHub to download cloudflared',
   'GitHub 的发布信息读不懂': 'GitHub\'s release information couldn\'t be read', '最新发布里没有这台电脑用的 cloudflared': 'The latest release has no cloudflared for this computer',
@@ -332,8 +315,6 @@ export const phrases: Record<string, string> = {
   '保持亮屏要用 https 链接：用电脑上的 Cloudflare 临时链接或 https 的自有域名打开就能用':
     'Keeping the screen on needs an https link: open the computer\'s Cloudflare link, or your domain on https',
   '这个浏览器不支持保持亮屏（iPhone 需要 iOS 16.4 以上）': 'This browser can\'t keep the screen on (an iPhone needs iOS 16.4 or later)',
-  '网页右上角的太阳可让手机屏幕保持常亮，适合放在桌边一直看；要用 Cloudflare 临时链接或 https 的自有域名打开才能用':
-    'The sun at the top right of the page keeps the phone\'s screen on, to watch from beside the desk; it needs the Cloudflare link or your domain on https',
   '电脑上的 Starmeter 还没有今天的数字（SwiftBar 插件还没写入，或主页上还没有勾选工具）。一读到，这里就是实时用量。':
     'Starmeter on the computer has no figures for today yet (SwiftBar\'s plugin hasn\'t written them, or no tool is on the homepage). As soon as it has, live usage shows here.',
   工具占比: 'Share by tool', '按 Token': 'by tokens',

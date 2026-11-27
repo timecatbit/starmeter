@@ -1460,14 +1460,15 @@ test('在手机上看: both ways off until their own 开始, a code for the same
   await expect(phone.locator('.address')).toHaveText('http://192.168.1.20:51234/');
   await expect(phone.locator('.note', { hasText: '只读' })).toContainText('一直开着');
   await expect(phone.locator('.note')).not.toContainText(['分钟']);
-  // What the sun on the phone's page is for, said before the scan: it needs the https link (any network).
-  await expect(phone.locator('.note', { hasText: '太阳' })).toHaveText('网页右上角的太阳可让手机屏幕保持常亮，适合放在桌边一直看；要用 Cloudflare 临时链接或 https 的自有域名打开才能用');
+  // One short line under the code (用户：图中说明能省就省，简洁点，字太多), nothing of the sun here (it needs the https
+  // link; the phone's page says so itself).
+  await expect(phone.locator('.note')).toHaveText(['手机连同一个 Wi-Fi 后扫码。只读，点“停止”前一直开着。']);
   // Any network: off too, saying before its 开始 that the figures go through Cloudflare, and that it doesn't open in
   // parts of mainland China; nothing opened by looking.
   await page.getByRole('radio', { name: '任何网络' }).click();
   await expect(phone.getByRole('status')).toContainText('未开始');
-  await expect(phone.locator('.note', { hasText: '主页的数字会经过 Cloudflare' })).toBeVisible();
-  await expect(phone.locator('.note', { hasText: '中国大陆部分地区打不开 Cloudflare 的链接' })).toBeVisible();
+  await expect(phone.locator('.note', { hasText: '数字会经过 Cloudflare' })).toBeVisible();
+  await expect(phone.locator('.note', { hasText: '中国大陆部分地区打不开' })).toBeVisible();
   await expect(phone.locator('svg[role="img"]')).toHaveCount(0);
   await button(page, '开始').click();
   await expect(phone.locator('.address')).toHaveText('https://quiet-river-1234.trycloudflare.com/');
@@ -1494,7 +1495,7 @@ test('在手机上看: both ways off until their own 开始, a code for the same
   await expect(phone.getByRole('status')).toContainText('已停止');
   await expect(phone.locator('svg.qr')).toHaveCount(0);
   await expect(phone.locator('.address')).toHaveCount(0);
-  await expect(phone.locator('.note')).toHaveText(['原来的二维码和链接已失效。点“开始”生成新的二维码，手机再扫一次就能看。']);
+  await expect(phone.locator('.note')).toHaveText(['原来的二维码已失效，重新开始后再扫。']);
   // The choices stay, still to pick between (用户：停止之后三个页面全没了).
   await expect(page.getByRole('radio', { name: '任何网络' })).toBeEnabled();
   await expect(button(page, '停止')).toHaveCount(0);
@@ -1732,8 +1733,7 @@ test('在手机上看: 任何网络 chosen again while its link is made waits fo
   await page.getByRole('radio', { name: '同一网络 / 反代' }).click();
   await expect(phone.locator('svg.qr')).toBeVisible();
   await expect(phone.locator('.wait')).toHaveCount(0);
-  await expect(phone.locator('.note').first()).toContainText('手机和电脑连同一个网络（Wi-Fi）后扫码');
-  await expect(phone.locator('.note').nth(1)).toContainText('只读');
+  await expect(phone.locator('.note').first()).toContainText('手机连同一个 Wi-Fi 后扫码。只读');
   // Back and forth while it is made: no second question, no second request; the wait stays.
   await page.getByRole('radio', { name: '任何网络' }).click();
   await page.waitForTimeout(200);
@@ -1931,7 +1931,7 @@ test('在手机上看: Tailscale and WireGuard are 任何网络\'s VPN page, bes
   await vpn.click();
   await expect(phone.getByRole('status')).toContainText('未开始');
   await expect(phone.getByRole('status')).toContainText('经 Tailscale 或 WireGuard 直连这台电脑');
-  await expect(phone.getByText('在哪都能打开，数据不经过 Cloudflare')).toBeVisible();
+  await expect(phone.getByText('在哪都能打开，不经过 Cloudflare')).toBeVisible();
   await expect(phone.locator('svg.qr')).toHaveCount(0);
   await expect(phone.locator('.note.caution')).toHaveCount(0);
   // Its 开始: a code for each VPN, side by side, with a key of its own (not the same network's).
@@ -1983,7 +1983,7 @@ test('在手机上看: Tailscale and WireGuard are 任何网络\'s VPN page, bes
   await button(page, '在手机上看').click();
   await anywhere.click();
   await vpn.click();
-  await expect(phone.locator('.note.caution')).toHaveText('这台电脑现在没有连着 Tailscale 或 WireGuard：先连上再开始。');
+  await expect(phone.locator('.note.caution')).toHaveText('这台电脑还没连上 Tailscale 或 WireGuard。');
 });
 
 test('在手机上看: the VPN page\'s codes come and go with the VPNs while it is on', async ({ page }) => {
@@ -3313,7 +3313,7 @@ test('在手机上看: 同时开启反代: the same network and your own domain 
   // On, on the same page: the domain, and the address a proxy forwards to: this computer's network address (用户：那就用
   // 子网的ip吧), for a proxy here or on a NAS alike, the same network being on with it; 127.0.0.1 for one here too.
   await expect(target).toHaveText('192.168.1.20:51234');
-  await expect(phone.getByText('反代就在这台电脑上时，也可以转发到 127.0.0.1:51234。')).toBeVisible();
+  await expect(phone.getByText('反代在这台电脑上时也可用 127.0.0.1:51234。')).toBeVisible();
   // The port is the server's: no field for it until 换端口.
   await expect(phone.getByRole('textbox', { name: '端口' })).toHaveCount(0);
   await expect(button(page, '开始')).toBeDisabled();
@@ -3329,7 +3329,8 @@ test('在手机上看: 同时开启反代: the same network and your own domain 
   await expect(phone.locator('.card-title')).toHaveText(['局域网', '反代']);
   await expect(phone.locator('.address')).toHaveText(['192.168.1.20:8765', 'meter.example.com']);
   await expect(phone.locator('.check.ok')).toHaveText('已确认能通过 meter.example.com 打开');
-  await expect(phone.getByText('在别处时扫“反代”：经你的反代转发到这台电脑的 192.168.1.20:8765')).toBeVisible();
+  await expect(phone.getByText('同一个 Wi-Fi 扫“局域网”，在别处扫“反代”。')).toBeVisible();
+  await expect(phone.getByText('反代转发到 192.168.1.20:8765')).toBeVisible();
   await expect(near.locator('.on')).toHaveCount(1);
   await expect(anywhere.locator('.on')).toHaveCount(0);
   // 停止: both together; the address and port stay for the next 开始.
@@ -3445,7 +3446,6 @@ test('在手机上看: your own domain says why it didn\'t start or doesn\'t ope
   await start('?domain-redirect', 'http://home.lan:8080');
   await expect(caution).toContainText('总是跳到 https 时，把域名改成 https://home.lan');
   await expect(caution).not.toContainText('https://home.lan:8080');
-  await expect(phone.getByText('要用 Cloudflare 临时链接或 https 的自有域名打开才能用')).toBeVisible();
 });
 
 test('在手机上看: your own domain starts once for Return pressed twice, and moving the port closes Cloudflare\'s link without calling it a failure', async ({ page }) => {
@@ -3513,6 +3513,78 @@ test('在手机上看: 同时开启反代 turned off while its domain is still s
   await open(page, '?start-held');
   await button(page, '在手机上看').click();
   await expect(phone.getByRole('img', { name: '手机在哪都能扫这个二维码' })).toHaveCount(0);
+});
+
+test('在手机上看: 同一网络 takes a port of its own under 换端口, held from then on; a port taken or not one to give is said under its field; emptied, the app picks again', async ({ page }) => {
+  // 用户：同一网络也支持指定端口号吧。
+  await open(page);
+  await button(page, '在手机上看').click();
+  const phone = page.locator('.phone-page');
+  const now = phone.locator('.port-now');
+  // Off: the port as it is, and 换端口.
+  await expect(now).toHaveText('51234');
+  await expect(phone.getByRole('textbox', { name: '端口' })).toHaveCount(0);
+  await phone.getByRole('button', { name: '换端口' }).click();
+  const port = phone.getByRole('textbox', { name: '端口' });
+  await expect(port).toBeFocused();
+  await expect(port).toHaveValue('51234');
+  // Not a port one can give: said under the field, nothing started.
+  await port.fill('80');
+  await port.press('Enter');
+  await expect(phone.locator('.failed')).toHaveText('端口填 1024 到 65535 之间的数');
+  await expect(phone.locator('svg.qr')).toHaveCount(0);
+  // A port of its own: the code at it, and kept (the page opened again says it, off or on).
+  await port.fill('8080');
+  await button(page, '开始').click();
+  await expect(phone.locator('.address')).toHaveText('http://192.168.1.20:8080/');
+  await expect(phone.locator('.failed')).toHaveCount(0);
+  await button(page, '停止').click();
+  await expect(now).toHaveText('8080');
+  await open(page);
+  await button(page, '在手机上看').click();
+  await expect(now).toHaveText('8080');
+  // With 反代, the same port: its address to forward to names it.
+  await page.getByRole('switch', { name: '同时开启反代' }).click();
+  await expect(phone.locator('.forward .address')).toHaveText('192.168.1.20:8080');
+  await page.getByRole('switch', { name: '同时开启反代' }).click();
+  // Emptied: the app's own pick again, the port as it stands; started with it.
+  await phone.getByRole('button', { name: '换端口' }).click();
+  await expect(port).toHaveAttribute('placeholder', '自动');
+  await port.fill('');
+  await port.press('Enter');
+  await expect(phone.locator('.address')).toHaveText('http://192.168.1.20:8080/');
+  await button(page, '停止').click();
+  // Another app's port: said under the field, open to pick another, 开始 still there (not a start that failed).
+  await open(page, '?port-taken');
+  await button(page, '在手机上看').click();
+  await phone.getByRole('button', { name: '换端口' }).click();
+  await port.fill('9090');
+  await button(page, '开始').click();
+  await expect(phone.locator('.failed')).toHaveText('端口 9090 被别的程序占用');
+  await expect(phone.getByRole('status')).not.toContainText('没能开启');
+  await expect(port).toBeVisible();
+  await expect(button(page, '开始')).toBeVisible();
+  await expect(phone.locator('svg.qr')).toHaveCount(0);
+});
+
+test('在手机上看: 同一网络\'s port changed while Cloudflare\'s link is up says the link will close, and closes it without calling it a failure', async ({ page }) => {
+  await open(page);
+  await button(page, '在手机上看').click();
+  const phone = page.locator('.phone-page');
+  const near = page.getByRole('radio', { name: '同一网络 / 反代' }), anywhere = page.getByRole('radio', { name: '任何网络' });
+  await anywhere.click();
+  await button(page, '开始').click();
+  await expect(phone.locator('.address')).toHaveText('https://quiet-river-1234.trycloudflare.com/');
+  await near.click();
+  await phone.getByRole('button', { name: '换端口' }).click();
+  await phone.getByRole('textbox', { name: '端口' }).fill('8765');
+  await expect(phone.locator('.note.caution')).toHaveText('换端口后二维码要重新扫，Cloudflare 链接会关闭');
+  await button(page, '开始').click();
+  await expect(phone.locator('.address')).toHaveText('http://192.168.1.20:8765/');
+  await anywhere.click();
+  await expect(phone.getByRole('status')).toContainText('外网链接已关闭');
+  await expect(phone.getByText('没能生成外网链接')).toHaveCount(0);
+  await expect(anywhere.locator('.on')).toHaveCount(0);
 });
 
 test('在手机上看: 同一网络 / 反代\'s 停止 is one step, no code coming back on its way, and a page closed meanwhile leaves the dot as the host has it (R12-3, R12-4)', async ({ page }) => {
