@@ -3310,10 +3310,10 @@ test('在手机上看: 同时开启反代: the same network and your own domain 
   await proxy.click();
   await expect(proxy).toHaveAttribute('aria-checked', 'true');
   const domain = phone.getByRole('textbox', { name: '域名' });
-  // On, on the same page: the domain, and the address a proxy forwards to, this computer's own (not 0.0.0.0) with the
-  // server's port, and this computer's network address for a proxy on a NAS.
-  await expect(target).toHaveText('127.0.0.1:51234');
-  await expect(phone.getByText('反代在 NAS 或路由器上时，转发到这台电脑的 192.168.1.20:51234。')).toBeVisible();
+  // On, on the same page: the domain, and the address a proxy forwards to: this computer's network address (用户：那就用
+  // 子网的ip吧), for a proxy here or on a NAS alike, the same network being on with it; 127.0.0.1 for one here too.
+  await expect(target).toHaveText('192.168.1.20:51234');
+  await expect(phone.getByText('反代就在这台电脑上时，也可以转发到 127.0.0.1:51234。')).toBeVisible();
   // The port is the server's: no field for it until 换端口.
   await expect(phone.getByRole('textbox', { name: '端口' })).toHaveCount(0);
   await expect(button(page, '开始')).toBeDisabled();
@@ -3322,14 +3322,14 @@ test('在手机上看: 同时开启反代: the same network and your own domain 
   await expect(port).toBeFocused();
   await expect(port).toHaveValue('51234');
   await port.fill('8765');
-  await expect(target).toHaveText('127.0.0.1:8765');
+  await expect(target).toHaveText('192.168.1.20:8765');
   await domain.fill('https://Meter.Example.com/');
   await domain.press('Enter');
   // On, both: the network's code and the domain's side by side, the domain checked through the user's proxy; one dot.
   await expect(phone.locator('.card-title')).toHaveText(['局域网', '反代']);
   await expect(phone.locator('.address')).toHaveText(['192.168.1.20:8765', 'meter.example.com']);
   await expect(phone.locator('.check.ok')).toHaveText('已确认能通过 meter.example.com 打开');
-  await expect(phone.getByText('在别处时扫“反代”：经你的反代转发到这台电脑的 127.0.0.1:8765')).toBeVisible();
+  await expect(phone.getByText('在别处时扫“反代”：经你的反代转发到这台电脑的 192.168.1.20:8765')).toBeVisible();
   await expect(near.locator('.on')).toHaveCount(1);
   await expect(anywhere.locator('.on')).toHaveCount(0);
   // 停止: both together; the address and port stay for the next 开始.
@@ -3337,7 +3337,7 @@ test('在手机上看: 同时开启反代: the same network and your own domain 
   await expect(phone.locator('svg.qr')).toHaveCount(0);
   await expect(near.locator('.on')).toHaveCount(0);
   await expect(domain).toHaveValue('meter.example.com');
-  await expect(target).toHaveText('127.0.0.1:8765');
+  await expect(target).toHaveText('192.168.1.20:8765');
   // The form back: the port's field there, but the focus left where it was, not taken by it.
   await expect(port).toBeVisible();
   await expect(port).not.toBeFocused();
@@ -3412,22 +3412,21 @@ test('在手机上看: your own domain says why it didn\'t start or doesn\'t ope
   };
   const phone = page.locator('.phone-page');
   const answerCheck = () => page.evaluate(() => (window as unknown as { answerCheck: () => void }).answerCheck());
-  // The port taken by another app: said under the fields, the domain not on, the port's field open to pick another.
+  // The port taken by another app: said under the fields, nothing started (the domain goes first, on the port asked
+  // for), the port's field open to pick another there.
   await start('?port-taken', 'meter.example.com');
   await expect(phone.locator('.failed')).toHaveText('端口 51234 被别的程序占用');
-  await expect(phone.locator('.card')).toHaveCount(0);
+  await expect(phone.locator('svg.qr')).toHaveCount(0);
+  await expect(page.getByRole('radio', { name: '同一网络 / 反代' }).locator('.on')).toHaveCount(0);
   await expect(phone.getByRole('textbox', { name: '端口' })).toBeFocused();
-  // The same network on all the same, its code above the form with 开启反代; 停止 takes it down.
-  await expect(phone.locator('svg.qr')).toHaveCount(1);
-  await expect(button(page, '开启反代')).toBeVisible();
-  await button(page, '停止').click();
+  await expect(button(page, '开始')).toBeVisible();
   // The proxy answering with its own page: on, with what to look at, and 再检查 (the check held until answered, so
   // its wait is seen whatever the machine's pace).
   await start('?domain-502&check-held', 'meter.example.com');
   await expect(phone.locator('.check')).toHaveText('正在确认手机能打开…');
   await answerCheck();
   const caution = phone.locator('.check.caution');
-  await expect(caution).toContainText('meter.example.com 有回应（HTTP 502），但不是 Starmeter：检查反代是否转发到 127.0.0.1:51234');
+  await expect(caution).toContainText('meter.example.com 有回应（HTTP 502），但不是 Starmeter：检查反代是否转发到 192.168.1.20:51234');
   await caution.getByRole('button', { name: '再检查' }).click();
   await expect(phone.locator('.check')).toHaveText('正在确认手机能打开…');
   await answerCheck();
@@ -3474,12 +3473,13 @@ test('在手机上看: your own domain starts once for Return pressed twice, and
   await answerStart();
   await expect(phone.locator('.failed')).toHaveText('域名的格式不对：只填域名，比如 meter.example.com');
   await expect(anywhere.locator('.on')).toHaveCount(1);
+  // Nothing else started by it: the same network waits for the domain.
+  await expect(near.locator('.on')).toHaveCount(0);
   await domain.fill('meter.example.com');
   await domain.press('Enter');
-  // While it is on its way: the port emptied and Return again, which once dropped the first start's answer and left
-  // 开始 greyed out for good.
-  await phone.getByRole('textbox', { name: '端口' }).fill('');
-  await domain.press('Enter');
+  // While it is on its way: Return again, which once dropped the first start's answer and left 开始 greyed out for good.
+  await expect(phone.locator('.spinner')).toBeVisible();
+  await page.keyboard.press('Enter');
   await answerStart();
   await expect(phone.locator('.failed')).toHaveCount(0);
   await expect(phone.locator('.card-title')).toHaveText(['局域网', '反代']);
@@ -3491,6 +3491,28 @@ test('在手机上看: your own domain starts once for Return pressed twice, and
   await expect(phone.getByText('没能生成外网链接')).toHaveCount(0);
   await expect(anywhere.locator('.on')).toHaveCount(0);
   await expect(near.locator('.on')).toHaveCount(1);
+});
+
+test('在手机上看: 同时开启反代 turned off while its domain is still starting leaves it off, also after the start answers', async ({ page }) => {
+  await open(page, '?start-held');
+  const answerStart = () => page.evaluate(() => (window as unknown as { answerStart: () => void }).answerStart());
+  await button(page, '在手机上看').click();
+  const phone = page.locator('.phone-page');
+  const proxy = page.getByRole('switch', { name: '同时开启反代' });
+  await proxy.click();
+  await phone.getByRole('textbox', { name: '域名' }).fill('meter.example.com');
+  await button(page, '开始').click();
+  await expect(phone.locator('.spinner')).toBeVisible();
+  // Off while the host is still on it: stopped after its start, in the order pressed.
+  await proxy.click();
+  await answerStart();
+  await page.waitForTimeout(300);
+  await expect(phone.locator('.card')).toHaveCount(0);
+  await expect(phone.getByRole('img', { name: '手机在哪都能扫这个二维码' })).toHaveCount(0);
+  // And kept off: opened again, no domain on.
+  await open(page, '?start-held');
+  await button(page, '在手机上看').click();
+  await expect(phone.getByRole('img', { name: '手机在哪都能扫这个二维码' })).toHaveCount(0);
 });
 
 test('typing into a field lets the input method\'s candidate window show above the panel, and Return or Esc that end its composition stay with it', async ({ page }) => {

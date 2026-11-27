@@ -53,6 +53,9 @@
   /** The port's field to take the focus once it is there: as 换端口 opens it, or a start fails on the port. */
   let focusPort = $state(false);
   let portField: HTMLInputElement | undefined = $state();
+  /** The kind's 开始 on its way, both of its steps: the domain's check waits for it (a proxy on a NAS gets in once the same
+   *  network is on). */
+  let nearStarting = $state(false);
   /** 自有域名 being started; its start that failed (the address, or the port taken): the reason, under its fields. */
   let domainStarting = $state(false);
   let domainFailed = $state<string | null>(null);
@@ -86,11 +89,15 @@
   const ownHost = $derived(ownOrigin?.replace(/^https?:\/\//, '') ?? '');
   const portTyped = $derived(/^\d+$/.test(portInput.trim()) ? Number(portInput.trim()) : null);
   const forwardPort = $derived(own ? view?.port : portTyped ?? setup?.port);
-  /** Where the user's proxy or tunnel on this computer hands requests on to: this computer itself (not 0.0.0.0: that is
-   *  where the server listens, not an address to send to). A proxy on a NAS or the router comes in from the network,
-   *  which only 同一个网络 lets in: it forwards to this computer's network address, with 同一个网络 on. */
-  const forwardTo = $derived(forwardPort ? `http://127.0.0.1:${forwardPort}` : null);
-  const forwardLan = $derived(forwardPort && setup?.lan ? `${setup.lan}:${forwardPort}` : null);
+  /** Where the user's proxy hands requests on to: this computer's network address (用户：那就用子网的ip吧), good for a
+   *  proxy on this computer and one on a NAS or the router alike, the same network being on with the proxy; this
+   *  computer itself (127.0.0.1) without a network. Not 0.0.0.0: that is where the server listens, not an address to
+   *  send to. */
+  const forwardTo = $derived(forwardPort ? `http://${setup?.lan ?? '127.0.0.1'}:${forwardPort}` : null);
+  /** For a proxy on this computer, 127.0.0.1 does too. */
+  const forwardHere = $derived(forwardPort && setup?.lan ? `127.0.0.1:${forwardPort}` : null);
+  /** A proxy elsewhere reaching this computer over a VPN: its Tailscale (or WireGuard) address, with the VPN page on. */
+  const forwardVpn = $derived(forwardPort && (setup?.tailnet || setup?.wireguard) ? `${setup?.tailnet ?? setup?.wireguard}:${forwardPort}` : null);
   /** What the check found, said with what to look at. */
   const checkText = $derived.by(() => {
     if (domainCheck === 'failed') return t('没能检查 {host} 能不能打开', { host: ownHost });
@@ -145,7 +152,7 @@
     localFailed = null;
     starting = true;
     try {
-      const started = await shell.phoneStart();
+      const started = await serial(() => shell.phoneStart());
       if (mine === localRound) setPhone(started);
     } catch (error) {
       if (mine === localRound) localFailed = String(error);
@@ -160,7 +167,7 @@
     localFailed = null;
     phone.localStopped = true;
     without({ localOpen: false, local: null });
-    const left = await shell.phoneStop().catch(() => phone.view);
+    const left = await serial(() => shell.phoneStop()).catch(() => phone.view);
     if (mine === localRound) setPhone(left ?? null);
   }
 
@@ -287,20 +294,30 @@
       if (mine === domainRound) domainStarting = false;
     }
   }
-  /** The kind's 开始: the same network, and in the second mode the domain with it (the network first, so a proxy on a NAS
-   *  or the router gets in). */
+  /** The kind's 开始: with 同时开启反代 the domain first (it binds the port typed under 换端口, held from then on, so a
+   *  port taken can be changed there), then the same network on the same server; a domain that fails starts nothing
+   *  else, its reason under its form. Without, the same network alone. */
   async function startNear() {
-    if (!localOn) await startLocal();
-    if (phone.near === 'domain' && !localFailed && !own) await startDomain();
+    nearStarting = true;
+    try {
+      if (phone.near === 'domain' && !own) {
+        await startDomain();
+        if (!own) return;
+      }
+      if (!localOn) await startLocal();
+    } finally {
+      nearStarting = false;
+    }
   }
-  /** The kind's 停止: whatever of it is on. */
+  /** The kind's 停止: whatever of it is on, or on its way (stopped after its start, in the order pressed). */
   async function stopNear() {
-    await Promise.all([own ? stopDomain() : null, localOn || localFailed ? stopLocal() : null]);
+    await Promise.all([own || domainStarting ? stopDomain() : null, localOn || localFailed || starting ? stopLocal() : null]);
   }
-  /** 同时开启反代: off takes the domain's link down with it; on again, its 开始 is on the form, on the same page. */
+  /** 同时开启反代: off takes the domain's link down with it (one on its way too); on again, its 开始 is on the form, on
+   *  the same page. */
   function pickNear(next: Near) {
     chooseNear(next);
-    if (next === 'local' && own) void stopDomain();
+    if (next === 'local' && (own || domainStarting)) void stopDomain();
   }
   /** 自有域名's 停止: its links stop opening; its address and port stay for the next 开始. */
   async function stopDomain() {
@@ -342,8 +359,8 @@
   const enter = (event: KeyboardEvent) => { if (event.key === 'Enter' && !composing(event) && canStart) void startNear(); };
   const ownLink = $derived(view?.domain ?? null);
   $effect(() => {
-    if (ownLink) void checkDomain();
-    else { checkRound++; domainCheck = null; }
+    if (ownLink && !nearStarting) void checkDomain();
+    else if (!ownLink) { checkRound++; domainCheck = null; }
   });
 
   /** The page shown: looking starts nothing and stops nothing. */
@@ -461,9 +478,12 @@
   {#if domainFailed}<p class="failed">{t(domainFailed)}</p>{/if}
   {#if movesServer}<p class="note caution">{t('换了端口：同一个网络和 VPN 的二维码改用新端口，手机要重新扫；Cloudflare 链接会关闭')}</p>{/if}
   {#if phone.domainStopped}<p class="note">{t('原来的二维码和链接已失效。点“开始”生成新的二维码，手机再扫一次就能看。')}</p>{/if}
-  <p class="note">{t('用你的反代或隧道（Caddy、Nginx、frp、Cloudflare Tunnel、Tailscale Funnel 等）把域名转发到上面的地址，手机在哪都能打开，也没有一小时的限制。')}</p>
-  {#if forwardLan}
-    <p class="note">{t('反代在 NAS 或路由器上时，转发到这台电脑的 {target}。', { target: forwardLan })}</p>
+  <p class="note">{t('用你的反代或隧道（Caddy、Nginx、frp、Cloudflare Tunnel、Tailscale Funnel 等）把域名转发到上面的地址，反代在这台电脑上或 NAS、路由器上都行，手机在哪都能打开，也没有一小时的限制。这台电脑的地址变了，反代里也要跟着改，最好在路由器里给它固定一个地址。')}</p>
+  {#if forwardHere}
+    <p class="note">{t('反代就在这台电脑上时，也可以转发到 {target}。', { target: forwardHere })}</p>
+  {/if}
+  {#if forwardVpn}
+    <p class="note">{t('反代在别处经 Tailscale 或 WireGuard 转发时，打开“任何网络 › Tailscale 等 VPN”，转发到这台电脑的 {target}。', { target: forwardVpn })}</p>
   {/if}
 {/snippet}
 
@@ -529,7 +549,8 @@
             {#if setup?.domain && /^端口 \d+ 被别的程序占用$/.test(localFailed)}
               <p class="note">{t('自有域名固定用这个端口：退出占用它的程序，或在“同时开启反代”下面换一个端口')}</p>
             {/if}
-            <div class="actions"><button class="action primary pressable" onclick={startNear}>{t('重试')}</button></div>
+            {#if phone.near === 'domain'}{@render domainForm()}{/if}
+            <div class="actions"><button class="action primary pressable" disabled={phone.near === 'domain' && !canStart} onclick={startNear}>{t('重试')}</button></div>
           {:else if localOn || own}
             {#if nearCodes.length > 1}
               <!-- The network's code and the domain's side by side, the same server. -->
@@ -555,8 +576,10 @@
               {@render domainForm()}
               <div class="actions"><button class="action primary pressable" disabled={!canStart} onclick={startDomain}>{t('开启反代')}</button></div>
             {/if}
-            {#if own}
+            {#if own && lan}
               <p class="note">{t('手机连同一个 Wi-Fi 时扫“局域网”，在别处时扫“反代”：经你的反代转发到这台电脑的 {target}。', { target: forwardTo?.replace(/^http:\/\//, '') ?? '' })}</p>
+            {:else if own}
+              <p class="note">{t('手机在哪都能扫这个二维码：经你的反代转发到这台电脑的 {target}。', { target: forwardTo?.replace(/^http:\/\//, '') ?? '' })}</p>
             {:else if lan}
               <p class="note">{t('手机和电脑连同一个网络（Wi-Fi）后扫码；第一次打开时系统可能问是否允许 Starmeter 接收连接，选允许')}</p>
             {/if}
@@ -598,6 +621,9 @@
             {#if vpnFailed}
               {@render halted('没能开启', '原因在下面，可以再试一次')}
               <p class="failed">{t(vpnFailed)}</p>
+              {#if setup?.domain && /^端口 \d+ 被别的程序占用$/.test(vpnFailed)}
+                <p class="note">{t('自有域名固定用这个端口：退出占用它的程序，或在“同时开启反代”下面换一个端口')}</p>
+              {/if}
               <div class="actions"><button class="action primary pressable" onclick={startVpn}>{t('重试')}</button></div>
             {:else if vpnOn}
               {#if vpnCodes.length > 1}

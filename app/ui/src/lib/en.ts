@@ -225,9 +225,13 @@ export const phrases: Record<string, string> = {
     'Your domain keeps this port: quit the app holding it, or pick another under Also through a reverse proxy',
   '点“开始”生成二维码：手机和电脑连同一个网络（Wi-Fi）时扫码就能看。有自己的域名和反代时，打开“同时开启反代”；手机不在身边时，也可以用“任何网络”。':
     'Start for a code: with the phone on the same network (Wi-Fi) as this computer, scan it to watch. With a domain and proxy of your own, turn on Also through a reverse proxy; for a phone elsewhere, there is Any network too.',
-  '用你的反代或隧道（Caddy、Nginx、frp、Cloudflare Tunnel、Tailscale Funnel 等）把域名转发到上面的地址，手机在哪都能打开，也没有一小时的限制。':
-    'Point the domain at the address above with your reverse proxy or tunnel (Caddy, Nginx, frp, Cloudflare Tunnel, Tailscale Funnel…): the phone opens it from anywhere, with no hour\'s limit.',
-  '反代在 NAS 或路由器上时，转发到这台电脑的 {target}。': 'With the proxy on a NAS or the router, forward to this computer\'s {target}.',
+  '用你的反代或隧道（Caddy、Nginx、frp、Cloudflare Tunnel、Tailscale Funnel 等）把域名转发到上面的地址，反代在这台电脑上或 NAS、路由器上都行，手机在哪都能打开，也没有一小时的限制。这台电脑的地址变了，反代里也要跟着改，最好在路由器里给它固定一个地址。':
+    'Point the domain at the address above with your reverse proxy or tunnel (Caddy, Nginx, frp, Cloudflare Tunnel, Tailscale Funnel…), on this computer or on a NAS or the router: the phone opens it from anywhere, with no hour\'s limit. If this computer\'s address changes, change it in the proxy too; better to fix its address in the router.',
+  '反代就在这台电脑上时，也可以转发到 {target}。': 'With the proxy on this computer, {target} works too.',
+  '反代在别处经 Tailscale 或 WireGuard 转发时，打开“任何网络 › Tailscale 等 VPN”，转发到这台电脑的 {target}。':
+    'With the proxy elsewhere reaching this computer over Tailscale or WireGuard, turn on Any network › Tailscale & VPNs and forward to this computer\'s {target}.',
+  '手机在哪都能扫这个二维码：经你的反代转发到这台电脑的 {target}。': 'Scan this from anywhere: your proxy forwards it to this computer\'s {target}.',
+  连不上这个地址: 'The address can\'t be reached', 加密连接没能建立: 'The secure connection couldn\'t be set up',
   '手机连上同一个 Tailscale 网络后扫这个，在哪都能打开，不经过 Cloudflare。点“停止”或退出 App 前一直开着。':
     'With the phone on the same tailnet, scan this to open from anywhere, without Cloudflare. On until Stop, or until the app quits.',
   '手机连上同一个 WireGuard 网络后扫这个，在哪都能打开，不经过 Cloudflare。点“停止”或退出 App 前一直开着。':

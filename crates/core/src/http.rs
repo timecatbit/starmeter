@@ -156,6 +156,8 @@ fn explained(causes: &[String]) -> String {
         "证书有问题".into()
     } else if has(&["no route to host", "network is unreachable", "host is unreachable"]) {
         "连不上这个地址".into()
+    } else if has(&["tls", "ssl", "handshake"]) {
+        "加密连接没能建立".into()
     } else {
         causes.last().cloned().unwrap_or_default()
     }
@@ -218,6 +220,8 @@ mod tests {
             "证书有问题"
         );
         assert_eq!(said(&["error sending request", "connection closed before message completed"]), "连接被中断");
+        // TLS spoken to something that doesn't (http on 443): not a certificate, said all the same.
+        assert_eq!(said(&["error sending request", "SSL routines: wrong version number"]), "加密连接没能建立");
         // A TLS library's line for a connection cut off says SSL too: still cut off, not a certificate.
         assert_eq!(said(&["error sending request", "SSL error: unexpected EOF"]), "连接被中断");
         // A word in the address (reqwest's outermost line) is no cause.

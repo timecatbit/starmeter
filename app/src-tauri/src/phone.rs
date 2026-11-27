@@ -1262,14 +1262,15 @@ fn serve(app: AppHandle, listener: TcpListener, keys: Arc<Mutex<Keys>>, stop: Ar
 }
 
 /// Whether a request's key opens the page's figures. From this computer, any way's (a proxy or tunnel here hands them
-/// all on). From a VPN, the VPN page's only. From the network, 同一个网络's, and 自有域名's while 同一个网络 is on (a
-/// proxy on a NAS or the router). The public link's only ever from this computer, as cloudflared hands it on.
+/// all on). From a VPN, the VPN page's, and 自有域名's while it is on (a proxy elsewhere reaching this computer over the
+/// tailnet). From the network, 同一个网络's, and 自有域名's while 同一个网络 is on (a proxy on a NAS or the router).
+/// Each door opens with its own way only; the public link's key only ever from this computer, as cloudflared hands it on.
 fn admitted(keys: &Mutex<Keys>, given: &str, from: Origin) -> bool {
     let keys = keys.lock().expect("the keys");
     let opens = |key: &Option<String>| key.as_deref().is_some_and(|key| same(given, key));
     match from {
         Origin::Here => opens(&keys.local) || opens(&keys.vpn) || opens(&keys.domain) || opens(&keys.public),
-        Origin::Vpn => opens(&keys.vpn),
+        Origin::Vpn => opens(&keys.vpn) || (keys.vpn.is_some() && opens(&keys.domain)),
         Origin::Network => opens(&keys.local) || (keys.local.is_some() && opens(&keys.domain)),
     }
 }
@@ -2324,10 +2325,11 @@ mod tests {
         assert!(admitted(&keys, &public, Here));
         assert!(!admitted(&keys, &public, Network));
         assert!(!admitted(&keys, &public, Vpn));
-        // 自有域名's from a proxy on this computer, and from the network while 同一个网络 is on (a proxy on a NAS).
+        // 自有域名's from a proxy on this computer, from the network while 同一个网络 is on (a proxy on a NAS), and through
+        // a VPN while its page is on (a proxy elsewhere on the tailnet).
         assert!(admitted(&keys, &domain, Here));
         assert!(admitted(&keys, &domain, Network));
-        assert!(!admitted(&keys, &domain, Vpn));
+        assert!(admitted(&keys, &domain, Vpn));
         assert!(keys.lock().unwrap().welcome(Network) && keys.lock().unwrap().welcome(Vpn));
         // 同一个网络 stopped: the network is kept out, 自有域名's key with it; the others as they were.
         keys.lock().unwrap().local = None;
@@ -2343,6 +2345,11 @@ mod tests {
         assert!(!keys.lock().unwrap().welcome(Vpn));
         assert!(keys.lock().unwrap().welcome(Here));
         assert!(admitted(&keys, &public, Here));
+        // 自有域名's key through a VPN only while the VPN page is on (a proxy reaching this computer over the tailnet).
+        keys.lock().unwrap().vpn = Some(vpn.clone());
+        assert!(admitted(&keys, &domain, Vpn));
+        keys.lock().unwrap().vpn = None;
+        assert!(!admitted(&keys, &domain, Vpn));
         // 自有域名 stopped: its links no longer open; nothing empty opens anything.
         keys.lock().unwrap().domain = None;
         assert!(!admitted(&keys, &domain, Here));
