@@ -56,6 +56,9 @@ class StatusPanelTests(unittest.TestCase):
                                       'OCX_STATE_DIR': self.temp.name + '/state'})
         env.start(); self.addCleanup(env.stop)
         self.m = types.ModuleType('status_test'); exec(compile((ROOT / 'lib/swiftbar_plugin.py').read_text(), 'plugin', 'exec'), self.m.__dict__)
+        # On mains power, as CI runs: a closed panel stretches readings to 180 s there, to 300 s on battery, and this is
+        # read before asking pmset, so the Mac the tests run on being unplugged changes nothing.
+        self.m.write_json_cache(self.m.cache_path('power-state'), {'schema': 1, 'battery': False, 'checkedAt': self.m.time.time()})
         preferences.write(self.m.STATE_DIR, dict(preferences.read(self.m.STATE_DIR), visible=['claude', 'magpie', 'claude-subscription']))
 
     def test_off_by_default_so_nothing_is_read(self):
