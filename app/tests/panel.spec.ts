@@ -1309,10 +1309,23 @@ test('by night the solid panel lies on 网页版\'s sky, what floats on it in a 
   await expect(page.locator('[role=listbox]')).toBeVisible();
   expect(await page.locator('[role=listbox]').evaluate((m) => getComputedStyle(m).backgroundColor)).toBe('rgb(24, 45, 104)');
   await page.keyboard.press('Escape');
-  // By day: the white of before, no sky.
+  // 磨砂 and 玻璃 by night: the same sky laid over the material, thick and thin, and what floats in the same blue (用户：
+  // 深色模式的磨砂和玻璃颜色需要对齐实色模式). The sky's colours as WebKit gives a mix: #1F3A7A is 0.121569 0.227451 0.478431.
   await button(page, '主页模块与设置').click();
   await button(page, '外观').click();
+  for (const [name, material, veil] of [['磨砂', 'frosted', '0.8'], ['玻璃', 'glass', '0.56']]) {
+    await page.getByRole('radio', { name }).click();
+    await expect(page.locator('.window')).toHaveAttribute('data-material', material);
+    seen = await look();
+    expect(seen.image).toContain(`0.121569 0.227451 0.478431 / ${veil})`);
+    expect(seen.image).toContain(`0.054902 0.113725 0.298039 / ${veil})`);
+    expect(seen.image).toContain(`0.019608 0.039216 0.141176 / ${veil})`);
+    expect(seen.solid).toBe('#182D68');
+  }
+  // By day: the white of before, no sky; 磨砂 the material alone.
   await page.getByRole('radio', { name: '浅色' }).click();
+  expect((await look()).image).toBe('none');
+  await page.getByRole('radio', { name: '实色' }).click();
   seen = await look();
   expect(seen.image).toBe('none');
   expect(seen.colour).toBe('rgb(253, 253, 253)');

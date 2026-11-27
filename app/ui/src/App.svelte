@@ -1001,6 +1001,22 @@
       background: linear-gradient(180deg, var(--night-top) 72px, var(--night-mid) 48%, var(--night-low) calc(100% - 90px));
     }
   }
+  /* 磨砂 and 玻璃 by night: the same sky and the same blue for what floats, laid over the material so it still shows
+     through, thick on 磨砂 and thin on 玻璃 (用户：深色模式的磨砂和玻璃颜色需要对齐实色模式). */
+  .window[data-material='frosted'] { --veil: 80%; }
+  .window[data-material='glass'] { --veil: 56%; }
+  :global(:root[data-theme='dark']:not([data-style='sketch'])) .window:is([data-material='frosted'], [data-material='glass']):not(.staged) {
+    --solid: #182D68;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--night-top) var(--veil), transparent) 72px,
+      color-mix(in srgb, var(--night-mid) var(--veil), transparent) 48%, color-mix(in srgb, var(--night-low) var(--veil), transparent) calc(100% - 90px));
+  }
+  @media (prefers-color-scheme: dark) {
+    :global(:root:not([data-theme='light']):not([data-style='sketch'])) .window:is([data-material='frosted'], [data-material='glass']):not(.staged) {
+      --solid: #182D68;
+      background: linear-gradient(180deg, color-mix(in srgb, var(--night-top) var(--veil), transparent) 72px,
+        color-mix(in srgb, var(--night-mid) var(--veil), transparent) 48%, color-mix(in srgb, var(--night-low) var(--veil), transparent) calc(100% - 90px));
+    }
+  }
   /* On a phone the page is the screen, under the browser's bars too (viewport-fit=cover): no edge, no shadow. */
   .window.phone { position: fixed; inset: 0; border-radius: 0; background: var(--solid); }
   .phone-gate {
