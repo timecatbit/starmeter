@@ -537,19 +537,19 @@
 {/snippet}
 
 {#snippet portRow()}
-  <!-- 同一网络's port (用户：同一网络也支持指定端口号吧): as it is, and a field for another under 换端口; emptied, the app
+  <!-- 同一网络's port (用户：同一网络也支持指定端口号吧), one quiet line in the middle under the code's place, where the
+       address stands once it is on (用户：换端口那里，感觉布局不优雅不好看: it was a wide box of its own, a small word at
+       one end and the field at the other): the port as it is and 换端口, which turns it into a field; emptied, the app
        picks again. -->
-  <div class="setup">
-    <div class="forward">
-      <span class="field-label">{t('端口')}</span>
-      {#if portOpen}
-        <input class="field-input num port-field solo" type="text" inputmode="numeric" autocomplete="off" autocorrect="off" spellcheck="false"
-          maxlength="5" placeholder={t('自动')} aria-label={t('端口')} bind:this={portField} bind:value={portInput} oninput={() => (portEdited = true)} onkeydown={enterPort} />
-      {:else}
-        <span class="port-now num">{setup?.port ?? ''}</span>
-        <button class="change pressable" onclick={openPort}>{t('换端口')}</button>
-      {/if}
-    </div>
+  <div class="port-line">
+    <span class="port-word">{t('端口')}</span>
+    {#if portOpen}
+      <input class="field-input num port-field" type="text" inputmode="numeric" autocomplete="off" autocorrect="off" spellcheck="false"
+        maxlength="5" placeholder={t('自动')} aria-label={t('端口')} bind:this={portField} bind:value={portInput} oninput={() => (portEdited = true)} onkeydown={enterPort} />
+    {:else}
+      <span class="port-now num">{setup?.port ?? ''}</span>
+      <button class="change pressable" onclick={openPort}>{t('换端口')}</button>
+    {/if}
   </div>
   {#if portSaid}<p class="failed">{t(portSaid)}</p>{/if}
   {#if movesServer}<p class="note caution">{t('换端口后二维码要重新扫，Cloudflare 链接会关闭')}</p>{/if}
@@ -694,12 +694,11 @@
             <!-- Off, as it starts: what its 开始 gives, its port, and the button. -->
             {#if phone.localStopped}
               {@render halted('已停止', '手机上的页面已断开')}
-              <p class="note">{t('原来的二维码已失效，重新开始后再扫。')}</p>
             {:else}
               {@render halted('未开始', '在同一个网络里直连这台电脑')}
-              <p class="note">{t('手机连同一个 Wi-Fi，扫码就能看。')}</p>
             {/if}
             {@render portRow()}
+            <p class="note centre">{t(phone.localStopped ? '原来的二维码已失效，重新开始后再扫。' : '手机连同一个 Wi-Fi，扫码就能看。')}</p>
             <div class="actions"><button class="action primary pressable" onclick={startNear}>{t('开始')}</button></div>
           {/if}
         {:else}
@@ -937,9 +936,10 @@
   }
   .change:hover { background: var(--hover); }
   .port-field { flex: none; width: 62px; height: 24px; text-align: center; }
-  /* 同一网络's row: the port, then 换端口 (or its field), at the row's end. */
-  .port-field.solo, .port-now { margin-left: auto; }
-  .port-now { font-size: 12px; color: var(--label); font-variant-numeric: tabular-nums; }
+  /* 同一网络's port: one line in the middle, in the address's place and its quiet look. */
+  .port-line { display: flex; align-items: center; justify-content: center; gap: 5px; min-height: 26px; margin: -2px 0; font-size: 11px; color: var(--secondary); }
+  .port-now { font-variant-numeric: tabular-nums; }
+  .note.centre { text-align: center; }
   .check { margin: -4px 0 0; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 11px; line-height: 1.45; color: var(--secondary); text-align: center; }
   .check.ok { color: var(--green); }
   .check.caution {

@@ -3359,6 +3359,8 @@ test('在手机上看: 同时开启反代: the same network and your own domain 
   // The switch on again, the network on: the form on the same page, with its own 开启反代.
   await proxy.click();
   await expect(domain).toHaveValue('meter.example.com');
+  // The form whole (its address to forward to read), so 开启反代 doesn't move under the click.
+  await expect(target).toHaveText('192.168.1.20:8765');
   await button(page, '开启反代').click();
   await expect(phone.locator('.card-title')).toHaveText(['局域网', '反代']);
 });
