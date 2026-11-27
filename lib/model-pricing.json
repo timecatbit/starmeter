@@ -1,8 +1,8 @@
 {
  "source": {
   "project": "ccusage",
-  "commit": "0b25fcdfd8d540b6c8086eb131e922ea6662dfb1",
-  "committedAt": "2026-11-26T06:17:33Z",
+  "commit": "7c6a60f58a665e95bd82dd666e1b2b2ed24904a9",
+  "committedAt": "2026-11-27T12:37:31Z",
   "license": "MIT"
  },
  "models": {
@@ -11,30 +11,6 @@
    "output": 1.5,
    "cacheRead": 0.2,
    "cacheWrite": 0.5
-  },
-  "hy4": {
-   "input": 0.834,
-   "output": 2.501,
-   "cacheRead": 0.042,
-   "cacheWrite": 1.0425
-  },
-  "hy4-flash": {
-   "input": 0.07,
-   "output": 0.281,
-   "cacheRead": 0.003,
-   "cacheWrite": 0.0875
-  },
-  "hy4-preview": {
-   "input": 0.834,
-   "output": 2.501,
-   "cacheRead": 0.042,
-   "cacheWrite": 1.0425
-  },
-  "hy4flash": {
-   "input": 0.07,
-   "output": 0.281,
-   "cacheRead": 0.003,
-   "cacheWrite": 0.0875
   },
   "minimax-m1": {
    "input": 0.132,
@@ -1337,6 +1313,24 @@
    "cacheRead": 0.02,
    "cacheWrite": 0.25
   },
+  "hy4": {
+   "input": 0.417,
+   "output": 1.2505,
+   "cacheRead": 0.021,
+   "cacheWrite": 0.52125
+  },
+  "hy4-flash": {
+   "input": 0.07,
+   "output": 0.281,
+   "cacheRead": 0.01,
+   "cacheWrite": 0.0875
+  },
+  "hy4-preview": {
+   "input": 0.845,
+   "output": 2.535,
+   "cacheRead": 0.04225,
+   "cacheWrite": 1.05625
+  },
   "kimi-k2": {
    "input": 0.57,
    "output": 2.3,
@@ -2320,6 +2314,12 @@
    "output": 4.5,
    "cacheRead": 0.075,
    "cacheWrite": 1.875
+  },
+  "hy4flash": {
+   "input": 0.07,
+   "output": 0.281,
+   "cacheRead": 0.003,
+   "cacheWrite": 0.0875
   }
  }
 }
