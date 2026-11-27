@@ -296,12 +296,120 @@
     }
     return Object.fromEntries(BLOCKS.map((key, i) => [key, best!.sides[i]])) as Record<Block, Side>;
   }
+  // The capsules' edges across the two columns (用户：我是说胶囊没对齐……主要影响美观的就是一个个胶囊): the three figures
+  // stand beside the first card, as tall as it and on its line; the trend starts on the line of what follows that card
+  // and ends on a card's foot; the cards' tabs stand beside the range's estimate, over the cards. Measured from the
+  // page (a card is as tall as what it says) with nothing grown, and written as the layout's own variables: nothing
+  // is drawn again for it.
+  //   With something under the trend in its column (the shares, plans or tiles: they even the columns' ends) and
+  //   cards enough beside it: the trend ends on a card's foot (`snap`), of those that leave its chart its least the
+  //   one that leaves the columns closest in height; the cards past that foot may grow (`grow`).
+  //   Alone in its column, or with too few cards beside it, it grows to even the columns as before, the cards after
+  //   the first growing if theirs is the shorter.
+  const VARIABLES = ['--words-top', '--words-height', '--row', '--trend-shift', '--trend-height'];
+  function align(): boolean {
+    const box = statsBox;
+    if (!box) return false;
+    let changed = false;
+    const put = (name: string, value: number | null) => {
+      const text = value === null ? '' : `${Math.round(value * 2) / 2}px`;
+      if (box.style.getPropertyValue(name) === text) return;
+      if (text) box.style.setProperty(name, text); else box.style.removeProperty(name);
+      changed = true;
+    };
+    const mark = (name: string, value: string | null) => {
+      if ((box.dataset[name] ?? null) === value) return;
+      if (value === null) delete box.dataset[name]; else box.dataset[name] = value;
+      changed = true;
+    };
+    const trendAs = (shift: number | null, height: number | null, grow: string | null) => {
+      put('--trend-shift', shift);
+      put('--trend-height', height);
+      mark('snap', height === null ? null : '');
+      mark('grow', grow);
+    };
+    if (!desk) {
+      for (const name of VARIABLES) put(name, null);
+      trendAs(null, null, null);
+      return changed;
+    }
+    // As each is of itself: the columns not stretched, no card grown (read at once, nothing drawn in between).
+    const measuring = box.classList.contains('measuring');
+    box.classList.add('measuring');
+    // Where each is laid out, from the figures' top (the layout's own places: a card still rising in, scaled and
+    // moved by its entrance, is measured where it will stand).
+    const top = 0;
+    const metric = (element: HTMLElement) => {
+      let from = 0;
+      for (let node: HTMLElement | null = element; node && node !== box; node = node.offsetParent as HTMLElement | null) from += node.offsetTop;
+      return { top: from, bottom: from + element.offsetHeight, height: element.offsetHeight };
+    };
+    const rect = (selector: string) => { const element = box.querySelector<HTMLElement>(selector); return element ? metric(element) : null; };
+    const words = rect('.stats-a .hero-words');
+    const rows = [...box.querySelectorAll<HTMLElement>('.stats-b .list > :is(.card, .session)')];
+    const opened = rows.some((row) => row.classList.contains('open'));
+    const boxes = rows.map(metric);
+    const first = boxes[0] ?? null;
+    const figures = rect('.stats-a .figures'), trend = rect('.stats-a .trend'), chart = rect('.stats-a .trend-chart'), list = rect('.stats-b .list');
+    const after = first ? [...box.querySelectorAll<HTMLElement>('.stats-b :is(.card, .session, .panel, .plan, .tile)')]
+      .map(metric).filter((r) => r.top >= first.bottom - 0.5) : [];
+    const gap = parseFloat(getComputedStyle(box.querySelector('.stats-a .hero') ?? box).rowGap) || 16;
+    const under = !!box.querySelector('.stats-a > :is(.shares, .part.fills)');
+    // The columns as tall as what is in them.
+    const left = box.querySelector<HTMLElement>('.stats-a')?.offsetHeight ?? 0, right = box.querySelector<HTMLElement>('.stats-b')?.offsetHeight ?? 0;
+    if (!measuring) box.classList.remove('measuring');
+
+    // The tabs beside the range's words.
+    put('--words-top', words ? words.top - top : null);
+    put('--words-height', words ? words.height : null);
+    // With a card opened, the cards' closed heights aren't there to read: the rest as it was.
+    if (opened) return changed;
+    put('--row', first ? first.height : null);
+    if (!first || !figures || !trend || !chart || !list) {
+      trendAs(null, null, null);
+      return changed;
+    }
+    // The trend's top: on the line of what follows the first card (its own place is under the figures, the gap on).
+    const next = after.length ? Math.min(...after.map((r) => r.top)) : null;
+    const own = figures.top + Math.max(figures.height, first.height) + gap;
+    const shift = next === null ? null : next - own;
+    const from = next ?? own;
+    const least = trend.height - chart.height + 190;
+    // The cards' feet it could end on, and how far apart each would leave the columns.
+    const feet = under ? boxes.slice(1).map((r) => r.bottom).filter((bottom) => bottom - from >= least - 0.5) : [];
+    const apart = (foot: number) => Math.abs(right - (left - trend.height + (foot - from)));
+    const foot = feet.length ? feet.reduce((best, each) => (apart(each) < apart(best) ? each : best)) : null;
+    const beside = foot === null ? 1 : boxes.filter((r) => r.bottom <= foot + 0.5).length;
+    trendAs(shift, foot === null ? null : foot - from, rows.length > beside ? String(Math.min(beside, 8)) : null);
+    return changed;
+  }
+  /** Measured again over the next frames, until three in a row change nothing (what one measure moves, the next sees). */
+  let settling = 0;
+  function settle(passes = 0, calm = 0) {
+    cancelAnimationFrame(settling);
+    settling = requestAnimationFrame(() => {
+      const still = align() ? 0 : calm + 1;
+      if (still < 3 && passes < 40) settle(passes + 1, still);
+    });
+  }
+  $effect(() => {
+    void shape; void data; void placed; void place; void showingSessions;
+    const box = statsBox;
+    if (!box) return;
+    align();
+    settle();
+    // Again whenever what is measured changes size (a card's note coming, the window, a list longer).
+    const observer = new ResizeObserver(() => settle());
+    for (const element of box.querySelectorAll('.stats-a, .stats-b, .hero-words, .list, .list > *')) observer.observe(element);
+    return () => { observer.disconnect(); cancelAnimationFrame(settling); };
+  });
   $effect(() => {
     void shape;
     if (!desk) { place = { ...HOME }; placed = true; return; }
     const frame = requestAnimationFrame(() => untrack(() => {
       const box = statsBox;
       if (!box) return;
+      align();
       // Measured as they are of themselves, not grown to fill their column: for this one look the columns aren't
       // stretched (read at once, nothing drawn in between).
       box.classList.add('measuring');
@@ -458,7 +566,7 @@
       <section class="rest">
         <div class="activity-box"><StageActivity {live} {now} carded={desk} /></div>
 
-        <div class="stats" class:bare={rangeChoices.length <= 1} bind:this={statsBox}>
+        <div class="stats" bind:this={statsBox}>
           <div class="stats-a" class:placing={!placed}>
             <div class="part figures-part" bind:this={boxes.a}>
             <div class="stats-head">{t('统计')}</div>
@@ -467,6 +575,7 @@
             {/if}
             {#if summary}
               <div class="hero" class:reading>
+                <div class="hero-words">
                 <div class="hero-label">
                   <!-- The range these figures are of: while another range picked is read, still this one. -->
                   <span class="range">{data.rangeLabel}</span>
@@ -475,6 +584,7 @@
                   {#if data.devices}<span class="devices">{t('含 {n} 台电脑', { n: data.devices + 1 })}</span>{/if}
                 </div>
                 <div class="amount" data-tap="hop"><StageNumber value={amount} count={intro} /></div>
+                </div>
                 <div class="figures">
                   {#each figures as figure, i (i)}
                     <div class="figure" style:--order={i}>
@@ -831,21 +941,33 @@
   .desk .activity-box :global(.feed) { flex: 1; }
   /* The two columns as tall as each other: the shorter one's blocks grow into what is left (the trend's chart most, then
      the plans and the tiles, the shares' ring, the cards), so both end on one line. */
-  .desk .stats { grid-column: 1 / -1; display: grid; grid-template-columns: var(--columns); column-gap: 28px; align-items: stretch; margin-top: 22px; }
+  .desk .stats { position: relative; grid-column: 1 / -1; display: grid; grid-template-columns: var(--columns); column-gap: 28px; align-items: stretch; margin-top: 22px; }
   /* Measured (the script, for a moment): each column as tall as what is in it. */
   .desk .stats:global(.measuring) { align-items: start; }
   .part { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
   .placing { visibility: hidden; }
   .desk .part.figures-part { flex: 6 1 auto; }
-  .desk .trend { flex: 1 1 auto; display: flex; flex-direction: column; }
+  /* The trend's top on the line of what follows the first card beside it (the script's measure). */
+  .desk .trend { flex: 1 1 auto; display: flex; flex-direction: column; margin-top: var(--trend-shift, 0px); }
+  /* Ending on a card's foot: as tall as the script found, the column's other blocks evening the ends. */
+  .desk .stats:global([data-snap]) .part.figures-part { flex: 0 0 auto; }
+  .desk .stats:global([data-snap]) .trend { flex: 0 0 auto; height: var(--trend-height); box-sizing: border-box; }
   .desk .trend-chart { position: relative; flex: 1 1 auto; min-height: 190px; }
   .desk .trend-chart > :global(.chart) { position: absolute; left: 0; right: 0; top: 0; }
   .desk .shares { flex: 1 1 auto; display: flex; flex-direction: column; }
   .desk .shares-ring { margin-block: auto; }
   .desk .part.fills { flex: 2 1 auto; }
-  .desk .part.cards { flex: 1 1 auto; }
-  .desk .part.cards .list { flex: 1 1 auto; }
-  .desk .part.cards .list > :global(:is(.card, .session)) { flex: 1 1 auto; }
+  /* The cards as tall as what they say, so their edges are the ones the left column lines up with; only those past
+     the trend's foot may grow, to even the columns' ends (data-grow: how many stay as they are). */
+  .desk .stats:global([data-grow]) .part.cards, .desk .stats:global([data-grow]) .part.cards .list { flex: 1 1 auto; }
+  .desk .stats:global([data-grow="1"]) .list > :global(:is(.card, .session):nth-child(n + 2)),
+  .desk .stats:global([data-grow="2"]) .list > :global(:is(.card, .session):nth-child(n + 3)),
+  .desk .stats:global([data-grow="3"]) .list > :global(:is(.card, .session):nth-child(n + 4)),
+  .desk .stats:global([data-grow="4"]) .list > :global(:is(.card, .session):nth-child(n + 5)),
+  .desk .stats:global([data-grow="5"]) .list > :global(:is(.card, .session):nth-child(n + 6)),
+  .desk .stats:global([data-grow="6"]) .list > :global(:is(.card, .session):nth-child(n + 7)),
+  .desk .stats:global([data-grow="7"]) .list > :global(:is(.card, .session):nth-child(n + 8)),
+  .desk .stats:global([data-grow="8"]) .list > :global(:is(.card, .session):nth-child(n + 9)) { flex: 1 1 auto; }
   .desk .foot { grid-column: 1 / -1; margin-top: 30px; }
 
   /* MARK: The bar */
@@ -996,15 +1118,16 @@
   /* A computer's screen: 统计's heading in a row of its own, the ranges under it and the cards' tabs beside them in rows
      as tall as each other, so what follows starts on one line in both columns. */
   .desk .stats-head { display: flex; align-items: center; height: 24px; margin: 0 2px; }
-  .desk .ranges, .desk .tabs { display: flex; align-items: center; height: 38px; }
+  .desk .ranges, .desk .tabs { display: flex; align-items: center; }
+  .desk .ranges { height: 38px; }
   .desk .ranges > :global(*) { flex: 1; min-width: 0; }
-  .desk .tabs { justify-content: flex-start; margin-top: 40px; }
-  /* No ranges to pick (SwiftBar's panel gives its own range alone; 用户：这上面一行还是没有对齐): the tabs go up beside
-     统计, its heading's row as tall as theirs, and the figures and the first card start on one line under them. */
-  .desk .stats.bare .stats-head { height: 38px; }
-  .desk .stats.bare .tabs { margin-top: 0; }
-  /* The range's words start at the first card's top edge. */
-  .desk .hero { padding-top: 0; }
+  /* The cards' tabs beside the range's words (its estimate), wherever those stand (with a row of ranges over them or
+     without, SwiftBar's panel giving its own range alone), so the cards under them start on the figures' line: the
+     three figures stand beside the first card, as tall as it (用户：我是说胶囊没对齐). The script measures both. */
+  .desk .tabs { justify-content: flex-start; margin-top: var(--words-top, 94px); height: var(--words-height, 60px); }
+  .desk .hero { display: flex; flex-direction: column; gap: 16px; padding: 0; }
+  .desk .figures { margin-top: 0; }
+  .desk .figure { box-sizing: border-box; min-height: var(--row, 0px); display: flex; flex-direction: column; justify-content: center; }
   .note { margin: -6px 0 0; font-size: 11.5px; color: var(--ink-3); text-align: center; }
   .note.center { margin: 8px 0; }
   .list { display: flex; flex-direction: column; gap: 10px; transition: opacity 0.3s; }

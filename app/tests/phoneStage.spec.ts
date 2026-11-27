@@ -1144,7 +1144,11 @@ test('网页版 on a computer\'s screen is laid on one grid, however many tools,
         state: box('.stage .monitor .state')!, body: box('.stage .monitor .body')!, head: box('.stage .activity > .head')!, first: box('.stage .activity .session')!,
         lead: box('.stage .lead')!, activity: box('.stage .activity-box')!, a: box('.stage .stats-a')!, b: box('.stage .stats-b')!,
         left: foot('.stage .stats-a > *'), right: foot('.stage .stats-b > *'),
-        ranges: box('.stage .ranges')!, tabs: box('.stage .tabs')!, hero: box('.stage .hero')!, card: box('.stage .stats-b .card')!,
+        words: box('.stage .hero-words')!, pills: box('.stage .tabs .pills')!, figures: box('.stage .figures')!, tile: box('.stage .figure')!, card: box('.stage .stats-b .card')!,
+        trend: box('.stage .trend')!, snapped: document.querySelector<HTMLElement>('.stage .stats')!.dataset.snap !== undefined,
+        // What stands in the cards' column under the first card: the capsules' tops and the cards' feet.
+        tops: [...document.querySelectorAll('.stage .stats-b :is(.card, .panel, .plan, .tile)')].map((e) => e.getBoundingClientRect().top),
+        feet: [...document.querySelectorAll('.stage .stats-b .list > .card')].map((e) => e.getBoundingClientRect().bottom),
         room: box('.stage .trend-chart')!, chart: box('.stage .trend-chart .chart')!, wide: (() => { const s = document.querySelector('.stage > .scroll')!; return s.scrollWidth > s.clientWidth; })(),
       };
     });
@@ -1160,10 +1164,17 @@ test('网页版 on a computer\'s screen is laid on one grid, however many tools,
     expect(Math.abs(seen.lead.right - seen.a.right), said).toBeLessThanOrEqual(1);
     expect(Math.abs(seen.activity.left - seen.b.left), said).toBeLessThanOrEqual(1);
     expect(Math.abs(seen.activity.right - seen.b.right), said).toBeLessThanOrEqual(1);
-    // The ranges and the cards' tabs in one row, what follows them starting on one line.
-    expect(Math.abs(seen.ranges.top - seen.tabs.top), said).toBeLessThanOrEqual(1);
-    expect(Math.abs(seen.ranges.height - seen.tabs.height), said).toBeLessThanOrEqual(1);
-    expect(Math.abs(seen.hero.top - seen.card.top), said).toBeLessThanOrEqual(1);
+    // The capsules' edges (用户：我是说胶囊没对齐……主要影响美观的就是一个个胶囊): the three figures beside the first
+    // card, on its line and as tall as it; the cards' tabs beside the range's estimate.
+    expect(Math.abs(seen.figures.top - seen.card.top), said).toBeLessThanOrEqual(1);
+    expect(Math.abs(seen.figures.bottom - seen.card.bottom), said).toBeLessThanOrEqual(1);
+    expect(Math.abs(seen.tile.height - seen.card.height), said).toBeLessThanOrEqual(1);
+    expect(Math.abs((seen.words.top + seen.words.bottom) / 2 - (seen.pills.top + seen.pills.bottom) / 2), said).toBeLessThanOrEqual(1);
+    // The trend starts on the line of what follows the first card, and with cards enough beside it ends on a card's foot.
+    const next = Math.min(...seen.tops.filter((top) => top >= seen.card.bottom - 0.5));
+    if (Number.isFinite(next)) expect(Math.abs(seen.trend.top - next), said).toBeLessThanOrEqual(1);
+    if (shape.tools >= 4) expect(seen.snapped, said).toBe(true);
+    if (seen.snapped) expect(Math.min(...seen.feet.map((foot) => Math.abs(foot - seen.trend.bottom))), said).toBeLessThanOrEqual(1);
     // The two columns end on one line; the trend's chart fills the room it is given, never under its least.
     expect(Math.abs(seen.left - seen.right), said).toBeLessThanOrEqual(1);
     expect(seen.room.height, said).toBeGreaterThanOrEqual(190);
@@ -1177,26 +1188,35 @@ test('网页版 on a computer\'s screen is laid on one grid, however many tools,
   }
 });
 
-test('网页版 on a computer\'s screen from SwiftBar\'s panel (one range, no row of ranges): the cards\' tabs beside 统计, the figures and the first card starting on one line', async ({ page }) => {
-  // 用户：这上面一行还是没有对齐，其他地方还可以。 With no ranges to pick, the tabs kept the row the ranges would have had
-  // while the figures moved up into it: the estimate stood beside the tabs, the first card below both.
+test('网页版 on a computer\'s screen from SwiftBar\'s panel (one range, no row of ranges): the three figures beside the first card and as tall, the trend from the second card\'s top to a card\'s foot, the tabs beside the estimate', async ({ page }) => {
+  // 用户：这上面一行还是没有对齐…… 我是说胶囊没对齐，不是其他，主要影响美观的就是一个个胶囊。 The figures' three
+  // tiles stood lower than the first card and shorter, the trend began under the second card's top and ended between
+  // two cards.
   for (const size of [{ width: 1440, height: 900 }, { width: 1100, height: 760 }]) {
     await phone(page, size, '', { swiftbar: true });
     await expect(page.locator('.stage.desk')).toBeVisible();
     await expect(page.locator('.stage .ranges')).toHaveCount(0);
     await expect(page.locator('.stage .placing')).toHaveCount(0);
     const seen = await page.evaluate(() => {
-      const box = (selector: string) => { const b = document.querySelector(selector)!.getBoundingClientRect(); return { top: b.top, bottom: b.bottom, middle: (b.top + b.bottom) / 2 }; };
-      const foot = (selector: string) => [...document.querySelectorAll(selector)].map((e) => e.getBoundingClientRect().bottom).reduce((a, b) => Math.max(a, b), 0);
-      return { head: box('.stage .stats-head'), tabs: box('.stage .tabs'), pills: box('.stage .tabs .pills'), hero: box('.stage .hero'), card: box('.stage .stats-b .card'),
+      const box = (selector: string) => { const b = document.querySelector(selector)!.getBoundingClientRect(); return { top: b.top, bottom: b.bottom, height: b.height, middle: (b.top + b.bottom) / 2 }; };
+      const all = (selector: string) => [...document.querySelectorAll(selector)].map((e) => { const b = e.getBoundingClientRect(); return { top: b.top, bottom: b.bottom, height: b.height }; });
+      const foot = (selector: string) => all(selector).map((b) => b.bottom).reduce((a, b) => Math.max(a, b), 0);
+      return { words: box('.stage .hero-words'), pills: box('.stage .tabs .pills'), tiles: all('.stage .figure'), cards: all('.stage .stats-b .list > .card'), trend: box('.stage .trend'),
         left: foot('.stage .stats-a > *'), right: foot('.stage .stats-b > *') };
     });
-    // 统计 and the tabs in one row, their middles on one line.
-    expect(Math.abs(seen.head.top - seen.tabs.top), String(size.width)).toBeLessThanOrEqual(1);
-    expect(Math.abs(seen.head.middle - seen.pills.middle), String(size.width)).toBeLessThanOrEqual(1);
-    // The range's figures and the first card start on one line, and the columns still end on one.
-    expect(Math.abs(seen.hero.top - seen.card.top), String(size.width)).toBeLessThanOrEqual(1);
-    expect(Math.abs(seen.left - seen.right), String(size.width)).toBeLessThanOrEqual(1);
+    const said = String(size.width);
+    // Each of the three figures on the first card's line, as tall as it.
+    expect(seen.tiles.length, said).toBe(3);
+    for (const tile of seen.tiles) {
+      expect(Math.abs(tile.top - seen.cards[0].top), said).toBeLessThanOrEqual(1);
+      expect(Math.abs(tile.bottom - seen.cards[0].bottom), said).toBeLessThanOrEqual(1);
+    }
+    // The trend from the second card's top to a card's foot.
+    expect(Math.abs(seen.trend.top - seen.cards[1].top), said).toBeLessThanOrEqual(1);
+    expect(Math.min(...seen.cards.slice(1).map((card) => Math.abs(card.bottom - seen.trend.bottom))), said).toBeLessThanOrEqual(1);
+    // The tabs beside the estimate, and the columns still ending on one line.
+    expect(Math.abs(seen.words.middle - seen.pills.middle), said).toBeLessThanOrEqual(1);
+    expect(Math.abs(seen.left - seen.right), said).toBeLessThanOrEqual(1);
   }
 });
 
