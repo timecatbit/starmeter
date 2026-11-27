@@ -555,6 +555,10 @@ fn new_key() -> String {
 struct Kept {
     #[serde(default)]
     port: Option<u16>,
+    /// The port is one the user gave (同一网络's or 反代's 换端口): held from then on, never moved from for a free one,
+    /// until they leave its field empty again (用户：同一网络也支持指定端口号吧).
+    #[serde(default)]
+    port_chosen: bool,
     #[serde(default)]
     local: Option<String>,
     /// The VPN page's key (Tailscale, WireGuard) while it is on.
@@ -586,6 +590,7 @@ fn read_kept(path: &Path) -> Kept {
         std::fs::read(path).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default();
     let ours = |key: &String| key.len() == 32 && key.bytes().all(|b| b.is_ascii_hexdigit());
     kept.port = kept.port.filter(|port| valid_port(*port).is_ok());
+    kept.port_chosen = kept.port_chosen && kept.port.is_some();
     kept.local = kept.local.filter(ours);
     kept.vpn = kept.vpn.filter(ours);
     kept.domain = kept.domain.and_then(|domain| origin_of(&domain).ok());
@@ -765,14 +770,14 @@ fn serving<'a>(app: &AppHandle, running: &'a mut Option<Running>) -> Result<&'a 
         stop_running(&mut over);
     }
     if running.is_none() {
-        // The port from before when it is free, another when it isn't: only 反代 holds its port (its 开始 binds it, and
-        // moves the server there), so a port taken while 反代 is off never keeps the same network or a public link from
-        // starting (R12-6).
+        // A port the user gave is held: taken, a reason saying so, and its field to change it. One the app picked: that
+        // one when it is free, another when it isn't, so a port taken never keeps a way from starting (R12-6); with a
+        // domain set it stays kept all the same (its proxy forwards there), the server on another for now and 反代's
+        // 开始 moving it back.
         let kept = read_kept(&kept_file(app));
-        let fresh = spawn(app, bind(kept.port, false)?)?;
-        // 反代's port stays as set (its proxy forwards there): the server on another for now, its 开始 moves it back.
+        let fresh = spawn(app, bind(kept.port, kept.port_chosen)?)?;
         keep(app, |kept| {
-            if kept.domain.is_none() || kept.port.is_none() {
+            if kept.port.is_none() || !(kept.port_chosen || kept.domain.is_some()) {
                 kept.port = Some(fresh.port);
             }
         });
@@ -783,19 +788,33 @@ fn serving<'a>(app: &AppHandle, running: &'a mut Option<Running>) -> Result<&'a 
 
 /// Synchronous core for starting 同一个网络 (used by startup resume and async Tauri command).
 pub fn start_local(app: AppHandle) -> Result<PhoneView, String> {
-    start_local_if(app, false)
+    start_local_if(app, None, false)
 }
 
 /// 同一个网络 on again as the app starts, if it is still kept on.
 fn resume_local(app: AppHandle) -> Result<PhoneView, String> {
-    start_local_if(app, true)
+    start_local_if(app, None, true)
 }
 
-fn start_local_if(app: AppHandle, kept_on: bool) -> Result<PhoneView, String> {
+/// `port`: as its page's 换端口 left it. A number: the server on that port (moved there when it runs on another, as
+/// 反代's start moves it), and the port held from then on. 0: the field left empty, the app picks again. None: as it
+/// is.
+fn start_local_if(app: AppHandle, port: Option<u16>, kept_on: bool) -> Result<PhoneView, String> {
     let state = app.state::<Phone>();
     let mut running = state.running.lock().expect("the phone lock");
     if kept_on && read_kept(&kept_file(&app)).local.is_none() {
         return Err("已停止".into());
+    }
+    match port {
+        Some(0) => keep(&app, |kept| kept.port_chosen = false),
+        Some(port) => {
+            on_port(&app, &mut running, valid_port(port)?)?;
+            keep(&app, |kept| {
+                kept.port = Some(port);
+                kept.port_chosen = true;
+            });
+        }
+        None => {}
     }
     let current = serving(&app, &mut running)?;
     let key = current
@@ -865,8 +884,10 @@ pub async fn phone_vpn_stop(app: AppHandle) -> Option<PhoneView> {
 /// opening), else a new one, so a code from before its 停止 stays shut. The public link, if up, is left as it is.
 /// Runs off the main thread so network interface enumeration and socket bind never stall AppKit (PERF-7).
 #[tauri::command]
-pub async fn phone_start(app: AppHandle) -> Result<PhoneView, String> {
-    tauri::async_runtime::spawn_blocking(move || start_local(app)).await.map_err(|error| error.to_string())?
+pub async fn phone_start(app: AppHandle, port: Option<u16>) -> Result<PhoneView, String> {
+    tauri::async_runtime::spawn_blocking(move || start_local_if(app, port, false))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 /// Where the phone view stands, if it is on. Runs off the main thread (PERF-7).
@@ -947,6 +968,8 @@ pub struct DomainSetup {
     domain: Option<String>,
     /// The server's port: the one it is on, else the one kept, else a free one now, kept so it is the same next time.
     port: u16,
+    /// The port is one the user gave (held), not one the app picked.
+    chosen: bool,
     /// 192.168.1.5, when this computer is on a network.
     lan: Option<String>,
     /// 100.76.55.73, when this computer is on a tailnet; 10.0.0.2 when it has a WireGuard tunnel up (the VPN page says
@@ -964,17 +987,19 @@ pub async fn phone_domain(app: AppHandle) -> Option<DomainSetup> {
         let on = running.as_ref().map(|current| current.port);
         let kept = read_kept(&kept_file(&app));
         // With a domain set, the port its proxy forwards to (the server may be on another for now, 反代 off).
-        let port = kept.port.filter(|_| kept.domain.is_some()).or(on).or(kept.port).unwrap_or_else(|| {
-            let free =
-                TcpListener::bind("0.0.0.0:0").and_then(|socket| socket.local_addr()).map_or(51234, |a| a.port());
-            keep(&app, |kept| kept.port = Some(free));
-            free
-        });
+        let port =
+            kept.port.filter(|_| kept.domain.is_some() || kept.port_chosen).or(on).or(kept.port).unwrap_or_else(|| {
+                let free =
+                    TcpListener::bind("0.0.0.0:0").and_then(|socket| socket.local_addr()).map_or(51234, |a| a.port());
+                keep(&app, |kept| kept.port = Some(free));
+                free
+            });
         drop(running);
         let found = addresses();
         DomainSetup {
             domain: kept.domain,
             port,
+            chosen: kept.port_chosen,
             lan: found.lan.map(|ip| ip.to_string()),
             tailnet: found.tailnet.map(|ip| ip.to_string()),
             wireguard: found.wireguard.map(|ip| ip.to_string()),
@@ -988,40 +1013,33 @@ pub async fn phone_domain(app: AppHandle) -> Option<DomainSetup> {
 /// another), the way on with its key (the one kept for this address, so a phone's link from before keeps opening, else
 /// a new one), and both kept once it is on (the port held from then on). Off the main thread (PERF-7).
 #[tauri::command]
-pub async fn phone_domain_start(app: AppHandle, domain: String, port: u16) -> Result<PhoneView, String> {
-    tauri::async_runtime::spawn_blocking(move || start_domain(&app, Some((domain, port))))
+pub async fn phone_domain_start(
+    app: AppHandle,
+    domain: String,
+    port: u16,
+    chosen: Option<bool>,
+) -> Result<PhoneView, String> {
+    tauri::async_runtime::spawn_blocking(move || start_domain(&app, Some((domain, port, chosen))))
         .await
         .map_err(|error| error.to_string())?
 }
 
 /// 自有域名 on: as given, or as kept (the app starting again). Nothing changes until what can fail has gone through (the
 /// address, the port): a start that fails leaves the link before it opening and nothing new kept.
-fn start_domain(app: &AppHandle, given: Option<(String, u16)>) -> Result<PhoneView, String> {
+fn start_domain(app: &AppHandle, given: Option<(String, u16, Option<bool>)>) -> Result<PhoneView, String> {
     let state = app.state::<Phone>();
     let mut running = state.running.lock().expect("the phone lock");
     // Read under the lock, so a 停止 or a port move just before is seen, and only what changes here is written back.
     let kept = read_kept(&kept_file(app));
+    // Whether the port is one the user gave (its field typed into), when the page says; else as it was.
+    let chosen = given.as_ref().and_then(|(_, _, chosen)| *chosen);
     let (origin, port) = match given {
-        Some((domain, port)) => (origin_of(&domain)?, valid_port(port)?),
+        Some((domain, port, _)) => (origin_of(&domain)?, valid_port(port)?),
         // The app starting: only if it is still kept on (a 停止 meanwhile keeps it off, R12-2).
         None if kept.domain_key.is_none() => return Err("已停止".into()),
         None => (kept.domain.clone().ok_or("还没有填写自有域名")?, kept.port.ok_or("还没有端口")?),
     };
-    // A server whose ways all went off a moment ago goes first. Then the server on the port asked for: moved there
-    // when it runs on another (同一个网络's codes go with it, Cloudflare's link closes), started there when it isn't.
-    if running.as_ref().is_some_and(|current| current.stop.load(Ordering::SeqCst))
-        && let Some(mut over) = running.take()
-    {
-        stop_running(&mut over);
-    }
-    match running.as_ref().map(|current| current.port) {
-        Some(on) if on != port => {
-            let listener = bind(Some(port), true)?;
-            moved(app, &mut running, listener)?;
-        }
-        Some(_) => {}
-        None => *running = Some(spawn(app, bind(Some(port), true)?)?),
-    }
+    on_port(app, &mut running, port)?;
     let current = running.as_mut().expect("the server on its port");
     // Another address: a link to the one before stops opening.
     let same_address = kept.domain.as_deref() == Some(origin.as_str());
@@ -1039,9 +1057,30 @@ fn start_domain(app: &AppHandle, given: Option<(String, u16)>) -> Result<PhoneVi
     keep(app, |kept| {
         kept.domain = Some(origin);
         kept.port = Some(port);
+        kept.port_chosen = chosen.unwrap_or(kept.port_chosen);
         kept.domain_key = Some(key);
     });
     Ok(view(current))
+}
+
+/// The server on the port asked for, and no other. A server whose ways all went off a moment ago goes first; then it is
+/// moved there when it runs on another (同一个网络's codes go with it, Cloudflare's link closes), started there when it
+/// isn't running. Taken, a reason saying so and nothing changed.
+fn on_port(app: &AppHandle, running: &mut Option<Running>, port: u16) -> Result<(), String> {
+    if running.as_ref().is_some_and(|current| current.stop.load(Ordering::SeqCst))
+        && let Some(mut over) = running.take()
+    {
+        stop_running(&mut over);
+    }
+    match running.as_ref().map(|current| current.port) {
+        Some(on) if on != port => {
+            let listener = bind(Some(port), true)?;
+            moved(app, running, listener)?;
+        }
+        Some(_) => {}
+        None => *running = Some(spawn(app, bind(Some(port), true)?)?),
+    }
+    Ok(())
 }
 
 /// The server on another port (自有域名's, changed): 同一个网络 and 自有域名 go on, their keys with them; the public
@@ -2650,6 +2689,7 @@ mod tests {
         assert_eq!(read_kept(&path), Kept::default());
         let on = Kept {
             port: Some(51234),
+            port_chosen: true,
             local: Some(new_key()),
             vpn: Some(new_key()),
             public_until: Some(1_800_000_000.5),
@@ -2680,6 +2720,11 @@ mod tests {
                 ..Kept::default()
             }
         );
+        // A port said to be the user's with no port there is no choice.
+        std::fs::write(&path, r#"{"portChosen":true}"#).unwrap();
+        assert_eq!(read_kept(&path), Kept::default());
+        std::fs::write(&path, r#"{"port":8080,"portChosen":true}"#).unwrap();
+        assert_eq!(read_kept(&path), Kept { port: Some(8080), port_chosen: true, ..Kept::default() });
         // Both ways stopped, the port forgotten too: no file left.
         write_kept(&path, &Kept::default());
         assert!(!path.exists());
