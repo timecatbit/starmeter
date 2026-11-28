@@ -626,13 +626,13 @@
 {/snippet}
 
 {#snippet proxyRecipe(tail: string)}
-  <!-- 反代 on with no domain given: how its link goes together, your domain or IP, then this (用户：域名也可以不写，但是开始
+  <!-- 反代 on with no domain given: how its link goes together, http(s):// your domain or IP (用户：http(s)这样写), then this (用户：域名也可以不写，但是开始
        之后，告诉用户如何拼域名/IP+后面的key). A click copies what goes after it. -->
   {@const done = copied?.key === 'recipe' && copied.state === 'ok'}
   <div class="recipe">
     <span class="card-title">{t('反代')}</span>
     <button class="copy-link pressable" class:done onclick={() => copy('recipe', tail)} title={tail}>
-      {#if done}<span class="room" aria-hidden="true">https://{t('你的域名或 IP')}</span>{/if}<span class="address">{#if done}{t('已复制')}{:else}https://<span
+      {#if done}<span class="room" aria-hidden="true">http(s)://{t('你的域名或 IP')}</span>{/if}<span class="address">{#if done}{t('已复制')}{:else}http(s)://<span
             class="slot">{t('你的域名或 IP')}</span>{/if}</span><span class="secret" class:gone={done}>{#each linkParts('#' + tail.replace(/^\/#/, '')) as part, i (i)}{#if i}<wbr />{/if}{i ? part : '/' + part}{/each}</span>
     </button>
     <span class="card-detail">{t('把这一段接在你的域名或 IP 后面，手机就能打开')}</span>

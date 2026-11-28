@@ -1772,10 +1772,10 @@ test('在手机上看: 反代 started with no domain says how its link goes toge
   await page.getByRole('switch', { name: '同时开启反代' }).click();
   await expect(phone.getByRole('textbox', { name: '域名' })).toHaveValue('');
   await button(page, '开始').click();
-  // The network's code, and under it how 反代's link goes: https://your domain or IP, then /#k=… to put after it.
+  // The network's code, and under it how 反代's link goes: http(s):// your domain or IP, then /#k=… to put after it.
   await expect(phone.locator('svg.qr')).toHaveCount(1);
   const recipe = phone.locator('.recipe');
-  await expect(recipe.locator('.address')).toHaveText('https://你的域名或 IP');
+  await expect(recipe.locator('.address')).toHaveText('http(s)://你的域名或 IP');
   await expect(recipe.locator('.secret')).toHaveText(/^\/#k=[0-9a-f]{32}&l=zh$/);
   await expect(recipe).toContainText('把这一段接在你的域名或 IP 后面，手机就能打开');
   await expect(phone.getByText('反代转发到 192.168.1.20:51234')).toBeVisible();
