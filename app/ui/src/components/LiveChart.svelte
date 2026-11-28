@@ -7,11 +7,12 @@
   // live marks come in. Unpinning plays the same in reverse and hands back to the trend. A new reading lands with a
   // ripple, 实时 breathes, and the last minute's rate reads at the top right in Token/s. Beside 实时, Token / Token/s
   // turns the line into that rate over the last minute (remembered): how fast the models are writing, rising and easing.
-  import { accent, alpha, label as labelColour, starAccent, toolColour, summaryColour } from '../lib/colors';
+  import { accent, alpha, label as labelColour, starAccent, summaryColour } from '../lib/colors';
   import { language, t } from '../lib/i18n.svelte';
   import { chartAxis, chartPositions, seriesOf, smoothCurves, summaryProviders, tracePath, type Point } from '../lib/chart';
   import { tokens } from '../lib/format';
   import { compact, easeTwice, nice, rateText, type LiveFeed, type Sample, type Scale } from '../lib/live';
+  import { axisShare, buildTimeGrid, buildToolLines, evaluateRates, shouldUseLogScale, targetRateCeiling } from '../lib/liveCurve';
   import { drawLines, gridLine, halo, LINE } from '../lib/liveLines';
   import { font, ROUNDED, SANS, width } from '../lib/measure';
   import { style } from '../lib/style.svelte';
@@ -143,36 +144,21 @@
       const rating = modeNow === 'rate';
       // A new mode, or a new range moving the line's height on the axis: the scale goes straight there, not sliding.
       if (drawnMode !== modeNow || drawnOffset !== feed.offset) { drawnMode = modeNow; drawnOffset = feed.offset; shown = null; }
-      // A point a second across the window, to now, in either mode: computed each frame, the last at this frame's now,
-      // so the line's end and its dot stay at the right edge (kept for the second, they slid left and jumped back).
-      // The whole series is a few hundred sums, nothing beside the drawing.
-      const times: number[] = [];
-      for (let t = Math.floor(start / 1000) * 1000; t < now; t += 1000) times.push(t);
-      times.push(now);
-      const rates: [number, number][] = [];
-      if (rating) {
-        // Eased (smoothRates): a request rises and settles as a curve; the figure at the top right is the end's height.
-        const eased = feed.smoothRates(times);
-        times.forEach((t, i) => rates.push([t, eased[i]]));
-      }
-      // Each tool's own rate, a line of its own under the total's: every tool on the homepage, one not writing anything
-      // barely there along zero (a tool used now and then is still there to see, and to see idle).
-      const toolRates = rating
-        ? order.map((id) => { const eased = feed.smoothRates(times, id); return { id, points: times.map((t, i): [number, number] => [t, eased[i]]) }; })
+      // Shared integer-second time grid & smoothed rate evaluation with StageLiveChart (liveCurve.ts).
+      const times = buildTimeGrid(start, now);
+      const rateEval = rating ? evaluateRates(feed, times, order) : null;
+      const rates: [number, number][] = rateEval ? times.map((t, i): [number, number] => [t, rateEval.totals[i]]) : [];
+      const toolRates = rateEval
+        ? rateEval.toolRates.map((tool) => ({ id: tool.id, points: times.map((t, i): [number, number] => [t, tool.values[i]]) }))
         : [];
-      // The tools far apart (the most twenty times the least of those moving): a log scale, every line clear of the
-      // bottom; back to a straight one under ten times, the gap between the two keeping it from flickering. In Token/s
-      // mode judge from each tool's raw window rate rather than its doubly-eased startup ramp (R10-11).
+      // Switch to log scale only when multiple tools *actively added* tokens/output inside this window at >= 20x spread
+      // (a previously stopped tool's decaying tail from before the window never trips log scale).
       const newestSample = points.at(-1);
-      const amounts = rating
-        ? order.map((id) => Math.max(0, ...feed.rateSeries(times, id).map((r) => r ?? 0))).filter((r) => r > 0)
-        : base && newestSample ? order.map((id) => (newestSample.parts[id] ?? 0) - (base.parts[id] ?? 0)).filter((a) => a > 0) : [];
-      const spread = amounts.length > 1 ? Math.max(...amounts) / Math.min(...amounts) : 1;
-      if (!logNow && spread >= 20) { logNow = true; shown = null; }
-      else if (logNow && spread < 10) { logNow = false; shown = null; }
+      const nextLog = shouldUseLogScale(feed, times, order, base, newestSample, rating, logNow);
+      if (nextLog !== logNow) { logNow = nextLog; shown = null; }
       setAttr(canvas.dataset, 'scale', logNow ? 'log' : 'linear');
       // Room over the highest the line reaches (LINE.headroom), so a rise is never at the top edge.
-      const target = rating ? { lo: 0, height: nice(Math.max(5, ...rates.map(([, r]) => r * LINE.headroom))) }
+      const target = rating ? { lo: 0, height: targetRateCeiling(rateEval?.highest ?? 0, 5) }
         : { lo: 0, height: nice(Math.max(2000, ...points.map((s) => (feed.value(s) - from) * LINE.headroom))) };
       // While zooming the live scale stands still; afterwards it eases to each new window.
       const range: Scale = zoom || !shown ? target
@@ -181,10 +167,7 @@
       // Where a value stands on the axis, 0 at the bottom and 1 at the top: straight, or by its logarithm from a floor
       // a thousandth (Token/s) or a ten-thousandth (Token) of the top, so four decades or three fill the height.
       const floor = rating ? Math.max(0.1, range.height / 1000) : Math.max(1, range.height / 10_000);
-      const share = (value: number) => {
-        const above = Math.max(0, value - range.lo);
-        return logNow ? Math.log1p(above / floor) / Math.log1p(range.height / floor) : above / range.height;
-      };
+      const share = (value: number) => axisShare(value, range.lo, range.height, logNow, floor);
       const y = (value: number) => bottom - share(value) * plot.h;
       const secondary = labelColour(dark, dark ? 0.55 : 0.5), tertiary = labelColour(dark, dark ? 0.25 : 0.26);
       const accentColour = starAccent(dark), total = summaryColour(dark);
@@ -267,10 +250,15 @@
         };
         const apart = Math.min(1, Math.max(0, (Math.abs(y(range.lo) - y(range.lo + range.height / 2)) - 8) / 6));
         if (logNow) {
-          // A mark at each power of ten, labelled as the straight scale's are; 对数 says the steps aren't even.
+          // A mark at each power of ten, plus the top ceiling when the last power sits well below it.
           mark('0', range.lo, true);
+          let highestPower = 0;
           for (let power = Math.ceil(Math.log10(floor * 10)); 10 ** power <= range.height * 1.0001; power++) {
-            mark((rating ? '' : '+') + compact(10 ** power), range.lo + 10 ** power, false);
+            highestPower = 10 ** power;
+            mark((rating ? '' : '+') + compact(highestPower), range.lo + highestPower, false);
+          }
+          if (highestPower < range.height * 0.65) {
+            mark((rating ? '' : '+') + compact(target.height), range.lo + range.height, false);
           }
           text(t('对数'), plot.x + 3, plot.y - 1, 7.5, tertiary);
         } else if (rating) {
@@ -342,14 +330,15 @@
         return easeTwice(everySecond, values, 1500).slice(warm.length).map((v, i): Point => [x(times[i]), clamped(v)]);
       };
       const totalLine: Point[] = rating ? rates.map(([at, r]): Point => [x(at), clamped(r)]) : readingLine(null);
-      const toolLines = (rating
-        ? toolRates.map((tool) => ({ id: tool.id, points: tool.points.map(([at, r]): Point => [x(at), clamped(r)]) }))
-        : order.map((id) => ({ id, points: readingLine(id) }))).map((tool) => ({
-          ...tool,
-          colour: toolColour(tool.id, dark),
-          running: runningSet.has(tool.id),
-          startedX: runningSinceMap[tool.id] !== undefined ? x(runningSinceMap[tool.id]) : undefined,
-        }));
+      const toolLines = buildToolLines(
+        rating
+          ? toolRates.map((tool) => ({ id: tool.id, points: tool.points.map(([at, r]): Point => [x(at), clamped(r)]) }))
+          : order.map((id) => ({ id, points: readingLine(id) })),
+        dark,
+        runningSet,
+        (id) => runningSinceMap[id],
+        x,
+      );
       // Which lines are drawn, and each tool's rate now, for whatever reads the page rather than the pixels (tests).
       setAttr(canvas.dataset, 'lines', toolLines.map((tool) => tool.id).join(','));
       setAttr(canvas.dataset, 'toolRates', JSON.stringify(Object.fromEntries(toolRates.map((tool) => [tool.id, Math.round(tool.points.at(-1)![1] * 10) / 10]))));

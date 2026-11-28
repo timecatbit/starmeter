@@ -10,6 +10,7 @@
   import { fly } from 'svelte/transition';
   import { toolColour } from '../lib/colors';
   import { t } from '../lib/i18n.svelte';
+  import { LIVE_EVENTS_SHOWN, liveClock, liveSessionView, liveTurnText } from '../lib/liveView';
   import { turnClock, type PhoneLive } from '../lib/phoneLive.svelte';
   import { panel } from '../lib/ui.svelte';
   import Glyph from './Glyph.svelte';
@@ -19,16 +20,11 @@
     /** A computer's screen: with nothing in 动态 yet, its words in a card of their own, filling the column's foot. */
     carded?: boolean;
   } = $props();
-  /** 动态: the newest twelve, none folded away (用户：你默认显示12个动作就很好……实时这里不用折叠). */
-  const SHOWN = 12;
 
-  const running = $derived(live.sessions.filter((s) => s.running));
-  const latest = $derived(live.sessions.find((s) => !s.running) ?? null);
-  /** The cards: the sessions running, else the one last at work. */
-  const shown = $derived(running.length ? running : latest ? [latest] : []);
-  const events = $derived(live.events.slice(0, SHOWN));
-  const pad = (n: number) => String(n).padStart(2, '0');
-  const clock = (at: number) => { const d = new Date(at); return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
+  const view = $derived(liveSessionView(live.sessions, live.answered));
+  const running = $derived(view.running);
+  const shown = $derived(view.shown);
+  const events = $derived(live.events.slice(0, LIVE_EVENTS_SHOWN));
   /** A turn's clock (turnClock, as the panel's 实时 writes it): each figure in the figures' face, each word in the
    *  text's (4 分钟; 1 小时 23 分钟, the 23 a figure too: STAGE-19). */
   const timer = (began: number | null, exact: boolean) => turnClock(began, exact, now);
@@ -37,10 +33,11 @@
 </script>
 
 <div class="activity">
-  <div class="head"><span>{t(!running.length && live.answered && shown.length ? '最近完成' : '正在运行')}</span>{#if running.length}<span class="count num">{running.length}</span>{/if}</div>
+  <div class="head"><span>{t(view.heading)}</span>{#if running.length}<span class="count num">{running.length}</span>{/if}</div>
   {#if shown.length && live.answered}
     <div class="sessions">
       {#each shown as s (s.key)}
+        {@const spent = liveTurnText(s)}
         <div class="session" class:ended={!s.running} in:fly={{ y: 10, duration: motion(400) }} data-tap={s.running ? 'turn' : null}>
           <div class="top">
             <span class="mark">{#if s.running}<span class="orbit" aria-hidden="true"></span>{/if}<Glyph image={s.image} template={s.template} symbol={s.symbol ?? 'terminal'} size={17} {tint} /></span>
@@ -60,7 +57,7 @@
                   class="share num">{Math.round(s.context * 100)}%</span></span>{/if}
             </div>
           {/if}
-          {#if s.turnTokens}<div class="turn"><span class="turn-figures num">{t(s.running ? '本轮' : '上一轮') + ' ' + s.turnTokens + (s.turnCost ? ' · ' + s.turnCost : '')}</span></div>{/if}
+          {#if spent}<div class="turn"><span class="turn-figures num">{spent}</span></div>{/if}
           <!-- The tools on a row of their own under the turn's figures, each line of them starting at the same left as
                the title and the model (用户：胶囊能排版上对齐一下就对齐对齐: beside the figures, a second line began
                further left than the first). -->
@@ -85,7 +82,7 @@
     <ol class="feed" data-moving>
       {#each events as e (e.id)}
         <li class="event {e.kind}" in:fly={{ y: -12, duration: motion(380) }} animate:flip={{ duration: motion(300) }}>
-          <span class="when num">{clock(e.at)}</span>
+          <span class="when num">{liveClock(e.at)}</span>
           {#if e.kind === 'done'}
             <svg class="sign" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5.5" fill="var(--good)" /><path d="M3.4 6.1 5.2 7.9 8.6 4.3" fill="none" stroke="#06281A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
           {:else}

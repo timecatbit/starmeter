@@ -11,7 +11,8 @@
   import { alpha, summaryColour, toolColour } from '../lib/colors';
   import { style } from '../lib/style.svelte';
   import { t } from '../lib/i18n.svelte';
-  import { nice, rateText } from '../lib/live';
+  import { rateText } from '../lib/live';
+  import { buildTimeGrid, buildToolLines, easeCeiling, evaluateRates, targetRateCeiling } from '../lib/liveCurve';
   import { drawLines, gridLine, LINE } from '../lib/liveLines';
   import { LIVE_SPAN, type PhoneLive } from '../lib/phoneLive.svelte';
   import { legendName, tokens } from '../lib/format';
@@ -82,24 +83,23 @@
       // The busiest first (the legend in that order).
       const last = samples.at(-1);
       ids = [...seen].sort((a, b) => (last?.outputs?.[b] ?? 0) - (last?.outputs?.[a] ?? 0));
-      // A point a second from the first reading (or a minute back) to the last, and on a few seconds past it as
-      // the rate eases with nothing new (the curve runs on to now between readings, not flat for the last two).
+      // Shared integer-second time grid & smoothed rate evaluation with LiveChart (liveCurve.ts).
       times = [];
       readingAt = last?.at ?? 0;
       if (samples.length) {
         const from = Math.max(samples[0].at, last!.at - LIVE_SPAN - 5000);
-        for (let at = last!.at; at >= from; at -= 1000) times.unshift(at);
-        for (let k = 1; k <= AHEAD; k++) times.push(last!.at + k * 1000);
+        times = buildTimeGrid(from, last!.at, AHEAD);
       }
-      totals = feed.smoothRates(times);
-      rates = ids.map((id) => feed.smoothRates(times, id));
+      const evaluated = evaluateRates(feed, times, ids, AHEAD);
+      totals = evaluated.totals;
+      rates = evaluated.toolRates.map((tool) => tool.values);
       // Named in the legend; a tool that wrote nothing in these minutes quieter there unless it has a running session.
       const names = new Map((live.dashboard?.providers ?? []).map((p) => [p.id, legendName(p)]));
       const next = ids.map((id, k) => ({ id, name: names.get(id) ?? id, idle: !runningIds.has(id) && rates[k].every((r) => r <= 0.05) }));
       const key = (list: typeof named) => list.map((n) => `${n.id}${n.name}${n.idle}`).join();
       if (key(next) !== key(named)) named = next;
-      highest = Math.max(0, ...totals.slice(0, totals.length - AHEAD));
-      top = nice(Math.max(4, highest * LINE.headroom));
+      highest = evaluated.highest;
+      top = targetRateCeiling(highest, 4);
       for (const landing of live.landings) {
         drops.push({ id: landing.id, tokens: landing.tokens, born: now });
         for (let i = 0; i < 4; i++) sparks.push({ id: landing.id, born: now + DROP, dx: (Math.random() - 0.5) * 26, rise: 18 + Math.random() * 22, size: 1.2 + Math.random() * 0.9 });
@@ -159,8 +159,7 @@
     ctx.clearRect(0, 0, W, H);
     const now = Date.now(), still = panel.reduceMotion, dt = lastDrawn ? Math.min(250, now - lastDrawn) : 1000;
     lastDrawn = now;
-    shownTop = still ? top : Math.max(highest * 1.04, shownTop + (top - shownTop) * (1 - Math.exp(-dt / 120)));
-    if (Math.abs(top - shownTop) < top * 0.002) shownTop = top;
+    shownTop = easeCeiling(shownTop, top, highest, dt, still);
     // The plot the whole width: the end's halo (8) and a reading's ripple in LINE.end at the right; the top's rate written
     // over its grid line inside, the times under the bottom.
     const padTop = 16, padBottom = 18, right = W - LINE.end, plotH = H - padTop - padBottom, base = padTop + plotH;
@@ -212,13 +211,7 @@
       } : undefined;
       drawn = drawLines(ctx, {
         total: line(totals), base, plotTop: padTop, totalColour: total, areaColour: summaryColour(panel.dark), dark: panel.dark,
-        tools: ids.map((id, k) => ({
-          id,
-          points: line(rates[k]),
-          colour: toolColour(id, panel.dark),
-          running: runningIds.has(id),
-          startedX: runningStarted.has(id) ? x(runningStarted.get(id)!) : undefined,
-        })),
+        tools: buildToolLines(ids.map((id, k) => ({ id, points: line(rates[k]) })), panel.dark, runningIds, (id) => runningStarted.get(id), x),
         // Starlight on the total at night; by day and by hand, none.
         glow: !sketch && panel.dark ? 'rgba(196, 216, 255, 0.7)' : null, again, now, still,
       });

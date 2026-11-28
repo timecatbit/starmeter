@@ -8,14 +8,16 @@
   import { fly } from 'svelte/transition';
   import { toolColour } from '../lib/colors';
   import { t } from '../lib/i18n.svelte';
+  import { LIVE_EVENTS_SHOWN, liveClock, liveSessionView, liveTurnText } from '../lib/liveView';
   import { PhoneLive, turnClock } from '../lib/phoneLive.svelte';
   import { panel } from '../lib/ui.svelte';
   import Glyph from './Glyph.svelte';
 
-  let { onrunning }: { onrunning?: (tools: string[]) => void } = $props();
+  let { interval = 2, onrunning }: { interval?: number; onrunning?: (tools: string[], started: Record<string, number>) => void } = $props();
 
   const live = new PhoneLive();
   let now = $state(Date.now());
+  $effect(() => { live.setIntervalSec(interval); });
   // Read only while the panel is on screen (STAGE-11).
   $effect(() => {
     if (!panel.shown) return;
@@ -23,12 +25,17 @@
     return () => live.stop();
   });
 
-  /** 动态: the newest twelve, none folded away (用户：你默认显示12个动作就很好……实时这里不用折叠); pinned, the panel fits
-   *  down to the third (Dashboard), the rest a scroll away. */
-  const SHOWN = 12;
-  const running = $derived(live.sessions.filter((s) => s.running));
+  const view = $derived(liveSessionView(live.sessions, live.answered));
+  const running = $derived(view.running);
   $effect(() => {
-    onrunning?.([...new Set(running.map((s) => s.tool).filter((id): id is string => !!id))]);
+    const tools: string[] = [];
+    const started: Record<string, number> = {};
+    for (const s of running) {
+      if (!s.tool) continue;
+      if (!tools.includes(s.tool)) tools.push(s.tool);
+      if (s.began !== null) started[s.tool] = started[s.tool] !== undefined ? Math.min(started[s.tool], s.began) : s.began;
+    }
+    onrunning?.(tools, started);
   });
   // Only run the 1s clock interval while at least one session is actively running (PERF-4).
   $effect(() => {
@@ -37,12 +44,8 @@
     const ticking = setInterval(() => (now = Date.now()), 1000);
     return () => clearInterval(ticking);
   });
-  const latest = $derived(live.sessions.find((s) => !s.running) ?? null);
-  /** The cards: the sessions running, else the one last at work, greyed (as 网页版's 正在运行). */
-  const shown = $derived(running.length ? running : latest ? [latest] : []);
-  const events = $derived(live.events.slice(0, SHOWN));
-  const pad = (n: number) => String(n).padStart(2, '0');
-  const clock = (at: number) => { const d = new Date(at); return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
+  const shown = $derived(view.shown);
+  const events = $derived(live.events.slice(0, LIVE_EVENTS_SHOWN));
   /** This turn's clock as 网页版 writes it (turnClock): figures in the rounded face, words in the text's. */
   const timer = (began: number | null, exact: boolean) => turnClock(began, exact, now);
   const motion = (ms: number) => (panel.reduceMotion ? 0 : ms);
@@ -50,8 +53,9 @@
 </script>
 
 <div class="panel-live">
-  <div class="head"><span>{t(!running.length && live.answered && shown.length ? '最近完成' : '正在运行')}</span>{#if running.length}<span class="count num">{running.length}</span>{/if}</div>
+  <div class="head"><span>{t(view.heading)}</span>{#if running.length}<span class="count num">{running.length}</span>{/if}</div>
   {#each live.answered ? shown : [] as s (s.key)}
+    {@const spent = liveTurnText(s)}
     <div class="live-session" class:ended={!s.running} in:fly={{ y: 6, duration: motion(240) }}>
       <div class="top">
         <span class="mark"><Glyph image={s.image} template={s.template} symbol={s.symbol ?? 'terminal'} size={12} {tint} /></span>
@@ -66,7 +70,7 @@
         {#if s.model}<span class="model">{s.model}</span>{/if}
         {#if s.context !== null}<span class="context" title={t('上下文 {n}%', { n: Math.round(s.context * 100) })}><span class="meter" aria-hidden="true"><span style:width="{Math.round(s.context * 100)}%"></span></span><span
             class="share num">{Math.round(s.context * 100)}%</span></span>{/if}
-        {#if s.turnTokens}<span class="spent num">{t(s.running ? '本轮' : '上一轮') + ' ' + s.turnTokens + (s.turnCost ? ' · ' + s.turnCost : '')}</span>{/if}
+        {#if spent}<span class="spent num">{spent}</span>{/if}
       </div>
     </div>
   {/each}
@@ -80,7 +84,7 @@
     <ol class="feed" data-moving>
       {#each events as e (e.id)}
         <li class="event {e.kind}" in:fly={{ y: -8, duration: motion(260) }} animate:flip={{ duration: motion(220) }}>
-          <span class="when num">{clock(e.at)}</span>
+          <span class="when num">{liveClock(e.at)}</span>
           {#if e.kind === 'done'}
             <!-- A turn done: a tick in a green disc, as 网页版 marks it. -->
             <svg class="sign" width="10" height="10" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5.5" fill="var(--green)" /><path d="M3.4 6.1 5.2 7.9 8.6 4.3" fill="none" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>

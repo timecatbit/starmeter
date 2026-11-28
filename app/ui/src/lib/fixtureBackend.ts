@@ -241,7 +241,7 @@ export async function live(history = false): Promise<LiveAnswer> {
   }
   const kept = history ? recentReadings : undefined;
   keepReading(at, today);
-  return { at, dashboard: today, sessions: sessions ? { ...sessions, children: sessions.children.filter((c) => !c.action) } : null, turns, ...(kept ? { history: kept } : {}) };
+  return { at, interval: state.pinInterval, dashboard: today, sessions: sessions ? { ...sessions, children: sessions.children.filter((c) => !c.action) } : null, turns, ...(kept ? { history: kept } : {}) };
 }
 
 function askPanel(question: Omit<Question, 'id'>): Promise<unknown> {

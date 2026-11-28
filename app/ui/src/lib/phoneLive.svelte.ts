@@ -20,7 +20,7 @@ import type { Dashboard, Entry, LiveAnswer } from './types';
 
 /** Tokens added this recently still count as working, between requests of a turn that has no session to say so. */
 const QUIET = 40_000;
-const BUSY_EVERY = 2_000, REST_EVERY = 2_500;
+const REST_EVERY = 2_500;
 // Readings further apart than GAP (live.ts) left a gap: what changed in it happened at moments nobody saw, so it is
 // neither this moment's speed, nor requests landing now, nor a turn just done.
 /** An amount worth saying: one that money() doesn't write as 0.00 in the computer's currency. */
@@ -209,6 +209,8 @@ export class PhoneLive {
   trouble = $state(false);
   /** When the computer was last read, on this phone's clock; 0 not yet. */
   readAt = $state(0);
+  /** User-chosen live refresh cadence in seconds (`pinInterval`, 1–5s), synced from `/api/live` or the desktop panel. */
+  interval = $state(2);
   /** Requests landed at the last reading, for the curve to drop in. */
   landings = $state<Landing[]>([]);
   /** Today's estimate and what the last reading added to it. */
@@ -265,6 +267,13 @@ export class PhoneLive {
    *  dropped onto the curve). */
   private round = 0;
 
+  /** Updates the polling cadence in seconds (from the user's `pinInterval` preference, clamped to 1–5s). */
+  setIntervalSec(seconds: number) {
+    if (!Number.isFinite(seconds)) return;
+    const clamped = Math.min(5, Math.max(1, Math.round(seconds)));
+    if (clamped !== this.interval) this.interval = clamped;
+  }
+
   private async loop() {
     if (this.stopped) return;
     const round = ++this.round;
@@ -273,7 +282,9 @@ export class PhoneLive {
     if (this.stopped || round !== this.round) return;
     clearTimeout(this.timer);
     // Out of sight, nothing is asked until the page comes back (onVisible).
-    if (this.visible()) this.timer = setTimeout(() => void this.loop(), this.state === 'working' ? BUSY_EVERY : REST_EVERY);
+    const busyMs = this.interval * 1000;
+    const restMs = Math.max(REST_EVERY, busyMs);
+    if (this.visible()) this.timer = setTimeout(() => void this.loop(), this.state === 'working' ? busyMs : restMs);
   }
 
   private async read(round: number) {
@@ -290,6 +301,7 @@ export class PhoneLive {
   /** A reading taken at `now` (this phone's clock). `replay`: one of the computer's last minutes, given with a page's
    *  first reading, taken as it was then: its moments, its 动态; no banner, no waking, nothing landing now. */
   take(answer: LiveAnswer, now: number, replay = false) {
+    if (!replay && answer.interval !== undefined) this.setIntervalSec(answer.interval);
     if (!replay && answer.slow !== undefined) this.feed.rateTau = answer.slow ? 30_000 : RATE_TAU;
     if (Number.isFinite(answer.at)) this.skew = answer.at * 1000 - now;
     // Quiet and resting are judged on the computer's clock (the readings' own moments), not this phone's.

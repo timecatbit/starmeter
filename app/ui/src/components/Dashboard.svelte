@@ -210,7 +210,8 @@
 
 
   let liveRunning = $state<string[]>([]);
-  $effect(() => { if (!showingLive) liveRunning = []; });
+  let liveRunningStarted = $state<Record<string, number>>({});
+  $effect(() => { if (!showingLive) { liveRunning = []; liveRunningStarted = {}; } });
   /** Tools with at least one running session: their live lines stay continuous to 现在 even while resting at 0. */
   const runningTools = $derived.by(() => {
     const ids = new Set<string>(liveRunning);
@@ -226,13 +227,15 @@
   let runningSince = $state<Record<string, number>>({});
   $effect(() => {
     const current = new Set(runningTools);
+    const exactStarted = liveRunningStarted;
     const feed = live;
     const stamp = Date.now();
     let changed = current.size !== prevRunning.size;
     const nextSince: Record<string, number> = {};
     for (const id of current) {
-      if (!(id in prevSince)) changed = true;
-      nextSince[id] = prevSince[id] ?? stamp;
+      const value = exactStarted[id] ?? prevSince[id] ?? stamp;
+      if (prevSince[id] !== value) changed = true;
+      nextSince[id] = value;
     }
     if (changed) {
       prevSince = nextSince;
@@ -324,7 +327,7 @@
         onchoose={(key) => { if (key === 'live' || key === 'sessions') onview?.(key); else { onview?.('cards'); if (key !== wantedGrouping) ongroup(key); } }} />
     {/if}
     {#if showingLive}
-      <div class="live-room" bind:this={liveBox}><PanelLive onrunning={(ids) => (liveRunning = ids)} /></div>
+      <div class="live-room" bind:this={liveBox}><PanelLive interval={pinInterval} onrunning={(ids, started) => { liveRunning = ids; liveRunningStarted = started; }} /></div>
     {:else if showingSessions && sessions}
       <div class="sessions" bind:this={sessionsBox}>
         <SessionList entry={sessions} {busy} onopen={(e) => onopen?.(e)} onchoose={(e) => onchoose?.(e)} onfit={(h) => (sessionsFit = h)} />

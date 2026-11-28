@@ -2057,13 +2057,15 @@ fn live_from(data: &Data, history: bool) -> Value {
     let mut answer = match data {
         Data::Engine(engine) => engine.live(),
         Data::SwiftBar(files) => {
-            files.request_live_if_stale(2.0);
             let snapshot = files.snapshot_readonly();
+            let interval = snapshot.get("pinInterval").and_then(Value::as_u64).unwrap_or(2).clamp(1, 5);
+            files.request_live_if_stale(interval as f64);
             let sessions = sessions_of(&snapshot);
             let (turns, pending) =
                 if sessions.is_object() { files.turns_and_pending() } else { (serde_json::Map::new(), Vec::new()) };
             json!({
                 "at": starmeter_core::runtime::now(),
+                "interval": interval,
                 "dashboard": snapshot.get("dashboard").cloned().unwrap_or(Value::Null),
                 "sessions": sessions,
                 "turns": turns,
@@ -2074,8 +2076,10 @@ fn live_from(data: &Data, history: bool) -> Value {
             let mut fixtures = fixtures.lock().expect("the fixtures");
             let _ = fixtures.act(&["refresh-live".to_string()]);
             let snapshot = fixtures.snapshot();
+            let interval = snapshot.get("pinInterval").and_then(Value::as_u64).unwrap_or(2).clamp(1, 5);
             json!({
                 "at": starmeter_core::runtime::now(),
+                "interval": interval,
                 "dashboard": fixtures.dashboard("today"),
                 "sessions": sessions_of(&snapshot),
                 "turns": {},

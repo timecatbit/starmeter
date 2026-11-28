@@ -532,6 +532,35 @@ test('LiveFeed.markStopped drops rate to 0 within 2s while preserving earlier hi
   expect(result.smooth[3]).toBeLessThan(15);
 });
 
+test('shared liveCurve keeps linear scale when another tool only has a pre-window decaying tail', async ({ page }) => {
+  await open(page);
+  const scale = await page.evaluate(async () => {
+    const { backend } = await import('/src/lib/backend.ts');
+    const { LiveFeed } = await import('/src/lib/live.ts');
+    const { buildTimeGrid, shouldUseLogScale } = await import('/src/lib/liveCurve.ts');
+    const today = (await backend.snapshot()).dashboard!;
+    const addOut = (base: typeof today, id: string, out: number) => ({
+      ...base,
+      providers: base.providers.map((p) => (p.id === id ? { ...p, output: p.output + out, tokens: p.tokens + out * 50 } : p)),
+    });
+    const feed = new LiveFeed(), t0 = 1_700_000_000_000;
+    // Gemini finished 40s before the 1-minute window starts, leaving only a tiny decaying tail at the left edge.
+    feed.add(today, t0);
+    const afterGemini = addOut(today, 'gemini', 200);
+    feed.add(afterGemini, t0 + 20_000);
+    // Inside the 1-minute window [t0 + 60s, t0 + 120s], only ChatGPT writes actively (30 Token/s).
+    feed.add(afterGemini, t0 + 60_000);
+    const afterCodex = addOut(afterGemini, 'codex', 3000);
+    feed.add(afterCodex, t0 + 110_000);
+    const now = t0 + 120_000, start = now - 60_000;
+    const times = buildTimeGrid(start, now);
+    const base = [...feed.samples].reverse().find((s) => s.at <= start) ?? feed.samples[0];
+    const newest = feed.samples.at(-1);
+    return shouldUseLogScale(feed, times, ['codex', 'gemini'], base, newest, true, false);
+  });
+  expect(scale).toBe(false);
+});
+
 test('会话 sits beside the groupings: running first, what each cost in the range, five shown and the rest behind 查看更多', async ({ page }) => {
   await open(page);
   // Its row leaves the other rows for the tab.

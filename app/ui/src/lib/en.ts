@@ -318,6 +318,9 @@ export const phrases: Record<string, string> = {
   工具占比: 'Share by tool', '按 Token': 'by tokens',
   订阅与服务: 'Plans and services', '还有 {n} 个会话在运行': '{n} more running', 服务: 'Services', 统计: 'Figures', 保持亮屏: 'Keep the screen on', '屏幕会保持常亮，离开这一页就恢复自动锁屏': 'The screen stays on; leave this page and it locks as usual', '已恢复自动锁屏': 'The screen locks as usual again', '没能保持亮屏：浏览器没有允许（低电量模式下会这样）': 'Couldn\'t keep the screen on: the browser said no (as in Low Power Mode)', '没能保持亮屏：这个浏览器不支持': 'Couldn\'t keep the screen on: this browser can\'t', '屏幕保持常亮，点按恢复自动锁屏': 'The screen stays on; tap to let it lock', '保持亮屏：屏幕不自动锁定': 'Keep the screen on: no auto-lock', 连不上电脑: 'Can\'t reach the computer',
   '只读：实时数字每 2 秒从电脑上的 Starmeter 读一次，休息时每 2.5 秒': 'Read-only: the live figures come from Starmeter on your computer every 2 seconds, every 2.5 while it rests',
+  '只读：实时数字每 {n} 秒从电脑上的 Starmeter 读一次，休息时每 2.5 秒': 'Read-only: the live figures come from Starmeter on your computer every {n} seconds, every 2.5 while it rests',
+  '只读：实时数字每 {n} 秒从电脑上的 Starmeter 读一次，休息时每 2.5 秒|1': 'Read-only: the live figures come from Starmeter on your computer every 1 second, every 2.5 while it rests',
+  '只读：实时数字每 {n} 秒从电脑上的 Starmeter 读一次': 'Read-only: the live figures come from Starmeter on your computer every {n} seconds',
   // 网页版's live view: working or resting, how fast, what happened
   正在工作: 'Working', '正在工作 · {n} 个会话运行中': 'Working · {n} sessions running', '正在工作 · {n} 个会话运行中|1': 'Working · 1 session running',
   休息中: 'Resting', '休息中 · 刚刚还在工作': 'Resting · working a moment ago', '休息中 · 上次活动 {n} 分钟前': 'Resting · last active {n} min ago',

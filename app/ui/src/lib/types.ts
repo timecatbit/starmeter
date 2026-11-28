@@ -202,6 +202,8 @@ export interface Snapshot {
  *  only), and when each session's latest turn began (in the computer's seconds, as `at` is). */
 export interface LiveAnswer {
   at: number;
+  /** User-chosen live refresh cadence in seconds (from `pinInterval`, 1–5s). */
+  interval?: number;
   dashboard: Dashboard | null;
   sessions: Entry | null;
   turns: Record<string, number>;

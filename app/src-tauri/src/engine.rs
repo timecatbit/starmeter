@@ -294,25 +294,27 @@ impl Engine {
     }
 
     /// A phone watching 网页版's live view: sessions refreshed independently first (never blocked behind a slow range
-    /// read), then today's local usage logs re-indexed (skipping blocking remote HTTP sources), at most every
-    /// `LIVE_EVERY` whoever asks, so two phones share a reading.
+    /// read), then today's local usage logs re-indexed (skipping blocking remote HTTP sources), paced by the user's
+    /// chosen `pinInterval` (1–5s) so two viewers share a reading.
     pub fn live(&self) -> Value {
         static LAST: AtomicU64 = AtomicU64::new(0);
         let runtime = self.runtime();
+        let interval = runtime.settings().get("pinInterval").and_then(Json::integer).unwrap_or(2).clamp(1, 5) as u64;
+        let gate_ms = (interval * 1000).saturating_sub(250).max(750);
+        let reuse = (interval as f64 * 0.5).clamp(0.5, 2.5);
         let moment = now();
         let millis = (moment * 1000.0) as u64;
         let last = LAST.load(Ordering::SeqCst);
-        if millis.saturating_sub(last) >= LIVE_EVERY.as_millis() as u64
+        if millis.saturating_sub(last) >= gate_ms
             && LAST.compare_exchange(last, millis, Ordering::SeqCst, Ordering::SeqCst).is_ok()
         {
             if runtime.module_enabled("sessions") {
-                runtime.sessions_cached(Some(1.0));
+                runtime.sessions_cached(Some(reuse));
             }
             // Busy with another read of the ranges (a refresh, the panel's own tick): what is cached serves. Use
             // local-only indexing so OpenCodex/Cursor network timeouts never stall live updates for 12-24 seconds.
-            // A 1-second TTL also avoids redundant re-indexing when a pinned panel's `refresh-live` tick just ran.
             let _ = runtime.with_lock("range-refresh.lock", false, || {
-                runtime.range_usage_local(Some("today"), Some(1.0));
+                runtime.range_usage_local(Some("today"), Some(reuse));
             });
         }
         let (sessions, turns, pending) = {
@@ -321,6 +323,7 @@ impl Engine {
         };
         serde_json::json!({
             "at": moment,
+            "interval": interval,
             "dashboard": self.dashboard_cached("today", Some("tool")),
             "sessions": sessions,
             "turns": turns,
@@ -424,9 +427,6 @@ impl Engine {
         }
     }
 }
-
-/// The live view's reads on a phone come at most this often, however many phones ask and however often.
-const LIVE_EVERY: Duration = Duration::from_millis(1500);
 
 /// Actions whose receipt carries the display preferences (5.x's RECEIPT_ACTIONS).
 const PREFERENCE_ACTIONS: [&str; 9] = [

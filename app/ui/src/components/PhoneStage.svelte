@@ -671,7 +671,9 @@
         {/snippet}
 
         <footer class="foot">
-          <p class="read-only">{t('只读：实时数字每 2 秒从电脑上的 Starmeter 读一次，休息时每 2.5 秒')}</p>
+          <p class="read-only">{live.interval >= 3
+            ? t('只读：实时数字每 {n} 秒从电脑上的 Starmeter 读一次', { n: live.interval })
+            : t('只读：实时数字每 {n} 秒从电脑上的 Starmeter 读一次，休息时每 2.5 秒', { n: live.interval })}</p>
         </footer>
       </section>
     </div>
