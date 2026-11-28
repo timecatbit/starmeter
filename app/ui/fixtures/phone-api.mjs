@@ -135,6 +135,7 @@ export function liveWork({ now = () => Date.now(), length = 90, claudeEnds = 32,
       if (!mine) { s.statusLight = 'unknown'; s.detail = s.detail.replace(/^运行中( \d+ 分钟)?/, '空闲 3 分钟'); continue; }
       const [id, rest, tools, began, ends] = mine, now = turn[id], on = running[s.key];
       const minutes = Math.floor(Math.max(0, (on ? at : begun + n * length + ends) - began) / 60);
+      s.tool = id;
       s.statusLight = on ? 'new' : 'unknown';
       s.detail = on ? `运行中${minutes ? ` ${minutes} 分钟` : ''} · ${rest}` : `空闲 ${Math.max(1, Math.round((phase - ends) / 60))} 分钟 · ${rest}`;
       const label = `${clock(began)} · ${tokensText(now.tokens)} Token · $${now.cost.toFixed(2)}`;

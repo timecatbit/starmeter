@@ -3456,7 +3456,14 @@ test('PERF-10: LiveFeed.smoothRates reacts immediately on landing without 10s de
     const at2s = smoothed[62];
     const at20s = smoothed[80];
     const solo = feed.rate(t0 + 80_000)!;
-    return { raw60, atLand, fracCurveEnd, fracHeadline, at2s, at20s, solo, minVal: Math.min(...smoothed) };
+    // Fractional tail smoothness check: a 120ms tail point (t0 + 70_120) must follow the exact smooth decay slope
+    // instead of creating a shelf + steep vertical cliff kink.
+    const tailTimes = [t0 + 68_000, t0 + 69_000, t0 + 70_000, t0 + 70_120, t0 + 71_000];
+    const tail = feed.smoothRates(tailTimes);
+    const prevSlope = Math.abs(tail[2] - tail[1]);
+    const fracSlope = Math.abs((tail[3] - tail[2]) / 0.12);
+    const nextSlope = Math.abs((tail[4] - tail[3]) / 0.88);
+    return { raw60, atLand, fracCurveEnd, fracHeadline, at2s, at20s, solo, minVal: Math.min(...smoothed), prevSlope, fracSlope, nextSlope };
   });
   expect(result.raw60).toBeCloseTo(100, 1);
   // Immediate onset: >= 60% of raw peak visible at landing (t=0) and >= 75% crest by t=+2s.
@@ -3469,6 +3476,9 @@ test('PERF-10: LiveFeed.smoothRates reacts immediately on landing without 10s de
   // Headline rate (solo) stays consistent with curve endpoint and curve is non-negative.
   expect(Math.abs(result.solo - result.at20s)).toBeLessThan(0.05);
   expect(result.minVal).toBeGreaterThanOrEqual(0);
+  // No tail cliff/shelf kink across fractional timestamps (within natural exponential curvature).
+  expect(result.fracSlope).toBeLessThan(result.prevSlope * 1.05);
+  expect(Math.abs(result.fracSlope - result.nextSlope)).toBeLessThan(result.prevSlope * 0.1);
 });
 
 test('closing the panel from 模型/项目/会话 resets to 工具 while hidden so reopening never visibly jumps', async ({ page }) => {

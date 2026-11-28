@@ -11,11 +11,13 @@ export const GAP = 15_000;
  *  converges to its exact true Token/s because ∫(1/τ)e^(-u/τ)du = 1. */
 export const RATE_TAU = 10_000;
 export const EASE = 15_000;
-const ATTACK_TAU = 750;
-const RELEASE_TAU = 1_350;
+const ATTACK_TAU = 150;
+const RELEASE_TAU = 1_600;
 /** Faster glide-down when a tracked session stops (raw drops to 0), so stopped curves settle in ~1.5–2s while active
  *  waves keep rounded, organic hills instead of jagged sawtooth spikes. */
-const STOP_RELEASE_TAU = 500;
+const STOP_RELEASE_TAU = 350;
+const SMOOTH_STEP = 500;
+const SMOOTH_PASSES = 4;
 const RATE_FLOOR = 0.05;
 
 /** `values` at `times` (rising) eased twice over (two exponential moving averages in a row, each over `tau`): a step
@@ -63,11 +65,11 @@ function smoothLive(times: number[], values: (number | null)[]): number[] {
     out[i] = cur !== null && cur >= RATE_FLOOR ? cur : 0;
   }
   if (n >= 3) {
-    // Four zero-phase binomial passes (σ ≈ 1.4s) round impulse crests and valleys into rolling hills while keeping
-    // the curve's right endpoint exact (matching the headline figure at every millisecond).
+    // Three zero-phase binomial passes on a strictly uniform 1s grid round impulse crests and valleys into rolling
+    // hills without introducing any tail shelf/cliff distortion.
     let src = out;
     let dst = new Array<number>(n);
-    for (let pass = 0; pass < 4; pass++) {
+    for (let pass = 0; pass < SMOOTH_PASSES; pass++) {
       dst[0] = src[0];
       dst[n - 1] = src[n - 1];
       for (let i = 1; i < n - 1; i++) dst[i] = 0.25 * src[i - 1] + 0.5 * src[i] + 0.25 * src[i + 1];
@@ -232,12 +234,11 @@ export class LiveFeed {
   span() { return LiveFeed.window; }
 
   /** Instantaneous output tokens a second (exponentially decayed with time constant `this.rateTau`): peaks immediately
-   *  when new output lands and glides smoothly back to 0 once idle. Evaluated on the same integer-second grid as the
-   *  chart's `smoothRates(times)` so the headline figure and the curve's end match at every millisecond. */
+   *  when new output lands and glides smoothly back to 0 once idle. Evaluated on the exact same uniform integer-second
+   *  grid as `smoothRates(times)` so the headline figure and the curve's end match at every millisecond. */
   rate(now: number): number | null {
     if (!this.samples.length) return null;
-    const grid = Math.floor(now / 1000) * 1000;
-    return this.smoothRates(grid < now ? [grid, now] : [now]).at(-1) ?? 0;
+    return this.smoothRates([now])[0] ?? 0;
   }
 
   /** Unsmoothed exponentially-decayed output rate at a moment `at`; with a source, that source's own. */
@@ -245,16 +246,28 @@ export class LiveFeed {
     return this.rateSeries([at], id)[0] ?? null;
   }
 
-  /** The rate as the lines draw it and the figures say it, at each of `times` (rising): warmed up on integer Unix
-   *  seconds so `rate(now)` and `smoothRates(times).at(-1)` always evaluate the exact same causal sequence. */
+  /** The rate as the lines draw it and the figures say it, at each of `times` (rising): always smoothed on a strictly
+   *  uniform 500ms grid (with causal warmup on the left and `SMOOTH_PASSES` natural decay steps on the right so no
+   *  fractional step or pinned right boundary ever creates a tail shelf/cliff kink), then interpolated at any
+   *  timestamp so `rate(now)` and `smoothRates(times).at(-1)` match identically at every ms. */
   smoothRates(times: number[], id?: string): number[] {
     if (!times.length) return [];
-    const warm: number[] = [];
-    const warmSpan = Math.ceil((Math.max(ATTACK_TAU, RELEASE_TAU) * 8) / 1000) * 1000;
-    const anchor = Math.floor(times[0] / 1000) * 1000;
-    for (let at = anchor - warmSpan; at < times[0]; at += 1000) warm.push(at);
-    const all = [...warm, ...times];
-    return smoothLive(all, this.rateSeries(all, id)).slice(warm.length);
+    const warmSpan = Math.ceil((Math.max(ATTACK_TAU, RELEASE_TAU) * 8) / SMOOTH_STEP) * SMOOTH_STEP + SMOOTH_PASSES * SMOOTH_STEP;
+    const first = times[0], last = times[times.length - 1];
+    const startGrid = Math.floor(first / SMOOTH_STEP) * SMOOTH_STEP - warmSpan;
+    const endGrid = Math.ceil(last / SMOOTH_STEP) * SMOOTH_STEP + SMOOTH_PASSES * SMOOTH_STEP;
+    const grid: number[] = [];
+    for (let at = startGrid; at <= endGrid; at += SMOOTH_STEP) grid.push(at);
+    const smoothed = smoothLive(grid, this.rateSeries(grid, id));
+    return times.map((at) => {
+      const pos = (at - startGrid) / SMOOTH_STEP;
+      const i = Math.floor(pos);
+      const frac = pos - i;
+      if (frac <= 1e-6 || i + 1 >= smoothed.length) return smoothed[Math.max(0, Math.min(smoothed.length - 1, i))];
+      const a = smoothed[Math.max(0, i)], b = smoothed[i + 1];
+      const v = a + (b - a) * frac;
+      return v < RATE_FLOOR ? 0 : v;
+    });
   }
 
   /** Exponentially-decayed output rate at each of `times` (rising) in one pass over the readings; null before the first.

@@ -5,13 +5,19 @@ import { toolColour } from './colors';
 import { nice, type LiveFeed, type Sample } from './live';
 import { LINE, type ToolLine } from './liveLines';
 
-/** Integer-second time grid covering `[start, end]`, plus optional `aheadSec` whole seconds past `end` for smooth
- *  between-reading flow on the web stage. */
+/** Integer-second time grid covering `[start, end]`, plus optional `aheadSec` whole seconds past `ceil(end)` for smooth
+ *  between-reading flow on the web stage (strictly uniform 1000ms steps when `aheadSec > 0` so no fractional sliver
+ *  kinks the curve). */
 export function buildTimeGrid(start: number, end: number, aheadSec = 0): number[] {
   const times: number[] = [];
-  for (let t = Math.floor(start / 1000) * 1000; t < end; t += 1000) times.push(t);
+  const first = Math.floor(start / 1000) * 1000;
+  if (aheadSec > 0) {
+    const stop = Math.ceil(end / 1000) * 1000 + aheadSec * 1000;
+    for (let t = first; t <= stop; t += 1000) times.push(t);
+    return times;
+  }
+  for (let t = first; t < end; t += 1000) times.push(t);
   times.push(end);
-  for (let k = 1; k <= aheadSec; k++) times.push(end + k * 1000);
   return times;
 }
 

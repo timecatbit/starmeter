@@ -74,6 +74,24 @@ export interface LiveEvent {
 
 export interface Landing { id: string; tokens: number; at: number }
 
+const IMAGE_TOOL: Record<string, string> = {
+  'claude.svg': 'claude',
+  'openai.svg': 'codex',
+  'gemini.svg': 'gemini',
+  'cursor.svg': 'cursor',
+  'opencode.svg': 'opencode',
+  'qoder.svg': 'qoder',
+  'workbuddy.svg': 'workbuddy',
+  'deepseek.svg': 'deepseek_harness',
+  'magpie.svg': 'magpie',
+};
+
+function sessionTool(e: Entry): string | undefined {
+  if (e.tool) return e.tool;
+  const file = e.image?.split('/').at(-1);
+  return file ? IMAGE_TOOL[file] : undefined;
+}
+
 /** A 会话 row read into a live session, by its Chinese wording (the row as the engine wrote it). */
 function readSession(
   e: Entry,
@@ -120,7 +138,7 @@ function readSession(
     if ((before || (!first && running)) && !gap && count > was) called[name] = now;
   }
   return {
-    key, tool: e.tool, title: e.label, image: e.image, template: e.template, symbol: e.symbol, running, about,
+    key, tool: sessionTool(e), title: e.label, image: e.image, template: e.template, symbol: e.symbol, running, about,
     model: shownParts.slice(1).filter((part) => !/%/.test(part)).slice(0, 2).join(' · '), context: context ? Number(context[1]) / 100 : null,
     began, exact, turnTokens: labelParts.length >= 3 ? labelParts[labelParts.length - 2] : null, turnCost: labelParts.length >= 3 ? labelParts[labelParts.length - 1] : null,
     requests: requests ? Number(requests[1]) : (running && pendingTurn ? 0 : null), tools: [...tools].sort((a, b) => b[1] - a[1]), called, value: e.value ?? '',
@@ -404,6 +422,9 @@ export class PhoneLive {
     if (landings.length) {
       this.lastActive = now;
       if (landings.some((l) => !trackedTools.has(l.id))) this.lastGrowth = moment;
+    }
+    if (sessions.length > 0 && trackedTools.size === 0 && sessions.every((s) => !s.running) && finished) {
+      this.lastGrowth = 0;
     }
     // Active sessions and newly finished turns advance lastActive too, so 开始休息 is never stamped before 这一轮完成 (R10-4).
     if (sessions.some((s) => s.running) || finished) this.lastActive = now;
