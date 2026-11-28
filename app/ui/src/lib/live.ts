@@ -252,9 +252,28 @@ export class LiveFeed {
     return smoothLive(all, this.rateSeries(all, id)).slice(warm.length);
   }
 
-  /** Exponentially-decayed output rate at each of `times` (rising) in one pass over the readings; null before the first. */
+  /** Exponentially-decayed output rate at each of `times` (rising) in one pass over the readings; null before the first.
+   *  When per-tool stop markers are active, the total series (`id === undefined`) sums every tool's individual rate
+   *  series so stopping one tracked session never erases a still-active gateway's or sibling tool's rate (`LIVE-MIX-1`). */
   rateSeries(times: number[], id?: string): (number | null)[] {
-    const list = this.samples, output = (s: Sample) => (id === undefined ? s.output : s.outputs?.[id] ?? 0);
+    const list = this.samples;
+    if (id === undefined && this.stops.size > 0 && !this.stops.has('')) {
+      const toolIds = new Set<string>();
+      for (const s of list) for (const key of Object.keys(s.outputs ?? {})) toolIds.add(key);
+      if (toolIds.size > 0) {
+        const perTool = [...toolIds].map((toolId) => this.rateSeries(times, toolId));
+        return times.map((_, i) => {
+          let any = false, sum = 0;
+          for (const series of perTool) {
+            const v = series[i];
+            if (v !== null) { any = true; sum += v; }
+          }
+          if (!any) return null;
+          return sum < RATE_FLOOR ? 0 : sum;
+        });
+      }
+    }
+    const output = (s: Sample) => (id === undefined ? s.output : s.outputs?.[id] ?? 0);
     const stopList = this.stops.get(id ?? '') ?? [];
     const out: (number | null)[] = [];
     const tauMs = this.rateTau, tauSec = tauMs / 1000;

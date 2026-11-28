@@ -11,6 +11,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime};
 
 use serde_json::{Value, json};
@@ -28,6 +29,8 @@ pub struct Files {
     state: Mutex<(bool, f64)>,
     /// One action at a time, as the engine claims one request file.
     turn: tokio_mutex::Mutex,
+    /// Last non-blocking live-wake timestamp in Unix ms (deduplicates concurrent web/phone viewers).
+    last_wake_ms: AtomicU64,
     /// How long a claimed action is waited on: as long as a question the plugin asks (it may be waiting on the user),
     /// and no longer, for a plugin that quit before writing its receipt would otherwise hold every later action.
     claimed_limit: Duration,
@@ -127,6 +130,7 @@ impl Files {
             asked: Mutex::new(None),
             state: Mutex::new((false, 0.0)),
             turn: tokio_mutex::Mutex::default(),
+            last_wake_ms: AtomicU64::new(0),
             claimed_limit: CLAIMED_LIMIT,
         })
     }
@@ -141,6 +145,7 @@ impl Files {
             asked: Mutex::new(None),
             state: Mutex::new((false, 0.0)),
             turn: tokio_mutex::Mutex::default(),
+            last_wake_ms: AtomicU64::new(0),
             claimed_limit: CLAIMED_LIMIT,
         }
     }
@@ -275,37 +280,46 @@ impl Files {
         let _ = url;
     }
 
-    /// Triggers a non-blocking `refresh-live` action through SwiftBar when `panel-view.json` is older than
-    /// `max_age_secs` and no other action is in flight, giving SwiftBar web/live viewers the same ~2s local-log
-    /// refresh cadence as the standalone app instead of waiting for SwiftBar's 60s background schedule.
-    pub fn request_live_if_stale(&self, max_age_secs: f64) {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static LAST_WAKE_MS: AtomicU64 = AtomicU64::new(0);
+    /// Triggers a non-blocking `refresh-live` action through SwiftBar when `panel-view.json` is due for refresh and no
+    /// other action is in flight, giving SwiftBar web/live viewers the user's chosen `pinInterval` cadence instead of
+    /// waiting for SwiftBar's 60s background schedule. Leaves headroom for plugin write latency (~350ms) so a single
+    /// viewer polling every `interval_secs` triggers on every tick instead of skipping every second poll (`LIVE-POLL-1`),
+    /// while still deduplicating concurrent viewers within the same interval.
+    pub fn request_live_if_stale(&self, interval_secs: f64) -> bool {
+        let age = modified(&self.snapshot).and_then(|at| at.elapsed().ok()).map(|d| d.as_secs_f64());
+        self.request_live_if_stale_at(interval_secs, (now() * 1000.0) as u64, age)
+    }
+
+    fn request_live_if_stale_at(&self, interval_secs: f64, now_ms: u64, snapshot_age_secs: Option<f64>) -> bool {
         if self.folder.as_os_str().is_empty() {
-            return;
+            return false;
         }
-        let stale = modified(&self.snapshot)
-            .and_then(|at| at.elapsed().ok())
-            .is_none_or(|age| age.as_secs_f64() >= max_age_secs);
+        let interval = interval_secs.clamp(1.0, 5.0);
+        let age_limit = (interval - 0.5).max(0.5);
+        let stale = snapshot_age_secs.is_none_or(|age| age >= age_limit);
         if !stale {
-            return;
+            return false;
         }
-        let Some(_turn) = self.turn.try_lock() else { return };
+        let Some(_turn) = self.turn.try_lock() else { return false };
         let request = self.folder.join("panel-action.json");
         if request.exists() {
-            return;
+            return false;
         }
-        let now_ms = (now() * 1000.0) as u64;
-        let last_ms = LAST_WAKE_MS.load(Ordering::SeqCst);
-        let min_gap_ms = (max_age_secs * 1000.0) as u64;
+        let last_ms = self.last_wake_ms.load(Ordering::SeqCst);
+        let min_gap_ms = ((interval - 0.4).max(0.6) * 1000.0) as u64;
         if now_ms.saturating_sub(last_ms) >= min_gap_ms
-            && LAST_WAKE_MS.compare_exchange(last_ms, now_ms, Ordering::SeqCst, Ordering::SeqCst).is_ok()
+            && self.last_wake_ms.compare_exchange(last_ms, now_ms, Ordering::SeqCst, Ordering::SeqCst).is_ok()
         {
             let id = format!("live-{:x}-{:x}", std::process::id(), now_ms);
-            if write_private(&request, &json!({"id": id, "action": ["refresh-live"], "createdAt": now()})) {
+            if write_private(
+                &request,
+                &json!({"id": id, "action": ["refresh-live"], "createdAt": now_ms as f64 / 1000.0}),
+            ) {
                 self.wake();
+                return true;
             }
         }
+        false
     }
 
     /// Queues an action for the plugin and waits for its receipt: automatic refreshes give up after 3 seconds; display
@@ -548,5 +562,40 @@ mod tests {
         assert_eq!(turns.get("s-busy"), Some(&json!(1700000050.0)));
         assert_eq!(pending, vec!["s-new".to_string()], "only running 0-request turns are pending (LIVE-TURN-1)");
         let _ = std::fs::remove_dir_all(folder);
+    }
+
+    #[test]
+    fn live_wake_hits_every_poll_tick_across_intervals_and_deduplicates_concurrent_viewers() {
+        for interval in [1.0_f64, 2.0, 5.0] {
+            let folder = folder().with_extension(format!("poll-{}", interval as u64));
+            std::fs::create_dir_all(&folder).expect("a folder");
+            let snapshot = folder.join("panel-view.json");
+            std::fs::write(&snapshot, b"{}").expect("a snapshot");
+            let args = vec![
+                "app".to_string(),
+                "--plugin".into(),
+                "/x/starmeter.30s.sh".into(),
+                "--snapshot".into(),
+                snapshot.to_string_lossy().into_owned(),
+            ];
+            let files = Files::from_args(&args).expect("panel mode");
+            let request = folder.join("panel-action.json");
+            let base = 1_700_000_000_000_u64;
+            let step_ms = (interval * 1000.0) as u64 + 30;
+            // Simulate plugin finishing 350ms after each wake: next poll `interval + 30ms` later sees age = interval - 320ms.
+            for tick in 0..4_u64 {
+                let t = base + tick * step_ms;
+                let age = if tick == 0 { None } else { Some(interval - 0.32) };
+                assert!(files.request_live_if_stale_at(interval, t, age), "interval {interval}s tick {tick} must wake");
+                // Plugin claims the request file.
+                let _ = std::fs::remove_file(&request);
+                // A second viewer polling 120ms later during the same interval is deduplicated.
+                assert!(
+                    !files.request_live_if_stale_at(interval, t + 120, age.map(|a| a + 0.12)),
+                    "interval {interval}s concurrent viewer must be deduplicated"
+                );
+            }
+            let _ = std::fs::remove_dir_all(folder);
+        }
     }
 }

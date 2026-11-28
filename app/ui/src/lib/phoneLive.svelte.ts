@@ -386,29 +386,25 @@ export class PhoneLive {
     this.sessions = sessions;
     if (entry !== null) this.sessionsSeen = true;
     if (!replay) this.sessionsEntry = entry;
-    // When tracked sessions stop, immediately zero out that tool's (and total's) live curve so it glides cleanly to 0
-    // in ~1.5s instead of dragging a 40–120s decay tail. If a short single-shot turn's final tokens landed in this same
-    // tick, offset the stop marker by 800ms so the spike is visible before gliding down.
+    // When tracked sessions stop, zero out ONLY each stopped tool's live curve (never wipe the total curve, so an
+    // active gateway like Magpie or another tool keeps its full rate in the total: LIVE-MIX-1). If a short turn's final
+    // tokens landed in this same tick, offset the stop marker by 800ms so the spike is visible before gliding down.
     const runningToolsNow = new Set(sessions.filter((s) => s.running && s.tool).map((s) => s.tool!));
     if (!gap && this.prevRunningTools.size > 0) {
       const landedIds = new Set(landings.map((l) => l.id));
       for (const id of this.prevRunningTools) {
         if (!runningToolsNow.has(id)) this.feed.markStopped(landedIds.has(id) ? now + 800 : now, id);
       }
-      if (runningToolsNow.size === 0 && !sessions.some((s) => s.running)) {
-        this.feed.markStopped(landings.length ? now + 800 : now);
-      }
     }
     this.prevRunningTools = runningToolsNow;
     // Only let token growth keep the stage in `working` for QUIET (40s) when the tool has NO tracked session (e.g.
-    // gateways or tools with 会话 off). Tracked sessions report their own exact start/end, so finishing a tracked
-    // session immediately transitions to resting instead of lingering in `正在工作` for 40 seconds.
+    // gateways or tools with 会话 off). Tracked sessions report their own exact start/end, and finishing a tracked
+    // session must never clear an untracked gateway's active `lastGrowth` (LIVE-MIX-1).
     const trackedTools = new Set(sessions.map((s) => s.tool).filter((id): id is string => !!id));
     if (landings.length) {
       this.lastActive = now;
       if (landings.some((l) => !trackedTools.has(l.id))) this.lastGrowth = moment;
     }
-    if (finished && !sessions.some((s) => s.running)) this.lastGrowth = 0;
     // Active sessions and newly finished turns advance lastActive too, so 开始休息 is never stamped before 这一轮完成 (R10-4).
     if (sessions.some((s) => s.running) || finished) this.lastActive = now;
     // Last seen working: the most recent idle session's own word for it, if nothing has been seen here yet.

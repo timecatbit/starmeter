@@ -360,11 +360,18 @@
    *  no switch or key of its own (用户：去掉开关，改成域名一行). Set, its code stands beside the network's while that is
    *  on; emptied, no domain. */
   let domainSavingPromise: Promise<void> | null = null;
-  let domainSavingSubmitted: string | null = null;
+  let domainSavingSubmitted = $state<string | null>(null);
   async function saveDomain() {
-    // Only deduplicate duplicate submits of the exact same input; a new value submitted mid-flight queues via serial()
-    // so two rapid Enter presses with different domains never drop the second one (PHONE-FORM-1).
-    if (domainSavingPromise && domainSavingSubmitted === domainInput) return domainSavingPromise;
+    // Only deduplicate duplicate submits of the exact same target; a new value (including reverting back to the old
+    // value or clearing to empty) submitted mid-flight queues via serial() so it is never dropped (PHONE-FORM-1).
+    if (
+      domainSavingPromise &&
+      domainSavingSubmitted !== null &&
+      (domainSavingSubmitted === domainInput ||
+        (!domainWrong && (domainOrigin(domainSavingSubmitted) ?? '') === (domainOrigin(domainInput) ?? '')))
+    ) {
+      return domainSavingPromise;
+    }
     const submitted = domainInput;
     const run = (async () => {
       domainFailed = null;
@@ -466,8 +473,13 @@
    *  when it is applied (用户：域名/IP 点击了应用之后再检查格式等，不行就不能应用): said then, nothing saved. Empty is no
    *  domain. */
   const domainWrong = $derived(!!domainInput.trim() && domainOrigin(domainInput) === null);
-  /** The domain's field as typed differs from the one saved: its 应用 shows. */
-  const domainChanged = $derived((!!setup || domainEdited) && (domainWrong || (domainOrigin(domainInput) ?? '') !== (setup?.domain ?? '')));
+  /** The effective saved/in-flight domain target: while a save is in flight, compare against what is being saved so
+   *  clearing or reverting back to the previous domain still counts as a change and submits cleanly (PHONE-FORM-1). */
+  const domainTarget = $derived(
+    domainSavingSubmitted !== null ? (domainOrigin(domainSavingSubmitted) ?? '') : (setup?.domain ?? ''),
+  );
+  /** The domain's field as typed differs from the one saved (or being saved): its 应用 shows. */
+  const domainChanged = $derived((!!setup || domainEdited || domainSavingSubmitted !== null) && (domainWrong || (domainOrigin(domainInput) ?? '') !== domainTarget));
   const ownLink = $derived(view?.domain ?? null);
   $effect(() => {
     void view?.port;

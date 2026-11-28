@@ -6,17 +6,19 @@
   import { onPhone } from '../lib/backend';
   import { usageColor } from '../lib/colors';
   import { entryKey, usageShare } from '../lib/detail';
-  import { sectionFolded, toggleSection } from '../lib/expanded.svelte';
+  import { migrateFolded, sectionFolded, toggleSection } from '../lib/expanded.svelte';
   import { t } from '../lib/i18n.svelte';
   import type { Entry } from '../lib/types';
   import { panel } from '../lib/ui.svelte';
   import HomeRow from './HomeRow.svelte';
   import Scroller from './Scroller.svelte';
 
-  let { entries, dashboard, collapsible: _collapsible = false, scrollTop = $bindable(0), onactivate, onmove, onheight }: {
+  let { entries, dashboard, collapsible = false, scrollTop = $bindable(0), onactivate, onmove, onheight }: {
     entries: Entry[]; dashboard: Snippet | null; collapsible?: boolean; scrollTop?: number; onactivate: (e: Entry) => void;
     onmove: (action: string[]) => void; onheight: (height: number) => void;
   } = $props();
+
+  $effect(() => { if (collapsible) migrateFolded(true); });
 
   type SectionId = 'home-plans' | 'home-apis' | 'home-services';
   type PreviewItem = { label?: string; value: string; level?: string };

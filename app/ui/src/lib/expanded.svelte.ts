@@ -10,12 +10,17 @@ const SESSIONS_KEPT = 200;
 
 type Saved = { lists: string[]; sessions: string[]; folded: string[] };
 
+/** Whether the persisted storage already carries explicit v2 per-section `folded` state (false on legacy storage). */
+let hasFolded = false;
+
 function load(): Saved {
   try {
     const saved = JSON.parse((typeof localStorage !== 'undefined' && localStorage.getItem(KEY)) || '{}');
     const strings = (value: unknown) => (Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []);
+    hasFolded = Array.isArray(saved.folded);
     return { lists: strings(saved.lists), sessions: strings(saved.sessions), folded: strings(saved.folded) };
   } catch {
+    hasFolded = false;
     return { lists: [], sessions: [], folded: [] };
   }
 }
@@ -27,7 +32,7 @@ function save() {
     localStorage.setItem(KEY, JSON.stringify({
       lists: expanded.lists,
       sessions: expanded.sessions.slice(-SESSIONS_KEPT),
-      folded: expanded.folded,
+      ...(hasFolded ? { folded: expanded.folded } : {}),
     }));
   } catch {
     // A web view without storage still keeps them for as long as it runs.
@@ -51,22 +56,38 @@ export function closeList(name: string) {
 }
 
 /** Homepage sections folded independently (e.g. `home-plans`, `home-apis`, `home-services`), persisted across restarts. */
+export const HOME_SECTIONS = ['home-plans', 'home-apis', 'home-services'] as const;
 export const sectionFolded = (name: string) => expanded.folded.includes(name);
 
 export function foldSection(name: string) {
-  if (sectionFolded(name)) return;
+  hasFolded = true;
+  if (sectionFolded(name)) { save(); return; }
   expanded.folded = [...expanded.folded, name];
   save();
 }
 
 export function unfoldSection(name: string) {
-  if (!sectionFolded(name)) return;
+  hasFolded = true;
+  if (!sectionFolded(name)) { save(); return; }
   expanded.folded = expanded.folded.filter((known) => known !== name);
   save();
 }
 
 export function toggleSection(name: string) {
   if (sectionFolded(name)) unfoldSection(name); else foldSection(name);
+}
+
+/** Migrates legacy single-block `home-rows` fold state once on upgrade (FOLD-MIGRATE-1):
+ *  - Legacy user with `allowCollapse = true` and `home-rows` NOT in `lists`: keep all three sections folded.
+ *  - Legacy user with `allowCollapse = true` and `home-rows` in `lists`: keep all three sections open.
+ *  - New users who already persisted `folded` keep their exact per-section choices untouched. */
+export function migrateFolded(allowCollapse: boolean) {
+  if (hasFolded || !allowCollapse) return;
+  hasFolded = true;
+  if (!expanded.lists.includes('home-rows')) {
+    expanded.folded = [...HOME_SECTIONS];
+  }
+  save();
 }
 
 export const sessionOpen = (key: string) => expanded.sessions.includes(key);

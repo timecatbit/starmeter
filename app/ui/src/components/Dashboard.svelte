@@ -245,7 +245,6 @@
       for (const id of prevRunning) {
         if (!current.has(id)) feed.markStopped(stamp, id);
       }
-      if (current.size === 0) feed.markStopped(stamp);
     }
     prevRunning = current;
   });

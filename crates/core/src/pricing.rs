@@ -201,50 +201,98 @@ const COLON_TAGS: [&str; 17] = [
     "low", "xhigh", "standard", "flex", "priority",
 ];
 
-/// Pricing-tier keywords that must never be dropped during guarded suffix fallback, so a Flash/Mini/Pro/Sol model can
-/// never degrade to a differently priced sibling.
-const TIER_WORDS: [&str; 28] = [
-    "pro",
-    "flash",
-    "mini",
-    "nano",
-    "lite",
-    "opus",
-    "sonnet",
-    "haiku",
-    "max",
-    "ultra",
-    "plus",
-    "reasoner",
-    "r1",
-    "codex",
-    "spark",
-    "vision",
-    "ocr",
-    "image",
-    "audio",
-    "realtime",
-    "embed",
-    "embedding",
-    "chat",
-    "fable",
-    "sol",
-    "luna",
-    "astra",
-    "neon",
+/// Explicit allowlist of trailing hyphenated region/channel/effort/release modifiers that may be stripped when an exact
+/// price entry is absent. Arbitrary segments (such as parameter sizes `1.5b`/`8b`, architectures `qwen`/`llama`, or
+/// `distill`/`pro`/`flash`/`mini`) are NEVER stripped, preventing unlisted distilled or sibling models from inheriting
+/// a differently priced base model's rate (`PRICE-DISTILL-1`).
+const TRAILING_MODIFIERS: [&str; 42] = [
+    // Region / deployment suffixes
+    "sg",
+    "cn",
+    "us",
+    "eu",
+    "hk",
+    "jp",
+    "kr",
+    "uk",
+    "au",
+    "in",
+    "global",
+    "intl",
+    "east",
+    "west",
+    // Effort / release / routing tags
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "latest",
+    "preview",
+    "exp",
+    "beta",
+    "alpha",
+    "ga",
+    "original",
+    "thinking",
+    "nothinking",
+    "free",
+    "online",
+    "standard",
+    "flex",
+    "priority",
+    "interactive",
+    "abliterated",
+    "uncensored",
+    "cyber",
+    "speed",
+    "fast",
+    "economy",
+    "ultrafast",
+    "turbo",
+    "nitro",
 ];
 
-/// Normalizes a logged model name by stripping gateway/path/region/context wrappers (`workbuddy/`, `cn:`, `ai.`,
-/// `myapi.`, `@500k`, `:thinking`) while keeping version numbers (`v4.1`, `gpt-5.5`) intact.
-pub fn normalize_model(raw: &str) -> String {
-    let lower = raw.trim().to_lowercase();
-    let mut s = lower.rsplit('/').next().unwrap_or("").to_string();
+fn is_date_tag(segment: &str) -> bool {
+    matches!(segment.len(), 4 | 6 | 8) && segment.bytes().all(|b| b.is_ascii_digit())
+}
+
+fn strip_leading_dot_prefix(s: &str) -> Option<&str> {
+    let (prefix, rest) = s.split_once('.')?;
+    if prefix.len() >= 2
+        && prefix.bytes().all(|b| b.is_ascii_alphabetic() || b == b'_')
+        && rest.len() >= 3
+        && rest.bytes().next().is_some_and(|b| b.is_ascii_alphabetic())
+    {
+        Some(rest)
+    } else {
+        None
+    }
+}
+
+/// Yields candidate names by peeling off one explicit wrapper layer at a time (`/`, `@`, `:`, leading alphabetic `.`)
+/// so a namespaced table entry like `qwen.qwen3-coder-next` or `moonshot.kimi-k2-thinking` is checked right after
+/// stripping `gateway/` instead of being skipped (`PRICE-WRAP-1`).
+fn wrapper_candidates(raw: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut push = |value: String| {
+        if !value.is_empty() && !out.contains(&value) {
+            out.push(value);
+        }
+    };
+    let mut s = raw.trim().to_lowercase();
+    push(s.clone());
+    if let Some((_, tail)) = s.rsplit_once('/') {
+        s = tail.to_string();
+        push(s.clone());
+    }
     if let Some((head, _)) = s.split_once('@') {
         s = head.to_string();
+        push(s.clone());
     }
     while let Some((head, tail)) = s.rsplit_once(':') {
         if COLON_TAGS.contains(&tail) {
             s = head.to_string();
+            push(s.clone());
         } else {
             break;
         }
@@ -253,19 +301,18 @@ pub fn normalize_model(raw: &str) -> String {
         && !tail.is_empty()
     {
         s = tail.to_string();
+        push(s.clone());
     }
-    while let Some((prefix, rest)) = s.split_once('.') {
-        if prefix.len() >= 2
-            && prefix.bytes().all(|b| b.is_ascii_alphabetic() || b == b'_')
-            && rest.len() >= 3
-            && rest.bytes().next().is_some_and(|b| b.is_ascii_alphabetic())
-        {
-            s = rest.to_string();
-        } else {
-            break;
-        }
+    while let Some(rest) = strip_leading_dot_prefix(&s) {
+        s = rest.to_string();
+        push(s.clone());
     }
-    s
+    out
+}
+
+/// Fully unwrapped model name (used for family prefix routing such as `claude-` / `gpt-`).
+pub fn normalize_model(raw: &str) -> String {
+    wrapper_candidates(raw).into_iter().last().unwrap_or_default()
 }
 
 /// Swaps version separators between digits (`v4.1` <-> `v4-1`).
@@ -298,29 +345,27 @@ fn lookup_exact_or_variant(models: &Object, candidate: &str) -> Option<String> {
     None
 }
 
-/// Resolves a model key in `models` using normalized exact match, version separator match, and guarded trailing
-/// hyphen-segment fallback (never dropping pricing-tier words or degrading to a bare vendor name).
+/// Resolves a model key in `models` layer-by-layer: after peeling each explicit wrapper (`/`, `@`, `:`, leading `.`),
+/// checks exact/undated/version-separator matches before stripping further (`PRICE-WRAP-1`). Only if no wrapped or
+/// unwrapped exact match exists does it strip explicit trailing region/effort/date modifiers (`PRICE-DISTILL-1`).
 pub fn lookup_key(models: &Object, raw: &str) -> Option<String> {
-    let lower = raw.trim().to_lowercase();
-    if nonempty_object(models.get(&lower)).is_some() {
-        return Some(lower);
-    }
-    let norm = normalize_model(raw);
-    if norm.is_empty() {
-        return None;
-    }
-    if let Some(hit) = lookup_exact_or_variant(models, &norm) {
-        return Some(hit);
-    }
-    let mut cur = undated(&norm).to_string();
-    while let Some((head, tail)) = cur.rsplit_once('-') {
-        if TIER_WORDS.contains(&tail) || !head.contains('-') {
-            break;
-        }
-        if let Some(hit) = lookup_exact_or_variant(models, head) {
+    let candidates = wrapper_candidates(raw);
+    for candidate in &candidates {
+        if let Some(hit) = lookup_exact_or_variant(models, candidate) {
             return Some(hit);
         }
-        cur = head.to_string();
+    }
+    for candidate in &candidates {
+        let mut cur = undated(candidate).to_string();
+        while let Some((head, tail)) = cur.rsplit_once('-') {
+            if (!TRAILING_MODIFIERS.contains(&tail) && !is_date_tag(tail)) || !head.contains('-') {
+                break;
+            }
+            if let Some(hit) = lookup_exact_or_variant(models, head) {
+                return Some(hit);
+            }
+            cur = head.to_string();
+        }
     }
     None
 }
@@ -465,6 +510,12 @@ mod tests {
         let table = object! {
             "deepseek-v4.1-flash" => object! { "input" => 0.1, "output" => 0.2, "cacheRead" => 0.01, "cacheWrite" => 0.0 },
             "deepseek-v4-pro" => object! { "input" => 1.0, "output" => 2.0, "cacheRead" => 0.1, "cacheWrite" => 0.0 },
+            "deepseek-r1" => object! { "input" => 0.574, "output" => 2.19, "cacheRead" => 0.14, "cacheWrite" => 0.0 },
+            "deepseek-r1-distill-qwen-7b" => object! { "input" => 0.072, "output" => 0.14, "cacheRead" => 0.0, "cacheWrite" => 0.0 },
+            "qwen.qwen3-coder-next" => object! { "input" => 0.50, "output" => 1.50, "cacheRead" => 0.05, "cacheWrite" => 0.0 },
+            "qwen3-coder-next" => object! { "input" => 0.2054, "output" => 0.80, "cacheRead" => 0.02, "cacheWrite" => 0.0 },
+            "moonshot.kimi-k2-thinking" => object! { "input" => 0.60, "output" => 2.50, "cacheRead" => 0.15, "cacheWrite" => 0.0 },
+            "kimi-k2-thinking" => object! { "input" => 0.40, "output" => 1.50, "cacheRead" => 0.10, "cacheWrite" => 0.0 },
             "grok-4.7" => object! { "input" => 3.0, "output" => 15.0, "cacheRead" => 0.3, "cacheWrite" => 0.0 },
             "gpt-5" => object! { "input" => 1.25, "output" => 10.0, "cacheRead" => 0.125, "cacheWrite" => 0.0 },
         };
@@ -472,6 +523,18 @@ mod tests {
         assert_eq!(lookup_key(&table, "deepseek-v4-1-flash-cn").as_deref(), Some("deepseek-v4.1-flash"));
         assert_eq!(lookup_key(&table, "ai.deepseek-v4-pro").as_deref(), Some("deepseek-v4-pro"));
         assert_eq!(lookup_key(&table, "grok-4.7@500k").as_deref(), Some("grok-4.7"));
+        // PRICE-WRAP-1: gateway path preserves exact namespaced pricing entries instead of skipping to unnamespaced keys.
+        assert_eq!(lookup_key(&table, "qwen.qwen3-coder-next").as_deref(), Some("qwen.qwen3-coder-next"));
+        assert_eq!(lookup_key(&table, "gateway/qwen.qwen3-coder-next").as_deref(), Some("qwen.qwen3-coder-next"));
+        assert_eq!(lookup_key(&table, "moonshot.kimi-k2-thinking").as_deref(), Some("moonshot.kimi-k2-thinking"));
+        assert_eq!(
+            lookup_key(&table, "gateway/moonshot.kimi-k2-thinking").as_deref(),
+            Some("moonshot.kimi-k2-thinking")
+        );
+        // PRICE-DISTILL-1: listed distilled models match, unlisted distilled sizes stay unpriced (never fall back to full R1).
+        assert_eq!(lookup_key(&table, "deepseek-r1-distill-qwen-7b").as_deref(), Some("deepseek-r1-distill-qwen-7b"));
+        assert_eq!(lookup_key(&table, "deepseek-r1-distill-qwen-1.5b"), None);
+        assert_eq!(lookup_key(&table, "deepseek-r1-distill-llama-8b"), None);
         // Guardrails: never drop a pricing-tier keyword or match bare/ambiguous families.
         assert_eq!(lookup_key(&table, "deepseek-v4"), None);
         assert_eq!(lookup_key(&table, "gpt-5-super-pro"), None);

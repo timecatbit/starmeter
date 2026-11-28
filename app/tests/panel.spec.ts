@@ -868,7 +868,7 @@ test('grouping by model or project swaps the cards, five of them and the rest be
   // Nothing folded into “其他”: every model has its card, and the list ends with 收起 under the last one.
   await expect(page.locator('.card .name', { hasText: '其他' })).toHaveCount(0);
   const last = (await page.locator('.card').last().boundingBox())!;
-  const fold = (await page.getByRole('button', { name: '收起' }).boundingBox())!;
+  const fold = (await page.locator('.cards').getByRole('button', { name: '收起', exact: true }).boundingBox())!;
   const list = (await page.locator('.dashboard').boundingBox())!;
   expect(Math.abs(fold.y - (last.y + last.height))).toBeLessThan(2);
   expect(Math.abs(list.y + list.height - (fold.y + fold.height + 6 + 4))).toBeLessThan(2);
@@ -1216,7 +1216,7 @@ test('what was opened stays open: 查看更多 and an opened session, across tab
   await expect(page.locator('.dashboard')).toBeVisible();
   await expect(page.locator('.session')).toHaveCount(sessions);
   await expect(page.getByRole('button', { name: /查看更多/ })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: '收起' })).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator('.cards').getByRole('button', { name: '收起', exact: true })).toHaveAttribute('aria-expanded', 'true');
   // A reopened panel (the page loaded afresh) has them as they were.
   await page.reload();
   await settled(page);
@@ -1242,7 +1242,7 @@ test('a list opened with 查看更多 folds back with 收起 at its end, the but
     await page.getByRole('button', { name: more }).click();
     const whole = await page.locator(item).count();
     expect(whole, tab).toBeGreaterThan(5);
-    const fold = page.getByRole('button', { name: '收起' });
+    const fold = page.locator('.cards').getByRole('button', { name: '收起', exact: true });
     await expect(fold).toHaveAttribute('aria-expanded', 'true');
     await fold.click();
     await expect(page.locator(item), tab).toHaveCount(5);
@@ -3837,4 +3837,129 @@ test('在手机上看: rapid double Enter with two different domains persists th
   await expect(phone).toHaveCount(0);
   await button(page, '在手机上看').click();
   await expect(page.locator('.phone-page').getByRole('textbox', { name: '域名/IP' })).toHaveValue('https://second.example.com');
+});
+
+test('在手机上看: clearing or reverting to empty while first submit is in flight still submits and persists empty (PHONE-FORM-1)', async ({ page }) => {
+  await open(page, '?mac');
+  await button(page, '在手机上看').click();
+  const phone = page.locator('.phone-page');
+  const domain = phone.getByRole('textbox', { name: '域名/IP' });
+  await expect(domain).toHaveValue('');
+  await page.evaluate(async () => {
+    const { shell } = await import('/src/lib/backend.ts');
+    const orig = shell.phoneDomainSet.bind(shell);
+    const calls: string[] = [];
+    let releaseFirst = () => {};
+    const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    (window as unknown as { __emptyTest: { calls: string[]; releaseFirst: () => void } }).__emptyTest = {
+      calls,
+      releaseFirst,
+    };
+    shell.phoneDomainSet = async (value: string) => {
+      calls.push(value);
+      if (calls.length === 1) await firstGate;
+      return orig(value);
+    };
+  });
+  await domain.fill('first.example.com');
+  await domain.press('Enter');
+  // Clear back to empty (matching the old setup.domain) and press Enter before the first save resolves.
+  await domain.fill('');
+  await domain.press('Enter');
+  await page.evaluate(() => (window as unknown as { __emptyTest: { releaseFirst: () => void } }).__emptyTest.releaseFirst());
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __emptyTest: { calls: string[] } }).__emptyTest.calls)).toEqual(['first.example.com', '']);
+  await expect(domain).toHaveValue('');
+  await page.getByRole('button', { name: '返回' }).click();
+  await expect(phone).toHaveCount(0);
+  await button(page, '在手机上看').click();
+  await expect(page.locator('.phone-page').getByRole('textbox', { name: '域名/IP' })).toHaveValue('');
+});
+
+test('LIVE-MIX-1: stopping the last tracked session preserves an active gateway in total rate and keeps stage working', async ({ page }) => {
+  await open(page);
+  const res = await page.evaluate(async () => {
+    const { backend } = await import('/src/lib/backend.ts');
+    const { PhoneLive } = await import('/src/lib/phoneLive.svelte.ts');
+    const today = (await backend.snapshot()).dashboard!;
+    const makeDash = (magpieOut: number, claudeOut: number) => ({
+      ...today,
+      providers: today.providers.map((p) => {
+        if (p.id === 'magpie') return { ...p, output: p.output + magpieOut, tokens: p.tokens + magpieOut * 10 };
+        if (p.id === 'claude') return { ...p, output: p.output + claudeOut, tokens: p.tokens + claudeOut * 10 };
+        return p;
+      }),
+    });
+    const makeSessions = (claudeRunning: boolean) => ({
+      label: '会话',
+      children: [{
+        key: 'claude:s1',
+        tool: 'claude',
+        label: 'Claude task',
+        statusLight: claudeRunning ? 'new' : 'idle',
+        detail: claudeRunning ? '运行中 1 分钟 · claude-opus-4-6' : '空闲 1 分钟 · claude-opus-4-6',
+        children: [{ label: '10:00 · 10K Token · $0.05', detail: '2 次请求' }],
+      }],
+    });
+    const live = new PhoneLive();
+    const t0 = 1_700_000_000_000;
+    live.take({ at: t0 / 1000, dashboard: makeDash(0, 0), sessions: makeSessions(true) as never, turns: {} }, t0);
+    live.take({ at: (t0 + 2000) / 1000, dashboard: makeDash(2000, 500), sessions: makeSessions(true) as never, turns: {} }, t0 + 2000);
+    // Claude stops while Magpie keeps writing (+2000 output tokens): Magpie must remain in total and state stays working.
+    live.take({ at: (t0 + 4000) / 1000, dashboard: makeDash(4000, 500), sessions: makeSessions(false) as never, turns: {} }, t0 + 4000);
+    return {
+      state: live.state,
+      rawTotalAt5s: live.feed.rateAt(t0 + 5000) ?? 0,
+      rawMagpieAt5s: live.feed.rateAt(t0 + 5000, 'magpie') ?? 0,
+      rawClaudeAt5s: live.feed.rateAt(t0 + 5000, 'claude') ?? 0,
+      smoothTotalAt7s: live.feed.rate(t0 + 7000) ?? 0,
+    };
+  });
+  expect(res.state).toBe('working');
+  expect(res.rawClaudeAt5s).toBe(0);
+  expect(res.rawMagpieAt5s).toBeGreaterThan(250);
+  expect(Math.abs(res.rawTotalAt5s - res.rawMagpieAt5s)).toBeLessThan(1);
+  expect(res.smoothTotalAt7s).toBeGreaterThan(200);
+});
+
+test('FOLD-MIGRATE-1: upgrades preserve legacy home-rows fold state while keeping explicit v2 folded choices', async ({ page }) => {
+  const enableAllowCollapse = (target: Page) => target.route('**/fixtures/default.json*', async (route) => {
+    const response = await route.fetch();
+    const text = (await response.text())
+      .replace(/((?:\\?"|')?allowCollapse(?:\\?"|')?\s*:\s*)(?:false|!1)/g, '$1true');
+    await route.fulfill({ response, body: text });
+  });
+
+  // 1. Legacy user with allowCollapse=true and home-rows folded (`lists: []`, no `folded`): all 3 sections stay folded.
+  await page.addInitScript(() => {
+    localStorage.setItem('starmeter.expanded', JSON.stringify({ lists: [], sessions: [] }));
+  });
+  await enableAllowCollapse(page);
+  await open(page);
+  await expect(page.locator('.rows-fold[data-section="home-plans"]')).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('.rows-fold[data-section="home-apis"]')).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('.rows-fold[data-section="home-services"]')).toHaveAttribute('aria-expanded', 'false');
+
+  // 2. Legacy user with allowCollapse=true and home-rows open (`lists: ['home-rows']`, no `folded`): all 3 stay open.
+  const tab2 = await page.context().newPage();
+  await tab2.addInitScript(() => {
+    localStorage.setItem('starmeter.expanded', JSON.stringify({ lists: ['home-rows'], sessions: [] }));
+  });
+  await enableAllowCollapse(tab2);
+  await open(tab2);
+  await expect(tab2.locator('.rows-fold[data-section="home-plans"]')).toHaveAttribute('aria-expanded', 'true');
+  await expect(tab2.locator('.rows-fold[data-section="home-apis"]')).toHaveAttribute('aria-expanded', 'true');
+  await expect(tab2.locator('.rows-fold[data-section="home-services"]')).toHaveAttribute('aria-expanded', 'true');
+  await tab2.close();
+
+  // 3. New user with explicit v2 folded choice (`folded: ['home-apis']`): preserved untouched even with allowCollapse=true.
+  const tab3 = await page.context().newPage();
+  await tab3.addInitScript(() => {
+    localStorage.setItem('starmeter.expanded', JSON.stringify({ lists: [], sessions: [], folded: ['home-apis'] }));
+  });
+  await enableAllowCollapse(tab3);
+  await open(tab3);
+  await expect(tab3.locator('.rows-fold[data-section="home-plans"]')).toHaveAttribute('aria-expanded', 'true');
+  await expect(tab3.locator('.rows-fold[data-section="home-apis"]')).toHaveAttribute('aria-expanded', 'false');
+  await expect(tab3.locator('.rows-fold[data-section="home-services"]')).toHaveAttribute('aria-expanded', 'true');
+  await tab3.close();
 });

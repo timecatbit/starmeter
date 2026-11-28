@@ -108,36 +108,65 @@ _COLON_TAGS = frozenset({
     'free', 'thinking', 'nitro', 'online', 'exacto', 'extended', 'floor', 'beta', 'preview',
     'fast', 'high', 'medium', 'low', 'xhigh', 'standard', 'flex', 'priority',
 })
-_TIER_WORDS = frozenset({
-    'pro', 'flash', 'mini', 'nano', 'lite', 'opus', 'sonnet', 'haiku', 'max', 'ultra', 'plus',
-    'reasoner', 'r1', 'codex', 'spark', 'vision', 'ocr', 'image', 'audio', 'realtime', 'embed',
-    'embedding', 'chat', 'fable', 'sol', 'luna', 'astra', 'neon',
+_TRAILING_MODIFIERS = frozenset({
+    'sg', 'cn', 'us', 'eu', 'hk', 'jp', 'kr', 'uk', 'au', 'in', 'global', 'intl', 'east', 'west',
+    'low', 'medium', 'high', 'xhigh', 'latest', 'preview', 'exp', 'beta', 'alpha', 'ga', 'original',
+    'thinking', 'nothinking', 'free', 'online', 'standard', 'flex', 'priority', 'interactive',
+    'abliterated', 'uncensored', 'cyber', 'speed', 'fast', 'economy', 'ultrafast', 'turbo', 'nitro',
 })
 
 
-def normalize_model(raw):
-    """Strip gateway/path/region/context wrappers (workbuddy/, cn:, ai., myapi., @500k, :thinking) while keeping
-    version numbers (v4.1, gpt-5.5) intact."""
-    s = str(raw or '').strip().lower().rsplit('/', 1)[-1]
+def _is_date_tag(segment):
+    return len(segment) in (4, 6, 8) and segment.isascii() and segment.isdigit()
+
+
+def _strip_leading_dot_prefix(s):
+    if '.' not in s:
+        return None
+    prefix, rest = s.split('.', 1)
+    if len(prefix) >= 2 and all(c.isascii() and (c.isalpha() or c == '_') for c in prefix) and len(rest) >= 3 and rest[0].isascii() and rest[0].isalpha():
+        return rest
+    return None
+
+
+def _wrapper_candidates(raw):
+    out = []
+    def push(value):
+        if value and value not in out:
+            out.append(value)
+    s = str(raw or '').strip().lower()
+    push(s)
+    if '/' in s:
+        s = s.rsplit('/', 1)[-1]
+        push(s)
     if '@' in s:
         s = s.split('@', 1)[0]
+        push(s)
     while ':' in s:
         head, tail = s.rsplit(':', 1)
         if tail in _COLON_TAGS:
             s = head
+            push(s)
         else:
             break
     if ':' in s:
         _, tail = s.rsplit(':', 1)
         if tail:
             s = tail
-    while '.' in s:
-        prefix, rest = s.split('.', 1)
-        if len(prefix) >= 2 and all(c.isascii() and (c.isalpha() or c == '_') for c in prefix) and len(rest) >= 3 and rest[0].isascii() and rest[0].isalpha():
-            s = rest
-        else:
+            push(s)
+    while True:
+        rest = _strip_leading_dot_prefix(s)
+        if rest is None:
             break
-    return s
+        s = rest
+        push(s)
+    return out
+
+
+def normalize_model(raw):
+    """Fully unwrapped model name for family prefix routing."""
+    candidates = _wrapper_candidates(raw)
+    return candidates[-1] if candidates else ''
 
 
 def _swap_version_sep(model, src, dst):
@@ -163,24 +192,21 @@ def _lookup_exact_or_variant(models, candidate):
 
 
 def lookup_model_key(models, raw):
-    lower = str(raw or '').strip().lower()
-    if models.get(lower):
-        return lower
-    norm = normalize_model(raw)
-    if not norm:
-        return None
-    hit = _lookup_exact_or_variant(models, norm)
-    if hit:
-        return hit
-    cur = re.sub(r'-(?:\d{4}-\d{2}-\d{2}|\d{8})$', '', norm)
-    while '-' in cur:
-        head, tail = cur.rsplit('-', 1)
-        if tail in _TIER_WORDS or '-' not in head:
-            break
-        hit = _lookup_exact_or_variant(models, head)
+    candidates = _wrapper_candidates(raw)
+    for candidate in candidates:
+        hit = _lookup_exact_or_variant(models, candidate)
         if hit:
             return hit
-        cur = head
+    for candidate in candidates:
+        cur = re.sub(r'-(?:\d{4}-\d{2}-\d{2}|\d{8})$', '', candidate)
+        while '-' in cur:
+            head, tail = cur.rsplit('-', 1)
+            if (tail not in _TRAILING_MODIFIERS and not _is_date_tag(tail)) or '-' not in head:
+                break
+            hit = _lookup_exact_or_variant(models, head)
+            if hit:
+                return hit
+            cur = head
     return None
 
 
