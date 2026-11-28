@@ -1759,6 +1759,44 @@ test('在手机上看: under a code the whole link is written out, key and all: 
   await page.evaluate(() => localStorage.removeItem('starmeter.test-phone'));
 });
 
+test('在手机上看: 反代 started with no domain says how its link goes together: your domain or IP, then the part shown, copied by a click; its key the same through a 停止', async ({ page }) => {
+  // 用户：域名也可以不写，但是开始之后，告诉用户如何拼域名/IP+后面的key。默认提示是https://starmeter.example.com.
+  await page.addInitScript(() => {
+    const state = { text: '' };
+    (window as unknown as { clipboardState: typeof state }).clipboardState = state;
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: (text: string) => Promise.resolve(void (state.text = text)) } });
+  });
+  await open(page);
+  await button(page, '在手机上看').click();
+  const phone = page.locator('.phone-page');
+  await page.getByRole('switch', { name: '同时开启反代' }).click();
+  await expect(phone.getByRole('textbox', { name: '域名' })).toHaveValue('');
+  await button(page, '开始').click();
+  // The network's code, and under it how 反代's link goes: https://your domain or IP, then /#k=… to put after it.
+  await expect(phone.locator('svg.qr')).toHaveCount(1);
+  const recipe = phone.locator('.recipe');
+  await expect(recipe.locator('.address')).toHaveText('https://你的域名或 IP');
+  await expect(recipe.locator('.secret')).toHaveText(/^\/#k=[0-9a-f]{32}&l=zh$/);
+  await expect(recipe).toContainText('把这一段接在你的域名或 IP 后面，手机就能打开');
+  await expect(phone.getByText('反代转发到 192.168.1.20:51234')).toBeVisible();
+  // No domain, nothing to check.
+  await expect(phone.locator('.check')).toHaveCount(0);
+  const tail = (await recipe.locator('.secret').textContent())!;
+  // A click copies just that part.
+  await recipe.locator('.copy-link').click();
+  await expect(recipe.locator('.address')).toHaveText('已复制');
+  expect(await page.evaluate(() => (window as unknown as { clipboardState: { text: string } }).clipboardState.text)).toBe(tail);
+  // The same part after a 停止 and 开始.
+  await button(page, '停止').click();
+  await button(page, '开始').click();
+  await expect(recipe.locator('.secret')).toHaveText(tail);
+  // 换链接 changes it.
+  await phone.locator('.link-line').getByRole('button', { name: '换链接' }).click();
+  await phone.locator('.link-line').getByRole('button', { name: '确定换' }).click();
+  await expect(recipe.locator('.secret')).not.toHaveText(tail);
+  await page.evaluate(() => localStorage.removeItem('starmeter.test-phone'));
+});
+
 test('在手机上看: each way stops on its own, the other\'s code staying as it was', async ({ page }) => {
   // 用户：为什么一按停止所有都停止了？同一网络和任何网络为什么是一切开始和结束？互不影响啊。
   const calls = () => page.evaluate(() => (window as unknown as { calls: string[] }).calls);
@@ -3489,10 +3527,12 @@ test('在手机上看: 同时开启反代: the same network and your own domain 
   // On, on the same page: the domain, and the address a proxy forwards to: this computer's network address (用户：那就用
   // 子网的ip吧), for a proxy here or on a NAS alike, the same network being on with it; 127.0.0.1 for one here too.
   await expect(target).toHaveText('192.168.1.20:51234');
-  await expect(phone.getByText('反代在这台电脑上时也可用 127.0.0.1:51234。')).toBeVisible();
+  // Nothing more said under it (用户：这里废话太多), and the domain may be left empty (用户：域名也可以不写).
+  await expect(phone.getByText('反代在这台电脑上时也可用')).toHaveCount(0);
+  await expect(domain).toHaveAttribute('placeholder', 'https://starmeter.example.com（可不填）');
   // The port is the server's: no field for it until 换端口.
   await expect(phone.getByRole('textbox', { name: '端口' })).toHaveCount(0);
-  await expect(button(page, '开始')).toBeDisabled();
+  await expect(button(page, '开始')).toBeEnabled();
   await phone.getByRole('button', { name: '换端口' }).click();
   const port = phone.getByRole('textbox', { name: '端口' });
   await expect(port).toBeFocused();

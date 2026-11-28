@@ -96,19 +96,19 @@
   const outside = $derived(looked(view?.public));
   /** 自有域名's link while it is on, its address, and where its proxy forwards to (this computer's port). */
   const own = $derived(looked(view?.domain));
+  /** 反代 on, a domain given or not; with none, what to put after one's own domain or IP: /#k=… and the page's language
+   *  (用户：域名也可以不写，但是开始之后，告诉用户如何拼域名/IP+后面的key). */
+  const proxyOn = $derived(!!view?.domainKey || !!own);
+  const proxyTail = $derived(view?.domainKey && !own ? looked(`/#k=${view.domainKey}`) : null);
   const ownOrigin = $derived(view?.domain ? view.domain.replace(/\/?#.*$/, '') : null);
   const ownHost = $derived(ownOrigin?.replace(/^https?:\/\//, '') ?? '');
   const portTyped = $derived(/^\d+$/.test(portInput.trim()) ? Number(portInput.trim()) : null);
-  const forwardPort = $derived(own ? view?.port : portTyped ?? setup?.port);
+  const forwardPort = $derived(proxyOn ? view?.port : portTyped ?? setup?.port);
   /** Where the user's proxy hands requests on to: this computer's network address (用户：那就用子网的ip吧), good for a
    *  proxy on this computer and one on a NAS or the router alike, the same network being on with the proxy; this
    *  computer itself (127.0.0.1) without a network. Not 0.0.0.0: that is where the server listens, not an address to
    *  send to. */
   const forwardTo = $derived(forwardPort != null ? `http://${setup?.lan ?? '127.0.0.1'}:${forwardPort}` : null);
-  /** For a proxy on this computer, 127.0.0.1 does too. */
-  const forwardHere = $derived(forwardPort != null && setup?.lan ? `127.0.0.1:${forwardPort}` : null);
-  /** A proxy elsewhere reaching this computer over a VPN: its Tailscale (or WireGuard) address, with the VPN page on. */
-  const forwardVpn = $derived(forwardPort != null && (setup?.tailnet || setup?.wireguard) ? `${setup?.tailnet ?? setup?.wireguard}:${forwardPort}` : null);
   /** What the check found, said with what to look at. */
   const checkText = $derived.by(() => {
     if (domainCheck === 'failed') return t('没能检查 {host} 能不能打开', { host: ownHost });
@@ -135,10 +135,10 @@
     own && { key: 'domain', url: own, title: '反代', label: '手机在哪都能扫这个二维码', detail: '手机在哪都能扫' },
   ].filter((code) => !!code));
   /** 自有域名 started on another port than the server's: the same network's codes and Cloudflare's link go with it. */
-  const movesServer = $derived(!own && !!view && !!view.port && portTyped !== null && portTyped !== view.port
+  const movesServer = $derived(!proxyOn && !!view && !!view.port && portTyped !== null && portTyped !== view.port
     && (localOn || vpnOn || !!outside || opening));
   /** Which ways are on, a green dot after each one's name. */
-  const on = $derived({ local: localOn || !!own, public: !!outside || opening || vpnOn });
+  const on = $derived({ local: localOn || proxyOn, public: !!outside || opening || vpnOn });
 
   /** Each way's steps belong to its own round, so what one answers late can't undo a later step of the same way: a
    *  start after a 停止, a link closed while it was made. Every step also moves `epoch`, so the status asked every ten
@@ -163,7 +163,7 @@
    *  too). The host's own answer follows. */
   function without(gone: Partial<PhoneView>) {
     const left = view ? { ...view, ...gone } : null;
-    setPhone(left && (left.localOpen || left.vpnOpen || left.public || left.publicOpening || left.domain) ? left : null);
+    setPhone(left && (left.localOpen || left.vpnOpen || left.public || left.publicOpening || left.domain || left.domainKey) ? left : null);
   }
 
   /** 同一个网络's 开始 (重新开始, 重试). A start that fails stays in the code's place with its reason and 重试, instead of
@@ -388,9 +388,9 @@
     // 重试 after the same network failed: its reason goes as this start shows its spinner, and a new one says why (R12-6).
     localFailed = null;
     try {
-      if (phone.near === 'domain' && !own) {
+      if (phone.near === 'domain' && !proxyOn) {
         await startDomain();
-        if (!own || destroyed) return;
+        if (!proxyOn || destroyed) return;
       }
       if (!localOn && !destroyed) await startLocal();
     } finally {
@@ -403,7 +403,7 @@
     // for a moment.
     const local = ++localRound, domain = ++domainRound;
     epoch++;
-    const wasDomain = !!own || domainStarting;
+    const wasDomain = proxyOn || domainStarting;
     const wasLocal = localOn || !!localFailed || starting;
     starting = false;
     domainStarting = false;
@@ -412,7 +412,7 @@
     portSaid = null;
     if (wasLocal) phone.localStopped = true;
     if (wasDomain) phone.domainStopped = true;
-    without({ localOpen: false, local: null, domain: null });
+    without({ localOpen: false, local: null, domain: null, domainKey: null });
     const left = await serial(() => sent(shell.phoneStopNear())).catch(() => phone.view);
     if (local === localRound && domain === domainRound) setPhone(left ?? null);
   }
@@ -420,7 +420,7 @@
    *  the same page. */
   function pickNear(next: Near) {
     chooseNear(next);
-    if (next === 'local' && (own || domainStarting)) void stopDomain();
+    if (next === 'local' && (proxyOn || domainStarting)) void stopDomain();
   }
   /** 自有域名's 停止: its links stop opening; its address and port stay for the next 开始. */
   async function stopDomain() {
@@ -429,7 +429,7 @@
     domainStarting = false;
     domainFailed = null;
     phone.domainStopped = true;
-    without({ domain: null });
+    without({ domain: null, domainKey: null });
     const left = await serial(() => sent(shell.phoneDomainStop())).catch(() => phone.view);
     if (mine === domainRound) setPhone(left ?? null);
   }
@@ -459,7 +459,7 @@
   }
   /** 开始 can be pressed (and Return starts it): an address typed, and a port typed or known (the setup read), none on
    *  its way. A port out of range is said on the press, under the form (R12-8). */
-  const canStart = $derived(!domainStarting && !starting && !!domainInput.trim() && (portInput.trim() !== '' || !!setup));
+  const canStart = $derived(!domainStarting && !starting && (portInput.trim() !== '' || !!setup));
   const enter = (event: KeyboardEvent) => { if (event.key === 'Enter' && !composing(event) && canStart) void startNear(); };
   const enterPort = (event: KeyboardEvent) => { if (event.key === 'Enter' && !composing(event) && !starting) void startNear(); };
   const ownLink = $derived(view?.domain ?? null);
@@ -540,7 +540,7 @@
   // Refused: the whole link, key and all, selected for a copy by hand.
   $effect(() => { if (copied?.state === 'failed' && manual) { manual.focus(); manual.select(); } });
   // A new link (another network, a public link) starts afresh.
-  $effect(() => { void lan; void tailnet; void wireguard; void outside; void own; copied = null; });
+  $effect(() => { void lan; void tailnet; void wireguard; void outside; void own; void proxyTail; copied = null; });
 
   let body: HTMLDivElement | undefined = $state();
   $effect(() => {
@@ -606,7 +606,7 @@
     <label class="field">
       <span class="field-label">{t('域名')}</span>
       <input class="field-input" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
-        placeholder="meter.example.com" bind:value={domainInput} oninput={() => (domainEdited = true)} onkeydown={enter} />
+        placeholder={t('https://starmeter.example.com（可不填）')} bind:value={domainInput} oninput={() => (domainEdited = true)} onkeydown={enter} />
     </label>
     <div class="forward">
       <span class="field-label">{t('转发到')}</span>
@@ -623,13 +623,21 @@
   {#if domainFailed}<p class="failed">{t(domainFailed)}</p>{/if}
   {#if movesServer}<p class="note caution">{t('换端口后二维码要重新扫，Cloudflare 链接会关闭')}</p>{/if}
   {#if phone.domainStopped}<p class="note">{t('重新开启后，原来的反代链接还能用。')}</p>{/if}
-  <p class="note">{t('用你的反代或隧道（Caddy、Nginx、frp 等）把域名转发到上面的地址。')}</p>
-  {#if forwardHere}
-    <p class="note">{t('反代在这台电脑上时也可用 {target}。', { target: forwardHere })}</p>
-  {/if}
-  {#if forwardVpn}
-    <p class="note">{t('经 Tailscale 或 WireGuard 转发时用 {target}，并开启“Tailscale 等 VPN”。', { target: forwardVpn })}</p>
-  {/if}
+{/snippet}
+
+{#snippet proxyRecipe(tail: string)}
+  <!-- 反代 on with no domain given: how its link goes together, your domain or IP, then this (用户：域名也可以不写，但是开始
+       之后，告诉用户如何拼域名/IP+后面的key). A click copies what goes after it. -->
+  {@const done = copied?.key === 'recipe' && copied.state === 'ok'}
+  <div class="recipe">
+    <span class="card-title">{t('反代')}</span>
+    <button class="copy-link pressable" class:done onclick={() => copy('recipe', tail)} title={tail}>
+      {#if done}<span class="room" aria-hidden="true">https://{t('你的域名或 IP')}</span>{/if}<span class="address">{#if done}{t('已复制')}{:else}https://<span
+            class="slot">{t('你的域名或 IP')}</span>{/if}</span><span class="secret" class:gone={done}>{#each linkParts('#' + tail.replace(/^\/#/, '')) as part, i (i)}{#if i}<wbr />{/if}{i ? part : '/' + part}{/each}</span>
+    </button>
+    <span class="card-detail">{t('把这一段接在你的域名或 IP 后面，手机就能打开')}</span>
+    {@render byHand('recipe', tail)}
+  </div>
 {/snippet}
 
 {#snippet domainCheckLine()}
@@ -710,7 +718,7 @@
             <p class="failed">{t(localFailed)}</p>
             {#if phone.near === 'domain'}{@render domainForm()}{:else}{@render portRow()}{/if}
             <div class="actions"><button class="action primary pressable" disabled={phone.near === 'domain' && !canStart} onclick={startNear}>{t('重试')}</button></div>
-          {:else if localOn || own}
+          {:else if localOn || proxyOn}
             {#if nearCodes.length > 1}
               <!-- The network's code and the domain's side by side, the same server. -->
               <div class="codes">
@@ -729,9 +737,10 @@
             {:else}
               <div class="code"><span class="wait">{t('这台电脑没有连上网络')}</span></div>
             {/if}
-            {#if nearCodes.length}{@render linkLine('near')}{/if}
+            {#if proxyTail}{@render proxyRecipe(proxyTail)}{/if}
+            {#if nearCodes.length || proxyTail}{@render linkLine('near')}{/if}
             {@render domainCheckLine()}
-            {#if phone.near === 'domain' && !own}
+            {#if phone.near === 'domain' && !proxyOn}
               <!-- The same network on, 反代 chosen since: its form, and its own 开始. -->
               {@render domainForm()}
               <div class="actions"><button class="action primary pressable" disabled={!canStart} onclick={startDomain}>{t('开启反代')}</button></div>
@@ -744,7 +753,7 @@
             {:else if lan}
               <p class="note">{t('手机连同一个 Wi-Fi 后扫码。只读，点“停止”前一直开着。')}</p>
             {/if}
-            {#if own}<p class="note">{t('反代转发到 {target}', { target: forwardTo?.replace(/^http:\/\//, '') ?? '' })}</p>{/if}
+            {#if proxyOn}<p class="note">{t('反代转发到 {target}', { target: forwardTo?.replace(/^http:\/\//, '') ?? '' })}</p>{/if}
             <div class="actions"><button class="action danger pressable" onclick={stopNear}>{t('停止')}</button></div>
           {:else if starting || domainStarting}
             <div class="code"><span class="spinner" aria-label={t('正在开启')}></span></div>
@@ -1013,6 +1022,9 @@
   .link-line { flex-wrap: wrap; margin: -8px 0 -4px; }
   .change.sure { color: var(--red); }
   .note.centre { text-align: center; }
+  /* 反代 with no domain: its title, your domain or IP then the part to put after it, and one line on what to do. */
+  .recipe { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 8px 9px; border-radius: 12px; background: color-mix(in srgb, var(--label) 4%, transparent); }
+  .slot { padding: 0 4px; border-radius: 4px; border: 1px dashed var(--separator); color: var(--tertiary); }
   .check { margin: -4px 0 0; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 11px; line-height: 1.45; color: var(--secondary); text-align: center; }
   .check.ok { color: var(--green); }
   .check.caution {
