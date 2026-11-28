@@ -67,7 +67,8 @@
     padding: 4px 14px 11px;
     transition: box-shadow 1.2s ease-out;
   }
-  .session.enter { animation: card-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) calc(var(--lead, 0.1s) + var(--order) * 0.06s) backwards; }
+  /* With the page's first frame, as the tools' cards are (StageCard). */
+  .session.enter { animation: card-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) calc(min(var(--order), 8) * 0.035s) backwards; }
   @keyframes card-in { from { opacity: 0; transform: translateY(14px) scale(0.985); } }
   .session.glow { box-shadow: inset 0 0 0 1px var(--star), 0 0 22px -4px var(--star), var(--lift); transition: none; }
   .head { width: 100%; display: flex; align-items: center; gap: 10px; min-height: 42px; text-align: left; }

@@ -273,7 +273,7 @@ export class PhoneLive {
     if (this.stopped || round !== this.round) return;
     this.trouble = false;
     this.wantHistory = false;
-    this.take(answer, Date.now());
+    this.take(answer, answer.received ?? Date.now());
   }
 
   /** A reading taken at `now` (this phone's clock). `replay`: one of the computer's last minutes, given with a page's

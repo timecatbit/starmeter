@@ -47,8 +47,24 @@ const query = (pairs: [string, string | null][]) => {
 };
 export const snapshot = () => once<Snapshot>('/api/snapshot' + query([['range', range], ['group', group]]));
 export const dashboard = (asked: string) => once<Dashboard>('/api/dashboard' + query([['range', asked], ['group', group]]));
+/** A live answer with when it came, on this page's clock (its figures are of that moment, whenever they are taken). */
+const asked = (path: string) => once<LiveAnswer>(path).then((answer) => ({ ...answer, received: Date.now() }));
+/** The live view's first reading, asked for as the page starts, along with its figures: asked only once the page was
+ *  drawn, the sessions at work came a round trip after everything else (用户：为什么工具会话胶囊是在页面刷新之后1-2后
+ *  才出现呢？就很突兀). Null once taken, or when it failed (the live view then asks for itself and says so). */
+let ahead: Promise<(LiveAnswer & { received: number }) | null> | null = key ? asked('/api/live?history=1').catch(() => null) : null;
+/** How old the reading asked ahead may be when the live view takes it: older (the figures were long in coming), it
+ *  asks again. */
+const AHEAD_FOR = 2500;
 /** 网页版's live view, asked every couple of seconds while it is on screen (today's figures, 会话, the turns' starts). */
-export const live = (history = false) => once<LiveAnswer>('/api/live' + (history ? '?history=1' : ''));
+export async function live(history = false): Promise<LiveAnswer> {
+  if (history && ahead) {
+    const first = await ahead;
+    ahead = null;
+    if (first && Date.now() - first.received < AHEAD_FOR) return first;
+  }
+  return asked('/api/live' + (history ? '?history=1' : ''));
+}
 /** The computer's last minutes (with a live answer: the phone server keeps no other way to ask). */
 export const recent = async () => { const answer = await live(true); return { at: answer.at, history: answer.history ?? [] }; };
 

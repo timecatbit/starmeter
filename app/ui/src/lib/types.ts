@@ -210,6 +210,9 @@ export interface LiveAnswer {
   history?: LiveReading[];
   /** True for SwiftBar's plugin (30s refresh cadence) so the live rate uses a matching decay constant. */
   slow?: boolean;
+  /** On a phone: when the answer came, on the page's own clock (the first is asked for before the page is drawn and
+   *  taken once it is). */
+  received?: number;
 }
 
 /** One of the last minutes' readings the computer keeps (the computer's seconds): each tool's figures the live line

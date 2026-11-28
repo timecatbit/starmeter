@@ -74,8 +74,10 @@
     padding: 4px 14px 12px;
     transition: box-shadow 1.2s ease-out;
   }
-  /* Rising in, one after another down the list. */
-  .card.enter { animation: card-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) calc(var(--lead, 0.35s) + var(--order) * 0.06s) backwards; }
+  /* Rising in, one after another down the list, from the page's first frame: the first with everything else, the
+     rest a step behind each (用户：为什么工具会话胶囊是在页面刷新之后1-2后才出现呢？就很突兀: they waited a third of a
+     second with the rest of the page already there, and the last of seven was whole a second after it). */
+  .card.enter { animation: card-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) calc(min(var(--order), 8) * 0.035s) backwards; }
   @keyframes card-in { from { opacity: 0; transform: translateY(14px) scale(0.985); } }
   .card.glow { box-shadow: inset 0 0 0 1px var(--tint), 0 0 22px -4px var(--tint), var(--lift); transition: none; }
   .card.off { opacity: 0.62; }
@@ -125,7 +127,7 @@
     transform-origin: left;
     transition: transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
   }
-  .enter .fill { animation: grow 0.9s cubic-bezier(0.22, 1, 0.36, 1) calc(var(--lead, 0.35s) + 0.2s + var(--order) * 0.06s) backwards; }
+  .enter .fill { animation: grow 0.9s cubic-bezier(0.22, 1, 0.36, 1) calc(0.12s + min(var(--order), 8) * 0.035s) backwards; }
   @keyframes grow { from { transform: scaleX(0); } }
   .more { padding: 10px 0 0 44px; display: flex; flex-direction: column; gap: 6px; }
   .stats { font-size: 11.5px; color: var(--ink-2); line-height: 1.45; }

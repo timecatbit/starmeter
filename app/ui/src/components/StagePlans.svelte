@@ -125,7 +125,8 @@
     background: var(--glass);
     box-shadow: inset 0 0 0 0.5px var(--glass-edge), var(--lift);
   }
-  .enter { animation: card-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) calc(0.5s + var(--order) * 0.06s) backwards; }
+  /* With the page's first frame, as the tools' cards are (StageCard): they waited half a second. */
+  .enter { animation: card-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) calc(min(var(--order), 8) * 0.035s) backwards; }
   @keyframes card-in { from { opacity: 0; transform: translateY(14px) scale(0.985); } }
   .dial { position: relative; flex: none; width: 56px; height: 56px; }
   .dial svg { display: block; }

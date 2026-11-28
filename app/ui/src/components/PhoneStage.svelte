@@ -425,8 +425,8 @@
 
   // MARK: Cards
 
-  /** The cards rise in at the opening, and again whenever another range, grouping or 会话 brings new ones, without the
-   *  opening's wait. */
+  /** The cards rise in at the opening, with the page's first frame, and again whenever another range, grouping or 会话
+   *  brings new ones. */
   let changed = $state(false);
   let firstShape: string | null = null;
   $effect(() => {
@@ -435,7 +435,6 @@
     else if (shape !== firstShape) changed = true;
   });
   const entering = $derived(intro || changed);
-  const lead = $derived(intro && !changed ? null : '0s');
 
   const cardList = $derived(data.cards ?? byUsage(data.providers));
   const SHOWN = 5;
@@ -616,7 +615,7 @@
             {#if !showingSessions && !regrouping && data.groupNote}<p class="note">{data.groupNote}</p>{/if}
 
             {#if showingSessions && sessions}
-              <div class="list" style:--lead={lead}>
+              <div class="list">
                 {#each sessionsListed as s, i (sessionKey(s, i))}
                   <StageSession {s} order={i} enter={entering} open={sessionOpen(sessionKey(s, i))} ontoggle={() => toggleSession(sessionKey(s, i))} />
                 {/each}
@@ -627,7 +626,7 @@
                 {#each sessionNotes as note, i (i)}<p class="note">{note.label}</p>{/each}
               </div>
             {:else}
-              <div class="list" class:held={regrouping} inert={regrouping} aria-busy={regrouping} style:--lead={lead}>
+              <div class="list" class:held={regrouping} inert={regrouping} aria-busy={regrouping}>
                 {#if !cardList.length && data.providers.length}<p class="note center">{t('此时段暂无调用')}</p>{/if}
                 {#each listed as p, i (p.id)}
                   <StageCard {p} part={parts.get(p.id) ?? 0} order={i} enter={entering} open={opened.has(p.id)} glow={glowing.has(p.id)} ontoggle={() => toggleCard(p.id)} />

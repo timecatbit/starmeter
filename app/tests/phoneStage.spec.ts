@@ -1059,6 +1059,66 @@ test('reloaded while the work goes on, the page has the computer\'s last minutes
   await expect(minute).toHaveAttribute('data-value', /^\+\d/);
 });
 
+test('reloaded, the tools\' cards and the sessions at work come with the page, not a second after it: the live view asked for along with the figures, the cards rising from the first frame', async ({ page }) => {
+  // 用户：为什么工具会话胶囊是在页面刷新之后1-2后才出现呢？就很突兀。 The cards waited a third of a second before rising
+  // one by one (the last of seven whole a second after the page), and the sessions were asked for only once the page
+  // was drawn: a round trip later.
+  await phone(page, { width: 1440, height: 900 }, '', { live: liveWork({ length: 1000, claudeEnds: 300, codexEnds: 300 }) });
+  // A computer that takes its time over each answer, and what was asked and answered, in order.
+  const order: string[] = [];
+  await page.route('**/api/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    order.push('asked ' + path);
+    await new Promise((done) => setTimeout(done, 350));
+    order.push('answered ' + path);
+    await route.fallback();
+  });
+  // When each is first seen (through whatever hides it), frame by frame from the page's start.
+  await page.addInitScript(() => {
+    const watched: Record<string, string> = { stats: '.stats-head', card: '.stats-b .list > .card', session: '.activity-box .session', plan: '.stats .plan, .stats .tile' };
+    const seen: Record<string, number> = {};
+    const shown = (element: Element) => {
+      let opacity = 1;
+      for (let node: Element | null = element; node; node = node.parentElement) {
+        const css = getComputedStyle(node);
+        if (css.visibility === 'hidden' || css.display === 'none') return 0;
+        opacity *= parseFloat(css.opacity);
+      }
+      return opacity;
+    };
+    const look = () => {
+      for (const [name, selector] of Object.entries(watched)) {
+        const element = document.querySelector(selector);
+        if (element && seen[name] === undefined && shown(element) > 0.02) seen[name] = performance.now();
+      }
+      (window as unknown as { seenAt: Record<string, number> }).seenAt = seen;
+      requestAnimationFrame(look);
+    };
+    requestAnimationFrame(look);
+  });
+  await page.reload();
+  await expect(page.locator('.stage .activity-box .session').first()).toBeVisible();
+  await expect(page.locator('.stage .stats-b .list > .card').first()).toBeVisible();
+  // The live view's first reading was on its way before the figures came back.
+  expect(order.indexOf('asked /api/live'), order.join(', ')).toBeGreaterThanOrEqual(0);
+  expect(order.indexOf('asked /api/live'), order.join(', ')).toBeLessThan(order.indexOf('answered /api/snapshot'));
+  // So the sessions are there with the page (they came 350 ms after it), and one reading was asked for, not two.
+  await page.waitForTimeout(600);
+  const seen = await page.evaluate(() => (window as unknown as { seenAt: Record<string, number> }).seenAt);
+  expect(seen.session - seen.stats, JSON.stringify(seen)).toBeLessThan(150);
+  expect(order.filter((step) => step === 'asked /api/live').length, order.join(', ')).toBe(1);
+  // The first card begins with the page and each after it a step behind: none waits to start.
+  expect(seen.card - seen.stats, JSON.stringify(seen)).toBeLessThan(150);
+  expect(seen.plan - seen.stats, JSON.stringify(seen)).toBeLessThan(150);
+  const waits = await page.evaluate(() => ['.stats-b .list > .card', '.stats .plan, .stats .tile'].map((selector) =>
+    [...document.querySelectorAll(selector)].map((element) => parseFloat(getComputedStyle(element).animationDelay) || 0)));
+  for (const list of waits) {
+    expect(list.length).toBeGreaterThan(0);
+    expect(list[0]).toBe(0);
+    expect(Math.max(...list)).toBeLessThanOrEqual(0.3);
+  }
+});
+
 test('on its side under Safari\'s bars, the monitor held still fits what is seen of the page, its curve\'s foot too', async ({ page }) => {
   // Safari on its side with the tab bar: 852 × 393 of window, 286 of it seen below the bars.
   await page.addInitScript(() => {
