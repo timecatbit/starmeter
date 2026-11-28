@@ -231,7 +231,7 @@ export const phrases: Record<string, string> = {
   '手机在哪都能扫。只读，点“停止”前一直开着。': 'Scan it from anywhere. Read-only; on until you stop it.',
   '手机连同一个 Wi-Fi 后扫码。只读，点“停止”前一直开着。': 'Scan it with the phone on this Wi-Fi. Read-only; on until you stop it.',
   '重新开始后，原来的二维码还能用。': 'Started again, the code from before still opens.',
-  换链接: 'New link', 原来的二维码将不能再用: 'Old codes will stop opening', 确定换: 'Change it',
+  换链接: 'New link', 链接: 'Link', 一直不变: 'Stays the same', 应用: 'Apply', 原来的二维码将不能再用: 'Old codes will stop opening', 确定换: 'Change it',
   '已换成新链接，手机重新扫码': 'The link is new: scan again on the phone',
   '手机连同一个 Wi-Fi，扫码就能看。': 'With the phone on this Wi-Fi, scan to watch.',
   '在“同一网络 / 反代”里换端口，或退出占用它的程序。': 'Change the port under Same network / Proxy, or quit the app holding it.',

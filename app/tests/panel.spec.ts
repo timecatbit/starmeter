@@ -1668,7 +1668,7 @@ test('在手机上看: a page\'s link is the same from one 开始 to the next an
       level: new Set([...element.children].map((child) => Math.round(child.getBoundingClientRect().top + child.getBoundingClientRect().height / 2))).size };
   });
   expect(fit.inside).toBe(true);
-  expect(fit.height).toBeLessThanOrEqual(28);
+  expect(fit.height).toBeLessThanOrEqual(38);
   expect(fit.level).toBe(1);
   await page.evaluate(() => localStorage.removeItem('starmeter.test-phone'));
 });
@@ -3556,9 +3556,11 @@ test('在手机上看: 同时开启反代: the same network and your own domain 
   await expect(near.locator('.on')).toHaveCount(0);
   await expect(domain).toHaveValue('meter.example.com');
   await expect(target).toHaveText('192.168.1.20:8765');
-  // The form back: the port's field there, but the focus left where it was, not taken by it.
-  await expect(port).toBeVisible();
-  await expect(port).not.toBeFocused();
+  // The settings back as they were: the port as it is with 换端口 (its field closed once the port took), the focus
+  // left where it was.
+  await expect(phone.locator('.setup .row').first().locator('.row-value')).toHaveText('8765');
+  await expect(port).toHaveCount(0);
+  await expect(phone.getByRole('button', { name: '换端口' })).toBeVisible();
   await expect(phone.getByText('重新开启后，原来的反代链接还能用。')).toBeVisible();
   // On again, then the app started again: on as it was left, both codes.
   await button(page, '开始').click();
@@ -3749,7 +3751,7 @@ test('在手机上看: 同一网络 takes a port of its own under 换端口, hel
   await open(page);
   await button(page, '在手机上看').click();
   const phone = page.locator('.phone-page');
-  const now = phone.locator('.port-now');
+  const now = phone.locator('.setup .row').first().locator('.row-value');
   // Off: the port as it is, and 换端口.
   await expect(now).toHaveText('51234');
   await expect(phone.getByRole('textbox', { name: '端口' })).toHaveCount(0);

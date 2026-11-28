@@ -368,6 +368,8 @@
       // As kept now: the fields show what was saved.
       domainEdited = false;
       portEdited = false;
+      portOpen = false;
+      portSaid = null;
       const next = await shell.phoneDomain().catch(() => null);
       if (next && mine === domainRound) settled(next);
     } catch (error) {
@@ -470,7 +472,18 @@
    *  its way. A port out of range is said on the press, under the form (R12-8). */
   const canStart = $derived(!domainStarting && !starting && (portInput.trim() !== '' || !!setup));
   const enter = (event: KeyboardEvent) => { if (event.key === 'Enter' && !composing(event) && canStart) applyNear(); };
-  const enterPort = (event: KeyboardEvent) => { if (event.key === 'Enter' && !composing(event) && !starting) void startNear(); };
+  /** The port typed, applied: on, the server moved there now (with 反代 by its start, which holds it); off, by 开始. */
+  function applyPort() {
+    if (proxyOn || (phone.near === 'domain' && localOn)) void startDomain();
+    else if (localOn) void startLocal();
+    else void startNear();
+  }
+  const enterPort = (event: KeyboardEvent) => { if (event.key === 'Enter' && !composing(event) && !starting && !domainStarting) applyPort(); };
+  /** The port shown in its row: the server's while a way is on, else the one it starts on. */
+  const shownPort = $derived(localOn || proxyOn ? view?.port ?? setup?.port : setup?.port);
+  /** The domain's field as typed differs from the one 反代 runs with: its 应用 shows. */
+  const asOrigin = (typed: string) => { const text = typed.trim().replace(/\/+$/, '').toLowerCase(); return !text ? '' : text.includes('://') ? text : 'https://' + text; };
+  const domainChanged = $derived(proxyOn && asOrigin(domainInput) !== asOrigin(ownOrigin ?? ''));
   const ownLink = $derived(view?.domain ?? null);
   $effect(() => {
     if (ownLink && !nearStarting) void checkDomain();
@@ -589,50 +602,43 @@
   {/if}
 {/snippet}
 
-{#snippet portRow()}
-  <!-- 同一网络's port (用户：同一网络也支持指定端口号吧), one quiet line in the middle under the code's place, where the
-       address stands once it is on (用户：换端口那里，感觉布局不优雅不好看: it was a wide box of its own, a small word at
-       one end and the field at the other): the port as it is and 换端口, which turns it into a field; emptied, the app
-       picks again. -->
-  <div class="port-line">
-    <span class="port-word">{t('端口')}</span>
-    {#if portOpen}
-      <input class="field-input num port-field" type="text" inputmode="numeric" autocomplete="off" autocorrect="off" spellcheck="false"
-        maxlength="5" placeholder={t('自动')} aria-label={t('端口')} bind:this={portField} bind:value={portInput} oninput={() => (portEdited = true)} onkeydown={enterPort} />
-    {:else}
-      <span class="port-now num">{setup?.port ?? ''}</span>
-      <button class="change pressable" onclick={openPort}>{t('换端口')}</button>
-    {/if}
-  </div>
-  {#if portSaid}<p class="failed">{t(portSaid)}</p>{/if}
-  {#if movesServer}<p class="note caution">{t('换端口后二维码要重新扫，Cloudflare 链接会关闭')}</p>{/if}
-{/snippet}
-
-{#snippet domainForm()}
-  <!-- The address the user's proxy opens, and the address its proxy or tunnel forwards to, with the server's port,
-       changed only when asked (the same network's codes use the same port). -->
+{#snippet controls(on: boolean)}
+  <!-- 同一网络 / 反代's settings in one box under the codes, a row each (用户：换链接换端口就位置很奇怪，而且不太符合直觉;
+       they were a line under the code, a field at the end of 反代's form and a link between two boxes): the port (the
+       server's: the network's code and 反代 alike), with 反代 its domain and where it forwards to, and once on 换链接.
+       On, a change applies on 应用 or Return; off, 开始 takes it. -->
   <div class="setup">
-    <label class="field">
-      <span class="field-label">{t('域名')}</span>
-      <input class="field-input" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
-        placeholder={t('https://starmeter.example.com（可不填）')} bind:value={domainInput} oninput={() => (domainEdited = true)} onkeydown={enter}
-        onchange={() => { if (proxyOn && domainEdited && !domainStarting) void startDomain(); }} />
-    </label>
-    <div class="forward">
-      <span class="field-label">{t('转发到')}</span>
-      {#if forwardTo}{@render link('target', forwardTo, true, true)}{/if}
+    <div class="row">
+      <span class="field-label">{t('端口')}</span>
       {#if portOpen}
         <input class="field-input num port-field" type="text" inputmode="numeric" autocomplete="off" autocorrect="off" spellcheck="false"
-          maxlength="5" placeholder={t('自动')} aria-label={t('端口')} bind:this={portField} bind:value={portInput} oninput={() => (portEdited = true)} onkeydown={enter} />
+          maxlength="5" placeholder={t('自动')} aria-label={t('端口')} bind:this={portField} bind:value={portInput} oninput={() => (portEdited = true)} onkeydown={enterPort} />
+        {#if on}<button class="change pressable" disabled={starting || domainStarting} onclick={applyPort}>{t('应用')}</button>{/if}
       {:else}
+        <span class="row-value num">{shownPort ?? ''}</span>
         <button class="change pressable" onclick={openPort}>{t('换端口')}</button>
       {/if}
     </div>
-    {#if forwardTo}{@render byHand('target', forwardTo)}{/if}
+    {#if phone.near === 'domain'}
+      <div class="row">
+        <span class="field-label">{t('域名')}</span>
+        <input class="field-input" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label={t('域名')}
+          placeholder={t('https://starmeter.example.com（可不填）')} bind:value={domainInput} oninput={() => (domainEdited = true)} onkeydown={enter}
+          onchange={() => { if (proxyOn && domainEdited && !domainStarting) void startDomain(); }} />
+        {#if domainChanged}<button class="change pressable" disabled={domainStarting} onclick={startDomain}>{t('应用')}</button>{/if}
+      </div>
+      <div class="row forward">
+        <span class="field-label">{t('转发到')}</span>
+        {#if forwardTo}{@render link('target', forwardTo, true, true)}{/if}
+      </div>
+    {/if}
+    {#if on}{@render linkRow('near')}{/if}
   </div>
+  {#if forwardTo && phone.near === 'domain'}{@render byHand('target', forwardTo)}{/if}
+  {#if portSaid}<p class="failed">{t(portSaid)}</p>{/if}
   {#if domainFailed}<p class="failed">{t(domainFailed)}</p>{/if}
   {#if movesServer}<p class="note caution">{t('换端口后二维码要重新扫，Cloudflare 链接会关闭')}</p>{/if}
-  {#if phone.domainStopped}<p class="note">{t('重新开启后，原来的反代链接还能用。')}</p>{/if}
+  {#if phone.domainStopped && phone.near === 'domain'}<p class="note">{t('重新开启后，原来的反代链接还能用。')}</p>{/if}
 {/snippet}
 
 {#snippet proxyRecipe(tail: string)}
@@ -663,18 +669,19 @@
   {/if}
 {/snippet}
 
-{#snippet linkLine(of: 'near' | 'vpn')}
-  <!-- Under a page's codes while it is on, one quiet line as the port's is: 换链接. The links keep their key until it is
-       pressed (用户：那个key可不可以固定啊？用户可以手动刷新，刷新之前就不要改变), and it asks once more in its place
-       first: the codes from before stop opening. 停止 stays the page's one button. -->
-  <div class="link-line" aria-live="polite">
+{#snippet linkRow(of: 'near' | 'vpn')}
+  <!-- 换链接, a row of the settings: the links keep their key until it is pressed (用户：那个key可不可以固定啊？用户可以手动
+       刷新，刷新之前就不要改变), and it asks once more in its place first: the codes from before stop opening. -->
+  <div class="row link-line" aria-live="polite">
     {#if renewing === of}
-      <span>{t('原来的二维码将不能再用')}</span>
+      <span class="row-text">{t('原来的二维码将不能再用')}</span>
       <button class="change sure pressable" onclick={() => newLink(of)}>{t('确定换')}</button>
       <button class="change pressable" onclick={() => (renewing = null)}>{t('取消')}</button>
     {:else if renewed === of}
-      <span>{t('已换成新链接，手机重新扫码')}</span>
+      <span class="row-text">{t('已换成新链接，手机重新扫码')}</span>
     {:else}
+      <span class="field-label">{t('链接')}</span>
+      <span class="row-value quiet">{t('一直不变')}</span>
       <button class="change pressable" onclick={() => (renewing = of)}>{t('换链接')}</button>
     {/if}
   </div>
@@ -726,7 +733,7 @@
           {#if localFailed}
             {@render halted('没能开启', '原因在下面，可以再试一次')}
             <p class="failed">{t(localFailed)}</p>
-            {#if phone.near === 'domain'}{@render domainForm()}{:else}{@render portRow()}{/if}
+            {@render controls(false)}
             <div class="actions"><button class="action primary pressable" disabled={phone.near === 'domain' && !canStart} onclick={startNear}>{t('重试')}</button></div>
           {:else if localOn || proxyOn}
             {#if nearCodes.length > 1}
@@ -748,12 +755,8 @@
               <div class="code"><span class="wait">{t('这台电脑没有连上网络')}</span></div>
             {/if}
             {#if proxyTail}{@render proxyRecipe(proxyTail)}{/if}
-            {#if nearCodes.length || proxyTail}{@render linkLine('near')}{/if}
             {@render domainCheckLine()}
-            {#if phone.near === 'domain'}
-              <!-- 反代 on (or starting) with the switch: its domain and where it forwards to, set here, applied on Return. -->
-              {@render domainForm()}
-            {/if}
+            {@render controls(true)}
             <!-- Short (用户：图中说明能省就省，简洁点，字太多): what to scan, and that it stays on. -->
             {#if own && lan}
               <p class="note">{t('同一个 Wi-Fi 扫“局域网”，在别处扫“反代”。只读，点“停止”前一直开着。')}</p>
@@ -773,7 +776,7 @@
             {:else}
               {@render halted('未开始', '在同一个网络里直连这台电脑')}
             {/if}
-            {#if phone.near === 'domain'}{@render domainForm()}{:else}{@render portRow()}{/if}
+            {@render controls(false)}
             <p class="note centre">{t(phone.localStopped ? '重新开始后，原来的二维码还能用。' : '手机连同一个 Wi-Fi，扫码就能看。')}</p>
             <div class="actions"><button class="action primary pressable" disabled={phone.near === 'domain' && !canStart} onclick={startNear}>{t('开始')}</button></div>
           {/if}
@@ -807,12 +810,12 @@
                     </div>
                   {/each}
                 </div>
-                {@render linkLine('vpn')}
+                <div class="setup">{@render linkRow('vpn')}</div>
                 <p class="note">{t('手机连着哪个 VPN 就扫哪个，不经过 Cloudflare。只读，点“停止”前一直开着。')}</p>
               {:else if vpnCodes.length === 1}
                 <div class="code"><QrCode text={vpnCodes[0].url} size={188} label={t(vpnCodes[0].label)} /></div>
                 {@render link(vpnCodes[0].key, vpnCodes[0].url)}
-                {@render linkLine('vpn')}
+                <div class="setup">{@render linkRow('vpn')}</div>
                 <p class="note">{t(vpnNote(vpnCodes[0].key))}</p>
               {:else}
                 {@render halted('没有连着 VPN', '这台电脑连上 Tailscale 或 WireGuard 后，这里就有二维码')}
@@ -999,10 +1002,17 @@
   .switch.on .knob { transform: translateX(12px); }
   /* 自有域名's fields, in the code's place: the address, and the address to forward to with the port. */
   .setup {
-    display: flex; flex-direction: column; gap: 10px; padding: 10px 10px 8px; border-radius: 12px;
+    display: flex; flex-direction: column; padding: 2px 10px; border-radius: 12px;
     background: color-mix(in srgb, var(--label) 4%, transparent);
   }
-  .field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  /* A setting a row: its name, then what it is and what changes it at the row's end; hairlines between. */
+  .row { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 36px; }
+  .row + .row { box-shadow: inset 0 0.5px 0 var(--separator); }
+  .row > .field-label { flex: none; min-width: 44px; }
+  .row > .field-input { flex: 1; min-width: 0; height: 26px; }
+  .row-value { margin-left: auto; font-size: 11.5px; color: var(--secondary); }
+  .row-value.quiet { color: var(--tertiary); }
+  .row-text { flex: 1; min-width: 0; font-size: 11px; color: var(--secondary); }
   .field-label { font-size: 10.5px; color: var(--secondary); }
   .field-input {
     width: 100%; height: 28px; padding: 0 8px; box-sizing: border-box; border: 0; border-radius: 7px; outline: none;
@@ -1012,19 +1022,15 @@
   .field-input:focus { box-shadow: inset 0 0 0 1.2px var(--accent); }
   .field-input::placeholder { color: var(--tertiary); }
   .field-input.num { font-variant-numeric: tabular-nums; }
-  .forward { display: flex; align-items: center; gap: 4px; min-width: 0; min-height: 26px; }
-  .forward .field-label { flex: none; }
   .forward .copy-link { margin-left: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; white-space: nowrap; overflow: hidden; overflow: clip visible; text-overflow: ellipsis; }
   .change {
     --press-scale: 0.95; flex: none; height: 22px; padding: 0 7px; border-radius: 6px; font-size: 10.5px; color: var(--accent);
   }
   .change:hover { background: var(--hover); }
-  .port-field { flex: none; width: 62px; height: 24px; text-align: center; }
+  .row > .port-field { flex: none; width: 66px; margin-left: auto; text-align: center; }
   /* 同一网络's port: one line in the middle, in the address's place and its quiet look. */
-  .port-line, .link-line { display: flex; align-items: center; justify-content: center; gap: 5px; min-height: 26px; margin: -2px 0; font-size: 11px; color: var(--secondary); }
-  .port-now { font-variant-numeric: tabular-nums; }
+
   /* 换链接 under a page's codes: the same line, a little closer to the address over it; asked about, its words may wrap. */
-  .link-line { flex-wrap: wrap; margin: -8px 0 -4px; }
   .change.sure { color: var(--red); }
   .note.centre { text-align: center; }
   /* 反代 with no domain: its title, your domain or IP then the part to put after it, and one line on what to do. */
