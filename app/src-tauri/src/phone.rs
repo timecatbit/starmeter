@@ -662,6 +662,11 @@ fn origin_of(typed: &str) -> Result<String, String> {
         return Err("填写你的域名或 IP，比如 starmeter.example.com".into());
     }
     let wrong = || "格式不对：填域名或 IP，比如 starmeter.example.com".to_string();
+    // The name or address itself, as typed, first: a web address parser takes 2.2.. or 2.2 as a name (or an IP filled
+    // out), and a code for it opens nothing (用户：这还生成二维码？ip/域名格式不对，就不生成二维码，先检查格式啊).
+    if !host_as_typed(typed) {
+        return Err(wrong());
+    }
     let given = typed.contains("://");
     let mut url =
         tauri::Url::parse(&if given { typed.to_string() } else { format!("https://{typed}") }).map_err(|_| wrong())?;
@@ -682,6 +687,47 @@ fn origin_of(typed: &str) -> Result<String, String> {
         return Err(wrong());
     }
     Ok(url.origin().ascii_serialization())
+}
+
+/// Whether what was typed names a host as one is written: an IPv4 address in its four parts, an IPv6 one in brackets,
+/// or a domain of two labels or more (letters, digits, - inside a label, the last not all digits; any language's
+/// letters), with a port of 1 to 65535 if one is given. The scheme and a / after the host are left to the parser.
+fn host_as_typed(typed: &str) -> bool {
+    let rest = typed.split_once("://").map_or(typed, |(_, rest)| rest);
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let (host, port) = if let Some(inside) = authority.strip_prefix('[') {
+        let Some((address, after)) = inside.split_once(']') else { return false };
+        if address.parse::<std::net::Ipv6Addr>().is_err() {
+            return false;
+        }
+        (None, if after.is_empty() { None } else { Some(after.strip_prefix(':').unwrap_or("x")) })
+    } else {
+        match authority.split_once(':') {
+            Some((host, port)) => (Some(host), Some(port)),
+            None => (Some(authority), None),
+        }
+    };
+    if let Some(port) = port
+        && !(port.bytes().all(|b| b.is_ascii_digit()) && port.parse::<u16>().is_ok_and(|port| port > 0))
+    {
+        return false;
+    }
+    let Some(host) = host else { return true };
+    if host.bytes().all(|b| b.is_ascii_digit() || b == b'.') {
+        return host.parse::<std::net::Ipv4Addr>().is_ok();
+    }
+    let labels: Vec<&str> = host.split('.').collect();
+    let label = |label: &&str| {
+        !label.is_empty()
+            && label.chars().count() <= 63
+            && !label.starts_with('-')
+            && !label.ends_with('-')
+            && label.chars().all(|c| c.is_alphanumeric() || c == '-')
+    };
+    host.chars().count() <= 253
+        && labels.len() >= 2
+        && labels.iter().all(label)
+        && !labels.last().is_some_and(|last| last.chars().all(|c| c.is_ascii_digit()))
 }
 
 /// A port the user can give: one an app may take without the system's say (1024 and above).
@@ -2849,6 +2895,8 @@ mod tests {
         assert_eq!(origin_of("203.0.113.7:443").unwrap(), "http://203.0.113.7:443");
         assert_eq!(origin_of("https://203.0.113.7").unwrap(), "https://203.0.113.7");
         assert_eq!(origin_of("[2001:db8::7]:8080").unwrap(), "http://[2001:db8::7]:8080");
+        assert_eq!(origin_of("nas.local:5001").unwrap(), "https://nas.local:5001");
+        assert_eq!(origin_of("例子.测试").unwrap(), "https://xn--fsqu00a.xn--0zwm56d");
         // Only the address: no path, query, # or user, and a web address at all.
         for wrong in [
             "https://meter.example.com/starmeter",
@@ -2858,6 +2906,20 @@ mod tests {
             "ftp://meter.example.com",
             "https://",
             "a b",
+            // Not a name or address as one is written (用户：ip/域名格式不对，就不生成二维码，先检查格式啊).
+            "2.2..",
+            "2.2",
+            "1.2.3",
+            "300.1.1.1",
+            "1.2.3.4.5",
+            "nas",
+            "meter..example.com",
+            "-meter.example.com",
+            "meter.example.123",
+            "meter.example.com:0",
+            "meter.example.com:99999",
+            "meter.example.com:80a",
+            "[2001:db8::zz]",
         ] {
             assert!(origin_of(wrong).is_err(), "{wrong}");
         }

@@ -3488,6 +3488,15 @@ test('在手机上看: 自有域名 is a row of the same network\'s settings, no
   await apply.click();
   await expect(phone.locator('.failed')).toHaveText('格式不对：填域名或 IP，比如 starmeter.example.com');
   await expect(apply).toBeVisible();
+  // Nor a name a web address parser lets through (用户：这还生成二维码？ip/域名格式不对，就不生成二维码，先检查格式啊).
+  for (const typed of ['2.2..', 'https://2.2..', '2.2', 'nas']) {
+    await domain.fill(typed);
+    await apply.click();
+    await expect(phone.locator('.failed')).toHaveText('格式不对：填域名或 IP，比如 starmeter.example.com');
+  }
+  // 开始 with it so: nothing started, no code for it.
+  await button(page, '开始').click();
+  await expect(phone.locator('svg.qr')).toHaveCount(0);
   // Typed again: what was said goes. An IP is http unless https is typed.
   await domain.fill('203.0.113.7:8443');
   await expect(phone.locator('.failed')).toHaveCount(0);

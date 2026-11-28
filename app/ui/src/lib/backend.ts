@@ -89,11 +89,39 @@ export interface DomainCheck { opens: boolean; status: number | null; reason: st
 /** The browser's stand-in for the phone server, for the tests and the dev server: 同一个网络, the public link and
  *  自有域名, each on and off on its own, the server on while any is; what is on kept in the page's storage, on again as
  *  the page loads again, as the app keeps it in the settings folder and turns it on again as it starts (phone.rs). */
+/** Whether what was typed names a host as one is written (phone.rs host_as_typed): an IPv4 address in its four parts, an
+ *  IPv6 one in brackets, or a domain of two labels or more (the last not all digits), a port of 1 to 65535 if given. A
+ *  web address parser takes 2.2.. as a name (用户：ip/域名格式不对，就不生成二维码，先检查格式啊). */
+function hostAsTyped(typed: string): boolean {
+  const rest = typed.includes('://') ? typed.slice(typed.indexOf('://') + 3) : typed;
+  const authority = rest.split(/[/?#]/)[0];
+  let host: string | null, port: string | null;
+  if (authority.startsWith('[')) {
+    const end = authority.indexOf(']');
+    if (end < 0) return false;
+    const inside = authority.slice(1, end), after = authority.slice(end + 1);
+    try { new URL(`http://[${inside}]`); } catch { return false; }
+    host = null;
+    port = after === '' ? null : after.startsWith(':') ? after.slice(1) : 'x';
+  } else {
+    const colon = authority.indexOf(':');
+    host = colon < 0 ? authority : authority.slice(0, colon);
+    port = colon < 0 ? null : authority.slice(colon + 1);
+  }
+  if (port !== null && !(/^\d+$/.test(port) && Number(port) > 0 && Number(port) <= 65535)) return false;
+  if (host === null) return true;
+  if (/^[\d.]+$/.test(host)) return /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/.test(host);
+  const labels = host.split('.');
+  return [...host].length <= 253 && labels.length >= 2
+    && labels.every((label) => label.length > 0 && [...label].length <= 63 && !label.startsWith('-') && !label.endsWith('-') && /^[\p{L}\p{N}-]+$/u.test(label))
+    && !/^\d+$/.test(labels[labels.length - 1]);
+}
+
 /** A domain or IP as typed, as the address it opens (phone.rs origin_of): https for a name and http for an IP unless a
  *  scheme is typed, no path, query, # or user; null when it isn't one. */
 export function domainOrigin(typed: string): string | null {
   const text = typed.trim();
-  if (!text) return null;
+  if (!text || !hostAsTyped(text)) return null;
   const given = text.includes('://');
   const read = (address: string) => { try { return new URL(address); } catch { return null; } };
   let url = read(given ? text : `https://${text}`);
