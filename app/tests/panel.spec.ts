@@ -1733,7 +1733,7 @@ test('在手机上看: under a code the whole link is written out, key and all: 
   await page.getByRole('radio', { name: 'Tailscale 等 VPN' }).click();
   await button(page, '开始').click();
   await expect(phone.locator('.card')).toHaveCount(2);
-  await expect(link).toHaveText(['100.76.55.73:51234#k=9876543210abcdef9876543210abcdef&l=zh', '10.0.0.2:51234#k=9876543210abcdef9876543210abcdef&l=zh']);
+  await expect(link).toHaveText(['http://100.76.55.73:51234/#k=9876543210abcdef9876543210abcdef&l=zh', 'http://10.0.0.2:51234/#k=9876543210abcdef9876543210abcdef&l=zh']);
   const pair = await laid();
   for (const one of pair) {
     expect(one.whole).toBe(true);
@@ -2114,7 +2114,7 @@ test('在手机上看: Tailscale and WireGuard are 任何网络\'s VPN page, bes
   await expect(phone.locator('.card-title')).toHaveText(['Tailscale', 'WireGuard']);
   await expect(phone.locator('.card-detail')).toHaveText(['手机开着 Tailscale', '手机开着 WireGuard']);
   await expect(phone.getByRole('img', { name: '连着 Tailscale 的手机扫这个二维码' })).toBeVisible();
-  await expect(phone.locator('.address')).toHaveText(['100.76.55.73:51234', '10.0.0.2:51234']);
+  await expect(phone.locator('.address')).toHaveText(['http://100.76.55.73:51234/', 'http://10.0.0.2:51234/']);
   const vpnKey = (await phone.locator('.copy-link').first().getAttribute('title'))!.match(/#k=([0-9a-f]+)/)![1];
   expect(vpnKey).not.toBe(localKey);
   await expect(async () => {
@@ -2128,7 +2128,7 @@ test('在手机上看: Tailscale and WireGuard are 任何网络\'s VPN page, bes
   await expect(near.locator('.on')).toHaveCount(1);
   // Each link copied on its own.
   await phone.locator('.address').nth(1).click();
-  await expect(phone.locator('.address')).toHaveText(['100.76.55.73:51234', '已复制链接']);
+  await expect(phone.locator('.address')).toHaveText(['http://100.76.55.73:51234/', '已复制链接']);
   // 同一个网络's 停止: the VPN codes as they were.
   await near.click();
   await button(page, '停止').click();
@@ -3481,11 +3481,14 @@ test('在手机上看: 自有域名 is a row of the same network\'s settings, no
   await expect(domain).toHaveValue('');
   await expect(domain).toHaveAttribute('placeholder', 'http(s)://starmeter.example.com（可不填）');
   await expect(apply).toHaveCount(0);
-  // Not a domain or IP: said as it is typed, no 应用 (用户：要确认一下网址格式哈).
+  // Not a domain or IP: nothing said while it is typed; on 应用, said, and nothing saved (用户：域名/IP 点击了应用之后再
+  // 检查格式等，不行就不能应用).
   await domain.fill('meter.example.com/x');
+  await expect(phone.locator('.failed')).toHaveCount(0);
+  await apply.click();
   await expect(phone.locator('.failed')).toHaveText('格式不对：填域名或 IP，比如 starmeter.example.com');
-  await expect(apply).toHaveCount(0);
-  // An IP is http unless https is typed.
+  await expect(apply).toBeVisible();
+  // Typed again: what was said goes. An IP is http unless https is typed.
   await domain.fill('203.0.113.7:8443');
   await expect(phone.locator('.failed')).toHaveCount(0);
   await apply.click();
@@ -3566,7 +3569,7 @@ test('在手机上看: your own domain says why it didn\'t start or doesn\'t ope
   await expect(caution).toContainText('没能检查 meter.example.com 能不能打开');
   await expect(caution.getByRole('button', { name: '再检查' })).toBeVisible();
   await button(page, '停止').click();
-  // Not a domain or IP: said as it is typed, and 开始 starts nothing.
+  // Not a domain or IP: said on 开始, which starts nothing.
   await start('', 'meter.example.com/x');
   await expect(phone.locator('.failed')).toHaveText('格式不对：填域名或 IP，比如 starmeter.example.com');
   await expect(phone.locator('svg.qr')).toHaveCount(0);

@@ -348,6 +348,7 @@
   async function saveDomain() {
     if (domainSaving) return;
     domainFailed = null;
+    if (domainWrong) { domainFailed = '格式不对：填域名或 IP，比如 starmeter.example.com'; return; }
     const mine = ++domainRound;
     epoch++;
     domainSaving = true;
@@ -368,7 +369,6 @@
   async function startNear() {
     // 重试 after the same network failed: its reason goes as this start shows its spinner, and a new one says why (R12-6).
     localFailed = null;
-    if (domainWrong) return;
     if (domainChanged) {
       await saveDomain();
       if (domainFailed || destroyed) return;
@@ -414,7 +414,7 @@
   }
   /** 开始 can be pressed (and Return starts it): an address typed, and a port typed or known (the setup read), none on
    *  its way. A port out of range is said on the press, under the form (R12-8). */
-  const enter = (event: KeyboardEvent) => { if (event.key === 'Enter' && !composing(event) && domainChanged && !domainWrong) void saveDomain(); };
+  const enter = (event: KeyboardEvent) => { if (event.key === 'Enter' && !composing(event) && domainChanged) void saveDomain(); };
   /** The port typed, applied: on, the server moved there now (with 反代 by its start, which holds it); off, by 开始. */
   function applyPort() {
     // The port it is on already (untouched, or typed again): nothing to move, the field just closes (用户：换端口，如果相同
@@ -432,8 +432,9 @@
   const enterPort = (event: KeyboardEvent) => { if (event.key === 'Enter' && !composing(event) && !starting) applyPort(); };
   /** The port shown in its row: the server's while a way is on, else the one it starts on. */
   const shownPort = $derived(localOn ? view?.port ?? setup?.port : setup?.port);
-  /** The domain's field as typed: a domain or IP, or not one (said under the settings as it is typed, 应用 not
-   *  offered: 用户：要确认一下网址格式哈。域名那里是域名/IP). Empty is no domain. */
+  /** The domain's field as typed: a domain or IP, or not one (用户：要确认一下网址格式哈。域名那里是域名/IP). Looked at
+   *  when it is applied (用户：域名/IP 点击了应用之后再检查格式等，不行就不能应用): said then, nothing saved. Empty is no
+   *  domain. */
   const domainWrong = $derived(!!domainInput.trim() && domainOrigin(domainInput) === null);
   /** The domain's field as typed differs from the one saved: its 应用 shows. */
   const asOrigin = (typed: string) => { const text = typed.trim().replace(/\/+$/, '').toLowerCase(); return !text ? '' : text.includes('://') ? text : 'https://' + text; };
@@ -529,7 +530,7 @@
   });
 </script>
 
-{#snippet link(key: string, url: string, short = false, inline = false)}
+{#snippet link(key: string, url: string, inline = false)}
   <!-- Under a code, the whole link as the phone opens it, key and all (用户：二维码下方你直接显示长链接吧，这样用户就知道
        我们帮他拼了一个key一样的东西。否则现在没概念；the address alone stood there, the key only in the code and in what
        a click copied): the address on its line, then what follows the # on the next (the key, the language and look
@@ -539,12 +540,12 @@
        alone, and the full link to copy by hand goes under the row instead (byHand). -->
   {@const done = copied?.key === key && copied.state === 'ok'}
   {@const parts = inline ? [] : linkParts(url)}
-  {@const shown = short ? url.replace(/^https?:\/\//, '').replace(/\/?#.*/, '') : url.replace(/#.*/, '')}
+  {@const shown = url.replace(/#.*/, '')}
   <!-- Copied, 已复制链接 stands in the middle of the link's whole box (用户：已复制链接上下居中), the address and the key
        kept in their places unseen, so the box is the same size and nothing under it moves. -->
   <button class="copy-link pressable" class:done={done && parts.length > 0} onclick={() => copy(key, url)} title={url}>
     {#if done && parts.length}<span class="room" aria-hidden="true">{shown}</span>{/if}<span class="address">{done ? t('已复制链接') : shown}</span>{#if parts.length}<span
-      class="secret" class:gone={done}>{#each parts as part, i (i)}{#if i}<wbr />{/if}{part}{/each}</span>{/if}
+      class="secret" class:gone={done}>{#each parts as part, i (i)}{#if i}<wbr />{/if}<span class="piece">{part}</span>{/each}</span>{/if}
   </button>
   {#if !inline}{@render byHand(key, url)}{/if}
 {/snippet}
@@ -576,13 +577,11 @@
     <div class="row">
       <span class="field-label">{t('域名/IP')}</span>
         <input class="field-input" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label={t('域名/IP')}
-          placeholder={t('http(s)://starmeter.example.com（可不填）')} bind:value={domainInput} oninput={() => (domainEdited = true)} onkeydown={enter}
-          onchange={() => { if (domainChanged && !domainWrong && !domainSaving) void saveDomain(); }} />
-        {#if domainChanged && !domainWrong}<button class="change pressable" disabled={domainSaving} onclick={saveDomain}>{t('应用')}</button>{/if}
+          placeholder={t('http(s)://starmeter.example.com（可不填）')} bind:value={domainInput} oninput={() => { domainEdited = true; domainFailed = null; }} onkeydown={enter} />
+        {#if domainChanged}<button class="change pressable" disabled={domainSaving} onclick={saveDomain}>{t('应用')}</button>{/if}
     </div>
     {#if on}{@render linkRow('near')}{/if}
   </div>
-  {#if domainWrong}<p class="failed">{t('格式不对：填域名或 IP，比如 starmeter.example.com')}</p>{/if}
   {#if portSaid}<p class="failed">{t(portSaid)}</p>{/if}
   {#if domainFailed}<p class="failed">{t(domainFailed)}</p>{/if}
   {#if movesServer}<p class="note caution">{t('换端口后二维码要重新扫，Cloudflare 链接会关闭')}</p>{/if}
@@ -666,7 +665,7 @@
                   <div class="card">
                     <span class="card-title">{t(code.title)}</span>
                     <QrCode text={code.url} size={132} label={t(code.label)} />
-                    {@render link(code.key, code.url, true)}
+                    {@render link(code.key, code.url)}
                     <span class="card-detail">{t(code.detail)}</span>
                   </div>
                 {/each}
@@ -728,7 +727,7 @@
                     <div class="card">
                       <span class="card-title">{t(code.title)}</span>
                       <QrCode text={code.url} size={132} label={t(code.label)} />
-                      {@render link(code.key, code.url, true)}
+                      {@render link(code.key, code.url)}
                       <span class="card-detail">{t(code.detail)}</span>
                     </div>
                   {/each}
@@ -862,6 +861,11 @@
   .card-title { font-size: 12px; font-weight: 600; line-height: 16px; color: var(--label); }
   .card-detail { max-width: 100%; font-size: 10.5px; line-height: 14px; color: var(--tertiary); text-align: center; }
   .card .copy-link { margin: -2px 0; padding: 4px 2px; }
+  /* Side by side, the whole address, http:// and all (用户：这里也要写上http://啊，给完整地址), a little smaller to stay
+     on its line. */
+  .card .address { font-size: 10px; }
+  /* The key's pieces break only between them: never zh- on one line and Hant on the next. */
+  .piece { white-space: nowrap; }
   .note.caution { color: var(--orange); }
   .failed { margin: 0; padding: 8px 10px; border-radius: 8px; font-size: 11.5px; color: var(--label); background: color-mix(in srgb, var(--orange) 18%, transparent); }
   /* Centered half-width tinted actions that blend into the panel's material; two actions share the row evenly. */
