@@ -659,11 +659,18 @@ fn read_kept(path: &Path) -> Kept {
 fn origin_of(typed: &str) -> Result<String, String> {
     let typed = typed.trim();
     if typed.is_empty() {
-        return Err("填写你的域名，比如 meter.example.com".into());
+        return Err("填写你的域名或 IP，比如 starmeter.example.com".into());
     }
-    let wrong = || "域名的格式不对：只填域名，比如 meter.example.com".to_string();
-    let url = tauri::Url::parse(&if typed.contains("://") { typed.to_string() } else { format!("https://{typed}") })
-        .map_err(|_| wrong())?;
+    let wrong = || "格式不对：填域名或 IP，比如 starmeter.example.com".to_string();
+    let given = typed.contains("://");
+    let mut url =
+        tauri::Url::parse(&if given { typed.to_string() } else { format!("https://{typed}") }).map_err(|_| wrong())?;
+    // An IP with no scheme typed is http (a proxy at an address seldom has a certificate for it; 用户：域名那里是域名/IP),
+    // read again so a port given stays as given.
+    let host = url.host_str().unwrap_or_default().trim_start_matches('[').trim_end_matches(']');
+    if !given && host.parse::<IpAddr>().is_ok() {
+        url = tauri::Url::parse(&format!("http://{typed}")).map_err(|_| wrong())?;
+    }
     if !matches!(url.scheme(), "http" | "https")
         || url.host_str().is_none_or(str::is_empty)
         || !url.username().is_empty()
@@ -2837,6 +2844,11 @@ mod tests {
         assert_eq!(origin_of("http://home.lan:8080").unwrap(), "http://home.lan:8080");
         assert_eq!(origin_of("https://meter.example.com:443").unwrap(), "https://meter.example.com");
         assert_eq!(origin_of("mac.tail1234.ts.net").unwrap(), "https://mac.tail1234.ts.net");
+        // An IP (用户：域名那里是域名/IP): http unless https is typed, its port kept.
+        assert_eq!(origin_of("203.0.113.7").unwrap(), "http://203.0.113.7");
+        assert_eq!(origin_of("203.0.113.7:443").unwrap(), "http://203.0.113.7:443");
+        assert_eq!(origin_of("https://203.0.113.7").unwrap(), "https://203.0.113.7");
+        assert_eq!(origin_of("[2001:db8::7]:8080").unwrap(), "http://[2001:db8::7]:8080");
         // Only the address: no path, query, # or user, and a web address at all.
         for wrong in [
             "https://meter.example.com/starmeter",
@@ -2849,7 +2861,8 @@ mod tests {
         ] {
             assert!(origin_of(wrong).is_err(), "{wrong}");
         }
-        assert_eq!(origin_of(" ").unwrap_err(), "填写你的域名，比如 meter.example.com");
+        assert_eq!(origin_of(" ").unwrap_err(), "填写你的域名或 IP，比如 starmeter.example.com");
+        assert_eq!(origin_of("a b").unwrap_err(), "格式不对：填域名或 IP，比如 starmeter.example.com");
         assert!(valid_port(80).is_err());
         assert_eq!(valid_port(8765), Ok(8765));
     }

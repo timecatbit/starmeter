@@ -3473,17 +3473,29 @@ test('在手机上看: 自有域名 is a row of the same network\'s settings, no
   await open(page);
   await button(page, '在手机上看').click();
   const phone = page.locator('.phone-page');
-  const domain = phone.getByRole('textbox', { name: '域名' });
+  const domain = phone.getByRole('textbox', { name: '域名/IP' });
   const apply = phone.locator('.setup').getByRole('button', { name: '应用' });
   await expect(phone.getByRole('switch')).toHaveCount(0);
-  // Off: the row there, empty, with its hint; nothing to apply, no address to forward to yet.
+  // Off: the row there, empty, with its hint; nothing to apply. No 转发到 row (用户：转发到这一行有必要吗？): the network's
+  // address under its code is where a proxy forwards to.
   await expect(domain).toHaveValue('');
-  await expect(domain).toHaveAttribute('placeholder', 'https://starmeter.example.com（可不填）');
+  await expect(domain).toHaveAttribute('placeholder', 'http(s)://starmeter.example.com（可不填）');
   await expect(apply).toHaveCount(0);
-  await expect(phone.locator('.forward')).toHaveCount(0);
-  // Typed: 应用, and where its proxy forwards to; applied, kept, nothing started.
+  // Not a domain or IP: said as it is typed, no 应用 (用户：要确认一下网址格式哈).
+  await domain.fill('meter.example.com/x');
+  await expect(phone.locator('.failed')).toHaveText('格式不对：填域名或 IP，比如 starmeter.example.com');
+  await expect(apply).toHaveCount(0);
+  // An IP is http unless https is typed.
+  await domain.fill('203.0.113.7:8443');
+  await expect(phone.locator('.failed')).toHaveCount(0);
+  await apply.click();
+  await button(page, '开始').click();
+  await expect(phone.locator('.card .copy-link').nth(1)).toHaveAttribute('title', /^http:\/\/203\.0\.113\.7:8443\/#k=/);
+  // The field says it as saved, its http:// kept.
+  await expect(domain).toHaveValue('http://203.0.113.7:8443');
+  await button(page, '停止').click();
+  // Typed: 应用; applied, kept, nothing started.
   await domain.fill('Meter.Example.com');
-  await expect(phone.locator('.forward .address')).toHaveText('192.168.1.20:51234');
   await apply.click();
   await expect(apply).toHaveCount(0);
   await expect(phone.locator('svg.qr')).toHaveCount(0);
@@ -3500,7 +3512,6 @@ test('在手机上看: 自有域名 is a row of the same network\'s settings, no
   await domain.press('Enter');
   await expect(phone.locator('.card')).toHaveCount(0);
   await expect(phone.locator('svg.qr')).toHaveCount(1);
-  await expect(phone.locator('.forward')).toHaveCount(0);
   // Typed and 开始 at once, no 应用 first: saved as it starts.
   await button(page, '停止').click();
   await domain.fill('meter.example.com');
@@ -3509,11 +3520,11 @@ test('在手机上看: 自有域名 is a row of the same network\'s settings, no
   // 停止: no codes; the domain stays, there too when the page is opened again.
   await button(page, '停止').click();
   await expect(phone.locator('svg.qr')).toHaveCount(0);
-  await expect(domain).toHaveValue('meter.example.com');
+  await expect(domain).toHaveValue('https://meter.example.com');
   await page.keyboard.press('Escape');
   await expect(phone).toHaveCount(0);
   await button(page, '在手机上看').click();
-  await expect(domain).toHaveValue('meter.example.com');
+  await expect(domain).toHaveValue('https://meter.example.com');
   await page.evaluate(() => localStorage.removeItem('starmeter.test-phone'));
 });
 
@@ -3521,7 +3532,7 @@ test('在手机上看: your own domain says why it didn\'t start or doesn\'t ope
   const start = async (query: string, typed: string) => {
     await open(page, query);
     await button(page, '在手机上看').click();
-    await page.getByRole('textbox', { name: '域名' }).fill(typed);
+    await page.getByRole('textbox', { name: '域名/IP' }).fill(typed);
     await button(page, '开始').click();
   };
   const phone = page.locator('.phone-page');
@@ -3555,9 +3566,9 @@ test('在手机上看: your own domain says why it didn\'t start or doesn\'t ope
   await expect(caution).toContainText('没能检查 meter.example.com 能不能打开');
   await expect(caution.getByRole('button', { name: '再检查' })).toBeVisible();
   await button(page, '停止').click();
-  // Not a domain: said on 开始, nothing saved or started.
+  // Not a domain or IP: said as it is typed, and 开始 starts nothing.
   await start('', 'meter.example.com/x');
-  await expect(phone.locator('.failed')).toHaveText('域名的格式不对：只填域名，比如 meter.example.com');
+  await expect(phone.locator('.failed')).toHaveText('格式不对：填域名或 IP，比如 starmeter.example.com');
   await expect(phone.locator('svg.qr')).toHaveCount(0);
   // An http address sent on to https: to give it as https.
   await start('?domain-redirect', 'http://home.lan:8080');
@@ -3604,10 +3615,6 @@ test('在手机上看: 同一网络 takes a port of its own under 换端口, hel
   await open(page);
   await button(page, '在手机上看').click();
   await expect(now).toHaveText('8080');
-  // With a domain typed, its address to forward to names the same port.
-  await phone.getByRole('textbox', { name: '域名' }).fill('meter.example.com');
-  await expect(phone.locator('.forward .address')).toHaveText('192.168.1.20:8080');
-  await phone.getByRole('textbox', { name: '域名' }).fill('');
   // Emptied: the app's own pick again, the port as it stands; started with it.
   await phone.getByRole('button', { name: '换端口' }).click();
   await expect(port).toHaveAttribute('placeholder', '自动');
@@ -3667,7 +3674,7 @@ test('typing into a field lets the input method\'s candidate window show above t
   await button(page, '在手机上看').click();
   const phone = page.locator('.phone-page');
   await phone.getByRole('button', { name: '换端口' }).click();
-  const domain = phone.getByRole('textbox', { name: '域名' }), port = phone.getByRole('textbox', { name: '端口' });
+  const domain = phone.getByRole('textbox', { name: '域名/IP' }), port = phone.getByRole('textbox', { name: '端口' });
   await expect.poll(typing).toBe(true);
   // From the port to the domain is one stretch of typing: nothing goes back up in between.
   await domain.click();

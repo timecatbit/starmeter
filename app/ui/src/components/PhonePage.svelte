@@ -16,9 +16,10 @@
   // and a page that is off says what its 开始 will do (任何网络's, that the figures go through Cloudflare) before it is
   // pressed. A 停止 stays on its page, saying so in the code's place.
   import { onDestroy, onMount, untrack } from 'svelte';
+  import { fade } from 'svelte/transition';
   import { language, t } from '../lib/i18n.svelte';
   import { style } from '../lib/style.svelte';
-  import { shell, type DomainCheck, type DomainSetup, type PhoneView } from '../lib/backend';
+  import { domainOrigin, shell, type DomainCheck, type DomainSetup, type PhoneView } from '../lib/backend';
   import { chooseVia, phone, secondsLeft, setPhone, type Via } from '../lib/phone.svelte';
   import { composing, grabWindow, panel } from '../lib/ui.svelte';
   import HintButton from './HintButton.svelte';
@@ -294,7 +295,8 @@
    *  been chosen. */
   function settled(next: DomainSetup) {
     setup = next;
-    if (!domainEdited) domainInput = next.domain ? next.domain.replace(/^https:\/\//, '') : domainInput;
+    // As saved, its http:// or https:// kept (用户：还有http(s)保留): an IP is http unless https was typed.
+    if (!domainEdited) domainInput = next.domain ?? domainInput;
     if (!portEdited) portInput = String(next.port);
   }
   onMount(() => {
@@ -366,6 +368,7 @@
   async function startNear() {
     // 重试 after the same network failed: its reason goes as this start shows its spinner, and a new one says why (R12-6).
     localFailed = null;
+    if (domainWrong) return;
     if (domainChanged) {
       await saveDomain();
       if (domainFailed || destroyed) return;
@@ -411,7 +414,7 @@
   }
   /** 开始 can be pressed (and Return starts it): an address typed, and a port typed or known (the setup read), none on
    *  its way. A port out of range is said on the press, under the form (R12-8). */
-  const enter = (event: KeyboardEvent) => { if (event.key === 'Enter' && !composing(event) && domainChanged) void saveDomain(); };
+  const enter = (event: KeyboardEvent) => { if (event.key === 'Enter' && !composing(event) && domainChanged && !domainWrong) void saveDomain(); };
   /** The port typed, applied: on, the server moved there now (with 反代 by its start, which holds it); off, by 开始. */
   function applyPort() {
     // The port it is on already (untouched, or typed again): nothing to move, the field just closes (用户：换端口，如果相同
@@ -429,11 +432,12 @@
   const enterPort = (event: KeyboardEvent) => { if (event.key === 'Enter' && !composing(event) && !starting) applyPort(); };
   /** The port shown in its row: the server's while a way is on, else the one it starts on. */
   const shownPort = $derived(localOn ? view?.port ?? setup?.port : setup?.port);
+  /** The domain's field as typed: a domain or IP, or not one (said under the settings as it is typed, 应用 not
+   *  offered: 用户：要确认一下网址格式哈。域名那里是域名/IP). Empty is no domain. */
+  const domainWrong = $derived(!!domainInput.trim() && domainOrigin(domainInput) === null);
   /** The domain's field as typed differs from the one saved: its 应用 shows. */
   const asOrigin = (typed: string) => { const text = typed.trim().replace(/\/+$/, '').toLowerCase(); return !text ? '' : text.includes('://') ? text : 'https://' + text; };
-  const domainChanged = $derived(!!setup && asOrigin(domainInput) !== asOrigin(setup.domain ?? ''));
-  /** 转发到 shows once there is a domain (typed or saved): where the user's proxy hands it on to. */
-  const forwarding = $derived(!!domainInput.trim() || !!setup?.domain);
+  const domainChanged = $derived(!!setup && (domainOrigin(domainInput) ?? asOrigin(domainInput)) !== (setup.domain ?? ''));
   const ownLink = $derived(view?.domain ?? null);
   $effect(() => {
     if (ownLink) void checkDomain();
@@ -570,21 +574,15 @@
       {/if}
     </div>
     <div class="row">
-      <span class="field-label">{t('域名')}</span>
-        <input class="field-input" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label={t('域名')}
-          placeholder={t('https://starmeter.example.com（可不填）')} bind:value={domainInput} oninput={() => (domainEdited = true)} onkeydown={enter}
-          onchange={() => { if (domainChanged && !domainSaving) void saveDomain(); }} />
-        {#if domainChanged}<button class="change pressable" disabled={domainSaving} onclick={saveDomain}>{t('应用')}</button>{/if}
+      <span class="field-label">{t('域名/IP')}</span>
+        <input class="field-input" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label={t('域名/IP')}
+          placeholder={t('http(s)://starmeter.example.com（可不填）')} bind:value={domainInput} oninput={() => (domainEdited = true)} onkeydown={enter}
+          onchange={() => { if (domainChanged && !domainWrong && !domainSaving) void saveDomain(); }} />
+        {#if domainChanged && !domainWrong}<button class="change pressable" disabled={domainSaving} onclick={saveDomain}>{t('应用')}</button>{/if}
     </div>
-    {#if forwarding}
-      <div class="row forward">
-        <span class="field-label">{t('转发到')}</span>
-        {#if forwardTo}{@render link('target', forwardTo, true, true)}{/if}
-      </div>
-    {/if}
     {#if on}{@render linkRow('near')}{/if}
   </div>
-  {#if forwardTo && forwarding}{@render byHand('target', forwardTo)}{/if}
+  {#if domainWrong}<p class="failed">{t('格式不对：填域名或 IP，比如 starmeter.example.com')}</p>{/if}
   {#if portSaid}<p class="failed">{t(portSaid)}</p>{/if}
   {#if domainFailed}<p class="failed">{t(domainFailed)}</p>{/if}
   {#if movesServer}<p class="note caution">{t('换端口后二维码要重新扫，Cloudflare 链接会关闭')}</p>{/if}
@@ -659,6 +657,8 @@
             {@render controls(false)}
             <div class="actions"><button class="action primary pressable" onclick={startNear}>{t('重试')}</button></div>
           {:else if localOn}
+            <!-- One code or two (a domain set or cleared): the new ones fade in (用户：感觉二维码……就有点突兀出现的). -->
+            {#key nearCodes.length}<div class="swap" in:fade={{ duration: panel.reduceMotion ? 0 : 240 }}>
             {#if nearCodes.length > 1}
               <!-- The network's code and the domain's side by side, the same server. -->
               <div class="codes">
@@ -677,6 +677,7 @@
             {:else}
               <div class="code"><span class="wait">{t('这台电脑没有连上网络')}</span></div>
             {/if}
+            </div>{/key}
             {@render domainCheckLine()}
             {@render controls(true)}
             <!-- Short (用户：图中说明能省就省，简洁点，字太多): what to scan, and that it stays on. -->
@@ -925,10 +926,13 @@
   .field-input:focus { box-shadow: inset 0 0 0 1.2px var(--accent); }
   .field-input::placeholder { color: var(--tertiary); }
   .field-input.num { font-variant-numeric: tabular-nums; }
-  .forward .copy-link { margin-left: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; white-space: nowrap; overflow: hidden; overflow: clip visible; text-overflow: ellipsis; }
   .change {
     --press-scale: 0.95; flex: none; height: 22px; padding: 0 7px; border-radius: 6px; font-size: 10.5px; color: var(--accent);
   }
+  /* In a settings row, the same size and line as the value beside it (用户：图中没对齐). */
+  .row > .change { font-size: 11.5px; line-height: 22px; }
+  .row > .row-value { line-height: 22px; }
+  .swap { display: flex; flex-direction: column; gap: 12px; }
   .change:hover { background: var(--hover); }
   .row > .port-field { flex: none; width: 66px; margin-left: auto; text-align: center; }
   /* 同一网络's port: one line in the middle, in the address's place and its quiet look. */

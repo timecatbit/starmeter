@@ -89,6 +89,21 @@ export interface DomainCheck { opens: boolean; status: number | null; reason: st
 /** The browser's stand-in for the phone server, for the tests and the dev server: 同一个网络, the public link and
  *  自有域名, each on and off on its own, the server on while any is; what is on kept in the page's storage, on again as
  *  the page loads again, as the app keeps it in the settings folder and turns it on again as it starts (phone.rs). */
+/** A domain or IP as typed, as the address it opens (phone.rs origin_of): https for a name and http for an IP unless a
+ *  scheme is typed, no path, query, # or user; null when it isn't one. */
+export function domainOrigin(typed: string): string | null {
+  const text = typed.trim();
+  if (!text) return null;
+  const given = text.includes('://');
+  const read = (address: string) => { try { return new URL(address); } catch { return null; } };
+  let url = read(given ? text : `https://${text}`);
+  if (!url) return null;
+  const ip = /^\d{1,3}(\.\d{1,3}){3}$/.test(url.hostname) || url.hostname.startsWith('[');
+  if (!given && ip) url = read(`http://${text}`);
+  if (!url || !['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password || url.search || url.hash
+    || !['', '/'].includes(url.pathname) || /\s/.test(text)) return null;
+  return url.origin;
+}
 const browserPhone = (() => {
   const KEPT = 'starmeter.test-phone';
   type Kept = { local?: boolean; vpn?: boolean; open?: boolean; domain?: string | null; port?: number; chosen?: boolean; turns?: { near?: number; vpn?: number } };
@@ -112,15 +127,13 @@ const browserPhone = (() => {
     public: open ? 'https://quiet-river-1234.trycloudflare.com/#k=fedcba9876543210fedcba9876543210' : null, secondsLeft: open ? 3540 : 0,
     // ?unchecked: the wait for the public link to open ran out.
     publicChecked: !asked('unchecked') } : null);
-  /** The address as the shell takes it (phone.rs origin_of). */
+  /** The address as the shell takes it (phone.rs origin_of; the page reads it the same way, domainOrigin). */
   const origin = (typed: string) => {
     const text = typed.trim();
-    if (!text) throw '填写你的域名，比如 meter.example.com';
-    let url: URL;
-    try { url = new URL(text.includes('://') ? text : `https://${text}`); } catch { throw '域名的格式不对：只填域名，比如 meter.example.com'; }
-    if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password || url.search || url.hash
-      || !['', '/'].includes(url.pathname)) throw '域名的格式不对：只填域名，比如 meter.example.com';
-    return url.origin;
+    if (!text) throw '填写你的域名或 IP，比如 starmeter.example.com';
+    const read = domainOrigin(text);
+    if (!read) throw '格式不对：填域名或 IP，比如 starmeter.example.com';
+    return read;
   };
   return {
     view, stop: () => { local = false; keep(); return view(); },
