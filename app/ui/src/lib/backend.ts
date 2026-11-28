@@ -71,9 +71,6 @@ export interface PhoneView {
   /** 自有域名's link (https://meter.example.com/#k=…) while it is on with a domain given: the user's own proxy hands it on
    *  to this server. */
   domain?: string | null;
-  /** 反代's key while it is on, a domain given or not: with none, the page says to put /#k=<key> after one's own domain
-   *  or IP. */
-  domainKey?: string | null;
   /** The server's port: 自有域名's proxy forwards to 127.0.0.1 on it. */
   port?: number;
   /** The public link seen to open from outside before it was shown; false when the wait for it ran out (PHONE-11). */
@@ -94,24 +91,24 @@ export interface DomainCheck { opens: boolean; status: number | null; reason: st
  *  the page loads again, as the app keeps it in the settings folder and turns it on again as it starts (phone.rs). */
 const browserPhone = (() => {
   const KEPT = 'starmeter.test-phone';
-  type Kept = { local?: boolean; vpn?: boolean; open?: boolean; domain?: string | null; domainOn?: boolean; port?: number; chosen?: boolean; turns?: { near?: number; vpn?: number } };
+  type Kept = { local?: boolean; vpn?: boolean; open?: boolean; domain?: string | null; port?: number; chosen?: boolean; turns?: { near?: number; vpn?: number } };
   const kept = (() => { try { return JSON.parse(localStorage.getItem(KEPT) ?? '{}') as Kept; } catch { return {} as Kept; } })();
-  let local = !!kept.local, vpn = !!kept.vpn, open = !!kept.open, domain = kept.domain ?? null, domainOn = !!kept.domainOn;
+  let local = !!kept.local, vpn = !!kept.vpn, open = !!kept.open, domain = kept.domain ?? null;
   let port = kept.port ?? 51234, chosen = !!kept.chosen;
   // Each page's links keep their key from one 开始 to the next (phone.rs Fixed); 换链接 makes another: the turn it is on.
   const turns = { near: kept.turns?.near ?? 0, vpn: kept.turns?.vpn ?? 0 };
   const keyed = (key: string, turn: number) => (turn ? key.slice(0, 28) + turn.toString(16).padStart(4, '0') : key);
-  const keep = () => { try { localStorage.setItem(KEPT, JSON.stringify({ local, vpn, open, domain, domainOn, port, chosen, turns })); } catch { /* not kept */ } };
+  const keep = () => { try { localStorage.setItem(KEPT, JSON.stringify({ local, vpn, open, domain, port, chosen, turns })); } catch { /* not kept */ } };
   const asked = (name: string) => new URLSearchParams(location.search).has(name);
   // ?tailnet: this computer on a tailnet; ?wireguard: a WireGuard tunnel up. Their codes carry the VPN page's own key.
   const tailnet = () => (asked('tailnet') ? `http://100.76.55.73:${port}/#k=${keyed('9876543210abcdef9876543210abcdef', turns.vpn)}` : null);
   const wireguard = () => (asked('wireguard') ? `http://10.0.0.2:${port}/#k=${keyed('9876543210abcdef9876543210abcdef', turns.vpn)}` : null);
   // ?no-network: this computer on no network, so the same network has no address to show.
-  const view = (): PhoneView | null => (local || vpn || open || domainOn ? { localOpen: local, local: local && !asked('no-network') ? `http://192.168.1.20:${port}/#k=${keyed('0123456789abcdef0123456789abcdef', turns.near)}` : null,
+  const view = (): PhoneView | null => (local || vpn || open ? { localOpen: local, local: local && !asked('no-network') ? `http://192.168.1.20:${port}/#k=${keyed('0123456789abcdef0123456789abcdef', turns.near)}` : null,
     vpnOpen: vpn, tailnet: vpn ? tailnet() : null,
     wireguard: vpn ? wireguard() : null,
-    domain: domainOn && domain ? `${domain}/#k=${keyed('abcdefabcdefabcdefabcdefabcdefab', turns.near)}` : null,
-    domainKey: domainOn ? keyed('abcdefabcdefabcdefabcdefabcdefab', turns.near) : null, port,
+    // 自有域名's code: the same network's key at the domain (phone.rs view).
+    domain: local && domain ? `${domain}/#k=${keyed('0123456789abcdef0123456789abcdef', turns.near)}` : null, port,
     public: open ? 'https://quiet-river-1234.trycloudflare.com/#k=fedcba9876543210fedcba9876543210' : null, secondsLeft: open ? 3540 : 0,
     // ?unchecked: the wait for the public link to open ran out.
     publicChecked: !asked('unchecked') } : null);
@@ -136,7 +133,7 @@ const browserPhone = (() => {
         if (asked('port-taken')) throw `端口 ${asked_port} 被别的程序占用`;
         if (asked_port !== port) open = false;
         port = asked_port; chosen = true;
-      }
+      } else if (domain && asked('port-taken')) throw `端口 ${port} 被别的程序占用`;
       local = true; keep(); return view()!;
     },
     vpnStart: () => { vpn = true; keep(); return view()!; }, vpnStop: () => { vpn = false; keep(); return view(); },
@@ -144,21 +141,12 @@ const browserPhone = (() => {
     // ?no-network: this computer on no network.
     domainSetup: (): DomainSetup => ({ domain, port, chosen, lan: asked('no-network') ? null : '192.168.1.20', tailnet: asked('tailnet') ? '100.76.55.73' : null, wireguard: asked('wireguard') ? '10.0.0.2' : null }),
     // ?port-taken: the port asked for is another app's.
-    // An address left empty: 反代 on all the same, its link put together by hand (phone.rs start_domain).
-    domainStart: (typed: string, asked_port: number, asked_chosen: boolean | null = null) => {
-      const given = typed.trim() ? origin(typed) : null;
-      if (asked_port < 1024 || asked_port > 65535) throw '端口填 1024 到 65535 之间的数';
-      if (asked('port-taken')) throw `端口 ${asked_port} 被别的程序占用`;
-      // A port move closes the public link (phone.rs moved).
-      if (asked_port !== port) open = false;
-      domain = given; port = asked_port; chosen = asked_chosen ?? chosen; domainOn = true; keep(); return view()!;
-    },
-    domainStop: () => { domainOn = false; keep(); return view(); },
-    stopNear: () => { local = false; domainOn = false; keep(); return view(); },
+    // 自有域名 set or cleared (phone.rs phone_domain_set): kept; nothing starts or stops.
+    domainSet: (typed: string) => { domain = typed.trim() ? origin(typed) : null; keep(); return view(); },
     // 换链接 (phone.rs renew): new keys for a page's links, on or off.
     newLink: (page: 'near' | 'vpn') => { turns[page]++; keep(); return view(); },
     // ?domain-502, ?domain-redirect, ?domain-unreachable: how the user's proxy answers.
-    domainCheck: (): DomainCheck | null => (!domainOn || !domain ? null
+    domainCheck: (): DomainCheck | null => (!local || !domain ? null
       : asked('domain-502') ? { opens: false, status: 502, reason: null }
         : asked('domain-redirect') ? { opens: false, status: 308, reason: null }
           : asked('domain-unreachable') ? { opens: false, status: null, reason: '找不到这个域名' }
@@ -214,17 +202,9 @@ export const shell = {
   phoneVpnStart: (): Promise<PhoneView> => (inTauri ? invoke<PhoneView>('phone_vpn_start') : Promise.resolve(browserPhone.vpnStart())),
   phoneVpnStop: (): Promise<PhoneView | null> => (inTauri ? invoke<PhoneView | null>('phone_vpn_stop') : Promise.resolve(browserPhone.vpnStop())),
   phoneDomain: (): Promise<DomainSetup | null> => (inTauri ? invoke<DomainSetup | null>('phone_domain') : Promise.resolve(browserPhone.domainSetup())),
-  phoneDomainStart: (domain: string, port: number, chosen: boolean | null = null): Promise<PhoneView> =>
-    (inTauri ? invoke<PhoneView>('phone_domain_start', { domain, port, chosen })
-      // ?start-held: the host answers when the test says (window.answerStart()), as one asking a held port again.
-      : new Promise((done, failed) => {
-        const answer = () => { try { done(browserPhone.domainStart(domain, port, chosen)); } catch (error) { failed(error); } };
-        if (new URLSearchParams(location.search).has('start-held')) (window as unknown as { answerStart: () => void }).answerStart = answer;
-        else setTimeout(answer);
-      })),
-  phoneDomainStop: (): Promise<PhoneView | null> => (inTauri ? invoke<PhoneView | null>('phone_domain_stop') : Promise.resolve(browserPhone.domainStop())),
-  /** 同一网络 / 反代's 停止: the same network and 自有域名 off together, in one step. */
-  phoneStopNear: (): Promise<PhoneView | null> => (inTauri ? invoke<PhoneView | null>('phone_stop_near') : Promise.resolve(browserPhone.stopNear())),
+  /** 自有域名 set, or cleared with an empty field: kept; its code beside the network's while that is on. */
+  phoneDomainSet: (domain: string): Promise<PhoneView | null> => (inTauri ? invoke<PhoneView | null>('phone_domain_set', { domain })
+    : new Promise((done, failed) => { try { done(browserPhone.domainSet(domain)); } catch (error) { failed(error); } })),
   /** 换链接: new keys for a page's links (同一网络 / 反代's together, or the VPN page's), the codes before opening nothing
    *  from then on. Without it a link keeps its key from one 开始 to the next (用户：那个key可不可以固定啊？用户可以手动
    *  刷新，刷新之前就不要改变). */

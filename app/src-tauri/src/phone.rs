@@ -111,9 +111,9 @@ struct Keys {
     local: Option<String>,
     vpn: Option<String>,
     public: Option<String>,
-    domain: Option<String>,
-    /// 自有域名's host (meter.example.com) while one is set, on or off: a request naming it came through the user's
-    /// proxy, and only 自有域名's key opens it.
+    /// 自有域名's host (meter.example.com) while one is set: a request naming it came through the user's proxy, and
+    /// opens with 同一个网络's key while that is on (the domain is a row of its page, no switch or key of its own:
+    /// 用户：去掉开关，改成域名一行).
     domain_host: Option<String>,
 }
 
@@ -195,12 +195,9 @@ pub struct PhoneView {
     tailnet: Option<String>,
     /// http://10.x.y.z:51234/#k=… through a WireGuard tunnel this computer has up, the same way.
     wireguard: Option<String>,
-    /// https://meter.example.com/#k=… while 自有域名 is on with a domain given: the user's own proxy hands it on to
-    /// this server.
+    /// https://meter.example.com/#k=… while 同一个网络 is on and a domain is set: the user's own proxy hands it on to
+    /// this server; 同一个网络's key.
     domain: Option<String>,
-    /// 反代's key while it is on, a domain given or not: with none, the page says to put `/#k=<key>` after the user's
-    /// own domain or IP (用户：域名也可以不写，但是开始之后，告诉用户如何拼域名/IP+后面的key).
-    domain_key: Option<String>,
     /// The server's port (自有域名's proxy forwards to 127.0.0.1 on it).
     port: u16,
     /// https://….trycloudflare.com/#k=… once the public link is up.
@@ -221,9 +218,9 @@ fn usable(public: &Public) -> bool {
 }
 
 fn view(running: &Running) -> PhoneView {
-    let (local, vpn, domain) = {
+    let (local, vpn) = {
         let keys = running.keys.lock().expect("the keys");
-        (keys.local.clone(), keys.vpn.clone(), keys.domain.clone())
+        (keys.local.clone(), keys.vpn.clone())
     };
     let found = (local.is_some() || vpn.is_some()).then(addresses).unwrap_or_default();
     let address = |ip: IpAddr, key: &str| format!("http://{ip}:{}/#k={key}", running.port);
@@ -234,8 +231,7 @@ fn view(running: &Running) -> PhoneView {
         vpn_open: vpn.is_some(),
         tailnet: vpn.as_deref().and_then(|key| found.tailnet.map(|ip| address(ip, key))),
         wireguard: vpn.as_deref().and_then(|key| found.wireguard.map(|ip| address(ip, key))),
-        domain: running.origin.as_ref().zip(domain.as_ref()).map(|(origin, key)| format!("{origin}/#k={key}")),
-        domain_key: domain,
+        domain: running.origin.as_ref().zip(local.as_ref()).map(|(origin, key)| format!("{origin}/#k={key}")),
         port: running.port,
         public: public.map(|public| format!("{}/#k={}", public.tunnel.url, public.key)),
         seconds_left: public.map_or(0, |public| public.until.saturating_duration_since(Instant::now()).as_secs()),
@@ -247,7 +243,7 @@ fn view(running: &Running) -> PhoneView {
 /// The view shown to the panel, or None when no way is on and no active-round public link is opening.
 fn visible_view(running: &Running) -> Option<PhoneView> {
     let v = view(running);
-    (v.local_open || v.vpn_open || v.domain_key.is_some() || v.public.is_some() || v.public_opening).then_some(v)
+    (v.local_open || v.vpn_open || v.public.is_some() || v.public_opening).then_some(v)
 }
 
 /// This computer's addresses for 同一个网络's codes: on its network, on a tailnet, on a WireGuard network.
@@ -562,9 +558,6 @@ struct Fixed {
     local: Option<String>,
     #[serde(default)]
     vpn: Option<String>,
-    /// 自有域名's, for the address kept (another address: another key).
-    #[serde(default)]
-    domain: Option<String>,
 }
 
 /// What the user left on, kept in the settings folder (outside the app, so an update keeps it too), and on again when
@@ -593,9 +586,6 @@ struct Kept {
     /// is then held to `port` (the user's proxy forwards there) instead of moving to a free one when it is taken.
     #[serde(default)]
     domain: Option<String>,
-    /// 自有域名's key while it is on.
-    #[serde(default)]
-    domain_key: Option<String>,
     #[serde(default)]
     fixed: Fixed,
 }
@@ -606,8 +596,8 @@ fn starting_key(on: &mut Option<String>, kept_on: Option<String>, fixed: Option<
     on.get_or_insert_with(|| kept_on.or(fixed).unwrap_or_else(new_key)).clone()
 }
 
-/// A page of 在手机上看 whose links 换链接 changes: 同一网络 / 反代 (the network's code and 自有域名's together, as its
-/// 开始 and 停止 take them), or the VPN page (Tailscale's and WireGuard's, one key).
+/// A page of 在手机上看 whose links 换链接 changes: 同一网络 / 反代 (the network's code and 自有域名's, one key), or the
+/// VPN page (Tailscale's and WireGuard's, one key).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum LinkPage {
     Near,
@@ -630,9 +620,6 @@ fn renew(keys: &mut Keys, kept: &mut Kept, page: LinkPage) {
     match page {
         LinkPage::Near => {
             fresh(&mut keys.local, &mut kept.local, &mut kept.fixed.local);
-            if kept.domain.is_some() || kept.fixed.domain.is_some() {
-                fresh(&mut keys.domain, &mut kept.domain_key, &mut kept.fixed.domain);
-            }
         }
         LinkPage::Vpn => fresh(&mut keys.vpn, &mut kept.vpn, &mut kept.fixed.vpn),
     }
@@ -646,10 +633,9 @@ fn kept_file(app: &AppHandle) -> PathBuf {
     PathBuf::from(starmeter_core::desktop::state_dir(shell, &environment)).join(name)
 }
 
-/// 反代 set up (started once, with a domain or without): its port is held from then on, the user's proxy forwarding
-/// there.
+/// A domain set: the port is held, the user's proxy forwarding there.
 fn proxy_set_up(kept: &Kept) -> bool {
-    kept.domain.is_some() || kept.fixed.domain.is_some()
+    kept.domain.is_some()
 }
 
 /// The kept state; a key that isn't one of ours (32 hex digits), or an address that isn't one, is left out.
@@ -662,10 +648,8 @@ fn read_kept(path: &Path) -> Kept {
     kept.local = kept.local.filter(ours);
     kept.vpn = kept.vpn.filter(ours);
     kept.domain = kept.domain.and_then(|domain| origin_of(&domain).ok());
-    kept.domain_key = kept.domain_key.filter(ours);
     kept.fixed.local = kept.fixed.local.filter(ours);
     kept.fixed.vpn = kept.fixed.vpn.filter(ours);
-    kept.fixed.domain = kept.fixed.domain.filter(ours);
     kept
 }
 
@@ -791,6 +775,7 @@ fn spawn(app: &AppHandle, listener: TcpListener) -> Result<Running, String> {
     listener.set_nonblocking(true).map_err(|error| error.to_string())?;
     let saved = read_kept(&kept_file(app)).domain;
     let keys = Arc::new(Mutex::new(Keys { domain_host: domain_host(saved.as_deref()), ..Keys::default() }));
+    // 自有域名's address, the same network's code at it shown beside the network's.
     let stop = Arc::new(AtomicBool::new(false));
     {
         let (app, keys, stop) = (app.clone(), keys.clone(), stop.clone());
@@ -800,7 +785,7 @@ fn spawn(app: &AppHandle, listener: TcpListener) -> Result<Running, String> {
         port,
         keys,
         stop,
-        origin: None,
+        origin: saved,
         public: None,
         public_round: Arc::new(AtomicBool::new(false)),
         opening: 0,
@@ -830,7 +815,6 @@ pub fn resume(app: &AppHandle) {
             None => {}
         }
     }
-    let _ = start_domain(app, None);
 }
 
 /// The server running (started if it isn't, with neither way in on yet).
@@ -885,7 +869,13 @@ fn start_local_if(app: AppHandle, port: Option<u16>, kept_on: bool) -> Result<Ph
                 kept.port_chosen = true;
             });
         }
-        None => {}
+        // A domain set: on the port its proxy forwards to, said when taken (as a port the user gave is).
+        None => {
+            let kept = read_kept(&kept_file(&app));
+            if let (Some(port), true) = (kept.port, proxy_set_up(&kept)) {
+                on_port(&app, &mut running, port)?;
+            }
+        }
     }
     let current = serving(&app, &mut running)?;
     let kept = read_kept(&kept_file(&app));
@@ -1003,32 +993,6 @@ pub async fn phone_stop(app: AppHandle) -> Option<PhoneView> {
     .flatten()
 }
 
-/// 同一网络 / 反代's 停止: the same network and 自有域名 together, in one step, so the panel never sees one gone and the
-/// other still on (R12-3); the VPN page and the public link as they are. Their keys stay for the next 开始.
-#[tauri::command]
-pub async fn phone_stop_near(app: AppHandle) -> Option<PhoneView> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let state = app.state::<Phone>();
-        let mut running = state.running.lock().expect("the phone lock");
-        if let Some(current) = running.as_mut() {
-            let mut keys = current.keys.lock().expect("the keys");
-            keys.local = None;
-            keys.domain = None;
-            drop(keys);
-            current.origin = None;
-        }
-        keep(&app, |kept| {
-            kept.local = None;
-            kept.domain_key = None;
-        });
-        settle(&mut running);
-        running.as_ref().and_then(visible_view)
-    })
-    .await
-    .ok()
-    .flatten()
-}
-
 /// 换链接 on a page of 在手机上看 ("near": 同一网络 / 反代; "vpn": the VPN page): new keys for its links, at once. The
 /// codes and links from before open nothing from then on (a phone showing the page says its link is no longer good),
 /// and the page's codes are the new ones; the other page and the public link as they are.
@@ -1105,56 +1069,29 @@ pub async fn phone_domain(app: AppHandle) -> Option<DomainSetup> {
     .ok()
 }
 
-/// 自有域名's 开始, with the address and port from its page: the server on that port (moved there if it runs on
-/// another), the way on with its key (the one this address's link had before, through its 停止 too, so a phone's link
-/// keeps opening; a new one the first time and for another address), and both kept once it is on (the port held from
-/// then on). Off the main thread (PERF-7).
+/// 自有域名 set (the domain's row, 应用), or cleared (its field emptied): kept, and while the server runs, its code
+/// beside the network's at once, the server's port kept as the one its proxy forwards to. Nothing starts or stops.
 #[tauri::command]
-pub async fn phone_domain_start(
-    app: AppHandle,
-    domain: String,
-    port: u16,
-    chosen: Option<bool>,
-) -> Result<PhoneView, String> {
-    tauri::async_runtime::spawn_blocking(move || start_domain(&app, Some((domain, port, chosen))))
-        .await
-        .map_err(|error| error.to_string())?
-}
-
-/// 自有域名 on: as given, or as kept (the app starting again). The domain may be left empty (用户：域名也可以不写): the
-/// page then says how to put the key after one's own domain or IP. Its key stays the same whatever address is typed,
-/// until 换链接. Nothing changes until what can fail has gone through (the address, the port): a start that fails
-/// leaves the link before it opening and nothing new kept.
-fn start_domain(app: &AppHandle, given: Option<(String, u16, Option<bool>)>) -> Result<PhoneView, String> {
-    let state = app.state::<Phone>();
-    let mut running = state.running.lock().expect("the phone lock");
-    // Read under the lock, so a 停止 or a port move just before is seen, and only what changes here is written back.
-    let kept = read_kept(&kept_file(app));
-    // Whether the port is one the user gave (its field typed into), when the page says; else as it was.
-    let chosen = given.as_ref().and_then(|(_, _, chosen)| *chosen);
-    let (origin, port) = match given {
-        Some((domain, port, _)) if domain.trim().is_empty() => (None, valid_port(port)?),
-        Some((domain, port, _)) => (Some(origin_of(&domain)?), valid_port(port)?),
-        // The app starting: only if it is still kept on (a 停止 meanwhile keeps it off, R12-2).
-        None if kept.domain_key.is_none() => return Err("已停止".into()),
-        None => (kept.domain.clone(), kept.port.ok_or("还没有端口")?),
-    };
-    on_port(app, &mut running, port)?;
-    let current = running.as_mut().expect("the server on its port");
-    let key = {
-        let mut keys = current.keys.lock().expect("the keys");
-        keys.domain_host = domain_host(origin.as_deref());
-        starting_key(&mut keys.domain, kept.domain_key.clone(), kept.fixed.domain.clone())
-    };
-    current.origin.clone_from(&origin);
-    keep(app, |kept| {
-        kept.domain = origin;
-        kept.port = Some(port);
-        kept.port_chosen = chosen.unwrap_or(kept.port_chosen);
-        kept.domain_key = Some(key.clone());
-        kept.fixed.domain = Some(key);
-    });
-    Ok(view(current))
+pub async fn phone_domain_set(app: AppHandle, domain: String) -> Result<Option<PhoneView>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let origin = if domain.trim().is_empty() { None } else { Some(origin_of(&domain)?) };
+        let state = app.state::<Phone>();
+        let mut running = state.running.lock().expect("the phone lock");
+        let on = running.as_ref().map(|current| current.port);
+        if let Some(current) = running.as_mut() {
+            current.keys.lock().expect("the keys").domain_host = domain_host(origin.as_deref());
+            current.origin.clone_from(&origin);
+        }
+        keep(&app, |kept| {
+            kept.domain = origin;
+            if kept.domain.is_some() && on.is_some() {
+                kept.port = on;
+            }
+        });
+        Ok(running.as_ref().and_then(visible_view))
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 /// The server on the port asked for, and no other. A server whose ways all went off a moment ago goes first; then it is
@@ -1191,26 +1128,6 @@ fn moved(app: &AppHandle, running: &mut Option<Running>, listener: TcpListener) 
     Ok(())
 }
 
-/// 自有域名's 停止: its address no longer opens; the address, the port and its key stay for its next 开始 (the same
-/// link), and the other ways as they are.
-#[tauri::command]
-pub async fn phone_domain_stop(app: AppHandle) -> Option<PhoneView> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let state = app.state::<Phone>();
-        let mut running = state.running.lock().expect("the phone lock");
-        if let Some(current) = running.as_mut() {
-            current.keys.lock().expect("the keys").domain = None;
-            current.origin = None;
-        }
-        keep(&app, |kept| kept.domain_key = None);
-        settle(&mut running);
-        running.as_ref().and_then(visible_view)
-    })
-    .await
-    .ok()
-    .flatten()
-}
-
 /// How 自有域名's address answered this computer: through the user's proxy to this server, or why not.
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -1233,7 +1150,7 @@ pub async fn phone_domain_check(app: AppHandle) -> Option<DomainCheck> {
             let state = app.state::<Phone>();
             let running = state.running.lock().expect("the phone lock");
             let current = running.as_ref()?;
-            (current.origin.clone()?, current.keys.lock().expect("the keys").domain.clone()?)
+            (current.origin.clone()?, current.keys.lock().expect("the keys").local.clone()?)
         };
         let request = starmeter_core::http::Request {
             headers: vec![("X-Starmeter-Key", key)],
@@ -1280,11 +1197,7 @@ fn stop_running(running: &mut Running) {
 fn settle(running: &mut Option<Running>) {
     let idle = running.as_ref().is_some_and(|current| {
         let keys = current.keys.lock().expect("the keys");
-        keys.local.is_none()
-            && keys.vpn.is_none()
-            && keys.domain.is_none()
-            && current.public.is_none()
-            && current.opening == 0
+        keys.local.is_none() && keys.vpn.is_none() && current.public.is_none() && current.opening == 0
     });
     if idle && let Some(mut over) = running.take() {
         stop_running(&mut over);
@@ -1534,18 +1447,14 @@ fn serve(app: AppHandle, listener: TcpListener, keys: Arc<Mutex<Keys>>, stop: Ar
 fn admitted(keys: &Mutex<Keys>, given: &str, from: Origin, host: &str) -> bool {
     let keys = keys.lock().expect("the keys");
     let opens = |key: &Option<String>| key.as_deref().is_some_and(|key| same(given, key));
-    let domain = || match from {
-        Origin::Here => opens(&keys.domain),
-        Origin::Vpn => keys.vpn.is_some() && opens(&keys.domain),
-        Origin::Network => keys.local.is_some() && opens(&keys.domain),
-    };
     match via(host, keys.domain_host.as_deref()) {
         Via::Tunnel => from == Origin::Here && opens(&keys.public),
-        Via::Domain => domain(),
+        // The user's proxy, wherever it is (here, a NAS on the network, elsewhere over a VPN): 同一个网络's key.
+        Via::Domain => opens(&keys.local),
         Via::Direct => match from {
-            Origin::Here => opens(&keys.local) || opens(&keys.vpn) || opens(&keys.public) || domain(),
-            Origin::Vpn => opens(&keys.vpn) || domain(),
-            Origin::Network => opens(&keys.local) || domain(),
+            Origin::Here => opens(&keys.local) || opens(&keys.vpn) || opens(&keys.public),
+            Origin::Vpn => opens(&keys.vpn),
+            Origin::Network => opens(&keys.local),
         },
     }
 }
@@ -2584,12 +2493,11 @@ mod tests {
         // 用户：同一网络和任何网络……互不影响. 用户：这样同一网络那里就直接打开了吧，逻辑上很不对. 用户：同一网络|反代，
         // 任何网络，就这两个分类。tailscale,等vpn, cloudflare放到任意网络里.
         use Origin::{Here, Network, Vpn};
-        let (local, vpn, public, domain) = (new_key(), new_key(), new_key(), new_key());
+        let (local, vpn, public) = (new_key(), new_key(), new_key());
         let keys = Mutex::new(Keys {
             local: Some(local.clone()),
             vpn: Some(vpn.clone()),
             public: Some(public.clone()),
-            domain: Some(domain.clone()),
             domain_host: None,
         });
         // 同一个网络's key from the network and this computer, not a VPN's address.
@@ -2604,18 +2512,11 @@ mod tests {
         assert!(admitted(&keys, &public, Here, ""));
         assert!(!admitted(&keys, &public, Network, ""));
         assert!(!admitted(&keys, &public, Vpn, ""));
-        // 自有域名's from a proxy on this computer, from the network while 同一个网络 is on (a proxy on a NAS), and through
-        // a VPN while its page is on (a proxy elsewhere on the tailnet).
-        assert!(admitted(&keys, &domain, Here, ""));
-        assert!(admitted(&keys, &domain, Network, ""));
-        assert!(admitted(&keys, &domain, Vpn, ""));
         assert!(keys.lock().unwrap().welcome(Network) && keys.lock().unwrap().welcome(Vpn));
-        // 同一个网络 stopped: the network is kept out, 自有域名's key with it; the others as they were.
+        // 同一个网络 stopped: the network is kept out; the others as they were.
         keys.lock().unwrap().local = None;
         assert!(!admitted(&keys, &local, Network, ""));
         assert!(!admitted(&keys, &local, Here, ""));
-        assert!(!admitted(&keys, &domain, Network, ""));
-        assert!(admitted(&keys, &domain, Here, ""));
         assert!(!keys.lock().unwrap().welcome(Network));
         assert!(admitted(&keys, &vpn, Vpn, ""));
         // The VPN page stopped: the VPNs are kept out.
@@ -2624,28 +2525,21 @@ mod tests {
         assert!(!keys.lock().unwrap().welcome(Vpn));
         assert!(keys.lock().unwrap().welcome(Here));
         assert!(admitted(&keys, &public, Here, ""));
-        // 自有域名's key through a VPN only while the VPN page is on (a proxy reaching this computer over the tailnet).
-        keys.lock().unwrap().vpn = Some(vpn.clone());
-        assert!(admitted(&keys, &domain, Vpn, ""));
-        keys.lock().unwrap().vpn = None;
-        assert!(!admitted(&keys, &domain, Vpn, ""));
-        // 自有域名 stopped: its links no longer open; nothing empty opens anything.
-        keys.lock().unwrap().domain = None;
-        assert!(!admitted(&keys, &domain, Here, ""));
+        // Nothing empty opens anything.
         assert!(!admitted(&keys, "", Here, ""));
     }
 
     #[test]
     fn a_key_opens_the_page_only_by_its_own_way_in_whatever_name_the_request_came_by() {
         // R12-1: cloudflared and a proxy on this computer both hand requests on from 127.0.0.1. The name a request came
-        // by tells them apart: Cloudflare's link takes its own key alone, 自有域名 its own alone.
+        // by tells them apart: Cloudflare's link takes its own key alone; 自有域名 (a row of 同一个网络's page, no key of
+        // its own: 用户：去掉开关，改成域名一行) the same network's key alone.
         use Origin::{Here, Network, Vpn};
-        let (local, vpn, public, domain) = (new_key(), new_key(), new_key(), new_key());
+        let (local, vpn, public) = (new_key(), new_key(), new_key());
         let keys = Mutex::new(Keys {
             local: Some(local.clone()),
             vpn: Some(vpn.clone()),
             public: Some(public.clone()),
-            domain: Some(domain.clone()),
             domain_host: domain_host(Some("https://meter.example.com")),
         });
         let tunnel = "bright-owl-42.trycloudflare.com";
@@ -2653,32 +2547,28 @@ mod tests {
         assert!(admitted(&keys, &public, Here, tunnel));
         assert!(!admitted(&keys, &local, Here, tunnel));
         assert!(!admitted(&keys, &vpn, Here, tunnel));
-        assert!(!admitted(&keys, &domain, Here, tunnel));
-        // Through 自有域名 (its name, any case, with a port or a trailing dot): its key, nothing else, from a proxy here,
-        // on a NAS, or over a VPN.
+        // Through 自有域名 (its name, any case, with a port or a trailing dot): the same network's key, nothing else, from
+        // a proxy here, on a NAS, or over a VPN.
         for name in ["meter.example.com", "METER.example.com:443", "meter.example.com."] {
-            assert!(admitted(&keys, &domain, Here, name), "{name}");
-            assert!(!admitted(&keys, &local, Here, name), "{name}");
+            assert!(admitted(&keys, &local, Here, name), "{name}");
             assert!(!admitted(&keys, &vpn, Here, name), "{name}");
             assert!(!admitted(&keys, &public, Here, name), "{name}");
         }
-        assert!(admitted(&keys, &domain, Network, "meter.example.com"));
-        assert!(!admitted(&keys, &local, Network, "meter.example.com"));
-        assert!(admitted(&keys, &domain, Vpn, "meter.example.com"));
+        assert!(admitted(&keys, &local, Network, "meter.example.com"));
+        assert!(admitted(&keys, &local, Vpn, "meter.example.com"));
         assert!(!admitted(&keys, &vpn, Vpn, "meter.example.com"));
-        // By an address (the codes' own): each way's key as before; 自有域名's too (a proxy that sends its own name).
+        // By an address (the codes' own): each way's key as before.
         assert!(admitted(&keys, &local, Network, "192.168.1.20:51234"));
         assert!(admitted(&keys, &vpn, Vpn, "100.76.55.73:51234"));
         assert!(admitted(&keys, &vpn, Vpn, "[fd7a:115c:a1e0::1]:51234"));
-        assert!(admitted(&keys, &domain, Here, "127.0.0.1:51234"));
         assert!(admitted(&keys, &public, Here, "127.0.0.1:51234"));
-        // 反代 off, its proxy still forwarding here: nothing opens through its name, the same network's key neither.
-        keys.lock().unwrap().domain = None;
-        assert!(!admitted(&keys, &domain, Here, "meter.example.com"));
+        // 同一个网络 stopped, the proxy still forwarding here: nothing opens through its name.
+        keys.lock().unwrap().local = None;
         assert!(!admitted(&keys, &local, Here, "meter.example.com"));
-        assert!(!admitted(&keys, &local, Network, "meter.example.com"));
-        assert!(admitted(&keys, &local, Network, "192.168.1.20:51234"));
+        assert!(!admitted(&keys, &vpn, Here, "meter.example.com"));
+        assert!(!admitted(&keys, &public, Here, "meter.example.com"));
         // No domain set: a name is taken as an address (a phone opening this computer by its .local or MagicDNS name).
+        keys.lock().unwrap().local = Some(local.clone());
         keys.lock().unwrap().domain_host = None;
         assert!(admitted(&keys, &local, Network, "macbook.local:51234"));
     }
@@ -2709,7 +2599,7 @@ mod tests {
     #[test]
     fn a_ways_link_keeps_its_key_from_one_start_to_the_next_until_a_new_link_is_asked_for() {
         // 用户：每次的内网链接都不同？那个key可不可以固定啊？用户可以手动刷新，刷新之前就不要改变。
-        use Origin::{Here, Network, Vpn};
+        use Origin::{Network, Vpn};
         let folder = std::env::temp_dir().join(format!("starmeter-phone-fixed-{}", new_key()));
         let path = folder.join("phone.json");
         let mut kept = Kept::default();
@@ -2774,26 +2664,6 @@ mod tests {
         assert_eq!(again.lock().unwrap().local.as_ref(), Some(&near));
         assert_eq!(kept.fixed.vpn.as_ref(), Some(&vpn_after));
 
-        // 自有域名's key stays with its address through a 停止, and 同一网络 / 反代's 换链接 changes it with the network's.
-        kept.domain = Some("https://meter.example.com".into());
-        let domain =
-            starting_key(&mut again.lock().unwrap().domain, kept.domain_key.clone(), kept.fixed.domain.clone());
-        kept.domain_key = Some(domain.clone());
-        kept.fixed.domain = Some(domain.clone());
-        again.lock().unwrap().domain = None;
-        kept.domain_key = None;
-        write_kept(&path, &kept);
-        kept = read_kept(&path);
-        assert_eq!(
-            starting_key(&mut again.lock().unwrap().domain, kept.domain_key.clone(), kept.fixed.domain.clone()),
-            domain
-        );
-        kept.domain_key = Some(domain.clone());
-        renew(&mut again.lock().unwrap(), &mut kept, LinkPage::Near);
-        let domain_after = again.lock().unwrap().domain.clone().unwrap();
-        assert_ne!(domain_after, domain);
-        assert!(admitted(&again, &domain_after, Here, "") && !admitted(&again, &domain, Here, ""));
-        assert_eq!((kept.domain_key.as_ref(), kept.fixed.domain.as_ref()), (Some(&domain_after), Some(&domain_after)));
         let _ = std::fs::remove_dir_all(folder);
     }
 
@@ -2810,19 +2680,17 @@ mod tests {
         let mut keys = Keys::default();
         assert_eq!(starting_key(&mut keys.local, kept.local.clone(), kept.fixed.local.clone()), local);
         assert_eq!(starting_key(&mut keys.vpn, kept.vpn.clone(), kept.fixed.vpn.clone()), vpn);
-        // A key that is none of ours is no key; 反代's stays without a domain (用户：域名也可以不写).
+        // A key that is none of ours is no key; 自有域名's own key of 6.0.27 builds is let go (it opens with the same
+        // network's now).
         std::fs::write(&path, r#"{"fixed":{"local":"zz","vpn":"0123","domain":"0123456789abcdef0123456789abcdef"}}"#)
             .unwrap();
-        assert_eq!(
-            read_kept(&path).fixed,
-            Fixed { domain: Some("0123456789abcdef0123456789abcdef".into()), ..Fixed::default() }
-        );
+        assert_eq!(read_kept(&path).fixed, Fixed::default());
         std::fs::write(
             &path,
-            r#"{"domain":"https://meter.example.com","fixed":{"domain":"0123456789abcdef0123456789abcdef"}}"#,
+            r#"{"domain":"https://meter.example.com","domainKey":"0123456789abcdef0123456789abcdef"}"#,
         )
         .unwrap();
-        assert_eq!(read_kept(&path).fixed.domain.as_deref(), Some("0123456789abcdef0123456789abcdef"));
+        assert_eq!(read_kept(&path), Kept { domain: Some("https://meter.example.com".into()), ..Kept::default() });
         let _ = std::fs::remove_dir_all(folder);
     }
 
@@ -2861,11 +2729,6 @@ mod tests {
         vpn.as_ref().unwrap().keys.lock().unwrap().vpn = Some(new_key());
         settle(&mut vpn);
         assert!(vpn.is_some());
-        // 自有域名 alone on: kept for it.
-        let mut domain = Some(running(false, 0));
-        domain.as_ref().unwrap().keys.lock().unwrap().domain = Some(new_key());
-        settle(&mut domain);
-        assert!(domain.is_some());
         // 同一个网络 off while the public link is still being made: kept for it.
         let mut making = Some(running(false, 1));
         settle(&mut making);
@@ -2908,8 +2771,7 @@ mod tests {
             vpn: Some(new_key()),
             public_until: Some(1_800_000_000.5),
             domain: Some("https://meter.example.com".into()),
-            domain_key: Some(new_key()),
-            fixed: Fixed { local: Some(new_key()), vpn: Some(new_key()), domain: Some(new_key()) },
+            fixed: Fixed { local: Some(new_key()), vpn: Some(new_key()) },
         };
         write_kept(&path, &on);
         assert_eq!(read_kept(&path), on);
@@ -2921,20 +2783,13 @@ mod tests {
         // A key not one of ours is left out; the rest stands.
         std::fs::write(&path, r#"{"port":51234,"local":"not a key","publicUntil":null}"#).unwrap();
         assert_eq!(read_kept(&path), Kept { port: Some(51234), ..Kept::default() });
-        // An address that isn't one is left out; 自有域名's key stays (反代 runs with no domain too, its link put
-        // together by hand).
-        let key = new_key();
-        std::fs::write(&path, format!(r#"{{"port":51234,"domain":"ftp://x","domainKey":"{key}"}}"#)).unwrap();
-        assert_eq!(read_kept(&path), Kept { port: Some(51234), domain_key: Some(key.clone()), ..Kept::default() });
-        std::fs::write(&path, format!(r#"{{"port":51234,"domain":"meter.example.com","domainKey":"{key}"}}"#)).unwrap();
+        // An address that isn't one is left out; one as typed is kept as its origin.
+        std::fs::write(&path, r#"{"port":51234,"domain":"ftp://x"}"#).unwrap();
+        assert_eq!(read_kept(&path), Kept { port: Some(51234), ..Kept::default() });
+        std::fs::write(&path, r#"{"port":51234,"domain":"meter.example.com"}"#).unwrap();
         assert_eq!(
             read_kept(&path),
-            Kept {
-                port: Some(51234),
-                domain: Some("https://meter.example.com".into()),
-                domain_key: Some(key),
-                ..Kept::default()
-            }
+            Kept { port: Some(51234), domain: Some("https://meter.example.com".into()), ..Kept::default() }
         );
         // A port said to be the user's with no port there is no choice.
         std::fs::write(&path, r#"{"portChosen":true}"#).unwrap();

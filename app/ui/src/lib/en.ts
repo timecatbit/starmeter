@@ -215,7 +215,6 @@ export const phrases: Record<string, string> = {
   // or WireGuard network, from anywhere, with a key of its own.
   '同一网络 / 反代': 'Same network / Proxy', 反代: 'Reverse proxy', 'Tailscale 等 VPN': 'Tailscale & VPNs',
   // 同一网络 / 反代's two modes: the same network alone, or with the user's own domain beside it.
-  同时开启反代: 'Also through a reverse proxy', '用你自己的域名，手机在哪都能打开': 'Your own domain, for a phone anywhere',
   手机在哪都能扫这个二维码: 'Scan this from anywhere', 手机在哪都能扫: 'From anywhere',
   连不上这个地址: 'The address can\'t be reached', 加密连接没能建立: 'The secure connection couldn\'t be set up',
   '连着 Tailscale 的手机扫这个二维码': 'Scan this with a phone on the tailnet', '手机开着 Tailscale': 'Phone on your tailnet',
@@ -224,9 +223,7 @@ export const phrases: Record<string, string> = {
   '连着 WireGuard 的手机扫这个二维码': 'Scan this with a phone on the WireGuard network',
   '手机开着 WireGuard': 'Phone on WireGuard',
   自动: 'Auto', '换端口后二维码要重新扫，Cloudflare 链接会关闭': 'After a port change the codes are scanned again, and the Cloudflare link closes',
-  '重新开启后，原来的反代链接还能用。': 'Turned on again, the proxy\'s link from before still opens.',
-  'https://starmeter.example.com（可不填）': 'https://starmeter.example.com (optional)', '你的域名或 IP': 'your domain or IP',
-  '把这一段接在你的域名或 IP 后面，手机就能打开': 'Put this after your domain or IP to open it on a phone',
+  'https://starmeter.example.com（可不填）': 'https://starmeter.example.com (optional)',
   '同一个 Wi-Fi 扫“局域网”，在别处扫“反代”。只读，点“停止”前一直开着。': 'On this Wi-Fi scan Local network, elsewhere Reverse proxy. Read-only; on until you stop it.',
   '手机在哪都能扫。只读，点“停止”前一直开着。': 'Scan it from anywhere. Read-only; on until you stop it.',
   '手机连同一个 Wi-Fi 后扫码。只读，点“停止”前一直开着。': 'Scan it with the phone on this Wi-Fi. Read-only; on until you stop it.',

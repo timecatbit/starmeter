@@ -19,7 +19,7 @@
   import { language, t } from '../lib/i18n.svelte';
   import { style } from '../lib/style.svelte';
   import { shell, type DomainCheck, type DomainSetup, type PhoneView } from '../lib/backend';
-  import { chooseNear, chooseVia, phone, secondsLeft, setPhone, type Near, type Via } from '../lib/phone.svelte';
+  import { chooseVia, phone, secondsLeft, setPhone, type Via } from '../lib/phone.svelte';
   import { composing, grabWindow, panel } from '../lib/ui.svelte';
   import HintButton from './HintButton.svelte';
   import Icon from './Icon.svelte';
@@ -64,11 +64,11 @@
   let portField: HTMLInputElement | undefined = $state();
   /** The kind's 开始s on their way, both of their steps: the domain's check waits for them (a proxy on a NAS gets in once
    *  the same network is on). A count, so a second 开始 pressed while the first is on its way keeps it waiting (R12-5). */
-  let nearStarting = $state(0);
   /** 同一网络's port that couldn't be had (not one to give, or another app's): said under its field, 开始 still there. */
   let portSaid = $state<string | null>(null);
   /** 自有域名 being started; its start that failed (the address, or the port taken): the reason, under its fields. */
-  let domainStarting = $state(false);
+  /** 自有域名 being saved (its row's 应用). */
+  let domainSaving = $state(false);
   let domainFailed = $state<string | null>(null);
   /** Whether its address opens this server from here, asked once it is on; 'failed' when the asking itself failed. */
   let domainCheck = $state<'checking' | 'failed' | DomainCheck | null>(null);
@@ -96,14 +96,10 @@
   const outside = $derived(looked(view?.public));
   /** 自有域名's link while it is on, its address, and where its proxy forwards to (this computer's port). */
   const own = $derived(looked(view?.domain));
-  /** 反代 on, a domain given or not; with none, what to put after one's own domain or IP: /#k=… and the page's language
-   *  (用户：域名也可以不写，但是开始之后，告诉用户如何拼域名/IP+后面的key). */
-  const proxyOn = $derived(!!view?.domainKey || !!own);
-  const proxyTail = $derived(view?.domainKey && !own ? looked(`/#k=${view.domainKey}`) : null);
   const ownOrigin = $derived(view?.domain ? view.domain.replace(/\/?#.*$/, '') : null);
   const ownHost = $derived(ownOrigin?.replace(/^https?:\/\//, '') ?? '');
   const portTyped = $derived(/^\d+$/.test(portInput.trim()) ? Number(portInput.trim()) : null);
-  const forwardPort = $derived(proxyOn && !portOpen ? view?.port : portTyped ?? setup?.port);
+  const forwardPort = $derived(localOn && !portOpen ? view?.port : portTyped ?? setup?.port);
   /** Where the user's proxy hands requests on to: this computer's network address (用户：那就用子网的ip吧), good for a
    *  proxy on this computer and one on a NAS or the router alike, the same network being on with the proxy; this
    *  computer itself (127.0.0.1) without a network. Not 0.0.0.0: that is where the server listens, not an address to
@@ -136,9 +132,9 @@
   ].filter((code) => !!code));
   /** 自有域名 started on another port than the server's: the same network's codes and Cloudflare's link go with it. */
   const movesServer = $derived(!!view && !!view.port && portTyped !== null && portTyped !== view.port
-    && (localOn || vpnOn || !!outside || opening || proxyOn));
+    && (localOn || vpnOn || !!outside || opening));
   /** Which ways are on, a green dot after each one's name. */
-  const on = $derived({ local: localOn || proxyOn, public: !!outside || opening || vpnOn });
+  const on = $derived({ local: localOn, public: !!outside || opening || vpnOn });
 
   /** Each way's steps belong to its own round, so what one answers late can't undo a later step of the same way: a
    *  start after a 停止, a link closed while it was made. Every step also moves `epoch`, so the status asked every ten
@@ -163,7 +159,7 @@
    *  too). The host's own answer follows. */
   function without(gone: Partial<PhoneView>) {
     const left = view ? { ...view, ...gone } : null;
-    setPhone(left && (left.localOpen || left.vpnOpen || left.public || left.publicOpening || left.domain || left.domainKey) ? left : null);
+    setPhone(left && (left.localOpen || left.vpnOpen || left.public || left.publicOpening) ? left : null);
   }
 
   /** 同一个网络's 开始 (重新开始, 重试). A start that fails stays in the code's place with its reason and 重试, instead of
@@ -300,7 +296,6 @@
     setup = next;
     if (!domainEdited) domainInput = next.domain ? next.domain.replace(/^https:\/\//, '') : domainInput;
     if (!portEdited) portInput = String(next.port);
-    if (next.domain && !phone.nearChosen) phone.near = 'domain';
   }
   onMount(() => {
     // Nothing starts by opening the page: each way as it was left, off until its 开始. What is set for 自有域名, unless
@@ -345,104 +340,50 @@
     domainQueue = next.catch(() => {});
     return next;
   }
-  /** 自有域名's 开始 (the button, or Return in a field): its address and port kept once it is on (the port held from
-   *  then on), and its link on. One at a time: Return while one is on its way does nothing. */
-  async function startDomain() {
-    if (domainStarting) return;
+  /** 自有域名 saved (its row's 应用, Return, or leaving its field changed; 开始 too): a row of the same network's page,
+   *  no switch or key of its own (用户：去掉开关，改成域名一行). Set, its code stands beside the network's while that is
+   *  on; emptied, no domain. */
+  async function saveDomain() {
+    if (domainSaving) return;
     domainFailed = null;
-    // The port's field emptied: the port as it is, the app's own pick again from then on.
-    const typed = portInput.trim();
-    const port = typed === '' ? setup?.port ?? null : portTyped;
-    if (port === null || port < 1024 || port > 65535) { domainFailed = '端口填 1024 到 65535 之间的数'; openPort(); return; }
-    const chosen = portEdited ? typed !== '' : null;
     const mine = ++domainRound;
     epoch++;
-    const moved = holdPublic();
-    domainStarting = true;
+    domainSaving = true;
     try {
-      const started = await serial(() => sent(shell.phoneDomainStart(domainInput, port, chosen)));
-      moved(true);
-      if (mine !== domainRound) return;
-      phone.domainStopped = false;
-      setPhone(started);
-      // As kept now: the fields show what was saved.
+      const next = await serial(() => sent(shell.phoneDomainSet(domainInput)));
+      if (mine !== domainRound || destroyed) return;
+      setPhone(next);
       domainEdited = false;
-      portEdited = false;
-      portOpen = false;
-      portSaid = null;
-      const next = await shell.phoneDomain().catch(() => null);
-      if (next && mine === domainRound) settled(next);
+      readSetup();
     } catch (error) {
-      moved(false);
-      if (mine !== domainRound) return;
-      domainFailed = String(error);
-      // A port another app holds: the port's field open, to pick another.
-      if (/^端口 \d+ 被别的程序占用$/.test(domainFailed)) openPort();
+      if (mine === domainRound) domainFailed = String(error);
     } finally {
-      if (mine === domainRound) domainStarting = false;
+      if (mine === domainRound) domainSaving = false;
     }
   }
-  /** The kind's 开始: with 同时开启反代 the domain first (it binds the port typed under 换端口, held from then on, so a
-   *  port taken can be changed there), then the same network on the same server; a domain that fails starts nothing
-   *  else, its reason under its form. Without, the same network alone. */
+  /** The page's 开始 (重试): a domain typed and not yet saved, saved first (one that isn't one starts nothing); then the
+   *  same network. */
   async function startNear() {
-    nearStarting++;
     // 重试 after the same network failed: its reason goes as this start shows its spinner, and a new one says why (R12-6).
     localFailed = null;
-    try {
-      if (phone.near === 'domain' && !proxyOn) {
-        await startDomain();
-        if (!proxyOn || destroyed) return;
-      }
-      if (!localOn && !destroyed) await startLocal();
-    } finally {
-      nearStarting--;
+    if (domainChanged) {
+      await saveDomain();
+      if (domainFailed || destroyed) return;
     }
+    if (!localOn && !destroyed) await startLocal();
   }
-  /** The kind's 停止: whatever of it is on, or on its way (stopped after its start, in the order pressed). */
+  /** The page's 停止: the same network's codes (its domain's with them) no longer open; the domain stays set. */
   async function stopNear() {
-    // In one step (R12-3): the domain's answer alone would say the same network still on, and its code would come back
-    // for a moment.
-    const local = ++localRound, domain = ++domainRound;
+    const local = ++localRound;
     epoch++;
-    const wasDomain = proxyOn || domainStarting;
     const wasLocal = localOn || !!localFailed || starting;
     starting = false;
-    domainStarting = false;
     localFailed = null;
-    domainFailed = null;
     portSaid = null;
     if (wasLocal) phone.localStopped = true;
-    if (wasDomain) phone.domainStopped = true;
-    without({ localOpen: false, local: null, domain: null, domainKey: null });
-    const left = await serial(() => sent(shell.phoneStopNear())).catch(() => phone.view);
-    if (local === localRound && domain === domainRound) setPhone(left ?? null);
-  }
-  /** 同时开启反代 turns 反代 on and off itself, on this page (用户：同时开启反代不要再进入一个界面。就在同一界面管理): with
-   *  the network on, on starts it at once (a domain is not needed: without one the page says how its link goes
-   *  together), its domain and port then set under the codes; off takes its link down (one on its way too). With
-   *  everything off, it says 开始 starts both. */
-  function pickNear(next: Near) {
-    chooseNear(next);
-    if (next === 'local' && (proxyOn || domainStarting)) void stopDomain();
-    else if (next === 'domain' && localOn && !proxyOn && !domainStarting) void startDomain();
-  }
-  /** Return (or leaving a field changed) in 反代's fields: everything off, 开始; on, its domain and port as typed, at
-   *  once (the same key, so a link already given keeps opening; an emptied domain is no domain). */
-  function applyNear() {
-    if (!localOn && !proxyOn) { void startNear(); return; }
-    if (phone.near === 'domain' && (domainEdited || portEdited || !proxyOn)) void startDomain();
-  }
-  /** 自有域名's 停止: its links stop opening; its address and port stay for the next 开始. */
-  async function stopDomain() {
-    const mine = ++domainRound;
-    epoch++;
-    domainStarting = false;
-    domainFailed = null;
-    phone.domainStopped = true;
-    without({ domain: null, domainKey: null });
-    const left = await serial(() => sent(shell.phoneDomainStop())).catch(() => phone.view);
-    if (mine === domainRound) setPhone(left ?? null);
+    without({ localOpen: false, local: null, domain: null });
+    const left = await serial(() => sent(shell.phoneStop())).catch(() => phone.view);
+    if (local === localRound) setPhone(left ?? null);
   }
   // 换端口, or a start that failed on the port: the field takes the focus once, as it is asked for (the form coming back
   // later, after a 停止 or another page, leaves the focus where it is).
@@ -470,32 +411,32 @@
   }
   /** 开始 can be pressed (and Return starts it): an address typed, and a port typed or known (the setup read), none on
    *  its way. A port out of range is said on the press, under the form (R12-8). */
-  const canStart = $derived(!domainStarting && !starting && (portInput.trim() !== '' || !!setup));
-  const enter = (event: KeyboardEvent) => { if (event.key === 'Enter' && !composing(event) && canStart) applyNear(); };
+  const enter = (event: KeyboardEvent) => { if (event.key === 'Enter' && !composing(event) && domainChanged) void saveDomain(); };
   /** The port typed, applied: on, the server moved there now (with 反代 by its start, which holds it); off, by 开始. */
   function applyPort() {
     // The port it is on already (untouched, or typed again): nothing to move, the field just closes (用户：换端口，如果相同
     // 端口，应用按钮点不动).
-    if ((localOn || proxyOn) && (!portEdited || (portTyped !== null && portTyped === shownPort))) {
+    if (localOn && (!portEdited || (portTyped !== null && portTyped === shownPort))) {
       portOpen = false;
       portEdited = false;
       portSaid = null;
       if (shownPort != null) portInput = String(shownPort);
       return;
     }
-    if (proxyOn || (phone.near === 'domain' && localOn)) void startDomain();
-    else if (localOn) void startLocal();
+    if (localOn) void startLocal();
     else void startNear();
   }
-  const enterPort = (event: KeyboardEvent) => { if (event.key === 'Enter' && !composing(event) && !starting && !domainStarting) applyPort(); };
+  const enterPort = (event: KeyboardEvent) => { if (event.key === 'Enter' && !composing(event) && !starting) applyPort(); };
   /** The port shown in its row: the server's while a way is on, else the one it starts on. */
-  const shownPort = $derived(localOn || proxyOn ? view?.port ?? setup?.port : setup?.port);
-  /** The domain's field as typed differs from the one 反代 runs with: its 应用 shows. */
+  const shownPort = $derived(localOn ? view?.port ?? setup?.port : setup?.port);
+  /** The domain's field as typed differs from the one saved: its 应用 shows. */
   const asOrigin = (typed: string) => { const text = typed.trim().replace(/\/+$/, '').toLowerCase(); return !text ? '' : text.includes('://') ? text : 'https://' + text; };
-  const domainChanged = $derived(proxyOn && asOrigin(domainInput) !== asOrigin(ownOrigin ?? ''));
+  const domainChanged = $derived(!!setup && asOrigin(domainInput) !== asOrigin(setup.domain ?? ''));
+  /** 转发到 shows once there is a domain (typed or saved): where the user's proxy hands it on to. */
+  const forwarding = $derived(!!domainInput.trim() || !!setup?.domain);
   const ownLink = $derived(view?.domain ?? null);
   $effect(() => {
-    if (ownLink && !nearStarting) void checkDomain();
+    if (ownLink) void checkDomain();
     else if (!ownLink) { checkRound++; domainCheck = null; }
   });
 
@@ -571,7 +512,7 @@
   // Refused: the whole link, key and all, selected for a copy by hand.
   $effect(() => { if (copied?.state === 'failed' && manual) { manual.focus(); manual.select(); } });
   // A new link (another network, a public link) starts afresh.
-  $effect(() => { void lan; void tailnet; void wireguard; void outside; void own; void proxyTail; copied = null; });
+  $effect(() => { void lan; void tailnet; void wireguard; void outside; void own; copied = null; });
 
   let body: HTMLDivElement | undefined = $state();
   $effect(() => {
@@ -622,20 +563,20 @@
       {#if portOpen}
         <input class="field-input num port-field" type="text" inputmode="numeric" autocomplete="off" autocorrect="off" spellcheck="false"
           maxlength="5" placeholder={t('自动')} aria-label={t('端口')} bind:this={portField} bind:value={portInput} oninput={() => (portEdited = true)} onkeydown={enterPort} />
-        {#if on}<button class="change pressable" disabled={starting || domainStarting} onclick={applyPort}>{t('应用')}</button>{/if}
+        {#if on}<button class="change pressable" disabled={starting} onclick={applyPort}>{t('应用')}</button>{/if}
       {:else}
         <span class="row-value num">{shownPort ?? ''}</span>
         <button class="change pressable" onclick={openPort}>{t('换端口')}</button>
       {/if}
     </div>
-    {#if phone.near === 'domain'}
-      <div class="row">
-        <span class="field-label">{t('域名')}</span>
+    <div class="row">
+      <span class="field-label">{t('域名')}</span>
         <input class="field-input" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label={t('域名')}
           placeholder={t('https://starmeter.example.com（可不填）')} bind:value={domainInput} oninput={() => (domainEdited = true)} onkeydown={enter}
-          onchange={() => { if (proxyOn && domainEdited && !domainStarting) void startDomain(); }} />
-        {#if domainChanged}<button class="change pressable" disabled={domainStarting} onclick={startDomain}>{t('应用')}</button>{/if}
-      </div>
+          onchange={() => { if (domainChanged && !domainSaving) void saveDomain(); }} />
+        {#if domainChanged}<button class="change pressable" disabled={domainSaving} onclick={saveDomain}>{t('应用')}</button>{/if}
+    </div>
+    {#if forwarding}
       <div class="row forward">
         <span class="field-label">{t('转发到')}</span>
         {#if forwardTo}{@render link('target', forwardTo, true, true)}{/if}
@@ -643,27 +584,12 @@
     {/if}
     {#if on}{@render linkRow('near')}{/if}
   </div>
-  {#if forwardTo && phone.near === 'domain'}{@render byHand('target', forwardTo)}{/if}
+  {#if forwardTo && forwarding}{@render byHand('target', forwardTo)}{/if}
   {#if portSaid}<p class="failed">{t(portSaid)}</p>{/if}
   {#if domainFailed}<p class="failed">{t(domainFailed)}</p>{/if}
   {#if movesServer}<p class="note caution">{t('换端口后二维码要重新扫，Cloudflare 链接会关闭')}</p>{/if}
-  {#if phone.domainStopped && phone.near === 'domain'}<p class="note">{t('重新开启后，原来的反代链接还能用。')}</p>{/if}
 {/snippet}
 
-{#snippet proxyRecipe(tail: string)}
-  <!-- 反代 on with no domain given: how its link goes together, http(s):// your domain or IP (用户：http(s)这样写), then this (用户：域名也可以不写，但是开始
-       之后，告诉用户如何拼域名/IP+后面的key). A click copies what goes after it. -->
-  {@const done = copied?.key === 'recipe' && copied.state === 'ok'}
-  <div class="recipe">
-    <span class="card-title">{t('反代')}</span>
-    <button class="copy-link pressable" class:done onclick={() => copy('recipe', tail)} title={tail}>
-      {#if done}<span class="room" aria-hidden="true">http(s)://{t('你的域名或 IP')}</span>{/if}<span class="address">{#if done}{t('已复制')}{:else}http(s)://<span
-            class="slot">{t('你的域名或 IP')}</span>{/if}</span><span class="secret" class:gone={done}>{#each linkParts('#' + tail.replace(/^\/#/, '')) as part, i (i)}{#if i}<wbr />{/if}{i ? part : '/' + part}{/each}</span>
-    </button>
-    <span class="card-detail">{t('把这一段接在你的域名或 IP 后面，手机就能打开')}</span>
-    {@render byHand('recipe', tail)}
-  </div>
-{/snippet}
 
 {#snippet domainCheckLine()}
   <!-- Whether the domain opens this server from here, asked once it is on. -->
@@ -727,24 +653,12 @@
         </div>
 
         {#if reach === 'local'}
-          <!-- 同一网络 / 反代: one page (用户：可以只开同一网络，或者同一网络和反代一起开两种模式。显示在一个页面就好啊，不要分开
-               显示): the same network, and with 同时开启反代 the user's own domain through their own reverse proxy beside it,
-               on the same page, started and stopped together. The network gets in through the same network only, so a proxy
-               on a NAS or the router reaches this computer while it is on. -->
-          <button class="proxy-row pressable" role="switch" aria-checked={phone.near === 'domain'}
-            onclick={() => pickNear(phone.near === 'domain' ? 'local' : 'domain')}>
-            <span class="proxy-text">
-              <span class="proxy-title">{t('同时开启反代')}</span>
-              <span class="proxy-detail">{t('用你自己的域名，手机在哪都能打开')}</span>
-            </span>
-            <span class="switch" class:on={phone.near === 'domain'}><span class="knob"></span></span>
-          </button>
           {#if localFailed}
             {@render halted('没能开启', '原因在下面，可以再试一次')}
             <p class="failed">{t(localFailed)}</p>
             {@render controls(false)}
-            <div class="actions"><button class="action primary pressable" disabled={phone.near === 'domain' && !canStart} onclick={startNear}>{t('重试')}</button></div>
-          {:else if localOn || proxyOn}
+            <div class="actions"><button class="action primary pressable" onclick={startNear}>{t('重试')}</button></div>
+          {:else if localOn}
             {#if nearCodes.length > 1}
               <!-- The network's code and the domain's side by side, the same server. -->
               <div class="codes">
@@ -763,7 +677,6 @@
             {:else}
               <div class="code"><span class="wait">{t('这台电脑没有连上网络')}</span></div>
             {/if}
-            {#if proxyTail}{@render proxyRecipe(proxyTail)}{/if}
             {@render domainCheckLine()}
             {@render controls(true)}
             <!-- Short (用户：图中说明能省就省，简洁点，字太多): what to scan, and that it stays on. -->
@@ -775,7 +688,7 @@
               <p class="note">{t('手机连同一个 Wi-Fi 后扫码。只读，点“停止”前一直开着。')}</p>
             {/if}
             <div class="actions"><button class="action danger pressable" onclick={stopNear}>{t('停止')}</button></div>
-          {:else if starting || domainStarting}
+          {:else if starting}
             <div class="code"><span class="spinner" aria-label={t('正在开启')}></span></div>
           {:else}
             <!-- Off, as it starts: what its 开始 gives, its port (with 反代, its fields in the port's place, on the same page),
@@ -787,7 +700,7 @@
             {/if}
             {@render controls(false)}
             <p class="note centre">{t(phone.localStopped ? '重新开始后，原来的二维码还能用。' : '手机连同一个 Wi-Fi，扫码就能看。')}</p>
-            <div class="actions"><button class="action primary pressable" disabled={phone.near === 'domain' && !canStart} onclick={startNear}>{t('开始')}</button></div>
+            <div class="actions"><button class="action primary pressable" onclick={startNear}>{t('开始')}</button></div>
           {/if}
         {:else}
           <!-- 任何网络: Cloudflare's link for an hour, or the VPNs this computer is on (Tailscale, WireGuard), each a page of
@@ -990,26 +903,7 @@
     font-size: 11.5px; color: var(--secondary); border-radius: 6px; white-space: nowrap;
   }
   .via-choice.chosen { color: var(--label); font-weight: 600; }
-  /* 同时开启反代: a row with its switch, as the settings' rows have. */
-  .proxy-row {
-    --press-scale: 0.99; display: flex; align-items: center; gap: 10px; padding: 9px 10px 9px 12px; border-radius: 10px; text-align: left;
-    background: color-mix(in srgb, var(--label) 4%, transparent);
-  }
-  .proxy-row:hover { background: color-mix(in srgb, var(--label) 7%, transparent); }
-  .proxy-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-  .proxy-title { font-size: 12px; font-weight: 600; color: var(--label); }
-  .proxy-detail { font-size: 10.5px; color: var(--secondary); }
-  .switch {
-    position: relative; flex: none; width: 30px; height: 18px; border-radius: 9px;
-    background: color-mix(in srgb, var(--label) 19%, transparent); transition: background-color 0.18s var(--page-curve);
-  }
-  .switch.on { background: var(--accent); }
-  .knob {
-    position: absolute; left: 2px; top: 2px; width: 14px; height: 14px; border-radius: 50%; background: white;
-    box-shadow: 0 0.5px 2px rgba(0, 0, 0, 0.25); transition: transform 0.18s cubic-bezier(0.33, 1, 0.68, 1);
-  }
-  .switch.on .knob { transform: translateX(12px); }
-  /* 自有域名's fields, in the code's place: the address, and the address to forward to with the port. */
+  /* The page's settings: the port, the domain and where it forwards to, 换链接. */
   .setup {
     display: flex; flex-direction: column; padding: 2px 10px; border-radius: 12px;
     background: color-mix(in srgb, var(--label) 4%, transparent);
@@ -1042,9 +936,6 @@
   /* 换链接 under a page's codes: the same line, a little closer to the address over it; asked about, its words may wrap. */
   .change.sure { color: var(--red); }
   .note.centre { text-align: center; }
-  /* 反代 with no domain: its title, your domain or IP then the part to put after it, and one line on what to do. */
-  .recipe { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 8px 9px; border-radius: 12px; background: color-mix(in srgb, var(--label) 4%, transparent); }
-  .slot { padding: 0 4px; border-radius: 4px; border: 1px dashed var(--separator); color: var(--tertiary); }
   .check { margin: -4px 0 0; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 11px; line-height: 1.45; color: var(--secondary); text-align: center; }
   .check.ok { color: var(--green); }
   .check.caution {
