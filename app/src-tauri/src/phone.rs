@@ -546,10 +546,27 @@ fn new_key() -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// The key each way's link opens with, on or off: the same from one 开始 to the next and through the app's restarts
+/// and updates, so a phone's link (a code scanned once, a bookmark) keeps opening whenever its way is on, until the
+/// user asks for a new one with 换链接 (用户：每次的内网链接都不同？那个key可不可以固定啊？用户可以手动刷新，刷新之前就
+/// 不要改变). Before, a way's 停止 let go of its key and the next 开始 made another.
+#[derive(Serialize, Deserialize, Default, Clone, PartialEq, Debug)]
+#[serde(rename_all = "camelCase")]
+struct Fixed {
+    #[serde(default)]
+    local: Option<String>,
+    #[serde(default)]
+    vpn: Option<String>,
+    /// 自有域名's, for the address kept (another address: another key).
+    #[serde(default)]
+    domain: Option<String>,
+}
+
 /// What the user left on, kept in the settings folder (outside the app, so an update keeps it too), and on again when
 /// the app starts (用户：默认是关的，但是你要记住用户的状态。就算重新安装新版本，也要记住之前用户开没开): 同一个网络 with
 /// the server's port and its key, so a phone's link from before keeps opening; the public link until its hour is up
-/// (its address is Cloudflare's, new each time, so a phone scans its new code).
+/// (its address is Cloudflare's, new each time, so a phone scans its new code). `local`, `vpn` and `domain_key` say a
+/// way is on (None: off); `fixed` has each way's key whether it is on or not.
 #[derive(Serialize, Deserialize, Default, Clone, PartialEq, Debug)]
 #[serde(rename_all = "camelCase")]
 struct Kept {
@@ -574,6 +591,46 @@ struct Kept {
     /// 自有域名's key while it is on.
     #[serde(default)]
     domain_key: Option<String>,
+    #[serde(default)]
+    fixed: Fixed,
+}
+
+/// A way's key as it starts: the one it is on with (the server running), else the one kept from when it was left on
+/// (the app starting again), else its link's own from before its 停止, else a new one (its first 开始).
+fn starting_key(on: &mut Option<String>, kept_on: Option<String>, fixed: Option<String>) -> String {
+    on.get_or_insert_with(|| kept_on.or(fixed).unwrap_or_else(new_key)).clone()
+}
+
+/// A page of 在手机上看 whose links 换链接 changes: 同一网络 / 反代 (the network's code and 自有域名's together, as its
+/// 开始 and 停止 take them), or the VPN page (Tailscale's and WireGuard's, one key).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum LinkPage {
+    Near,
+    Vpn,
+}
+
+/// 换链接: a new key for each of a page's ways, the one before opening nothing from then on. A way that is on goes on
+/// with the new key at once (its code changes on the page); one that is off starts with it next time.
+fn renew(keys: &mut Keys, kept: &mut Kept, page: LinkPage) {
+    fn fresh(on: &mut Option<String>, kept_on: &mut Option<String>, fixed: &mut Option<String>) {
+        let key = new_key();
+        if on.is_some() {
+            *on = Some(key.clone());
+        }
+        if kept_on.is_some() {
+            *kept_on = Some(key.clone());
+        }
+        *fixed = Some(key);
+    }
+    match page {
+        LinkPage::Near => {
+            fresh(&mut keys.local, &mut kept.local, &mut kept.fixed.local);
+            if kept.domain.is_some() {
+                fresh(&mut keys.domain, &mut kept.domain_key, &mut kept.fixed.domain);
+            }
+        }
+        LinkPage::Vpn => fresh(&mut keys.vpn, &mut kept.vpn, &mut kept.fixed.vpn),
+    }
 }
 
 fn kept_file(app: &AppHandle) -> PathBuf {
@@ -595,6 +652,9 @@ fn read_kept(path: &Path) -> Kept {
     kept.vpn = kept.vpn.filter(ours);
     kept.domain = kept.domain.and_then(|domain| origin_of(&domain).ok());
     kept.domain_key = kept.domain_key.filter(ours).filter(|_| kept.domain.is_some());
+    kept.fixed.local = kept.fixed.local.filter(ours);
+    kept.fixed.vpn = kept.fixed.vpn.filter(ours);
+    kept.fixed.domain = kept.fixed.domain.filter(ours).filter(|_| kept.domain.is_some());
     kept
 }
 
@@ -817,19 +877,17 @@ fn start_local_if(app: AppHandle, port: Option<u16>, kept_on: bool) -> Result<Ph
         None => {}
     }
     let current = serving(&app, &mut running)?;
-    let key = current
-        .keys
-        .lock()
-        .expect("the keys")
-        .local
-        .get_or_insert_with(|| read_kept(&kept_file(&app)).local.unwrap_or_else(new_key))
-        .clone();
-    keep(&app, |kept| kept.local = Some(key));
+    let kept = read_kept(&kept_file(&app));
+    let key = starting_key(&mut current.keys.lock().expect("the keys").local, kept.local, kept.fixed.local);
+    keep(&app, |kept| {
+        kept.local = Some(key.clone());
+        kept.fixed.local = Some(key);
+    });
     Ok(view(current))
 }
 
-/// The VPN page on (任何网络 › Tailscale 等 VPN), with its own key: as kept when it was on as the app quit (a phone's
-/// link keeps opening), else a new one. The other ways as they are.
+/// The VPN page on (任何网络 › Tailscale 等 VPN), with its own key: the one its links had before (a phone's link keeps
+/// opening, through its 停止 and the app's restarts), a new one the first time. The other ways as they are.
 pub fn start_vpn(app: AppHandle) -> Result<PhoneView, String> {
     start_vpn_if(app, false)
 }
@@ -846,14 +904,12 @@ fn start_vpn_if(app: AppHandle, kept_on: bool) -> Result<PhoneView, String> {
         return Err("已停止".into());
     }
     let current = serving(&app, &mut running)?;
-    let key = current
-        .keys
-        .lock()
-        .expect("the keys")
-        .vpn
-        .get_or_insert_with(|| read_kept(&kept_file(&app)).vpn.unwrap_or_else(new_key))
-        .clone();
-    keep(&app, |kept| kept.vpn = Some(key));
+    let kept = read_kept(&kept_file(&app));
+    let key = starting_key(&mut current.keys.lock().expect("the keys").vpn, kept.vpn, kept.fixed.vpn);
+    keep(&app, |kept| {
+        kept.vpn = Some(key.clone());
+        kept.fixed.vpn = Some(key);
+    });
     Ok(view(current))
 }
 
@@ -862,7 +918,8 @@ pub async fn phone_vpn_start(app: AppHandle) -> Result<PhoneView, String> {
     tauri::async_runtime::spawn_blocking(move || start_vpn(app)).await.map_err(|error| error.to_string())?
 }
 
-/// The VPN page's 停止: its addresses no longer open, its key gone with it; the other ways as they are.
+/// The VPN page's 停止: its addresses no longer open (its key stays for its next 开始: the same links); the other ways
+/// as they are.
 #[tauri::command]
 pub async fn phone_vpn_stop(app: AppHandle) -> Option<PhoneView> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -880,8 +937,9 @@ pub async fn phone_vpn_stop(app: AppHandle) -> Option<PhoneView> {
     .flatten()
 }
 
-/// 同一个网络 on (or kept on) and where it is: its key as kept when it was on as the app quit (a phone's link keeps
-/// opening), else a new one, so a code from before its 停止 stays shut. The public link, if up, is left as it is.
+/// 同一个网络 on (or kept on) and where it is: its key the one its link had before (a phone's link keeps opening,
+/// through its 停止 and the app's restarts, until 换链接), a new one the first time. The public link, if up, is left as
+/// it is.
 /// Runs off the main thread so network interface enumeration and socket bind never stall AppKit (PERF-7).
 #[tauri::command]
 pub async fn phone_start(app: AppHandle, port: Option<u16>) -> Result<PhoneView, String> {
@@ -914,8 +972,9 @@ pub async fn phone_status(app: AppHandle) -> Option<PhoneView> {
     .flatten()
 }
 
-/// 同一个网络's 停止: its addresses (the network's and Tailscale's) no longer open, its key gone with them; the public
-/// link, if up, stays. Runs off the main thread so tunnel teardown never blocks AppKit (PERF-7).
+/// 同一个网络's 停止: its address no longer opens (connections to it are let go of as they come; its key stays for its
+/// next 开始: the same link); the public link, if up, stays. Runs off the main thread so tunnel teardown never blocks
+/// AppKit (PERF-7).
 #[tauri::command]
 pub async fn phone_stop(app: AppHandle) -> Option<PhoneView> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -934,7 +993,7 @@ pub async fn phone_stop(app: AppHandle) -> Option<PhoneView> {
 }
 
 /// 同一网络 / 反代's 停止: the same network and 自有域名 together, in one step, so the panel never sees one gone and the
-/// other still on (R12-3); the VPN page and the public link as they are.
+/// other still on (R12-3); the VPN page and the public link as they are. Their keys stay for the next 开始.
 #[tauri::command]
 pub async fn phone_stop_near(app: AppHandle) -> Option<PhoneView> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -952,6 +1011,32 @@ pub async fn phone_stop_near(app: AppHandle) -> Option<PhoneView> {
             kept.domain_key = None;
         });
         settle(&mut running);
+        running.as_ref().and_then(visible_view)
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+/// 换链接 on a page of 在手机上看 ("near": 同一网络 / 反代; "vpn": the VPN page): new keys for its links, at once. The
+/// codes and links from before open nothing from then on (a phone showing the page says its link is no longer good),
+/// and the page's codes are the new ones; the other page and the public link as they are.
+#[tauri::command]
+pub async fn phone_new_link(app: AppHandle, page: String) -> Option<PhoneView> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<Phone>();
+        let mut running = state.running.lock().expect("the phone lock");
+        let page = match page.as_str() {
+            "near" => Some(LinkPage::Near),
+            "vpn" => Some(LinkPage::Vpn),
+            _ => None,
+        };
+        if let Some(page) = page {
+            keep(&app, |kept| match running.as_mut() {
+                Some(current) => renew(&mut current.keys.lock().expect("the keys"), kept, page),
+                None => renew(&mut Keys::default(), kept, page),
+            });
+        }
         running.as_ref().and_then(visible_view)
     })
     .await
@@ -1010,8 +1095,9 @@ pub async fn phone_domain(app: AppHandle) -> Option<DomainSetup> {
 }
 
 /// 自有域名's 开始, with the address and port from its page: the server on that port (moved there if it runs on
-/// another), the way on with its key (the one kept for this address, so a phone's link from before keeps opening, else
-/// a new one), and both kept once it is on (the port held from then on). Off the main thread (PERF-7).
+/// another), the way on with its key (the one this address's link had before, through its 停止 too, so a phone's link
+/// keeps opening; a new one the first time and for another address), and both kept once it is on (the port held from
+/// then on). Off the main thread (PERF-7).
 #[tauri::command]
 pub async fn phone_domain_start(
     app: AppHandle,
@@ -1049,16 +1135,19 @@ fn start_domain(app: &AppHandle, given: Option<(String, u16, Option<bool>)>) -> 
             keys.domain = None;
         }
         keys.domain_host = domain_host(Some(&origin));
-        keys.domain
-            .get_or_insert_with(|| kept.domain_key.clone().filter(|_| same_address).unwrap_or_else(new_key))
-            .clone()
+        starting_key(
+            &mut keys.domain,
+            kept.domain_key.clone().filter(|_| same_address),
+            kept.fixed.domain.clone().filter(|_| same_address),
+        )
     };
     current.origin = Some(origin.clone());
     keep(app, |kept| {
         kept.domain = Some(origin);
         kept.port = Some(port);
         kept.port_chosen = chosen.unwrap_or(kept.port_chosen);
-        kept.domain_key = Some(key);
+        kept.domain_key = Some(key.clone());
+        kept.fixed.domain = Some(key);
     });
     Ok(view(current))
 }
@@ -1097,8 +1186,8 @@ fn moved(app: &AppHandle, running: &mut Option<Running>, listener: TcpListener) 
     Ok(())
 }
 
-/// 自有域名's 停止: its address no longer opens, its key gone with it; the address and port stay for its next 开始, and
-/// the other ways as they are.
+/// 自有域名's 停止: its address no longer opens; the address, the port and its key stay for its next 开始 (the same
+/// link), and the other ways as they are.
 #[tauri::command]
 pub async fn phone_domain_stop(app: AppHandle) -> Option<PhoneView> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -2053,10 +2142,10 @@ fn strip(entry: &mut Value) {
 #[cfg(test)]
 mod tests {
     use super::{
-        Addresses, AtomicBool, AtomicUsize, CONNECTIONS, Deadline, DomainCheck, Kept, Keys, Mutex, Nic, Ordering,
-        Origin, PING, Running, Slot, Slots, Via, admitted, bind, checked, domain_host, host_name, lan_choice,
-        loopback_taken, networks, new_key, nic, origin_of, read_kept, same, settle, tailnet_ip, valid_port, via,
-        write_kept,
+        Addresses, AtomicBool, AtomicUsize, CONNECTIONS, Deadline, DomainCheck, Fixed, Kept, Keys, LinkPage, Mutex,
+        Nic, Ordering, Origin, PING, Running, Slot, Slots, Via, admitted, bind, checked, domain_host, host_name,
+        lan_choice, loopback_taken, networks, new_key, nic, origin_of, read_kept, renew, same, settle, starting_key,
+        tailnet_ip, valid_port, via, write_kept,
     };
 
     fn ip(text: &str) -> std::net::IpAddr {
@@ -2613,6 +2702,123 @@ mod tests {
     }
 
     #[test]
+    fn a_ways_link_keeps_its_key_from_one_start_to_the_next_until_a_new_link_is_asked_for() {
+        // 用户：每次的内网链接都不同？那个key可不可以固定啊？用户可以手动刷新，刷新之前就不要改变。
+        use Origin::{Here, Network, Vpn};
+        let folder = std::env::temp_dir().join(format!("starmeter-phone-fixed-{}", new_key()));
+        let path = folder.join("phone.json");
+        let mut kept = Kept::default();
+        let keys = Mutex::new(Keys::default());
+        // What each way's 开始 and 停止 do to the keys and to what is kept, the file written and read back between.
+        let start_local = |keys: &Mutex<Keys>, kept: &mut Kept| {
+            let key = starting_key(&mut keys.lock().unwrap().local, kept.local.clone(), kept.fixed.local.clone());
+            kept.local = Some(key.clone());
+            kept.fixed.local = Some(key.clone());
+            write_kept(&path, kept);
+            *kept = read_kept(&path);
+            key
+        };
+        let stop_local = |keys: &Mutex<Keys>, kept: &mut Kept| {
+            keys.lock().unwrap().local = None;
+            kept.local = None;
+            write_kept(&path, kept);
+            *kept = read_kept(&path);
+        };
+        // The first 开始 makes a key; 停止 shuts the way, and the next 开始 opens it with the same key: the same link.
+        let first = start_local(&keys, &mut kept);
+        assert!(admitted(&keys, &first, Network, ""));
+        stop_local(&keys, &mut kept);
+        assert!(!admitted(&keys, &first, Network, ""));
+        assert!(!keys.lock().unwrap().welcome(Network));
+        assert_eq!(kept.local, None);
+        assert_eq!(start_local(&keys, &mut kept), first);
+        assert!(admitted(&keys, &first, Network, ""));
+        // The app quit while it was off and started again (a server with no keys yet): still the same.
+        stop_local(&keys, &mut kept);
+        let again = Mutex::new(Keys::default());
+        assert_eq!(start_local(&again, &mut kept), first);
+        // 换链接 while it is on: another key at once, the one before opening nothing, kept as on with the new one.
+        renew(&mut again.lock().unwrap(), &mut kept, LinkPage::Near);
+        let second = again.lock().unwrap().local.clone().unwrap();
+        assert_ne!(second, first);
+        assert!(!admitted(&again, &first, Network, ""));
+        assert!(admitted(&again, &second, Network, ""));
+        assert_eq!((kept.local.as_ref(), kept.fixed.local.as_ref()), (Some(&second), Some(&second)));
+        // And that one from then on, through a 停止.
+        stop_local(&again, &mut kept);
+        assert_eq!(start_local(&again, &mut kept), second);
+        // 换链接 while it is off: the next 开始 has a new link, and nothing is turned on by it.
+        stop_local(&again, &mut kept);
+        renew(&mut again.lock().unwrap(), &mut kept, LinkPage::Near);
+        assert_eq!((again.lock().unwrap().local.clone(), kept.local.clone()), (None, None));
+        let third = start_local(&again, &mut kept);
+        assert_ne!(third, second);
+
+        // The VPN page's key is its own: 同一网络's 换链接 leaves it, its own changes it and nothing else.
+        let vpn = starting_key(&mut again.lock().unwrap().vpn, kept.vpn.clone(), kept.fixed.vpn.clone());
+        kept.vpn = Some(vpn.clone());
+        kept.fixed.vpn = Some(vpn.clone());
+        renew(&mut again.lock().unwrap(), &mut kept, LinkPage::Near);
+        assert_eq!(again.lock().unwrap().vpn.as_ref(), Some(&vpn));
+        let near = again.lock().unwrap().local.clone().unwrap();
+        assert_ne!(near, third);
+        renew(&mut again.lock().unwrap(), &mut kept, LinkPage::Vpn);
+        let vpn_after = again.lock().unwrap().vpn.clone().unwrap();
+        assert_ne!(vpn_after, vpn);
+        assert!(admitted(&again, &vpn_after, Vpn, "") && !admitted(&again, &vpn, Vpn, ""));
+        assert_eq!(again.lock().unwrap().local.as_ref(), Some(&near));
+        assert_eq!(kept.fixed.vpn.as_ref(), Some(&vpn_after));
+
+        // 自有域名's key stays with its address through a 停止, and 同一网络 / 反代's 换链接 changes it with the network's.
+        kept.domain = Some("https://meter.example.com".into());
+        let domain =
+            starting_key(&mut again.lock().unwrap().domain, kept.domain_key.clone(), kept.fixed.domain.clone());
+        kept.domain_key = Some(domain.clone());
+        kept.fixed.domain = Some(domain.clone());
+        again.lock().unwrap().domain = None;
+        kept.domain_key = None;
+        write_kept(&path, &kept);
+        kept = read_kept(&path);
+        assert_eq!(
+            starting_key(&mut again.lock().unwrap().domain, kept.domain_key.clone(), kept.fixed.domain.clone()),
+            domain
+        );
+        kept.domain_key = Some(domain.clone());
+        renew(&mut again.lock().unwrap(), &mut kept, LinkPage::Near);
+        let domain_after = again.lock().unwrap().domain.clone().unwrap();
+        assert_ne!(domain_after, domain);
+        assert!(admitted(&again, &domain_after, Here, "") && !admitted(&again, &domain, Here, ""));
+        assert_eq!((kept.domain_key.as_ref(), kept.fixed.domain.as_ref()), (Some(&domain_after), Some(&domain_after)));
+        let _ = std::fs::remove_dir_all(folder);
+    }
+
+    #[test]
+    fn a_file_kept_before_links_had_keys_of_their_own_starts_as_it_was_and_keeps_that_key() {
+        // 6.0.26's file: a key only while a way is on. Left on: the same link when the app starts, and from then on.
+        let folder = std::env::temp_dir().join(format!("starmeter-phone-before-{}", new_key()));
+        let path = folder.join("phone.json");
+        std::fs::create_dir_all(&folder).unwrap();
+        let (local, vpn) = (new_key(), new_key());
+        std::fs::write(&path, format!(r#"{{"port":51234,"local":"{local}","vpn":"{vpn}"}}"#)).unwrap();
+        let kept = read_kept(&path);
+        assert_eq!(kept.fixed, Fixed::default());
+        let mut keys = Keys::default();
+        assert_eq!(starting_key(&mut keys.local, kept.local.clone(), kept.fixed.local.clone()), local);
+        assert_eq!(starting_key(&mut keys.vpn, kept.vpn.clone(), kept.fixed.vpn.clone()), vpn);
+        // A key that is none of ours is no key; a domain's without its domain neither.
+        std::fs::write(&path, r#"{"fixed":{"local":"zz","vpn":"0123","domain":"0123456789abcdef0123456789abcdef"}}"#)
+            .unwrap();
+        assert_eq!(read_kept(&path).fixed, Fixed::default());
+        std::fs::write(
+            &path,
+            r#"{"domain":"https://meter.example.com","fixed":{"domain":"0123456789abcdef0123456789abcdef"}}"#,
+        )
+        .unwrap();
+        assert_eq!(read_kept(&path).fixed.domain.as_deref(), Some("0123456789abcdef0123456789abcdef"));
+        let _ = std::fs::remove_dir_all(folder);
+    }
+
+    #[test]
     fn a_port_let_go_a_moment_later_is_taken_again_not_moved_from() {
         // R12-9: a quick 停止 then 开始 keeps the address a phone's link names, the server before letting go of the
         // port within a beat of its loop.
@@ -2695,6 +2901,7 @@ mod tests {
             public_until: Some(1_800_000_000.5),
             domain: Some("https://meter.example.com".into()),
             domain_key: Some(new_key()),
+            fixed: Fixed { local: Some(new_key()), vpn: Some(new_key()), domain: Some(new_key()) },
         };
         write_kept(&path, &on);
         assert_eq!(read_kept(&path), on);

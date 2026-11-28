@@ -90,20 +90,23 @@ export interface DomainCheck { opens: boolean; status: number | null; reason: st
  *  the page loads again, as the app keeps it in the settings folder and turns it on again as it starts (phone.rs). */
 const browserPhone = (() => {
   const KEPT = 'starmeter.test-phone';
-  type Kept = { local?: boolean; vpn?: boolean; open?: boolean; domain?: string | null; domainOn?: boolean; port?: number; chosen?: boolean };
+  type Kept = { local?: boolean; vpn?: boolean; open?: boolean; domain?: string | null; domainOn?: boolean; port?: number; chosen?: boolean; turns?: { near?: number; vpn?: number } };
   const kept = (() => { try { return JSON.parse(localStorage.getItem(KEPT) ?? '{}') as Kept; } catch { return {} as Kept; } })();
   let local = !!kept.local, vpn = !!kept.vpn, open = !!kept.open, domain = kept.domain ?? null, domainOn = !!kept.domainOn && !!domain;
   let port = kept.port ?? 51234, chosen = !!kept.chosen;
-  const keep = () => { try { localStorage.setItem(KEPT, JSON.stringify({ local, vpn, open, domain, domainOn, port, chosen })); } catch { /* not kept */ } };
+  // Each page's links keep their key from one 开始 to the next (phone.rs Fixed); 换链接 makes another: the turn it is on.
+  const turns = { near: kept.turns?.near ?? 0, vpn: kept.turns?.vpn ?? 0 };
+  const keyed = (key: string, turn: number) => (turn ? key.slice(0, 28) + turn.toString(16).padStart(4, '0') : key);
+  const keep = () => { try { localStorage.setItem(KEPT, JSON.stringify({ local, vpn, open, domain, domainOn, port, chosen, turns })); } catch { /* not kept */ } };
   const asked = (name: string) => new URLSearchParams(location.search).has(name);
   // ?tailnet: this computer on a tailnet; ?wireguard: a WireGuard tunnel up. Their codes carry the VPN page's own key.
-  const tailnet = () => (asked('tailnet') ? `http://100.76.55.73:${port}/#k=9876543210abcdef9876543210abcdef` : null);
-  const wireguard = () => (asked('wireguard') ? `http://10.0.0.2:${port}/#k=9876543210abcdef9876543210abcdef` : null);
+  const tailnet = () => (asked('tailnet') ? `http://100.76.55.73:${port}/#k=${keyed('9876543210abcdef9876543210abcdef', turns.vpn)}` : null);
+  const wireguard = () => (asked('wireguard') ? `http://10.0.0.2:${port}/#k=${keyed('9876543210abcdef9876543210abcdef', turns.vpn)}` : null);
   // ?no-network: this computer on no network, so the same network has no address to show.
-  const view = (): PhoneView | null => (local || vpn || open || domainOn ? { localOpen: local, local: local && !asked('no-network') ? `http://192.168.1.20:${port}/#k=0123456789abcdef0123456789abcdef` : null,
+  const view = (): PhoneView | null => (local || vpn || open || domainOn ? { localOpen: local, local: local && !asked('no-network') ? `http://192.168.1.20:${port}/#k=${keyed('0123456789abcdef0123456789abcdef', turns.near)}` : null,
     vpnOpen: vpn, tailnet: vpn ? tailnet() : null,
     wireguard: vpn ? wireguard() : null,
-    domain: domainOn ? `${domain}/#k=abcdefabcdefabcdefabcdefabcdefab` : null, port,
+    domain: domainOn ? `${domain}/#k=${keyed('abcdefabcdefabcdefabcdefabcdefab', turns.near)}` : null, port,
     public: open ? 'https://quiet-river-1234.trycloudflare.com/#k=fedcba9876543210fedcba9876543210' : null, secondsLeft: open ? 3540 : 0,
     // ?unchecked: the wait for the public link to open ran out.
     publicChecked: !asked('unchecked') } : null);
@@ -146,6 +149,8 @@ const browserPhone = (() => {
     },
     domainStop: () => { domainOn = false; keep(); return view(); },
     stopNear: () => { local = false; domainOn = false; keep(); return view(); },
+    // 换链接 (phone.rs renew): new keys for a page's links, on or off.
+    newLink: (page: 'near' | 'vpn') => { turns[page]++; keep(); return view(); },
     // ?domain-502, ?domain-redirect, ?domain-unreachable: how the user's proxy answers.
     domainCheck: (): DomainCheck | null => (!domainOn ? null
       : asked('domain-502') ? { opens: false, status: 502, reason: null }
@@ -214,6 +219,10 @@ export const shell = {
   phoneDomainStop: (): Promise<PhoneView | null> => (inTauri ? invoke<PhoneView | null>('phone_domain_stop') : Promise.resolve(browserPhone.domainStop())),
   /** 同一网络 / 反代's 停止: the same network and 自有域名 off together, in one step. */
   phoneStopNear: (): Promise<PhoneView | null> => (inTauri ? invoke<PhoneView | null>('phone_stop_near') : Promise.resolve(browserPhone.stopNear())),
+  /** 换链接: new keys for a page's links (同一网络 / 反代's together, or the VPN page's), the codes before opening nothing
+   *  from then on. Without it a link keeps its key from one 开始 to the next (用户：那个key可不可以固定啊？用户可以手动
+   *  刷新，刷新之前就不要改变). */
+  phoneNewLink: (page: 'near' | 'vpn'): Promise<PhoneView | null> => (inTauri ? invoke<PhoneView | null>('phone_new_link', { page }) : Promise.resolve(browserPhone.newLink(page))),
   phoneDomainCheck: (): Promise<DomainCheck | null> => (inTauri ? invoke<DomainCheck | null>('phone_domain_check')
     // ?check-fails: the asking itself fails. ?check-held: the check answers when the test says (window.answerCheck()).
     : new URLSearchParams(location.search).has('check-fails') ? Promise.reject(new Error('no answer'))

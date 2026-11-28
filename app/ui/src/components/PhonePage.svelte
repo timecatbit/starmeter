@@ -15,7 +15,7 @@
   // app starts again, an update too, 同一个网络 at the same address (the shell keeps it): looking at a page starts nothing,
   // and a page that is off says what its 开始 will do (任何网络's, that the figures go through Cloudflare) before it is
   // pressed. A 停止 stays on its page, saying so in the code's place.
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy, onMount, untrack } from 'svelte';
   import { language, t } from '../lib/i18n.svelte';
   import { style } from '../lib/style.svelte';
   import { shell, type DomainCheck, type DomainSetup, type PhoneView } from '../lib/backend';
@@ -242,6 +242,29 @@
     }
     if (mine === vpnRound) vpnStarting = false;
   }
+  /** 换链接: a page's links keep their key from one 开始 to the next (用户：每次的内网链接都不同？那个key可不可以固定啊？
+   *  用户可以手动刷新，刷新之前就不要改变); this makes new ones, the codes and links before opening nothing from then on,
+   *  so it asks once more first. `renewing`: the page asked about; `renewed`: the page whose links are new, said for a
+   *  moment. */
+  let renewing = $state<'near' | 'vpn' | null>(null);
+  let renewed = $state<'near' | 'vpn' | null>(null);
+  let renewedTimer: ReturnType<typeof setTimeout> | undefined;
+  async function newLink(of: 'near' | 'vpn') {
+    renewing = null;
+    epoch++;
+    const local = localRound, domain = domainRound, vpn = vpnRound;
+    let next: PhoneView | null;
+    try { next = await serial(() => sent(shell.phoneNewLink(of))); } catch { return; }
+    // A step of the same page since (its 停止): that one's answer stands.
+    if (destroyed || (of === 'near' ? local !== localRound || domain !== domainRound : vpn !== vpnRound)) return;
+    setPhone(next ?? null);
+    renewed = of;
+    clearTimeout(renewedTimer);
+    renewedTimer = setTimeout(() => (renewed = null), 4000);
+  }
+  // Asked about on one page, the question doesn't wait on another, nor outlive the way going off.
+  $effect(() => { void phone.reach; void phone.via; void localOn; void vpnOn; untrack(() => { renewing = null; }); });
+
   /** The VPN page's 停止: its codes stop opening; the other ways as they are. */
   async function stopVpn() {
     const mine = ++vpnRound;
@@ -299,7 +322,7 @@
   onDestroy(() => {
     destroyed = true;
     localRound++; vpnRound++; publicRound++; domainRound++; epoch++;
-    clearInterval(tick); clearInterval(fast); clearTimeout(copiedTimer);
+    clearInterval(tick); clearInterval(fast); clearTimeout(copiedTimer); clearTimeout(renewedTimer);
     // Steps still on their way: their answers dropped with the page, where things stand read once they are done.
     if (inflight.size) {
       void Promise.allSettled([...inflight]).then(() => shell.phoneStatus()).then((status) => { if (page === opened) setPhone(status); }).catch(() => {});
@@ -578,7 +601,7 @@
   </div>
   {#if domainFailed}<p class="failed">{t(domainFailed)}</p>{/if}
   {#if movesServer}<p class="note caution">{t('换端口后二维码要重新扫，Cloudflare 链接会关闭')}</p>{/if}
-  {#if phone.domainStopped}<p class="note">{t('原来的反代链接已失效，重新开启后再扫。')}</p>{/if}
+  {#if phone.domainStopped}<p class="note">{t('重新开启后，原来的反代链接还能用。')}</p>{/if}
   <p class="note">{t('用你的反代或隧道（Caddy、Nginx、frp 等）把域名转发到上面的地址。')}</p>
   {#if forwardHere}
     <p class="note">{t('反代在这台电脑上时也可用 {target}。', { target: forwardHere })}</p>
@@ -599,6 +622,23 @@
       <div class="check caution" role="status"><span>{checkText}</span><button class="again pressable" onclick={checkDomain}>{t('再检查')}</button></div>
     {/if}
   {/if}
+{/snippet}
+
+{#snippet linkLine(of: 'near' | 'vpn')}
+  <!-- Under a page's codes while it is on, one quiet line as the port's is: 换链接. The links keep their key until it is
+       pressed (用户：那个key可不可以固定啊？用户可以手动刷新，刷新之前就不要改变), and it asks once more in its place
+       first: the codes from before stop opening. 停止 stays the page's one button. -->
+  <div class="link-line" aria-live="polite">
+    {#if renewing === of}
+      <span>{t('原来的二维码将不能再用')}</span>
+      <button class="change sure pressable" onclick={() => newLink(of)}>{t('确定换')}</button>
+      <button class="change pressable" onclick={() => (renewing = null)}>{t('取消')}</button>
+    {:else if renewed === of}
+      <span>{t('已换成新链接，手机重新扫码')}</span>
+    {:else}
+      <button class="change pressable" onclick={() => (renewing = of)}>{t('换链接')}</button>
+    {/if}
+  </div>
 {/snippet}
 
 {#snippet halted(title: string, detail: string)}
@@ -668,6 +708,7 @@
             {:else}
               <div class="code"><span class="wait">{t('这台电脑没有连上网络')}</span></div>
             {/if}
+            {#if nearCodes.length}{@render linkLine('near')}{/if}
             {@render domainCheckLine()}
             {#if phone.near === 'domain' && !own}
               <!-- The same network on, 反代 chosen since: its form, and its own 开始. -->
@@ -698,7 +739,7 @@
               {@render halted('未开始', '在同一个网络里直连这台电脑')}
             {/if}
             {@render portRow()}
-            <p class="note centre">{t(phone.localStopped ? '原来的二维码已失效，重新开始后再扫。' : '手机连同一个 Wi-Fi，扫码就能看。')}</p>
+            <p class="note centre">{t(phone.localStopped ? '重新开始后，原来的二维码还能用。' : '手机连同一个 Wi-Fi，扫码就能看。')}</p>
             <div class="actions"><button class="action primary pressable" onclick={startNear}>{t('开始')}</button></div>
           {/if}
         {:else}
@@ -731,10 +772,12 @@
                     </div>
                   {/each}
                 </div>
+                {@render linkLine('vpn')}
                 <p class="note">{t('手机连着哪个 VPN 就扫哪个，不经过 Cloudflare。只读，点“停止”前一直开着。')}</p>
               {:else if vpnCodes.length === 1}
                 <div class="code"><QrCode text={vpnCodes[0].url} size={188} label={t(vpnCodes[0].label)} /></div>
                 {@render link(vpnCodes[0].key, vpnCodes[0].url)}
+                {@render linkLine('vpn')}
                 <p class="note">{t(vpnNote(vpnCodes[0].key))}</p>
               {:else}
                 {@render halted('没有连着 VPN', '这台电脑连上 Tailscale 或 WireGuard 后，这里就有二维码')}
@@ -744,8 +787,8 @@
               <div class="code"><span class="spinner" aria-label={t('正在开启')}></span></div>
             {:else}
               {#if phone.vpnStopped}
-                {@render halted('已停止', 'VPN 的链接已失效')}
-                <p class="note">{t('原来的二维码已失效，重新开始后再扫。')}</p>
+                {@render halted('已停止', '手机上的页面已断开')}
+                <p class="note">{t('重新开始后，原来的二维码还能用。')}</p>
               {:else}
                 {@render halted('未开始', '经 Tailscale 或 WireGuard 直连这台电脑')}
                 <p class="note">{t('手机和电脑连着同一个 Tailscale 或 WireGuard 时，在哪都能打开，不经过 Cloudflare。')}</p>
@@ -937,8 +980,11 @@
   .change:hover { background: var(--hover); }
   .port-field { flex: none; width: 62px; height: 24px; text-align: center; }
   /* 同一网络's port: one line in the middle, in the address's place and its quiet look. */
-  .port-line { display: flex; align-items: center; justify-content: center; gap: 5px; min-height: 26px; margin: -2px 0; font-size: 11px; color: var(--secondary); }
+  .port-line, .link-line { display: flex; align-items: center; justify-content: center; gap: 5px; min-height: 26px; margin: -2px 0; font-size: 11px; color: var(--secondary); }
   .port-now { font-variant-numeric: tabular-nums; }
+  /* 换链接 under a page's codes: the same line, a little closer to the address over it; asked about, its words may wrap. */
+  .link-line { flex-wrap: wrap; margin: -8px 0 -4px; }
+  .change.sure { color: var(--red); }
   .note.centre { text-align: center; }
   .check { margin: -4px 0 0; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 11px; line-height: 1.45; color: var(--secondary); text-align: center; }
   .check.ok { color: var(--green); }

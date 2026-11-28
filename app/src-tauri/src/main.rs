@@ -420,6 +420,7 @@ fn main() {
             phone::phone_vpn_stop,
             phone::phone_domain_stop,
             phone::phone_stop_near,
+            phone::phone_new_link,
             phone::phone_domain_check,
             phone::phone_public,
             phone::phone_private,

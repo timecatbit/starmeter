@@ -1495,7 +1495,7 @@ test('在手机上看: both ways off until their own 开始, a code for the same
   await expect(phone.getByRole('status')).toContainText('已停止');
   await expect(phone.locator('svg.qr')).toHaveCount(0);
   await expect(phone.locator('.address')).toHaveCount(0);
-  await expect(phone.locator('.note')).toHaveText(['原来的二维码已失效，重新开始后再扫。']);
+  await expect(phone.locator('.note')).toHaveText(['重新开始后，原来的二维码还能用。']);
   // The choices stay, still to pick between (用户：停止之后三个页面全没了).
   await expect(page.getByRole('radio', { name: '任何网络' })).toBeEnabled();
   await expect(button(page, '停止')).toHaveCount(0);
@@ -1582,6 +1582,95 @@ test('在手机上看: nothing starts by opening the page or looking at a page, 
   await page.keyboard.press('Escape');
   await button(page, '在手机上看').click();
   await expect(phone.locator('svg.qr')).toBeVisible();
+});
+
+test('在手机上看: a page\'s link is the same from one 开始 to the next and with the app started again; 换链接 asks once more, then the codes are new, each page its own', async ({ page }) => {
+  // 用户：每次的内网链接都不同？那个key可不可以固定啊？用户可以手动刷新，刷新之前就不要改变，谢谢。
+  await open(page, '?tailnet');
+  await button(page, '在手机上看').click();
+  const phone = page.locator('.phone-page');
+  const near = page.getByRole('radio', { name: '同一网络 / 反代' }), anywhere = page.getByRole('radio', { name: '任何网络' });
+  const link = () => phone.locator('.address').first().getAttribute('title');
+  const line = phone.locator('.link-line');
+  // Off: nothing to change yet.
+  await expect(line).toHaveCount(0);
+  await button(page, '开始').click();
+  await expect(phone.locator('svg.qr')).toHaveCount(1);
+  const first = (await link())!;
+  expect(first).toMatch(/^http:\/\/192\.168\.1\.20:51234\/#k=[0-9a-f]{32}/);
+  // 停止 says the code stays good, and 开始 gives the same link.
+  await button(page, '停止').click();
+  await expect(phone.locator('.note')).toHaveText(['重新开始后，原来的二维码还能用。']);
+  await button(page, '开始').click();
+  await expect(phone.locator('svg.qr')).toHaveCount(1);
+  expect(await link()).toBe(first);
+  // The app started again (the page loaded afresh): the same link still.
+  await page.reload();
+  await settled(page);
+  await button(page, '在手机上看').click();
+  await expect(phone.locator('svg.qr')).toHaveCount(1);
+  expect(await link()).toBe(first);
+  // 换链接 under the code, one quiet line; 停止 stays the page's one button, in the middle.
+  await expect(line.getByRole('button')).toHaveText(['换链接']);
+  await expect(phone.locator('.actions .action')).toHaveText(['停止']);
+  // It asks first: 取消 leaves the link as it was.
+  await line.getByRole('button', { name: '换链接' }).click();
+  await expect(line).toContainText('原来的二维码将不能再用');
+  await expect(line.getByRole('button')).toHaveText(['确定换', '取消']);
+  expect(await link()).toBe(first);
+  await line.getByRole('button', { name: '取消' }).click();
+  await expect(line.getByRole('button')).toHaveText(['换链接']);
+  expect(await link()).toBe(first);
+  // Asked on this page, the question doesn't wait while another is looked at.
+  await line.getByRole('button', { name: '换链接' }).click();
+  await anywhere.click();
+  await near.click();
+  await expect(line.getByRole('button')).toHaveText(['换链接']);
+  // 确定换: another key in the same address, at once, and the line says so for a moment.
+  await line.getByRole('button', { name: '换链接' }).click();
+  await line.getByRole('button', { name: '确定换' }).click();
+  await expect(line).toHaveText('已换成新链接，手机重新扫码');
+  const second = (await link())!;
+  expect(second).not.toBe(first);
+  expect(second.replace(/#k=[0-9a-f]+/, '')).toBe(first.replace(/#k=[0-9a-f]+/, ''));
+  await expect(line.getByRole('button')).toHaveText(['换链接'], { timeout: 6000 });
+  // The new one from then on, through a 停止.
+  await button(page, '停止').click();
+  await button(page, '开始').click();
+  await expect(phone.locator('svg.qr')).toHaveCount(1);
+  expect(await link()).toBe(second);
+  // The VPN page's link is its own: untouched by that, and its 换链接 leaves the network's alone.
+  await anywhere.click();
+  await page.getByRole('radio', { name: 'Tailscale 等 VPN' }).click();
+  await button(page, '开始').click();
+  await expect(phone.locator('svg.qr')).toHaveCount(1);
+  const vpn = (await link())!;
+  expect(vpn).toContain('#k=9876543210abcdef9876543210abcdef');
+  await line.getByRole('button', { name: '换链接' }).click();
+  await line.getByRole('button', { name: '确定换' }).click();
+  await expect(line).toHaveText('已换成新链接，手机重新扫码');
+  expect(await link()).not.toBe(vpn);
+  await near.click();
+  expect(await link()).toBe(second);
+  // In the panel's width the question stays on one line, in English too.
+  await page.evaluate(() => localStorage.removeItem('starmeter.test-phone'));
+  await page.addInitScript(() => localStorage.setItem('starmeter.language', 'en'));
+  await page.reload();
+  await settled(page);
+  await page.getByRole('button', { name: 'Phone view', exact: true }).click();
+  await page.getByRole('button', { name: 'Start', exact: true }).click();
+  await expect(phone.locator('svg.qr')).toHaveCount(1);
+  await line.getByRole('button', { name: 'New link' }).click();
+  await expect(line.getByRole('button')).toHaveText(['Change it', 'Cancel']);
+  const fit = await line.evaluate((element) => {
+    const box = element.getBoundingClientRect(), panel = element.closest('.content')!.getBoundingClientRect();
+    return { height: box.height, inside: box.left >= panel.left && box.right <= panel.right,
+      level: new Set([...element.children].map((child) => Math.round(child.getBoundingClientRect().top + child.getBoundingClientRect().height / 2))).size };
+  });
+  expect(fit.inside).toBe(true);
+  expect(fit.height).toBeLessThanOrEqual(28);
+  expect(fit.level).toBe(1);
+  await page.evaluate(() => localStorage.removeItem('starmeter.test-phone'));
 });
 
 test('在手机上看: each way stops on its own, the other\'s code staying as it was', async ({ page }) => {
@@ -1963,7 +2052,8 @@ test('在手机上看: Tailscale and WireGuard are 任何网络\'s VPN page, bes
   // The VPN page's 停止: said in the code's place; nothing on any more.
   await button(page, '停止').click();
   await expect(phone.getByRole('status')).toContainText('已停止');
-  await expect(phone.getByRole('status')).toContainText('VPN 的链接已失效');
+  await expect(phone.getByRole('status')).toContainText('手机上的页面已断开');
+  await expect(phone.locator('.note').first()).toHaveText('重新开始后，原来的二维码还能用。');
   await expect(anywhere.locator('.on')).toHaveCount(0);
   await expect(phoneDot(page)).toHaveCount(0);
   await page.evaluate(() => localStorage.removeItem('starmeter.test-phone'));
@@ -2020,7 +2110,7 @@ test('在手机上看: the VPN page\'s codes come and go with the VPNs while it 
 test('on the phone: a link without its key says so in the panel\'s place, not an empty panel', async ({ page }) => {
   await page.goto('/?keyless');
   await expect(page.getByRole('status')).toContainText('链接不完整');
-  await expect(page.getByRole('status')).toContainText('# 后面的一次性口令');
+  await expect(page.getByRole('status')).toContainText('# 后面的口令');
   await expect(page.locator('.dashboard')).toHaveCount(0);
   // Nothing behind the page is asked for: a release build has nothing there to answer, and its refusal went unheard
   // into the console (PHONE-13).
@@ -3342,7 +3432,7 @@ test('在手机上看: 同时开启反代: the same network and your own domain 
   // The form back: the port's field there, but the focus left where it was, not taken by it.
   await expect(port).toBeVisible();
   await expect(port).not.toBeFocused();
-  await expect(phone.getByText('原来的反代链接已失效')).toBeVisible();
+  await expect(phone.getByText('重新开启后，原来的反代链接还能用。')).toBeVisible();
   // On again, then the app started again: on as it was left, both codes.
   await button(page, '开始').click();
   await expect(phone.locator('.card-title')).toHaveText(['局域网', '反代']);
@@ -3629,7 +3719,7 @@ test('在手机上看: 同一网络 / 反代\'s 停止 is one step, no code comi
   await page.waitForTimeout(300);
   expect((await seen()).codesSeen).toBe(0);
   expect((await seen()).calls).toEqual(['phoneStart', 'phoneStopNear']);
-  await expect(phone.getByText('原来的反代链接已失效')).toBeVisible();
+  await expect(phone.getByText('重新开启后，原来的反代链接还能用。')).toBeVisible();
   // Closed while the stop is on its way: the homepage's dot goes and stays gone.
   await button(page, '开始').click();
   await expect(phone.locator('.card-title')).toHaveText(['局域网', '反代']);
