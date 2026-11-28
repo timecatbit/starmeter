@@ -37,7 +37,7 @@ export function halo(now: number, still: boolean): { radius: number; strength: n
   return { radius: LINE.halo[0] + (LINE.halo[1] - LINE.halo[0]) * k, strength: LINE.haloAlpha[0] + (LINE.haloAlpha[1] - LINE.haloAlpha[0]) * k };
 }
 
-export type ToolLine = { id: string; points: Point[]; colour: string; running?: boolean };
+export type ToolLine = { id: string; points: Point[]; colour: string; running?: boolean; startedX?: number };
 
 export interface Drawn {
   /** The total's end. */
@@ -58,7 +58,7 @@ const writing = (base: number) => (p: Point) => base - p[1] > 0.75;
  *  its canvas). */
 export function drawLines(ctx: CanvasRenderingContext2D, o: {
   total: Point[]; tools: ToolLine[]; base: number; plotTop: number; totalColour: string; areaColour: string; dark: boolean;
-  glow?: string | null; again?: (points: Point[]) => void;
+  glow?: string | null; again?: (points: Point[]) => void; now?: number; still?: boolean;
 }): Drawn {
   const end = o.total.at(-1) ?? [0, o.base];
   const on = writing(o.base);
@@ -90,6 +90,43 @@ export function drawLines(ctx: CanvasRenderingContext2D, o: {
     if (!active.includes(tool)) continue;
     ctx.strokeStyle = alpha(tool.colour, LINE.toolAlpha);
     for (const run of runs(tool.points, on)) { curve(run); ctx.stroke(); o.again?.(run); }
+  }
+  // Immediate visual feedback when a session is actively running before its first token chunk flushes to disk: draw a
+  // delicate traveling activity ripple along the active wait stretch and a pulsing radar ring at its tip in the tool's
+  // own brand colour (honest visual activity without fabricating Token/s numbers).
+  if (!o.still && o.now !== undefined) {
+    const phase = (o.now / 1000) * 3.8;
+    const ring = (o.now % 1400) / 1400;
+    for (const tool of o.tools) {
+      const last = tool.points.at(-1);
+      if (!tool.running || !last || on(last)) continue;
+      const minX = tool.points[0]?.[0] ?? last[0];
+      const fromX = Math.max(minX, Math.min(last[0] - 8, tool.startedX ?? (last[0] - 28)));
+      const spanX = last[0] - fromX;
+      if (spanX >= 6) {
+        const steps = Math.max(8, Math.min(36, Math.round(spanX / 3)));
+        const ripple: Point[] = [];
+        for (let i = 0; i <= steps; i++) {
+          const u = i / steps;
+          const px = fromX + u * spanX;
+          const env = Math.sin(u * Math.PI);
+          const wave = 1.6 + 1.5 * Math.sin(u * Math.PI * 3 - phase);
+          ripple.push([px, Math.max(o.plotTop + 1, o.base - Math.max(0.4, wave * env))]);
+        }
+        ctx.save();
+        ctx.lineWidth = LINE.tool + 0.4;
+        ctx.strokeStyle = alpha(tool.colour, 0.78);
+        curve(ripple); ctx.stroke();
+        ctx.restore();
+      }
+      ctx.save();
+      ctx.strokeStyle = alpha(tool.colour, (1 - ring) * 0.65);
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(last[0], last[1], 3 + ring * 7.5, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
   }
   // The total's line over them. Use a fast translucent halo pass instead of ctx.shadowBlur (which forces expensive
   // Gaussian blur over the whole Bezier path on every frame in CoreGraphics/Skia, PERF-2).

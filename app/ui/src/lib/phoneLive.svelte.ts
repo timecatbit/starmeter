@@ -374,6 +374,20 @@ export class PhoneLive {
     this.sessions = sessions;
     if (entry !== null) this.sessionsSeen = true;
     if (!replay) this.sessionsEntry = entry;
+    // When tracked sessions stop, immediately zero out that tool's (and total's) live curve so it glides cleanly to 0
+    // in ~1.5s instead of dragging a 40–120s decay tail. If a short single-shot turn's final tokens landed in this same
+    // tick, offset the stop marker by 800ms so the spike is visible before gliding down.
+    const runningToolsNow = new Set(sessions.filter((s) => s.running && s.tool).map((s) => s.tool!));
+    if (!gap && this.prevRunningTools.size > 0) {
+      const landedIds = new Set(landings.map((l) => l.id));
+      for (const id of this.prevRunningTools) {
+        if (!runningToolsNow.has(id)) this.feed.markStopped(landedIds.has(id) ? now + 800 : now, id);
+      }
+      if (runningToolsNow.size === 0 && !sessions.some((s) => s.running)) {
+        this.feed.markStopped(landings.length ? now + 800 : now);
+      }
+    }
+    this.prevRunningTools = runningToolsNow;
     // Only let token growth keep the stage in `working` for QUIET (40s) when the tool has NO tracked session (e.g.
     // gateways or tools with 会话 off). Tracked sessions report their own exact start/end, so finishing a tracked
     // session immediately transitions to resting instead of lingering in `正在工作` for 40 seconds.
@@ -433,6 +447,7 @@ export class PhoneLive {
 
   private dashboardSeen = false;
   private sessionsSeen = false;
+  private prevRunningTools = new Set<string>();
 
   /** The computer's last minutes, given with a page's first reading: each taken as it was then (`take` with `replay`),
    *  on this phone's clock, so the line, the speed, the last minute and 动态 are as they were before the page opened or

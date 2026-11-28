@@ -19,9 +19,9 @@
   import { panel } from '../lib/ui.svelte';
   import type { Dashboard, ProviderUsage } from '../lib/types';
 
-  let { feed, column, counted, data, note = '', leaving = null, onleft, runningTools = [], width: wide = 320 }: {
+  let { feed, column, counted, data, note = '', leaving = null, onleft, runningTools = [], runningSince = {}, width: wide = 320 }: {
     feed: LiveFeed; column: number; counted: ProviderUsage[]; data: Dashboard; note?: string; leaving?: number | null; onleft?: () => void;
-    runningTools?: string[]; width?: number;
+    runningTools?: string[]; runningSince?: Record<string, number>; width?: number;
   } = $props();
 
   /** The canvas sits where the trend's plot is, so the two line up exactly while one turns into the other. */
@@ -65,6 +65,8 @@
   $effect(() => { order = counted.filter((p) => p.available).map((p) => p.id); });
   let runningSet = new Set<string>();
   $effect(() => { runningSet = new Set(runningTools); });
+  let runningSinceMap: Record<string, number> = {};
+  $effect(() => { runningSinceMap = runningSince; });
   // Read by the drawing each frame.
   let leavingAt: number | null = null;
   $effect(() => { leavingAt = leaving; });
@@ -342,7 +344,12 @@
       const totalLine: Point[] = rating ? rates.map(([at, r]): Point => [x(at), clamped(r)]) : readingLine(null);
       const toolLines = (rating
         ? toolRates.map((tool) => ({ id: tool.id, points: tool.points.map(([at, r]): Point => [x(at), clamped(r)]) }))
-        : order.map((id) => ({ id, points: readingLine(id) }))).map((tool) => ({ ...tool, colour: toolColour(tool.id, dark), running: runningSet.has(tool.id) }));
+        : order.map((id) => ({ id, points: readingLine(id) }))).map((tool) => ({
+          ...tool,
+          colour: toolColour(tool.id, dark),
+          running: runningSet.has(tool.id),
+          startedX: runningSinceMap[tool.id] !== undefined ? x(runningSinceMap[tool.id]) : undefined,
+        }));
       // Which lines are drawn, and each tool's rate now, for whatever reads the page rather than the pixels (tests).
       setAttr(canvas.dataset, 'lines', toolLines.map((tool) => tool.id).join(','));
       setAttr(canvas.dataset, 'toolRates', JSON.stringify(Object.fromEntries(toolRates.map((tool) => [tool.id, Math.round(tool.points.at(-1)![1] * 10) / 10]))));
@@ -354,7 +361,7 @@
         ctx.globalAlpha = trend ? ramp(0.3, 0.7, p) : 1;
         const opened = (liveRight - plot.x) * reach;
         ctx.beginPath(); ctx.rect(liveRight - opened, plot.y - 10, opened + LINE.end, plot.h + 20); ctx.clip();
-        const drawn = drawLines(ctx, { total: totalLine, tools: toolLines, base: bottom, plotTop: plot.y, totalColour: total, areaColour: total, dark });
+        const drawn = drawLines(ctx, { total: totalLine, tools: toolLines, base: bottom, plotTop: plot.y, totalColour: total, areaColour: total, dark, now, still: panel.reduceMotion });
         liveTip = drawn.end;
         ctx.restore();
         setAttr(canvas.dataset, 'under', drawn.under.join(','));

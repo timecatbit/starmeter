@@ -416,7 +416,6 @@
       leaving = null;
       if (!back) {
         const next = new LiveFeed();
-        if (info.mode === 'swiftbar') next.rateTau = 30_000;
         void pinFeed(next);
       }
       schedule();

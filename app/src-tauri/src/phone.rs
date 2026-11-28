@@ -1750,7 +1750,7 @@ fn respond(stream: &mut TcpStream, status: u16, kind: &str, body: &[u8], fresh: 
 fn dashboard(app: &AppHandle, range: &str, group: Option<&str>) -> Value {
     match &*app.state::<Data>() {
         Data::Engine(engine) => engine.dashboard_grouped(range, group),
-        Data::SwiftBar(files) => files.snapshot().get("dashboard").cloned().unwrap_or(Value::Null),
+        Data::SwiftBar(files) => files.snapshot_readonly().get("dashboard").cloned().unwrap_or(Value::Null),
         Data::Fixtures(fixtures) => fixtures.lock().expect("the fixtures").dashboard(range),
     }
 }
@@ -1760,7 +1760,7 @@ fn dashboard(app: &AppHandle, range: &str, group: Option<&str>) -> Value {
 fn phone_snapshot(app: &AppHandle, range: Option<&str>, group: Option<&str>) -> Value {
     let mut snapshot = match &*app.state::<Data>() {
         Data::Engine(engine) => engine.snapshot(),
-        Data::SwiftBar(files) => files.snapshot(),
+        Data::SwiftBar(files) => files.snapshot_readonly(),
         Data::Fixtures(fixtures) => fixtures.lock().expect("the fixtures").snapshot(),
     };
     if range.is_some() || group.is_some() {
@@ -2057,17 +2057,17 @@ fn live_from(data: &Data, history: bool) -> Value {
     let mut answer = match data {
         Data::Engine(engine) => engine.live(),
         Data::SwiftBar(files) => {
-            files.wake_if_stale(10.0);
-            let snapshot = files.snapshot();
+            files.request_live_if_stale(2.0);
+            let snapshot = files.snapshot_readonly();
             let sessions = sessions_of(&snapshot);
-            let turns = if sessions.is_object() { files.turns() } else { serde_json::Map::new() };
+            let (turns, pending) =
+                if sessions.is_object() { files.turns_and_pending() } else { (serde_json::Map::new(), Vec::new()) };
             json!({
                 "at": starmeter_core::runtime::now(),
                 "dashboard": snapshot.get("dashboard").cloned().unwrap_or(Value::Null),
                 "sessions": sessions,
                 "turns": turns,
-                // The plugin's figures change every half minute: the live rate eases off over as long (live.ts).
-                "slow": true,
+                "pending": pending,
             })
         }
         Data::Fixtures(fixtures) => {

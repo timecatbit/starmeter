@@ -219,6 +219,33 @@
     }
     return [...ids];
   });
+  // When tracked sessions stop while pinned, zero out the live chart's rate so the curve glides to 0 in ~1.5s
+  // instead of lingering for 40–120s. Also remember when each tool began running for immediate start-wave drawing.
+  let prevRunning = new Set<string>();
+  let prevSince: Record<string, number> = {};
+  let runningSince = $state<Record<string, number>>({});
+  $effect(() => {
+    const current = new Set(runningTools);
+    const feed = live;
+    const stamp = Date.now();
+    let changed = current.size !== prevRunning.size;
+    const nextSince: Record<string, number> = {};
+    for (const id of current) {
+      if (!(id in prevSince)) changed = true;
+      nextSince[id] = prevSince[id] ?? stamp;
+    }
+    if (changed) {
+      prevSince = nextSince;
+      runningSince = nextSince;
+    }
+    if (feed && prevRunning.size > 0) {
+      for (const id of prevRunning) {
+        if (!current.has(id)) feed.markStopped(stamp, id);
+      }
+      if (current.size === 0) feed.markStopped(stamp);
+    }
+    prevRunning = current;
+  });
 
   function pickRange(key: string) {
     const option = rangeOptions.find((o) => o.action?.[1] === key);
@@ -281,7 +308,7 @@
       {/each}
       <div class="trend" style:transform="translateY({extra}px)">
         {#if live}
-          <LiveChart feed={live} {column} {counted} {data} {note} {leaving} {onleft} {runningTools} width={right - left} />
+          <LiveChart feed={live} {column} {counted} {data} {note} {leaving} {onleft} {runningTools} {runningSince} width={right - left} />
         {:else}
           <SummaryChart {data} {note} {reveal} {right} />
         {/if}

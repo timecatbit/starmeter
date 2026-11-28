@@ -79,6 +79,8 @@ impl Wall {
 
 /// The cache of a tool's month read for 本月回本 alone (payback_month), by the tool's key.
 pub const PAYBACK_MONTH: &str = "payback-month-";
+/// Usage sources that require remote HTTP requests rather than local log files.
+const REMOTE_USAGE: [&str; 2] = ["opencodex", "cursor"];
 
 impl Runtime {
     /// OCX_TIMEZONE or TZ when set and known, else the system's zone.
@@ -362,6 +364,33 @@ impl Runtime {
         })
     }
 
+    /// Whether any enabled remote usage source (`opencodex`, `cursor`) is missing or older than `ttl` in this range's
+    /// cache. Kept separate from `fetchedAt` so pinned `refresh_live` (which updates local logs every 2 seconds) never
+    /// starves regular `--refresh-range` remote refreshes (`LIVE-RANGE-1`).
+    pub fn remote_usage_due(&self, key: &str, ttl: f64) -> bool {
+        if ttl.is_infinite() {
+            return false;
+        }
+        let enabled_remote: Vec<&str> = REMOTE_USAGE.into_iter().filter(|source| self.module_enabled(source)).collect();
+        if enabled_remote.is_empty() {
+            return false;
+        }
+        let record = self.read_cache(&self.range_cache_name(Some(key)));
+        let Some(payload) = record.get("payload").and_then(Json::as_object) else {
+            return true;
+        };
+        if enabled_remote.iter().any(|source| !payload.contains_key(source)) {
+            return true;
+        }
+        let remote_at = payload
+            .get("remoteAt")
+            .and_then(Json::python_float)
+            .or_else(|| record.get("fetchedAt").and_then(Json::python_float))
+            .unwrap_or(0.0);
+        let age = now() - remote_at;
+        age < 0.0 || age >= ttl
+    }
+
     /// Every selected Harness for one range, cached a minute (longer while the panel is closed). Each source keeps
     /// the time of its own last good read, and a failed read keeps its last good figures, marked as such.
     pub fn range_usage(&self, key: Option<&str>, ttl: Option<f64>) -> Loaded {
@@ -377,8 +406,11 @@ impl Runtime {
     fn range_usage_with(&self, key: Option<&str>, ttl: Option<f64>, local_only: bool) -> Loaded {
         let key = key.map(String::from).unwrap_or_else(|| self.selected_range());
         let name = self.range_cache_name(Some(&key));
-        let ttl = ttl.unwrap_or_else(|| self.refresh_ttl(60.0));
-        self.cached_fetch(&name, ttl, 60.0, || {
+        let base_ttl = ttl.unwrap_or_else(|| self.refresh_ttl(60.0));
+        // A pinned `refresh_live` refreshes `fetchedAt` every 2s while reusing cached remote sources. When a regular
+        // refresh runs and any remote source is missing or past `base_ttl`, force a full fetch (`LIVE-RANGE-1`).
+        let effective_ttl = if !local_only && self.remote_usage_due(&key, base_ttl) { 0.0 } else { base_ttl };
+        self.cached_fetch(&name, effective_ttl, 60.0, || {
             let zone = self.local_zone();
             let now = now();
             let (start, end) = range_bounds(&key, now, &zone);
@@ -392,14 +424,16 @@ impl Runtime {
             let logs = self.gateway_logs(&enabled, start, end);
             let record = self.read_cache(&name);
             let previous = record.get("payload").and_then(Json::as_object).cloned().unwrap_or_default();
-            let is_remote = |source: &str| matches!(source, "opencodex" | "cursor");
+            let is_remote = |source: &str| REMOTE_USAGE.contains(&source);
             let results: Vec<Option<Object>> = std::thread::scope(|scope| {
                 let handles: Vec<_> =
                     enabled
                         .iter()
                         .map(|source| {
                             let (logs, enabled, zone, key) = (&logs, &enabled, &zone, &key);
-                            let skip = local_only && is_remote(source) && previous.contains_key(source);
+                            // Always skip remote HTTP sources on live ticks, even on a cold cache, so a slow remote
+                            // never stalls live updates; regular `--refresh-range` fills them (`LIVE-RANGE-2`).
+                            let skip = local_only && is_remote(source);
                             scope.spawn(move || {
                                 if skip { None } else { Some(self.collect(source, key, now, zone, logs, enabled)) }
                             })
@@ -408,11 +442,13 @@ impl Runtime {
                 handles.into_iter().map(|handle| handle.join().ok().flatten()).collect()
             });
             for (source, result) in enabled.iter().zip(results) {
-                let last = previous.get(source).and_then(Json::as_object).cloned().unwrap_or_default();
                 let Some(result) = result else {
-                    bundle.insert(*source, last);
+                    if let Some(last) = previous.get(source).and_then(Json::as_object).cloned() {
+                        bundle.insert(*source, last);
+                    }
                     continue;
                 };
+                let last = previous.get(source).and_then(Json::as_object).cloned().unwrap_or_default();
                 let failed = result.get("error").is_some_and(Json::is_truthy);
                 if failed && last.get("summary").is_some_and(Json::is_truthy) {
                     let mut kept = last.clone();
@@ -429,6 +465,15 @@ impl Runtime {
                     fresh.insert("readAt", runtime::now());
                     bundle.insert(*source, fresh);
                 }
+            }
+            if local_only {
+                let had_remote = REMOTE_USAGE.iter().any(|s| previous.contains_key(s));
+                let prev_remote_at = previous
+                    .get("remoteAt")
+                    .and_then(Json::python_float)
+                    .or_else(|| if had_remote { record.get("fetchedAt").and_then(Json::python_float) } else { None })
+                    .unwrap_or(0.0);
+                bundle.insert("remoteAt", prev_remote_at);
             }
             Ok((Some(bundle), None))
         })
@@ -671,5 +716,109 @@ mod tests {
         assert_eq!(range_bounds("today", autumn, &new_york), (1_793_505_600.0, autumn));
         assert_eq!(range_bounds("30d", autumn, &new_york).0, 1_791_000_000.0, "2026-10-03 00:00 EDT");
         assert_eq!(range_bounds("all", autumn, &new_york), (0.0, autumn));
+    }
+
+    #[test]
+    fn pinned_refresh_live_skips_cold_remote_and_never_starves_regular_remote_refresh() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+        let server = TcpListener::bind("127.0.0.1:0").unwrap();
+        server.set_nonblocking(true).unwrap();
+        let base = format!("http://127.0.0.1:{}", server.local_addr().unwrap().port());
+        let hits = Arc::new(AtomicUsize::new(0));
+        let stop = Arc::new(AtomicBool::new(false));
+        let hits_bg = hits.clone();
+        let stop_bg = stop.clone();
+        let worker = std::thread::spawn(move || {
+            while !stop_bg.load(Ordering::Relaxed) {
+                match server.accept() {
+                    Ok((mut stream, _)) => {
+                        let _ = stream.set_nonblocking(false);
+                        let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(2)));
+                        hits_bg.fetch_add(1, Ordering::SeqCst);
+                        let mut buf = [0u8; 4096];
+                        let _ = stream.read(&mut buf);
+                        let body = r#"{"summary":{"totalTokens":900,"totalRequests":2,"estimatedCostUsd":0.09},"models":[],"days":[],"start":0,"bucketSeconds":60,"series":[]}"#;
+                        let reply = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                            body.len(),
+                            body
+                        );
+                        let _ = stream.write_all(reply.as_bytes());
+                        let _ = stream.flush();
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+
+        let home = std::env::temp_dir().join(format!("starmeter-live-range-{}", crate::runtime::random_hex(6)));
+        std::fs::create_dir_all(&home).unwrap();
+        let state = home.join("state");
+        let cache = home.join("cache");
+        let home_str = home.to_string_lossy().into_owned();
+        let environment: HashMap<String, String> = [
+            ("HOME", home_str.clone()),
+            ("OCX_STATE_DIR", state.to_string_lossy().into_owned()),
+            ("OCX_CACHE_DIR", cache.to_string_lossy().into_owned()),
+            ("OCX_BASE_URL", base),
+            ("OCX_ADMIN_TOKEN", "test-token".to_string()),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect();
+        let mut prefs = crate::preferences::defaults();
+        prefs.insert("visible", Json::Array(vec!["summary".into(), "opencodex".into(), "sessions".into()]));
+        crate::preferences::write(&state, prefs).unwrap();
+        let mut runtime = Runtime::new(environment, "starmeter");
+        runtime.home = home_str;
+
+        // LIVE-RANGE-2: cold cache `refresh_live` must never issue remote HTTP requests, yet must still refresh sessions
+        // and leave `usage_ranges_due` dirty for regular `--refresh-range`.
+        assert!(runtime.refresh_live());
+        assert_eq!(hits.load(Ordering::SeqCst), 0, "cold refresh_live must skip remote OpenCodex");
+        assert!(Path::new(&runtime.cache_path("sessions")).exists(), "sessions cache written even on cold range");
+        assert!(runtime.usage_ranges_due().contains(&"today".to_string()), "cold remote must remain due");
+
+        // LIVE-RANGE-1: seed an expired cache (15 min old, no `remoteAt` yet), run `refresh_live` (which bumps
+        // `fetchedAt` to now), then confirm `usage_ranges_due()` and `refresh_usage_range()` still refresh OpenCodex.
+        let old_at = runtime::now() - 900.0;
+        let cache_name = runtime.range_cache_name(Some("today"));
+        let seed = object! {
+            "schema" => 1,
+            "day" => runtime::today(),
+            "fetchedAt" => old_at,
+            "connection" => runtime.connection_fingerprint(&cache_name),
+            "payload" => object! {
+                "range" => "today",
+                "opencodex" => object! {
+                    "summary" => object! { "totalTokens" => 100, "requests" => 1 },
+                    "readAt" => old_at,
+                },
+            },
+        };
+        runtime.write_json_cache(&runtime.cache_path(&cache_name), &Json::Object(seed));
+        assert!(runtime.refresh_live());
+        assert_eq!(hits.load(Ordering::SeqCst), 0, "pinned refresh_live still reuses cached OpenCodex");
+        assert!(
+            runtime.usage_ranges_due().contains(&"today".to_string()),
+            "expired remote must stay due after refresh_live bumped fetchedAt"
+        );
+        assert!(runtime.refresh_usage_range(true));
+        assert!(hits.load(Ordering::SeqCst) > 0, "regular refresh_usage_range must fetch remote OpenCodex");
+        assert!(
+            !runtime.usage_ranges_due().contains(&"today".to_string()),
+            "remote becomes fresh after regular refresh_usage_range"
+        );
+
+        stop.store(true, Ordering::Relaxed);
+        let _ = worker.join();
+        let _ = std::fs::remove_dir_all(home);
     }
 }

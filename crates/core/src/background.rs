@@ -703,12 +703,18 @@ impl Runtime {
     }
 
     /// The selected range when its figures are due; this month too while a subscription's price is written down;
-    /// today too while today's estimate sits beside the star.
+    /// today too while today's estimate sits beside the star. Also considers remote sources (`opencodex`/`cursor`)
+    /// due even when a pinned `refresh_live` recently updated local sources (`LIVE-RANGE-1`).
     pub fn usage_ranges_due(&self) -> Vec<String> {
+        let range_due = |range: &str, base: f64| {
+            let ttl = self.refresh_ttl(base);
+            self.cache_due(&self.read_cache(&self.range_cache_name(Some(range))), ttl)
+                || self.remote_usage_due(range, ttl)
+        };
         let key = self.selected_range();
         let settings = self.settings();
         let mut due = Vec::new();
-        if self.cache_due(&self.read_cache(&self.range_cache_name(Some(&key))), self.refresh_ttl(60.0)) {
+        if range_due(&key, 60.0) {
             due.push(key.clone());
         }
         let prices = settings.get("subscriptionPrices").and_then(Json::as_object).cloned().unwrap_or_default();
@@ -719,25 +725,16 @@ impl Runtime {
                     .find(|pair| pair.0 == module.as_str())
                     .is_some_and(|pair| self.module_enabled(pair.1))
         });
-        if weighed
-            && key != "month"
-            && self.cache_due(&self.read_cache(&self.range_cache_name(Some("month"))), self.refresh_ttl(600.0))
-        {
+        if weighed && key != "month" && range_due("month", 600.0) {
             due.push("month".into());
         }
-        if settings.get("menuBar") == Some(&Json::from("cost"))
-            && key != "today"
-            && self.cache_due(&self.read_cache(&self.range_cache_name(Some("today"))), self.refresh_ttl(60.0))
-        {
+        if settings.get("menuBar") == Some(&Json::from("cost")) && key != "today" && range_due("today", 60.0) {
             due.push("today".into());
         }
         // 多台电脑合并: every range is kept to ten minutes for this computer's file in the folder.
         if self.devices_root().is_some() {
             for (range, _) in RANGES {
-                if range != key
-                    && !due.iter().any(|known| known == range)
-                    && self.cache_due(&self.read_cache(&self.range_cache_name(Some(range))), self.refresh_ttl(600.0))
-                {
+                if range != key && !due.iter().any(|known| known == range) && range_due(range, 600.0) {
                     due.push(range.to_string());
                 }
             }
@@ -766,8 +763,10 @@ impl Runtime {
             if stop() {
                 return;
             }
+            let ttl = self.refresh_ttl(60.0);
             if key == shown
-                || !self.cache_due(&self.read_cache(&self.range_cache_name(Some(key))), self.refresh_ttl(60.0))
+                || (!self.cache_due(&self.read_cache(&self.range_cache_name(Some(key))), ttl)
+                    && !self.remote_usage_due(key, ttl))
             {
                 continue;
             }
@@ -777,18 +776,16 @@ impl Runtime {
         }
     }
 
-    /// A pinned panel's tick: the range on screen re-read from the local logs, and the active sessions.
-    /// Sessions run independently of `range-refresh.lock` so a slow range read never delays session start/end updates.
+    /// A pinned panel's tick: active sessions refreshed first (never blocked behind range indexing or remote HTTP,
+    /// LIVE-RANGE-2), then the range on screen re-read from local logs only.
     pub fn refresh_live(&self) -> bool {
-        let range_done = self
-            .with_lock("range-refresh.lock", false, || {
-                self.range_usage_local(Some(&self.selected_range()), Some(0.0));
-            })
-            .is_some();
         if self.module_enabled("sessions") {
             self.sessions_cached(Some(0.0));
         }
-        range_done
+        self.with_lock("range-refresh.lock", false, || {
+            self.range_usage_local(Some(&self.selected_range()), Some(0.0));
+        })
+        .is_some()
     }
 
     /// Runs body holding a lock file in the cache folder; None when another process holds it and we don't wait.

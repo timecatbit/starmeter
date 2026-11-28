@@ -2822,9 +2822,11 @@ def refresh_usage_range(wait=False):
 
 
 def refresh_live():
-    """A pinned panel's tick: the range on screen re-read from the local logs, and the active sessions, at once.
+    """A pinned panel's tick: active sessions refreshed first, then the range on screen re-read from the local logs.
     Sources read over the network keep their own intervals. Sessions run even if range-refresh.lock is busy."""
     os.makedirs(CACHE_DIR, mode=0o700, exist_ok=True)
+    if module_enabled('sessions'):
+        sessions_cached(ttl=0)
     range_done = False
     with open(os.path.join(CACHE_DIR, 'range-refresh.lock'), 'a') as lock:
         try:
@@ -2833,8 +2835,6 @@ def refresh_live():
             range_done = True
         except BlockingIOError:
             pass
-    if module_enabled('sessions'):
-        sessions_cached(ttl=0)
     return range_done
 
 

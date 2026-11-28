@@ -360,12 +360,15 @@
    *  no switch or key of its own (用户：去掉开关，改成域名一行). Set, its code stands beside the network's while that is
    *  on; emptied, no domain. */
   let domainSavingPromise: Promise<void> | null = null;
+  let domainSavingSubmitted: string | null = null;
   async function saveDomain() {
-    if (domainSavingPromise) return domainSavingPromise;
+    // Only deduplicate duplicate submits of the exact same input; a new value submitted mid-flight queues via serial()
+    // so two rapid Enter presses with different domains never drop the second one (PHONE-FORM-1).
+    if (domainSavingPromise && domainSavingSubmitted === domainInput) return domainSavingPromise;
+    const submitted = domainInput;
     const run = (async () => {
       domainFailed = null;
       if (domainWrong) { domainFailed = '格式不对：填域名或 IP，比如 starmeter.example.com'; return; }
-      const submitted = domainInput;
       const mine = ++domainRound;
       epoch++;
       domainSaving = true;
@@ -382,7 +385,13 @@
       }
     })();
     domainSavingPromise = run;
-    try { await run; } finally { if (domainSavingPromise === run) domainSavingPromise = null; }
+    domainSavingSubmitted = submitted;
+    try { await run; } finally {
+      if (domainSavingPromise === run) {
+        domainSavingPromise = null;
+        domainSavingSubmitted = null;
+      }
+    }
   }
   /** The page's 开始 (重试): a domain typed and not yet saved, saved first (one that isn't one starts nothing); then the
    *  same network. */

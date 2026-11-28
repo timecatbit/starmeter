@@ -506,6 +506,32 @@ test('Token/s uses exponential decay over RATE_TAU instead of dividing by pin ti
   expect(rates[3]).toBe(0);
 });
 
+test('LiveFeed.markStopped drops rate to 0 within 2s while preserving earlier history', async ({ page }) => {
+  await open(page);
+  const result = await page.evaluate(async () => {
+    const { backend } = await import('/src/lib/backend.ts');
+    const { LiveFeed } = await import('/src/lib/live.ts');
+    const today = (await backend.snapshot()).dashboard!;
+    const out = (by: number) => ({ ...today, providers: today.providers.map((p) => (p.id === 'claude' ? { ...p, output: p.output + by, tokens: p.tokens + by * 50 } : p)) });
+    const feed = new LiveFeed(), t = Date.now();
+    feed.add(today, t);
+    feed.add(out(4000), t + 2000);
+    // Session stops at t + 4000: historical peak at t + 2000 remains, rate glides to 0 immediately after stop.
+    feed.markStopped(t + 4000, 'claude');
+    feed.markStopped(t + 4000);
+    const times = [t + 2000, t + 4000, t + 5000, t + 6000];
+    return {
+      raw: feed.rateSeries(times),
+      smooth: feed.smoothRates(times),
+      toolRaw: feed.rateSeries(times, 'claude'),
+    };
+  });
+  expect(Math.round(result.raw[0] ?? 0)).toBe(400);
+  expect(result.raw[1]).toBe(0);
+  expect(result.toolRaw[1]).toBe(0);
+  expect(result.smooth[3]).toBeLessThan(15);
+});
+
 test('会话 sits beside the groupings: running first, what each cost in the range, five shown and the rest behind 查看更多', async ({ page }) => {
   await open(page);
   // Its row leaves the other rows for the tab.
@@ -3734,4 +3760,42 @@ test('typing into a field lets the input method\'s candidate window show above t
   await expect.poll(typing).toBe(false);
   // Told once as each field took the focus and once as it went, no more.
   expect(await told()).toEqual([true, false, true, false]);
+});
+
+test('在手机上看: rapid double Enter with two different domains persists the second domain (PHONE-FORM-1)', async ({ page }) => {
+  await open(page, '?mac');
+  await button(page, '在手机上看').click();
+  const phone = page.locator('.phone-page');
+  const domain = phone.getByRole('textbox', { name: '域名/IP' });
+  await expect(domain).toBeVisible();
+  // Hold the first phoneDomainSet response while a second domain is typed and submitted via Enter.
+  await page.evaluate(async () => {
+    const { shell } = await import('/src/lib/backend.ts');
+    const orig = shell.phoneDomainSet.bind(shell);
+    const calls: string[] = [];
+    let releaseFirst = () => {};
+    const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    (window as unknown as { __domainTest: { calls: string[]; releaseFirst: () => void } }).__domainTest = {
+      calls,
+      releaseFirst,
+    };
+    shell.phoneDomainSet = async (value: string) => {
+      calls.push(value);
+      if (calls.length === 1) await firstGate;
+      return orig(value);
+    };
+  });
+  await domain.fill('first.example.com');
+  await domain.press('Enter');
+  await domain.fill('second.example.com');
+  await domain.press('Enter');
+  await page.evaluate(() => (window as unknown as { __domainTest: { releaseFirst: () => void } }).__domainTest.releaseFirst());
+  await expect(domain).toHaveValue('https://second.example.com');
+  const calls = await page.evaluate(() => (window as unknown as { __domainTest: { calls: string[] } }).__domainTest.calls);
+  expect(calls).toEqual(['first.example.com', 'second.example.com']);
+  // Leaving and re-entering the page keeps the second domain.
+  await page.getByRole('button', { name: '返回' }).click();
+  await expect(phone).toHaveCount(0);
+  await button(page, '在手机上看').click();
+  await expect(page.locator('.phone-page').getByRole('textbox', { name: '域名/IP' })).toHaveValue('https://second.example.com');
 });

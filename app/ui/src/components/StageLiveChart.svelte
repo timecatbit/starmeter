@@ -43,6 +43,7 @@
   /** The curve worked out at each reading (not each frame): the total's rate and each tool's, a point a second. */
   let ids: string[] = [];
   let runningIds = new Set<string>();
+  let runningStarted = new Map<string, number>();
   let times: number[] = [];
   let totals: number[] = [];
   let rates: number[][] = [];
@@ -65,14 +66,19 @@
       const seen = new Set<string>();
       for (const s of samples) for (const id of Object.keys(s.outputs ?? {})) seen.add(id);
       const runningNow = new Set<string>();
+      const startedNow = new Map<string, number>();
       const countedIds = new Set((live.dashboard?.providers ?? []).filter((p) => p.available && p.summaryIncluded !== false).map((p) => p.id));
       for (const s of live.sessions) {
         if (s.running && s.tool) {
           runningNow.add(s.tool);
+          const began = s.began ?? runningStarted.get(s.tool) ?? now;
+          const prev = startedNow.get(s.tool);
+          startedNow.set(s.tool, prev !== undefined ? Math.min(prev, began) : began);
           if (countedIds.has(s.tool)) seen.add(s.tool);
         }
       }
       runningIds = runningNow;
+      runningStarted = startedNow;
       // The busiest first (the legend in that order).
       const last = samples.at(-1);
       ids = [...seen].sort((a, b) => (last?.outputs?.[b] ?? 0) - (last?.outputs?.[a] ?? 0));
@@ -206,9 +212,15 @@
       } : undefined;
       drawn = drawLines(ctx, {
         total: line(totals), base, plotTop: padTop, totalColour: total, areaColour: summaryColour(panel.dark), dark: panel.dark,
-        tools: ids.map((id, k) => ({ id, points: line(rates[k]), colour: toolColour(id, panel.dark), running: runningIds.has(id) })),
+        tools: ids.map((id, k) => ({
+          id,
+          points: line(rates[k]),
+          colour: toolColour(id, panel.dark),
+          running: runningIds.has(id),
+          startedX: runningStarted.has(id) ? x(runningStarted.get(id)!) : undefined,
+        })),
         // Starlight on the total at night; by day and by hand, none.
-        glow: !sketch && panel.dark ? 'rgba(196, 216, 255, 0.7)' : null, again,
+        glow: !sketch && panel.dark ? 'rgba(196, 216, 255, 0.7)' : null, again, now, still,
       });
       const [ex, ey] = drawn.end;
       // Now: the total's dot at its end (its halo breathes on the page over it).
@@ -274,10 +286,11 @@
     if (still || document.visibilityState !== 'visible') return;
     // A drop is moving for its fall and its rise, not for as long as it is kept (until the next reading: STAGE-19, a
     // computer gone quiet just after one kept every frame drawn).
-    const moving = drops.some((d) => now - d.born < DROP + RISE) || sparks.some((s) => now - s.born < SPARK) || shownTop !== top;
+    const waitingActive = runningIds.size > 0 && highest <= 0.05;
+    const moving = drops.some((d) => now - d.born < DROP + RISE) || sparks.some((s) => now - s.born < SPARK) || shownTop !== top || waitingActive;
     if (moving) queue();
     // Resting on a completely flat zero line: nothing changes between readings, so stop idle redraws until the next reading (R10-12).
-    else if (highest > 0 || live.state === 'working') later = setTimeout(queue, Math.min(1000, Math.max(33, (span / Math.max(1, right)) * 0.5)));
+    else if (highest > 0 || live.state === 'working' || runningIds.size > 0) later = setTimeout(queue, Math.min(1000, Math.max(33, (span / Math.max(1, right)) * 0.5)));
   }
 </script>
 

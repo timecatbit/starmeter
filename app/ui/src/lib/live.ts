@@ -11,8 +11,8 @@ export const GAP = 15_000;
  *  converges to its exact true Token/s because ∫(1/τ)e^(-u/τ)du = 1. */
 export const RATE_TAU = 10_000;
 export const EASE = 15_000;
-const ATTACK_TAU = 950;
-const RELEASE_TAU = 1_500;
+const ATTACK_TAU = 400;
+const RELEASE_TAU = 650;
 const RATE_FLOOR = 0.05;
 
 /** `values` at `times` (rising) eased twice over (two exponential moving averages in a row, each over `tau`): a step
@@ -131,6 +131,17 @@ export class LiveFeed {
   private raw = new Map<string, Part>();
   private shifts = new Map<string, Part>();
   private shifted = new Map<string, Part>();
+  /** Explicit session-stop timestamps per tool id ('' for total): once a tracked session stops, raw rate drops to 0
+   *  so the curve glides cleanly to 0 in ~1.5s instead of decaying for 40–120s. */
+  private stops = new Map<string, number[]>();
+
+  markStopped(at: number, id?: string) {
+    const key = id ?? '';
+    const list = this.stops.get(key) ?? [];
+    if (list.length && at <= list[list.length - 1]) return;
+    list.push(at);
+    this.stops.set(key, list.filter((t) => at - t <= this.history));
+  }
 
   /** `fresh`: a reading after a long gap (a phone's page out of sight, the computer out of reach): what was added while
    *  nobody looked happened at no moment the line knows, so it adds nothing, as a new range doesn't. */
@@ -234,7 +245,7 @@ export class LiveFeed {
   smoothRates(times: number[], id?: string): number[] {
     if (!times.length) return [];
     const warm: number[] = [];
-    const warmSpan = Math.max(ATTACK_TAU, RELEASE_TAU) * 8;
+    const warmSpan = Math.ceil((Math.max(ATTACK_TAU, RELEASE_TAU) * 8) / 1000) * 1000;
     const anchor = Math.floor(times[0] / 1000) * 1000;
     for (let at = anchor - warmSpan; at < times[0]; at += 1000) warm.push(at);
     const all = [...warm, ...times];
@@ -244,27 +255,40 @@ export class LiveFeed {
   /** Exponentially-decayed output rate at each of `times` (rising) in one pass over the readings; null before the first. */
   rateSeries(times: number[], id?: string): (number | null)[] {
     const list = this.samples, output = (s: Sample) => (id === undefined ? s.output : s.outputs?.[id] ?? 0);
+    const stopList = this.stops.get(id ?? '') ?? [];
     const out: (number | null)[] = [];
     const tauMs = this.rateTau, tauSec = tauMs / 1000;
-    let idx = 0, seen = false, state = 0, stateAt = 0, prevOut = 0;
+    let idx = 0, stopIdx = 0, seen = false, state = 0, stateAt = 0, prevOut = 0;
     for (const at of times) {
-      while (idx < list.length && list[idx].at <= at) {
-        const s = list[idx];
-        const current = output(s);
-        if (!seen) {
-          seen = true;
-          state = 0;
-          stateAt = s.at;
-          prevOut = current;
+      while (
+        (idx < list.length && list[idx].at <= at)
+        || (stopIdx < stopList.length && stopList[stopIdx] <= at)
+      ) {
+        const nextSample = idx < list.length && list[idx].at <= at ? list[idx].at : Infinity;
+        const nextStop = stopIdx < stopList.length && stopList[stopIdx] <= at ? stopList[stopIdx] : Infinity;
+        if (nextSample <= nextStop) {
+          const s = list[idx++];
+          const current = output(s);
+          if (!seen) {
+            seen = true;
+            state = 0;
+            stateAt = s.at;
+            prevOut = current;
+          } else {
+            const dt = Math.max(0, s.at - stateAt);
+            if (dt > 0 && state > 0) state *= Math.exp(-dt / tauMs);
+            const delta = Math.max(0, current - prevOut);
+            if (delta > 0) state += delta / tauSec;
+            stateAt = s.at;
+            prevOut = current;
+          }
         } else {
-          const dt = Math.max(0, s.at - stateAt);
-          if (dt > 0 && state > 0) state *= Math.exp(-dt / tauMs);
-          const delta = Math.max(0, current - prevOut);
-          if (delta > 0) state += delta / tauSec;
-          stateAt = s.at;
-          prevOut = current;
+          const tStop = stopList[stopIdx++];
+          if (seen && tStop >= stateAt) {
+            state = 0;
+            stateAt = tStop;
+          }
         }
-        idx++;
       }
       if (!seen) { out.push(null); continue; }
       const dt = Math.max(0, at - stateAt);

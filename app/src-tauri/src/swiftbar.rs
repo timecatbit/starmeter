@@ -46,6 +46,17 @@ mod tokio_mutex {
     pub struct Guard(Arc<(StdMutex<bool>, Condvar)>);
 
     impl Mutex {
+        /// Non-blocking try_lock: returns None if an action is currently running.
+        pub fn try_lock(&self) -> Option<Guard> {
+            let (busy, _) = &*self.0;
+            let mut taken = busy.lock().expect("the action turn");
+            if *taken {
+                return None;
+            }
+            *taken = true;
+            Some(Guard(self.0.clone()))
+        }
+
         /// Blocking; called from a blocking task.
         pub fn lock(&self) -> Guard {
             let (busy, wake) = &*self.0;
@@ -139,33 +150,42 @@ impl Files {
         read(&self.snapshot).unwrap_or(Value::Null)
     }
 
-    pub fn snapshot(&self) -> Value {
-        *self.seen.lock().expect("the seen lock") = modified(&self.snapshot);
+    /// Read-only snapshot for phone/live consumers that must NOT advance the desktop watcher's `seen` timestamp
+    /// (LIVE-SNAPSHOT-1: otherwise a phone read silences the desktop panel's `snapshot-changed` notification).
+    pub fn snapshot_readonly(&self) -> Value {
         read(&self.snapshot).unwrap_or_else(|| json!({"schema": 1, "entries": []}))
     }
 
-    /// When each session's latest turn began (in Unix seconds), read from the plugin's own `sessions.json` cache beside
-    /// `panel-view.json` so SwiftBar's 实时 tab and 网页版 show the exact `m:ss` clock just like the standalone app.
-    pub fn turns(&self) -> serde_json::Map<String, Value> {
+    pub fn snapshot(&self) -> Value {
+        *self.seen.lock().expect("the seen lock") = modified(&self.snapshot);
+        self.snapshot_readonly()
+    }
+
+    /// When each session's latest turn began (in Unix seconds) and which running sessions are awaiting their first
+    /// request (`pending`, LIVE-TURN-1), read from the plugin's own `sessions.json` cache beside `panel-view.json`.
+    pub fn turns_and_pending(&self) -> (serde_json::Map<String, Value>, Vec<String>) {
         let mut turns = serde_json::Map::new();
+        let mut pending = Vec::new();
         let Some(sessions) = read(&self.folder.join("sessions.json"))
             .and_then(|record| record.get("payload")?.get("sessions")?.as_array().cloned())
         else {
-            return turns;
+            return (turns, pending);
         };
         for session in sessions {
             let id = session.get("id").and_then(Value::as_str);
-            let began = session
-                .get("turns")
-                .and_then(Value::as_array)
-                .and_then(|turns| turns.first())
-                .and_then(|turn| turn.get("at"))
-                .and_then(Value::as_f64);
+            let first = session.get("turns").and_then(Value::as_array).and_then(|turns| turns.first());
+            let began = first.and_then(|turn| turn.get("at")).and_then(Value::as_f64);
             if let (Some(id), Some(began)) = (id, began) {
                 turns.insert(id.to_string(), json!(began));
             }
+            if let Some(id) = id
+                && session.get("state").and_then(Value::as_str) == Some("running")
+                && first.is_some_and(|turn| turn.get("requests").and_then(Value::as_f64).unwrap_or(0.0) == 0.0)
+            {
+                pending.push(id.to_string());
+            }
         }
-        turns
+        (turns, pending)
     }
 
     /// The homepage or the module list, when the plugin's click asked within the last 30 seconds.
@@ -255,11 +275,12 @@ impl Files {
         let _ = url;
     }
 
-    /// Gently asks SwiftBar to re-run the plugin when `panel-view.json` is older than `max_age_secs` (throttled), so
-    /// SwiftBar web/live viewers don't wait a full 60s cron cycle to see a new session start or finish.
-    pub fn wake_if_stale(&self, max_age_secs: f64) {
+    /// Triggers a non-blocking `refresh-live` action through SwiftBar when `panel-view.json` is older than
+    /// `max_age_secs` and no other action is in flight, giving SwiftBar web/live viewers the same ~2s local-log
+    /// refresh cadence as the standalone app instead of waiting for SwiftBar's 60s background schedule.
+    pub fn request_live_if_stale(&self, max_age_secs: f64) {
         use std::sync::atomic::{AtomicU64, Ordering};
-        static LAST_WAKE: AtomicU64 = AtomicU64::new(0);
+        static LAST_WAKE_MS: AtomicU64 = AtomicU64::new(0);
         if self.folder.as_os_str().is_empty() {
             return;
         }
@@ -269,12 +290,21 @@ impl Files {
         if !stale {
             return;
         }
-        let moment = now() as u64;
-        let last = LAST_WAKE.load(Ordering::SeqCst);
-        if moment.saturating_sub(last) >= max_age_secs as u64
-            && LAST_WAKE.compare_exchange(last, moment, Ordering::SeqCst, Ordering::SeqCst).is_ok()
+        let Some(_turn) = self.turn.try_lock() else { return };
+        let request = self.folder.join("panel-action.json");
+        if request.exists() {
+            return;
+        }
+        let now_ms = (now() * 1000.0) as u64;
+        let last_ms = LAST_WAKE_MS.load(Ordering::SeqCst);
+        let min_gap_ms = (max_age_secs * 1000.0) as u64;
+        if now_ms.saturating_sub(last_ms) >= min_gap_ms
+            && LAST_WAKE_MS.compare_exchange(last_ms, now_ms, Ordering::SeqCst, Ordering::SeqCst).is_ok()
         {
-            self.wake();
+            let id = format!("live-{:x}-{:x}", std::process::id(), now_ms);
+            if write_private(&request, &json!({"id": id, "action": ["refresh-live"], "createdAt": now()})) {
+                self.wake();
+            }
         }
     }
 
@@ -458,6 +488,65 @@ mod tests {
         assert!(started.elapsed() < Duration::from_secs(5));
         assert_eq!(files.act(&["open-settings".into()]).0, "done");
         worker.join().expect("the engine thread");
+        let _ = std::fs::remove_dir_all(folder);
+    }
+
+    #[test]
+    fn snapshot_readonly_does_not_silence_desktop_watcher() {
+        let folder = folder().with_extension("readonly");
+        std::fs::create_dir_all(&folder).expect("a folder");
+        let snapshot = folder.join("panel-view.json");
+        std::fs::write(&snapshot, r#"{"schema":1,"entries":[{"id":"v1"}]}"#).expect("v1");
+        let args = vec![
+            "app".to_string(),
+            "--plugin".into(),
+            "/x/starmeter.30s.sh".into(),
+            "--snapshot".into(),
+            snapshot.to_string_lossy().into_owned(),
+        ];
+        let files = Files::from_args(&args).expect("panel mode");
+        assert_eq!(files.snapshot()["entries"][0]["id"], json!("v1"));
+        let before_seen = *files.seen.lock().expect("seen");
+        // Replace with a distinct mtime so the watcher sees the update.
+        std::thread::sleep(Duration::from_millis(20));
+        write_private(&snapshot, &json!({"schema": 1, "entries": [{"id": "v2"}]}));
+        let fresh = files.snapshot_readonly();
+        assert_eq!(fresh["entries"][0]["id"], json!("v2"));
+        let after_seen = *files.seen.lock().expect("seen");
+        assert_eq!(before_seen, after_seen, "snapshot_readonly must not advance seen (LIVE-SNAPSHOT-1)");
+        let current = modified(&files.snapshot);
+        assert!(current.is_some() && current != after_seen, "desktop watcher must still detect the new snapshot");
+        let _ = std::fs::remove_dir_all(folder);
+    }
+
+    #[test]
+    fn turns_and_pending_marks_running_zero_request_turns_pending() {
+        let folder = folder().with_extension("pending");
+        std::fs::create_dir_all(&folder).expect("a folder");
+        let snapshot = folder.join("panel-view.json");
+        std::fs::write(&snapshot, b"{}").expect("a snapshot");
+        let sessions = json!({
+            "payload": {
+                "sessions": [
+                    {"id": "s-new", "state": "running", "turns": [{"at": 1700000100.0, "requests": 0}]},
+                    {"id": "s-busy", "state": "running", "turns": [{"at": 1700000050.0, "requests": 3}]},
+                    {"id": "s-idle", "state": "idle", "turns": [{"at": 1700000010.0, "requests": 0}]}
+                ]
+            }
+        });
+        std::fs::write(folder.join("sessions.json"), sessions.to_string()).expect("sessions");
+        let args = vec![
+            "app".to_string(),
+            "--plugin".into(),
+            "/x/starmeter.30s.sh".into(),
+            "--snapshot".into(),
+            snapshot.to_string_lossy().into_owned(),
+        ];
+        let files = Files::from_args(&args).expect("panel mode");
+        let (turns, pending) = files.turns_and_pending();
+        assert_eq!(turns.get("s-new"), Some(&json!(1700000100.0)));
+        assert_eq!(turns.get("s-busy"), Some(&json!(1700000050.0)));
+        assert_eq!(pending, vec!["s-new".to_string()], "only running 0-request turns are pending (LIVE-TURN-1)");
         let _ = std::fs::remove_dir_all(folder);
     }
 }
