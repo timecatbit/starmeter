@@ -2823,14 +2823,19 @@ def refresh_usage_range(wait=False):
 
 def refresh_live():
     """A pinned panel's tick: the range on screen re-read from the local logs, and the active sessions, at once.
-    Sources read over the network keep their own intervals. A tick that finds the last one still running is skipped."""
+    Sources read over the network keep their own intervals. Sessions run even if range-refresh.lock is busy."""
     os.makedirs(CACHE_DIR, mode=0o700, exist_ok=True)
+    range_done = False
     with open(os.path.join(CACHE_DIR, 'range-refresh.lock'), 'a') as lock:
-        try:fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:return False
-        range_usage_cached(selected_range(),ttl=0)
-    if module_enabled('sessions'):sessions_cached(ttl=0)
-    return True
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            range_usage_cached(selected_range(),ttl=0)
+            range_done = True
+        except BlockingIOError:
+            pass
+    if module_enabled('sessions'):
+        sessions_cached(ttl=0)
+    return range_done
 
 
 def background_refresh(wait=False):
@@ -3273,7 +3278,7 @@ def sessions_lines(data):
         # 12 分钟; 3 小时 from an hour on (a session stays listed a day).
         def lasted(seconds):return '%d 分钟'%(seconds//60) if seconds<3600 else '%d 小时'%(seconds//3600)
         if running:
-            started=latest.get('at') if latest else None
+            started=(turns[0].get('at') if turns else None) or (latest.get('at') if latest else None)
             seconds=int(max(0,time.time()-started)) if isinstance(started,(int,float)) else 0
             state='运行中 '+lasted(seconds) if seconds>=60 else '运行中'
         else:state='空闲' if ago<60 else '空闲 '+lasted(ago)

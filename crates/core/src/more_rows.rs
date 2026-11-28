@@ -352,7 +352,11 @@ impl Runtime {
                 if seconds < 3600 { format!("{} 分钟", seconds / 60) } else { format!("{} 小时", seconds / 3600) }
             };
             let state = if running {
-                let started = latest.and_then(|turn| turn.get("at")).and_then(Json::number);
+                let started = turns
+                    .first()
+                    .and_then(|turn| turn.get("at"))
+                    .and_then(Json::number)
+                    .or_else(|| latest.and_then(|turn| turn.get("at")).and_then(Json::number));
                 match started.map(|at| (now() - at).max(0.0) as i64) {
                     Some(seconds) if seconds >= 60 => format!("运行中 {}", lasted(seconds)),
                     _ => "运行中".to_string(),

@@ -365,6 +365,16 @@ impl Runtime {
     /// Every selected Harness for one range, cached a minute (longer while the panel is closed). Each source keeps
     /// the time of its own last good read, and a failed read keeps its last good figures, marked as such.
     pub fn range_usage(&self, key: Option<&str>, ttl: Option<f64>) -> Loaded {
+        self.range_usage_with(key, ttl, false)
+    }
+
+    /// Live-tick range refresh: re-indexes local logs immediately while keeping cached figures for network sources
+    /// (`opencodex`, `cursor`) so a 2-second live tick never blocks 12-24 seconds on HTTP requests.
+    pub fn range_usage_local(&self, key: Option<&str>, ttl: Option<f64>) -> Loaded {
+        self.range_usage_with(key, ttl, true)
+    }
+
+    fn range_usage_with(&self, key: Option<&str>, ttl: Option<f64>, local_only: bool) -> Loaded {
         let key = key.map(String::from).unwrap_or_else(|| self.selected_range());
         let name = self.range_cache_name(Some(&key));
         let ttl = ttl.unwrap_or_else(|| self.refresh_ttl(60.0));
@@ -382,18 +392,27 @@ impl Runtime {
             let logs = self.gateway_logs(&enabled, start, end);
             let record = self.read_cache(&name);
             let previous = record.get("payload").and_then(Json::as_object).cloned().unwrap_or_default();
-            let results: Vec<Object> = std::thread::scope(|scope| {
-                let handles: Vec<_> = enabled
-                    .iter()
-                    .map(|source| {
-                        let (logs, enabled, zone, key) = (&logs, &enabled, &zone, &key);
-                        scope.spawn(move || self.collect(source, key, now, zone, logs, enabled))
-                    })
-                    .collect();
-                handles.into_iter().map(|handle| handle.join().unwrap_or_default()).collect()
+            let is_remote = |source: &str| matches!(source, "opencodex" | "cursor");
+            let results: Vec<Option<Object>> = std::thread::scope(|scope| {
+                let handles: Vec<_> =
+                    enabled
+                        .iter()
+                        .map(|source| {
+                            let (logs, enabled, zone, key) = (&logs, &enabled, &zone, &key);
+                            let skip = local_only && is_remote(source) && previous.contains_key(source);
+                            scope.spawn(move || {
+                                if skip { None } else { Some(self.collect(source, key, now, zone, logs, enabled)) }
+                            })
+                        })
+                        .collect();
+                handles.into_iter().map(|handle| handle.join().ok().flatten()).collect()
             });
             for (source, result) in enabled.iter().zip(results) {
                 let last = previous.get(source).and_then(Json::as_object).cloned().unwrap_or_default();
+                let Some(result) = result else {
+                    bundle.insert(*source, last);
+                    continue;
+                };
                 let failed = result.get("error").is_some_and(Json::is_truthy);
                 if failed && last.get("summary").is_some_and(Json::is_truthy) {
                     let mut kept = last.clone();

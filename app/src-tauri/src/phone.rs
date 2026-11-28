@@ -115,6 +115,9 @@ struct Keys {
     /// opens with 同一个网络's key while that is on (the domain is a row of its page, no switch or key of its own:
     /// 用户：去掉开关，改成域名一行).
     domain_host: Option<String>,
+    /// 自有域名's port (443 for https, 80 for http, or an explicit port): a direct VPN/LAN connection to the server's
+    /// own port on the same IP does not match `Via::Domain`.
+    domain_port: Option<u16>,
 }
 
 /// Where a connection comes from: this computer itself, a phone on a VPN (to this computer's Tailscale or WireGuard
@@ -145,31 +148,66 @@ fn host_name(header: &str) -> String {
     name.trim_end_matches('.').to_string()
 }
 
+/// The explicit port in a Host header, if any.
+fn host_port(header: &str) -> Option<u16> {
+    let header = header.trim();
+    let port_str = match header.strip_prefix('[') {
+        Some(rest) => rest.split_once(']')?.1.strip_prefix(':')?,
+        None => header.rsplit_once(':')?.1,
+    };
+    port_str.parse::<u16>().ok()
+}
+
 /// 自有域名's host, for Keys, from its origin (https://meter.example.com).
 fn domain_host(origin: Option<&str>) -> Option<String> {
     origin.and_then(|origin| tauri::Url::parse(origin).ok()).and_then(|url| url.host_str().map(host_name))
 }
 
-fn via(host: &str, domain: Option<&str>) -> Via {
-    let host = host_name(host);
-    if !host.is_empty() && domain == Some(host.as_str()) {
-        Via::Domain
-    } else if host.ends_with(".trycloudflare.com") {
+/// 自有域名's effective port (explicit or scheme default 80/443), for port-aware `Via::Domain` matching.
+fn domain_port(origin: Option<&str>) -> Option<u16> {
+    origin.and_then(|origin| tauri::Url::parse(origin).ok()).and_then(|url| url.port_or_known_default())
+}
+
+fn via_with_port(header: &str, domain: Option<&str>, port: Option<u16>) -> Via {
+    let host = host_name(header);
+    // Check Cloudflare's quick tunnel first so setting a *.trycloudflare.com domain can never hijack Via::Tunnel.
+    if host.ends_with(".trycloudflare.com") {
         Via::Tunnel
+    } else if !host.is_empty()
+        && domain == Some(host.as_str())
+        && match (port, host_port(header)) {
+            (Some(expected), Some(actual)) => actual == expected,
+            _ => true,
+        }
+    {
+        Via::Domain
     } else {
         Via::Direct
     }
 }
 
+#[cfg(test)]
+fn via(host: &str, domain: Option<&str>) -> Via {
+    via_with_port(host, domain, None)
+}
+
 impl Keys {
-    /// Whether a connection from there may ask anything: this computer always; a VPN with its page on; the network with
-    /// 同一个网络 on.
+    /// Whether a connection from there may ask anything: this computer always; a VPN with its page on (or when a
+    /// reverse proxy reaches this computer over VPN for 自有域名); the network with 同一个网络 on.
     fn welcome(&self, from: Origin) -> bool {
         match from {
             Origin::Here => true,
-            Origin::Vpn => self.vpn.is_some(),
+            Origin::Vpn => self.vpn.is_some() || (self.local.is_some() && self.domain_host.is_some()),
             Origin::Network => self.local.is_some(),
         }
+    }
+
+    /// For connections arriving on a VPN interface when the VPN page itself is off, only allow requests naming
+    /// 自有域名 (from a reverse proxy over Tailscale/WireGuard), rejecting direct VPN probes before serving HTML.
+    fn vpn_allows_host(&self, host: &str) -> bool {
+        self.vpn.is_some()
+            || (self.local.is_some()
+                && via_with_port(host, self.domain_host.as_deref(), self.domain_port) == Via::Domain)
     }
 }
 
@@ -662,9 +700,8 @@ fn origin_of(typed: &str) -> Result<String, String> {
         return Err("填写你的域名或 IP，比如 starmeter.example.com".into());
     }
     let wrong = || "格式不对：填域名或 IP，比如 starmeter.example.com".to_string();
-    // The name or address itself, as typed, first: a web address parser takes 2.2.. or 2.2 as a name (or an IP filled
-    // out), and a code for it opens nothing (用户：这还生成二维码？ip/域名格式不对，就不生成二维码，先检查格式啊).
-    if !host_as_typed(typed) {
+    // Reject internal whitespace (Url::parse silently strips \t, \r, \n) and malformed hosts.
+    if typed.chars().any(char::is_whitespace) || !host_as_typed(typed) {
         return Err(wrong());
     }
     let given = typed.contains("://");
@@ -673,6 +710,15 @@ fn origin_of(typed: &str) -> Result<String, String> {
     // An IP with no scheme typed is http (a proxy at an address seldom has a certificate for it; 用户：域名那里是域名/IP),
     // read again so a port given stays as given.
     let host = url.host_str().unwrap_or_default().trim_start_matches('[').trim_end_matches(']');
+    if host.parse::<std::net::Ipv4Addr>().is_ok() {
+        // Reject hex/octal/fullwidth IPv4 shorthands (e.g. 1.0x1, １.２) that Url::parse normalizes into IPv4.
+        let rest = typed.split_once("://").map_or(typed, |(_, rest)| rest);
+        let raw_host = rest.split(['/', '?', '#']).next().unwrap_or_default().split(':').next().unwrap_or_default();
+        if !raw_host.bytes().all(|b| b.is_ascii_digit() || b == b'.') || raw_host.parse::<std::net::Ipv4Addr>().is_err()
+        {
+            return Err(wrong());
+        }
+    }
     if !given && host.parse::<IpAddr>().is_ok() {
         url = tauri::Url::parse(&format!("http://{typed}")).map_err(|_| wrong())?;
     }
@@ -752,10 +798,12 @@ fn write_kept(path: &Path, kept: &Kept) {
     options.write(true).create_new(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    if let Ok(mut file) = options.open(&fresh)
-        && file.write_all(&bytes).is_ok()
-    {
-        let _ = std::fs::rename(&fresh, path);
+    if let Ok(mut file) = options.open(&fresh) {
+        let wrote = file.write_all(&bytes).is_ok();
+        drop(file);
+        if !wrote || std::fs::rename(&fresh, path).is_err() {
+            let _ = std::fs::remove_file(&fresh);
+        }
     }
 }
 
@@ -827,7 +875,11 @@ fn spawn(app: &AppHandle, listener: TcpListener) -> Result<Running, String> {
     let port = listener.local_addr().map_err(|error| error.to_string())?.port();
     listener.set_nonblocking(true).map_err(|error| error.to_string())?;
     let saved = read_kept(&kept_file(app)).domain;
-    let keys = Arc::new(Mutex::new(Keys { domain_host: domain_host(saved.as_deref()), ..Keys::default() }));
+    let keys = Arc::new(Mutex::new(Keys {
+        domain_host: domain_host(saved.as_deref()),
+        domain_port: domain_port(saved.as_deref()),
+        ..Keys::default()
+    }));
     // 自有域名's address, the same network's code at it shown beside the network's.
     let stop = Arc::new(AtomicBool::new(false));
     {
@@ -933,9 +985,14 @@ fn start_local_if(app: AppHandle, port: Option<u16>, kept_on: bool) -> Result<Ph
     let current = serving(&app, &mut running)?;
     let kept = read_kept(&kept_file(&app));
     let key = starting_key(&mut current.keys.lock().expect("the keys").local, kept.local, kept.fixed.local);
+    let actual_port = current.port;
     keep(&app, |kept| {
         kept.local = Some(key.clone());
         kept.fixed.local = Some(key);
+        // When the user cleared the port field (Some(0)), sync kept.port to the actual bound port even if a domain is set.
+        if port == Some(0) {
+            kept.port = Some(actual_port);
+        }
     });
     Ok(view(current))
 }
@@ -1132,12 +1189,21 @@ pub async fn phone_domain_set(app: AppHandle, domain: String) -> Result<Option<P
         let mut running = state.running.lock().expect("the phone lock");
         let on = running.as_ref().map(|current| current.port);
         if let Some(current) = running.as_mut() {
-            current.keys.lock().expect("the keys").domain_host = domain_host(origin.as_deref());
+            let mut keys = current.keys.lock().expect("the keys");
+            keys.domain_host = domain_host(origin.as_deref());
+            keys.domain_port = domain_port(origin.as_deref());
+            drop(keys);
             current.origin.clone_from(&origin);
         }
         keep(&app, |kept| {
+            let had_domain = kept.domain.is_some();
             kept.domain = origin;
-            if kept.domain.is_some() && on.is_some() {
+            // Only lock kept.port to the running server's port when 同一个网络 is active or no port was held yet
+            // (avoid clobbering a held port with a temporary VPN/Cloudflare fallback port while 同一个网络 is off).
+            if kept.domain.is_some()
+                && on.is_some()
+                && (kept.local.is_some() || kept.port.is_none() || !(kept.port_chosen || had_domain))
+            {
                 kept.port = on;
             }
         });
@@ -1500,7 +1566,7 @@ fn serve(app: AppHandle, listener: TcpListener, keys: Arc<Mutex<Keys>>, stop: Ar
 fn admitted(keys: &Mutex<Keys>, given: &str, from: Origin, host: &str) -> bool {
     let keys = keys.lock().expect("the keys");
     let opens = |key: &Option<String>| key.as_deref().is_some_and(|key| same(given, key));
-    match via(host, keys.domain_host.as_deref()) {
+    match via_with_port(host, keys.domain_host.as_deref(), keys.domain_port) {
         Via::Tunnel => from == Origin::Here && opens(&keys.public),
         // The user's proxy, wherever it is (here, a NAS on the network, elsewhere over a VPN): 同一个网络's key.
         Via::Domain => opens(&keys.local),
@@ -1555,6 +1621,9 @@ fn answer(app: &AppHandle, mut stream: TcpStream, keys: &Mutex<Keys>, from: Orig
                 host = value.trim().to_string();
             }
         }
+    }
+    if from == Origin::Vpn && !keys.lock().expect("the keys").vpn_allows_host(&host) {
+        return Ok(());
     }
     if method != "GET" {
         return respond(&mut stream, 405, "text/plain; charset=utf-8", b"GET only", false);
@@ -1769,7 +1838,7 @@ static RECENT: Mutex<VecDeque<Value>> = Mutex::new(VecDeque::new());
 /// 15 seconds a page takes for a gap.
 const RECENT_FOR: f64 = 400.0;
 const RECENT_EVERY: f64 = 2.0;
-const RECENT_IDLE: f64 = 10.0;
+const RECENT_IDLE: f64 = 5.0;
 
 #[derive(Default)]
 struct SampleCache {
@@ -1988,6 +2057,7 @@ fn live_from(data: &Data, history: bool) -> Value {
     let mut answer = match data {
         Data::Engine(engine) => engine.live(),
         Data::SwiftBar(files) => {
+            files.wake_if_stale(10.0);
             let snapshot = files.snapshot();
             let sessions = sessions_of(&snapshot);
             let turns = if sessions.is_object() { files.turns() } else { serde_json::Map::new() };
@@ -2110,9 +2180,9 @@ fn strip(entry: &mut Value) {
 mod tests {
     use super::{
         Addresses, AtomicBool, AtomicUsize, CONNECTIONS, Deadline, DomainCheck, Fixed, Kept, Keys, LinkPage, Mutex,
-        Nic, Ordering, Origin, PING, Running, Slot, Slots, Via, admitted, bind, checked, domain_host, host_name,
-        lan_choice, loopback_taken, networks, new_key, nic, origin_of, read_kept, renew, same, settle, starting_key,
-        tailnet_ip, valid_port, via, write_kept,
+        Nic, Ordering, Origin, PING, Running, Slot, Slots, Via, admitted, bind, checked, domain_host, domain_port,
+        host_name, lan_choice, loopback_taken, networks, new_key, nic, origin_of, read_kept, renew, same, settle,
+        starting_key, tailnet_ip, valid_port, via, write_kept,
     };
 
     fn ip(text: &str) -> std::net::IpAddr {
@@ -2552,6 +2622,7 @@ mod tests {
             vpn: Some(vpn.clone()),
             public: Some(public.clone()),
             domain_host: None,
+            domain_port: None,
         });
         // 同一个网络's key from the network and this computer, not a VPN's address.
         assert!(admitted(&keys, &local, Network, ""));
@@ -2594,6 +2665,7 @@ mod tests {
             vpn: Some(vpn.clone()),
             public: Some(public.clone()),
             domain_host: domain_host(Some("https://meter.example.com")),
+            domain_port: domain_port(Some("https://meter.example.com")),
         });
         let tunnel = "bright-owl-42.trycloudflare.com";
         // Through Cloudflare's link: its key, nothing else.
@@ -2920,6 +2992,9 @@ mod tests {
             "meter.example.com:99999",
             "meter.example.com:80a",
             "[2001:db8::zz]",
+            "1.0x1",
+            "ht\ttps://meter.example.com",
+            "１.２",
         ] {
             assert!(origin_of(wrong).is_err(), "{wrong}");
         }
@@ -2927,6 +3002,32 @@ mod tests {
         assert_eq!(origin_of("a b").unwrap_err(), "格式不对：填域名或 IP，比如 starmeter.example.com");
         assert!(valid_port(80).is_err());
         assert_eq!(valid_port(8765), Ok(8765));
+    }
+
+    #[test]
+    fn vpn_domain_port_and_tunnel_precedence_do_not_hijack_direct_or_cloudflare_links() {
+        use Origin::{Here, Vpn};
+        let (local, vpn, public) = (new_key(), new_key(), new_key());
+        // Setting a trycloudflare.com host as domain must not hijack Via::Tunnel.
+        assert_eq!(via("abc.trycloudflare.com", Some("abc.trycloudflare.com")), Via::Tunnel);
+        // Setting a VPN IP at port 443 must not hijack direct VPN connections to the server's own port 51234.
+        let keys = Mutex::new(Keys {
+            local: Some(local.clone()),
+            vpn: Some(vpn.clone()),
+            public: Some(public.clone()),
+            domain_host: domain_host(Some("https://100.76.55.73")),
+            domain_port: domain_port(Some("https://100.76.55.73")),
+        });
+        assert!(admitted(&keys, &vpn, Vpn, "100.76.55.73:51234"));
+        assert!(admitted(&keys, &local, Vpn, "100.76.55.73:443"));
+        assert!(admitted(&keys, &local, Vpn, "100.76.55.73"));
+        // Even with VPN page off, a reverse proxy over VPN naming 自有域名 is welcomed and admitted, while a direct
+        // probe to the VPN IP's own server port is rejected.
+        keys.lock().unwrap().vpn = None;
+        assert!(keys.lock().unwrap().welcome(Vpn));
+        assert!(keys.lock().unwrap().vpn_allows_host("100.76.55.73:443"));
+        assert!(!keys.lock().unwrap().vpn_allows_host("100.76.55.73:51234"));
+        assert!(admitted(&keys, &public, Here, "abc.trycloudflare.com"));
     }
 
     #[test]

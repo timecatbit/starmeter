@@ -117,21 +117,54 @@ def text(value):
     return value.strip() if isinstance(value, str) and value.strip() else None
 
 
+def claude_activity(row):
+    """Whether a Claude Code transcript row represents real turn activity (ignoring compact summaries, transcript-only
+    notes, non-peer metadata, and local slash-command wrappers that otherwise leave claude() stuck in running)."""
+    if row.get('isSidechain'):return False
+    if row.get('type') == 'assistant':return True
+    if row.get('type') != 'user':return False
+    origin = row.get('origin') if isinstance(row.get('origin'), dict) else {}
+    from_peer = origin.get('kind') == 'peer'
+    if (row.get('isCompactSummary') or row.get('isVisibleInTranscriptOnly')
+            or (row.get('isMeta') and not from_peer)):return False
+    message = row.get('message') if isinstance(row.get('message'), dict) else {}
+    content = message.get('content')
+    if isinstance(content, str):
+        trimmed = content.strip()
+        if not trimmed or (not from_peer and trimmed.startswith(('<local-command-stdout>', '<local-command-caveat>', '<command-name>', '<command-message>', '<command-args>'))):
+            return False
+    return True
+
+
+def claude_interrupted(message):
+    """Whether a Claude Code user row records a cancelled turn ([Request interrupted by user...])."""
+    content = message.get('content')
+    if isinstance(content, str):return content.strip().startswith('[Request interrupted by user')
+    if isinstance(content, list) and content:
+        return all(isinstance(item, dict) and item.get('type') == 'text'
+                   and isinstance(item.get('text'), str) and item['text'].strip().startswith('[Request interrupted by user')
+                   for item in content)
+    return False
+
+
 def claude(path):
     """A Claude Code transcript: waiting once the last reply ended its turn, running otherwise. Its title is the
     last one the transcript records: the name the user or the App gave it, else the one Claude Code made up."""
     last = reply = None; folder = None; named = made = None
-    for row in rows_back(path, lambda rows: any(r.get('type') in ('assistant', 'user') and not r.get('isSidechain') for r in rows)):
+    for row in rows_back(path, lambda rows: any(claude_activity(r) for r in rows)):
         if row.get('type') == 'custom-title':named = text(row.get('customTitle')) or named
         elif row.get('type') == 'ai-title':made = text(row.get('aiTitle')) or made
         if row.get('isSidechain'):continue
         if row.get('cwd'):folder = row['cwd']
-        if row.get('type') in ('assistant', 'user'):last = row
+        if claude_activity(row):last = row
         message = row.get('message') if isinstance(row.get('message'), dict) else {}
         if row.get('type') == 'assistant' and isinstance(message.get('usage'), dict):reply = message
     if last is None:return None
     message = last.get('message') if isinstance(last.get('message'), dict) else {}
-    waiting = last.get('type') == 'assistant' and message.get('stop_reason') in ('end_turn', 'stop_sequence', 'max_tokens', 'refusal')
+    synthetic = message.get('model') in ('<synthetic>', 'synthetic')
+    waiting = (last.get('type') == 'assistant'
+               and (synthetic or message.get('stop_reason') in ('end_turn', 'stop_sequence', 'max_tokens', 'refusal'))) or (
+        last.get('type') == 'user' and claude_interrupted(message))
     context = None; model = None
     if reply:
         usage = reply['usage']; model = reply.get('model')

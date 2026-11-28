@@ -480,11 +480,13 @@
 
   // MARK: Sessions
 
-  const sessionRows = $derived(sessions?.children.filter((c) => c.statusLight !== undefined) ?? []);
+  // For today's range, prefer the live tick's fresh 会话 entry (updated every 2-2.5s) over the 15s snapshot poll.
+  const activeSessions = $derived(sessions && data.rangeKey === 'today' && live.sessionsEntry ? live.sessionsEntry : sessions);
+  const sessionRows = $derived(activeSessions?.children.filter((c) => c.statusLight !== undefined) ?? []);
   const sessionKey = (s: Entry, i: number) => s.key ?? `${s.label}\u001f${i}`;
   const everySession = $derived(listOpen('sessions'));
   const sessionsListed = $derived(everySession ? sessionRows : sessionRows.slice(0, SHOWN));
-  const sessionNotes = $derived(sessions?.children.filter((c) => c.statusLight === undefined && !c.separator && c.checked === undefined && !c.action) ?? []);
+  const sessionNotes = $derived(activeSessions?.children.filter((c) => c.statusLight === undefined && !c.separator && c.checked === undefined && !c.action) ?? []);
 
   // MARK: The star
 
@@ -669,7 +671,7 @@
         {/snippet}
 
         <footer class="foot">
-          <p class="read-only">{t('只读：实时数字每 2 秒从电脑上的 Starmeter 读一次，休息时每 5 秒')}</p>
+          <p class="read-only">{t('只读：实时数字每 2 秒从电脑上的 Starmeter 读一次，休息时每 2.5 秒')}</p>
         </footer>
       </section>
     </div>
@@ -943,6 +945,7 @@
   .desk .stats { position: relative; grid-column: 1 / -1; display: grid; grid-template-columns: var(--columns); column-gap: 28px; align-items: stretch; margin-top: 22px; }
   /* Measured (the script, for a moment): each column as tall as what is in it. */
   .desk .stats:global(.measuring) { align-items: start; }
+  .desk .stats:global(.measuring) .trend { height: auto; }
   .part { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
   .placing { visibility: hidden; }
   .desk .part.figures-part { flex: 6 1 auto; }

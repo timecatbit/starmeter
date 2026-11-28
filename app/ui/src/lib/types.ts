@@ -205,6 +205,9 @@ export interface LiveAnswer {
   dashboard: Dashboard | null;
   sessions: Entry | null;
   turns: Record<string, number>;
+  /** Running session keys whose newest turn has not yet recorded its first request (so the UI avoids mislabeling the
+   *  previous turn's tokens/cost/tools as "本轮"). */
+  pending?: string[];
   /** Asked for with ?history=1 (the panel: live_now's `history`): the readings of the last few minutes, for a page
    *  opened or reloaded while the work goes on. */
   history?: LiveReading[];

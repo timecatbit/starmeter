@@ -183,18 +183,43 @@ pub fn transcript_files(
 }
 
 /// The app's title and reasoning effort for each session it touched since `since`, by transcript session ID.
+/// Cached per registry file print (`inode:size:mtime`) so 2-second live ticks avoid re-parsing unchanged files.
 pub fn session_settings(root: &str, since: f64) -> HashMap<String, (Option<String>, Option<String>)> {
+    type Entry = (String, Option<(String, Option<String>, Option<String>)>);
+    static KNOWN: std::sync::Mutex<Option<HashMap<String, Entry>>> = std::sync::Mutex::new(None);
     let mut found = HashMap::new();
     for path in registry_files(root) {
         let Some(state) = state_of(Path::new(&path)) else { continue };
         if (state.mtime as f64) / 1e9 < since {
             continue;
         }
-        let row = read_object(&path);
-        let Some(session) = row.get("cliSessionId").and_then(Json::as_str).filter(|id| is_uuid(id)) else { continue };
-        let title = row.get("title").and_then(Json::as_str).map(str::trim).filter(|t| !t.is_empty()).map(String::from);
-        let effort = row.get("effort").and_then(Json::as_str).filter(|e| !e.is_empty()).map(String::from);
-        found.insert(session.to_string(), (title, effort));
+        let print = format!("{}:{}:{}", state.inode, state.size, state.mtime);
+        let cached = KNOWN.lock().ok().and_then(|known| {
+            known.as_ref()?.get(&path).filter(|(seen, _)| *seen == print).map(|(_, val)| val.clone())
+        });
+        let parsed = match cached {
+            Some(entry) => entry,
+            None => {
+                let row = read_object(&path);
+                let entry = row.get("cliSessionId").and_then(Json::as_str).filter(|id| is_uuid(id)).map(|session| {
+                    let title = row
+                        .get("title")
+                        .and_then(Json::as_str)
+                        .map(str::trim)
+                        .filter(|t| !t.is_empty())
+                        .map(String::from);
+                    let effort = row.get("effort").and_then(Json::as_str).filter(|e| !e.is_empty()).map(String::from);
+                    (session.to_string(), title, effort)
+                });
+                if let Ok(mut known) = KNOWN.lock() {
+                    known.get_or_insert_with(HashMap::new).insert(path, (print, entry.clone()));
+                }
+                entry
+            }
+        };
+        if let Some((session, title, effort)) = parsed {
+            found.insert(session, (title, effort));
+        }
     }
     found
 }

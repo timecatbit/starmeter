@@ -51,17 +51,20 @@ export const dashboard = (asked: string) => once<Dashboard>('/api/dashboard' + q
 const asked = (path: string) => once<LiveAnswer>(path).then((answer) => ({ ...answer, received: Date.now() }));
 /** The live view's first reading, asked for as the page starts, along with its figures: asked only once the page was
  *  drawn, the sessions at work came a round trip after everything else (用户：为什么工具会话胶囊是在页面刷新之后1-2后
- *  才出现呢？就很突兀). Null once taken, or when it failed (the live view then asks for itself and says so). */
-let ahead: Promise<(LiveAnswer & { received: number }) | null> | null = key ? asked('/api/live?history=1').catch(() => null) : null;
+ *  才出现呢？就很突兀). Null once taken; errors surface directly to live(true) so a dead server fails once instead of
+ *  waiting through two 12s timeouts. */
+let ahead: Promise<LiveAnswer & { received: number }> | null = key ? asked('/api/live?history=1') : null;
+ahead?.catch(() => {});
 /** How old the reading asked ahead may be when the live view takes it: older (the figures were long in coming), it
  *  asks again. */
 const AHEAD_FOR = 2500;
 /** 网页版's live view, asked every couple of seconds while it is on screen (today's figures, 会话, the turns' starts). */
 export async function live(history = false): Promise<LiveAnswer> {
   if (history && ahead) {
-    const first = await ahead;
+    const first = ahead;
     ahead = null;
-    if (first && Date.now() - first.received < AHEAD_FOR) return first;
+    const answer = await first;
+    if (Date.now() - answer.received < AHEAD_FOR) return answer;
   }
   return asked('/api/live' + (history ? '?history=1' : ''));
 }

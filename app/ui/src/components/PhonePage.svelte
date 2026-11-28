@@ -132,7 +132,7 @@
     own && { key: 'domain', url: own, title: '反代', label: '手机在哪都能扫这个二维码', detail: '手机在哪都能扫' },
   ].filter((code) => !!code));
   /** 自有域名 started on another port than the server's: the same network's codes and Cloudflare's link go with it. */
-  const movesServer = $derived(!!view && !!view.port && portTyped !== null && portTyped !== view.port
+  const movesServer = $derived(!!view && !!view.port && (!localOn || portOpen) && portTyped !== null && portTyped !== view.port
     && (localOn || vpnOn || !!outside || opening));
   /** Which ways are on, a green dot after each one's name. */
   const on = $derived({ local: localOn, public: !!outside || opening || vpnOn });
@@ -171,6 +171,8 @@
     const asked = portAsked();
     portSaid = null;
     if (asked === false) { portSaid = '端口填 1024 到 65535 之间的数'; openPort(); return; }
+    const wasOn = localOn;
+    const submitted = portInput;
     const mine = ++localRound;
     epoch++;
     localFailed = null;
@@ -181,14 +183,19 @@
       moved(true);
       if (mine === localRound) {
         setPhone(started);
-        // Its port as kept now: the row says it, the field put away.
-        if (asked !== null) { portEdited = false; portOpen = false; readSetup(); }
+        // Its port as kept now: the row says it, the field put away (unless the user typed something new mid-flight).
+        if (portInput === submitted) {
+          portEdited = false;
+          portOpen = false;
+        }
+        if (asked !== null) readSetup();
       }
     } catch (error) {
       moved(false);
       if (mine === localRound) {
-        // A port another app holds: said under its field, open to pick another, 开始 still there.
-        if (/^端口 \d+ 被别的程序占用$/.test(String(error))) { portSaid = String(error); openPort(); }
+        // A port another app holds (or any bind error while moving a running server): said under its field, open to pick
+        // another, keeping the running QR code on screen.
+        if (wasOn || /^端口 \d+ 被别的程序占用$/.test(String(error))) { portSaid = String(error); openPort(); }
         else localFailed = String(error);
       }
     }
@@ -225,6 +232,13 @@
     };
   }
 
+  let vpnQueue: Promise<unknown> = Promise.resolve();
+  function vpnSerial<T>(step: () => Promise<T>): Promise<T> {
+    const next = vpnQueue.then(step, step);
+    vpnQueue = next.catch(() => {});
+    return next;
+  }
+
   /** The VPN page's 开始 (重试): on with its own key; a start that fails stays in the code's place with its reason. */
   async function startVpn() {
     const mine = ++vpnRound;
@@ -232,7 +246,7 @@
     vpnFailed = null;
     vpnStarting = true;
     try {
-      const started = await sent(shell.phoneVpnStart());
+      const started = await vpnSerial(() => sent(shell.phoneVpnStart()));
       if (mine === vpnRound) { phone.vpnStopped = false; setPhone(started); }
     } catch (error) {
       if (mine === vpnRound) vpnFailed = String(error);
@@ -270,7 +284,7 @@
     vpnFailed = null;
     phone.vpnStopped = true;
     without({ vpnOpen: false, tailnet: null, wireguard: null });
-    const left = await sent(shell.phoneVpnStop()).catch(() => phone.view);
+    const left = await vpnSerial(() => sent(shell.phoneVpnStop())).catch(() => phone.view);
     if (mine === vpnRound) setPhone(left ?? null);
   }
 
@@ -296,7 +310,7 @@
   function settled(next: DomainSetup) {
     setup = next;
     // As saved, its http:// or https:// kept (用户：还有http(s)保留): an IP is http unless https was typed.
-    if (!domainEdited) domainInput = next.domain ?? domainInput;
+    if (!domainEdited) domainInput = next.domain ?? '';
     if (!portEdited) portInput = String(next.port);
   }
   onMount(() => {
@@ -345,31 +359,38 @@
   /** 自有域名 saved (its row's 应用, Return, or leaving its field changed; 开始 too): a row of the same network's page,
    *  no switch or key of its own (用户：去掉开关，改成域名一行). Set, its code stands beside the network's while that is
    *  on; emptied, no domain. */
+  let domainSavingPromise: Promise<void> | null = null;
   async function saveDomain() {
-    if (domainSaving) return;
-    domainFailed = null;
-    if (domainWrong) { domainFailed = '格式不对：填域名或 IP，比如 starmeter.example.com'; return; }
-    const mine = ++domainRound;
-    epoch++;
-    domainSaving = true;
-    try {
-      const next = await serial(() => sent(shell.phoneDomainSet(domainInput)));
-      if (mine !== domainRound || destroyed) return;
-      setPhone(next);
-      domainEdited = false;
-      readSetup();
-    } catch (error) {
-      if (mine === domainRound) domainFailed = String(error);
-    } finally {
-      if (mine === domainRound) domainSaving = false;
-    }
+    if (domainSavingPromise) return domainSavingPromise;
+    const run = (async () => {
+      domainFailed = null;
+      if (domainWrong) { domainFailed = '格式不对：填域名或 IP，比如 starmeter.example.com'; return; }
+      const submitted = domainInput;
+      const mine = ++domainRound;
+      epoch++;
+      domainSaving = true;
+      try {
+        const next = await serial(() => sent(shell.phoneDomainSet(submitted)));
+        if (mine !== domainRound || destroyed) return;
+        setPhone(next);
+        if (domainInput === submitted) domainEdited = false;
+        readSetup();
+      } catch (error) {
+        if (mine === domainRound) domainFailed = String(error);
+      } finally {
+        if (mine === domainRound) domainSaving = false;
+      }
+    })();
+    domainSavingPromise = run;
+    try { await run; } finally { if (domainSavingPromise === run) domainSavingPromise = null; }
   }
   /** The page's 开始 (重试): a domain typed and not yet saved, saved first (one that isn't one starts nothing); then the
    *  same network. */
   async function startNear() {
+    if (starting) return;
     // 重试 after the same network failed: its reason goes as this start shows its spinner, and a new one says why (R12-6).
     localFailed = null;
-    if (domainChanged) {
+    if (domainChanged || domainSavingPromise) {
       await saveDomain();
       if (domainFailed || destroyed) return;
     }
@@ -437,10 +458,10 @@
    *  domain. */
   const domainWrong = $derived(!!domainInput.trim() && domainOrigin(domainInput) === null);
   /** The domain's field as typed differs from the one saved: its 应用 shows. */
-  const asOrigin = (typed: string) => { const text = typed.trim().replace(/\/+$/, '').toLowerCase(); return !text ? '' : text.includes('://') ? text : 'https://' + text; };
-  const domainChanged = $derived(!!setup && (domainOrigin(domainInput) ?? asOrigin(domainInput)) !== (setup.domain ?? ''));
+  const domainChanged = $derived((!!setup || domainEdited) && (domainWrong || (domainOrigin(domainInput) ?? '') !== (setup?.domain ?? '')));
   const ownLink = $derived(view?.domain ?? null);
   $effect(() => {
+    void view?.port;
     if (ownLink) void checkDomain();
     else if (!ownLink) { checkRound++; domainCheck = null; }
   });
@@ -567,7 +588,7 @@
       <span class="field-label">{t('端口')}</span>
       {#if portOpen}
         <input class="field-input num port-field" type="text" inputmode="numeric" autocomplete="off" autocorrect="off" spellcheck="false"
-          maxlength="5" placeholder={t('自动')} aria-label={t('端口')} bind:this={portField} bind:value={portInput} oninput={() => (portEdited = true)} onkeydown={enterPort} />
+          maxlength="5" placeholder={t('自动')} aria-label={t('端口')} bind:this={portField} bind:value={portInput} oninput={() => { portEdited = true; portSaid = null; }} onkeydown={enterPort} />
         {#if on}<button class="change pressable" disabled={starting} onclick={applyPort}>{t('应用')}</button>{/if}
       {:else}
         <span class="row-value num">{shownPort ?? ''}</span>
@@ -654,7 +675,7 @@
             {@render halted('没能开启', '原因在下面，可以再试一次')}
             <p class="failed">{t(localFailed)}</p>
             {@render controls(false)}
-            <div class="actions"><button class="action primary pressable" onclick={startNear}>{t('重试')}</button></div>
+            <div class="actions"><button class="action primary pressable" disabled={starting || domainSaving} onclick={startNear}>{t('重试')}</button></div>
           {:else if localOn}
             <!-- One code or two (a domain set or cleared): the new ones fade in (用户：感觉二维码……就有点突兀出现的). -->
             {#key nearCodes.length}<div class="swap" in:fade={{ duration: panel.reduceMotion ? 0 : 240 }}>
@@ -700,7 +721,7 @@
             {/if}
             {@render controls(false)}
             <p class="note centre">{t(phone.localStopped ? '重新开始后，原来的二维码还能用。' : '手机连同一个 Wi-Fi，扫码就能看。')}</p>
-            <div class="actions"><button class="action primary pressable" onclick={startNear}>{t('开始')}</button></div>
+            <div class="actions"><button class="action primary pressable" disabled={starting || domainSaving} onclick={startNear}>{t('开始')}</button></div>
           {/if}
         {:else}
           <!-- 任何网络: Cloudflare's link for an hour, or the VPNs this computer is on (Tailscale, WireGuard), each a page of
@@ -863,7 +884,7 @@
   .card .copy-link { margin: -2px 0; padding: 4px 2px; }
   /* Side by side, the whole address, http:// and all (用户：这里也要写上http://啊，给完整地址), a little smaller to stay
      on its line. */
-  .card .address { font-size: 10px; }
+  .card .address, .card .room { font-size: 10px; }
   /* The key's pieces break only between them: never zh- on one line and Hant on the next. */
   .piece { white-space: nowrap; }
   .note.caution { color: var(--orange); }

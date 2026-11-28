@@ -113,7 +113,7 @@ function hostAsTyped(typed: string): boolean {
   if (/^[\d.]+$/.test(host)) return /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/.test(host);
   const labels = host.split('.');
   return [...host].length <= 253 && labels.length >= 2
-    && labels.every((label) => label.length > 0 && [...label].length <= 63 && !label.startsWith('-') && !label.endsWith('-') && /^[\p{L}\p{N}-]+$/u.test(label))
+    && labels.every((label) => label.length > 0 && [...label].length <= 63 && !label.startsWith('-') && !label.endsWith('-') && /^[\p{Alphabetic}\p{N}-]+$/u.test(label))
     && !/^\d+$/.test(labels[labels.length - 1]);
 }
 
@@ -121,15 +121,22 @@ function hostAsTyped(typed: string): boolean {
  *  scheme is typed, no path, query, # or user; null when it isn't one. */
 export function domainOrigin(typed: string): string | null {
   const text = typed.trim();
-  if (!text || !hostAsTyped(text)) return null;
+  if (!text || /\s/.test(text) || text.includes('?') || text.includes('#') || !hostAsTyped(text)) return null;
   const given = text.includes('://');
   const read = (address: string) => { try { return new URL(address); } catch { return null; } };
   let url = read(given ? text : `https://${text}`);
   if (!url) return null;
-  const ip = /^\d{1,3}(\.\d{1,3}){3}$/.test(url.hostname) || url.hostname.startsWith('[');
+  const ipv4 = /^\d{1,3}(\.\d{1,3}){3}$/.test(url.hostname);
+  if (ipv4) {
+    // Reject hex/octal/fullwidth IPv4 shorthands (e.g. 1.0x1, １.２) that URL normalizes into an IPv4 address.
+    const rest = given ? text.slice(text.indexOf('://') + 3) : text;
+    const rawHost = rest.split('/')[0].split(':')[0];
+    if (!/^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/.test(rawHost)) return null;
+  }
+  const ip = ipv4 || url.hostname.startsWith('[');
   if (!given && ip) url = read(`http://${text}`);
   if (!url || !['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password || url.search || url.hash
-    || !['', '/'].includes(url.pathname) || /\s/.test(text)) return null;
+    || !['', '/'].includes(url.pathname)) return null;
   return url.origin;
 }
 const browserPhone = (() => {

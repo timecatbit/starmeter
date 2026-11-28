@@ -41,13 +41,13 @@ fn sessions_row(runtime: &Runtime, range: &str) -> Json {
     })
 }
 
-/// 会话 on /api/live: today's row, and when each session's latest turn began. Nothing at all while 会话 is off the
-/// homepage: its cache keeps the last reading, so a session last seen running would run on the phone for ever and its
-/// title, project and cost go out though the user turned 会话 off (STAGE-1).
-fn live_sessions(runtime: &Runtime) -> (Value, serde_json::Map<String, Value>) {
+/// 会话 on /api/live: today's row, when each session's latest turn began, and which running sessions' active turn has
+/// not yet recorded its first request (so the UI does not mislabel the previous turn's metrics as "本轮").
+fn live_sessions(runtime: &Runtime) -> (Value, serde_json::Map<String, Value>, Vec<String>) {
     let mut turns = serde_json::Map::new();
+    let mut pending = Vec::new();
     if !runtime.module_enabled("sessions") {
-        return (Value::Null, turns);
+        return (Value::Null, turns, pending);
     }
     if let Some(sessions) = runtime
         .read_cache("sessions")
@@ -57,18 +57,20 @@ fn live_sessions(runtime: &Runtime) -> (Value, serde_json::Map<String, Value>) {
     {
         for session in sessions {
             let id = session.get("id").and_then(Json::as_str);
-            let began = session
-                .get("turns")
-                .and_then(Json::as_array)
-                .and_then(|turns| turns.first())
-                .and_then(|turn| turn.get("at"))
-                .and_then(Json::number);
+            let first = session.get("turns").and_then(Json::as_array).and_then(|turns| turns.first());
+            let began = first.and_then(|turn| turn.get("at")).and_then(Json::number);
             if let (Some(id), Some(began)) = (id, began) {
                 turns.insert(id.to_string(), serde_json::json!(began));
             }
+            if let Some(id) = id
+                && session.get("state") == Some(&Json::from("running"))
+                && first.is_some_and(|turn| turn.get("requests").and_then(Json::number).unwrap_or(0.0) == 0.0)
+            {
+                pending.push(id.to_string());
+            }
         }
     }
-    (to_value(sessions_row(runtime, "today")), turns)
+    (to_value(sessions_row(runtime, "today")), turns, pending)
 }
 
 /// Whether the panel is on screen, for the core's refresh cadence.
@@ -265,6 +267,18 @@ impl Engine {
         to_value(Json::Object(value))
     }
 
+    /// The dashboard for a range from cache alone (never running an unlocked `range_usage`), used by live ticks.
+    fn dashboard_cached(&self, range: &str, group: Option<&str>) -> Value {
+        let runtime = self.runtime();
+        let loaded = runtime.range_cached_with_devices(range);
+        if loaded.0.is_none() {
+            return self.dashboard_grouped(range, group);
+        }
+        let _turn = self.rendering.lock().expect("the render lock");
+        let value = runtime.render(|| runtime.range_dashboard(range, group, loaded, now()));
+        to_value(Json::Object(value))
+    }
+
     /// The 会话 row with its figures and note in `range`, for a phone that chose another range than this computer.
     /// 会话 for today as cached (nothing read again), none while it is off the homepage: what a phone's last minutes keep.
     pub fn sessions_now(&self) -> Value {
@@ -279,9 +293,9 @@ impl Engine {
         to_value(sessions_row(&runtime, range))
     }
 
-    /// A phone watching 网页版's live view: today's usage read again from the local logs, and the sessions, as a pinned
-    /// panel's tick reads them (refresh_live), at most every `LIVE_EVERY` whoever asks, so two phones share a reading;
-    /// then today's figures by tool, 会话 for today, and when each session's latest turn began (its clock on the phone).
+    /// A phone watching 网页版's live view: sessions refreshed independently first (never blocked behind a slow range
+    /// read), then today's local usage logs re-indexed (skipping blocking remote HTTP sources), at most every
+    /// `LIVE_EVERY` whoever asks, so two phones share a reading.
     pub fn live(&self) -> Value {
         static LAST: AtomicU64 = AtomicU64::new(0);
         let runtime = self.runtime();
@@ -291,25 +305,26 @@ impl Engine {
         if millis.saturating_sub(last) >= LIVE_EVERY.as_millis() as u64
             && LAST.compare_exchange(last, millis, Ordering::SeqCst, Ordering::SeqCst).is_ok()
         {
-            // Busy with another read of the ranges (a refresh, the panel's own tick): what is cached serves. The indexes
-            // are read one at a time (Claude's opens a deferred transaction, and two readers at once had one of them
-            // fail as locked), so a lock of its own would let this read write them alongside the other.
-            let _ = runtime.with_lock("range-refresh.lock", false, || {
-                runtime.range_usage(Some("today"), Some(0.0));
-            });
             if runtime.module_enabled("sessions") {
-                runtime.sessions_cached(Some(0.0));
+                runtime.sessions_cached(Some(1.0));
             }
+            // Busy with another read of the ranges (a refresh, the panel's own tick): what is cached serves. Use
+            // local-only indexing so OpenCodex/Cursor network timeouts never stall live updates for 12-24 seconds.
+            // A 1-second TTL also avoids redundant re-indexing when a pinned panel's `refresh-live` tick just ran.
+            let _ = runtime.with_lock("range-refresh.lock", false, || {
+                runtime.range_usage_local(Some("today"), Some(1.0));
+            });
         }
-        let (sessions, turns) = {
+        let (sessions, turns, pending) = {
             let _turn = self.rendering.lock().expect("the render lock");
             live_sessions(&runtime)
         };
         serde_json::json!({
             "at": moment,
-            "dashboard": self.dashboard_grouped("today", Some("tool")),
+            "dashboard": self.dashboard_cached("today", Some("tool")),
             "sessions": sessions,
             "turns": turns,
+            "pending": pending,
         })
     }
 
@@ -916,10 +931,10 @@ mod tests {
             std::fs::write(&path, record.to_string()).unwrap();
             live_sessions(&runtime)
         };
-        let (entry, turns) = read(r#""claude","sessions""#);
+        let (entry, turns, _) = read(r#""claude","sessions""#);
         assert_eq!(entry["label"], "会话", "{entry}");
         assert_eq!(turns.get("s1").and_then(Value::as_f64), Some(moment - 30.0));
-        let (entry, turns) = read(r#""claude""#);
+        let (entry, turns, _) = read(r#""claude""#);
         assert!(entry.is_null(), "{entry}");
         assert!(turns.is_empty(), "{turns:?}");
         let _ = std::fs::remove_dir_all(&home);

@@ -287,6 +287,7 @@ export const phrases: Record<string, string> = {
   'cloudflared 的下载信息不完整，没有下载': 'cloudflared\'s download information was incomplete; nothing downloaded', '下载 cloudflared 失败': 'Downloading cloudflared failed',
   '下载的 cloudflared 校验不通过，已丢弃': 'The downloaded cloudflared failed its check and was thrown away', 'cloudflared 解压失败': 'cloudflared couldn\'t be unpacked',
   'Cloudflare 这次没有给出链接，稍后再试': 'Cloudflare gave no link this time; try again later', '这台电脑的系统没有对应的 cloudflared': 'No cloudflared for this system',
+  '找不到 App 的数据文件夹': 'Couldn\'t find the app\'s data folder', 'cloudflared 没能启动': 'cloudflared couldn\'t start',
   多台电脑合并: 'Combine computers', '含 {n} 台电脑': '{n} computers', 未设置: 'Not set', 选择同步文件夹: 'Choose a synced folder', '选择同步文件夹…': 'Choose a synced folder…', 同步文件夹: 'Synced folder',
   '本机名称…': 'This computer\'s name…', 本机名称: 'This computer\'s name', 停止合并: 'Stop combining', 刚刚同步: 'Synced just now',
   '其他电脑选同一个文件夹后会出现在这里': 'Other computers appear here once they choose the same folder',
@@ -316,7 +317,7 @@ export const phrases: Record<string, string> = {
     'Starmeter on the computer has no figures for today yet (SwiftBar\'s plugin hasn\'t written them, or no tool is on the homepage). As soon as it has, live usage shows here.',
   工具占比: 'Share by tool', '按 Token': 'by tokens',
   订阅与服务: 'Plans and services', '还有 {n} 个会话在运行': '{n} more running', 服务: 'Services', 统计: 'Figures', 保持亮屏: 'Keep the screen on', '屏幕会保持常亮，离开这一页就恢复自动锁屏': 'The screen stays on; leave this page and it locks as usual', '已恢复自动锁屏': 'The screen locks as usual again', '没能保持亮屏：浏览器没有允许（低电量模式下会这样）': 'Couldn\'t keep the screen on: the browser said no (as in Low Power Mode)', '没能保持亮屏：这个浏览器不支持': 'Couldn\'t keep the screen on: this browser can\'t', '屏幕保持常亮，点按恢复自动锁屏': 'The screen stays on; tap to let it lock', '保持亮屏：屏幕不自动锁定': 'Keep the screen on: no auto-lock', 连不上电脑: 'Can\'t reach the computer',
-  '只读：实时数字每 2 秒从电脑上的 Starmeter 读一次，休息时每 5 秒': 'Read-only: the live figures come from Starmeter on your computer every 2 seconds, every 5 while it rests',
+  '只读：实时数字每 2 秒从电脑上的 Starmeter 读一次，休息时每 2.5 秒': 'Read-only: the live figures come from Starmeter on your computer every 2 seconds, every 2.5 while it rests',
   // 网页版's live view: working or resting, how fast, what happened
   正在工作: 'Working', '正在工作 · {n} 个会话运行中': 'Working · {n} sessions running', '正在工作 · {n} 个会话运行中|1': 'Working · 1 session running',
   休息中: 'Resting', '休息中 · 刚刚还在工作': 'Resting · working a moment ago', '休息中 · 上次活动 {n} 分钟前': 'Resting · last active {n} min ago',

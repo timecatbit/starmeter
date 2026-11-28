@@ -255,6 +255,29 @@ impl Files {
         let _ = url;
     }
 
+    /// Gently asks SwiftBar to re-run the plugin when `panel-view.json` is older than `max_age_secs` (throttled), so
+    /// SwiftBar web/live viewers don't wait a full 60s cron cycle to see a new session start or finish.
+    pub fn wake_if_stale(&self, max_age_secs: f64) {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static LAST_WAKE: AtomicU64 = AtomicU64::new(0);
+        if self.folder.as_os_str().is_empty() {
+            return;
+        }
+        let stale = modified(&self.snapshot)
+            .and_then(|at| at.elapsed().ok())
+            .is_none_or(|age| age.as_secs_f64() >= max_age_secs);
+        if !stale {
+            return;
+        }
+        let moment = now() as u64;
+        let last = LAST_WAKE.load(Ordering::SeqCst);
+        if moment.saturating_sub(last) >= max_age_secs as u64
+            && LAST_WAKE.compare_exchange(last, moment, Ordering::SeqCst, Ordering::SeqCst).is_ok()
+        {
+            self.wake();
+        }
+    }
+
     /// Queues an action for the plugin and waits for its receipt: automatic refreshes give up after 3 seconds; display
     /// preferences after 20 and others after 8 unless the engine has claimed them (a question may be waiting on the user).
     pub fn act(&self, action: &[String]) -> (String, Option<Value>) {

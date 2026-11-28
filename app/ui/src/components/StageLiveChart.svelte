@@ -49,7 +49,7 @@
   let top = 4;
   /** When the last reading was, and how many seconds past it the curve is worked out. */
   let readingAt = 0;
-  const AHEAD = 4;
+  const AHEAD = 6;
   type Drop = { id: string; tokens: number; born: number };
   let drops: Drop[] = [];
   /** As a request lands, a few sparks rise off the curve's end and fade. */

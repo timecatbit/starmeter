@@ -347,6 +347,7 @@ test('the live view: a turn done is said at the top, then resting, then waking w
   await phone(page, PORTRAIT, '', { live: work.live });
   work.at(9);
   await expect.poll(() => page.locator('.stage .activity .session').count(), { timeout: 5000 }).toBe(2);
+  const curve = await page.locator('.stage .monitor .curve').boundingBox();
   // Both turns end (Codex at 12 s, Claude at 20 s): each is said in what happened, the last at the top with its time.
   work.at(21);
   await expect(page.locator('.stage .turn-done')).toContainText('这一轮完成', { timeout: 5000 });
@@ -355,12 +356,8 @@ test('the live view: a turn done is said at the top, then resting, then waking w
   // Nothing running: the session last at work in its card's place, greyed, its turn the last one.
   await expect(page.locator('.stage .activity .session:not(.ended)')).toHaveCount(0);
   await expect(page.locator('.stage .activity .session.ended')).toHaveCount(1);
-  // Requests landed just now: still working for a while, with no session running.
-  await expect(page.locator('.stage .monitor .state')).toHaveText('正在工作');
-  // Nothing for a minute: resting, the headline today's estimate; the live curve stays, lying flat, not today's trend
-  // again (the statistics below have it: 用户：有点信息重复), the card the same size, so nothing jumps when work comes.
-  const curve = await page.locator('.stage .monitor .curve').boundingBox();
-  work.at(80);
+  // Tracked sessions all finished: resting immediately (no 40 s QUIET linger), the headline today's estimate; the live
+  // curve stays, lying flat, not today's trend again (用户：有点信息重复), the card the same size, so nothing jumps.
   await expect(page.locator('.stage .monitor:not(.working)')).toBeVisible({ timeout: 5000 });
   await expect(page.locator('.stage .monitor .state')).toHaveText(/休息中/);
   await expect(page.locator('.stage .monitor [data-figure="today"]').first()).toBeVisible();
@@ -1096,6 +1093,7 @@ test('reloaded, the tools\' cards and the sessions at work come with the page, n
     };
     requestAnimationFrame(look);
   });
+  order.length = 0;
   await page.reload();
   await expect(page.locator('.stage .activity-box .session').first()).toBeVisible();
   await expect(page.locator('.stage .stats-b .list > .card').first()).toBeVisible();
@@ -1346,7 +1344,7 @@ test('on SwiftBar\'s panel, reloaded while the work goes on, the page picks up t
 
 test('the monitor\'s 今天 and 近 1 分钟 stand on their figures\' line, the figures alike, the sign and unit as the panel\'s, in both looks and three languages', async ({ page }) => {
   test.setTimeout(90_000);
-  // The four at once, each watched long enough for the last minute to be said (twenty seconds of readings).
+  // The four at once, each watched long enough for the last minute to be said (>= 4s) while the sessions are still working.
   const hashes = ['', '&l=zh-Hant&s=sketch', '&l=en', '&l=en&s=sketch'];
   const tabs = await Promise.all(hashes.map(async (hash) => {
     const tab = hash ? await page.context().newPage() : page;
@@ -1354,7 +1352,7 @@ test('the monitor\'s 今天 and 近 1 分钟 stand on their figures\' line, the 
     await phone(tab, PORTRAIT, hash, { live: work.live });
     return { tab, work, hash };
   }));
-  for (let seconds = 2; seconds <= 26; seconds += 2) { for (const { work } of tabs) work.at(seconds); await page.waitForTimeout(2000); }
+  for (let seconds = 2; seconds <= 10; seconds += 2) { for (const { work } of tabs) work.at(seconds); await page.waitForTimeout(2000); }
   for (const { tab, hash } of tabs) {
     await expect(tab.locator('.stage .monitor .ticker .tick-value .wheel').first()).toBeVisible();
     await expect.poll(() => tab.locator('.stage .monitor .ticker .tick-value').nth(1).locator('.wheel').count(), { timeout: 10_000 }).toBeGreaterThan(0);
@@ -1445,8 +1443,8 @@ test('the computer\'s last minutes with a gap in them, or ended a while ago, are
     return {
       // Readings that ended 100 s ago, a million tokens added since: nothing to say of now.
       ended: run(steady(130, 100, 1e6, 1000), 2e6),
-      // A run, a minute's gap, then ten seconds: the last run too short to say a speed.
-      gapped: run([...steady(120, 90, 1e6, 1000), ...steady(10, 2, 3e6, 1000)], 3e6 + 5000),
+      // A run, a minute's gap, then two seconds: the last run too short (< 4s) to say a speed.
+      gapped: run([...steady(120, 90, 1e6, 1000), ...steady(2, 2, 3e6, 1000)], 3e6 + 5000),
       // Forty seconds unbroken, growing: a speed, and working.
       steady: run(steady(40, 2, 1e6, 20000), 1e6 + 20 * 20000),
     };

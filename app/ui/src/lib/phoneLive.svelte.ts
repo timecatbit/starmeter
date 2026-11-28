@@ -20,13 +20,13 @@ import type { Dashboard, Entry, LiveAnswer } from './types';
 
 /** Tokens added this recently still count as working, between requests of a turn that has no session to say so. */
 const QUIET = 40_000;
-const BUSY_EVERY = 2_000, REST_EVERY = 5_000;
+const BUSY_EVERY = 2_000, REST_EVERY = 2_500;
 // Readings further apart than GAP (live.ts) left a gap: what changed in it happened at moments nobody saw, so it is
 // neither this moment's speed, nor requests landing now, nor a turn just done.
 /** An amount worth saying: one that money() doesn't write as 0.00 in the computer's currency. */
 const worthSaying = (usd: number) => currency.convert(usd) >= 0.005;
 /** How much time the readings must cover before the speed means anything: until then it is —, not 0. */
-const READY = 20_000;
+const READY = 4_000;
 /** The curve's span: the last minute, as the pinned panel's (the user: 就1分钟就好; it had grown to five). */
 export const LIVE_SPAN = 60_000;
 
@@ -75,13 +75,22 @@ export interface LiveEvent {
 export interface Landing { id: string; tokens: number; at: number }
 
 /** A 会话 row read into a live session, by its Chinese wording (the row as the engine wrote it). */
-function readSession(e: Entry, turns: Record<string, number>, skew: number, before: LiveSession | undefined, now: number, gap = false): LiveSession {
+function readSession(
+  e: Entry,
+  turns: Record<string, number>,
+  skew: number,
+  before: LiveSession | undefined,
+  now: number,
+  gap = false,
+  first = false,
+  pendingTurn = false,
+): LiveSession {
   const said = source(e), detail = said.detail ?? '';
   const running = e.statusLight === 'new';
   const shownParts = (e.detail ?? '').split(' · ');
   const about = shownParts.slice(1).join(' · ');
   const context = /上下文 (\d+)%/.exec(detail);
-  const turn = e.children.find((c) => c.detail !== undefined);
+  const turn = running && pendingTurn ? undefined : e.children.find((c) => c.detail !== undefined);
   const turnSaid = turn ? source(turn) : null;
   const labelParts = (turn?.label ?? '').split(' · ');
   const tools = [...(turnSaid?.detail ?? '').matchAll(/([^\s·×]+) ×(\d+)/g)].map((m) => [m[1], Number(m[2])] as [string, number]);
@@ -108,13 +117,13 @@ function readSession(e: Entry, turns: Record<string, number>, skew: number, befo
   const called = { ...(before?.called ?? {}) };
   for (const [name, count] of tools) {
     const was = before?.tools.find(([n]) => n === name)?.[1] ?? 0;
-    if (before && !gap && count > was) called[name] = now;
+    if ((before || (!first && running)) && !gap && count > was) called[name] = now;
   }
   return {
     key, tool: e.tool, title: e.label, image: e.image, template: e.template, symbol: e.symbol, running, about,
     model: shownParts.slice(1).filter((part) => !/%/.test(part)).slice(0, 2).join(' · '), context: context ? Number(context[1]) / 100 : null,
     began, exact, turnTokens: labelParts.length >= 3 ? labelParts[labelParts.length - 2] : null, turnCost: labelParts.length >= 3 ? labelParts[labelParts.length - 1] : null,
-    requests: requests ? Number(requests[1]) : null, tools: [...tools].sort((a, b) => b[1] - a[1]), called, value: e.value ?? '',
+    requests: requests ? Number(requests[1]) : (running && pendingTurn ? 0 : null), tools: [...tools].sort((a, b) => b[1] - a[1]), called, value: e.value ?? '',
     idle: !running && detail.startsWith('空闲') ? shownParts[0] : null,
   };
 }
@@ -186,6 +195,8 @@ export class PhoneLive {
   version = $state(0);
   dashboard = $state<Dashboard | null>(null);
   sessions = $state<LiveSession[]>([]);
+  /** The localized 会话 entry from the latest live tick, so 网页版's 会话 tab stays as fresh as 正在运行 for today. */
+  sessionsEntry = $state<Entry | null>(null);
   events = $state<LiveEvent[]>([]);
   state = $state<'working' | 'resting'>(this.start0.state);
   /** When the page last woke (resting to working), on this phone's clock; 0 never. */
@@ -324,19 +335,30 @@ export class PhoneLive {
       this.cost = estimate(dashboard);
       this.dashboard = dashboard;
     }
-    if (landings.length) { this.lastGrowth = moment; this.lastActive = now; }
     this.landings = replay ? [] : landings;
 
     // The sessions: each turn begun, its tools called, each turn done.
     const rows = (entry?.children ?? []).filter((c) => c.statusLight !== undefined);
     const known = new Map(this.sessions.map((s) => [s.key, s]));
     const first = this.events.length === 0 && this.sessions.length === 0 && !this.dashboardSeen;
-    const sessions = rows.map((row) => readSession(row, answer.turns ?? {}, this.skew, known.get(row.key ?? row.label), now, gap));
+    const firstSessions = !this.sessionsSeen;
+    const pendingSet = new Set(answer.pending ?? []);
+    const sessions = rows.map((row) => {
+      const key = row.key ?? row.label;
+      return readSession(row, answer.turns ?? {}, this.skew, known.get(key), now, gap, firstSessions, pendingSet.has(key));
+    });
     let finished = false;
     for (const s of sessions) {
       const was = known.get(s.key);
       // Turns begun or done in a gap went at moments unknown: no event at this one, no time made up for them.
-      if (!was || gap) continue;
+      if (gap) continue;
+      if (!was) {
+        if (!firstSessions && s.running) {
+          event('start', s.title, t('开始新一轮'));
+          if (s.tools.length) event('tool', s.title, t('调用 {tools}', { tools: s.tools.map(([name]) => name).join(english() ? ', ' : '、') }));
+        }
+        continue;
+      }
       if (was.running && !s.running) {
         finished = true;
         const took = s.began !== null ? duration(now - s.began, s.exact) : '';
@@ -350,6 +372,17 @@ export class PhoneLive {
       }
     }
     this.sessions = sessions;
+    if (entry !== null) this.sessionsSeen = true;
+    if (!replay) this.sessionsEntry = entry;
+    // Only let token growth keep the stage in `working` for QUIET (40s) when the tool has NO tracked session (e.g.
+    // gateways or tools with 会话 off). Tracked sessions report their own exact start/end, so finishing a tracked
+    // session immediately transitions to resting instead of lingering in `正在工作` for 40 seconds.
+    const trackedTools = new Set(sessions.map((s) => s.tool).filter((id): id is string => !!id));
+    if (landings.length) {
+      this.lastActive = now;
+      if (landings.some((l) => !trackedTools.has(l.id))) this.lastGrowth = moment;
+    }
+    if (finished && !sessions.some((s) => s.running)) this.lastGrowth = 0;
     // Active sessions and newly finished turns advance lastActive too, so 开始休息 is never stamped before 这一轮完成 (R10-4).
     if (sessions.some((s) => s.running) || finished) this.lastActive = now;
     // Last seen working: the most recent idle session's own word for it, if nothing has been seen here yet.
@@ -399,6 +432,7 @@ export class PhoneLive {
   }
 
   private dashboardSeen = false;
+  private sessionsSeen = false;
 
   /** The computer's last minutes, given with a page's first reading: each taken as it was then (`take` with `replay`),
    *  on this phone's clock, so the line, the speed, the last minute and 动态 are as they were before the page opened or

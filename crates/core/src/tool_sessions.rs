@@ -39,8 +39,9 @@ const TOOLS: [(&str, &str); 5] = [
 
 /// How a request is priced when its record carries no cost.
 type Pricing = dyn Fn(&Object) -> Option<f64>;
-/// What is known of a transcript by its path: the file's print when read, its title, project and prompt timestamps.
-type Names = HashMap<String, (String, Option<String>, Option<String>, Vec<f64>)>;
+/// What is known of a transcript by its path: the file's print when read, its title, project, prompt timestamps,
+/// and explicit running state when the transcript records turn completion.
+type Names = HashMap<String, (String, Option<String>, Option<String>, Vec<f64>, Option<bool>)>;
 
 /// A session's file (or conversation) and what its record says beyond its requests.
 #[derive(Clone)]
@@ -64,21 +65,30 @@ fn number(event: &Object, key: &str) -> f64 {
     event.get(key).and_then(Json::python_float).unwrap_or(0.0)
 }
 
-/// What a transcript in Claude Code's shape (WorkBuddy's, Qoder's) names itself: the title the user gave it, else the
-/// one its tool made, the folder it works in, and any user prompt timestamps. From its last half megabyte, else its
-/// start; kept while the file is unchanged, as a pinned panel reads the sessions every second or two.
-fn transcript_names(path: &str) -> (Option<String>, Option<String>, Vec<f64>) {
+/// What a transcript in Claude Code's shape (WorkBuddy's, Qoder's, DeepSeek Harness's) names itself: the title the user
+/// gave it, else the one its tool made, the folder it works in, any user prompt timestamps, and explicit turn-end state
+/// when recorded. From its last half megabyte, else its start; kept while the file is unchanged.
+fn transcript_names(path: &str) -> (Option<String>, Option<String>, Vec<f64>, Option<bool>) {
     static KNOWN: std::sync::Mutex<Option<Names>> = std::sync::Mutex::new(None);
-    let Some(state) = state_of(Path::new(path)) else { return (None, None, Vec::new()) };
+    let Some(state) = state_of(Path::new(path)) else { return (None, None, Vec::new(), None) };
     let print = format!("{}:{}:{}", state.inode, state.size, state.mtime);
-    if let Some((_, title, folder, prompts)) =
-        KNOWN.lock().ok().and_then(|known| known.as_ref()?.get(path).filter(|(seen, _, _, _)| *seen == print).cloned())
+    if let Some((_, title, folder, prompts, running)) = KNOWN
+        .lock()
+        .ok()
+        .and_then(|known| known.as_ref()?.get(path).filter(|(seen, _, _, _, _)| *seen == print).cloned())
     {
-        return (title, folder, prompts);
+        return (title, folder, prompts, running);
     }
     let scan = |rows: Vec<Object>| {
         let (mut named, mut made, mut folder) = (None::<String>, None::<String>, None::<String>);
         let mut prompts = Vec::new();
+        let mut running = None::<bool>;
+        let ended_reason = |reason: &str| {
+            matches!(
+                reason,
+                "end_turn" | "stop_sequence" | "max_tokens" | "refusal" | "stop" | "length" | "content_filter"
+            )
+        };
         for row in rows {
             match row.get("type").and_then(Json::as_str) {
                 Some("custom-title") => named = text_of(row.get("customTitle")).or(named),
@@ -88,14 +98,32 @@ fn transcript_names(path: &str) -> (Option<String>, Option<String>, Vec<f64>) {
             if let Some(cwd) = text_of(row.get("cwd")) {
                 folder = Some(cwd);
             }
+            let kind = row.get("type").and_then(Json::as_str);
+            let role = row
+                .get("role")
+                .and_then(Json::as_str)
+                .or_else(|| row.get("message").and_then(|m| m.get("role")).and_then(Json::as_str));
             if crate::sessions::is_prompt(&row) {
                 if let Some(at) = py::stamp(row.get("timestamp")).ok().and_then(|v| v.number()) {
                     prompts.push(at);
                 }
-            } else if row.get("type").and_then(Json::as_str) == Some("message")
-                && (row.get("role").and_then(Json::as_str) == Some("user")
-                    || row.get("message").and_then(|m| m.get("role")).and_then(Json::as_str) == Some("user"))
-            {
+                let content = row.get("message").and_then(|m| m.get("content"));
+                let interrupted = content
+                    .and_then(Json::as_str)
+                    .is_some_and(|t| t.trim().starts_with("[Request interrupted by user"));
+                running = Some(!interrupted);
+            } else if kind == Some("assistant") || (kind == Some("message") && role == Some("assistant")) {
+                let stop = row
+                    .get("stop_reason")
+                    .or_else(|| row.get("finish_reason"))
+                    .or_else(|| {
+                        row.get("message").and_then(|m| m.get("stop_reason").or_else(|| m.get("finish_reason")))
+                    })
+                    .and_then(Json::as_str);
+                if let Some(reason) = stop {
+                    running = Some(!ended_reason(reason));
+                }
+            } else if kind == Some("message") && role == Some("user") {
                 // WorkBuddy writes top-level `role: "user"` (no nested `message`), and marks its own compaction
                 // summaries with `logicalParentId` (plus `<conversation_history_summary>` / `<cb_summary>` text).
                 let synthetic = row.get("logicalParentId").is_some()
@@ -118,24 +146,42 @@ fn transcript_names(path: &str) -> (Option<String>, Option<String>, Vec<f64>) {
                         let trimmed = text.trim();
                         trimmed.starts_with("<conversation_history_summary>") || trimmed.starts_with("<cb_summary>")
                     });
-                if !synthetic
-                    && !tool_only
-                    && !summary_text
-                    && let Some(at) = py::stamp(row.get("timestamp")).ok().and_then(|v| v.number())
-                {
+                if !synthetic && !summary_text {
+                    if !tool_only && let Some(at) = py::stamp(row.get("timestamp")).ok().and_then(|v| v.number()) {
+                        prompts.push(at);
+                    }
+                    running = Some(true);
+                }
+            } else if kind == Some("user/message") {
+                if let Some(at) = py::stamp(row.get("time")).ok().and_then(|v| v.number()) {
                     prompts.push(at);
                 }
-            } else if row.get("type").and_then(Json::as_str) == Some("user/message")
-                && let Some(at) = py::stamp(row.get("time")).ok().and_then(|v| v.number())
-            {
-                prompts.push(at);
+                running = Some(true);
+            } else if kind == Some("assistant/message") {
+                let data = row.get("data").and_then(Json::as_object);
+                let message = data.and_then(|d| d.get("message")).and_then(Json::as_object);
+                let finish = data
+                    .and_then(|d| {
+                        d.get("finishReason").or_else(|| d.get("stopReason")).or_else(|| d.get("finish_reason"))
+                    })
+                    .or_else(|| {
+                        message.and_then(|m| {
+                            m.get("finishReason").or_else(|| m.get("stopReason")).or_else(|| m.get("finish_reason"))
+                        })
+                    })
+                    .and_then(Json::as_str);
+                if let Some(reason) = finish {
+                    running = Some(!ended_reason(reason));
+                }
+            } else if matches!(kind, Some("turn/end" | "turn/completed" | "turn/aborted" | "session/aborted")) {
+                running = Some(false);
             }
         }
-        (named.or(made), folder, prompts)
+        (named.or(made), folder, prompts, running)
     };
-    let (mut title, mut folder, prompts) = scan(rows_at_end(path, 512 * 1024).unwrap_or_default());
+    let (mut title, mut folder, prompts, running) = scan(rows_at_end(path, 512 * 1024).unwrap_or_default());
     if title.is_none() || folder.is_none() {
-        let (early_title, early_folder, _) = scan(rows_at_start(path, 64 * 1024).unwrap_or_default());
+        let (early_title, early_folder, _, _) = scan(rows_at_start(path, 64 * 1024).unwrap_or_default());
         title = title.or(early_title);
         folder = folder.or(early_folder);
     }
@@ -144,9 +190,9 @@ fn transcript_names(path: &str) -> (Option<String>, Option<String>, Vec<f64>) {
     if let Ok(mut known) = KNOWN.lock() {
         known
             .get_or_insert_with(HashMap::new)
-            .insert(path.to_string(), (print, title.clone(), project.clone(), prompts.clone()));
+            .insert(path.to_string(), (print, title.clone(), project.clone(), prompts.clone(), running));
     }
-    (title, project, prompts)
+    (title, project, prompts, running)
 }
 
 /// The requests the usage reader's index keeps for one file, oldest first.
@@ -182,14 +228,14 @@ fn jsonl_records(cache: &Path, source: &str, root: &str, since: f64) -> Vec<Reco
         .filter_map(|path| {
             let changed = state_of(Path::new(&path))?.mtime as f64 / 1e9;
             (changed >= since).then(|| {
-                let (title, project, prompts) = transcript_names(&path);
+                let (title, project, prompts, running) = transcript_names(&path);
                 Record {
                     key: format!("{source}:{path}"),
                     changed,
                     events: indexed(&db, &path),
                     title,
                     project,
-                    running: None,
+                    running,
                     prompts: (!prompts.is_empty()).then_some(prompts),
                 }
             })
@@ -234,11 +280,60 @@ fn antigravity_summary(
     let parent =
         row.get(4).and_then(database::text).map(str::trim).filter(|parent| !parent.is_empty()).map(String::from);
     let title = row.first().and_then(database::text).map(str::trim).filter(|title| !title.is_empty()).map(String::from);
-    let status = row.get(1).and_then(database::text).unwrap_or("");
+    let status = row.get(1).and_then(database::text).unwrap_or("").trim();
     let busy = row.get(2).and_then(database::int).is_some_and(|flag| flag != 0);
-    let running = Some(status.contains("RUNNING") || busy);
+    // Trust explicit non-RUNNING status (IDLE / WAITING / DONE / CANCELLED / ERROR); only fall back to
+    // `not_fully_idle` when `status` is empty, so finished turns don't linger as running.
+    let running = Some(if status.is_empty() { busy } else { status.contains("RUNNING") });
     let project = row.get(3).and_then(database::text).and_then(harness::workspace_project);
     Summary { title, running, project, parent }
+}
+
+/// Whether a Gemini CLI chat JSON file's last message says the turn has already ended (cached by file print).
+fn gemini_cli_running(path: &str) -> Option<bool> {
+    type Cached = HashMap<String, (String, Option<bool>)>;
+    static KNOWN: std::sync::Mutex<Option<Cached>> = std::sync::Mutex::new(None);
+    if !path.ends_with(".json") {
+        return None;
+    }
+    let state = state_of(Path::new(path))?;
+    if state.size > 16 * 1024 * 1024 {
+        return None;
+    }
+    let print = format!("{}:{}:{}", state.inode, state.size, state.mtime);
+    if let Some(running) = KNOWN
+        .lock()
+        .ok()
+        .and_then(|known| known.as_ref()?.get(path).filter(|(seen, _)| *seen == print).map(|(_, r)| *r))
+    {
+        return running;
+    }
+    let running = std::fs::read(path)
+        .ok()
+        .and_then(|raw| Json::parse(&raw).ok())
+        .and_then(|root| root.get("messages")?.as_array()?.last().cloned())
+        .and_then(|last| {
+            let kind = last.get("type").and_then(Json::as_str)?;
+            if kind == "user" {
+                Some(true)
+            } else if kind == "gemini" {
+                let pending_tools = last.get("toolCalls").and_then(Json::as_array).is_some_and(|calls| {
+                    calls.iter().any(|call| {
+                        matches!(
+                            call.get("status").and_then(Json::as_str),
+                            Some("executing" | "scheduled" | "validating" | "awaiting_approval" | "running")
+                        )
+                    })
+                });
+                Some(pending_tools)
+            } else {
+                None
+            }
+        });
+    if let Ok(mut known) = KNOWN.lock() {
+        known.get_or_insert_with(HashMap::new).insert(path.to_string(), (print, running));
+    }
+    running
 }
 
 /// Gemini's sessions: the CLI's chat files and Antigravity's conversations (one store each; a conversation kept in two
@@ -252,14 +347,17 @@ fn gemini_records(cache: &Path, root: &str, since: f64) -> Vec<Record> {
         .into_iter()
         .filter_map(|path| {
             let changed = state_of(Path::new(&path))?.mtime as f64 / 1e9;
-            (changed >= since).then(|| Record {
-                key: format!("gemini:{path}"),
-                changed,
-                events: indexed(&db, &path),
-                title: None,
-                project: None,
-                running: None,
-                prompts: None,
+            (changed >= since).then(|| {
+                let running = gemini_cli_running(&path);
+                Record {
+                    key: format!("gemini:{path}"),
+                    changed,
+                    events: indexed(&db, &path),
+                    title: None,
+                    project: None,
+                    running,
+                    prompts: None,
+                }
             })
         })
         .collect();
@@ -389,7 +487,10 @@ fn opencode_records(root: &str, since: f64) -> Vec<Record> {
     let Some(db) = open_index(&resolved) else { return vec![] };
     let low = Value::Integer((since * 1000.0).trunc() as i64);
     let recent = db
-        .rows("SELECT session_id, MAX(time_created) FROM message WHERE time_created>=? GROUP BY session_id", &[low])
+        .rows(
+            "SELECT session_id, MAX(COALESCE(json_extract(data,'$.time.completed'), time_created)) FROM message WHERE time_created>=? GROUP BY session_id",
+            &[low],
+        )
         .unwrap_or_default();
     let mut records = Vec::new();
     for row in recent {
@@ -404,6 +505,31 @@ fn opencode_records(root: &str, since: f64) -> Vec<Record> {
             .iter()
             .filter_map(|row| harness::opencode_event(row))
             .collect();
+        // Latest message determines whether OpenCode's turn has already finished instead of waiting RUNNING (60s).
+        let running = db
+            .first(
+                "SELECT data FROM message WHERE session_id=? ORDER BY time_created DESC LIMIT 1",
+                std::slice::from_ref(&session),
+            )
+            .ok()
+            .flatten()
+            .and_then(|row| row.first().and_then(database::text).and_then(|raw| Json::parse_str(raw).ok()))
+            .and_then(|data| {
+                let role = data.get("role").and_then(Json::as_str)?;
+                if role == "user" {
+                    Some(true)
+                } else if role == "assistant" {
+                    let completed = data
+                        .get("time")
+                        .and_then(|t| t.get("completed"))
+                        .and_then(Json::number)
+                        .is_some_and(|v| v > 0.0);
+                    let finish = data.get("finish").and_then(Json::as_str);
+                    if completed { Some(matches!(finish, Some("tool-calls" | "tool_calls"))) } else { Some(true) }
+                } else {
+                    None
+                }
+            });
         // Older databases have no session table, or no title in it.
         let title = db
             .first("SELECT title FROM session WHERE id=?", std::slice::from_ref(&session))
@@ -431,7 +557,7 @@ fn opencode_records(root: &str, since: f64) -> Vec<Record> {
             events,
             title,
             project: None,
-            running: None,
+            running,
             prompts: (!prompts.is_empty()).then_some(prompts),
         });
     }
@@ -1312,10 +1438,35 @@ mod reading {
             "\n",
         );
         std::fs::write(&log, content).unwrap();
-        let (_, project, prompts) = super::transcript_names(&log.to_string_lossy());
+        let (_, project, prompts, running) = super::transcript_names(&log.to_string_lossy());
         assert_eq!(project.as_deref(), Some("repo"));
         assert_eq!(prompts.len(), 2, "must read top-level role=user prompts and skip logicalParentId summary");
         assert!((prompts[1] - prompts[0] - 900.0).abs() < 1.0);
+        assert_eq!(running, Some(true));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn explicit_stop_reason_and_antigravity_idle_status_end_turns_immediately() {
+        let dir = std::env::temp_dir().join(format!("starmeter-end-state-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let wb = dir.join("wb-done.jsonl");
+        let content = concat!(
+            r#"{"type":"message","role":"user","timestamp":"2026-11-27T10:00:00Z","cwd":"/repo","content":"run"}"#,
+            "\n",
+            r#"{"type":"message","role":"assistant","stop_reason":"end_turn","timestamp":"2026-11-27T10:00:10Z","cwd":"/repo"}"#,
+            "\n",
+        );
+        std::fs::write(&wb, content).unwrap();
+        let (_, _, _, running) = super::transcript_names(&wb.to_string_lossy());
+        assert_eq!(running, Some(false), "assistant end_turn must mark WorkBuddy waiting immediately");
+
+        // Gemini CLI chat file whose last message is a finished gemini response.
+        let g = dir.join("session-test.json");
+        std::fs::write(&g, r#"{"messages":[{"type":"user","content":"hi"},{"type":"gemini","content":"done"}]}"#)
+            .unwrap();
+        assert_eq!(super::gemini_cli_running(&g.to_string_lossy()), Some(false));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

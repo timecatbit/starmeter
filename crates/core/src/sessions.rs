@@ -280,15 +280,68 @@ fn started(path: &str) -> Json {
         .unwrap_or(Json::Null)
 }
 
+/// Whether a Claude Code transcript row represents real turn activity (ignoring compact summaries, transcript-only
+/// notes, non-peer metadata, and local slash-command wrappers that otherwise leave `claude()` stuck in `running`).
+fn claude_activity(row: &Object) -> bool {
+    if row.get("isSidechain").is_some_and(Json::is_truthy) {
+        return false;
+    }
+    if kind_is(row, "assistant") {
+        return true;
+    }
+    if !kind_is(row, "user") {
+        return false;
+    }
+    let from_peer = row.get("origin").and_then(|o| o.get("kind")) == Some(&Json::from("peer"));
+    if row.get("isCompactSummary").is_some_and(Json::is_truthy)
+        || row.get("isVisibleInTranscriptOnly").is_some_and(Json::is_truthy)
+        || (row.get("isMeta").is_some_and(Json::is_truthy) && !from_peer)
+    {
+        return false;
+    }
+    let content = row.get("message").and_then(|m| m.get("content"));
+    if let Some(text) = content.and_then(Json::as_str) {
+        let trimmed = text.trim();
+        if trimmed.is_empty()
+            || (!from_peer
+                && [
+                    "<local-command-stdout>",
+                    "<local-command-caveat>",
+                    "<command-name>",
+                    "<command-message>",
+                    "<command-args>",
+                ]
+                .iter()
+                .any(|tag| trimmed.starts_with(tag)))
+        {
+            return false;
+        }
+    }
+    true
+}
+
+/// Whether a Claude Code user row records a cancelled turn (`[Request interrupted by user...]`).
+fn claude_interrupted(message: &Object) -> bool {
+    let starts_interrupted = |text: &str| text.trim().starts_with("[Request interrupted by user");
+    match message.get("content") {
+        Some(Json::String(text)) => starts_interrupted(text),
+        Some(Json::Array(items)) => {
+            !items.is_empty()
+                && items.iter().all(|item| {
+                    item.get("type") == Some(&Json::from("text"))
+                        && item.get("text").and_then(Json::as_str).is_some_and(starts_interrupted)
+                })
+        }
+        _ => false,
+    }
+}
+
 /// A Claude Code transcript: waiting once the last reply ended its turn, running otherwise. Its title is the last
 /// one the transcript records: the user's or the App's, else the one Claude Code made up.
 fn claude(path: &str) -> Result<Option<Object>, FileError> {
     let (mut last, mut reply, mut folder) = (None::<Object>, None::<Object>, None::<Json>);
     let (mut named, mut made) = (None::<String>, None::<String>);
-    let said = |row: &Object| {
-        (kind_is(row, "assistant") || kind_is(row, "user")) && !row.get("isSidechain").is_some_and(Json::is_truthy)
-    };
-    for row in rows_back(path, TAIL, |rows| rows.iter().any(said))? {
+    for row in rows_back(path, TAIL, |rows| rows.iter().any(claude_activity))? {
         if kind_is(&row, "custom-title") {
             named = text(row.get("customTitle")).or(named);
         } else if kind_is(&row, "ai-title") {
@@ -300,7 +353,7 @@ fn claude(path: &str) -> Result<Option<Object>, FileError> {
         if let Some(cwd) = row.get("cwd").filter(|cwd| cwd.is_truthy()) {
             folder = Some(cwd.clone());
         }
-        if kind_is(&row, "assistant") || kind_is(&row, "user") {
+        if claude_activity(&row) {
             last = Some(row.clone());
         }
         let message = row.get("message").and_then(Json::as_object).cloned().unwrap_or_default();
@@ -311,8 +364,11 @@ fn claude(path: &str) -> Result<Option<Object>, FileError> {
     let Some(last) = last else { return Ok(None) };
     let message = last.get("message").and_then(Json::as_object).cloned().unwrap_or_default();
     let stop = message.get("stop_reason").and_then(Json::as_str);
-    let waiting = kind_is(&last, "assistant")
-        && stop.is_some_and(|stop| ["end_turn", "stop_sequence", "max_tokens", "refusal"].contains(&stop));
+    let synthetic = matches!(message.get("model").and_then(Json::as_str), Some("<synthetic>" | "synthetic"));
+    let waiting = (kind_is(&last, "assistant")
+        && (synthetic
+            || stop.is_some_and(|stop| ["end_turn", "stop_sequence", "max_tokens", "refusal"].contains(&stop))))
+        || (kind_is(&last, "user") && claude_interrupted(&message));
     let (mut context, mut model) = (Json::Null, Json::Null);
     if let Some(reply) = reply
         && let Some(usage) = reply.get("usage").and_then(Json::as_object)
@@ -442,8 +498,22 @@ fn app_folder(path: &str) -> bool {
 }
 
 /// Codex's thread names by thread ID, from its session index; the last name given wins.
+/// Cached by file print (`inode:size:mtime`) so 2-second live ticks don't re-parse the whole index.
 pub fn codex_titles(root: &Path) -> HashMap<String, String> {
-    let Ok(data) = std::fs::read(root.join("session_index.jsonl")) else { return HashMap::new() };
+    type Cached = (String, HashMap<String, String>);
+    static KNOWN: std::sync::Mutex<Option<HashMap<String, Cached>>> = std::sync::Mutex::new(None);
+    let path = root.join("session_index.jsonl");
+    let Some(state) = state_of(&path) else { return HashMap::new() };
+    let key = path.to_string_lossy().into_owned();
+    let print = format!("{}:{}:{}", state.inode, state.size, state.mtime);
+    if let Some(names) = KNOWN
+        .lock()
+        .ok()
+        .and_then(|known| known.as_ref()?.get(&key).filter(|(seen, _)| *seen == print).map(|(_, n)| n.clone()))
+    {
+        return names;
+    }
+    let Ok(data) = std::fs::read(&path) else { return HashMap::new() };
     let mut names = HashMap::new();
     for line in data.split(|&byte| byte == b'\n').filter(|line| !line.is_empty()) {
         let Ok(row) = Json::parse(line) else { continue };
@@ -451,6 +521,9 @@ pub fn codex_titles(root: &Path) -> HashMap<String, String> {
             continue;
         };
         names.insert(id.to_string(), name);
+    }
+    if let Ok(mut known) = KNOWN.lock() {
+        known.get_or_insert_with(HashMap::new).insert(key, (print, names.clone()));
     }
     names
 }
@@ -1474,8 +1547,14 @@ impl Runtime {
     }
 
     /// Claude Code's, Codex's and the other tools' sessions running or waiting now; with the alert on, one that has
-    /// just finished its turn is told of.
+    /// just finished its turn is told of. Serialized by `sessions.lock` so concurrent live ticks never race on
+    /// `session-spent.json` or fire duplicate alerts.
     pub fn sessions_cached(&self, ttl: Option<f64>) -> Loaded {
+        self.with_lock("sessions.lock", true, || self.sessions_cached_locked(ttl))
+            .unwrap_or_else(|| self.sessions_cached_locked(ttl))
+    }
+
+    fn sessions_cached_locked(&self, ttl: Option<f64>) -> Loaded {
         let previous = self
             .read_cache("sessions")
             .get("payload")
@@ -2178,5 +2257,49 @@ mod tests {
         assert!(super::prompt(&task_notif));
         assert!(!super::prompt(&command_output));
         assert!(super::prompt(&peer));
+    }
+
+    #[test]
+    fn claude_state_ignores_slash_command_metadata_and_handles_interrupts_and_synthetic_replies() {
+        let dir = std::env::temp_dir().join(format!("starmeter-claude-state-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let write = |name: &str, lines: &[&str]| {
+            let p = dir.join(name);
+            std::fs::write(&p, lines.join("\n") + "\n").unwrap();
+            p.to_string_lossy().into_owned()
+        };
+        // 1. Finished assistant turn followed by local-command-stdout metadata -> still waiting, not running.
+        let p1 = write(
+            "meta.jsonl",
+            &[
+                r#"{"type":"user","message":{"role":"user","content":"hello"}}"#,
+                r#"{"type":"assistant","message":{"role":"assistant","model":"claude-sonnet-4-5","stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5}}}"#,
+                r#"{"type":"user","message":{"role":"user","content":"<local-command-stdout>cost: $0.01</local-command-stdout>"}}"#,
+                r#"{"type":"user","isMeta":true,"message":{"role":"user","content":"system reminder"}}"#,
+            ],
+        );
+        assert_eq!(super::claude(&p1).unwrap().unwrap().get("state"), Some(&Json::from("waiting")));
+
+        // 2. User interrupted the turn -> waiting immediately.
+        let p2 = write(
+            "interrupted.jsonl",
+            &[
+                r#"{"type":"user","message":{"role":"user","content":"long task"}}"#,
+                r#"{"type":"user","message":{"role":"user","content":"[Request interrupted by user for tool use]"}}"#,
+            ],
+        );
+        assert_eq!(super::claude(&p2).unwrap().unwrap().get("state"), Some(&Json::from("waiting")));
+
+        // 3. Synthetic assistant reply with no stop_reason -> waiting immediately.
+        let p3 = write(
+            "synthetic.jsonl",
+            &[
+                r#"{"type":"user","message":{"role":"user","content":"hi"}}"#,
+                r#"{"type":"assistant","message":{"role":"assistant","model":"<synthetic>","content":[{"type":"text","text":"No response requested."}]}}"#,
+            ],
+        );
+        assert_eq!(super::claude(&p3).unwrap().unwrap().get("state"), Some(&Json::from("waiting")));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

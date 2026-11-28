@@ -952,6 +952,17 @@ impl Runtime {
         (bundle, error)
     }
 
+    /// One range's figures from its cache alone (never triggering an unlocked `range_usage` refresh), merged with the
+    /// other computers' figures. Used by live ticks after their locked refresh attempt.
+    pub fn range_cached_with_devices(&self, range: &str) -> runtime::Loaded {
+        let name = self.range_cache_name(Some(range));
+        let record = self.read_cache(&name);
+        let merged = self.with_devices(range, record);
+        let bundle = merged.get("payload").and_then(Json::as_object).cloned();
+        let error = merged.get("error").and_then(Json::as_str).map(String::from);
+        (bundle, error)
+    }
+
     /// The homepage's dashboard for a range other than the one on screen, from range_with_devices, with the cards
     /// grouped as asked (a phone's or the command line's own choice), the computer's grouping when none is. Runs
     /// inside a render.

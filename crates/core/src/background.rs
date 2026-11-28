@@ -778,19 +778,17 @@ impl Runtime {
     }
 
     /// A pinned panel's tick: the range on screen re-read from the local logs, and the active sessions.
+    /// Sessions run independently of `range-refresh.lock` so a slow range read never delays session start/end updates.
     pub fn refresh_live(&self) -> bool {
-        if self
+        let range_done = self
             .with_lock("range-refresh.lock", false, || {
-                self.range_usage(Some(&self.selected_range()), Some(0.0));
+                self.range_usage_local(Some(&self.selected_range()), Some(0.0));
             })
-            .is_none()
-        {
-            return false;
-        }
+            .is_some();
         if self.module_enabled("sessions") {
             self.sessions_cached(Some(0.0));
         }
-        true
+        range_done
     }
 
     /// Runs body holding a lock file in the cache folder; None when another process holds it and we don't wait.
