@@ -10,8 +10,8 @@
 //!   plugin's panel-open.json says whether a click asked for the homepage or the module list.
 
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 use serde_json::{Value, json};
@@ -31,6 +31,8 @@ pub struct Files {
     turn: tokio_mutex::Mutex,
     /// Last non-blocking live-wake timestamp in Unix ms (deduplicates concurrent web/phone viewers).
     last_wake_ms: AtomicU64,
+    /// Wakes the snapshot watcher immediately when the panel opens or an action/live tick starts.
+    watch_wake: (Mutex<()>, Condvar),
     /// How long a claimed action is waited on: as long as a question the plugin asks (it may be waiting on the user),
     /// and no longer, for a plugin that quit before writing its receipt would otherwise hold every later action.
     claimed_limit: Duration,
@@ -131,6 +133,7 @@ impl Files {
             state: Mutex::new((false, 0.0)),
             turn: tokio_mutex::Mutex::default(),
             last_wake_ms: AtomicU64::new(0),
+            watch_wake: (Mutex::new(()), Condvar::new()),
             claimed_limit: CLAIMED_LIMIT,
         })
     }
@@ -146,8 +149,19 @@ impl Files {
             state: Mutex::new((false, 0.0)),
             turn: tokio_mutex::Mutex::default(),
             last_wake_ms: AtomicU64::new(0),
+            watch_wake: (Mutex::new(()), Condvar::new()),
             claimed_limit: CLAIMED_LIMIT,
         }
+    }
+
+    /// Modification timestamp of the snapshot file (single `stat`, zero file read/JSON parse).
+    pub fn snapshot_modified(&self) -> Option<SystemTime> {
+        modified(&self.snapshot)
+    }
+
+    /// Wakes the snapshot watcher thread immediately (on panel open, pin, or action).
+    pub fn wake_watcher(&self) {
+        self.watch_wake.1.notify_all();
     }
 
     /// The snapshot as it is, not taken as seen (the panel is still told of a new one): what a phone's last minutes keep.
@@ -206,6 +220,9 @@ impl Files {
         let mut state = self.state.lock().expect("the state lock");
         state.0 = visible;
         self.publish_state(*state);
+        if visible {
+            self.wake_watcher();
+        }
     }
 
     /// A phone is looking at the homepage (在手机上看) until then: the plugin keeps the open panel's pace meanwhile,
@@ -214,6 +231,7 @@ impl Files {
         let mut state = self.state.lock().expect("the state lock");
         state.1 = until;
         self.publish_state(*state);
+        self.wake_watcher();
     }
 
     fn publish_state(&self, (visible, phone_until): (bool, f64)) {
@@ -227,16 +245,27 @@ impl Files {
         );
     }
 
-    /// Watches the snapshot (written whole by the engine, so its folder's files are replaced): a new one reaches the
-    /// panel at once while it is open, within a few seconds otherwise.
+    /// Watches the snapshot (written whole by the engine, so its folder's files are replaced): fast while pinned
+    /// (150ms), responsive while open (300ms), and relaxed while closed (10s, waking immediately via Condvar on open
+    /// or action) so a hidden panel wakes the CPU almost never.
     pub fn watch(self: &std::sync::Arc<Self>, app: AppHandle) {
         let files = self.clone();
         std::thread::Builder::new()
             .name("starmeter-snapshot".into())
             .spawn(move || {
                 loop {
-                    let open = crate::engine::PANEL_OPEN.load(std::sync::atomic::Ordering::SeqCst);
-                    std::thread::sleep(Duration::from_millis(if open { 150 } else { 2000 }));
+                    let open = crate::engine::PANEL_OPEN.load(Ordering::SeqCst);
+                    let pinned = crate::engine::PANEL_PINNED.load(Ordering::SeqCst);
+                    let wait = if open && pinned {
+                        Duration::from_millis(150)
+                    } else if open {
+                        Duration::from_millis(300)
+                    } else {
+                        Duration::from_secs(10)
+                    };
+                    let guard = files.watch_wake.0.lock().expect("the watcher wake lock");
+                    let _ = files.watch_wake.1.wait_timeout(guard, wait);
+                    let open = crate::engine::PANEL_OPEN.load(Ordering::SeqCst);
                     let current = modified(&files.snapshot);
                     let changed = {
                         let mut seen = files.seen.lock().expect("the seen lock");
@@ -328,6 +357,7 @@ impl Files {
                 &json!({"id": id, "action": ["refresh-live"], "createdAt": now_ms as f64 / 1000.0}),
             ) {
                 self.wake();
+                self.wake_watcher();
                 return true;
             }
         }
@@ -352,6 +382,7 @@ impl Files {
             return ("failed".into(), None);
         }
         self.wake();
+        self.wake_watcher();
         let automatic =
             matches!(action.first().map(String::as_str), Some("refresh-view" | "refresh-source" | "refresh-live"));
         let preference = matches!(

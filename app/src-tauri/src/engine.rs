@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex, RwLock};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, RwLock};
 use std::time::Duration;
 
 use serde_json::Value;
@@ -75,12 +75,29 @@ fn live_sessions(runtime: &Runtime) -> (Value, serde_json::Map<String, Value>, V
 
 /// Whether the panel is on screen, for the core's refresh cadence.
 pub static PANEL_OPEN: AtomicBool = AtomicBool::new(false);
+/// Whether the panel is currently pinned (live mode).
+pub static PANEL_PINNED: AtomicBool = AtomicBool::new(false);
 /// When a phone last read the homepage (在手机上看), in seconds: for a minute after, the core keeps the open panel's
 /// pace, so a monitor's status or an account's figure is current on the phone too.
 pub static PHONE_READ: AtomicU64 = AtomicU64::new(0);
 
-fn watched() -> bool {
-    PANEL_OPEN.load(Ordering::SeqCst) || (now() as u64).saturating_sub(PHONE_READ.load(Ordering::SeqCst)) < 60
+pub fn phone_active() -> bool {
+    (now() as u64).saturating_sub(PHONE_READ.load(Ordering::SeqCst)) < 60
+}
+
+pub fn watched() -> bool {
+    PANEL_OPEN.load(Ordering::SeqCst) || phone_active()
+}
+
+fn clock_wake() -> &'static (Mutex<()>, Condvar) {
+    static WAKE: OnceLock<(Mutex<()>, Condvar)> = OnceLock::new();
+    WAKE.get_or_init(|| (Mutex::new(()), Condvar::new()))
+}
+
+/// Wakes the background clock immediately when the panel opens or a web viewer connects.
+pub fn wake_clock() {
+    let (_, wake) = clock_wake();
+    wake.notify_all();
 }
 
 /// Work waiting for the background, merged while it waits: one range read, the key checks asked for, one refresh.
@@ -745,18 +762,23 @@ impl DesktopHost for AppHost {
     }
 }
 
-/// The background clock: every minute what is due is read, each source by its own lifetime. Pinned as well: the live
-/// tick re-reads the local logs every second or two, but the monitors, accounts and API balances still come from here
-/// (a monitor's status counts as current for a minute and a half). The range on screen, just read by the live tick,
-/// is not due, and a range read gives way while the live tick holds the lock.
+/// The background clock: every minute what is due is read while watched (panel open or active web viewer), relaxed to
+/// every 5 minutes (15s wakeup check) while idle and closed to minimize CPU/disk wakeups. Pinned and web modes keep
+/// their fast live tick on top of this.
 pub fn start_clock(engine: Arc<Engine>) {
     std::thread::Builder::new()
         .name("starmeter-clock".into())
         .spawn(move || {
             let mut clock = Clock::new(now());
+            let (lock, wake) = clock_wake();
             loop {
-                std::thread::sleep(Duration::from_secs_f64(TICK));
-                match clock.tick(now(), online) {
+                let active = watched();
+                let step = if active { TICK } else { IDLE_TICK };
+                let guard = lock.lock().expect("the clock lock");
+                let _ = wake.wait_timeout(guard, Duration::from_secs_f64(step));
+                let active = watched();
+                let period = if active { ACTIVE_REFRESH } else { IDLE_REFRESH };
+                match clock.tick_with(now(), step, period, online) {
                     Tick::Refresh => engine.refresh(),
                     Tick::AfterWake => engine.refresh_after_wake(),
                     Tick::Wait => {}
@@ -766,8 +788,12 @@ pub fn start_clock(engine: Arc<Engine>) {
         .expect("the clock thread");
 }
 
-/// The clock looks at the time this often (a look costs nothing; a refresh comes once a minute).
+/// The clock looks at the time this often while watched (panel open or active web viewer).
 const TICK: f64 = 2.0;
+/// Relaxed wakeup interval while panel is closed and no web viewer is active (still < SLEPT for wake detection).
+const IDLE_TICK: f64 = 15.0;
+const ACTIVE_REFRESH: f64 = 60.0;
+const IDLE_REFRESH: f64 = 300.0;
 /// The wall clock moving this much further than a tick: the machine slept. The clock's own sleep doesn't count the
 /// time asleep, the wall clock does.
 const SLEPT: f64 = 30.0;
@@ -783,29 +809,35 @@ enum Tick {
     AfterWake,
 }
 
-/// When the clock reads: every minute; and on waking from sleep (the lid opened, or a maintenance wake), as soon as
-/// the network is back, so the panel shows current figures, not the failures of the minute the Wi-Fi was away.
+/// When the clock reads: every minute while watched (every 5 minutes when closed and idle); and on waking from sleep
+/// (the lid opened, or a maintenance wake), as soon as the network is back, so the panel shows current figures, not
+/// the failures of the minute the Wi-Fi was away.
 struct Clock {
     last: f64,
-    next: f64,
+    last_refresh: f64,
     woke: Option<f64>,
     follow_up: Option<f64>,
 }
 
 impl Clock {
     fn new(moment: f64) -> Self {
-        Clock { last: moment, next: moment + 60.0, woke: None, follow_up: None }
+        Clock { last: moment, last_refresh: moment, woke: None, follow_up: None }
     }
 
+    #[cfg(test)]
     fn tick(&mut self, moment: f64, online: impl FnOnce() -> bool) -> Tick {
-        if moment - self.last > TICK + SLEPT {
+        self.tick_with(moment, TICK, ACTIVE_REFRESH, online)
+    }
+
+    fn tick_with(&mut self, moment: f64, step: f64, period: f64, online: impl FnOnce() -> bool) -> Tick {
+        if moment - self.last > step + SLEPT {
             self.woke = Some(moment);
             self.follow_up = None;
         } else if moment < self.last {
             // The clock was set back: everything waited for moves back with it and keeps what was left of its wait
             // (WAKE-1: the wait for the network after waking kept the old time, and an hour back meant an hour's wait).
             let back = self.last - moment;
-            self.next -= back;
+            self.last_refresh -= back;
             self.woke = self.woke.map(|at| at - back);
             self.follow_up = self.follow_up.map(|at| at - back);
         }
@@ -816,16 +848,16 @@ impl Clock {
             }
             self.woke = None;
             self.follow_up = Some(moment + FOLLOW_UP);
-            self.next = moment + 60.0;
+            self.last_refresh = moment;
             return Tick::AfterWake;
         }
         if self.follow_up.is_some_and(|at| moment >= at) {
             self.follow_up = None;
-            self.next = moment + 60.0;
+            self.last_refresh = moment;
             return Tick::AfterWake;
         }
-        if moment >= self.next {
-            self.next = moment + 60.0;
+        if moment - self.last_refresh >= period {
+            self.last_refresh = moment;
             return Tick::Refresh;
         }
         Tick::Wait
@@ -1008,5 +1040,20 @@ mod tests {
         let mut clock = Clock::new(1000.0);
         assert_eq!(clock.tick(500.0, || true), Tick::Wait);
         assert_eq!(run(&mut clock, 502.0, 562.0, |_| true), vec![(560.0, Tick::Refresh)]);
+    }
+
+    #[test]
+    fn idle_panel_relaxes_refresh_period_to_five_minutes() {
+        let mut clock = Clock::new(0.0);
+        let mut out = Vec::new();
+        let mut moment = IDLE_TICK;
+        while moment <= 600.0 {
+            let tick = clock.tick_with(moment, IDLE_TICK, IDLE_REFRESH, || true);
+            if tick != Tick::Wait {
+                out.push((moment, tick));
+            }
+            moment += IDLE_TICK;
+        }
+        assert_eq!(out, vec![(300.0, Tick::Refresh), (600.0, Tick::Refresh)]);
     }
 }

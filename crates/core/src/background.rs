@@ -596,10 +596,10 @@ impl Runtime {
                 });
             });
         }
-        // Asked of Antigravity's app on this computer, every minute while it runs; with it closed only its note is read.
+        // Asked of Antigravity's app on this computer, every minute while watched (relaxed when closed).
         if self.module_enabled("gemini-subscription") && crate::antigravity::present(&self.home) {
             add(&mut loaders, "gemini_subscription", || {
-                self.cached_fetch("gemini_subscription", 60.0, 60.0, || {
+                self.cached_fetch("gemini_subscription", self.refresh_ttl(60.0), 60.0, || {
                     Ok(match crate::antigravity::quota(&self.home) {
                         Ok(quota) => (Some(quota), None),
                         Err(failure) => (None, Some(failure)),
@@ -609,7 +609,7 @@ impl Runtime {
         }
         if self.module_enabled("qoder-subscription") {
             add(&mut loaders, "qoder_subscription", || {
-                self.cached_fetch("qoder_subscription", 60.0, 60.0, || {
+                self.cached_fetch("qoder_subscription", self.refresh_ttl(60.0), 60.0, || {
                     let snapshot = qoder::snapshot(&self.home, &self.environment, now());
                     Ok((Some(snapshot.unwrap_or_else(|| object! { "empty" => true })), None))
                 });

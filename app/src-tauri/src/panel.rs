@@ -116,6 +116,10 @@ pub fn visible(app: &AppHandle) -> bool {
 /// The core relaxes its pace while the panel is closed; SwiftBar's plugin reads it from panel-state.json.
 fn publish_open(app: &AppHandle, open: bool) {
     crate::engine::PANEL_OPEN.store(open, Ordering::SeqCst);
+    if open {
+        crate::engine::wake_clock();
+        crate::phone::wake_recorder();
+    }
     if let Some(data) = app.try_state::<crate::data::Data>()
         && let crate::data::Data::SwiftBar(files) = &*data
     {
@@ -554,6 +558,15 @@ fn set_pinned_state(app: &AppHandle, pinned: bool) {
     let state = app.state::<Panel>();
     if state.pinned.swap(pinned, Ordering::SeqCst) == pinned {
         return;
+    }
+    crate::engine::PANEL_PINNED.store(pinned, Ordering::SeqCst);
+    if pinned {
+        crate::phone::wake_recorder();
+        if let Some(data) = app.try_state::<crate::data::Data>()
+            && let crate::data::Data::SwiftBar(files) = &*data
+        {
+            files.wake_watcher();
+        }
     }
     // Unpinned, the panel belongs under the star again, at its pages' own size.
     if !pinned {

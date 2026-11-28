@@ -479,15 +479,28 @@ impl Runtime {
         })
     }
 
-    /// Closed panels use a relaxed cadence; visible ones keep their normal TTL.
+    /// Closed panels use a relaxed cadence (3 min on AC, 5 min on battery); visible ones keep their normal TTL.
     pub fn refresh_ttl(&self, base: f64) -> f64 {
         let (visible, battery) = self.memoized("cadence", || self.refresh_cadence());
         if visible { base } else { base.max(if battery { 300.0 } else { 180.0 }) }
     }
 
+    fn on_battery(&self) -> bool {
+        let mut power = self.read_cache("power-state");
+        let now = now();
+        if now - power.get("checkedAt").and_then(Json::python_float).unwrap_or(0.0) > 300.0
+            && let Some(output) = shell::run(&["/usr/bin/pmset", "-g", "batt"], 2.0, None, None)
+        {
+            power = object! { "schema" => 1, "battery" => output.contains("'Battery Power'"), "checkedAt" => now };
+            self.write_json_cache(&self.cache_path("power-state"), &Json::Object(power.clone()));
+        }
+        power.get("battery").is_some_and(Json::is_truthy)
+    }
+
     fn refresh_cadence(&self) -> (bool, bool) {
         if let Some(cadence) = &self.host_cadence {
-            return cadence();
+            let (visible, battery) = cadence();
+            return (visible, battery || (!visible && self.on_battery()));
         }
         if cfg!(windows) {
             // The tray says whether its panel is open.
@@ -504,15 +517,7 @@ impl Runtime {
         {
             return (true, false);
         }
-        let mut power = self.read_cache("power-state");
-        let now = now();
-        if now - power.get("checkedAt").and_then(Json::python_float).unwrap_or(0.0) > 300.0
-            && let Some(output) = shell::run(&["/usr/bin/pmset", "-g", "batt"], 2.0, None, None)
-        {
-            power = object! { "schema" => 1, "battery" => output.contains("'Battery Power'"), "checkedAt" => now };
-            self.write_json_cache(&self.cache_path("power-state"), &Json::Object(power.clone()));
-        }
-        (false, power.get("battery").is_some_and(Json::is_truthy))
+        (false, self.on_battery())
     }
 }
 

@@ -12,8 +12,8 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{IpAddr, TcpListener, TcpStream, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use std::time::{Duration, Instant, SystemTime};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -1709,7 +1709,12 @@ fn with_look(page: &str, look: &Value) -> String {
 fn looking(app: &AppHandle) {
     static ASKED: AtomicU64 = AtomicU64::new(0);
     let now = starmeter_core::runtime::now() as u64;
+    let was_active = crate::engine::phone_active();
     crate::engine::PHONE_READ.store(now, Ordering::SeqCst);
+    if !was_active {
+        crate::engine::wake_clock();
+        wake_recorder();
+    }
     if now.saturating_sub(ASKED.load(Ordering::SeqCst)) < 30 {
         return;
     }
@@ -1838,7 +1843,18 @@ static RECENT: Mutex<VecDeque<Value>> = Mutex::new(VecDeque::new());
 /// 15 seconds a page takes for a gap.
 const RECENT_FOR: f64 = 400.0;
 const RECENT_EVERY: f64 = 2.0;
-const RECENT_IDLE: f64 = 5.0;
+const RECENT_IDLE: f64 = 30.0;
+
+fn recorder_wake() -> &'static (Mutex<()>, Condvar) {
+    static WAKE: OnceLock<(Mutex<()>, Condvar)> = OnceLock::new();
+    WAKE.get_or_init(|| (Mutex::new(()), Condvar::new()))
+}
+
+/// Wakes the live-history recorder immediately when the panel opens/pins or a web viewer connects.
+pub fn wake_recorder() {
+    let (_, wake) = recorder_wake();
+    wake.notify_all();
+}
 
 #[derive(Default)]
 struct SampleCache {
@@ -1846,33 +1862,76 @@ struct SampleCache {
     seen_sessions: f64,
     sessions_was_on: Option<bool>,
     last_sessions: Option<Value>,
+    seen_snapshot: Option<SystemTime>,
+    last_snapshot_dashboard: Option<Value>,
+    last_snapshot_sessions: Option<Value>,
 }
 
-/// The last minutes recorded from the app's start: a reading every couple of seconds while the panel shows or the
-/// phone view is on, every ten otherwise. Cheap (STAGE-14, R10-9): today's figures and 会话 from their caches only,
-/// rendered only when their caches changed, never holding RECENT.lock() across disk I/O or waiting on a render under
-/// way; whether the panel shows from its flag, not asked of the main thread.
+/// The last minutes recorded from the app's start: a reading every couple of seconds while the panel is open/pinned or
+/// a web viewer is actively reading (within 60s), and relaxed to 30s with zero redundant disk/JSON reads when idle.
 pub fn keep_recording(app: AppHandle) {
     let _ = std::thread::Builder::new().name("starmeter-live-readings".into()).spawn(move || {
         let mut cache = SampleCache::default();
+        let (lock, wake) = recorder_wake();
         loop {
-            sample_cached(&app.state::<Data>(), &mut cache);
-            let watched = crate::engine::PANEL_OPEN.load(Ordering::SeqCst)
-                || app
-                    .state::<Phone>()
-                    .running
-                    .lock()
-                    .is_ok_and(|running| running.as_ref().is_some_and(|r| !r.stop.load(Ordering::SeqCst)));
-            std::thread::sleep(Duration::from_secs_f64(if watched { RECENT_EVERY } else { RECENT_IDLE }));
+            let watched = crate::engine::watched();
+            sample_cached(&app.state::<Data>(), &mut cache, watched);
+            let wait = Duration::from_secs_f64(if watched { RECENT_EVERY } else { RECENT_IDLE });
+            let guard = lock.lock().expect("the recorder lock");
+            let _ = wake.wait_timeout(guard, wait);
         }
     });
 }
 
 /// A reading for the last minutes from what the source has cached: the app's today when its cache was written again
-/// (else the last reading's figures again, so the readings run on without a gap), SwiftBar's snapshot looked at, the
-/// fixtures. Nothing when the app is busy rendering or within RECENT_EVERY of the last reading: the next turn takes it.
-fn sample_cached(data: &Data, cache: &mut SampleCache) {
-    let Data::Engine(engine) = data else { return sample(data) };
+/// (else the last reading's figures again while watched so the curve runs without a gap), SwiftBar's snapshot only
+/// re-read when its file mtime actually changed (zero disk read / JSON parse when idle and unchanged).
+fn sample_cached(data: &Data, cache: &mut SampleCache, watched: bool) {
+    match data {
+        Data::SwiftBar(files) => {
+            let mtime = files.snapshot_modified();
+            let changed = mtime.is_some() && mtime != cache.seen_snapshot;
+            if !changed {
+                if !watched {
+                    return;
+                }
+                if let Some(dashboard) = cache.last_snapshot_dashboard.as_ref() {
+                    let mut recent = RECENT.lock().expect("the live readings");
+                    keep_recent(
+                        &mut recent,
+                        starmeter_core::runtime::now(),
+                        dashboard,
+                        cache.last_snapshot_sessions.as_ref(),
+                    );
+                    return;
+                }
+            }
+            if let Some((dashboard, mut sessions)) = today_now(data) {
+                if sessions.is_object() {
+                    phone_sessions(&mut sessions);
+                }
+                let sessions_opt = sessions.is_object().then_some(sessions);
+                let stored = {
+                    let mut recent = RECENT.lock().expect("the live readings");
+                    keep_recent(&mut recent, starmeter_core::runtime::now(), &dashboard, sessions_opt.as_ref())
+                };
+                if stored || changed {
+                    cache.seen_snapshot = mtime;
+                    cache.last_snapshot_dashboard = Some(dashboard);
+                    cache.last_snapshot_sessions = sessions_opt;
+                }
+            }
+            return;
+        }
+        Data::Fixtures(_) => {
+            if watched {
+                sample(data);
+            }
+            return;
+        }
+        Data::Engine(_) => {}
+    }
+    let Data::Engine(engine) = data else { return };
     let moment = starmeter_core::runtime::now();
     // Check throttle and grab any fallback dashboard before releasing RECENT so disk I/O never blocks requests (R10-9).
     let fallback = {
@@ -1892,6 +1951,7 @@ fn sample_cached(data: &Data, cache: &mut SampleCache) {
     else {
         return;
     };
+    let sessions_changed = updated_sessions.is_some();
     if let Some(mut fresh) = updated_sessions {
         if fresh.is_object() {
             phone_sessions(&mut fresh);
@@ -1901,6 +1961,9 @@ fn sample_cached(data: &Data, cache: &mut SampleCache) {
         }
     }
     let fresh_today = engine.today_cached(cache.seen_today);
+    if !watched && fresh_today.is_none() && !sessions_changed {
+        return;
+    }
     let (dashboard, next_today) = match fresh_today {
         Some((dashboard, stamp)) => (dashboard, Some(stamp)),
         None => match fallback {
