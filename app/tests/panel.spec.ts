@@ -3769,6 +3769,16 @@ test('在手机上看: 同一网络 takes a port of its own under 换端口, hel
   await button(page, '开始').click();
   await expect(phone.locator('.address')).toHaveText('http://192.168.1.20:8080/');
   await expect(phone.locator('.failed')).toHaveCount(0);
+  // On, 换端口 then 应用 on the port it is on (untouched, or typed again): the field closes, nothing moves (用户：换端口，
+  // 如果相同端口，应用按钮点不动).
+  for (const typed of [null, '8080']) {
+    await phone.getByRole('button', { name: '换端口' }).click();
+    if (typed) await phone.getByRole('textbox', { name: '端口' }).fill(typed);
+    await phone.locator('.setup').getByRole('button', { name: '应用' }).click();
+    await expect(phone.getByRole('textbox', { name: '端口' })).toHaveCount(0);
+    await expect(now).toHaveText('8080');
+    await expect(phone.locator('.address')).toHaveText('http://192.168.1.20:8080/');
+  }
   await button(page, '停止').click();
   await expect(now).toHaveText('8080');
   await open(page);

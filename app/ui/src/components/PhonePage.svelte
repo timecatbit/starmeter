@@ -474,6 +474,15 @@
   const enter = (event: KeyboardEvent) => { if (event.key === 'Enter' && !composing(event) && canStart) applyNear(); };
   /** The port typed, applied: on, the server moved there now (with 反代 by its start, which holds it); off, by 开始. */
   function applyPort() {
+    // The port it is on already (untouched, or typed again): nothing to move, the field just closes (用户：换端口，如果相同
+    // 端口，应用按钮点不动).
+    if ((localOn || proxyOn) && (!portEdited || (portTyped !== null && portTyped === shownPort))) {
+      portOpen = false;
+      portEdited = false;
+      portSaid = null;
+      if (shownPort != null) portInput = String(shownPort);
+      return;
+    }
     if (proxyOn || (phone.near === 'domain' && localOn)) void startDomain();
     else if (localOn) void startLocal();
     else void startNear();
