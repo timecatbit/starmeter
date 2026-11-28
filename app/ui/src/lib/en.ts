@@ -210,7 +210,7 @@ export const phrases: Record<string, string> = {
   外网链接断开了: 'The public link dropped', 没能生成外网链接: "Couldn't make the link", 可以重新生成一个新链接: 'You can make a new one',
   改用同一个网络: 'Use the same network', 重新生成: 'Make a new one',
   链接不完整: 'This link is incomplete', 链接打不开: "This link can't open",
-  '手机查看的链接要带上 # 后面的口令。请在电脑的“在手机上看”里扫码，或点二维码下的地址复制完整链接。': 'A phone view link carries its key after the #. Scan the code in Phone view on the computer, or click the address under the code to copy the whole link.',
+  '手机查看的链接要带上 # 后面的口令。请在电脑的“在手机上看”里扫码，或点二维码下的链接复制。': 'A phone view link carries its key after the #. Scan the code in Phone view on the computer, or click the link under the code to copy it.',
   // The two kinds (同一网络 / 反代, 任何网络) and their pages; 任何网络 › Tailscale 等 VPN: a phone on the same tailnet
   // or WireGuard network, from anywhere, with a key of its own.
   '同一网络 / 反代': 'Same network / Proxy', 反代: 'Reverse proxy', 'Tailscale 等 VPN': 'Tailscale & VPNs',

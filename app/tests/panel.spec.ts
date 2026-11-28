@@ -1590,7 +1590,7 @@ test('在手机上看: a page\'s link is the same from one 开始 to the next an
   await button(page, '在手机上看').click();
   const phone = page.locator('.phone-page');
   const near = page.getByRole('radio', { name: '同一网络 / 反代' }), anywhere = page.getByRole('radio', { name: '任何网络' });
-  const link = () => phone.locator('.address').first().getAttribute('title');
+  const link = () => phone.locator('.copy-link').first().getAttribute('title');
   const line = phone.locator('.link-line');
   // Off: nothing to change yet.
   await expect(line).toHaveCount(0);
@@ -1670,6 +1670,78 @@ test('在手机上看: a page\'s link is the same from one 开始 to the next an
   expect(fit.inside).toBe(true);
   expect(fit.height).toBeLessThanOrEqual(28);
   expect(fit.level).toBe(1);
+  await page.evaluate(() => localStorage.removeItem('starmeter.test-phone'));
+});
+
+test('在手机上看: under a code the whole link is written out, key and all: the address on a line, the key under it, inside the panel; side by side the key on two lines in each card; copied, nothing under it moves', async ({ page }) => {
+  // 用户：二维码下方你直接显示长链接吧，这样用户就知道我们帮他拼了一个key一样的东西。否则现在没概念。
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: () => Promise.resolve() } });
+  });
+  await open(page, '?tailnet&wireguard');
+  await button(page, '在手机上看').click();
+  const phone = page.locator('.phone-page');
+  await button(page, '开始').click();
+  const link = phone.locator('.copy-link');
+  // What is written is the link itself, as the code carries it and a click copies it.
+  await expect(link).toHaveText('http://192.168.1.20:51234/#k=0123456789abcdef0123456789abcdef&l=zh');
+  expect(await link.getAttribute('title')).toBe('http://192.168.1.20:51234/#k=0123456789abcdef0123456789abcdef&l=zh');
+  await expect(link.locator('.address')).toHaveText('http://192.168.1.20:51234/');
+  await expect(link.locator('.secret')).toHaveText('#k=0123456789abcdef0123456789abcdef&l=zh');
+  const laid = () => page.evaluate(() => {
+    const box = (element: Element) => { const b = element.getBoundingClientRect(); return { left: b.left, right: b.right, top: b.top, bottom: b.bottom, height: b.height }; };
+    const content = box(document.querySelector('.phone-page .content')!);
+    return [...document.querySelectorAll('.phone-page .copy-link')].map((element) => ({
+      link: box(element), address: box(element.querySelector('.address')!), secret: box(element.querySelector('.secret')!),
+      // Nothing of it cut: its box holds all it has to show.
+      whole: element.scrollWidth <= element.clientWidth + 1 && element.scrollHeight <= element.clientHeight + 1,
+      inside: box(element).left >= content.left && box(element).right <= content.right,
+      card: element.closest('.card') ? box(element.closest('.card')!) : null,
+    }));
+  });
+  const [single] = await laid();
+  expect(single.whole && single.inside).toBe(true);
+  // The address on one line, the key on the next, each a line tall.
+  expect(single.secret.top).toBeGreaterThanOrEqual(single.address.bottom - 1);
+  expect(single.address.height).toBeLessThan(20);
+  expect(single.secret.height).toBeLessThan(20);
+  // 换链接 right under it.
+  const line = (await phone.locator('.link-line').boundingBox())!;
+  expect(line.y).toBeGreaterThanOrEqual(single.link.bottom - 9);
+  // Copied: 已复制链接 on the address's line, and the link's box as tall as it was, so nothing under it moves.
+  await link.click();
+  await expect(link.locator('.address')).toHaveText('已复制链接');
+  await expect(link.locator('.secret')).toBeHidden();
+  expect((await laid())[0].link.height).toBeCloseTo(single.link.height, 0);
+  expect((await phone.locator('.link-line').boundingBox())!.y).toBeCloseTo(line.y, 0);
+  // Side by side (the VPN page's two codes): each card its own link, the key on two lines, both cards alike.
+  await page.getByRole('radio', { name: '任何网络' }).click();
+  await page.getByRole('radio', { name: 'Tailscale 等 VPN' }).click();
+  await button(page, '开始').click();
+  await expect(phone.locator('.card')).toHaveCount(2);
+  await expect(link).toHaveText(['100.76.55.73:51234#k=9876543210abcdef9876543210abcdef&l=zh', '10.0.0.2:51234#k=9876543210abcdef9876543210abcdef&l=zh']);
+  const pair = await laid();
+  for (const one of pair) {
+    expect(one.whole).toBe(true);
+    expect(one.link.left).toBeGreaterThanOrEqual(one.card!.left);
+    expect(one.link.right).toBeLessThanOrEqual(one.card!.right);
+    expect(one.address.height).toBeLessThan(20);
+    // Two lines of key, broken in its middle.
+    expect(one.secret.height).toBeGreaterThan(20);
+    expect(one.secret.height).toBeLessThan(34);
+  }
+  expect(pair[0].card!.height).toBeCloseTo(pair[1].card!.height, 0);
+  expect(pair[0].secret.top).toBeCloseTo(pair[1].secret.top, 0);
+  // In 手绘 and 繁體 the link is longer (&l=zh-Hant&s=sketch): still whole, inside the panel.
+  await page.evaluate(() => localStorage.removeItem('starmeter.test-phone'));
+  await page.addInitScript(() => { localStorage.setItem('starmeter.language', 'zh-Hant'); localStorage.setItem('starmeter.style', 'sketch'); });
+  await page.reload();
+  await settled(page);
+  await page.getByRole('button', { name: '在手機上看', exact: true }).click();
+  await page.getByRole('button', { name: '開始', exact: true }).click();
+  await expect(link).toHaveText(/^http:\/\/192\.168\.1\.20:51234\/#k=[0-9a-f]{32}&l=zh-Hant&s=sketch$/);
+  const [long] = await laid();
+  expect(long.whole && long.inside).toBe(true);
   await page.evaluate(() => localStorage.removeItem('starmeter.test-phone'));
 });
 
@@ -2013,7 +2085,7 @@ test('在手机上看: Tailscale and WireGuard are 任何网络\'s VPN page, bes
   await expect(phone.locator('svg.qr')).toHaveCount(1);
   await expect(phone.locator('.card')).toHaveCount(0);
   await expect(phone.locator('.address')).toHaveText('http://192.168.1.20:51234/');
-  const localKey = (await phone.locator('.address').getAttribute('title'))!.match(/#k=([0-9a-f]+)/)![1];
+  const localKey = (await phone.locator('.copy-link').getAttribute('title'))!.match(/#k=([0-9a-f]+)/)![1];
   // 任何网络: Cloudflare's link and the VPNs; looking at the VPN page starts nothing.
   await anywhere.click();
   await expect(phone.locator('.via').getByRole('radio')).toHaveText(['Cloudflare 临时链接', 'Tailscale 等 VPN']);
@@ -2029,7 +2101,7 @@ test('在手机上看: Tailscale and WireGuard are 任何网络\'s VPN page, bes
   await expect(phone.locator('.card-detail')).toHaveText(['手机开着 Tailscale', '手机开着 WireGuard']);
   await expect(phone.getByRole('img', { name: '连着 Tailscale 的手机扫这个二维码' })).toBeVisible();
   await expect(phone.locator('.address')).toHaveText(['100.76.55.73:51234', '10.0.0.2:51234']);
-  const vpnKey = (await phone.locator('.address').first().getAttribute('title'))!.match(/#k=([0-9a-f]+)/)![1];
+  const vpnKey = (await phone.locator('.copy-link').first().getAttribute('title'))!.match(/#k=([0-9a-f]+)/)![1];
   expect(vpnKey).not.toBe(localKey);
   await expect(async () => {
     const [left, right] = [(await phone.locator('.card').nth(0).boundingBox())!, (await phone.locator('.card').nth(1).boundingBox())!];

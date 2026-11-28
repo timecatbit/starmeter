@@ -968,7 +968,7 @@
     <div class="phone-gate" role="status">
       <span class="gate-glyph"><Icon name="iphone" size={30} /></span>
       <h1 class="gate-title">{t(keyless ? '链接不完整' : '链接打不开')}</h1>
-      <p class="gate-detail">{t(keyless ? '手机查看的链接要带上 # 后面的口令。请在电脑的“在手机上看”里扫码，或点二维码下的地址复制完整链接。' : phoneProblem ?? '')}</p>
+      <p class="gate-detail">{t(keyless ? '手机查看的链接要带上 # 后面的口令。请在电脑的“在手机上看”里扫码，或点二维码下的链接复制。' : phoneProblem ?? '')}</p>
     </div>
   {:else}
   {#key viewKey}

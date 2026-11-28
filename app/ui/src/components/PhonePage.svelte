@@ -528,6 +528,15 @@
     copied = { key, state: ok ? 'ok' : 'failed' };
     if (ok) copiedTimer = setTimeout(() => (copied = null), 2000);
   }
+  /** What follows a link's # (#k=…&l=zh), in the pieces it may break between under its code: the key in two halves
+   *  (side by side there is room for half of it on a line), then each & part. */
+  function linkParts(url: string): string[] {
+    const rest = url.match(/#.*$/)?.[0] ?? '';
+    if (!rest) return [];
+    const [first, ...more] = rest.split('&');
+    const at = 3 + Math.ceil((first.length - 3) / 2);
+    return [first.slice(0, at), first.slice(at), ...more.map((part) => '&' + part)].filter((part) => part !== '');
+  }
   // Refused: the whole link, key and all, selected for a copy by hand.
   $effect(() => { if (copied?.state === 'failed' && manual) { manual.focus(); manual.select(); } });
   // A new link (another network, a public link) starts afresh.
@@ -545,10 +554,19 @@
 </script>
 
 {#snippet link(key: string, url: string, short = false, inline = false)}
-  <!-- Side by side, the address alone (192.168.1.20:51234): the key stays in the code and the copied link. In a row
-       (inline), the full link to copy by hand goes under the row instead (byHand). -->
-  <button class="address pressable" onclick={() => copy(key, url)} title={url}>{copied?.key === key && copied.state === 'ok'
-    ? t('已复制链接') : short ? url.replace(/^https?:\/\//, '').replace(/\/?#.*/, '') : url.replace(/#.*/, '')}</button>
+  <!-- Under a code, the whole link as the phone opens it, key and all (用户：二维码下方你直接显示长链接吧，这样用户就知道
+       我们帮他拼了一个key一样的东西。否则现在没概念；the address alone stood there, the key only in the code and in what
+       a click copied): the address on its line, then what follows the # on the next (the key, the language and look
+       the page opens in), in a fixed-width face, breaking between its parts where the room ends. A click copies it;
+       已复制链接 then stands on the address's line for a moment, the lines under it kept (nothing below moves). Side by
+       side, the address without its http://. In a row (inline: where a proxy forwards to, no key in it), the address
+       alone, and the full link to copy by hand goes under the row instead (byHand). -->
+  {@const done = copied?.key === key && copied.state === 'ok'}
+  {@const parts = inline ? [] : linkParts(url)}
+  <button class="copy-link pressable" onclick={() => copy(key, url)} title={url}>
+    <span class="address">{done ? t('已复制链接') : short ? url.replace(/^https?:\/\//, '').replace(/\/?#.*/, '') : url.replace(/#.*/, '')}</span>{#if parts.length}<span
+      class="secret" class:gone={done}>{#each parts as part, i (i)}{#if i}<wbr />{/if}{part}{/each}</span>{/if}
+  </button>
   {#if !inline}{@render byHand(key, url)}{/if}
 {/snippet}
 
@@ -875,11 +893,16 @@
   .stopped-detail { font-size: 11px; line-height: 1.4; padding: 0 16px; text-align: center; }
   .wait { font-size: 11.5px; color: var(--secondary); }
   .wait-detail { max-width: 240px; font-size: 10.5px; line-height: 1.4; color: var(--tertiary); text-align: center; text-wrap: balance; }
-  .address {
-    --press-scale: 0.98; align-self: center; max-width: 100%; padding: 4px 8px; border-radius: 7px; font-size: 11px;
-    color: var(--secondary); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; overflow: clip visible; text-overflow: ellipsis;
+  /* A code's link, whole: the address, then its key under it; long ones break where they must. */
+  .copy-link {
+    --press-scale: 0.98; align-self: center; box-sizing: border-box; max-width: 100%; padding: 4px 8px; border-radius: 7px; font-size: 11px; line-height: 1.4;
+    color: var(--secondary); font-variant-numeric: tabular-nums; text-align: center; overflow-wrap: anywhere;
   }
-  .address:hover { background: var(--hover); }
+  .copy-link:hover { background: var(--hover); }
+  .address, .secret { display: block; }
+  .secret { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; }
+  /* Copied: 已复制链接 on the address's line, the key's lines kept empty for the moment. */
+  .secret.gone { visibility: hidden; }
   .manual-note { margin: 0; font-size: 10.5px; color: var(--orange); text-align: center; }
   .manual {
     align-self: stretch; height: 26px; padding: 0 8px; border: 0; border-radius: 7px; font: inherit; font-size: 11px;
@@ -894,7 +917,7 @@
   }
   .card-title { font-size: 12px; font-weight: 600; line-height: 16px; color: var(--label); }
   .card-detail { max-width: 100%; font-size: 10.5px; line-height: 14px; color: var(--tertiary); text-align: center; }
-  .card .address { margin: -2px 0; }
+  .card .copy-link { margin: -2px 0; padding: 4px 2px; }
   .note.caution { color: var(--orange); }
   .failed { margin: 0; padding: 8px 10px; border-radius: 8px; font-size: 11.5px; color: var(--label); background: color-mix(in srgb, var(--orange) 18%, transparent); }
   /* Centered half-width tinted actions that blend into the panel's material; two actions share the row evenly. */
@@ -973,7 +996,7 @@
   .field-input.num { font-variant-numeric: tabular-nums; }
   .forward { display: flex; align-items: center; gap: 4px; min-width: 0; min-height: 26px; }
   .forward .field-label { flex: none; }
-  .forward .address { margin-left: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; }
+  .forward .copy-link { margin-left: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; white-space: nowrap; overflow: hidden; overflow: clip visible; text-overflow: ellipsis; }
   .change {
     --press-scale: 0.95; flex: none; height: 22px; padding: 0 7px; border-radius: 6px; font-size: 10.5px; color: var(--accent);
   }
