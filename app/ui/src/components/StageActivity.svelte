@@ -37,7 +37,7 @@
 </script>
 
 <div class="activity">
-  <div class="head"><span>{t('正在运行')}</span>{#if running.length}<span class="count num">{running.length}</span>{/if}</div>
+  <div class="head"><span>{t(!running.length && live.answered && shown.length ? '最近完成' : '正在运行')}</span>{#if running.length}<span class="count num">{running.length}</span>{/if}</div>
   {#if shown.length && live.answered}
     <div class="sessions">
       {#each shown as s (s.key)}

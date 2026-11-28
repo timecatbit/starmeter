@@ -6,40 +6,94 @@
   import { onPhone } from '../lib/backend';
   import { usageColor } from '../lib/colors';
   import { entryKey, usageShare } from '../lib/detail';
-  import { closeList, listOpen, openList } from '../lib/expanded.svelte';
+  import { sectionFolded, toggleSection } from '../lib/expanded.svelte';
   import { t } from '../lib/i18n.svelte';
   import type { Entry } from '../lib/types';
   import { panel } from '../lib/ui.svelte';
   import HomeRow from './HomeRow.svelte';
   import Scroller from './Scroller.svelte';
 
-  let { entries, dashboard, collapsible = false, scrollTop = $bindable(0), onactivate, onmove, onheight }: {
+  let { entries, dashboard, collapsible: _collapsible = false, scrollTop = $bindable(0), onactivate, onmove, onheight }: {
     entries: Entry[]; dashboard: Snippet | null; collapsible?: boolean; scrollTop?: number; onactivate: (e: Entry) => void;
     onmove: (action: string[]) => void; onheight: (height: number) => void;
   } = $props();
 
-  // FOLD-1: Subscriptions, API, and Other fold together as one combined block when 允许折叠 is on, keeping a compact
-  // quick-glance subscription summary on the fold bar so plan usage stays immediately accessible.
-  const canFoldRows = $derived(collapsible && !onPhone && entries.some((e) => !e.separator));
-  const rowsOpen = $derived(!canFoldRows || listOpen('home-rows'));
-  const toggleRows = () => (listOpen('home-rows') ? closeList('home-rows') : openList('home-rows'));
+  type SectionId = 'home-plans' | 'home-apis' | 'home-services';
+  type PreviewItem = { label?: string; value: string; level?: string };
+  type Section = {
+    id: SectionId;
+    title: string;
+    expandLabel: string;
+    collapseLabel: string;
+    items: Entry[];
+    preview: PreviewItem[];
+    attention: number;
+  };
+
   const shortPlan = (label: string) => label.replace(/(?:\s*(?:订阅|訂閱|plan|Plan))$/i, '').trim() || label;
+  const shortApi = (label: string) => label.replace(/(?:\s*API)$/i, '').trim() || label;
   const shortShare = (value: string) => {
     const pct = /(\d[\d.]*%)/.exec(value);
     return pct ? pct[1] : value;
   };
-  const planPreview = $derived.by(() => {
-    const items: { label: string; value: string; level?: string }[] = [];
-    for (const e of entries) {
-      if (e.separator) continue;
-      if (usageShare(e) !== null || (e.gauges?.length ?? 0) > 0) {
-        if (e.value) items.push({ label: shortPlan(e.label), value: shortShare(e.value), level: e.usageLevel });
-      }
+  const shortApiValue = (value: string) =>
+    value.replace(/^(?:余额|餘額|本月已用|Balance|Spent this month)\s+/i, '').replace(/\s*\(\d+\)$/, '').trim() || value;
+
+  const PLAN_MODULES = new Set(['chatgpt', 'minimax']);
+  const API_MODULES = new Set(['deepseek', 'grok']);
+
+  function sectionOf(entry: Entry): SectionId {
+    if (entry.module) {
+      if (PLAN_MODULES.has(entry.module) || entry.module.endsWith('-subscription')) return 'home-plans';
+      if (API_MODULES.has(entry.module) || entry.module.endsWith('-api')) return 'home-apis';
+      return 'home-services';
     }
-    return items.slice(0, 3);
+    if (usageShare(entry) !== null || (entry.gauges?.length ?? 0) > 0) return 'home-plans';
+    if (/\bAPI\b/i.test(entry.label)) return 'home-apis';
+    return 'home-services';
+  }
+
+  // Three independently collapsible sections (订阅 / API / 服务), always foldable on desktop with persistent state.
+  const sections = $derived.by((): Section[] => {
+    const buckets: Record<SectionId, Entry[]> = { 'home-plans': [], 'home-apis': [], 'home-services': [] };
+    for (const entry of entries) {
+      if (entry.separator) continue;
+      buckets[sectionOf(entry)].push(entry);
+    }
+    const defs: { id: SectionId; title: string; expandLabel: string; collapseLabel: string }[] = [
+      { id: 'home-plans', title: t('订阅'), expandLabel: '展开订阅', collapseLabel: '收起订阅' },
+      { id: 'home-apis', title: 'API', expandLabel: '展开 API', collapseLabel: '收起 API' },
+      { id: 'home-services', title: t('服务'), expandLabel: '展开服务', collapseLabel: '收起服务' },
+    ];
+    return defs
+      .filter((def) => buckets[def.id].length > 0)
+      .map((def) => {
+        const items = buckets[def.id];
+        let preview: PreviewItem[] = [];
+        if (def.id === 'home-plans') {
+          preview = items
+            .filter((e) => e.value && (usageShare(e) !== null || (e.gauges?.length ?? 0) > 0))
+            .slice(0, 3)
+            .map((e) => ({ label: shortPlan(e.label), value: shortShare(e.value!), level: e.usageLevel }));
+        } else if (def.id === 'home-apis') {
+          preview = items
+            .filter((e) => e.value)
+            .slice(0, 2)
+            .map((e) => ({ label: shortApi(e.label), value: shortApiValue(e.value!), level: e.usageLevel }));
+        } else {
+          preview = items
+            .filter((e) => e.value)
+            .slice(0, 2)
+            .map((e) => ({ value: e.value!, level: e.usageLevel }));
+        }
+        return {
+          ...def,
+          items,
+          preview,
+          attention: items.filter((e) => e.attention).length,
+        };
+      });
   });
-  const attentionCount = $derived(entries.filter((e) => !e.separator && e.attention).length);
-  const rowCount = $derived(entries.filter((e) => !e.separator).length);
 
   const hasIcon = (e: Entry) => e.image !== undefined || e.symbol !== undefined || e.checked !== undefined || e.statusLight !== undefined;
   const column = $derived(entries.some(hasIcon) ? 36 : 12);
@@ -169,45 +223,47 @@
       <div class="placeholder">{t('AI 用量面板')}</div>
     {/if}
     <div class="rows" class:dragging={lifted !== null}>
-      <div class="divider lead"></div>
-      {#if canFoldRows}
-        <button class="rows-fold pressable" aria-expanded={rowsOpen} aria-label={t(rowsOpen ? '收起订阅与服务' : '展开订阅与服务')} onclick={toggleRows}>
-          <svg class="fold-chevron" class:open={rowsOpen} width="8" height="10" viewBox="0 0 8 10" aria-hidden="true">
-            <path d="M2 1 6 5 2 9" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
-          <span class="fold-title">{t('订阅与服务')}</span>
-          {#if !rowsOpen}
-            <span class="fold-preview">
-              <span class="fold-summary">
-                {#if planPreview.length}
-                  {#each planPreview as item, idx (idx)}{#if idx > 0}<span class="fold-dot"> · </span>{/if}{item.label} <span class="num" style:color={usageColor(item.level)}>{item.value}</span>{/each}
-                {:else}
-                  {rowCount === 1 ? t('共 1 项') : t('共 {n} 项', { n: rowCount })}
-                {/if}
+      {#each sections as section, idx (section.id)}
+        {@const open = onPhone || !sectionFolded(section.id)}
+        <div class="divider" class:lead={idx === 0}></div>
+        {#if !onPhone}
+          <button class="rows-fold pressable" data-section={section.id} aria-expanded={open}
+            aria-label={t(open ? section.collapseLabel : section.expandLabel)} onclick={() => toggleSection(section.id)}>
+            <svg class="fold-chevron" class:open width="8" height="10" viewBox="0 0 8 10" aria-hidden="true">
+              <path d="M2 1 6 5 2 9" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <span class="fold-title">{section.title}</span>
+            {#if !open}
+              <span class="fold-preview">
+                <span class="fold-summary">
+                  {#if section.preview.length}
+                    {#each section.preview as item, pIdx (pIdx)}{#if pIdx > 0}<span class="fold-dot"> · </span>{/if}{#if item.label}{item.label} {/if}<span class="num" style:color={usageColor(item.level)}>{item.value}</span>{/each}
+                  {:else}
+                    {section.items.length === 1 ? t('共 1 项') : t('共 {n} 项', { n: section.items.length })}
+                  {/if}
+                </span>
+                {#if section.attention > 0}<span class="fold-ping" aria-hidden="true"></span>{/if}
               </span>
-              {#if attentionCount > 0}<span class="fold-ping" aria-hidden="true"></span>{/if}
-            </span>
-          {:else}
-            <span class="fold-hint">{t('收起')}</span>
-          {/if}
-        </button>
-      {/if}
-      {#if rowsOpen}
-      {#each entries as entry, i (entry.module ?? entryKey(entry) + ':' + i)}
-        {#if entry.separator}
-          <div class="divider"></div>
-        {:else if entry.module}
-          {@const key = entry.module}
-          <div class="slot" class:lifted={lifted?.key === key} data-module={key} bind:this={slots[key]} style:transform="translateY({offset(key)}px)"
-            role="presentation" onpointerdown={(event) => down(event, entry)}
-            onclickcapture={(event) => { if (swallow) { event.stopPropagation(); event.preventDefault(); } }} onkeydown={(event) => keydown(event, entry)}>
-            <HomeRow {entry} {column} rowWidth={panel.width - 16} {onactivate} />
-          </div>
-        {:else}
-          <HomeRow {entry} {column} rowWidth={panel.width - 16} {onactivate} />
+            {:else}
+              <span class="fold-hint">{t('收起')}</span>
+            {/if}
+          </button>
+        {/if}
+        {#if open}
+          {#each section.items as entry, i (entry.module ?? entryKey(entry) + ':' + i)}
+            {#if entry.module}
+              {@const key = entry.module}
+              <div class="slot" class:lifted={lifted?.key === key} data-module={key} bind:this={slots[key]} style:transform="translateY({offset(key)}px)"
+                role="presentation" onpointerdown={(event) => down(event, entry)}
+                onclickcapture={(event) => { if (swallow) { event.stopPropagation(); event.preventDefault(); } }} onkeydown={(event) => keydown(event, entry)}>
+                <HomeRow {entry} {column} rowWidth={panel.width - 16} {onactivate} />
+              </div>
+            {:else}
+              <HomeRow {entry} {column} rowWidth={panel.width - 16} {onactivate} />
+            {/if}
+          {/each}
         {/if}
       {/each}
-      {/if}
     </div>
   </Scroller>
 </div>

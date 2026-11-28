@@ -104,9 +104,89 @@ def priced(price, event, multiplier=1.0):
     return (inputs*price['input'] + cached*price['cacheRead'] + output*price['output'] + writes*price['cacheWrite']) * multiplier / 1e6
 
 
+_COLON_TAGS = frozenset({
+    'free', 'thinking', 'nitro', 'online', 'exacto', 'extended', 'floor', 'beta', 'preview',
+    'fast', 'high', 'medium', 'low', 'xhigh', 'standard', 'flex', 'priority',
+})
+_TIER_WORDS = frozenset({
+    'pro', 'flash', 'mini', 'nano', 'lite', 'opus', 'sonnet', 'haiku', 'max', 'ultra', 'plus',
+    'reasoner', 'r1', 'codex', 'spark', 'vision', 'ocr', 'image', 'audio', 'realtime', 'embed',
+    'embedding', 'chat', 'fable', 'sol', 'luna', 'astra', 'neon',
+})
+
+
+def normalize_model(raw):
+    """Strip gateway/path/region/context wrappers (workbuddy/, cn:, ai., myapi., @500k, :thinking) while keeping
+    version numbers (v4.1, gpt-5.5) intact."""
+    s = str(raw or '').strip().lower().rsplit('/', 1)[-1]
+    if '@' in s:
+        s = s.split('@', 1)[0]
+    while ':' in s:
+        head, tail = s.rsplit(':', 1)
+        if tail in _COLON_TAGS:
+            s = head
+        else:
+            break
+    if ':' in s:
+        _, tail = s.rsplit(':', 1)
+        if tail:
+            s = tail
+    while '.' in s:
+        prefix, rest = s.split('.', 1)
+        if len(prefix) >= 2 and all(c.isascii() and (c.isalpha() or c == '_') for c in prefix) and len(rest) >= 3 and rest[0].isascii() and rest[0].isalpha():
+            s = rest
+        else:
+            break
+    return s
+
+
+def _swap_version_sep(model, src, dst):
+    chars = list(model)
+    for i in range(1, len(chars) - 1):
+        if chars[i] == src and chars[i - 1].isdigit() and chars[i + 1].isdigit():
+            chars[i] = dst
+    return ''.join(chars)
+
+
+def _lookup_exact_or_variant(models, candidate):
+    base = re.sub(r'-(?:\d{4}-\d{2}-\d{2}|\d{8})$', '', candidate)
+    for text in (candidate, base):
+        if models.get(text):
+            return text
+        dashed = _swap_version_sep(text, '.', '-')
+        if dashed != text and models.get(dashed):
+            return dashed
+        dotted = _swap_version_sep(text, '-', '.')
+        if dotted != text and models.get(dotted):
+            return dotted
+    return None
+
+
+def lookup_model_key(models, raw):
+    lower = str(raw or '').strip().lower()
+    if models.get(lower):
+        return lower
+    norm = normalize_model(raw)
+    if not norm:
+        return None
+    hit = _lookup_exact_or_variant(models, norm)
+    if hit:
+        return hit
+    cur = re.sub(r'-(?:\d{4}-\d{2}-\d{2}|\d{8})$', '', norm)
+    while '-' in cur:
+        head, tail = cur.rsplit('-', 1)
+        if tail in _TIER_WORDS or '-' not in head:
+            break
+        hit = _lookup_exact_or_variant(models, head)
+        if hit:
+            return hit
+        cur = head
+    return None
+
+
 def codex_cost(event):
     """API-equivalent estimate with ccusage's Codex rules; unknown models stay unpriced."""
-    table = pricing('codex-pricing.json'); model = str(event.get('model') or '')
+    table = pricing('codex-pricing.json'); model = normalize_model(event.get('model') or '')
     if model == 'codex-auto-review':
         # The reviewer bills as the newest model released by the request's (UTC) day; a request read live is today's.
         stamp = event.get('timestamp')
@@ -114,19 +194,25 @@ def codex_cost(event):
         model = next((row['model'] for row in table.get('autoReviewFallbacks', []) if day >= row['releasedOn']), 'gpt-5')
     base = re.sub(r'-(?:\d{4}-\d{2}-\d{2}|\d{8})$', '', model)
     resolved = table.get('aliases', {}).get(base, base); models = table.get('models', {})
-    price = models.get(resolved) or models.get(base)
+    matched = lookup_model_key(models, resolved) or lookup_model_key(models, base)
+    price = models.get(matched) if matched else None
     if not price: return None
     rate = table.get('multipliers', {}).get(event.get('tier') or 'standard', {})
-    return priced(price, event, rate.get(resolved, rate.get(base, 1.0)))
+    return priced(price, event, rate.get(matched, rate.get(resolved, rate.get(base, 1.0))))
 
 
 def model_cost(event):
     """Other vendors' models (DeepSeek, GLM, Kimi, Gemini…) from the same ccusage snapshot.
     Used only when the client logged no cost; names it does not list stay unpriced."""
+    raw = str(event.get('model') or '')
     models = pricing('model-pricing.json').get('models', {})
-    model = str(event.get('model') or '').lower().rsplit('/', 1)[-1]
-    price = models.get(model) or models.get(re.sub(r'-(?:\d{4}-\d{2}-\d{2}|\d{8})$', '', model))
-    return priced(price, event) if price else None
+    matched = lookup_model_key(models, raw)
+    if matched and models.get(matched):
+        return priced(models[matched], event)
+    norm = normalize_model(raw)
+    if norm.startswith(('gpt-', 'o1', 'o3', 'o4', 'codex-')):
+        return codex_cost(event)
+    return None
 
 
 def identity(*values):

@@ -3357,32 +3357,42 @@ test('the page carries no inline style: in the app, under its CSP, nothing stand
   }))).toEqual({ above: 0, filters: 'absolute' });
 });
 
-test('FOLD-1: 允许折叠 folds subscriptions, API and other into one bar with quick-glance plan usage, unfolding in place', async ({ page }) => {
+test('FOLD-1: 订阅, API and 服务 fold independently with persistent state, and 允许折叠 folds/unfolds all three', async ({ page }) => {
   await open(page);
-  // Before enabling 允许折叠: lower rows are shown directly with no combined fold toggle.
-  await expect(page.locator('.rows-fold')).toHaveCount(0);
+  // All three sections start expanded on a fresh panel, each with its own fold toggle.
+  const plans = page.locator('.rows-fold[data-section="home-plans"]');
+  const apis = page.locator('.rows-fold[data-section="home-apis"]');
+  const services = page.locator('.rows-fold[data-section="home-services"]');
+  await expect(plans).toHaveAttribute('aria-expanded', 'true');
+  await expect(apis).toHaveAttribute('aria-expanded', 'true');
+  await expect(services).toHaveAttribute('aria-expanded', 'true');
   await expect(page.locator('.row', { hasText: 'Kimi API' })).toBeVisible();
-  // Enable 允许折叠 in 外观.
+
+  // Fold API alone: subscriptions and services stay open, API shows compact preview, and the choice survives reload.
+  await apis.click();
+  await expect(apis).toHaveAttribute('aria-expanded', 'false');
+  await expect(apis.locator('.fold-preview')).toBeVisible();
+  await expect(plans).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator('.row', { hasText: 'Kimi API' })).toHaveCount(0);
+  await expect(page.locator('.row', { hasText: 'ChatGPT 订阅' })).toBeVisible();
+  await page.reload();
+  await expect(page.locator('.rows-fold[data-section="home-apis"]')).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('.rows-fold[data-section="home-plans"]')).toHaveAttribute('aria-expanded', 'true');
+
+  // Enabling 允许折叠 in 外观 folds all three sections at once; each can still be unfolded individually.
   await button(page, '主页模块与设置').click();
   await page.getByText('外观', { exact: true }).click();
   await page.getByRole('switch', { name: /^允许折叠/ }).click();
   await page.keyboard.press('Escape');
   await page.keyboard.press('Escape');
-  // Lower groups collapse into one combined bar showing subscription preview; individual rows are hidden.
-  const toggle = page.locator('.rows-fold');
-  await expect(toggle).toBeVisible();
-  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
-  await expect(toggle.locator('.fold-preview')).toBeVisible();
-  await expect(toggle).toContainText('ChatGPT');
-  await expect(page.locator('.row', { hasText: 'Kimi API' })).toHaveCount(0);
-  // Clicking the bar expands subscriptions, API, and other rows in place.
-  await toggle.click();
-  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(plans).toHaveAttribute('aria-expanded', 'false');
+  await expect(plans).toContainText('ChatGPT');
+  await expect(apis).toHaveAttribute('aria-expanded', 'false');
+  await expect(services).toHaveAttribute('aria-expanded', 'false');
+  await apis.click();
+  await expect(apis).toHaveAttribute('aria-expanded', 'true');
   await expect(page.locator('.row', { hasText: 'Kimi API' })).toBeVisible();
-  // Clicking again collapses them back into one bar.
-  await toggle.click();
-  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
-  await expect(page.locator('.row', { hasText: 'Kimi API' })).toHaveCount(0);
+  await expect(plans).toHaveAttribute('aria-expanded', 'false');
 });
 
 test('PERF-10: LiveFeed.smoothRates reacts immediately on landing without 10s delay and decays naturally when idle', async ({ page }) => {

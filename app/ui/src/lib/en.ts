@@ -121,7 +121,7 @@ export const phrases: Record<string, string> = {
   新版本的签名者与已安装的不一致: 'The new version isn\'t signed by the same developer as the installed one',
   发布中没有安装包: 'The release has no package', 发布中没有校验值: 'The release has no checksum', 校验值格式错误: 'The checksum is malformed',
   // The settings: 外观, 通用, 提醒 and 数据
-  允许折叠: 'Allow folding', '卡片折成两行，点卡片就地展开': 'Cards fold to two lines and open where they are', 展开订阅与服务: 'Expand plans and services', 收起订阅与服务: 'Collapse plans and services', '共 1 项': '1 item', '共 {n} 项': '{n} items', 外观: 'Appearance', 通用: 'General', 提醒: 'Alerts', 跟随系统: 'System', 浅色: 'Light', 深色: 'Dark', 实色: 'Solid',
+  允许折叠: 'Allow folding', '卡片折成两行，点卡片就地展开': 'Cards fold to two lines and open where they are', 展开订阅与服务: 'Expand plans and services', 收起订阅与服务: 'Collapse plans and services', 展开订阅: 'Expand subscriptions', 收起订阅: 'Collapse subscriptions', '展开 API': 'Expand APIs', '收起 API': 'Collapse APIs', 展开服务: 'Expand services', 收起服务: 'Collapse services', '共 1 项': '1 item', '共 {n} 项': '{n} items', 外观: 'Appearance', 通用: 'General', 提醒: 'Alerts', 跟随系统: 'System', 浅色: 'Light', 深色: 'Dark', 实色: 'Solid',
   磨砂: 'Frosted', 玻璃: 'Glass', 显示: 'Display', '语言 Language': 'Language', 金额显示: 'Currency', '美元（$）': 'US dollar ($)',
   '人民币（¥）': 'Chinese yuan (¥)', '汇率…': 'Exchange rate…', 美元: 'US dollar', 人民币: 'Chinese yuan', 每天自动更新: 'Updated daily',
   手动: 'set by hand', 菜单栏显示: 'Menu bar', 只显示星星: 'Star only', '今天的 API 估算': 'Today\'s API estimate',
@@ -323,7 +323,7 @@ export const phrases: Record<string, string> = {
   休息中: 'Resting', '休息中 · 刚刚还在工作': 'Resting · working a moment ago', '休息中 · 上次活动 {n} 分钟前': 'Resting · last active {n} min ago',
   '输出 Token/s': 'Output tokens/s', '今天 · API 估算': 'Today · API estimate', '{range} · API 估算': '{range} · API estimate', '近 1 分钟': 'Last minute', '{n} 分钟前': '{n} min ago',
   '{n} 分钟': '{n} min', '{m} 分 {s} 秒': '{m} min {s} s', '{s} 秒': '{s} s', '{h} 小时 {m} 分钟': '{h} hr {m} min', '{h} 小时 {m} 分': '{h} hr {m} min', '+{n} Token': '+{n} tokens', 这一轮完成: 'Turn done',
-  '这一轮完成 · {d}': 'Turn done · {d}', 开始新一轮: 'New turn', '调用 {tools}': 'Called {tools}', 开始工作: 'Started working', 正在运行: 'Running',
+  '这一轮完成 · {d}': 'Turn done · {d}', 开始新一轮: 'New turn', '调用 {tools}': 'Called {tools}', 开始工作: 'Started working', 正在运行: 'Running', 最近完成: 'Last active',
   本轮用时: 'This turn so far', '上下文 {n}%': 'Context {n}%', 没有在运行的会话: 'No session running', 开始休息: 'Stopped working',
   动态: 'Activity', '等下一笔请求…': 'Waiting for the next request…', 一有动静就会出现在这里: 'What happens shows up here', '等 {n} 个': 'and {n} more', '图 1 · ': 'Fig. 1 · ', 总量: 'Total',
   // The panel's own labels

@@ -2365,7 +2365,7 @@ def ocx_range_usage(key,now):
     return payload
 
 def magpie_price(event):
-    model=event['model'].lower().rsplit('/',1)[-1]
+    model=sources.normalize_model(event['model'])
     if model.startswith('claude-'):
         # Gemini's Antigravity requests come without one-hour writes or fast mode: none of either.
         one_hour=event.get('write1h',0)

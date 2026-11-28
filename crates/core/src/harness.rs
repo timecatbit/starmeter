@@ -1644,8 +1644,7 @@ pub fn is_absolute(path: &str) -> bool {
 /// Magpie's requests priced by the model actually served: Claude's own prices (with its one-hour cache writes and
 /// fast mode), the Codex table for GPT and Codex models, and the shared table for the rest.
 pub fn magpie_price(event: &Event) -> Option<f64> {
-    let lowered = py::str(event.get("model")).to_lowercase();
-    let model = lowered.rsplit('/').next().unwrap_or("").to_string();
+    let model = pricing::normalize_model(&py::str(event.get("model")));
     if model.starts_with("claude-") {
         let one_hour = event.get("write1h").and_then(Json::number).unwrap_or(0.0);
         let metrics = [

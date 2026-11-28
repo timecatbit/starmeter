@@ -269,22 +269,25 @@ fn antigravity_summary(
     // Open each conversation_summaries.db once per Antigravity root instead of N+1 opens per conversation (PERF-5).
     let db_slot = lists.entry(list.clone()).or_insert_with(|| open_index(&list));
     let Some(db) = db_slot.as_ref() else { return Summary::default() };
-    let full = "SELECT title, status, not_fully_idle, workspace_uris, parent_conversation_id FROM conversation_summaries \
+    let full = "SELECT title, status, not_fully_idle, workspace_uris, parent_conversation_id, killed FROM conversation_summaries \
                 WHERE conversation_id=?";
+    let mid = "SELECT title, status, not_fully_idle, workspace_uris, parent_conversation_id FROM conversation_summaries \
+               WHERE conversation_id=?";
     let short =
         "SELECT title, status, not_fully_idle, workspace_uris FROM conversation_summaries WHERE conversation_id=?";
     let id = [Value::Text(conversation.to_string())];
-    // An older list keeps no parent: every conversation stands alone there.
-    let row = db.first(full, &id).or_else(|_| db.first(short, &id)).ok().flatten();
+    // Older lists may lack `killed` or `parent_conversation_id`.
+    let row = db.first(full, &id).or_else(|_| db.first(mid, &id)).or_else(|_| db.first(short, &id)).ok().flatten();
     let Some(row) = row else { return Summary::default() };
     let parent =
         row.get(4).and_then(database::text).map(str::trim).filter(|parent| !parent.is_empty()).map(String::from);
     let title = row.first().and_then(database::text).map(str::trim).filter(|title| !title.is_empty()).map(String::from);
     let status = row.get(1).and_then(database::text).unwrap_or("").trim();
     let busy = row.get(2).and_then(database::int).is_some_and(|flag| flag != 0);
-    // Trust explicit non-RUNNING status (IDLE / WAITING / DONE / CANCELLED / ERROR); only fall back to
-    // `not_fully_idle` when `status` is empty, so finished turns don't linger as running.
-    let running = Some(if status.is_empty() { busy } else { status.contains("RUNNING") });
+    let killed = row.get(5).and_then(database::int).is_some_and(|flag| flag != 0);
+    // Antigravity sets `status = IDLE` while waiting on a running background command or subagent, keeping
+    // `not_fully_idle = 1` until all work finishes; once truly done both clear (`IDLE` + `not_fully_idle = 0`).
+    let running = Some(!killed && (status.contains("RUNNING") || busy));
     let project = row.get(3).and_then(database::text).and_then(harness::workspace_project);
     Summary { title, running, project, parent }
 }
@@ -1468,5 +1471,36 @@ mod reading {
             .unwrap();
         assert_eq!(super::gemini_cli_running(&g.to_string_lossy()), Some(false));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn antigravity_not_fully_idle_keeps_background_session_running_until_cleared_or_killed() {
+        use super::{Database, HashMap, Mode};
+        let root = std::env::temp_dir().join(format!("starmeter-agy-idle-{}", crate::runtime::random_hex(6)));
+        let convs = root.join("conversations");
+        std::fs::create_dir_all(&convs).unwrap();
+        let db = Database::open(&root.join("conversation_summaries.db"), 2.0, Mode::ReadWrite).unwrap();
+        db.execute(
+            "CREATE TABLE conversation_summaries (\
+             conversation_id TEXT PRIMARY KEY, title TEXT, status TEXT, not_fully_idle INTEGER, \
+             workspace_uris TEXT, parent_conversation_id TEXT, killed INTEGER)",
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO conversation_summaries VALUES \
+             ('bg', 'Bg task', 'CASCADE_RUN_STATUS_IDLE', 1, '', '', 0), \
+             ('done', 'Done', 'CASCADE_RUN_STATUS_IDLE', 0, '', '', 0), \
+             ('dead', 'Killed', 'CASCADE_RUN_STATUS_RUNNING', 1, '', '', 1)",
+        )
+        .unwrap();
+        drop(db);
+        let mut lists = HashMap::new();
+        let bg = super::antigravity_summary(&convs.join("bg.db").to_string_lossy(), "bg", &mut lists);
+        let done = super::antigravity_summary(&convs.join("done.db").to_string_lossy(), "done", &mut lists);
+        let dead = super::antigravity_summary(&convs.join("dead.db").to_string_lossy(), "dead", &mut lists);
+        assert_eq!(bg.running, Some(true), "background command/subagent (`not_fully_idle=1`) must remain running");
+        assert_eq!(done.running, Some(false), "cleared `IDLE` + `not_fully_idle=0` is idle");
+        assert_eq!(dead.running, Some(false), "killed session is not running");
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -27,7 +27,7 @@
   import PhoneStage from './components/PhoneStage.svelte';
   import StageWaiting from './components/StageWaiting.svelte';
   import HomePage from './components/HomePage.svelte';
-  import { closeList } from './lib/expanded.svelte';
+  import { foldSection, unfoldSection } from './lib/expanded.svelte';
   import InlineAsk from './components/InlineAsk.svelte';
   import ModulesPage from './components/ModulesPage.svelte';
   import SharePage from './components/SharePage.svelte';
@@ -627,7 +627,10 @@
       });
       return;
     }
-    if (action[0] === 'set-collapse' && action[1] === 'true') closeList('home-rows');
+    if (action[0] === 'set-collapse') {
+      const fn = action[1] === 'true' ? foldSection : unfoldSection;
+      for (const section of ['home-plans', 'home-apis', 'home-services']) fn(section);
+    }
     if (action[0] === 'set-range') {
       pickedRange = action[1] === snapshot?.dashboard?.rangeKey && !waiting ? null : action[1];
       pickedAt = Date.now();

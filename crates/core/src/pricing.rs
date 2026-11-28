@@ -195,10 +195,141 @@ fn nonempty_object(value: Option<&Json>) -> Option<&Object> {
     value.and_then(Json::as_object).filter(|object| !object.is_empty())
 }
 
+/// Trailing colon tags added by routers/gateways (e.g. `:free`, `:thinking`, `:nitro`).
+const COLON_TAGS: [&str; 17] = [
+    "free", "thinking", "nitro", "online", "exacto", "extended", "floor", "beta", "preview", "fast", "high", "medium",
+    "low", "xhigh", "standard", "flex", "priority",
+];
+
+/// Pricing-tier keywords that must never be dropped during guarded suffix fallback, so a Flash/Mini/Pro/Sol model can
+/// never degrade to a differently priced sibling.
+const TIER_WORDS: [&str; 28] = [
+    "pro",
+    "flash",
+    "mini",
+    "nano",
+    "lite",
+    "opus",
+    "sonnet",
+    "haiku",
+    "max",
+    "ultra",
+    "plus",
+    "reasoner",
+    "r1",
+    "codex",
+    "spark",
+    "vision",
+    "ocr",
+    "image",
+    "audio",
+    "realtime",
+    "embed",
+    "embedding",
+    "chat",
+    "fable",
+    "sol",
+    "luna",
+    "astra",
+    "neon",
+];
+
+/// Normalizes a logged model name by stripping gateway/path/region/context wrappers (`workbuddy/`, `cn:`, `ai.`,
+/// `myapi.`, `@500k`, `:thinking`) while keeping version numbers (`v4.1`, `gpt-5.5`) intact.
+pub fn normalize_model(raw: &str) -> String {
+    let lower = raw.trim().to_lowercase();
+    let mut s = lower.rsplit('/').next().unwrap_or("").to_string();
+    if let Some((head, _)) = s.split_once('@') {
+        s = head.to_string();
+    }
+    while let Some((head, tail)) = s.rsplit_once(':') {
+        if COLON_TAGS.contains(&tail) {
+            s = head.to_string();
+        } else {
+            break;
+        }
+    }
+    if let Some((_, tail)) = s.rsplit_once(':')
+        && !tail.is_empty()
+    {
+        s = tail.to_string();
+    }
+    while let Some((prefix, rest)) = s.split_once('.') {
+        if prefix.len() >= 2
+            && prefix.bytes().all(|b| b.is_ascii_alphabetic() || b == b'_')
+            && rest.len() >= 3
+            && rest.bytes().next().is_some_and(|b| b.is_ascii_alphabetic())
+        {
+            s = rest.to_string();
+        } else {
+            break;
+        }
+    }
+    s
+}
+
+/// Swaps version separators between digits (`v4.1` <-> `v4-1`).
+fn swap_version_sep(model: &str, from: u8, to: u8) -> String {
+    let bytes = model.as_bytes();
+    let mut out = bytes.to_vec();
+    for i in 1..bytes.len().saturating_sub(1) {
+        if bytes[i] == from && bytes[i - 1].is_ascii_digit() && bytes[i + 1].is_ascii_digit() {
+            out[i] = to;
+        }
+    }
+    String::from_utf8(out).unwrap_or_else(|_| model.to_string())
+}
+
+fn lookup_exact_or_variant(models: &Object, candidate: &str) -> Option<String> {
+    let base = undated(candidate);
+    for text in [candidate, base] {
+        if nonempty_object(models.get(text)).is_some() {
+            return Some(text.to_string());
+        }
+        let dashed = swap_version_sep(text, b'.', b'-');
+        if dashed != text && nonempty_object(models.get(&dashed)).is_some() {
+            return Some(dashed);
+        }
+        let dotted = swap_version_sep(text, b'-', b'.');
+        if dotted != text && nonempty_object(models.get(&dotted)).is_some() {
+            return Some(dotted);
+        }
+    }
+    None
+}
+
+/// Resolves a model key in `models` using normalized exact match, version separator match, and guarded trailing
+/// hyphen-segment fallback (never dropping pricing-tier words or degrading to a bare vendor name).
+pub fn lookup_key(models: &Object, raw: &str) -> Option<String> {
+    let lower = raw.trim().to_lowercase();
+    if nonempty_object(models.get(&lower)).is_some() {
+        return Some(lower);
+    }
+    let norm = normalize_model(raw);
+    if norm.is_empty() {
+        return None;
+    }
+    if let Some(hit) = lookup_exact_or_variant(models, &norm) {
+        return Some(hit);
+    }
+    let mut cur = undated(&norm).to_string();
+    while let Some((head, tail)) = cur.rsplit_once('-') {
+        if TIER_WORDS.contains(&tail) || !head.contains('-') {
+            break;
+        }
+        if let Some(hit) = lookup_exact_or_variant(models, head) {
+            return Some(hit);
+        }
+        cur = head.to_string();
+    }
+    None
+}
+
 /// API-equivalent estimate with ccusage's Codex rules; unknown models stay unpriced.
 pub fn codex_cost(event: &Object) -> Option<f64> {
     let table = table("codex-pricing.json");
-    let mut model = py::str(Some(&py::or(event.get("model"), Json::from(""))));
+    let raw = py::str(Some(&py::or(event.get("model"), Json::from(""))));
+    let mut model = normalize_model(&raw);
     if model == "codex-auto-review" {
         // The reviewer bills as the newest model released by the request's (UTC) day; a request read live is today's.
         let when = event.get("timestamp").and_then(Json::number).unwrap_or_else(now);
@@ -216,7 +347,8 @@ pub fn codex_cost(event: &Object) -> Option<f64> {
     let base = undated(&model);
     let resolved = table.get("aliases").and_then(|aliases| aliases.get(base)).and_then(Json::as_str).unwrap_or(base);
     let models = table.get("models").and_then(Json::as_object).cloned().unwrap_or_default();
-    let price = nonempty_object(models.get(resolved)).or_else(|| nonempty_object(models.get(base)))?;
+    let matched = lookup_key(&models, resolved).or_else(|| lookup_key(&models, base))?;
+    let price = nonempty_object(models.get(&matched))?;
     let tier = py::or(event.get("tier"), Json::from("standard"));
     let rates = tier
         .as_str()
@@ -224,18 +356,30 @@ pub fn codex_cost(event: &Object) -> Option<f64> {
         .and_then(Json::as_object)
         .cloned()
         .unwrap_or_default();
-    let multiplier =
-        rates.get(resolved).and_then(Json::number).or_else(|| rates.get(base).and_then(Json::number)).unwrap_or(1.0);
+    let multiplier = rates
+        .get(&matched)
+        .and_then(Json::number)
+        .or_else(|| rates.get(resolved).and_then(Json::number))
+        .or_else(|| rates.get(base).and_then(Json::number))
+        .unwrap_or(1.0);
     Some(priced(price, event, multiplier))
 }
 
 /// Other vendors' models (DeepSeek, GLM, Kimi, Gemini…) from the same snapshot, when the client logged no cost.
+/// Also handles gateway-wrapped OpenAI/Codex models logged through non-Codex harnesses.
 pub fn model_cost(event: &Object) -> Option<f64> {
+    let raw = py::str(Some(&py::or(event.get("model"), Json::from(""))));
     let models = table("model-pricing.json").get("models").and_then(Json::as_object).cloned().unwrap_or_default();
-    let name = py::str(Some(&py::or(event.get("model"), Json::from("")))).to_lowercase();
-    let model = name.rsplit('/').next().unwrap_or(&name);
-    let price = nonempty_object(models.get(model)).or_else(|| nonempty_object(models.get(undated(model))))?;
-    Some(priced(price, event, 1.0))
+    if let Some(matched) = lookup_key(&models, &raw)
+        && let Some(price) = nonempty_object(models.get(&matched))
+    {
+        return Some(priced(price, event, 1.0));
+    }
+    let norm = normalize_model(&raw);
+    if ["gpt-", "o1", "o3", "o4", "codex-"].iter().any(|prefix| norm.starts_with(prefix)) {
+        return codex_cost(event);
+    }
+    None
 }
 
 fn now() -> f64 {
@@ -296,5 +440,42 @@ pub mod claude {
         }
         let total: f64 = metrics.iter().zip(rates).map(|(count, rate)| count * rate).sum();
         Some(total * factor / 1e6)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::object;
+
+    #[test]
+    fn normalizes_wrapped_model_names_without_crossing_pricing_tiers() {
+        assert_eq!(normalize_model("cn:deepseek-v4.1-flash-1017"), "deepseek-v4.1-flash-1017");
+        assert_eq!(normalize_model("workbuddy/deepseek-v4.1-flash"), "deepseek-v4.1-flash");
+        assert_eq!(normalize_model("ai.deepseek-v4-pro"), "deepseek-v4-pro");
+        assert_eq!(normalize_model("myapi.gpt-5.5-pro"), "gpt-5.5-pro");
+        assert_eq!(normalize_model("oii/gpt-5.6-sol"), "gpt-5.6-sol");
+        assert_eq!(normalize_model("grok-4.7@500k"), "grok-4.7");
+        assert_eq!(normalize_model("cn:deepseek-v4.1-flash:thinking"), "deepseek-v4.1-flash");
+        assert_eq!(normalize_model("us.anthropic.claude-sonnet-4-5"), "claude-sonnet-4-5");
+        // Version dots must stay intact.
+        assert_eq!(normalize_model("gpt-5.5"), "gpt-5.5");
+        assert_eq!(normalize_model("deepseek-v4.1-flash"), "deepseek-v4.1-flash");
+
+        let table = object! {
+            "deepseek-v4.1-flash" => object! { "input" => 0.1, "output" => 0.2, "cacheRead" => 0.01, "cacheWrite" => 0.0 },
+            "deepseek-v4-pro" => object! { "input" => 1.0, "output" => 2.0, "cacheRead" => 0.1, "cacheWrite" => 0.0 },
+            "grok-4.7" => object! { "input" => 3.0, "output" => 15.0, "cacheRead" => 0.3, "cacheWrite" => 0.0 },
+            "gpt-5" => object! { "input" => 1.25, "output" => 10.0, "cacheRead" => 0.125, "cacheWrite" => 0.0 },
+        };
+        assert_eq!(lookup_key(&table, "cn:deepseek-v4.1-flash-sg").as_deref(), Some("deepseek-v4.1-flash"));
+        assert_eq!(lookup_key(&table, "deepseek-v4-1-flash-cn").as_deref(), Some("deepseek-v4.1-flash"));
+        assert_eq!(lookup_key(&table, "ai.deepseek-v4-pro").as_deref(), Some("deepseek-v4-pro"));
+        assert_eq!(lookup_key(&table, "grok-4.7@500k").as_deref(), Some("grok-4.7"));
+        // Guardrails: never drop a pricing-tier keyword or match bare/ambiguous families.
+        assert_eq!(lookup_key(&table, "deepseek-v4"), None);
+        assert_eq!(lookup_key(&table, "gpt-5-super-pro"), None);
+        assert_eq!(lookup_key(&table, "gpt-5-unknown-mini"), None);
+        assert_eq!(lookup_key(&table, "default-model"), None);
     }
 }
