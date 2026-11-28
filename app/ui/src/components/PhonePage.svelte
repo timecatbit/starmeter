@@ -563,8 +563,11 @@
        alone, and the full link to copy by hand goes under the row instead (byHand). -->
   {@const done = copied?.key === key && copied.state === 'ok'}
   {@const parts = inline ? [] : linkParts(url)}
-  <button class="copy-link pressable" onclick={() => copy(key, url)} title={url}>
-    <span class="address">{done ? t('已复制链接') : short ? url.replace(/^https?:\/\//, '').replace(/\/?#.*/, '') : url.replace(/#.*/, '')}</span>{#if parts.length}<span
+  {@const shown = short ? url.replace(/^https?:\/\//, '').replace(/\/?#.*/, '') : url.replace(/#.*/, '')}
+  <!-- Copied, 已复制链接 stands in the middle of the link's whole box (用户：已复制链接上下居中), the address and the key
+       kept in their places unseen, so the box is the same size and nothing under it moves. -->
+  <button class="copy-link pressable" class:done={done && parts.length > 0} onclick={() => copy(key, url)} title={url}>
+    {#if done && parts.length}<span class="room" aria-hidden="true">{shown}</span>{/if}<span class="address">{done ? t('已复制链接') : shown}</span>{#if parts.length}<span
       class="secret" class:gone={done}>{#each parts as part, i (i)}{#if i}<wbr />{/if}{part}{/each}</span>{/if}
   </button>
   {#if !inline}{@render byHand(key, url)}{/if}
@@ -895,14 +898,15 @@
   .wait-detail { max-width: 240px; font-size: 10.5px; line-height: 1.4; color: var(--tertiary); text-align: center; text-wrap: balance; }
   /* A code's link, whole: the address, then its key under it; long ones break where they must. */
   .copy-link {
-    --press-scale: 0.98; align-self: center; box-sizing: border-box; max-width: 100%; padding: 4px 8px; border-radius: 7px; font-size: 11px; line-height: 1.4;
+    --press-scale: 0.98; position: relative; align-self: center; box-sizing: border-box; max-width: 100%; padding: 4px 8px; border-radius: 7px; font-size: 11px; line-height: 1.4;
     color: var(--secondary); font-variant-numeric: tabular-nums; text-align: center; overflow-wrap: anywhere;
   }
   .copy-link:hover { background: var(--hover); }
-  .address, .secret { display: block; }
+  .address, .secret, .room { display: block; }
   .secret { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; }
-  /* Copied: 已复制链接 on the address's line, the key's lines kept empty for the moment. */
-  .secret.gone { visibility: hidden; }
+  /* Copied: 已复制链接 in the middle of the whole box, over the address and the key kept unseen in their places. */
+  .secret.gone, .room { visibility: hidden; }
+  .copy-link.done .address { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
   .manual-note { margin: 0; font-size: 10.5px; color: var(--orange); text-align: center; }
   .manual {
     align-self: stretch; height: 26px; padding: 0 8px; border: 0; border-radius: 7px; font: inherit; font-size: 11px;

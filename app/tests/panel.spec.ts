@@ -1708,12 +1708,26 @@ test('在手机上看: under a code the whole link is written out, key and all: 
   // 换链接 right under it.
   const line = (await phone.locator('.link-line').boundingBox())!;
   expect(line.y).toBeGreaterThanOrEqual(single.link.bottom - 9);
-  // Copied: 已复制链接 on the address's line, and the link's box as tall as it was, so nothing under it moves.
+  // Copied: 已复制链接 in the middle of the link's box, up and down and across (用户：已复制链接上下居中), the box as
+  // large as it was, so nothing under it moves.
   await link.click();
   await expect(link.locator('.address')).toHaveText('已复制链接');
   await expect(link.locator('.secret')).toBeHidden();
-  expect((await laid())[0].link.height).toBeCloseTo(single.link.height, 0);
+  const copied = await laid();
+  expect(copied[0].link.height).toBeCloseTo(single.link.height, 0);
+  expect(copied[0].link.left).toBeCloseTo(single.link.left, 0);
+  expect(copied[0].link.right).toBeCloseTo(single.link.right, 0);
   expect((await phone.locator('.link-line').boundingBox())!.y).toBeCloseTo(line.y, 0);
+  const said = await link.locator('.address').evaluate((element) => {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    const words = range.getBoundingClientRect(), box = element.closest('.copy-link')!.getBoundingClientRect();
+    return { words: (words.top + words.bottom) / 2, box: (box.top + box.bottom) / 2, across: (words.left + words.right) / 2, middle: (box.left + box.right) / 2 };
+  });
+  expect(Math.abs(said.words - said.box)).toBeLessThanOrEqual(1);
+  expect(Math.abs(said.across - said.middle)).toBeLessThanOrEqual(1);
+  // Only 已复制链接 is read out, not the address kept unseen under it.
+  await expect(link).toHaveAccessibleName('已复制链接');
   // Side by side (the VPN page's two codes): each card its own link, the key on two lines, both cards alike.
   await page.getByRole('radio', { name: '任何网络' }).click();
   await page.getByRole('radio', { name: 'Tailscale 等 VPN' }).click();
