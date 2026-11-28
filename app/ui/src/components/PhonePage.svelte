@@ -362,20 +362,22 @@
   let domainSavingPromise: Promise<void> | null = null;
   let domainSavingSubmitted = $state<string | null>(null);
   async function saveDomain() {
-    // Only deduplicate duplicate submits of the exact same target; a new value (including reverting back to the old
-    // value or clearing to empty) submitted mid-flight queues via serial() so it is never dropped (PHONE-FORM-1).
+    // Validate locally BEFORE touching the in-flight promise/target so an invalid draft (e.g. `2.2..`) never clears an
+    // active valid save's `domainSavingSubmitted` target (PHONE-FORM-1).
+    domainFailed = null;
+    if (domainWrong) { domainFailed = '格式不对：填域名或 IP，比如 starmeter.example.com'; return; }
+    // Only deduplicate duplicate submits of the exact same valid target; any different target (including reverting back
+    // to the old value or clearing to empty) submitted mid-flight queues via serial() so it is never dropped.
     if (
       domainSavingPromise &&
       domainSavingSubmitted !== null &&
       (domainSavingSubmitted === domainInput ||
-        (!domainWrong && (domainOrigin(domainSavingSubmitted) ?? '') === (domainOrigin(domainInput) ?? '')))
+        (domainOrigin(domainSavingSubmitted) ?? '') === (domainOrigin(domainInput) ?? ''))
     ) {
       return domainSavingPromise;
     }
     const submitted = domainInput;
     const run = (async () => {
-      domainFailed = null;
-      if (domainWrong) { domainFailed = '格式不对：填域名或 IP，比如 starmeter.example.com'; return; }
       const mine = ++domainRound;
       epoch++;
       domainSaving = true;

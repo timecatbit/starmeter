@@ -116,8 +116,37 @@ _TRAILING_MODIFIERS = frozenset({
 })
 
 
+_BARE_VENDORS = frozenset({
+    'deepseek', 'gpt', 'claude', 'gemini', 'grok', 'qwen', 'kimi', 'glm', 'minimax',
+    'openai', 'anthropic', 'google', 'meta', 'llama', 'mistral', 'moonshot',
+})
+_REGION_AREAS = frozenset({'us', 'eu', 'ap', 'cn', 'ca', 'sa', 'me', 'af', 'il'})
+_REGION_DIRS = frozenset({'north', 'south', 'east', 'west', 'central', 'northeast', 'northwest', 'southeast', 'southwest'})
+
+
 def _is_date_tag(segment):
     return len(segment) in (4, 6, 8) and segment.isascii() and segment.isdigit()
+
+
+def _strip_compound_region(model):
+    if '-' not in model:
+        return None
+    rest, num = model.rsplit('-', 1)
+    if not num or len(num) > 2 or not (num.isascii() and num.isdigit()):
+        return None
+    if '-' not in rest:
+        return None
+    rest, direction = rest.rsplit('-', 1)
+    if direction not in _REGION_DIRS or '-' not in rest:
+        return None
+    before_area, area = rest.rsplit('-', 1)
+    if area in _REGION_AREAS:
+        return before_area
+    if area == 'gov' and '-' in before_area:
+        before_gov, gov_area = before_area.rsplit('-', 1)
+        if gov_area in _REGION_AREAS:
+            return before_gov
+    return None
 
 
 def _strip_leading_dot_prefix(s):
@@ -199,9 +228,20 @@ def lookup_model_key(models, raw):
             return hit
     for candidate in candidates:
         cur = re.sub(r'-(?:\d{4}-\d{2}-\d{2}|\d{8})$', '', candidate)
-        while '-' in cur:
+        while True:
+            head = _strip_compound_region(cur)
+            if head is not None:
+                if not head or head in _BARE_VENDORS:
+                    break
+                hit = _lookup_exact_or_variant(models, head)
+                if hit:
+                    return hit
+                cur = head
+                continue
+            if '-' not in cur:
+                break
             head, tail = cur.rsplit('-', 1)
-            if (tail not in _TRAILING_MODIFIERS and not _is_date_tag(tail)) or '-' not in head:
+            if (tail not in _TRAILING_MODIFIERS and not _is_date_tag(tail)) or not head or head in _BARE_VENDORS:
                 break
             hit = _lookup_exact_or_variant(models, head)
             if hit:

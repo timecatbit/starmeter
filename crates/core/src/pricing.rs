@@ -256,6 +256,53 @@ fn is_date_tag(segment: &str) -> bool {
     matches!(segment.len(), 4 | 6 | 8) && segment.bytes().all(|b| b.is_ascii_digit())
 }
 
+/// Bare vendor/family names that must never be matched alone after stripping trailing modifiers.
+const BARE_VENDORS: [&str; 16] = [
+    "deepseek",
+    "gpt",
+    "claude",
+    "gemini",
+    "grok",
+    "qwen",
+    "kimi",
+    "glm",
+    "minimax",
+    "openai",
+    "anthropic",
+    "google",
+    "meta",
+    "llama",
+    "mistral",
+    "moonshot",
+];
+
+/// Strips a trailing compound cloud region suffix such as `-us-east-1`, `-us-west-2`, `-ap-southeast-1`,
+/// `-eu-central-1`, or `-us-gov-west-1` (`PRICE-REGION-1`).
+fn strip_compound_region(model: &str) -> Option<&str> {
+    const AREAS: [&str; 9] = ["us", "eu", "ap", "cn", "ca", "sa", "me", "af", "il"];
+    const DIRS: [&str; 9] =
+        ["north", "south", "east", "west", "central", "northeast", "northwest", "southeast", "southwest"];
+    let (rest, num) = model.rsplit_once('-')?;
+    if num.is_empty() || num.len() > 2 || !num.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let (rest, dir) = rest.rsplit_once('-')?;
+    if !DIRS.contains(&dir) {
+        return None;
+    }
+    let (before_area, area) = rest.rsplit_once('-')?;
+    if AREAS.contains(&area) {
+        return Some(before_area);
+    }
+    if area == "gov"
+        && let Some((before_gov, gov_area)) = before_area.rsplit_once('-')
+        && AREAS.contains(&gov_area)
+    {
+        return Some(before_gov);
+    }
+    None
+}
+
 fn strip_leading_dot_prefix(s: &str) -> Option<&str> {
     let (prefix, rest) = s.split_once('.')?;
     if prefix.len() >= 2
@@ -357,8 +404,24 @@ pub fn lookup_key(models: &Object, raw: &str) -> Option<String> {
     }
     for candidate in &candidates {
         let mut cur = undated(candidate).to_string();
-        while let Some((head, tail)) = cur.rsplit_once('-') {
-            if (!TRAILING_MODIFIERS.contains(&tail) && !is_date_tag(tail)) || !head.contains('-') {
+        loop {
+            if let Some(head) = strip_compound_region(&cur) {
+                if BARE_VENDORS.contains(&head) || head.is_empty() {
+                    break;
+                }
+                if let Some(hit) = lookup_exact_or_variant(models, head) {
+                    return Some(hit);
+                }
+                cur = head.to_string();
+                continue;
+            }
+            let Some((head, tail)) = cur.rsplit_once('-') else {
+                break;
+            };
+            if (!TRAILING_MODIFIERS.contains(&tail) && !is_date_tag(tail))
+                || BARE_VENDORS.contains(&head)
+                || head.is_empty()
+            {
                 break;
             }
             if let Some(hit) = lookup_exact_or_variant(models, head) {
@@ -518,9 +581,16 @@ mod tests {
             "kimi-k2-thinking" => object! { "input" => 0.40, "output" => 1.50, "cacheRead" => 0.10, "cacheWrite" => 0.0 },
             "grok-4.7" => object! { "input" => 3.0, "output" => 15.0, "cacheRead" => 0.3, "cacheWrite" => 0.0 },
             "gpt-5" => object! { "input" => 1.25, "output" => 10.0, "cacheRead" => 0.125, "cacheWrite" => 0.0 },
+            "glm5.3" => object! { "input" => 0.2, "output" => 0.8, "cacheRead" => 0.02, "cacheWrite" => 0.0 },
+            "hy4" => object! { "input" => 0.4, "output" => 1.2, "cacheRead" => 0.02, "cacheWrite" => 0.0 },
         };
         assert_eq!(lookup_key(&table, "cn:deepseek-v4.1-flash-sg").as_deref(), Some("deepseek-v4.1-flash"));
         assert_eq!(lookup_key(&table, "deepseek-v4-1-flash-cn").as_deref(), Some("deepseek-v4.1-flash"));
+        // PRICE-REGION-1: compound cloud regions and non-hyphenated model names with region tags.
+        assert_eq!(lookup_key(&table, "deepseek-v4.1-flash-us-east-1").as_deref(), Some("deepseek-v4.1-flash"));
+        assert_eq!(lookup_key(&table, "gateway/deepseek-v4.1-flash-us-west-2").as_deref(), Some("deepseek-v4.1-flash"));
+        assert_eq!(lookup_key(&table, "glm5.3-sg").as_deref(), Some("glm5.3"));
+        assert_eq!(lookup_key(&table, "hy4-sg").as_deref(), Some("hy4"));
         assert_eq!(lookup_key(&table, "ai.deepseek-v4-pro").as_deref(), Some("deepseek-v4-pro"));
         assert_eq!(lookup_key(&table, "grok-4.7@500k").as_deref(), Some("grok-4.7"));
         // PRICE-WRAP-1: gateway path preserves exact namespaced pricing entries instead of skipping to unnamespaced keys.

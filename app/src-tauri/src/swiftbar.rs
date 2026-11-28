@@ -280,36 +280,48 @@ impl Files {
         let _ = url;
     }
 
-    /// Triggers a non-blocking `refresh-live` action through SwiftBar when `panel-view.json` is due for refresh and no
-    /// other action is in flight, giving SwiftBar web/live viewers the user's chosen `pinInterval` cadence instead of
-    /// waiting for SwiftBar's 60s background schedule. Leaves headroom for plugin write latency (~350ms) so a single
-    /// viewer polling every `interval_secs` triggers on every tick instead of skipping every second poll (`LIVE-POLL-1`),
-    /// while still deduplicating concurrent viewers within the same interval.
+    /// Triggers a non-blocking `refresh-live` action through SwiftBar at the user's chosen `pinInterval` cadence when
+    /// no other action is in flight. Tracks this instance's own wake cadence (`last_wake_ms`) separately from external
+    /// snapshot writes so slow plugin writeback delays (350ms, 750ms, 1500ms) never cause a single viewer to skip every
+    /// other poll (`LIVE-POLL-1`), while still deduplicating concurrent viewers and skipping wakes when an external
+    /// refresh just wrote a fresh snapshot.
     pub fn request_live_if_stale(&self, interval_secs: f64) -> bool {
-        let age = modified(&self.snapshot).and_then(|at| at.elapsed().ok()).map(|d| d.as_secs_f64());
-        self.request_live_if_stale_at(interval_secs, (now() * 1000.0) as u64, age)
+        let now_ms = (now() * 1000.0) as u64;
+        let mtime_ms = modified(&self.snapshot)
+            .and_then(|at| at.duration_since(SystemTime::UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as u64);
+        self.request_live_if_stale_at(interval_secs, now_ms, mtime_ms)
     }
 
-    fn request_live_if_stale_at(&self, interval_secs: f64, now_ms: u64, snapshot_age_secs: Option<f64>) -> bool {
+    fn request_live_if_stale_at(&self, interval_secs: f64, now_ms: u64, snapshot_mtime_ms: Option<u64>) -> bool {
         if self.folder.as_os_str().is_empty() {
             return false;
         }
         let interval = interval_secs.clamp(1.0, 5.0);
-        let age_limit = (interval - 0.5).max(0.5);
-        let stale = snapshot_age_secs.is_none_or(|age| age >= age_limit);
-        if !stale {
+        let min_gap_ms = ((interval - 0.25).max(0.75) * 1000.0) as u64;
+        let last_ms = self.last_wake_ms.load(Ordering::SeqCst);
+        if last_ms > 0 && now_ms.saturating_sub(last_ms) < min_gap_ms {
             return false;
+        }
+        if let Some(mtime_ms) = snapshot_mtime_ms {
+            let age_ms = now_ms.saturating_sub(mtime_ms);
+            // First poll ever: skip if an external run already wrote a fresh snapshot within this interval.
+            if last_ms == 0 && age_ms < min_gap_ms {
+                return false;
+            }
+            // Subsequent polls: only skip if another path wrote a genuinely fresh snapshot well after our last wake
+            // (not the delayed writeback of our own previous wake).
+            let external_fresh_ms = ((interval * 0.35).min(1.5) * 1000.0) as u64;
+            if last_ms > 0 && age_ms < external_fresh_ms && mtime_ms > last_ms.saturating_add(min_gap_ms / 2) {
+                return false;
+            }
         }
         let Some(_turn) = self.turn.try_lock() else { return false };
         let request = self.folder.join("panel-action.json");
         if request.exists() {
             return false;
         }
-        let last_ms = self.last_wake_ms.load(Ordering::SeqCst);
-        let min_gap_ms = ((interval - 0.4).max(0.6) * 1000.0) as u64;
-        if now_ms.saturating_sub(last_ms) >= min_gap_ms
-            && self.last_wake_ms.compare_exchange(last_ms, now_ms, Ordering::SeqCst, Ordering::SeqCst).is_ok()
-        {
+        if self.last_wake_ms.compare_exchange(last_ms, now_ms, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
             let id = format!("live-{:x}-{:x}", std::process::id(), now_ms);
             if write_private(
                 &request,
@@ -566,8 +578,8 @@ mod tests {
 
     #[test]
     fn live_wake_hits_every_poll_tick_across_intervals_and_deduplicates_concurrent_viewers() {
-        for interval in [1.0_f64, 2.0, 5.0] {
-            let folder = folder().with_extension(format!("poll-{}", interval as u64));
+        for (interval, write_delay_ms) in [(1.0_f64, 350_u64), (2.0, 750), (5.0, 350), (5.0, 750), (5.0, 1500)] {
+            let folder = folder().with_extension(format!("poll-{}-{}", interval as u64, write_delay_ms));
             std::fs::create_dir_all(&folder).expect("a folder");
             let snapshot = folder.join("panel-view.json");
             std::fs::write(&snapshot, b"{}").expect("a snapshot");
@@ -582,19 +594,29 @@ mod tests {
             let request = folder.join("panel-action.json");
             let base = 1_700_000_000_000_u64;
             let step_ms = (interval * 1000.0) as u64 + 30;
-            // Simulate plugin finishing 350ms after each wake: next poll `interval + 30ms` later sees age = interval - 320ms.
-            for tick in 0..4_u64 {
+            let mut mtime = base - 10_000;
+            // Single viewer polling every `interval + 30ms` with `write_delay_ms` plugin writeback: must wake every tick.
+            for tick in 0..5_u64 {
                 let t = base + tick * step_ms;
-                let age = if tick == 0 { None } else { Some(interval - 0.32) };
-                assert!(files.request_live_if_stale_at(interval, t, age), "interval {interval}s tick {tick} must wake");
-                // Plugin claims the request file.
-                let _ = std::fs::remove_file(&request);
-                // A second viewer polling 120ms later during the same interval is deduplicated.
                 assert!(
-                    !files.request_live_if_stale_at(interval, t + 120, age.map(|a| a + 0.12)),
+                    files.request_live_if_stale_at(interval, t, Some(mtime)),
+                    "interval {interval}s delay {write_delay_ms}ms tick {tick} must wake"
+                );
+                let _ = std::fs::remove_file(&request);
+                // Second concurrent viewer polling 120ms later during the same interval is deduplicated.
+                assert!(
+                    !files.request_live_if_stale_at(interval, t + 120, Some(mtime)),
                     "interval {interval}s concurrent viewer must be deduplicated"
                 );
+                // Plugin writes the updated snapshot after `write_delay_ms`.
+                mtime = t + write_delay_ms;
             }
+            // An external refresh writing a fresh snapshot just 200ms before the next poll skips a redundant wake.
+            let next_t = base + 5 * step_ms;
+            assert!(
+                !files.request_live_if_stale_at(interval, next_t, Some(next_t - 200)),
+                "interval {interval}s fresh external write must skip redundant wake"
+            );
             let _ = std::fs::remove_dir_all(folder);
         }
     }

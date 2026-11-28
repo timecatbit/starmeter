@@ -11,8 +11,11 @@ export const GAP = 15_000;
  *  converges to its exact true Token/s because ∫(1/τ)e^(-u/τ)du = 1. */
 export const RATE_TAU = 10_000;
 export const EASE = 15_000;
-const ATTACK_TAU = 400;
-const RELEASE_TAU = 650;
+const ATTACK_TAU = 750;
+const RELEASE_TAU = 1_350;
+/** Faster glide-down when a tracked session stops (raw drops to 0), so stopped curves settle in ~1.5–2s while active
+ *  waves keep rounded, organic hills instead of jagged sawtooth spikes. */
+const STOP_RELEASE_TAU = 500;
 const RATE_FLOOR = 0.05;
 
 /** `values` at `times` (rising) eased twice over (two exponential moving averages in a row, each over `tau`): a step
@@ -50,7 +53,7 @@ function smoothLive(times: number[], values: (number | null)[]): number[] {
       } else {
         const dt = Math.max(0, times[i] - previous);
         if (dt > 0) {
-          const tau: number = v >= cur ? ATTACK_TAU : RELEASE_TAU;
+          const tau: number = v >= cur ? ATTACK_TAU : v === 0 ? STOP_RELEASE_TAU : RELEASE_TAU;
           const k: number = 1 - Math.exp(-dt / tau);
           cur = cur + (v - cur) * k;
         }
@@ -60,9 +63,11 @@ function smoothLive(times: number[], values: (number | null)[]): number[] {
     out[i] = cur !== null && cur >= RATE_FLOOR ? cur : 0;
   }
   if (n >= 3) {
+    // Four zero-phase binomial passes (σ ≈ 1.4s) round impulse crests and valleys into rolling hills while keeping
+    // the curve's right endpoint exact (matching the headline figure at every millisecond).
     let src = out;
     let dst = new Array<number>(n);
-    for (let pass = 0; pass < 2; pass++) {
+    for (let pass = 0; pass < 4; pass++) {
       dst[0] = src[0];
       dst[n - 1] = src[n - 1];
       for (let i = 1; i < n - 1; i++) dst[i] = 0.25 * src[i - 1] + 0.5 * src[i] + 0.25 * src[i + 1];

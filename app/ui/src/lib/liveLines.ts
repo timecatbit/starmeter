@@ -71,7 +71,9 @@ export function drawLines(ctx: CanvasRenderingContext2D, o: {
     curve(o.total);
     ctx.lineTo(end[0], o.base); ctx.lineTo(o.total[0][0], o.base); ctx.closePath();
     const fill = ctx.createLinearGradient(0, o.plotTop, 0, o.base);
-    fill.addColorStop(0, alpha(o.areaColour, o.dark ? LINE.area.dark : LINE.area.light));
+    const peak = o.dark ? LINE.area.dark : LINE.area.light;
+    fill.addColorStop(0, alpha(o.areaColour, peak));
+    fill.addColorStop(0.55, alpha(o.areaColour, peak * 0.36));
     fill.addColorStop(1, alpha(o.areaColour, 0));
     ctx.fillStyle = fill; ctx.fill();
   }

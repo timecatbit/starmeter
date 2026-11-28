@@ -3863,7 +3863,10 @@ test('在手机上看: clearing or reverting to empty while first submit is in f
   });
   await domain.fill('first.example.com');
   await domain.press('Enter');
-  // Clear back to empty (matching the old setup.domain) and press Enter before the first save resolves.
+  // Submit an invalid draft mid-flight (must show error without clearing the in-flight target), then clear back to empty.
+  await domain.fill('2.2..');
+  await domain.press('Enter');
+  await expect(phone.locator('.failed')).toBeVisible();
   await domain.fill('');
   await domain.press('Enter');
   await page.evaluate(() => (window as unknown as { __emptyTest: { releaseFirst: () => void } }).__emptyTest.releaseFirst());
