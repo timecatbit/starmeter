@@ -215,7 +215,7 @@ export const phrases: Record<string, string> = {
   // or WireGuard network, from anywhere, with a key of its own.
   '同一网络 / 反代': 'Same network / Proxy', 反代: 'Reverse proxy', 'Tailscale 等 VPN': 'Tailscale & VPNs',
   // 同一网络 / 反代's two modes: the same network alone, or with the user's own domain beside it.
-  同时开启反代: 'Also through a reverse proxy', '用你自己的域名，手机在哪都能打开': 'Your own domain, for a phone anywhere', 开启反代: 'Turn on the proxy',
+  同时开启反代: 'Also through a reverse proxy', '用你自己的域名，手机在哪都能打开': 'Your own domain, for a phone anywhere',
   手机在哪都能扫这个二维码: 'Scan this from anywhere', 手机在哪都能扫: 'From anywhere',
   连不上这个地址: 'The address can\'t be reached', 加密连接没能建立: 'The secure connection couldn\'t be set up',
   '连着 Tailscale 的手机扫这个二维码': 'Scan this with a phone on the tailnet', '手机开着 Tailscale': 'Phone on your tailnet',
@@ -230,7 +230,6 @@ export const phrases: Record<string, string> = {
   '同一个 Wi-Fi 扫“局域网”，在别处扫“反代”。只读，点“停止”前一直开着。': 'On this Wi-Fi scan Local network, elsewhere Reverse proxy. Read-only; on until you stop it.',
   '手机在哪都能扫。只读，点“停止”前一直开着。': 'Scan it from anywhere. Read-only; on until you stop it.',
   '手机连同一个 Wi-Fi 后扫码。只读，点“停止”前一直开着。': 'Scan it with the phone on this Wi-Fi. Read-only; on until you stop it.',
-  '反代转发到 {target}': 'Proxy forwards to {target}',
   '重新开始后，原来的二维码还能用。': 'Started again, the code from before still opens.',
   换链接: 'New link', 原来的二维码将不能再用: 'Old codes will stop opening', 确定换: 'Change it',
   '已换成新链接，手机重新扫码': 'The link is new: scan again on the phone',

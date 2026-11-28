@@ -1778,7 +1778,8 @@ test('在手机上看: 反代 started with no domain says how its link goes toge
   await expect(recipe.locator('.address')).toHaveText('http(s)://你的域名或 IP');
   await expect(recipe.locator('.secret')).toHaveText(/^\/#k=[0-9a-f]{32}&l=zh$/);
   await expect(recipe).toContainText('把这一段接在你的域名或 IP 后面，手机就能打开');
-  await expect(phone.getByText('反代转发到 192.168.1.20:51234')).toBeVisible();
+  // Where it forwards to, in its fields under the codes (no second line saying it again).
+  await expect(phone.locator('.forward .address')).toHaveText('192.168.1.20:51234');
   // No domain, nothing to check.
   await expect(phone.locator('.check')).toHaveCount(0);
   const tail = (await recipe.locator('.secret').textContent())!;
@@ -3543,10 +3544,10 @@ test('在手机上看: 同时开启反代: the same network and your own domain 
   await domain.press('Enter');
   // On, both: the network's code and the domain's side by side, the domain checked through the user's proxy; one dot.
   await expect(phone.locator('.card-title')).toHaveText(['局域网', '反代']);
-  await expect(phone.locator('.address')).toHaveText(['192.168.1.20:8765', 'meter.example.com']);
+  await expect(phone.locator('.card .address')).toHaveText(['192.168.1.20:8765', 'meter.example.com']);
   await expect(phone.locator('.check.ok')).toHaveText('已确认能通过 meter.example.com 打开');
   await expect(phone.getByText('同一个 Wi-Fi 扫“局域网”，在别处扫“反代”。')).toBeVisible();
-  await expect(phone.getByText('反代转发到 192.168.1.20:8765')).toBeVisible();
+  await expect(phone.locator('.forward .address')).toHaveText('192.168.1.20:8765');
   await expect(near.locator('.on')).toHaveCount(1);
   await expect(anywhere.locator('.on')).toHaveCount(0);
   // 停止: both together; the address and port stay for the next 开始.
@@ -3566,18 +3567,28 @@ test('在手机上看: 同时开启反代: the same network and your own domain 
   await expect(phoneDot(page)).toBeVisible();
   await button(page, '在手机上看').click();
   await expect(proxy).toHaveAttribute('aria-checked', 'true');
-  await expect(phone.locator('.address')).toHaveText(['192.168.1.20:8765', 'meter.example.com']);
+  await expect(phone.locator('.card .address')).toHaveText(['192.168.1.20:8765', 'meter.example.com']);
   // The switch off: the domain's link goes, the network's code stays.
   await proxy.click();
   await expect(phone.locator('.card')).toHaveCount(0);
   await expect(phone.locator('.address')).toHaveText('http://192.168.1.20:8765/');
   await expect(near.locator('.on')).toHaveCount(1);
-  // The switch on again, the network on: the form on the same page, with its own 开启反代.
+  // The switch on again, the network on: 反代 on at once, on the same page, no second step (用户：同时开启反代不要再进入
+  // 一个界面。就在同一界面管理); its domain kept, its fields under the codes.
   await proxy.click();
+  await expect(phone.locator('.card-title')).toHaveText(['局域网', '反代']);
+  await expect(button(page, '开启反代')).toHaveCount(0);
   await expect(domain).toHaveValue('meter.example.com');
-  // The form whole (its address to forward to read), so 开启反代 doesn't move under the click.
   await expect(target).toHaveText('192.168.1.20:8765');
-  await button(page, '开启反代').click();
+  // The domain emptied there and Return: 反代 still on, its link now put together by hand; its key the same.
+  const key = (await phone.locator('.card .copy-link').nth(1).getAttribute('title'))!.match(/#k=([0-9a-f]+)/)![1];
+  await domain.fill('');
+  await domain.press('Enter');
+  await expect(phone.locator('.card')).toHaveCount(0);
+  await expect(phone.locator('.recipe .secret')).toHaveText(new RegExp('^/#k=' + key));
+  // A domain typed again and Return: its code back beside the network's.
+  await domain.fill('meter.example.com');
+  await domain.press('Enter');
   await expect(phone.locator('.card-title')).toHaveText(['局域网', '反代']);
 });
 
@@ -3701,7 +3712,7 @@ test('在手机上看: your own domain starts once for Return pressed twice, and
   await answerStart();
   await expect(phone.locator('.failed')).toHaveCount(0);
   await expect(phone.locator('.card-title')).toHaveText(['局域网', '反代']);
-  await expect(phone.locator('.address')).toHaveText(['192.168.1.20:8765', 'meter.example.com']);
+  await expect(phone.locator('.card .address')).toHaveText(['192.168.1.20:8765', 'meter.example.com']);
   await expect(button(page, '停止')).toBeEnabled();
   // Cloudflare's page: closed by the move, said as stopped, not as a link that failed.
   await anywhere.click();
