@@ -7,7 +7,7 @@
   import { usageColor } from '../lib/colors';
   import { entryKey, usageShare } from '../lib/detail';
   import { migrateFolded, sectionFolded, toggleSection } from '../lib/expanded.svelte';
-  import { t } from '../lib/i18n.svelte';
+  import { english, t } from '../lib/i18n.svelte';
   import type { Entry } from '../lib/types';
   import { panel } from '../lib/ui.svelte';
   import HomeRow from './HomeRow.svelte';
@@ -247,7 +247,8 @@
                 {#if section.attention > 0}<span class="fold-ping" aria-hidden="true"></span>{/if}
               </span>
             {:else}
-              <span class="fold-hint">{t('收起')}</span>
+              <!-- 收起 on a group's title folds the group: English says Collapse here, not the lists' Show fewer. -->
+              <span class="fold-hint">{english() ? 'Collapse' : t('收起')}</span>
             {/if}
           </button>
         {/if}
