@@ -189,6 +189,8 @@ class DesktopTests(unittest.TestCase):
   shown=details(payload)
   self.assertTrue(shown['本周'].startswith('重置于 '));self.assertTrue(shown['本周'].endswith(' · 比匀速多用 12%'))
   self.assertTrue(shown['Fable'].endswith(' · 比匀速少用 45%'));self.assertNotIn('匀速',shown['当前周期'])  # A length not known has no pace.
+  # A five-hour window without a name of its own is 5 小时, not 当前周期 (用户：claude当前周期应该是5小时).
+  self.assertEqual(live.parse_usage({'limits':[{'kind':'session','percent':9,'resets_at':reset(now+3600)}]},now=now)['windows'][0]['label'],'5 小时')
   # A failed refresh or a reading over 10 minutes old keeps the reset but drops the pace.
   self.assertNotIn('匀速',details(payload,(0,'网络错误',None))['本周'])
   self.assertNotIn('匀速',details(dict(payload,updatedAt=now-700))['本周'])

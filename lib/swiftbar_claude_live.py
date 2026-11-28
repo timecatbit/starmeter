@@ -124,7 +124,8 @@ def parse_usage(data,now=None):
             # The window's length, for the sidebar's pace; a kind not recognised has none.
             kind=(str(row.get('group',''))+' '+str(row.get('kind',''))).lower()
             span=WEEK if any(x in kind for x in ('week','seven_day')) else FIVE_HOURS if any(x in kind for x in ('five_hour','session')) else None
-            add(label or ('本周' if span==WEEK else '当前周期'),row.get('percent'),row.get('resets_at'),span)
+            # A five-hour window is named so, as the older answer's five_hour is; 当前周期 only for a kind not recognised.
+            add(label or ('本周' if span==WEEK else '5 小时' if span==FIVE_HOURS else '当前周期'),row.get('percent'),row.get('resets_at'),span)
     if not windows:
         for key,label in [('five_hour','5 小时'),('seven_day','本周'),('seven_day_opus','Opus 本周'),('seven_day_sonnet','Sonnet 本周')]:
             row=data.get(key)

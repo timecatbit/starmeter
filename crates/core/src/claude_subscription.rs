@@ -83,7 +83,13 @@ pub fn parse_usage(data: &Json, now: f64) -> Result<Object, UsageError> {
             let shown = if label.is_truthy() {
                 label
             } else {
-                Json::from(if span == Some(WEEK) { "本周" } else { "当前周期" })
+                // A five-hour window is named so, as the older answer's five_hour is (用户：claude当前周期应该是5小时);
+                // 当前周期 only for a kind not recognised.
+                Json::from(match span {
+                    Some(WEEK) => "本周",
+                    Some(FIVE_HOURS) => "5 小时",
+                    _ => "当前周期",
+                })
             };
             add(&mut windows, &mut seen, Some(&shown), limit.get("percent"), limit.get("resets_at"), span);
         }
