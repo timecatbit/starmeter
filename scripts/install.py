@@ -218,10 +218,14 @@ def main():
         print('Backup:', back_up(destination, previous))
     staging = stage(destination)
     # Only close an already running helper. Never launch SwiftBar via AppleScript.
+    # Tauri's ExitRequested handler prevents AppleScript `quit` from exiting the tray helper, so follow up with
+    # pkill on the panel binary path so upgrades never leave an old OpenCodexPanel serving stale UI in memory.
     if not args.no_refresh:
         subprocess.run(['osascript', '-e',
                     'if application id "cc.opencodex.swiftbar.panel" is running then tell application id "cc.opencodex.swiftbar.panel" to quit'],
                    capture_output=True, timeout=8, check=False)
+        subprocess.run(['pkill', '-f', '.opencodex-panel/OpenCodexPanel.app/Contents/MacOS/OpenCodexPanel'],
+                   capture_output=True, timeout=5, check=False)
     # Each part goes in by rename. If any step up to publishing the entry fails, every part is put back,
     # so the entry never runs beside a half-installed panel, library or helper.
     moved = []

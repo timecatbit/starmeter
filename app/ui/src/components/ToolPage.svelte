@@ -1,6 +1,6 @@
 <script lang="ts">
   // A tool's own page, opened from its card: what it used in the range (figures, notes, its own trend, every model, a
-  // gateway's clients), then its settings as the module grid has them (where it reads from, what to open).
+  // gateway's clients). Settings live in 主页模块与设置 rather than here.
   import { chartPositions, paced, smoothCurves, svgPath } from '../lib/chart';
   import { shown, t } from '../lib/i18n.svelte';
   import { alpha, toolColour } from '../lib/colors';
@@ -12,8 +12,8 @@
   import HintButton from './HintButton.svelte';
   import Scroller from './Scroller.svelte';
 
-  let { p, dashboard, settings, busy, scrollTop = $bindable(0), onback, onopen, onchoose, onheight }: {
-    p: ProviderUsage; dashboard: Dashboard; settings: Entry | null; busy: string[] | null; scrollTop?: number;
+  let { p, dashboard, busy, scrollTop = $bindable(0), onback, onopen, onchoose, onheight }: {
+    p: ProviderUsage; dashboard: Dashboard; busy: string[] | null; scrollTop?: number;
     onback: () => void; onopen: (e: Entry) => void; onchoose: (e: Entry) => void; onheight: (height: number) => void;
   } = $props();
 
@@ -102,12 +102,6 @@
           {/each}
         {/if}
         {#if clients}<p class="quiet clients">{clients}</p>{/if}
-        {#if settings?.children.length}
-          <h3 class="section">{t('设置')}</h3>
-          <div class="settings">
-            <DetailList entries={settings.children} {open} {busy} rowWidth={panel.width - 16} {onopen} {onchoose} ontoggled={(next) => (open = next)} />
-          </div>
-        {/if}
       </div>
     </Scroller>
   </div>
@@ -193,6 +187,5 @@
     background: color-mix(in srgb, var(--label) 7%, transparent);
   }
   .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 1.5px; }
-  .settings { margin: 0 -8px; }
   .trouble { margin: 2px -8px 4px; }
 </style>

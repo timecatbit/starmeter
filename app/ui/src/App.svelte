@@ -149,7 +149,6 @@
       ?? snapshot.entries.find((e) => e.label === 'Starmeter' && e.children.length);
     if (target) push(target);
   }
-  const toolSettings = $derived(toolId ? (snapshot?.moduleOptions ?? []).find((e) => e.action?.[0] === 'set-module' && e.action[1] === toolId) ?? null : null);
 
   // MARK: The window
 
@@ -982,7 +981,7 @@
         <SharePage dashboard={snapshot.dashboard} project={snapshot.project ?? { name: 'Starmeter', url: 'https://github.com/timecatbit/starmeter' }}
           {rangeOptions} onrange={perform} onback={back} onheight={(h) => (wanted.share = h)} />
       {:else if toolId && tool && snapshot?.dashboard}
-        <ToolPage p={tool} dashboard={snapshot.dashboard} settings={toolSettings} busy={busyNow} bind:scrollTop={toolScroll} onback={back}
+        <ToolPage p={tool} dashboard={snapshot.dashboard} busy={busyNow} bind:scrollTop={toolScroll} onback={back}
           onopen={open} onchoose={choose} onheight={(h) => (wanted.tool = h)} />
       {:else if snapshot && pageEntry}
         <DetailPage page={pageEntry} open={pageOpen} busy={busyNow} bind:scrollTop={pageScroll} onback={back}

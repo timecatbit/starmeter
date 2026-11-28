@@ -2443,15 +2443,15 @@ test('a folded card unfolds where it is, and its arrow opens the tool', async ({
   await expect(page.getByRole('heading', { name: 'Claude', exact: true })).toBeVisible();
 });
 
-test('a tool card opens its page: figures, its trend, every model, then its settings', async ({ page }) => {
+test('a tool card opens its page: figures, its trend, every model, without settings', async ({ page }) => {
   await open(page);
   await button(page, 'Claude 详情').click();
   await expect(page.getByRole('heading', { name: 'Claude', exact: true })).toBeVisible();
   await expect(page.locator('.figure-name')).toHaveText(['Token', '请求', '缓存', '输出', '会话']);
   await expect(page.locator('.page .trend path')).toHaveCount(2);
   await expect(page.locator('.page .model-name')).toHaveText(['Opus 5.5', 'Fable 5.2', 'Haiku 5.5']);
-  await expect(page.locator('.page .section', { hasText: '设置' })).toBeVisible();
-  await expect(page.getByText('选择 Claude 数据目录…')).toBeVisible();
+  await expect(page.locator('.page .section', { hasText: '设置' })).toHaveCount(0);
+  await expect(page.getByText('选择 Claude 数据目录…')).toHaveCount(0);
   await page.keyboard.press('Escape');
   await expect(page.locator('.dashboard')).toBeVisible();
   // A gateway's page names its clients; a card grouped by model has no page.

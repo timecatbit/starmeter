@@ -12,7 +12,7 @@
 //    turning to working.
 //
 // The figures are the panel's (Summary's tools as the live chart counts them); the sessions are 会话's rows.
-import { backend } from './backend';
+import { backend, onPhone } from './backend';
 import { currency, legendName, money, summaryPart, tokens as tokenText } from './format';
 import { english, localize, source, t } from './i18n.svelte';
 import { GAP, LiveFeed, RATE_TAU, readingDashboard } from './live';
@@ -246,6 +246,7 @@ export class PhoneLive {
   private beforeRange: string | null = null;
   /** When the last reading was taken, on this phone's clock. */
   private lastTake = 0;
+  private uiTag: string | null = null;
   /** The computer's moment of the last reading taken (its seconds): the minutes given again with a later answer are
    *  new from there on. Not this phone's clock less the skew, which moves with each request's time on the way (STAGE-18:
    *  a slower answer made readings already taken look new, and they were taken again). */
@@ -319,6 +320,14 @@ export class PhoneLive {
   /** A reading taken at `now` (this phone's clock). `replay`: one of the computer's last minutes, given with a page's
    *  first reading, taken as it was then: its moments, its 动态; no banner, no waking, nothing landing now. */
   take(answer: LiveAnswer, now: number, replay = false) {
+    if (!replay && answer.ui) {
+      if (this.uiTag !== null && this.uiTag !== answer.ui && typeof window !== 'undefined' && onPhone) {
+        this.stop();
+        window.location.reload();
+        return;
+      }
+      this.uiTag = answer.ui;
+    }
     if (!replay && answer.interval !== undefined) this.setIntervalSec(answer.interval);
     if (!replay && answer.slow !== undefined) this.feed.rateTau = answer.slow ? 30_000 : RATE_TAU;
     if (Number.isFinite(answer.at)) this.skew = answer.at * 1000 - now;

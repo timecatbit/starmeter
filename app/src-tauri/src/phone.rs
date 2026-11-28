@@ -2079,8 +2079,26 @@ fn short_sessions(entry: &Value) -> Value {
 /// sessions only, as the snapshot sends them) and when each session's turn began. The app reads today's logs afresh
 /// for it (Engine::live, at most every 1.5 s); SwiftBar's panel has what the plugin last wrote, for the range the
 /// computer shows (the phone says which, and compares figures of one range only), the fixtures creep up.
+fn ui_tag(app: &AppHandle) -> Option<String> {
+    static TAG: OnceLock<Option<String>> = OnceLock::new();
+    TAG.get_or_init(|| {
+        let bytes = app.asset_resolver().get("index.html".to_string())?.bytes;
+        let mut hash: u64 = 0xcbf29ce484222325;
+        for &byte in &bytes {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        Some(format!("{hash:016x}"))
+    })
+    .clone()
+}
+
 fn live(app: &AppHandle, history: bool) -> Value {
-    live_from(&app.state::<Data>(), history)
+    let mut answer = live_from(&app.state::<Data>(), history);
+    if let (Some(tag), Some(object)) = (ui_tag(app), answer.as_object_mut()) {
+        object.insert("ui".into(), json!(tag));
+    }
+    answer
 }
 
 /// Today's figures and 会话 as the source has them now, read cheaply (no logs read again, SwiftBar's snapshot only

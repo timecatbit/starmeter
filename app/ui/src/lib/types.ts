@@ -204,6 +204,8 @@ export interface LiveAnswer {
   at: number;
   /** User-chosen live refresh cadence in seconds (from `pinInterval`, 1–5s). */
   interval?: number;
+  /** Fingerprint of the served web UI bundle so an open browser tab reloads automatically after an app upgrade. */
+  ui?: string;
   dashboard: Dashboard | null;
   sessions: Entry | null;
   turns: Record<string, number>;
